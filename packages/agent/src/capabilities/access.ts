@@ -109,18 +109,18 @@ export type AccessWorkspaceScopeSourceName<TWorkspace> =
 
 export interface AccessWorkspaceScopeGrant<TSourceName extends string = string> {
   path?: string
-  paths?: string[]
+  paths?: readonly string[]
   source?: TSourceName
-  sources?: TSourceName[]
+  sources?: readonly TSourceName[]
 }
 
 export interface AccessWorkspaceScopeDefinition<TSourceName extends string = string> {
   all?: boolean
-  grants?: AccessWorkspaceScopeGrant<TSourceName>[]
+  grants?: readonly AccessWorkspaceScopeGrant<TSourceName>[]
   path?: string
-  paths?: string[]
+  paths?: readonly string[]
   source?: TSourceName
-  sources?: TSourceName[]
+  sources?: readonly TSourceName[]
 }
 
 export interface AccessWorkspaceScopeSelection {
@@ -372,7 +372,7 @@ function scopePaths(definition: AccessWorkspaceScopeDefinition, workspaceDefinit
   return normalized.sort((left, right) => left.length - right.length || left.localeCompare(right))
 }
 
-function normalizeStringList(single: string | undefined, multiple: string[] | undefined): string[] {
+function normalizeStringList(single: string | undefined, multiple: readonly string[] | undefined): string[] {
   return [
     ...(single ? [single] : []),
     ...(multiple || []),
