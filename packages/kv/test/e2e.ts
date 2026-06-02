@@ -4,13 +4,13 @@ import assert from "node:assert/strict"
 import { type FetchOptions, ofetch } from "ofetch"
 
 const PROVIDERS = ["cloudflare", "vercel"] as const
-const FRAMEWORKS = ["nitro", "vite"] as const
+const FRAMEWORKS = ["vite"] as const
 
 type Provider = typeof PROVIDERS[number]
 type Framework = typeof FRAMEWORKS[number]
 type Fetcher = (url: string, options?: FetchOptions) => Promise<any>
 
-const liveOnlyMessage = "KV e2e requires a deployed app: pnpm --dir packages/kv test:e2e --mode live --provider cloudflare|vercel --framework nitro|vite --url <url>"
+const liveOnlyMessage = "KV e2e requires a deployed app: pnpm --dir packages/kv test:e2e --mode live --provider cloudflare|vercel --url <url>"
 const log = (msg: string) => console.log(`[e2e] ${msg}`)
 
 const assertProbe = async (f: Fetcher, expected: Record<string, unknown>) =>

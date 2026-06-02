@@ -93,7 +93,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        framework: [vite, nitro]
         provider: [cloudflare, vercel]
     steps:
       - uses: actions/checkout@v6
@@ -131,8 +130,8 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          APP_DIR="playground/${{ matrix.framework }}"
-          PROJECT_NAME="vitehub-playground-${{ matrix.framework }}"
+          APP_DIR="playground/vite"
+          PROJECT_NAME="vitehub-playground-vite"
 
           npx --yes "vercel@$VERCEL_CLI_VERSION" link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
 
@@ -150,47 +149,6 @@ jobs:
           VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
             npx --yes "vercel@$VERCEL_CLI_VERSION" env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
 
-          find_project_blob_token() {
-            local app_dir project_name env_name tmp value
-            local -a SEARCH_CONFIG
-            app_dir="$1"
-            project_name="$2"
-
-            npx --yes "vercel@$VERCEL_CLI_VERSION" link --yes --cwd "$app_dir" --project "$project_name" --token "$VERCEL_TOKEN" >/dev/null 2>&1 || return 1
-            readarray -t SEARCH_CONFIG < <(node -e 'const { readFileSync } = require("node:fs"); const { join } = require("node:path"); const config = JSON.parse(readFileSync(join(process.argv[1], ".vercel", "project.json"), "utf8")); console.log(config.orgId); console.log(config.projectId);' "$app_dir")
-
-            for env_name in production preview development; do
-              tmp="$(mktemp)"
-              if VERCEL_ORG_ID="${SEARCH_CONFIG[0]}" VERCEL_PROJECT_ID="${SEARCH_CONFIG[1]}" \
-                npx --yes "vercel@$VERCEL_CLI_VERSION" env pull "$tmp" --environment="$env_name" --yes --cwd "$app_dir" --token "$VERCEL_TOKEN" >/dev/null 2>&1; then
-                value="$(node .github/scripts/get-env-value.mjs "$tmp" BLOB_READ_WRITE_TOKEN)"
-                rm -f "$tmp"
-                if [ -n "$value" ]; then
-                  printf '%s' "$value"
-                  return 0
-                fi
-              else
-                rm -f "$tmp"
-              fi
-            done
-            return 1
-          }
-
-          find_existing_blob_token() {
-            local sibling_framework sibling_dir sibling_project
-
-            find_project_blob_token "$APP_DIR" "$PROJECT_NAME" && return 0
-
-            if [ "${{ matrix.framework }}" = "vite" ]; then
-              sibling_framework="nitro"
-            else
-              sibling_framework="vite"
-            fi
-            sibling_dir="playground/$sibling_framework"
-            sibling_project="vitehub-playground-$sibling_framework"
-            find_project_blob_token "$sibling_dir" "$sibling_project"
-          }
-
           declare -A REQUIRED_ENV_KEYS=(
             [blob_token]=BLOB_READ_WRITE_TOKEN
             [kv_token]=KV_REST_API_TOKEN
@@ -199,21 +157,14 @@ jobs:
 
           blob_token="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" BLOB_READ_WRITE_TOKEN)"
           if [ -z "$blob_token" ]; then
-            existing_blob_token="$(find_existing_blob_token || true)"
-            if [ -n "$existing_blob_token" ]; then
-              echo "::add-mask::$existing_blob_token"
-              blob_token="$existing_blob_token"
-              printf '%s' "$existing_blob_token" | npx --yes "vercel@$VERCEL_CLI_VERSION" env add BLOB_READ_WRITE_TOKEN production --force --sensitive --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
-            else
-              create_log="$(mktemp)"
-              if ! npx --yes "vercel@$VERCEL_CLI_VERSION" blob create-store "vitehub-workspace-${{ matrix.framework }}" --access private --region iad1 --yes --environment production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >"$create_log" 2>&1; then
-                if ! grep -q 'existing environment variable with name BLOB_READ_WRITE_TOKEN' "$create_log"; then
-                  cat "$create_log" >&2
-                  exit 1
-                fi
+            create_log="$(mktemp)"
+            if ! npx --yes "vercel@$VERCEL_CLI_VERSION" blob create-store "vitehub-workspace-vite" --access private --region iad1 --yes --environment production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >"$create_log" 2>&1; then
+              if ! grep -q 'existing environment variable with name BLOB_READ_WRITE_TOKEN' "$create_log"; then
+                cat "$create_log" >&2
+                exit 1
               fi
-              rm -f "$create_log"
             fi
+            rm -f "$create_log"
             VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
               npx --yes "vercel@$VERCEL_CLI_VERSION" env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
             if [ -z "$blob_token" ]; then
@@ -261,106 +212,8 @@ jobs:
           echo "org_id=$VERCEL_ORG_ID" >> "$GITHUB_OUTPUT"
           echo "project_id=$VERCEL_PROJECT_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Build Nitro (cloudflare)
-        if: matrix.framework == 'nitro' && matrix.provider == 'cloudflare'
-        env:
-          KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
-          VITEHUB_CLOUDFLARE_SANDBOX_NAME: vite-hub-vitehub-playground-nitro-sandbox
-          VITEHUB_HOSTING: cloudflare
-        run: pnpm --dir playground/nitro exec nitro build --preset cloudflare-module
-
-      - name: Assert Nitro Cloudflare bindings
-        if: matrix.framework == 'nitro' && matrix.provider == 'cloudflare'
-        run: |
-          node <<'NODE'
-          const { existsSync, readFileSync, readdirSync, statSync } = require("node:fs")
-          const wrangler = JSON.parse(readFileSync("playground/nitro/.output/server/wrangler.json", "utf8"))
-          if (!Array.isArray(wrangler.triggers?.crons) || !wrangler.triggers.crons.includes("* * * * *")) {
-            throw new Error("Expected Nitro Cloudflare wrangler.json to include the daily-marker schedule cron trigger.")
-          }
-          if (!Array.isArray(wrangler.kv_namespaces) || wrangler.kv_namespaces.length === 0) {
-            throw new Error("Expected Nitro Cloudflare wrangler.json to include kv_namespaces.")
-          }
-          if (typeof wrangler.artifacts !== "undefined") {
-            throw new Error("Nitro Cloudflare wrangler.json must not include Workspace Artifacts bindings.")
-          }
-          const { join, posix, relative } = require("node:path")
-          const root = "playground/nitro/.output/server"
-          const files = []
-          const visit = (dir) => {
-            for (const entry of readdirSync(dir)) {
-              const path = join(dir, entry)
-              if (statSync(path).isDirectory()) visit(path)
-              else if (path.endsWith(".mjs") || path.endsWith(".js")) files.push(path)
-            }
-          }
-          visit(root)
-          for (const file of files) {
-            const source = readFileSync(file, "utf8")
-            if (source.includes("@vitejs/devtools")) {
-              throw new Error(`Nitro Cloudflare output must not bundle Vite DevTools runtime code: ${file}`)
-            }
-            if (/createRequire\(\s*import\.meta\.url\s*\)/.test(source)) {
-              throw new Error(`Nitro Cloudflare output must not call createRequire(import.meta.url): ${file}`)
-            }
-            const imports = source.matchAll(/(?:from\s+|import\(|require\()\s*["']([^"']+)["']/g)
-            for (const [, specifier] of imports) {
-              if (specifier === "sprintf-js" || specifier === "turndown" || specifier === "@mixmark-io/domino") {
-                throw new Error(`Unresolved bare dependency ${specifier} imported by ${file}`)
-              }
-              if (!specifier.includes("_libs/")) continue
-              const resolved = specifier.startsWith(".")
-                ? posix.normalize(posix.join(posix.dirname(relative(root, file).replace(/\\/g, "/")), specifier))
-                : posix.normalize(specifier)
-              const candidates = [join(root, resolved), join(root, `${resolved}.mjs`), join(root, `${resolved}.js`)]
-              if (!candidates.some(existsSync)) {
-                throw new Error(`Missing emitted module for ${specifier} imported by ${file}`)
-              }
-            }
-          }
-          NODE
-
-      - name: Build Nitro (vercel)
-        if: matrix.framework == 'nitro' && matrix.provider == 'vercel'
-        env:
-          VERCEL_ORG_ID: ${{ steps.prepare_vercel.outputs.org_id }}
-          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VITEHUB_HOSTING: vercel
-        run: |
-          APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
-          VITEHUB_WORKSPACE_BLOB_PREFIX="vitehub/workspace-e2e/${{ matrix.framework }}" \
-            npx --yes "vercel@$VERCEL_CLI_VERSION" env run --cwd "$APP_DIR" --token "$VERCEL_TOKEN" -e production -- pnpm exec nitro build --preset vercel
-
-      - name: Assert Nitro Vercel schedule artifacts
-        if: matrix.framework == 'nitro' && matrix.provider == 'vercel'
-        run: |
-          node <<'NODE'
-          const { existsSync, readFileSync } = require("node:fs")
-          const config = JSON.parse(readFileSync("playground/nitro/.vercel/output/config.json", "utf8"))
-          const expected = { path: "/api/vitehub/schedules/vercel/daily-marker", schedule: "* * * * *" }
-          if (!Array.isArray(config.crons) || !config.crons.some(cron => cron.path === expected.path && cron.schedule === expected.schedule)) {
-            throw new Error(`Expected Nitro Vercel config.json crons to include ${JSON.stringify(expected)}.`)
-          }
-          const functionFile = "playground/nitro/.vercel/output/functions/api/vitehub/schedules/vercel/daily-marker.func/index.mjs"
-          if (!existsSync(functionFile)) {
-            throw new Error(`Expected generated Nitro Vercel schedule function at ${functionFile}.`)
-          }
-          if (!readFileSync(functionFile, "utf8").includes("executeStaticSchedule")) {
-            throw new Error("Expected Nitro Vercel schedule function to execute the static schedule handler.")
-          }
-          const serverConfig = JSON.parse(readFileSync("playground/nitro/.vercel/output/functions/__server.func/.vc-config.json", "utf8"))
-          if (serverConfig.runtime !== "nodejs22.x") {
-            throw new Error(`Expected Nitro Vercel server runtime nodejs22.x, got ${serverConfig.runtime}.`)
-          }
-          const serverBundle = readFileSync("playground/nitro/.vercel/output/functions/__server.func/index.mjs", "utf8")
-          if (serverBundle.includes("@vitejs/devtools") || /import\(["']vite["']\)/.test(serverBundle)) {
-            throw new Error("Nitro Vercel server bundle must not include Vite or Vite DevTools runtime code.")
-          }
-          NODE
-
       - name: Build Vite E2E (cloudflare)
-        if: matrix.framework == 'vite' && matrix.provider == 'cloudflare'
+        if: matrix.provider == 'cloudflare'
         env:
           BLOB_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
@@ -374,7 +227,7 @@ jobs:
         run: pnpm --dir playground/vite build
 
       - name: Assert Vite Cloudflare artifact purity
-        if: matrix.framework == 'vite' && matrix.provider == 'cloudflare'
+        if: matrix.provider == 'cloudflare'
         run: |
           node <<'NODE'
           const { readFileSync } = require("node:fs")
@@ -407,14 +260,14 @@ jobs:
           NODE
 
       - name: Dry-run Vite Cloudflare deploy
-        if: matrix.framework == 'vite' && matrix.provider == 'cloudflare'
+        if: matrix.provider == 'cloudflare'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx wrangler --cwd playground/vite/dist/vite deploy --config wrangler.json --dry-run
 
       - name: Build Vite E2E (vercel)
-        if: matrix.framework == 'vite' && matrix.provider == 'vercel'
+        if: matrix.provider == 'vercel'
         env:
           BLOB_READ_WRITE_TOKEN: ${{ steps.prepare_vercel.outputs.blob_token }}
           KV_REST_API_TOKEN: ${{ steps.prepare_vercel.outputs.kv_token }}
@@ -426,11 +279,11 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VITEHUB_HOSTING: vercel
           VITEHUB_VITE_MODE: e2e
-          VITEHUB_WORKSPACE_BLOB_PREFIX: vitehub/workspace-e2e/${{ matrix.framework }}
+          VITEHUB_WORKSPACE_BLOB_PREFIX: vitehub/workspace-e2e/vite
         run: pnpm --dir playground/vite build
 
       - name: Assert Vite Vercel artifact purity
-        if: matrix.framework == 'vite' && matrix.provider == 'vercel'
+        if: matrix.provider == 'vercel'
         run: |
           node <<'NODE'
           const { existsSync, readFileSync } = require("node:fs")
@@ -459,7 +312,7 @@ jobs:
           NODE
 
       - name: Smoke import Vite Vercel function
-        if: matrix.framework == 'vite' && matrix.provider == 'vercel'
+        if: matrix.provider == 'vercel'
         env:
           BLOB_READ_WRITE_TOKEN: ${{ steps.prepare_vercel.outputs.blob_token }}
           KV_REST_API_TOKEN: ${{ steps.prepare_vercel.outputs.kv_token }}
@@ -488,12 +341,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_WORKERS_SUBDOMAIN: ${{ secrets.CLOUDFLARE_WORKERS_SUBDOMAIN }}
         run: |
-          WORKER_NAME="vitehub-playground-${{ matrix.framework }}"
-          if [ "${{ matrix.framework }}" = "vite" ]; then
-            DEPLOY_DIR="playground/vite/dist/vite"
-          else
-            DEPLOY_DIR="playground/nitro/.output/server"
-          fi
+          WORKER_NAME="vitehub-playground-vite"
+          DEPLOY_DIR="playground/vite/dist/vite"
 
           npx wrangler --cwd "$DEPLOY_DIR" deploy --config wrangler.json --name "$WORKER_NAME"
           echo "url=https://${WORKER_NAME}.${CLOUDFLARE_WORKERS_SUBDOMAIN}.workers.dev" >> "$GITHUB_OUTPUT"
@@ -533,33 +382,31 @@ jobs:
             echo "url=${{ steps.deploy_vercel.outputs.url }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: KV Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
-        run: pnpm --dir packages/kv test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "${{ steps.url.outputs.url }}"
+      - name: KV Live E2E (${{ matrix.provider }} × vite)
+        run: pnpm --dir packages/kv test:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
 
-      - name: Queue Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
+      - name: Queue Live E2E (${{ matrix.provider }} × vite)
         timeout-minutes: 5
-        run: node packages/queue/test/e2e-live.mjs --framework "${{ matrix.framework }}" --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
+        run: node packages/queue/test/e2e-live.mjs --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
 
-      - name: Schedule Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
+      - name: Schedule Live E2E (${{ matrix.provider }} × vite)
         timeout-minutes: 7
-        run: node packages/schedule/test/e2e-live.mjs --framework "${{ matrix.framework }}" --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}" --timeout 270000
+        run: node packages/schedule/test/e2e-live.mjs --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}" --timeout 270000
 
-      - name: Sandbox Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
-        run: pnpm --dir packages/sandbox test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "${{ steps.url.outputs.url }}"
+      - name: Sandbox Live E2E (${{ matrix.provider }} × vite)
+        run: pnpm --dir packages/sandbox test:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
 
-      - name: Workflow Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
+      - name: Workflow Live E2E (${{ matrix.provider }} × vite)
         timeout-minutes: 5
-        run: node packages/workflow/test/e2e-live.mjs --framework "${{ matrix.framework }}" --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
+        run: node packages/workflow/test/e2e-live.mjs --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
 
-      - name: Workspace Live E2E (${{ matrix.provider }} × ${{ matrix.framework }})
-        run: pnpm --dir packages/workspace test:e2e --mode live --provider ${{ matrix.provider }} --framework ${{ matrix.framework }} --url "${{ steps.url.outputs.url }}"
+      - name: Workspace Live E2E (${{ matrix.provider }} × vite)
+        run: pnpm --dir packages/workspace test:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
 
       - name: Blob Live E2E (vite × ${{ matrix.provider }})
-        if: matrix.framework == 'vite'
         env:
           VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
         run: pnpm --dir packages/blob test:e2e --mode live --url "${{ steps.url.outputs.url }}"
 
       - name: DB Live E2E (vite × ${{ matrix.provider }})
-        if: matrix.framework == 'vite'
         run: pnpm --dir packages/database test:e2e --url "${{ steps.url.outputs.url }}"

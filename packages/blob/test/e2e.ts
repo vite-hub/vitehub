@@ -4,10 +4,10 @@ import assert from "node:assert/strict"
 import { FetchError, ofetch } from "ofetch"
 
 type Provider = "cloudflare" | "vercel"
-type Framework = "nitro" | "vite"
+type Framework = "vite"
 
 const PROVIDERS = ["cloudflare", "vercel"] as const
-const FRAMEWORKS = ["nitro", "vite"] as const
+const FRAMEWORKS = ["vite"] as const
 const liveOnlyMessage = "Blob e2e requires a deployed app: pnpm --dir packages/blob test:e2e --mode live --url <url>"
 const log = (message: string) => console.log(`[blob e2e] ${message}`)
 const vercelProtectionBypass = process.env.VERCEL_PROTECTION_BYPASS

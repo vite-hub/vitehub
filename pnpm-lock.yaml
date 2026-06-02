@@ -389,14 +389,6 @@ importers:
         specifier: catalog:tooling
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8)
 
-  packages/agent/examples/nitro:
-    dependencies:
-      '@vite-hub/agent':
-        specifier: workspace:*
-        version: link:../..
-      nitro:
-        specifier: catalog:unjs
-        version: 3.0.260311-beta(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@libsql/client@0.15.15)(@netlify/blobs@10.7.5)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.7.0)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.4)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.0))(vite@8.0.8)
 
   packages/agent/examples/vite:
     dependencies:
@@ -462,14 +454,6 @@ importers:
         specifier: catalog:tooling
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8)
 
-  packages/blob/examples/nitro:
-    dependencies:
-      '@vite-hub/blob':
-        specifier: workspace:*
-        version: link:../..
-      nitro:
-        specifier: catalog:unjs
-        version: 3.0.260311-beta(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@libsql/client@0.15.15)(@netlify/blobs@10.7.5)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.7.0)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.4)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.0))(vite@8.0.8)
 
   packages/blob/examples/vite:
     dependencies:
@@ -668,18 +652,6 @@ importers:
         specifier: catalog:tooling
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8)
 
-  packages/env/examples/nitro:
-    dependencies:
-      '@vite-hub/env':
-        specifier: workspace:*
-        version: link:../..
-      nitro:
-        specifier: catalog:unjs
-        version: 3.0.260311-beta(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@libsql/client@0.15.15)(@netlify/blobs@10.7.5)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.7.0)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.4)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.0))(vite@8.0.8)
-    devDependencies:
-      typescript:
-        specifier: catalog:tooling
-        version: 6.0.2
 
   packages/env/examples/vite:
     dependencies:
@@ -777,14 +749,6 @@ importers:
         specifier: catalog:tooling
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8)
 
-  packages/kv/examples/nitro:
-    dependencies:
-      '@vite-hub/kv':
-        specifier: workspace:*
-        version: link:../..
-      nitro:
-        specifier: catalog:unjs
-        version: 3.0.260311-beta(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@libsql/client@0.15.15)(@netlify/blobs@10.7.5)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.7.0)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.4)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.0))(vite@8.0.8)
 
   packages/kv/examples/nuxt:
     dependencies:
@@ -856,14 +820,6 @@ importers:
         specifier: catalog:tooling
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8)
 
-  packages/queue/examples/nitro:
-    dependencies:
-      '@vite-hub/queue':
-        specifier: workspace:*
-        version: link:../..
-      nitro:
-        specifier: catalog:unjs
-        version: 3.0.260311-beta(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@libsql/client@0.15.15)(@netlify/blobs@10.7.5)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.7.0)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.4)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.0))(vite@8.0.8)
 
   packages/queue/examples/vite:
     dependencies:
@@ -968,20 +924,6 @@ importers:
         specifier: catalog:tooling
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8)
 
-  packages/sandbox/examples/nitro:
-    dependencies:
-      '@cloudflare/sandbox':
-        specifier: catalog:sandbox
-        version: 0.8.11
-      '@vercel/sandbox':
-        specifier: catalog:sandbox
-        version: 1.10.0
-      '@vite-hub/sandbox':
-        specifier: workspace:*
-        version: link:../..
-      nitro:
-        specifier: catalog:unjs
-        version: 3.0.260311-beta(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@libsql/client@0.15.15)(@netlify/blobs@10.7.5)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.7.0)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.4)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.0))(vite@8.0.8)
 
   packages/sandbox/examples/vite:
     dependencies:
@@ -1038,14 +980,6 @@ importers:
         specifier: catalog:tooling
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8)
 
-  packages/schedule/examples/nitro:
-    dependencies:
-      '@vite-hub/schedule':
-        specifier: workspace:*
-        version: link:../..
-      nitro:
-        specifier: catalog:unjs
-        version: 3.0.260311-beta(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@libsql/client@0.15.15)(@netlify/blobs@10.7.5)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.7.0)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.4)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.0))(vite@8.0.8)
 
   packages/schedule/examples/vite:
     dependencies:
@@ -1179,14 +1113,6 @@ importers:
         specifier: catalog:tooling
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8)
 
-  packages/workflow/examples/nitro:
-    dependencies:
-      '@vite-hub/workflow':
-        specifier: workspace:*
-        version: link:../..
-      nitro:
-        specifier: catalog:unjs
-        version: 3.0.260311-beta(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@libsql/client@0.15.15)(@netlify/blobs@10.7.5)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.7.0)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.4)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.0))(vite@8.0.8)
 
   packages/workflow/examples/vite:
     dependencies:
@@ -1267,17 +1193,6 @@ importers:
         specifier: catalog:tooling
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.6.0)(vite@8.0.8)
 
-  packages/workspace/examples/nitro:
-    dependencies:
-      '@vite-hub/workspace':
-        specifier: workspace:*
-        version: link:../..
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
-      nitro:
-        specifier: catalog:unjs
-        version: 3.0.260311-beta(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@libsql/client@0.15.15)(@netlify/blobs@10.7.5)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.7.0)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.4)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15)))(tailwindcss@4.3.0))(vite@8.0.8)
 
   packages/workspace/examples/vite:
     dependencies:
@@ -1291,65 +1206,6 @@ importers:
         specifier: catalog:vite
         version: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
 
-  playground/nitro:
-    dependencies:
-      '@cloudflare/sandbox':
-        specifier: catalog:sandbox
-        version: 0.8.11
-      '@vercel/blob':
-        specifier: catalog:storage
-        version: 2.3.3
-      '@vercel/queue':
-        specifier: catalog:vercel
-        version: 0.0.0-alpha.40
-      '@vercel/sandbox':
-        specifier: catalog:sandbox
-        version: 1.10.0
-      '@vite-hub/agent':
-        specifier: workspace:*
-        version: link:../../packages/agent
-      '@vite-hub/blob':
-        specifier: workspace:*
-        version: link:../../packages/blob
-      '@vite-hub/env':
-        specifier: workspace:*
-        version: link:../../packages/env
-      '@vite-hub/kv':
-        specifier: workspace:*
-        version: link:../../packages/kv
-      '@vite-hub/queue':
-        specifier: workspace:*
-        version: link:../../packages/queue
-      '@vite-hub/sandbox':
-        specifier: workspace:*
-        version: link:../../packages/sandbox
-      '@vite-hub/schedule':
-        specifier: workspace:*
-        version: link:../../packages/schedule
-      '@vite-hub/workflow':
-        specifier: workspace:*
-        version: link:../../packages/workflow
-      '@vite-hub/workspace':
-        specifier: workspace:*
-        version: link:../../packages/workspace
-      async-retry:
-        specifier: catalog:runtime
-        version: 1.3.3
-      chat:
-        specifier: catalog:chat
-        version: 4.29.0(ai@6.0.174(zod@4.4.3))(zod@4.4.3)
-      chat-state-cloudflare-do:
-        specifier: catalog:chat
-        version: 0.2.0(chat@4.29.0(zod@4.4.3))
-      h3:
-        specifier: catalog:unjs
-        version: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
-      nitro:
-        specifier: catalog:unjs
-        version: 3.0.260311-beta(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@libsql/client@0.15.15)(@netlify/blobs@10.7.5)(@upstash/redis@1.37.0)(@vercel/blob@2.3.3)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(chokidar@5.0.0)(dotenv@17.4.2)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(postgres@3.4.9)(sql.js@1.14.1))(giget@3.2.0)(ioredis@5.10.1)(jiti@2.7.0)(lru-cache@11.3.5)(miniflare@4.20260415.0)(rollup@4.60.4)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15)))(tailwindcss@4.3.0))(vite@8.0.8)
-      valibot:
-        specifier: catalog:runtime
-        version: 1.4.0(typescript@6.0.2)
 
   playground/vite:
     dependencies:

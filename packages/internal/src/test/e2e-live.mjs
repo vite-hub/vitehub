@@ -97,6 +97,9 @@ export async function verifyApp(url) {
 
 export function createRunConfig(args, namespace) {
   const framework = typeof args.framework === "string" && args.framework.length > 0 ? args.framework : "vite"
+  if (framework !== "vite") {
+    throw new TypeError(`Unsupported --framework: ${framework}`)
+  }
   const provider = getRequiredArg(args, "provider")
   const url = getRequiredArg(args, "url")
   const timeoutMs = Number(args.timeout || 120_000)

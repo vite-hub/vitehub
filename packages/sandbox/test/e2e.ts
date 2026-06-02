@@ -4,8 +4,8 @@ import { parseArgs } from "node:util"
 import { type FetchOptions, ofetch } from "ofetch"
 
 const providers = ["cloudflare", "vercel"] as const
-const frameworks = ["nitro", "vite"] as const
-const liveOnlyMessage = "Sandbox e2e requires a deployed app: pnpm --dir packages/sandbox test:e2e --mode live --provider cloudflare|vercel --framework nitro|vite --url <url>"
+const frameworks = ["vite"] as const
+const liveOnlyMessage = "Sandbox e2e requires a deployed app: pnpm --dir packages/sandbox test:e2e --mode live --provider cloudflare|vercel --url <url>"
 
 type Provider = typeof providers[number]
 type Framework = typeof frameworks[number]
@@ -86,12 +86,12 @@ const { values } = parseArgs({
 
 const mode = values.mode ?? "local"
 const provider = values.provider as Provider | undefined
-const framework = values.framework as Framework | undefined
+const framework = (values.framework as Framework | undefined) ?? "vite"
 
 if (mode !== "live")
   throw new TypeError(liveOnlyMessage)
 assert.ok(values.url, "--url required for live mode")
 assert.ok(provider && providers.includes(provider), "--provider required for live mode")
-assert.ok(framework && frameworks.includes(framework), "--framework required for live mode")
+assert.ok(frameworks.includes(framework), `invalid --framework: ${framework}`)
 
 await runLive(values.url, provider, framework)
