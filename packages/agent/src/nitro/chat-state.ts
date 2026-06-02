@@ -12,6 +12,7 @@ type MemoryList = { expiresAt?: number, values: unknown[] }
 const defaultChatStates = new WeakMap<AgentChatOptions, StateAdapter>()
 const configuredChatStates = new WeakMap<AgentChatOptions, StateAdapter>()
 const cloudflareChatStates = new WeakMap<AgentChatOptions, WeakMap<object, StateAdapter>>()
+const sqliteChatStates = new Map<string, Promise<StateAdapter>>()
 
 function memoryExpiresAt(ttlMs: number | undefined): number | undefined {
   return typeof ttlMs === "number" && ttlMs > 0 ? Date.now() + ttlMs : undefined
@@ -128,8 +129,17 @@ function getConfiguredStateProvider(context: NitroChatRuntimeContext): string {
   return agentConfig && agentConfig.providers.state.provider || "auto"
 }
 
+function getConfiguredStateProviderOptions(context: NitroChatRuntimeContext): ResolvedAgentModuleOptions["providers"]["state"] | undefined {
+  const agentConfig = (context.runtimeConfig as { agent?: false | ResolvedAgentModuleOptions }).agent
+  return agentConfig ? agentConfig.providers.state : undefined
+}
+
 function isCloudflareAgentStateProvider(provider: string): boolean {
   return provider === "auto" || provider === "cloudflare" || provider === "cloudflare-agents"
+}
+
+function isSqliteAgentStateProvider(provider: string): boolean {
+  return provider === "sqlite" || provider === "libsql"
 }
 
 function isCloudflareAgentStateNamespace(value: unknown): value is ViteHubAgentStateDurableObjectNamespace & object {
@@ -150,6 +160,34 @@ function getCloudflareChatState(options: AgentChatOptions, namespace: ViteHubAge
   const state = createCloudflareAgentState({ namespace })
   states.set(namespace, state)
   return state
+}
+
+function readEnv(name: string): string | undefined {
+  const value = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.[name]
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
+}
+
+function sqliteStateUrl(providerOptions: ResolvedAgentModuleOptions["providers"]["state"] | undefined): string | undefined {
+  return providerOptions?.url || readEnv("VITEHUB_AGENT_STATE_URL")
+}
+
+async function getSqliteChatState(providerOptions: ResolvedAgentModuleOptions["providers"]["state"] | undefined): Promise<StateAdapter> {
+  const url = sqliteStateUrl(providerOptions)
+  if (!url) {
+    throw new Error("[vitehub] Agent State Provider \"sqlite\" requires providers.state.url or VITEHUB_AGENT_STATE_URL.")
+  }
+  const authToken = providerOptions?.authToken || readEnv("VITEHUB_AGENT_STATE_AUTH_TOKEN")
+  const key = JSON.stringify({ authToken, tablePrefix: providerOptions?.tablePrefix, url })
+  let state = sqliteChatStates.get(key)
+  if (!state) {
+    state = import("../state/sqlite.ts").then(({ createLibsqlAgentState }) => createLibsqlAgentState({
+      ...(authToken ? { authToken } : {}),
+      ...(providerOptions?.tablePrefix ? { tablePrefix: providerOptions.tablePrefix } : {}),
+      url,
+    }))
+    sqliteChatStates.set(key, state)
+  }
+  return await state
 }
 
 function createChatStateKeyPrefix(agentName: string): string {
@@ -254,8 +292,11 @@ export async function resolveChatState(
   if (provider === "memory") {
     return getDefaultChatState(options)
   }
+  if (isSqliteAgentStateProvider(provider)) {
+    return namespaceChatState(await getSqliteChatState(getConfiguredStateProviderOptions(context)), stateKeyPrefix)
+  }
   if (!isCloudflareAgentStateProvider(provider)) {
-    throw new Error(`[vitehub] Unsupported Agent State Provider "${provider}". Configure chat({ state }) or use providers.state.provider: "auto", "cloudflare", or "memory".`)
+    throw new Error(`[vitehub] Unsupported Agent State Provider "${provider}". Configure chat({ state }) or use providers.state.provider: "auto", "cloudflare", "memory", or "sqlite".`)
   }
 
   if (context.cloudflare?.env) {

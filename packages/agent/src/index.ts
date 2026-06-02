@@ -173,6 +173,7 @@ export type {
   MaybeResolvable,
   Resolvable,
   ResolvedAgentModuleOptions,
+  ResolvedAgentStateProviderOptions,
   ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
   WorkspaceAgentWorkspaceOptions,

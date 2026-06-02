@@ -22,6 +22,7 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
         provider: options?.providers?.scheduler?.provider || "auto",
       },
       state: {
+        ...options?.providers?.state,
         provider: options?.providers?.state?.provider || "auto",
       },
     },

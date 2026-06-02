@@ -76,6 +76,40 @@ export default defineNitroConfig({
 - `sandbox()` and `schedule()` expose [`@vite-hub/sandbox`](../sandbox/README.md) and [`@vite-hub/schedule`](../schedule/README.md).
 - `skills()`, `access()`, `memory()`, `fetch()`, `llmRoute()`, `llmGate()`, and `usageTelemetry()` cover prompt skills, workspace scope, durable notes, HTTP reads, pre-run decisions, and usage reporting.
 
+## Chat state
+
+Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. Nitro uses memory state by default outside Cloudflare, so hosted node deployments should configure a durable provider explicitly.
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  agent: {
+    providers: {
+      state: {
+        provider: "sqlite",
+        url: process.env.VITEHUB_AGENT_STATE_URL,
+      },
+    },
+  },
+})
+```
+
+`provider: "sqlite"` uses the built-in libSQL-compatible state backend, so `file:` URLs work for local SQLite and hosted libSQL URLs work for remote deployments.
+
+You can also wire the adapter manually when `chat({ state })` should own the state provider:
+
+```ts
+import { createLibsqlAgentState } from "@vite-hub/agent/state/sqlite"
+
+chat({
+  state: () => createLibsqlAgentState({
+    url: process.env.VITEHUB_AGENT_STATE_URL!,
+  }),
+})
+```
+
+This is not the Database Capability. It is Agent-owned runtime state for chat behavior.
+
 ## Built on
 
 Vite discovers agent files for local development. Nitro mounts the generated agent routes. Model execution uses [AI SDK](https://ai-sdk.dev/docs); provider tools stay capability-scoped instead of becoming one global agent config.

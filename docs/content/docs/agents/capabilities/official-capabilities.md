@@ -46,6 +46,25 @@ Storage Capabilities are intentionally small. KV and Blob expose read/edit surfa
 
 Writes require approval by default unless the developer opts into autonomous behavior.
 
+## Chat state
+
+The Chat Capability can use an Agent State Provider for Chat History and the Concurrent Invocation Guard. Cloudflare deployments can use the Cloudflare Agent State Provider. Nitro node deployments can opt into the SQLite/libSQL provider explicitly:
+
+```ts [vite.config.ts]
+export default defineConfig({
+  agent: {
+    providers: {
+      state: {
+        provider: 'sqlite',
+        url: process.env.VITEHUB_AGENT_STATE_URL,
+      },
+    },
+  },
+})
+```
+
+`file:` URLs use local SQLite. Hosted libSQL URLs use the same provider with an auth token when needed. This state is internal Agent runtime state, not model-facing Database Capability access.
+
 ## Execution capabilities
 
 Sandbox and Workspace Shell are different.

@@ -462,8 +462,14 @@ export type AgentRegistry<TContext extends AgentRuntimeContext<any> = AgentRunti
   Record<string, () => MaybePromise<AgentRegistryModule<TContext>>>
 
 export interface AgentStateProviderOptions {
-  provider?: "auto" | "cloudflare" | "cloudflare-agents" | "memory" | (string & {})
+  authToken?: string
+  provider?: "auto" | "cloudflare" | "cloudflare-agents" | "libsql" | "memory" | "sqlite" | (string & {})
+  tablePrefix?: string
+  url?: string
 }
+
+export type ResolvedAgentStateProviderOptions =
+  Omit<AgentStateProviderOptions, "provider"> & { provider: NonNullable<AgentStateProviderOptions["provider"]> }
 
 export interface AgentSchedulerProviderOptions {
   provider?: "auto" | "cloudflare-agents" | "memory" | (string & {})
@@ -519,7 +525,7 @@ export interface ResolvedAgentModuleOptions {
   providers: {
     sandbox: Required<AgentSandboxProviderOptions>
     scheduler: Required<AgentSchedulerProviderOptions>
-    state: Required<AgentStateProviderOptions>
+    state: ResolvedAgentStateProviderOptions
   }
   route: false | string
   runtime: AgentRuntime

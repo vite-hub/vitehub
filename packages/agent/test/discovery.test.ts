@@ -120,6 +120,7 @@ describe("agent Nitro runtime files", () => {
     await expect(readFile(routeFile, "utf8")).resolves.toContain("./nitro-registry.ts")
     expect((nitro.options.alias as Record<string, string>)["@vite-hub/agent/capabilities"]).toContain("/packages/agent/src/capabilities.ts")
     expect((nitro.options.alias as Record<string, string>)["@vite-hub/agent/eval"]).toContain("/packages/agent/src/eval.ts")
+    expect((nitro.options.alias as Record<string, string>)["@vite-hub/agent/state/sqlite"]).toContain("/packages/agent/src/state/sqlite.ts")
     expect(hooks.map(hook => hook.name)).toEqual(["build:before", "dev:reload", "compiled"])
   })
 })

@@ -181,6 +181,7 @@ function installAliases(nitro: Nitro, registryFile: string | undefined): void {
   nitro.options.alias["@vite-hub/agent/eval"] = resolveRuntimeEntry("../eval", "@vite-hub/agent/eval")
   nitro.options.alias["@vite-hub/agent/nitro"] = resolveRuntimeEntry("../nitro", "@vite-hub/agent/nitro")
   nitro.options.alias["@vite-hub/agent/runtime/nitro-runtime-config"] = resolveRuntimeEntry("../runtime/nitro-runtime-config", "@vite-hub/agent/runtime/nitro-runtime-config")
+  nitro.options.alias["@vite-hub/agent/state/sqlite"] = resolveRuntimeEntry("../state/sqlite", "@vite-hub/agent/state/sqlite")
   nitro.options.alias["@vite-hub/agent/vercel"] = resolveRuntimeEntry("../vercel", "@vite-hub/agent/vercel")
   nitro.options.alias["#vitehub/agent/registry"] = registryFile || resolveRuntimeEntry("../runtime/empty-registry", "@vite-hub/agent/runtime/empty-registry")
 }
