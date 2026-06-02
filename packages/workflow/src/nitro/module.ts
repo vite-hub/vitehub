@@ -10,11 +10,13 @@ import type { Nitro, NitroModule, NitroRuntimeConfig } from "nitro/types"
 import { normalizeWorkflowOptions } from "../config.ts"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
 import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from "../integrations/cloudflare.ts"
-import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions } from "../types.ts"
+import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowRuntimeConfigValue } from "../types.ts"
 
 const WORKFLOW_NITRO_IMPORTS_PRESET = { from: "@vite-hub/workflow", imports: ["defineWorkflow", "getWorkflowRun"] }
-const OPENWORKFLOW_NITRO_TRACE_DEPS = ["openworkflow", "postgres"] as const
-const OPENWORKFLOW_NITRO_TRACE_IMPORTS = ["openworkflow", "openworkflow/postgres"] as const
+const OPENWORKFLOW_POSTGRES_NITRO_TRACE_DEPS = ["openworkflow", "postgres"] as const
+const OPENWORKFLOW_POSTGRES_NITRO_TRACE_IMPORTS = ["openworkflow", "openworkflow/postgres"] as const
+const OPENWORKFLOW_SQLITE_NITRO_TRACE_DEPS = ["openworkflow"] as const
+const OPENWORKFLOW_SQLITE_NITRO_TRACE_IMPORTS = ["openworkflow", "openworkflow/sqlite"] as const
 const WORKFLOW_VITE_PLUGIN_NAME = "@vite-hub/workflow/vite"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
@@ -43,7 +45,7 @@ function resolveNitroWorkflowScanDirs(rootDir: string, scanDirs: string[] | unde
 
 function createNitroWorkflowPluginContents(file: string, registryFile: string, options: false | ResolvedWorkflowOptions) {
   const openWorkflowTraceImports = options && options.provider === "openworkflow"
-    ? OPENWORKFLOW_NITRO_TRACE_IMPORTS.map(specifier => `import ${JSON.stringify(specifier)}`)
+    ? getOpenWorkflowNitroTraceImports(options).map(specifier => `import ${JSON.stringify(specifier)}`)
     : []
 
   return [
@@ -70,11 +72,11 @@ function createNitroWorkflowPluginContents(file: string, registryFile: string, o
     "globalThis.__vitehubRunNitroWorkflowDefinition = runNitroWorkflowDefinition",
     "",
     "function shouldStartOpenWorkflowWorker(workflowConfig) {",
-    "  return workflowConfig?.provider === \"openworkflow\" && hasOpenWorkflowPostgresConfig(workflowConfig) && globalThis.process?.env?.OPENWORKFLOW_WORKER !== \"false\"",
+    "  return workflowConfig?.provider === \"openworkflow\" && hasOpenWorkflowStorageConfig(workflowConfig) && globalThis.process?.env?.OPENWORKFLOW_WORKER !== \"false\"",
     "}",
     "",
-    "function hasOpenWorkflowPostgresConfig(workflowConfig) {",
-    "  return Boolean(workflowConfig?.postgres?.url || globalThis.process?.env?.OPENWORKFLOW_POSTGRES_URL || globalThis.process?.env?.DATABASE_URL)",
+    "function hasOpenWorkflowStorageConfig(workflowConfig) {",
+    "  return Boolean(workflowConfig?.sqlite?.path || workflowConfig?.postgres?.url || globalThis.process?.env?.OPENWORKFLOW_SQLITE_PATH || globalThis.process?.env?.OPENWORKFLOW_POSTGRES_URL || globalThis.process?.env?.DATABASE_URL)",
     "}",
     "",
     "const workflowNitroPlugin = defineNitroPlugin(async (nitroApp) => {",
@@ -156,10 +158,99 @@ async function writeNitroWorkflowRuntimeFiles(nitro: Nitro, resolved: false | Re
   return { ...runtimeFiles, providerDefinitions }
 }
 
-function addOpenWorkflowNitroTraceDeps(nitro: Nitro): void {
+function getOpenWorkflowNitroTraceDeps(options: ResolvedWorkflowOptions) {
+  return options.provider === "openworkflow" && options.sqlite?.path
+    ? OPENWORKFLOW_SQLITE_NITRO_TRACE_DEPS
+    : OPENWORKFLOW_POSTGRES_NITRO_TRACE_DEPS
+}
+
+function getOpenWorkflowNitroTraceImports(options: ResolvedWorkflowOptions) {
+  return options.provider === "openworkflow" && options.sqlite?.path
+    ? OPENWORKFLOW_SQLITE_NITRO_TRACE_IMPORTS
+    : OPENWORKFLOW_POSTGRES_NITRO_TRACE_IMPORTS
+}
+
+function normalizeDatabaseSqlitePath(url: string, name: string): string {
+  if (url === ":memory:") return url
+  if (/^(?:libsql:|https?:\/\/)/i.test(url)) {
+    throw new Error(`[vitehub] workflow.database "${name}" uses ${JSON.stringify(url)}, but OpenWorkflow SQLite storage requires a local SQLite file path.`)
+  }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url) && !url.startsWith("file:")) {
+    throw new Error(`[vitehub] workflow.database "${name}" uses unsupported OpenWorkflow storage URL ${JSON.stringify(url)}.`)
+  }
+  return url.startsWith("file:") ? url.slice("file:".length) : url
+}
+
+function normalizeDatabaseSqliteConfigValue(value: WorkflowRuntimeConfigValue, name: string, resolvedUrl: string): WorkflowRuntimeConfigValue {
+  const normalizedResolvedUrl = normalizeDatabaseSqlitePath(resolvedUrl, name)
+  if (typeof value === "string") return normalizedResolvedUrl
+  if (typeof value.default !== "string") return value
+  return {
+    ...value,
+    default: normalizeDatabaseSqlitePath(value.default, name),
+  }
+}
+
+function isPostgresDatabaseUrl(url: string): boolean {
+  return /^postgres(?:ql)?:/i.test(url)
+}
+
+async function resolveOpenWorkflowDatabaseStorage(rootDir: string, options: false | ResolvedWorkflowOptions): Promise<false | ResolvedWorkflowOptions> {
+  if (!options || options.provider !== "openworkflow" || !options.database) {
+    return options
+  }
+
+  const databaseName = options.database
+  let databaseModule: {
+    resolveConfigValue: (value: unknown) => string | undefined
+    resolveDBViteConfig: (options?: unknown, rootDir?: string) => { databases: Record<string, { connection?: { authToken?: unknown, url?: WorkflowRuntimeConfigValue }, dialect: string }> } | undefined
+  }
+  try {
+    databaseModule = await import("@vite-hub/database/config") as typeof databaseModule
+  }
+  catch (error) {
+    throw new Error(`[vitehub] workflow.database requires @vite-hub/database. Install @vite-hub/database and add a Database Definition named "${databaseName}".`, { cause: error })
+  }
+
+  const config = databaseModule.resolveDBViteConfig(undefined, rootDir)
+  const database = config?.databases[databaseName]
+  if (!database) {
+    throw new Error(`[vitehub] workflow.database references missing Database Definition "${databaseName}".`)
+  }
+
+  const url = database.connection?.url
+  const resolvedUrl = databaseModule.resolveConfigValue(url)
+  if (!url || !resolvedUrl) {
+    throw new Error(`[vitehub] workflow.database "${databaseName}" requires a database connection URL.`)
+  }
+
+  if (isPostgresDatabaseUrl(resolvedUrl)) {
+    return {
+      ...options,
+      postgres: {
+        ...options.postgres,
+        url,
+      },
+    }
+  }
+
+  if (typeof database.connection?.authToken !== "undefined") {
+    throw new Error(`[vitehub] workflow.database "${databaseName}" has an auth token, but OpenWorkflow SQLite storage only supports local SQLite files.`)
+  }
+
+  return {
+    ...options,
+    sqlite: {
+      ...options.sqlite,
+      path: normalizeDatabaseSqliteConfigValue(url, databaseName, resolvedUrl),
+    },
+  }
+}
+
+function addOpenWorkflowNitroTraceDeps(nitro: Nitro, resolved: ResolvedWorkflowOptions): void {
   const options = nitro.options as typeof nitro.options & { traceDeps?: string[] }
   options.traceDeps ||= []
-  for (const dependency of OPENWORKFLOW_NITRO_TRACE_DEPS) {
+  for (const dependency of getOpenWorkflowNitroTraceDeps(resolved)) {
     if (!options.traceDeps.includes(dependency)) {
       options.traceDeps.push(dependency)
     }
@@ -171,7 +262,8 @@ const workflowNitroModule: NitroModule = {
   async setup(nitro) {
     await assertNoVitePluginInNitro(nitro, WORKFLOW_VITE_PLUGIN_NAME, "@vite-hub/workflow/nitro")
 
-    const resolved = normalizeWorkflowOptions(nitro.options.workflow, { hosting: nitro.options.preset })
+    const normalized = normalizeWorkflowOptions(nitro.options.workflow, { hosting: nitro.options.preset })
+    const resolved = await resolveOpenWorkflowDatabaseStorage(nitro.options.rootDir, normalized || false)
     const runtimeConfig = (nitro.options.runtimeConfig ||= {} as NitroRuntimeConfig)
     if (nitro.options.preset) runtimeConfig.hosting ||= nitro.options.preset
     runtimeConfig.workflow = resolved || false
@@ -184,8 +276,8 @@ const workflowNitroModule: NitroModule = {
     nitro.options.alias["@vite-hub/workflow/runtime/openworkflow"] = resolveRuntimeEntry("../runtime/openworkflow", "@vite-hub/workflow/runtime/openworkflow")
     nitro.options.alias["@vite-hub/workflow/runtime/openworkflow-worker"] = resolveRuntimeEntry("../runtime/openworkflow-worker", "@vite-hub/workflow/runtime/openworkflow-worker")
 
-    if (resolved?.provider === "openworkflow") {
-      addOpenWorkflowNitroTraceDeps(nitro)
+    if (resolved && resolved.provider === "openworkflow") {
+      addOpenWorkflowNitroTraceDeps(nitro, resolved)
     }
 
     let runtimeFiles = await writeNitroWorkflowRuntimeFiles(nitro, resolved || false)

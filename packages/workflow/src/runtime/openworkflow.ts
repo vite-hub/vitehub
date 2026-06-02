@@ -1,12 +1,13 @@
 import { runWorkflowHandler } from "./execute.ts"
 
 import type { RetryPolicy } from "openworkflow"
-import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowStepOptions } from "../types.ts"
+import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStepOptions } from "../types.ts"
 
 type OpenWorkflowModule = typeof import("openworkflow")
 type OpenWorkflowPostgresModule = typeof import("openworkflow/postgres")
+type OpenWorkflowSqliteModule = typeof import("openworkflow/sqlite")
 type OpenWorkflowClient = InstanceType<OpenWorkflowModule["OpenWorkflow"]>
-type OpenWorkflowBackend = Awaited<ReturnType<OpenWorkflowPostgresModule["BackendPostgres"]["connect"]>>
+type OpenWorkflowBackend = Awaited<ReturnType<OpenWorkflowPostgresModule["BackendPostgres"]["connect"]>> | ReturnType<OpenWorkflowSqliteModule["BackendSqlite"]["connect"]>
 type OpenWorkflowRunnable = ReturnType<OpenWorkflowClient["defineWorkflow"]>
 type OpenWorkflowRun = Awaited<ReturnType<OpenWorkflowBackend["getWorkflowRun"]>>
 type OpenWorkflowStepApi = Parameters<Parameters<OpenWorkflowClient["defineWorkflow"]>[1]>[0]["step"]
@@ -28,18 +29,59 @@ function readEnv(name: string): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined
 }
 
-function getOpenWorkflowConfig(config: ResolvedWorkflowOptions) {
+function resolveRuntimeConfigValue(value: WorkflowRuntimeConfigValue | undefined): string | undefined {
+  if (typeof value === "string" || typeof value === "undefined") {
+    return value
+  }
+  for (const name of getRuntimeEnvNames(value)) {
+    const resolved = readEnv(name)
+    if (resolved) return resolved
+  }
+  return typeof value.default === "string" && value.default.trim() ? value.default.trim() : undefined
+}
+
+function getRuntimeEnvNames(value: WorkflowRuntimeEnvDeclarationLike): string[] {
+  return value.source?.names ?? (value.source?.name ? [value.source.name] : [])
+}
+
+function normalizeSqlitePath(path: string): string {
+  if (/^(?:libsql:|https?:\/\/)/i.test(path)) {
+    throw new Error(`OpenWorkflow SQLite storage requires a local SQLite file path, received ${JSON.stringify(path)}.`)
+  }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(path) && !path.startsWith("file:")) {
+    throw new Error(`OpenWorkflow SQLite storage received unsupported storage URL ${JSON.stringify(path)}.`)
+  }
+  return path.startsWith("file:") ? path.slice("file:".length) : path
+}
+
+type OpenWorkflowStorageConfig =
+  | { backend: "postgres", namespaceId: string, runMigrations?: boolean, schema: string, url: string }
+  | { backend: "sqlite", namespaceId: string, path: string, runMigrations?: boolean }
+
+function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowStorageConfig {
   if (config.provider !== "openworkflow") {
     throw new Error(`OpenWorkflow runtime requires workflow.provider "openworkflow", received "${config.provider}".`)
   }
 
+  const sqlite = config.sqlite || {}
+  const sqlitePath = resolveRuntimeConfigValue(sqlite.path) || readEnv("OPENWORKFLOW_SQLITE_PATH")
+  if (sqlitePath) {
+    return {
+      backend: "sqlite",
+      namespaceId: sqlite.namespaceId || readEnv("OPENWORKFLOW_NAMESPACE_ID") || "production",
+      path: normalizeSqlitePath(sqlitePath),
+      runMigrations: sqlite.runMigrations,
+    }
+  }
+
   const postgres = config.postgres || {}
-  const url = postgres.url || readEnv("OPENWORKFLOW_POSTGRES_URL") || readEnv("DATABASE_URL")
+  const url = resolveRuntimeConfigValue(postgres.url) || readEnv("OPENWORKFLOW_POSTGRES_URL") || readEnv("DATABASE_URL")
   if (!url) {
-    throw new Error("Missing OpenWorkflow Postgres URL. Set workflow.postgres.url, OPENWORKFLOW_POSTGRES_URL, or DATABASE_URL.")
+    throw new Error("Missing OpenWorkflow storage. Set workflow.database, workflow.sqlite.path, workflow.postgres.url, OPENWORKFLOW_SQLITE_PATH, OPENWORKFLOW_POSTGRES_URL, or DATABASE_URL.")
   }
 
   return {
+    backend: "postgres",
     namespaceId: postgres.namespaceId || readEnv("OPENWORKFLOW_NAMESPACE_ID") || "production",
     runMigrations: postgres.runMigrations,
     schema: postgres.schema || readEnv("OPENWORKFLOW_SCHEMA") || "openworkflow",
@@ -53,15 +95,22 @@ function getRuntimeKey(config: ResolvedWorkflowOptions): string {
 
 async function createOpenWorkflowRuntime(config: ResolvedWorkflowOptions): Promise<OpenWorkflowRuntime> {
   const options = getOpenWorkflowConfig(config)
-  const [{ OpenWorkflow }, { BackendPostgres }] = await Promise.all([
+  const [{ OpenWorkflow }, backendModule] = await Promise.all([
     openWorkflowImporter<OpenWorkflowModule>("openworkflow"),
-    openWorkflowImporter<OpenWorkflowPostgresModule>("openworkflow/postgres"),
+    options.backend === "sqlite"
+      ? openWorkflowImporter<OpenWorkflowSqliteModule>("openworkflow/sqlite")
+      : openWorkflowImporter<OpenWorkflowPostgresModule>("openworkflow/postgres"),
   ])
-  const backend = await BackendPostgres.connect(options.url, {
-    namespaceId: options.namespaceId,
-    ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
-    schema: options.schema,
-  })
+  const backend = options.backend === "sqlite"
+    ? (backendModule as OpenWorkflowSqliteModule).BackendSqlite.connect(options.path, {
+        namespaceId: options.namespaceId,
+        ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
+      })
+    : await (backendModule as OpenWorkflowPostgresModule).BackendPostgres.connect(options.url, {
+        namespaceId: options.namespaceId,
+        ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
+        schema: options.schema,
+      })
 
   return {
     backend,
