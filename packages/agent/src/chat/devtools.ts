@@ -142,7 +142,7 @@ export interface ChatDevtoolsTypingThread {
   startTyping(text?: string): Promise<unknown>
 }
 
-type ResolvedChatDevtoolsMetadata = Required<Omit<ChatDevtoolsMetadata, "title">> & Pick<ChatDevtoolsMetadata, "title">
+type ResolvedChatDevtoolsMetadata = Required<Omit<ChatDevtoolsMetadata, "title" | "version">> & Pick<ChatDevtoolsMetadata, "title" | "version">
 
 interface ChatDevtoolsFullStreamToolPart {
   error?: unknown
@@ -465,6 +465,7 @@ function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): 
     instructions: metadata?.instructions ? [...metadata.instructions] : [],
     title: metadata?.title,
     tools: metadata?.tools ? [...metadata.tools] : [],
+    version: metadata?.version,
   }
 }
 
@@ -656,6 +657,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
         selected: chat && chats.some(item => item.name === chat) ? chat : chats[0]!.name,
         ...(metadata.title ? { title: metadata.title } : {}),
         tools: metadata.tools,
+        ...(metadata.version ? { version: metadata.version } : {}),
       }
     },
     handleWebhook: async () => new Response(null, { status: 204 }),
