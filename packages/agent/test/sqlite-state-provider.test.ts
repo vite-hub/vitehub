@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { createClient } from "@libsql/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createLibsqlAgentState, createSqliteAgentState, ViteHubSqliteAgentStateAdapter } from "../src/state/sqlite.ts"
@@ -100,6 +101,42 @@ describe("SQLite Agent State Provider", () => {
     vi.setSystemTime(new Date("2026-06-02T10:00:00.200Z"))
 
     await expect(state.getList("history")).resolves.toEqual(["one", "two"])
+    await state.disconnect()
+  })
+
+  it("does not restore expired list entries when appending", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-06-02T10:00:00.000Z"))
+    const { state } = await createState()
+    await state.connect()
+
+    await state.appendToList("history", "expired", { ttlMs: 100 })
+    vi.setSystemTime(new Date("2026-06-02T10:00:00.200Z"))
+    await state.appendToList("history", "fresh")
+
+    await expect(state.getList("history")).resolves.toEqual(["fresh"])
+    await state.disconnect()
+  })
+
+  it("periodically removes expired durable rows", async () => {
+    const tablePrefix = "cleanup_agent_state_"
+    const { state, url } = await createState(tablePrefix)
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-06-02T10:00:00.000Z"))
+    await state.connect()
+
+    await state.set("expired-cache", "old", 100)
+    await state.appendToList("expired-list", "old", { ttlMs: 100 })
+    vi.setSystemTime(new Date("2026-06-02T10:06:00.000Z"))
+    await state.set("fresh-cache", "new")
+
+    const client = createClient({ url })
+    const cacheRows = await client.execute(`SELECT key FROM ${tablePrefix}cache ORDER BY key`)
+    const listRows = await client.execute(`SELECT key FROM ${tablePrefix}lists ORDER BY key`)
+    client.close()
+
+    expect(cacheRows.rows.map(row => row.key)).toEqual(["fresh-cache"])
+    expect(listRows.rows).toEqual([])
     await state.disconnect()
   })
 

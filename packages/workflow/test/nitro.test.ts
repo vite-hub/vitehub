@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -77,6 +77,40 @@ describe("Nitro module", () => {
 
     expect(nitro.options.traceDeps).toContain("openworkflow")
     expect(nitro.options.traceDeps).not.toContain("postgres")
+  })
+
+  it("uses SQLite tracing when OpenWorkflow storage comes from OPENWORKFLOW_SQLITE_PATH", async () => {
+    const previous = process.env.OPENWORKFLOW_SQLITE_PATH
+    process.env.OPENWORKFLOW_SQLITE_PATH = ".data/env-workflow.sqlite"
+    try {
+      const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-nitro-openworkflow-env-sqlite-"))
+      const nitro = {
+        hooks: { hook: vi.fn() },
+        options: {
+          alias: {},
+          buildDir: join(root, ".nitro"),
+          imports: undefined as { presets?: Array<{ from: string, imports: string[] }> } | undefined,
+          output: { serverDir: join(root, ".output/server") },
+          plugins: [],
+          rootDir: root,
+          scanDirs: [],
+          traceDeps: undefined as string[] | undefined,
+          workflow: { provider: "openworkflow" },
+        },
+      }
+
+      await workflowNitroModule.setup(nitro as never)
+
+      expect(nitro.options.traceDeps).toContain("openworkflow")
+      expect(nitro.options.traceDeps).not.toContain("postgres")
+      const plugin = await readFile(nitro.options.plugins[0]!, "utf8")
+      expect(plugin).toContain(`import "openworkflow/sqlite"`)
+      expect(plugin).not.toContain(`import "openworkflow/postgres"`)
+    }
+    finally {
+      if (typeof previous === "string") process.env.OPENWORKFLOW_SQLITE_PATH = previous
+      else delete process.env.OPENWORKFLOW_SQLITE_PATH
+    }
   })
 
   it("resolves OpenWorkflow storage from a Database Definition", async () => {

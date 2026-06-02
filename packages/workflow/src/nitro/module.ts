@@ -158,14 +158,18 @@ async function writeNitroWorkflowRuntimeFiles(nitro: Nitro, resolved: false | Re
   return { ...runtimeFiles, providerDefinitions }
 }
 
+function hasOpenWorkflowSqliteStorage(options: ResolvedWorkflowOptions): boolean {
+  return options.provider === "openworkflow" && Boolean(options.sqlite?.path || process.env.OPENWORKFLOW_SQLITE_PATH)
+}
+
 function getOpenWorkflowNitroTraceDeps(options: ResolvedWorkflowOptions) {
-  return options.provider === "openworkflow" && options.sqlite?.path
+  return hasOpenWorkflowSqliteStorage(options)
     ? OPENWORKFLOW_SQLITE_NITRO_TRACE_DEPS
     : OPENWORKFLOW_POSTGRES_NITRO_TRACE_DEPS
 }
 
 function getOpenWorkflowNitroTraceImports(options: ResolvedWorkflowOptions) {
-  return options.provider === "openworkflow" && options.sqlite?.path
+  return hasOpenWorkflowSqliteStorage(options)
     ? OPENWORKFLOW_SQLITE_NITRO_TRACE_IMPORTS
     : OPENWORKFLOW_POSTGRES_NITRO_TRACE_IMPORTS
 }

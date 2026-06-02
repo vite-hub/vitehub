@@ -2,6 +2,8 @@ import type { Lock, QueueEntry, StateAdapter } from "chat"
 
 type MaybePromise<T> = T | Promise<T>
 
+const SQLITE_STATE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
+
 export type SqliteAgentStateRow = Record<string, unknown>
 
 export interface SqliteAgentStateResult {
@@ -89,6 +91,7 @@ async function execute(executor: SqliteAgentStateExecutor, statement: string, ar
 export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
   private connected = false
   private readonly driver: SqliteAgentStateDriver
+  private nextCleanupAt = 0
   private readonly tables: StateTables
 
   constructor(options: SqliteAgentStateOptions) {
@@ -100,6 +103,7 @@ export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
   }
 
   async acquireLock(threadId: string, ttlMs: number): Promise<Lock | null> {
+    await this.cleanupExpiredStateIfDue()
     return await this.transaction(async (tx) => {
       const now = Date.now()
       await execute(tx, `DELETE FROM ${this.tables.locks} WHERE thread_id = ? AND expires_at <= ?`, [threadId, now])
@@ -114,9 +118,11 @@ export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
   }
 
   async appendToList(key: string, value: unknown, options?: { maxLength?: number, ttlMs?: number }): Promise<void> {
-    this.ensureConnected()
-    const expiresAt = options?.ttlMs ? Date.now() + options.ttlMs : null
+    await this.cleanupExpiredStateIfDue()
+    const now = Date.now()
+    const expiresAt = options?.ttlMs ? now + options.ttlMs : null
     await this.transaction(async (tx) => {
+      await execute(tx, `DELETE FROM ${this.tables.lists} WHERE key = ? AND expires_at IS NOT NULL AND expires_at <= ?`, [key, now])
       await execute(tx, `INSERT INTO ${this.tables.lists} (key, value, expires_at) VALUES (?, ?, ?)`, [key, JSON.stringify(value), expiresAt])
       await execute(tx, `UPDATE ${this.tables.lists} SET expires_at = ? WHERE key = ?`, [expiresAt, key])
       if (options?.maxLength != null && options.maxLength > 0) {
@@ -134,10 +140,8 @@ export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
   async cleanupExpiredState(): Promise<void> {
     this.ensureConnected()
     const now = Date.now()
-    await execute(this.driver, `DELETE FROM ${this.tables.locks} WHERE expires_at <= ?`, [now])
-    await execute(this.driver, `DELETE FROM ${this.tables.cache} WHERE expires_at IS NOT NULL AND expires_at <= ?`, [now])
-    await execute(this.driver, `DELETE FROM ${this.tables.queue} WHERE expires_at <= ?`, [now])
-    await execute(this.driver, `DELETE FROM ${this.tables.lists} WHERE expires_at IS NOT NULL AND expires_at <= ?`, [now])
+    await this.deleteExpiredRows(now)
+    this.nextCleanupAt = now + SQLITE_STATE_CLEANUP_INTERVAL_MS
   }
 
   async connect(): Promise<void> {
@@ -150,15 +154,17 @@ export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
       this.connected = false
       throw error
     }
+    await this.cleanupExpiredState()
   }
 
   async delete(key: string): Promise<void> {
-    this.ensureConnected()
+    await this.cleanupExpiredStateIfDue()
     await execute(this.driver, `DELETE FROM ${this.tables.cache} WHERE key = ?`, [key])
     await execute(this.driver, `DELETE FROM ${this.tables.lists} WHERE key = ?`, [key])
   }
 
   async dequeue(threadId: string): Promise<QueueEntry | null> {
+    await this.cleanupExpiredStateIfDue()
     return await this.transaction(async (tx) => {
       const now = Date.now()
       await execute(tx, `DELETE FROM ${this.tables.queue} WHERE thread_id = ? AND expires_at <= ?`, [threadId, now])
@@ -176,6 +182,7 @@ export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
   }
 
   async enqueue(threadId: string, entry: QueueEntry, maxSize: number): Promise<number> {
+    await this.cleanupExpiredStateIfDue()
     return await this.transaction(async (tx) => {
       await execute(
         tx,
@@ -195,6 +202,7 @@ export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
   }
 
   async extendLock(lock: Lock, ttlMs: number): Promise<boolean> {
+    await this.cleanupExpiredStateIfDue()
     return await this.transaction(async (tx) => {
       const now = Date.now()
       const updated = await execute(
@@ -209,12 +217,12 @@ export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
   }
 
   async forceReleaseLock(threadId: string): Promise<void> {
-    this.ensureConnected()
+    await this.cleanupExpiredStateIfDue()
     await execute(this.driver, `DELETE FROM ${this.tables.locks} WHERE thread_id = ?`, [threadId])
   }
 
   async get<T = unknown>(key: string): Promise<T | null> {
-    this.ensureConnected()
+    await this.cleanupExpiredStateIfDue()
     const valueRows = await execute(
       this.driver,
       `SELECT value FROM ${this.tables.cache} WHERE key = ? AND (expires_at IS NULL OR expires_at > ?)`,
@@ -225,7 +233,7 @@ export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
   }
 
   async getList<T = unknown>(key: string): Promise<T[]> {
-    this.ensureConnected()
+    await this.cleanupExpiredStateIfDue()
     const now = Date.now()
     await execute(this.driver, `DELETE FROM ${this.tables.lists} WHERE key = ? AND expires_at IS NOT NULL AND expires_at <= ?`, [key, now])
     const valueRows = await execute(this.driver, `SELECT value FROM ${this.tables.lists} WHERE key = ? ORDER BY id ASC`, [key])
@@ -233,13 +241,13 @@ export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
   }
 
   async isSubscribed(threadId: string): Promise<boolean> {
-    this.ensureConnected()
+    await this.cleanupExpiredStateIfDue()
     const subscriptions = await execute(this.driver, `SELECT 1 FROM ${this.tables.subscriptions} WHERE thread_id = ? LIMIT 1`, [threadId])
     return subscriptions.length > 0
   }
 
   async queueDepth(threadId: string): Promise<number> {
-    this.ensureConnected()
+    await this.cleanupExpiredStateIfDue()
     const countRows = await execute(
       this.driver,
       `SELECT COUNT(*) as count FROM ${this.tables.queue} WHERE thread_id = ? AND expires_at > ?`,
@@ -249,17 +257,18 @@ export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
   }
 
   async releaseLock(lock: Lock): Promise<void> {
-    this.ensureConnected()
+    await this.cleanupExpiredStateIfDue()
     await execute(this.driver, `DELETE FROM ${this.tables.locks} WHERE thread_id = ? AND token = ?`, [lock.threadId, lock.token])
   }
 
   async set<T = unknown>(key: string, value: T, ttlMs?: number): Promise<void> {
-    this.ensureConnected()
+    await this.cleanupExpiredStateIfDue()
     const expiresAt = ttlMs ? Date.now() + ttlMs : null
     await execute(this.driver, `INSERT OR REPLACE INTO ${this.tables.cache} (key, value, expires_at) VALUES (?, ?, ?)`, [key, JSON.stringify(value), expiresAt])
   }
 
   async setIfNotExists(key: string, value: unknown, ttlMs?: number): Promise<boolean> {
+    await this.cleanupExpiredStateIfDue()
     return await this.transaction(async (tx) => {
       const now = Date.now()
       const existing = await execute(
@@ -277,12 +286,12 @@ export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
   }
 
   async subscribe(threadId: string): Promise<void> {
-    this.ensureConnected()
+    await this.cleanupExpiredStateIfDue()
     await execute(this.driver, `INSERT OR IGNORE INTO ${this.tables.subscriptions} (thread_id) VALUES (?)`, [threadId])
   }
 
   async unsubscribe(threadId: string): Promise<void> {
-    this.ensureConnected()
+    await this.cleanupExpiredStateIfDue()
     await execute(this.driver, `DELETE FROM ${this.tables.subscriptions} WHERE thread_id = ?`, [threadId])
   }
 
@@ -290,6 +299,23 @@ export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
     if (!this.connected) {
       throw new Error("[vitehub] SQLite Agent State is not connected. Call connect() before using state.")
     }
+  }
+
+  private async cleanupExpiredStateIfDue(): Promise<void> {
+    this.ensureConnected()
+    const now = Date.now()
+    if (this.nextCleanupAt > now) {
+      return
+    }
+    await this.deleteExpiredRows(now)
+    this.nextCleanupAt = now + SQLITE_STATE_CLEANUP_INTERVAL_MS
+  }
+
+  private async deleteExpiredRows(now: number): Promise<void> {
+    await execute(this.driver, `DELETE FROM ${this.tables.locks} WHERE expires_at <= ?`, [now])
+    await execute(this.driver, `DELETE FROM ${this.tables.cache} WHERE expires_at IS NOT NULL AND expires_at <= ?`, [now])
+    await execute(this.driver, `DELETE FROM ${this.tables.queue} WHERE expires_at <= ?`, [now])
+    await execute(this.driver, `DELETE FROM ${this.tables.lists} WHERE expires_at IS NOT NULL AND expires_at <= ?`, [now])
   }
 
   private async migrate(): Promise<void> {
