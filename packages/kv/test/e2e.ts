@@ -4,10 +4,8 @@ import assert from "node:assert/strict"
 import { type FetchOptions, ofetch } from "ofetch"
 
 const PROVIDERS = ["cloudflare", "vercel"] as const
-const FRAMEWORKS = ["vite"] as const
 
 type Provider = typeof PROVIDERS[number]
-type Framework = typeof FRAMEWORKS[number]
 type Fetcher = (url: string, options?: FetchOptions) => Promise<any>
 
 const liveOnlyMessage = "KV e2e requires a deployed app: pnpm --dir packages/kv test:e2e --mode live --provider cloudflare|vercel --url <url>"
@@ -60,14 +58,12 @@ async function runLive(url: string, provider: Provider) {
 }
 
 const { values } = parseArgs({
-  options: { mode: { type: "string" }, url: { type: "string" }, provider: { type: "string" }, framework: { type: "string" } },
+  options: { mode: { type: "string" }, url: { type: "string" }, provider: { type: "string" } },
   strict: true,
 })
 const mode = values.mode ?? "local"
 const provider = values.provider as Provider | undefined
-const framework = values.framework as Framework | undefined
 if (provider) assert.ok(PROVIDERS.includes(provider), `invalid --provider: ${provider}`)
-if (framework) assert.ok(FRAMEWORKS.includes(framework), `invalid --framework: ${framework}`)
 
 if (mode !== "live") {
   throw new TypeError(liveOnlyMessage)

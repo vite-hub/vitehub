@@ -1,6 +1,6 @@
 # Framework Integrations
 
-Framework Integrations names how ViteHub packages connect portable declarations to Vite builds, generated registries, server host adapters, and provider output.
+Framework Integrations names how ViteHub packages connect portable declarations to Vite builds, generated registries, runtime helpers, and provider output.
 
 ## Language
 
@@ -99,7 +99,7 @@ _Avoid_: Virtual module path, generated file path, framework import path
 ## Flagged Ambiguities
 
 - "composable" was used for runtime calls - resolved: use **Runtime Helper** unless referring to a Nuxt or Vue composable.
-- Vite and Nitro behavior were considered part of Definitions - resolved: Definitions stay portable; public framework behavior belongs to **Vite Integration**, and host-specific server wiring belongs to **Server Host Adapters**.
+- Framework behavior was considered part of Definitions - resolved: Definitions stay portable; public framework behavior belongs to **Vite Integration**, and provider-specific wiring belongs to **Provider Output** or package-owned runtime helpers.
 - Provider fields were considered runtime-call options - resolved: use **Provider Selection** for provider choices that affect generated output or deployment binding.
 - Framework virtual modules and generated file paths were treated as app-facing imports - resolved: use **Stable ViteHub Import Path** for app-facing imports, with framework-specific paths kept as integration details unless an ADR makes them public.
 - Inline Definition Options were considered valid sources for discovered names - resolved: use **Discovery Identity** from discovery location instead.

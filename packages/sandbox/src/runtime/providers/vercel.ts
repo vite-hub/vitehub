@@ -1,5 +1,5 @@
 import type { SandboxDefinitionOptions, VercelSandboxProviderOptions } from '../../module-types'
-import { readFrameworkEnv } from '../../internal/shared/env'
+import { readNonEmptyEnv } from '../../internal/shared/env'
 import { normalizeVercelSandboxRuntime } from '../../sandbox/providers/vercel-runtime'
 import type { ResolvedVercelSandboxCredentials } from '../../sandbox/providers/shared'
 
@@ -15,21 +15,9 @@ function readConfigCredential(value: string | undefined) {
 
 function resolveEnvCredentials(): Partial<ResolvedVercelSandboxCredentials> {
   const env = typeof process !== 'undefined' ? process.env : {}
-  const token = readFrameworkEnv(env, {
-    nuxt: ['NUXT_SANDBOX_TOKEN'],
-    vite: ['VITE_SANDBOX_TOKEN'],
-    plain: ['VERCEL_TOKEN'],
-  })
-  const teamId = readFrameworkEnv(env, {
-    nuxt: ['NUXT_SANDBOX_TEAM_ID'],
-    vite: ['VITE_SANDBOX_TEAM_ID'],
-    plain: ['VERCEL_TEAM_ID'],
-  })
-  const projectId = readFrameworkEnv(env, {
-    nuxt: ['NUXT_SANDBOX_PROJECT_ID'],
-    vite: ['VITE_SANDBOX_PROJECT_ID'],
-    plain: ['VERCEL_PROJECT_ID'],
-  })
+  const token = readNonEmptyEnv(env, 'VITE_SANDBOX_TOKEN', 'VERCEL_TOKEN')
+  const teamId = readNonEmptyEnv(env, 'VITE_SANDBOX_TEAM_ID', 'VERCEL_TEAM_ID')
+  const projectId = readNonEmptyEnv(env, 'VITE_SANDBOX_PROJECT_ID', 'VERCEL_PROJECT_ID')
 
   return {
     token,

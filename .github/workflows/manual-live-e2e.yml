@@ -212,7 +212,7 @@ jobs:
           echo "org_id=$VERCEL_ORG_ID" >> "$GITHUB_OUTPUT"
           echo "project_id=$VERCEL_PROJECT_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Build Vite E2E (cloudflare)
+      - name: Build playground (cloudflare)
         if: matrix.provider == 'cloudflare'
         env:
           BLOB_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
@@ -226,47 +226,47 @@ jobs:
           VITEHUB_VITE_MODE: e2e
         run: pnpm --dir playground/vite build
 
-      - name: Assert Vite Cloudflare artifact purity
+      - name: Assert Cloudflare artifact purity
         if: matrix.provider == 'cloudflare'
         run: |
           node <<'NODE'
           const { readFileSync } = require("node:fs")
           const bundle = readFileSync("playground/vite/dist/vite/index.js", "utf8")
           if (/from\s+["']@vercel\/functions["']/.test(bundle) || /require\(["']@vercel\/functions["']\)/.test(bundle) || /import\(["']@vercel\/functions["']\)/.test(bundle)) {
-            throw new Error("Cloudflare Vite bundle must not include @vercel/functions imports.")
+            throw new Error("Cloudflare bundle must not include @vercel/functions imports.")
           }
           if (/from\s+["']@vercel\/blob["']/.test(bundle) || /require\(["']@vercel\/blob["']\)/.test(bundle) || /import\(["']@vercel\/blob["']\)/.test(bundle)) {
-            throw new Error("Cloudflare Vite bundle must not include @vercel/blob imports.")
+            throw new Error("Cloudflare bundle must not include @vercel/blob imports.")
           }
           if (/from\s+["']@cloudflare\/sandbox["']/.test(bundle) || /require\(["']@cloudflare\/sandbox["']\)/.test(bundle) || /import\(["']@cloudflare\/sandbox["']\)/.test(bundle)) {
-            throw new Error("Cloudflare Vite bundle must not include bare @cloudflare/sandbox imports.")
+            throw new Error("Cloudflare bundle must not include bare @cloudflare/sandbox imports.")
           }
           if (bundle.includes("@vitejs/devtools") || /import\(["']vite["']\)/.test(bundle)) {
-            throw new Error("Cloudflare Vite bundle must not include Vite or Vite DevTools runtime code.")
+            throw new Error("Cloudflare bundle must not include Vite or Vite DevTools runtime code.")
           }
           if (/createRequire\(\s*import\.meta\.url\s*\)/.test(bundle)) {
-            throw new Error("Cloudflare Vite bundle must not call createRequire(import.meta.url).")
+            throw new Error("Cloudflare bundle must not call createRequire(import.meta.url).")
           }
           const wrangler = JSON.parse(readFileSync("playground/vite/dist/vite/wrangler.json", "utf8"))
           if (!Array.isArray(wrangler.triggers?.crons) || !wrangler.triggers.crons.includes("* * * * *")) {
-            throw new Error("Expected Vite Cloudflare wrangler.json to include the daily-marker schedule cron trigger.")
+            throw new Error("Expected Cloudflare wrangler.json to include the daily-marker schedule cron trigger.")
           }
           if (!Array.isArray(wrangler.kv_namespaces) || wrangler.kv_namespaces.length === 0) {
-            throw new Error("Expected Vite Cloudflare wrangler.json to include kv_namespaces.")
+            throw new Error("Expected Cloudflare wrangler.json to include kv_namespaces.")
           }
           if (typeof wrangler.artifacts !== "undefined") {
-            throw new Error("Vite Cloudflare wrangler.json must not include Workspace Artifacts bindings.")
+            throw new Error("Cloudflare wrangler.json must not include Workspace Artifacts bindings.")
           }
           NODE
 
-      - name: Dry-run Vite Cloudflare deploy
+      - name: Dry-run Cloudflare deploy
         if: matrix.provider == 'cloudflare'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx wrangler --cwd playground/vite/dist/vite deploy --config wrangler.json --dry-run
 
-      - name: Build Vite E2E (vercel)
+      - name: Build playground (vercel)
         if: matrix.provider == 'vercel'
         env:
           BLOB_READ_WRITE_TOKEN: ${{ steps.prepare_vercel.outputs.blob_token }}
@@ -282,36 +282,36 @@ jobs:
           VITEHUB_WORKSPACE_BLOB_PREFIX: vitehub/workspace-e2e/vite
         run: pnpm --dir playground/vite build
 
-      - name: Assert Vite Vercel artifact purity
+      - name: Assert Vercel artifact purity
         if: matrix.provider == 'vercel'
         run: |
           node <<'NODE'
           const { existsSync, readFileSync } = require("node:fs")
           const bundle = readFileSync("playground/vite/.vercel/output/functions/__server.func/index.mjs", "utf8")
           if (/createCloudflareArtifactsWorkspaceStore|isomorphic-git/.test(bundle)) {
-            throw new Error("Vercel Vite bundle must not include the Cloudflare Artifacts store implementation.")
+            throw new Error("Vercel bundle must not include the Cloudflare Artifacts store implementation.")
           }
           if (/cloudflare:workers|@cloudflare\/sandbox/.test(bundle)) {
-            throw new Error("Vercel Vite bundle must not include Cloudflare-only sandbox runtime code.")
+            throw new Error("Vercel bundle must not include Cloudflare-only sandbox runtime code.")
           }
           if (bundle.includes("@vitejs/devtools") || /import\(["']vite["']\)/.test(bundle)) {
-            throw new Error("Vercel Vite bundle must not include Vite or Vite DevTools runtime code.")
+            throw new Error("Vercel bundle must not include Vite or Vite DevTools runtime code.")
           }
           const config = JSON.parse(readFileSync("playground/vite/.vercel/output/config.json", "utf8"))
           const expected = { path: "/api/vitehub/schedules/vercel/daily-marker", schedule: "* * * * *" }
           if (!Array.isArray(config.crons) || !config.crons.some(cron => cron.path === expected.path && cron.schedule === expected.schedule)) {
-            throw new Error(`Expected Vite Vercel config.json crons to include ${JSON.stringify(expected)}.`)
+            throw new Error(`Expected Vercel config.json crons to include ${JSON.stringify(expected)}.`)
           }
           const functionFile = "playground/vite/.vercel/output/functions/api/vitehub/schedules/vercel/daily-marker.func/index.mjs"
           if (!existsSync(functionFile)) {
-            throw new Error(`Expected generated Vite Vercel schedule function at ${functionFile}.`)
+            throw new Error(`Expected generated Vercel schedule function at ${functionFile}.`)
           }
           if (!readFileSync(functionFile, "utf8").includes("executeStaticSchedule")) {
-            throw new Error("Expected Vite Vercel schedule function to execute the static schedule handler.")
+            throw new Error("Expected Vercel schedule function to execute the static schedule handler.")
           }
           NODE
 
-      - name: Smoke import Vite Vercel function
+      - name: Smoke import Vercel function
         if: matrix.provider == 'vercel'
         env:
           BLOB_READ_WRITE_TOKEN: ${{ steps.prepare_vercel.outputs.blob_token }}
@@ -382,31 +382,31 @@ jobs:
             echo "url=${{ steps.deploy_vercel.outputs.url }}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: KV Live E2E (${{ matrix.provider }} × vite)
+      - name: KV Live E2E (${{ matrix.provider }})
         run: pnpm --dir packages/kv test:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
 
-      - name: Queue Live E2E (${{ matrix.provider }} × vite)
+      - name: Queue Live E2E (${{ matrix.provider }})
         timeout-minutes: 5
         run: node packages/queue/test/e2e-live.mjs --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
 
-      - name: Schedule Live E2E (${{ matrix.provider }} × vite)
+      - name: Schedule Live E2E (${{ matrix.provider }})
         timeout-minutes: 7
         run: node packages/schedule/test/e2e-live.mjs --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}" --timeout 270000
 
-      - name: Sandbox Live E2E (${{ matrix.provider }} × vite)
+      - name: Sandbox Live E2E (${{ matrix.provider }})
         run: pnpm --dir packages/sandbox test:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
 
-      - name: Workflow Live E2E (${{ matrix.provider }} × vite)
+      - name: Workflow Live E2E (${{ matrix.provider }})
         timeout-minutes: 5
         run: node packages/workflow/test/e2e-live.mjs --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
 
-      - name: Workspace Live E2E (${{ matrix.provider }} × vite)
+      - name: Workspace Live E2E (${{ matrix.provider }})
         run: pnpm --dir packages/workspace test:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
 
-      - name: Blob Live E2E (vite × ${{ matrix.provider }})
+      - name: Blob Live E2E
         env:
           VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
         run: pnpm --dir packages/blob test:e2e --mode live --url "${{ steps.url.outputs.url }}"
 
-      - name: DB Live E2E (vite × ${{ matrix.provider }})
+      - name: DB Live E2E
         run: pnpm --dir packages/database test:e2e --url "${{ steps.url.outputs.url }}"

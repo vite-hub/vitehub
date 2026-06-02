@@ -53,7 +53,7 @@ _Avoid_: Leak prevention, DLP, log scanning
 - The **Env Package** owns **Env Declarations**.
 - **Build Env** belongs to Vite integration.
 - **Runtime Env** belongs to Env Package server runtime behavior.
-- **Runtime Env** is the Env Package's primary language for server runtime values; Nitro runtime config is currently one host-adapter transport for those values, not the public Env API name.
+- **Runtime Env** is the Env Package's primary language for server runtime values; runtime config is integration language, not the public Env API name.
 - **Server Env** is the public API naming pattern for server-code access to **Runtime Env**.
 - **Generated Server Env Type** is the preferred source for Agent Runtime Config types when an app uses Env Package declarations.
 - **Public Env** is the public API naming pattern for build-time public values.
@@ -84,7 +84,7 @@ _Avoid_: Leak prevention, DLP, log scanning
 ## Flagged Ambiguities
 
 - Build-time and server runtime values were considered one config surface - resolved: use **Build Env** and **Runtime Env**.
-- Runtime Env was previously described as safe runtime config - resolved: use **Server Env** for the public server access API, **Runtime Env** for the underlying Env Package concept, and reserve runtime config for Nitro or Chat/Agent contracts that actually expose `runtimeConfig`.
+- Runtime Env was previously described as safe runtime config - resolved: use **Server Env** for the public server access API, **Runtime Env** for the underlying Env Package concept, and reserve runtime config for Chat/Agent contracts that actually expose `runtimeConfig`.
 - Public Build Env was previously exposed through a Vite virtual module path - resolved: use **Public Env** as the public app-code concept and hide integration-specific virtual module names behind ViteHub import paths.
 - Secret handling was considered provider-specific - resolved: **Secret Env** is ViteHub language for Runtime Env values that redact by default.
 - Secret handling was considered only a diagnostics concern - resolved: diagnostics masking is one consequence of **Secret Env**, not the definition.

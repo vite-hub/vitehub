@@ -44,7 +44,7 @@
     "build": "tsdown --tsconfig tsconfig.build.json",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vite-hub/workflow build && vitest run",
+    "test": "pnpm --filter @vite-hub/database build && pnpm --filter @vite-hub/env build && pnpm --filter @vite-hub/workflow build && vitest run",
     "test:e2e": "node ./test/e2e-live.mjs"
   },
   "dependencies": {
@@ -55,16 +55,16 @@
     "pathe": "catalog:unjs"
   },
   "peerDependencies": {
+    "@vite-hub/database": "workspace:*",
     "openworkflow": "catalog:workflow",
-    "postgres": "catalog:database",
     "vite": "catalog:vite8-compat",
     "workflow": "catalog:workflow"
   },
   "peerDependenciesMeta": {
-    "openworkflow": {
+    "@vite-hub/database": {
       "optional": true
     },
-    "postgres": {
+    "openworkflow": {
       "optional": true
     },
     "vite": {
@@ -76,6 +76,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "ofetch": "catalog:unjs",
     "openworkflow": "catalog:workflow",

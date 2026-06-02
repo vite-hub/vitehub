@@ -295,13 +295,14 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("infers telegram webhook registration metadata from static chat adapters", async () => {
+  it("infers webhook registration metadata from static chat adapters", async () => {
     const { chat } = await import("../src/chat-trigger.ts")
     const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
     const agent = {
       capabilities: [
         chat({
           adapters: {
+            teams: () => ({}) as never,
             telegram: () => ({}) as never,
           },
         }),
@@ -312,6 +313,10 @@ describe("agent message protocol", () => {
     await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "chat.message": {
         webhooks: [{
+          id: "teams",
+          method: "POST",
+          provider: "teams",
+        }, {
           id: "telegram",
           method: "POST",
           provider: "telegram",

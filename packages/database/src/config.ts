@@ -23,6 +23,8 @@ import type {
   ResolvedDrizzleDatabaseConfig,
 } from "./types.ts"
 
+export { resolveConfigValue } from "./config-value.ts"
+
 const configFilePattern = /^config\.(?:c|m)?[jt]s$/i
 const viteDatabaseSuffixPattern = /\.database\.(?:c|m)?[jt]s$/i
 

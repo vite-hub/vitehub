@@ -35,9 +35,6 @@ catalogs:
     drizzle-orm:
       specifier: ^0.44.7
       version: 0.44.7
-    postgres:
-      specifier: ^3.4.9
-      version: 3.4.9
   esbuild-v27:
     esbuild:
       specifier: ^0.27.7
@@ -1007,9 +1004,6 @@ importers:
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
-      postgres:
-        specifier: catalog:database
-        version: 3.4.9
       workflow:
         specifier: catalog:workflow
         version: 4.2.4(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.0)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.21))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.21))(@swc/helpers@0.5.21)(magicast@0.5.3)(typescript@6.0.2)
@@ -1017,6 +1011,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 25.6.0
+      '@vite-hub/database':
+        specifier: workspace:*
+        version: link:../database
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
@@ -23122,7 +23119,8 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  postgres@3.4.9: {}
+  postgres@3.4.9:
+    optional: true
 
   powershell-utils@0.1.0: {}
 
