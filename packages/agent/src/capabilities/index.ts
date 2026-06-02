@@ -79,14 +79,6 @@ export type {
 } from "./audience.ts"
 export type {
   AccessCapabilityOptions,
-  AccessCapabilityStandardSchemaResultFailure,
-  AccessCapabilityStandardSchemaResultSuccess,
-  AccessCapabilityStandardSchemaV1,
-  AccessChatInputSchemaOptions,
-  AccessChatMessageInputSchemaOptions,
-  AccessChatRunInputOptions,
-  AccessInputContextFromSchemas,
-  AccessInputSchemaOptions,
   AccessRoleName,
   AccessWorkspaceOptions,
   AccessWorkspaceOptionsFor,

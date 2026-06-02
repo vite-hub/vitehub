@@ -328,7 +328,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - Trigger handlers were considered for direct Agent execution - resolved: trigger contributions map input and run metadata, while the Agent Package executes the Agent Invocation through the standard lifecycle.
 - Public chat webhook registration helpers were considered for platform adapters - resolved: use **Chat Webhook Autowiring** from the **Chat Capability** so adapter configuration remains the only source of truth.
 - Build-time Chat Platform Adapter detection was considered - resolved: resolve the **Chat Adapter Callback** at request time because platform credentials and adapter construction can depend on Server Env.
-- Repeating Chat Capability origins in `access()` was considered - resolved: Access input configuration can reference the Chat Capability so resolver types derive from the Chat App Route origin and Chat Platform Adapter names.
+- Repeating Chat Capability origins in `access()` was considered - resolved: Invocation Profiles declare trusted chat origins explicitly, and Access consumes the resolved profile rather than owning chat input configuration.
 - Capability phases, contexts, hooks, and instruction slots were considered glossary terms - resolved: group that detail under **Capability Lifecycle** unless a feature needs a sharper term.
 - Chat History was considered as a standalone Capability - resolved: keep Chat History inside the **Chat Capability** for this stack and revisit during a future Agent Memory pass.
 - Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.

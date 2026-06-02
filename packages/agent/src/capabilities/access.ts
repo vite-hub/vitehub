@@ -1,6 +1,6 @@
 import { workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
-import { applyInvocationProfileInputSchemas, resolveInvocationProfile } from "../invocation-profile.ts"
+import { resolveInvocationProfile } from "../invocation-profile.ts"
 import { createWorkspaceTools } from "@vite-hub/workspace"
 
 import type {
@@ -12,15 +12,7 @@ import type {
   MaybePromise,
 } from "../types.ts"
 import type {
-  AgentInvocationProfileChatInputSchemaOptions,
-  AgentInvocationProfileChatMessageInputSchemaOptions,
-  AgentInvocationProfileChatRunInputOptions,
   AgentInvocationProfileDefinition,
-  AgentInvocationProfileInputContextFromSchemas,
-  AgentInvocationProfileInputSchemaOptions,
-  AgentInvocationProfileStandardSchemaResultFailure,
-  AgentInvocationProfileStandardSchemaResultSuccess,
-  AgentInvocationProfileStandardSchemaV1,
 } from "../invocation-profile.ts"
 import type {
   ListOptions,
@@ -36,35 +28,6 @@ import type {
 import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
 
 export type AccessRoleName = "viewer" | "admin" | (string & {})
-
-export type AccessCapabilityStandardSchemaResultSuccess<T = unknown> = AgentInvocationProfileStandardSchemaResultSuccess<T>
-export type AccessCapabilityStandardSchemaResultFailure = AgentInvocationProfileStandardSchemaResultFailure
-export type AccessCapabilityStandardSchemaV1<T = unknown> = AgentInvocationProfileStandardSchemaV1<T>
-
-type AccessObjectSchema = AccessCapabilityStandardSchemaV1<object>
-
-export type AccessChatMessageInputSchemaOptions<TMessageMetadataSchema extends AccessObjectSchema | undefined = AccessObjectSchema | undefined> =
-  AgentInvocationProfileChatMessageInputSchemaOptions<TMessageMetadataSchema>
-
-export type AccessChatRunInputOptions<TOrigin extends string = string> =
-  AgentInvocationProfileChatRunInputOptions<TOrigin>
-
-export type AccessChatInputSchemaOptions<
-  TMessageMetadataSchema extends AccessObjectSchema | undefined = AccessObjectSchema | undefined,
-  TUserSchema extends AccessObjectSchema | undefined = AccessObjectSchema | undefined,
-  TOrigin extends string = string,
-  TChatCapability = unknown,
-> = AgentInvocationProfileChatInputSchemaOptions<TMessageMetadataSchema, TUserSchema, TOrigin, TChatCapability>
-
-export type AccessInputSchemaOptions<
-  TMessageMetadataSchema extends AccessObjectSchema | undefined = AccessObjectSchema | undefined,
-  TUserSchema extends AccessObjectSchema | undefined = AccessObjectSchema | undefined,
-  TOrigin extends string = string,
-  TChatCapability = unknown,
-> = AgentInvocationProfileInputSchemaOptions<TMessageMetadataSchema, TUserSchema, TOrigin, TChatCapability>
-
-export type AccessInputContextFromSchemas<TInputSchemas> =
-  AgentInvocationProfileInputContextFromSchemas<TInputSchemas>
 
 export type AccessCapabilityTypeContract<
   TSourceName extends string = string,
@@ -167,10 +130,8 @@ export interface AccessCapabilityOptions<
   Name extends WorkspaceName = WorkspaceName,
   TSourceName extends string = string,
   TInputContext extends object = Record<string, unknown>,
-  TInputSchemas extends AccessInputSchemaOptions | undefined = undefined,
   TProfile = undefined,
 > {
-  input?: TInputSchemas
   profile?: AgentInvocationProfileDefinition<TProfile, TRuntimeConfig, Name, TInputContext>
   workspace: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext, TProfile>
 }
@@ -226,12 +187,6 @@ export function access<
   TInputContext extends object = Record<string, unknown>,
   const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext> = AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext>,
 >(options: { input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext>>
-export function access<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
-  const TInputSchemas extends AccessInputSchemaOptions = AccessInputSchemaOptions,
-  const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, Name, string, AccessInputContextFromSchemas<TInputSchemas>> = AccessWorkspaceOptions<TRuntimeConfig, Name, string, AccessInputContextFromSchemas<TInputSchemas>>,
->(options: { input: TInputSchemas, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, AccessInputContextFromSchemas<TInputSchemas>>>
 export function access(options: AccessCapabilityOptions): AgentCapabilityDefinition {
   if (!options || typeof options !== "object" || !options.workspace) {
     throw new TypeError("[vitehub] access() requires workspace options.")
@@ -247,8 +202,6 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       if ("diff" in context.workspace) {
         throw new Error("[vitehub] access({ workspace }) is read-only in the first version and requires workspace.mode: \"read\".")
       }
-      const input = await applyInvocationProfileInputSchemas(options.input, context.input.get())
-      if (input !== context.input.get()) context.input.set(input)
       const profile = options.profile
         ? await resolveInvocationProfile(options.profile, context)
         : undefined

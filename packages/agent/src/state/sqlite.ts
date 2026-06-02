@@ -149,12 +149,12 @@ export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
     this.connected = true
     try {
       await this.migrate()
+      await this.cleanupExpiredState()
     }
     catch (error) {
       this.connected = false
       throw error
     }
-    await this.cleanupExpiredState()
   }
 
   async delete(key: string): Promise<void> {

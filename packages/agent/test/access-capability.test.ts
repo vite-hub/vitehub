@@ -297,6 +297,7 @@ describe("access capability", () => {
   })
 
   it("validates chat input schemas before resolving Workspace Scope", async () => {
+    const { defineInvocationProfile } = await import("../src/index.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
 
@@ -309,17 +310,22 @@ describe("access capability", () => {
         },
       },
     }
+    const supportProfile = defineInvocationProfile({
+      id: "metadata-customer",
+      input: {
+        chat: {
+          message: { metadata: metadataSchema },
+        },
+      },
+      resolve: ({ input }) => input.get().context?.chat?.message?.metadata?.quiver?.customer,
+    })
 
     const resolved = await resolveAgentCapabilities({
       capabilities: [
         access({
-          input: {
-            chat: {
-              message: { metadata: metadataSchema },
-            },
-          },
+          profile: supportProfile,
           workspace: {
-            resolve: ({ input }) => input.get().context?.chat?.message?.metadata?.quiver?.customer,
+            resolve: ({ profile }) => profile,
             scopes: {
               acme: { paths: ["customers/acme"] },
             },
@@ -350,23 +356,29 @@ describe("access capability", () => {
   })
 
   it("fails closed when chat input schema validation fails", async () => {
+    const { defineInvocationProfile } = await import("../src/index.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
+    const supportProfile = defineInvocationProfile({
+      id: "metadata-fails",
+      input: {
+        chat: {
+          message: {
+            metadata: {
+              "~standard": {
+                validate: () => ({ issues: ["missing customer"] }),
+              },
+            },
+          },
+        },
+      },
+      resolve: () => "acme",
+    })
 
     await expect(resolveAgentCapabilities({
       capabilities: [
         access({
-          input: {
-            chat: {
-              message: {
-                metadata: {
-                  "~standard": {
-                    validate: () => ({ issues: ["missing customer"] }),
-                  },
-                },
-              },
-            },
-          },
+          profile: supportProfile,
           workspace: {
             defaultScope: "acme",
             scopes: {
@@ -388,6 +400,7 @@ describe("access capability", () => {
   })
 
   it("fails closed when configured chat input schema fields are missing", async () => {
+    const { defineInvocationProfile } = await import("../src/index.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
 
@@ -400,16 +413,21 @@ describe("access capability", () => {
         },
       },
     })
+    const supportProfile = defineInvocationProfile({
+      id: "metadata-and-user-required",
+      input: {
+        chat: {
+          message: { metadata: requiredObjectSchema("metadata") },
+          user: requiredObjectSchema("user"),
+        },
+      },
+      resolve: () => "acme",
+    })
 
     await expect(resolveAgentCapabilities({
       capabilities: [
         access({
-          input: {
-            chat: {
-              message: { metadata: requiredObjectSchema("metadata") },
-              user: requiredObjectSchema("user"),
-            },
-          },
+          profile: supportProfile,
           workspace: {
             defaultScope: "acme",
             scopes: {
@@ -432,12 +450,7 @@ describe("access capability", () => {
     await expect(resolveAgentCapabilities({
       capabilities: [
         access({
-          input: {
-            chat: {
-              message: { metadata: requiredObjectSchema("metadata") },
-              user: requiredObjectSchema("user"),
-            },
-          },
+          profile: supportProfile,
           workspace: {
             defaultScope: "acme",
             scopes: {
@@ -460,27 +473,33 @@ describe("access capability", () => {
   })
 
   it("fails closed when configured chat input schemas receive no chat context", async () => {
+    const { defineInvocationProfile } = await import("../src/index.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
-
-    await expect(resolveAgentCapabilities({
-      capabilities: [
-        access({
-          input: {
-            chat: {
-              message: {
-                metadata: {
-                  "~standard": {
-                    validate(input: unknown) {
-                      return typeof input === "object" && input !== null
-                        ? { value: input as Record<string, unknown> }
-                        : { issues: ["missing metadata"] }
-                    },
-                  },
+    const supportProfile = defineInvocationProfile({
+      id: "metadata-required",
+      input: {
+        chat: {
+          message: {
+            metadata: {
+              "~standard": {
+                validate(input: unknown) {
+                  return typeof input === "object" && input !== null
+                    ? { value: input as Record<string, unknown> }
+                    : { issues: ["missing metadata"] }
                 },
               },
             },
           },
+        },
+      },
+      resolve: () => "acme",
+    })
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        access({
+          profile: supportProfile,
           workspace: {
             defaultScope: "acme",
             scopes: {
@@ -492,14 +511,10 @@ describe("access capability", () => {
     }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace())).rejects.toThrow("Invalid chat.message.metadata")
   })
 
-  it("gates Chat App Route metadata schemas by chat run origin", async () => {
+  it("gates profile metadata schemas by explicit chat run origin", async () => {
+    const { defineInvocationProfile } = await import("../src/index.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { access, chat, entry } = await import("../src/capabilities.ts")
-
-    const supportChat = chat({
-      adapters: { teams: {} as never },
-    })
-    const portalEntry = entry({ id: "portal", chat: { capability: supportChat, origin: "portal" } })
+    const { access } = await import("../src/capabilities.ts")
     const metadataSchema = {
       "~standard": {
         validate(input: unknown) {
@@ -510,32 +525,43 @@ describe("access capability", () => {
         },
       },
     }
+    const supportProfile = defineInvocationProfile({
+      id: "support-origin",
+      input: {
+        chat: {
+          message: { metadata: metadataSchema, runOrigin: ["portal"] },
+          run: { origin: ["portal", "teams"] },
+        },
+      },
+      resolve({ input }) {
+        const chat = input.get().context?.chat
+        if (chat?.run?.origin !== "portal") {
+          return { kind: "internal" as const }
+        }
+        const metadata = chat.message?.metadata as { quiver: { customer: string } }
+        return {
+          customer: metadata.quiver.customer,
+          kind: "portal" as const,
+        }
+      },
+    })
 
     const resolved = await resolveAgentCapabilities({
       capabilities: [
         access({
-          input: {
-            chat: {
-              capability: portalEntry,
-              message: { metadata: metadataSchema },
-            },
-          },
+          profile: supportProfile,
           workspace: {
-            resolve({ input }) {
-              const chat = input.get().context?.chat
-              if (chat?.run?.origin !== "portal") {
+            resolve({ profile }) {
+              if (profile.kind !== "portal") {
                 return { all: true, role: "admin", scope: "support" }
               }
-              const metadata = chat.message?.metadata as { quiver?: { customer?: string } } | undefined
-              return metadata?.quiver?.customer
+              return profile.customer
             },
             scopes: {
               acme: { paths: ["customers/acme"] },
             },
           },
         }),
-        supportChat,
-        portalEntry,
       ],
     }, { ...runtime(), runtimeConfig: {} }, {
       context: {
@@ -554,12 +580,7 @@ describe("access capability", () => {
     await expect(resolveAgentCapabilities({
       capabilities: [
         access({
-          input: {
-            chat: {
-              capability: portalEntry,
-              message: { metadata: metadataSchema },
-            },
-          },
+          profile: supportProfile,
           workspace: {
             defaultScope: "acme",
             scopes: {
@@ -567,8 +588,6 @@ describe("access capability", () => {
             },
           },
         }),
-        supportChat,
-        portalEntry,
       ],
     }, { ...runtime(), runtimeConfig: {} }, {
       context: {
@@ -584,17 +603,23 @@ describe("access capability", () => {
   })
 
   it("fails closed when configured chat run origins do not match", async () => {
+    const { defineInvocationProfile } = await import("../src/index.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
+    const supportProfile = defineInvocationProfile({
+      id: "origin-required",
+      input: {
+        chat: {
+          run: { origin: ["portal", "teams"] },
+        },
+      },
+      resolve: () => "acme",
+    })
 
     await expect(resolveAgentCapabilities({
       capabilities: [
         access({
-          input: {
-            chat: {
-              run: { origin: ["portal", "teams"] },
-            },
-          },
+          profile: supportProfile,
           workspace: {
             defaultScope: "acme",
             scopes: {

@@ -12,7 +12,6 @@ import type { WorkspaceName } from "@vite-hub/workspace"
 export interface AgentEntryChatOptions<TOrigin extends string = string, TChatCapability = unknown> {
   capability?: TChatCapability
   origin?: TOrigin
-  route?: never
 }
 
 export type AgentEntryChatExposure<TOrigin extends string = string, TChatCapability = unknown> =
@@ -67,10 +66,9 @@ export function normalizeEntryChatOptions(chat: AgentEntryChatExposure | undefin
   if (!chat) return undefined
   if (typeof chat === "string") return { origin: chat }
   if (chat === true) return { origin: "http" }
-  const { route: _route, ...options } = chat as AgentEntryChatOptions & { route?: unknown }
   return {
-    ...options,
-    origin: options.origin || "http",
+    ...chat,
+    origin: chat.origin || "http",
   }
 }
 

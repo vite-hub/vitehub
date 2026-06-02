@@ -1,7 +1,6 @@
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 
-import type { AgentChatCapabilityOrigin, AgentChatRunContext } from "./chat-trigger.ts"
-import type { AgentEntryChatOptions } from "./capabilities/entry.ts"
+import type { AgentChatRunContext } from "./chat-trigger.ts"
 import type {
   AgentCapabilityRuntimeContext,
   AgentInvocationContextStore,
@@ -28,8 +27,12 @@ export interface AgentInvocationProfileStandardSchemaV1<T = unknown> {
 
 type ProfileObjectSchema = AgentInvocationProfileStandardSchemaV1<object>
 
-export interface AgentInvocationProfileChatMessageInputSchemaOptions<TMessageMetadataSchema extends ProfileObjectSchema | undefined = ProfileObjectSchema | undefined> {
+export interface AgentInvocationProfileChatMessageInputSchemaOptions<
+  TMessageMetadataSchema extends ProfileObjectSchema | undefined = ProfileObjectSchema | undefined,
+  TOrigin extends string = string,
+> {
   metadata?: TMessageMetadataSchema
+  runOrigin?: readonly TOrigin[]
 }
 
 export interface AgentInvocationProfileChatRunInputOptions<TOrigin extends string = string> {
@@ -40,10 +43,8 @@ export interface AgentInvocationProfileChatInputSchemaOptions<
   TMessageMetadataSchema extends ProfileObjectSchema | undefined = ProfileObjectSchema | undefined,
   TUserSchema extends ProfileObjectSchema | undefined = ProfileObjectSchema | undefined,
   TOrigin extends string = string,
-  TChatCapability = unknown,
 > {
-  capability?: TChatCapability
-  message?: AgentInvocationProfileChatMessageInputSchemaOptions<TMessageMetadataSchema>
+  message?: AgentInvocationProfileChatMessageInputSchemaOptions<TMessageMetadataSchema, TOrigin>
   run?: AgentInvocationProfileChatRunInputOptions<TOrigin>
   user?: TUserSchema
 }
@@ -52,9 +53,8 @@ export interface AgentInvocationProfileInputSchemaOptions<
   TMessageMetadataSchema extends ProfileObjectSchema | undefined = ProfileObjectSchema | undefined,
   TUserSchema extends ProfileObjectSchema | undefined = ProfileObjectSchema | undefined,
   TOrigin extends string = string,
-  TChatCapability = unknown,
 > {
-  chat?: AgentInvocationProfileChatInputSchemaOptions<TMessageMetadataSchema, TUserSchema, TOrigin, TChatCapability>
+  chat?: AgentInvocationProfileChatInputSchemaOptions<TMessageMetadataSchema, TUserSchema, TOrigin>
 }
 
 type ProfileSchemaObjectOutput<TSchema> =
@@ -65,8 +65,6 @@ type ProfileSchemaObjectOutput<TSchema> =
 type ProfileChatRunOrigin<TChat> =
   TChat extends { run?: { origin?: readonly (infer TOrigin)[] } }
     ? Extract<TOrigin, string>
-    : TChat extends { capability?: infer TChatCapability }
-      ? AgentChatCapabilityOrigin<TChatCapability>
     : string
 
 export type AgentInvocationProfileInputContextFromSchemas<TInputSchemas> =
@@ -141,28 +139,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function capabilityMetadata(value: unknown): Record<string, unknown> | undefined {
-  const metadata = isRecord(value) ? value.metadata : undefined
-  return isRecord(metadata) ? metadata : undefined
-}
-
-function entryChatOptions(value: unknown): AgentEntryChatOptions | undefined {
-  const metadata = capabilityMetadata(value)
-  const entry = isRecord(metadata?.entry) ? metadata.entry : undefined
-  return metadata?.kind === "entry" && isRecord(entry?.chat)
-    ? entry.chat as AgentEntryChatOptions
-    : undefined
-}
-
 function shouldValidateChatMessageMetadata(
-  schemas: AgentInvocationProfileChatInputSchemaOptions,
+  schemas: AgentInvocationProfileChatMessageInputSchemaOptions,
   chat: Record<string, unknown>,
 ): boolean {
-  const appOrigin = entryChatOptions(schemas.capability)?.origin
-  if (!appOrigin) return true
+  const runOrigins = schemas.runOrigin
+  if (!runOrigins?.length) return true
   const run = isRecord(chat.run) ? chat.run : undefined
   const origin = run?.origin
-  return typeof origin !== "string" || origin === appOrigin
+  return typeof origin === "string" && runOrigins.includes(origin)
 }
 
 export async function applyInvocationProfileInputSchemas(
@@ -177,8 +162,9 @@ export async function applyInvocationProfileInputSchemas(
 
   let nextChat = chat
   const message = isRecord(chat.message) ? chat.message : undefined
-  const metadataSchema = chatSchemas.message?.metadata
-  if (metadataSchema && shouldValidateChatMessageMetadata(chatSchemas, chat)) {
+  const messageSchemas = chatSchemas.message
+  const metadataSchema = messageSchemas?.metadata
+  if (messageSchemas && metadataSchema && shouldValidateChatMessageMetadata(messageSchemas, chat)) {
     const metadata = await parseStandardSchema(metadataSchema, message?.metadata, "chat.message.metadata")
     nextChat = {
       ...nextChat,
