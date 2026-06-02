@@ -14,7 +14,6 @@
   "keywords": [
     "vitehub",
     "vite",
-    "nitro",
     "schedule",
     "cron"
   ],
@@ -27,7 +26,6 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
-    "./nitro": "./dist/nitro.js",
     "./runtime": "./dist/runtime.js",
     "./runtime/state": "./dist/runtime/state.js",
     "./runtime/static": "./dist/runtime/static.js",

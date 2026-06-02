@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
-import workflowNitroModule from "../src/nitro.ts"
+import workflowNitroModule from "../src/nitro/module.ts"
 
 describe("Nitro module", () => {
   it("auto-imports workflow definition and read helpers only", async () => {

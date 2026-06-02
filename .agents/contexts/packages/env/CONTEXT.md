@@ -45,15 +45,15 @@ An explicit operation on a Secret Env that reads its underlying value.
 _Avoid_: Reveal, unmask, unwrap, decrypt
 
 **Outbound Secret Redaction**:
-Best-effort replacement of known Secret Env underlying values before ordinary Nitro text or JSON responses leave the server.
+Best-effort replacement of known Secret Env underlying values before ordinary server text or JSON responses leave the server.
 _Avoid_: Leak prevention, DLP, log scanning
 
 ## Relationships
 
 - The **Env Package** owns **Env Declarations**.
 - **Build Env** belongs to Vite integration.
-- **Runtime Env** belongs to Nitro integration.
-- **Runtime Env** is the Env Package's primary language for server runtime values; Nitro runtime config is currently a transport for those values, not the public Env API name.
+- **Runtime Env** belongs to Env Package server runtime behavior.
+- **Runtime Env** is the Env Package's primary language for server runtime values; Nitro runtime config is currently one host-adapter transport for those values, not the public Env API name.
 - **Server Env** is the public API naming pattern for server-code access to **Runtime Env**.
 - **Generated Server Env Type** is the preferred source for Agent Runtime Config types when an app uses Env Package declarations.
 - **Public Env** is the public API naming pattern for build-time public values.
@@ -79,7 +79,7 @@ _Avoid_: Leak prevention, DLP, log scanning
 > **Domain expert:** "Only if the SDK accepts the redacted wrapper. Most SDK calls need a **Secret Unseal** at the last responsible moment."
 >
 > **Dev:** "Does Env prevent every possible secret leak?"
-> **Domain expert:** "No. **Secret Env** provides default redaction and type friction; **Outbound Secret Redaction** is best-effort for normal Nitro responses."
+> **Domain expert:** "No. **Secret Env** provides default redaction and type friction; **Outbound Secret Redaction** is best-effort for normal server responses."
 
 ## Flagged Ambiguities
 

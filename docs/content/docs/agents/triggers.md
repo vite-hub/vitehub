@@ -18,7 +18,7 @@ import { runAgent } from '@vite-hub/agent'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  return runAgent(support, { runtime: 'nitro' }, await readBody(event))
+  return runAgent(support, { runtime: 'unknown' }, await readBody(event))
 })
 ```
 

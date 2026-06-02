@@ -165,7 +165,7 @@ function parseExampleFiles(packagesRoot: string, repoRoot: string) {
         .map(absolutePath => readExampleFile(frameworkRoot, absolutePath, catalogVersions, workspacePackageVersions))
         .filter(isVisibleExampleFile);
 
-      result[packageName] ||= { vite: [], nitro: [], nuxt: [] };
+      result[packageName] ||= { vite: [] };
       result[packageName][framework] = files;
     }
   }
@@ -304,7 +304,7 @@ export function parsePackageExamples(packagesRoot: string, repoRoot = resolve(pa
     const docsPath = typeof manifest.docsPath === "string" ? manifest.docsPath : packageName;
     const providers = (Array.isArray(manifest.providers) ? manifest.providers : []).map(normalizeProvider);
     const frameworks = normalizeFrameworks(manifest);
-    const packageFiles = filesByPackage[packageName] || { vite: [], nitro: [], nuxt: [] };
+    const packageFiles = filesByPackage[packageName] || { vite: [] };
     assertPhaseFilesExist(packageName, manifestPath, frameworks, packageFiles);
 
     examples.push({

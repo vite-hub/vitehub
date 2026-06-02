@@ -32,21 +32,23 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts
-// nitro.config.ts
-import { defineNitroConfig } from "nitro/config"
+// vite.config.ts
+import { hubKv } from "@vite-hub/kv/vite"
+import { nitro } from "nitro/vite"
+import { defineConfig } from "vite"
 
-export default defineNitroConfig({
-  modules: ["@vite-hub/kv/nitro"],
+export default defineConfig({
   kv: {
     driver: "fs-lite",
     base: ".data/kv",
   },
+  plugins: [hubKv(), nitro()],
 })
 ```
 
-## Vite and Nitro
+## Vite Integration
 
-Use `hubKv()` in Vite or `@vite-hub/kv/nitro` in Nitro. Both resolve the same `kv` config and expose the same `kv` runtime helper.
+Use `hubKv()` in Vite to resolve KV config and expose the `kv` runtime helper to server code.
 
 Providers include local `fs-lite`, [Cloudflare Workers KV](https://developers.cloudflare.com/kv/), and [Upstash Redis](https://upstash.com/docs/redis/overall/getstarted). The storage layer is built on [unstorage](https://unstorage.unjs.io/guide).
 

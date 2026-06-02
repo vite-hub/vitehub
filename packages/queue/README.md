@@ -39,17 +39,19 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts
-// nitro.config.ts
-import { defineNitroConfig } from "nitro/config"
+// vite.config.ts
+import { hubQueue } from "@vite-hub/queue/vite"
+import { nitro } from "nitro/vite"
+import { defineConfig } from "vite"
 
-export default defineNitroConfig({
-  modules: ["@vite-hub/queue/nitro"],
+export default defineConfig({
+  plugins: [hubQueue(), nitro()],
   queue: { provider: "cloudflare" },
 })
 ```
 
-## Vite and Nitro
+## Vite Integration
 
-Nitro discovers `server/queues/<name>.ts`; Vite also supports `src/<name>.queue.ts` through `hubQueue()`. The handler name comes from the file path, while provider output maps it to [Cloudflare Queues](https://developers.cloudflare.com/queues/) or [Vercel Queues](https://vercel.com/docs/queues).
+Use `hubQueue()` in Vite to discover `server/queues/<name>.ts` and `src/<name>.queue.ts`. The handler name comes from the file path, while provider output maps it to [Cloudflare Queues](https://developers.cloudflare.com/queues/) or [Vercel Queues](https://vercel.com/docs/queues).
 
 Learn more at [vitehub.dev](https://vitehub.dev).

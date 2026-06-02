@@ -4,7 +4,7 @@ import type { NitroModule } from "nitro/types"
 import { nitro } from "nitro/vite"
 
 import { env, SecretEnv, type EnvVariableDeclaration } from "../src/index.ts"
-import { envNitro } from "../src/nitro.ts"
+import { envNitro } from "../src/nitro/module.ts"
 import { envVite } from "../src/vite.ts"
 
 describe("types", () => {
@@ -27,7 +27,7 @@ describe("types", () => {
           source: env.source("TOKEN"),
         }),
       },
-      modules: ["@vite-hub/env/nitro"],
+      modules: [envNitro()],
     })).toMatchTypeOf<Plugin[]>()
   })
 })

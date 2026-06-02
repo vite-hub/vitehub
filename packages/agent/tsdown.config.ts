@@ -20,7 +20,7 @@ export default defineConfig({
     "src/cloudflare.ts",
     "src/cli.ts",
     "src/eval.ts",
-    "src/nitro.ts",
+    "src/internal/nitro.ts",
     "src/cloudflare/state.ts",
     "src/runtime/empty-registry.ts",
     "src/runtime/chat-devtools-handler.ts",

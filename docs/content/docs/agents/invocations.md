@@ -16,7 +16,7 @@ import support from '../agents/support'
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ prompt: string }>(event)
 
-  return runAgent(support, { runtime: 'nitro' }, {
+  return runAgent(support, { runtime: 'unknown' }, {
     prompt: body.prompt,
   })
 })
@@ -27,7 +27,7 @@ export default defineEventHandler(async (event) => {
 ```ts
 import { streamAgent } from '@vite-hub/agent'
 
-const result = await streamAgent(support, { runtime: 'nitro' }, {
+const result = await streamAgent(support, { runtime: 'unknown' }, {
   prompt: 'Summarize the latest support docs.',
 })
 ```

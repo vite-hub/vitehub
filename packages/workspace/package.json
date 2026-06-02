@@ -1,7 +1,7 @@
 {
   "name": "@vite-hub/workspace",
   "version": "0.0.1",
-  "description": "Agent-oriented filesystem state and Vite/Nitro integration for ViteHub.",
+  "description": "Agent-oriented filesystem state and Vite integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",
   "homepage": "https://github.com/vite-hub/vitehub#readme",
@@ -14,7 +14,6 @@
   "keywords": [
     "vitehub",
     "vite",
-    "nitro",
     "workspace",
     "cloudflare",
     "vercel"
@@ -36,7 +35,6 @@
     ".": "./dist/index.js",
     "./ai": "./dist/ai.js",
     "./loader": "./dist/loader.js",
-    "./nitro": "./dist/nitro.js",
     "./publish": "./dist/publish.js",
     "./test": "./dist/test.js",
     "./vite": "./dist/vite.js",

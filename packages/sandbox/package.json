@@ -14,7 +14,6 @@
   "keywords": [
     "vitehub",
     "vite",
-    "nitro",
     "sandbox",
     "cloudflare",
     "vercel"
@@ -34,9 +33,7 @@
   },
   "exports": {
     ".": "./dist/index.js",
-    "./nitro": "./dist/nitro.js",
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
-    "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./runtime/provider-loader": "./dist/runtime/provider-loader.js",
     "./runtime/providers/cloudflare": "./dist/runtime/providers/cloudflare.js",
     "./runtime/providers/vercel": "./dist/runtime/providers/vercel.js",

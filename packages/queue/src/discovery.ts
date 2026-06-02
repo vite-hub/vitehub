@@ -2,9 +2,11 @@ import {
   createDirectoryDefinitionSource,
   createSuffixDefinitionSource,
   discoverDefinitions,
+  mergeDefinitions,
   resolveDefinitionScanRoots,
   normalizeSuffixDefinitionName,
 } from "@vite-hub/internal/definition-catalog"
+import { resolve } from "pathe"
 
 import type { DiscoveredQueueDefinition } from "./types.ts"
 
@@ -24,7 +26,16 @@ export function discoverQueueDefinitions(options:
     ])
   }
 
-  return discoverDefinitions("queue", [
-    createSuffixDefinitionSource("vite-suffix", resolveDefinitionScanRoots(options.rootDir, options.scanDirs), queueSuffixPattern, normalizeSuffixQueueName),
-  ])
+  const roots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
+  const serverScanDirs = roots.map(root => resolve(root, "server"))
+
+  return mergeDefinitions(
+    "queue",
+    discoverDefinitions("queue", [
+      createSuffixDefinitionSource("vite-suffix", roots, queueSuffixPattern, normalizeSuffixQueueName),
+    ]),
+    discoverDefinitions("queue", [
+      createDirectoryDefinitionSource("nitro-server-queues", serverScanDirs, "queues"),
+    ]),
+  )
 }

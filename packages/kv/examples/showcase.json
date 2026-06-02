@@ -39,64 +39,6 @@
           ]
         }
       }
-    },
-    "nitro": {
-      "modes": {
-        "dev": {
-          "phases": {
-            "configure": "nitro.config.ts",
-            "run": "server/api/settings.get.ts"
-          },
-          "excludedFiles": [
-            "server/api/tests/"
-          ],
-          "supplementalFiles": [
-            "server/api/settings.put.ts",
-            "server/api/settings.delete.ts",
-            "package.json"
-          ]
-        },
-        "build": {
-          "phases": {
-            "configure": "nitro.config.ts",
-            "run": "server/api/settings.get.ts"
-          },
-          "excludedFiles": [
-            "server/api/tests/"
-          ],
-          "supplementalFiles": [
-            "server/api/settings.put.ts",
-            "server/api/settings.delete.ts",
-            "package.json"
-          ]
-        }
-      }
-    },
-    "nuxt": {
-      "modes": {
-        "dev": {
-          "phases": {
-            "configure": "nuxt.config.ts",
-            "run": "server/api/settings.get.ts"
-          },
-          "supplementalFiles": [
-            "server/api/settings.put.ts",
-            "server/api/settings.delete.ts",
-            "package.json"
-          ]
-        },
-        "build": {
-          "phases": {
-            "configure": "nuxt.config.ts",
-            "run": "server/api/settings.get.ts"
-          },
-          "supplementalFiles": [
-            "server/api/settings.put.ts",
-            "server/api/settings.delete.ts",
-            "package.json"
-          ]
-        }
-      }
     }
   }
 }

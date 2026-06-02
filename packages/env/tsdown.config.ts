@@ -12,7 +12,7 @@ export default defineConfig({
   dts: true,
   entry: [
     "src/index.ts",
-    "src/nitro.ts",
+    "src/internal/nitro.ts",
     "src/presets.ts",
     "src/nuxt.ts",
     "src/runtime/server.ts",

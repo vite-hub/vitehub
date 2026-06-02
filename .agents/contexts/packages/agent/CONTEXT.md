@@ -37,7 +37,7 @@ A host surface such as DevTools, a webhook, or an app route that invokes a resol
 _Avoid_: Chat handler, trigger definition, capability config
 
 **Chat Webhook Route**:
-The Agent Package generated Nitro POST route that receives platform webhooks for chat-capable Agents.
+The Agent Package generated POST route that receives platform webhooks for chat-capable Agents.
 _Avoid_: App route, Teams route, public registration helper
 
 **Chat Webhook Handler**:
@@ -45,7 +45,7 @@ The Agent Package runtime handler behind the Chat Webhook Route that resolves th
 _Avoid_: User route handler, adapter registration API, Chat Capability definition
 
 **Chat App Route**:
-The Agent Package generated Nitro POST route that lets application chat UIs send UI messages to chat-capable Agents.
+The Agent Package generated POST route that lets application chat UIs send UI messages to chat-capable Agents.
 _Avoid_: DevTools bridge, webhook route, client SDK route
 
 **Chat App Exposure**:

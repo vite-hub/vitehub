@@ -44,30 +44,6 @@
           ]
         }
       }
-    },
-    "nitro": {
-      "modes": {
-        "dev": {
-          "phases": {
-            "configure": "nitro.config.ts",
-            "define": "server/queues/welcome-email.ts",
-            "run": "server/api/welcome.post.ts"
-          },
-          "supplementalFiles": [
-            "package.json"
-          ]
-        },
-        "build": {
-          "phases": {
-            "configure": "nitro.config.ts",
-            "define": "server/queues/welcome-email.ts",
-            "run": "server/api/welcome.post.ts"
-          },
-          "supplementalFiles": [
-            "package.json"
-          ]
-        }
-      }
     }
   }
 }

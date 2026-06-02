@@ -1,7 +1,7 @@
 {
   "name": "@vite-hub/queue",
   "version": "0.0.1",
-  "description": "Queue primitives and Vite/Nitro deployment integration for ViteHub.",
+  "description": "Queue primitives and Vite deployment integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",
   "homepage": "https://github.com/vite-hub/vitehub#readme",
@@ -14,7 +14,6 @@
   "keywords": [
     "vitehub",
     "vite",
-    "nitro",
     "h3",
     "queue",
     "cloudflare",
@@ -25,10 +24,8 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
-    "./nitro": "./dist/nitro.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",
-    "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./runtime/state": "./dist/runtime/state.js",
     "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",
     "./vite": "./dist/vite.js",

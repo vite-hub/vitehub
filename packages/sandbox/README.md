@@ -20,7 +20,7 @@ Add `@cloudflare/sandbox` or `@vercel/sandbox` for the provider you use.
 ## Minimal API
 
 ```ts
-// server/sandboxes/release-notes.ts
+// src/release-notes.sandbox.ts
 import { defineSandbox } from "@vite-hub/sandbox"
 
 export default defineSandbox(async (payload: { notes?: string } = {}) => {
@@ -42,17 +42,19 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts
-// nitro.config.ts
-import { defineNitroConfig } from "nitro/config"
+// vite.config.ts
+import { hubSandbox } from "@vite-hub/sandbox/vite"
+import { nitro } from "nitro/vite"
+import { defineConfig } from "vite"
 
-export default defineNitroConfig({
-  modules: ["@vite-hub/sandbox/nitro"],
+export default defineConfig({
+  plugins: [hubSandbox(), nitro()],
   sandbox: { provider: "cloudflare" },
 })
 ```
 
-## Vite and Nitro
+## Vite Integration
 
-Nitro discovers `server/sandboxes/<name>.ts`. Vite also supports `src/<name>.sandbox.ts` through `hubSandbox()`. Provider config selects [Cloudflare Sandbox SDK](https://developers.cloudflare.com/sandbox/) or [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox/).
+Use `hubSandbox()` in Vite to discover `src/<name>.sandbox.ts`. Provider config selects [Cloudflare Sandbox SDK](https://developers.cloudflare.com/sandbox/) or [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox/).
 
 Learn more at [vitehub.dev](https://vitehub.dev).

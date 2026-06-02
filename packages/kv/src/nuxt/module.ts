@@ -1,5 +1,6 @@
 import { defineNuxtModule } from "@nuxt/kit"
-import { assertNoNitroModule, assertNoVitePlugin } from "@vite-hub/internal/nitro"
+import { assertNoNitroModule, assertNoVitePlugin, hasNitroModule } from "@vite-hub/internal/nitro"
+import kvNitroModule from "../nitro/module.ts"
 import type { NitroConfig } from "nitro/types"
 import type { NuxtModule } from "@nuxt/schema"
 
@@ -17,8 +18,8 @@ type ViteConfig = {
 
 function installKVNitroModule(nitro: NitroConfig, kv: KVModuleOptions | undefined) {
   nitro.modules ||= []
-  if (!nitro.modules.includes(NITRO_MODULE_ID)) {
-    nitro.modules.push(NITRO_MODULE_ID)
+  if (!nitro.modules.some(entry => hasNitroModule(entry, NITRO_MODULE_ID, NITRO_MODULE_NAME))) {
+    nitro.modules.push(kvNitroModule)
   }
   if (kv !== undefined) {
     nitro.kv = kv

@@ -64,6 +64,19 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
+  it("discovers server schedules through Vite discovery", async () => {
+    const rootDir = await createTempDir("vitehub-schedule-vite-server-discovery-")
+    await mkdir(join(rootDir, "server", "schedules", "emails"), { recursive: true })
+    await mkdir(join(rootDir, "server", "schedules", "billing"), { recursive: true })
+    await writeFile(join(rootDir, "server", "schedules", "emails", "digest.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "server", "schedules", "billing", "index.ts"), "export default null\n", "utf8")
+
+    expect(discoverScheduleDefinitions({ rootDir })).toMatchObject([
+      { name: "billing", source: "nitro-server-schedules" },
+      { name: "emails/digest", source: "nitro-server-schedules" },
+    ])
+  })
+
   it("does not parse defineSchedule options to override discovery identity", async () => {
     const rootDir = await createTempDir("vitehub-schedule-ignore-inline-id-")
     await writeFile(

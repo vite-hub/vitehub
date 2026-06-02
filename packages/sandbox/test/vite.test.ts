@@ -29,7 +29,7 @@ afterEach(async () => {
 })
 
 describe("hubSandbox", () => {
-  it("exposes Vite feature state and attaches a Nitro bridge", async () => {
+  it("exposes Vite feature state and attaches a server host adapter", async () => {
     const rootDir = await createViteRoot()
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox()

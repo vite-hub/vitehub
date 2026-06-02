@@ -159,7 +159,7 @@ describe("Nuxt module", () => {
 
     await module(undefined, nuxt as never)
 
-    expect(nuxt.options.nitro!.modules).toEqual(["@vite-hub/env/nitro"])
+    expect(nuxt.options.nitro!.modules).toMatchObject([{ name: "@vite-hub/env" }])
     expect(nuxt.options.nitro!.env).toBe(env)
     expect(nuxt.options.nitro!.runtimeConfig).toEqual({
       public: {
@@ -213,7 +213,7 @@ describe("Nuxt module", () => {
 
     await module(undefined, nuxt as never)
 
-    expect(nuxt.options.nitro!.modules).toEqual(["@vite-hub/env/nitro"])
+    expect(nuxt.options.nitro!.modules).toMatchObject([{ name: "@vite-hub/env" }])
     expect(nuxt.options.nitro!.env).toBeUndefined()
   })
 

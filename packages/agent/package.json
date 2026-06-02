@@ -1,7 +1,7 @@
 {
   "name": "@vite-hub/agent",
   "version": "0.0.1",
-  "description": "Agent DX layer and Vite/Nitro integration for ViteHub.",
+  "description": "Agent DX layer and Vite integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",
   "homepage": "https://github.com/vite-hub/vitehub#readme",
@@ -14,7 +14,6 @@
   "keywords": [
     "vitehub",
     "vite",
-    "nitro",
     "agent",
     "ai",
     "cloudflare",
@@ -36,7 +35,7 @@
     "./mcp/stdio": "./dist/mcp/stdio.js",
     "./memory": "./dist/memory.js",
     "./messages": "./dist/messages.js",
-    "./nitro": "./dist/nitro.js",
+    "./internal/nitro": "./dist/internal/nitro.js",
     "./runtime/chat-devtools-handler": "./dist/runtime/chat-devtools-handler.js",
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
     "./runtime/nitro-runtime-config": "./dist/runtime/nitro-runtime-config.js",

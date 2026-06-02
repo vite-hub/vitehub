@@ -70,7 +70,8 @@ export function hubSchedule(): ScheduleVitePlugin {
       }
     },
     handleHotUpdate(context) {
-      if (!/\.schedule\.(?:c|m)?[jt]s$/i.test(normalize(context.file))) {
+      const file = normalize(context.file).replace(/\\/g, "/")
+      if (!/\.schedule\.(?:c|m)?[jt]s$/i.test(file) && !/\/server\/schedules\/.*\.(?:c|m)?[jt]s$/i.test(file)) {
         return
       }
 

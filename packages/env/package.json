@@ -1,7 +1,7 @@
 {
   "name": "@vite-hub/env",
   "version": "0.0.1",
-  "description": "Safe build and runtime environment variables for Vite and Nitro.",
+  "description": "Safe build and runtime environment variables for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",
   "homepage": "https://github.com/vite-hub/vitehub#readme",
@@ -14,7 +14,6 @@
   "keywords": [
     "vitehub",
     "vite",
-    "nitro",
     "env",
     "environment-variables",
     "runtime-config"
@@ -27,13 +26,13 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./nitro": {
-      "types": "./dist/nitro.d.ts",
-      "import": "./dist/nitro.js"
-    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js"
+    },
+    "./internal/nitro": {
+      "types": "./dist/internal/nitro.d.ts",
+      "import": "./dist/internal/nitro.js"
     },
     "./presets": {
       "types": "./dist/presets.d.ts",

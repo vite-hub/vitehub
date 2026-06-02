@@ -62,6 +62,19 @@ describe("discoverQueueDefinitions", () => {
     ])
   })
 
+  it("discovers server queue directories through Vite discovery", async () => {
+    const rootDir = await createTempDir("vitehub-queue-vite-server-discovery-")
+    await mkdir(join(rootDir, "server", "queues", "emails"), { recursive: true })
+    await mkdir(join(rootDir, "server", "queues", "billing"), { recursive: true })
+    await writeFile(join(rootDir, "server", "queues", "emails", "welcome.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "server", "queues", "billing", "index.ts"), "export default null\n", "utf8")
+
+    expect(discoverQueueDefinitions({ rootDir })).toMatchObject([
+      { name: "billing", source: "nitro-server-queues" },
+      { name: "emails/welcome", source: "nitro-server-queues" },
+    ])
+  })
+
   it("rejects duplicate queue names across discovery roots", async () => {
     const viteRootDir = await createTempDir("vitehub-queue-vite-duplicate-")
     const viteScanDir = await createTempDir("vitehub-queue-vite-duplicate-scan-")

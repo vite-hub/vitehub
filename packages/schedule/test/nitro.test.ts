@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
-import scheduleNitroModule from "../src/nitro.ts"
+import scheduleNitroModule from "../src/nitro/module.ts"
 
 describe("Nitro schedule integration", () => {
   it("writes and aliases the stable schedule registry", async () => {

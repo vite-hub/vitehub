@@ -296,7 +296,7 @@ describe("Nuxt module", () => {
     await module(undefined, nuxt as never)
     await module(undefined, nuxt as never)
 
-    expect(nuxt.options.nitro!.modules).toEqual(["@vite-hub/kv/nitro"])
+    expect(nuxt.options.nitro!.modules).toMatchObject([{ name: "@vite-hub/kv" }])
     expect(nuxt.options.nitro!.imports).toBe(false)
     expect(nuxt.options.nitro!.kv).toEqual({
       driver: "upstash",
@@ -309,7 +309,7 @@ describe("Nuxt module", () => {
 
     await nuxt.runHook("nitro:config", nitroConfig)
 
-    expect(nitroConfig.modules).toEqual(["@vite-hub/kv/nitro"])
+    expect(nitroConfig.modules).toMatchObject([{ name: "@vite-hub/kv" }])
     expect(nitroConfig.kv).toEqual({
       driver: "upstash",
     })
@@ -360,7 +360,7 @@ describe("Nuxt module", () => {
 
     await module(undefined, nuxt as never)
 
-    expect(nuxt.options.nitro!.modules).toEqual(["@vite-hub/kv/nitro"])
+    expect(nuxt.options.nitro!.modules).toMatchObject([{ name: "@vite-hub/kv" }])
     expect(nuxt.options.nitro!.kv).toBeUndefined()
 
     const nitroConfig: NitroHarnessOptions = {
@@ -369,7 +369,7 @@ describe("Nuxt module", () => {
 
     await nuxt.runHook("nitro:config", nitroConfig)
 
-    expect(nitroConfig.modules).toEqual(["@vite-hub/kv/nitro"])
+    expect(nitroConfig.modules).toMatchObject([{ name: "@vite-hub/kv" }])
     expect(nitroConfig.kv).toBeUndefined()
   })
 
@@ -386,7 +386,7 @@ describe("Nuxt module", () => {
 
     await module({ driver: "fs-lite", base: ".cache/kv" }, nuxt as never)
 
-    expect(nuxt.options.nitro!.modules).toEqual(["@vite-hub/kv/nitro"])
+    expect(nuxt.options.nitro!.modules).toMatchObject([{ name: "@vite-hub/kv" }])
     expect(nuxt.options.nitro!.kv).toEqual({
       base: ".cache/kv",
       driver: "fs-lite",

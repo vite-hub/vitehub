@@ -46,10 +46,15 @@ async function createPlaygroundCopy(prefix: string) {
 
 async function writeQueueNitroConfig(rootDir: string) {
   await writeFile(join(rootDir, "nitro.config.ts"), [
+    `import { hubKv } from "@vite-hub/kv/vite"`,
+    `import { hubQueue } from "@vite-hub/queue/vite"`,
     `import { defineNitroConfig } from "nitro/config"`,
     "",
+    "const kv = hubKv()",
+    "const queue = hubQueue()",
+    "",
     "export default defineNitroConfig({",
-    `  modules: ["@vite-hub/queue/nitro", "@vite-hub/kv/nitro"],`,
+    "  modules: [queue.nitro, kv.nitro],",
     "  kv: {},",
     "  queue: {},",
     `  serverDir: "./server",`,

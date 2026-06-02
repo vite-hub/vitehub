@@ -4,7 +4,6 @@
   <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
   <img alt="Vite" src="https://img.shields.io/badge/Vite-discovery-646cff?style=flat-square">
-  <img alt="Nitro" src="https://img.shields.io/badge/Nitro-runtime-00dc82?style=flat-square">
 </p>
 
 `@vite-hub/workspace` gives agents and server code a file-system context they can read, diff, and, when opened in write mode, update.
@@ -82,9 +81,9 @@ export default defineConfig({
 
 Need the workspace to run generated code instead of only reading and writing files? Pair it with [`@vite-hub/sandbox`](../sandbox/README.md) so sessions can execute inside an isolated provider runtime.
 
-## Vite and Nitro
+## Vite Integration
 
-Nitro workspaces live under `server/workspaces/**`; an agent can also colocate one at `server/agents/<name>/config.ts` by adding `workspace` to its `defineAgent()` call. Vite emits the workspace manifest for local development, and `@vite-hub/workspace/nitro` registers the runtime store.
+Use `hubWorkspace()` in Vite to discover workspace definitions, emit the workspace manifest for local development, and make the runtime store available to server code.
 
 Built on [`@vite-hub/source`](../source/README.md), [`@vite-hub/shell`](../shell/README.md), [files-sdk](https://files-sdk.dev/), and [isomorphic-git](https://isomorphic-git.org/).
 

@@ -8,7 +8,7 @@ export function getAgentRuntimeConfig(event?: unknown): Record<string, unknown> 
 }
 
 declare global {
-  // Installed by @vite-hub/env/nitro when that integration is present.
+  // Installed by the Env internal Nitro adapter when that compatibility path is present.
   // eslint-disable-next-line no-var
   var __vitehubApplyRuntimeEnvToRuntimeConfig: ((runtimeConfig: Record<string, unknown>, event?: unknown) => Record<string, unknown>) | undefined
 }

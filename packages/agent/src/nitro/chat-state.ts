@@ -261,7 +261,7 @@ export async function resolveChatState(
   if (context.cloudflare?.env) {
     const namespace = context.cloudflare.env.CHAT_STATE
     if (!isCloudflareAgentStateNamespace(namespace)) {
-      throw new Error("[vitehub] Cloudflare chat handling requires the CHAT_STATE Durable Object binding. Use @vite-hub/agent/nitro with providers.state.provider: \"auto\" or configure chat({ state }).")
+      throw new Error("[vitehub] Cloudflare chat handling requires the CHAT_STATE Durable Object binding. Use the Agent Vite integration with providers.state.provider: \"auto\" or configure chat({ state }).")
     }
     return namespaceChatState(getCloudflareChatState(options, namespace), stateKeyPrefix)
   }

@@ -6,7 +6,9 @@ import { inspect, promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { env, envNitro, openWorkflowEnv } from "../src/nitro.ts"
+import { env } from "../src/index.ts"
+import { envNitro } from "../src/nitro/module.ts"
+import { openWorkflowEnv } from "../src/presets.ts"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
 

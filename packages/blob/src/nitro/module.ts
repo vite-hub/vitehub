@@ -38,7 +38,7 @@ const blobNitroModule: NitroModule = {
     nitro.options.alias["@vite-hub/blob/runtime/state"] = resolveRuntimeEntry("../runtime/state", "@vite-hub/blob/runtime/state")
 
     nitro.options.plugins ||= []
-    const plugin = resolveRuntimeEntry("../runtime/nitro-plugin", "@vite-hub/blob/runtime/nitro-plugin")
+    const plugin = resolveRuntimeEntry("../runtime/nitro-plugin", "@vite-hub/blob/internal/runtime/nitro-plugin")
     if (!nitro.options.plugins.includes(plugin)) {
       nitro.options.plugins.push(plugin)
     }

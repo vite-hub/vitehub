@@ -59,7 +59,7 @@ export const kvFeatureEngine = createFeatureEngine<KVModuleOptions, KVModuleOpti
     target.options.alias["@vite-hub/kv"] = resolveRuntimeEntry("./index", "@vite-hub/kv")
 
     target.options.plugins ||= []
-    const plugin = resolveRuntimeEntry("./runtime/nitro-plugin", "@vite-hub/kv/runtime/nitro-plugin")
+    const plugin = resolveRuntimeEntry("./runtime/nitro-plugin", "@vite-hub/kv/internal/runtime/nitro-plugin")
     if (!target.options.plugins.includes(plugin))
       target.options.plugins.push(plugin)
 

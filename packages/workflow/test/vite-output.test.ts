@@ -92,13 +92,18 @@ async function writeWorkflowNitroConfig(rootDir: string, options: {
 } = {}) {
   const imports = options.env
     ? [
-        `import { env } from "@vite-hub/env/nitro"`,
+        `import { env } from "@vite-hub/env"`,
+        `import { envNitro } from "@vite-hub/env/internal/nitro"`,
+        `import { hubWorkflow } from "@vite-hub/workflow/vite"`,
         `import { defineNitroConfig } from "nitro/config"`,
       ]
-    : [`import { defineNitroConfig } from "nitro/config"`]
+    : [
+        `import { hubWorkflow } from "@vite-hub/workflow/vite"`,
+        `import { defineNitroConfig } from "nitro/config"`,
+      ]
   const modules = options.env
-    ? `["@vite-hub/env/nitro", "@vite-hub/workflow/nitro"]`
-    : `["@vite-hub/workflow/nitro"]`
+    ? `[envNitro(), workflow.nitro]`
+    : `[workflow.nitro]`
   const workflowOptions = options.provider === "openworkflow"
     ? `{ provider: "openworkflow", postgres: { url: "postgres://example" } }`
     : options.provider
@@ -113,6 +118,8 @@ async function writeWorkflowNitroConfig(rootDir: string, options: {
 
   await writeFile(join(rootDir, "nitro.config.ts"), [
     ...imports,
+    "",
+    "const workflow = hubWorkflow()",
     "",
     "export default defineNitroConfig({",
     `  modules: ${modules},`,

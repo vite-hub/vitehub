@@ -1,9 +1,11 @@
 import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 
 import {
   createDirectoryDefinitionSource,
   createSuffixDefinitionSource,
   discoverDefinitions,
+  mergeDefinitions,
   normalizePathDefinitionName,
   normalizeSuffixDefinitionName,
   resolveDefinitionScanRoots,
@@ -306,9 +308,21 @@ export function discoverScheduleDefinitions(options:
     ])
   }
 
-  return discoverDefinitions("schedule", [
-    createSuffixDefinitionSource("vite-suffix", resolveDefinitionScanRoots(options.rootDir, options.scanDirs), scheduleSuffixPattern, normalizeSuffixScheduleName, {
-      createDefinition: createDiscoveredScheduleDefinition("vite-suffix"),
-    }),
-  ])
+  const roots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
+  const serverScanDirs = roots.map(root => resolve(root, "server"))
+
+  return mergeDefinitions(
+    "schedule",
+    discoverDefinitions("schedule", [
+      createSuffixDefinitionSource("vite-suffix", roots, scheduleSuffixPattern, normalizeSuffixScheduleName, {
+        createDefinition: createDiscoveredScheduleDefinition("vite-suffix"),
+      }),
+    ]),
+    discoverDefinitions("schedule", [
+      createDirectoryDefinitionSource("nitro-server-schedules", serverScanDirs, "schedules", {
+        createDefinition: createDiscoveredScheduleDefinition("nitro-server-schedules"),
+        normalizeName: normalizeDirectoryScheduleName,
+      }),
+    ]),
+  )
 }

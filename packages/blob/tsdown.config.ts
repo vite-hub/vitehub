@@ -35,7 +35,6 @@ export default defineConfig({
     "src/drivers/vercel.ts",
     "src/drivers/vercel-bundled.ts",
     "src/index.ts",
-    "src/nitro.ts",
     "src/vite.ts",
     "src/runtime/cloudflare-vite.ts",
     "src/runtime/nitro-plugin.ts",

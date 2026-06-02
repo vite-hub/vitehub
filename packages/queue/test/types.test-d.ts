@@ -3,7 +3,7 @@ import type { NitroModule } from "nitro/types"
 import type { Plugin } from "vite"
 
 import { defineQueue } from "../src/definition.ts"
-import queueNitroModule from "../src/nitro.ts"
+import queueNitroModule from "../src/nitro/module.ts"
 import { hubQueue } from "../src/vite.ts"
 
 it("returns a vite plugin", () => {
@@ -11,7 +11,7 @@ it("returns a vite plugin", () => {
   expectTypeOf(hubQueue({ provider: "cloudflare" })).toMatchTypeOf<Plugin>()
 })
 
-it("exposes a Nitro module surface", () => {
+it("exposes a server host adapter on the Vite plugin", () => {
   expectTypeOf(hubQueue().nitro).toMatchTypeOf<NitroModule>()
   expectTypeOf(queueNitroModule).toMatchTypeOf<NitroModule>()
 })

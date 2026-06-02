@@ -4,7 +4,6 @@
   <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
   <img alt="AI SDK" src="https://img.shields.io/badge/AI%20SDK-models-111827?style=flat-square">
-  <img alt="Nitro" src="https://img.shields.io/badge/Nitro-routes-00dc82?style=flat-square">
 </p>
 
 `@vite-hub/agent` defines model-backed agents from files such as `server/agents/support/config.ts`.
@@ -56,15 +55,6 @@ export default defineConfig({
 })
 ```
 
-```ts
-// nitro.config.ts
-import { defineNitroConfig } from "nitro/config"
-
-export default defineNitroConfig({
-  modules: ["@vite-hub/workspace/nitro", "@vite-hub/agent/nitro"],
-})
-```
-
 ## Capabilities
 
 - `chat()` exposes the agent as a chat surface; see the [AI agent tutorial](https://vitehub.dev/docs/tutorials/build-ai-chatbot).
@@ -78,6 +68,6 @@ export default defineNitroConfig({
 
 ## Built on
 
-Vite discovers agent files for local development. Nitro mounts the generated agent routes. Model execution uses [AI SDK](https://ai-sdk.dev/docs); provider tools stay capability-scoped instead of becoming one global agent config.
+Vite discovers agent files and ViteHub generates the host route/runtime state for the active server host. Model execution uses [AI SDK](https://ai-sdk.dev/docs); provider tools stay capability-scoped instead of becoming one global agent config.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

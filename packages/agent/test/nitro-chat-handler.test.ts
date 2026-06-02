@@ -30,7 +30,7 @@ describe("agent Nitro chat routes", () => {
   it("exposes chat.message through an AI SDK-compatible route", async () => {
     const { DefaultChatTransport, readUIMessageStream } = await import("ai")
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentChatHandler } = await import("../src/nitro.ts")
+    const { defineAgentChatHandler } = await import("../src/internal/nitro.ts")
     const seen: Array<{ chat: unknown, messages: string[], run: unknown }> = []
     const agent = defineAgent({
       capabilities: [chat({ app: true, sessions: true })],
@@ -89,7 +89,7 @@ describe("agent Nitro chat routes", () => {
 
   it("requires an agent route param for registry chat handlers", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentChatRegistryHandler } = await import("../src/nitro.ts")
+    const { defineAgentChatRegistryHandler } = await import("../src/internal/nitro.ts")
     const agent = defineAgent({
       capabilities: [chat({ app: true })],
       run: () => "registry answer",
@@ -114,7 +114,7 @@ describe("agent Nitro chat routes", () => {
 
   it("returns a bad request when the chat route receives no UI messages", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentChatHandler } = await import("../src/nitro.ts")
+    const { defineAgentChatHandler } = await import("../src/internal/nitro.ts")
     const app = createApp()
     app.use(defineAgentChatHandler(defineAgent({
       capabilities: [chat({ app: true })],
@@ -132,7 +132,7 @@ describe("agent Nitro chat routes", () => {
 
   it("does not expose agents without Chat App Exposure through chat route handlers", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentChatHandler } = await import("../src/nitro.ts")
+    const { defineAgentChatHandler } = await import("../src/internal/nitro.ts")
     const app = createApp()
     app.use(defineAgentChatHandler(defineAgent({
       capabilities: [chat()],

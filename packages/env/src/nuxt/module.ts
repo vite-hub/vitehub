@@ -25,7 +25,7 @@ function hasEnvNitroModule(entry: NitroModuleInput): boolean {
 }
 
 function createEnvNitroModuleEntry(options: EnvIntegrationOptions): NitroModuleInput {
-  return Object.keys(options).length === 0 ? NITRO_MODULE_ID : envNitro(options)
+  return envNitro(options)
 }
 
 function installEnvNitroModule(nitro: EnvNitroConfig, env: EnvNitroConfigOptions | undefined, options: EnvIntegrationOptions): void {

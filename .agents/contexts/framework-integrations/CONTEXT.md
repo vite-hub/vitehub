@@ -1,6 +1,6 @@
 # Framework Integrations
 
-Framework Integrations names how ViteHub packages connect portable declarations to Vite builds, Nitro servers, generated registries, and provider output.
+Framework Integrations names how ViteHub packages connect portable declarations to Vite builds, generated registries, server host adapters, and provider output.
 
 ## Language
 
@@ -20,9 +20,9 @@ _Avoid_: Inline id, definition id override, parsed helper option
 The build and dev integration installed through a Vite plugin.
 _Avoid_: Nitro module, runtime client
 
-**Nitro Integration**:
-The server integration installed through a Nitro module.
-_Avoid_: Vite plugin, route helper
+**Server Host Adapter**:
+Host-specific wiring that lets ViteHub-generated server primitives run in a server host such as Nitro, Node, Cloudflare Workers, or Vercel.
+_Avoid_: Framework integration, Definition, package API
 
 **Runtime Registry**:
 A generated module that maps discovered names to lazy-loaded Definitions.
@@ -33,7 +33,7 @@ Generated deployment or runtime artifacts required by a provider.
 _Avoid_: Runtime option, user handler
 
 **Integration Options**:
-Configuration passed to framework integrations such as Vite plugins, Vite config, Nitro modules, or Nitro config.
+Configuration passed to framework integrations such as Vite plugins and Vite config.
 _Avoid_: Invocation options, definition options
 
 **Definition Options**:
@@ -68,8 +68,8 @@ _Avoid_: Capability factory, invocation helper, runtime helper
 The direct default export of a package-owned Definition Boundary Helper from a discovered definition file.
 _Avoid_: Named export aggregate, local binding indirection, helper call elsewhere in source
 
-**Nitro Auto Import**:
-A Nitro Integration convenience that makes selected ViteHub helpers available to server code without local import statements.
+**Host Auto Import**:
+A host adapter convenience that makes selected ViteHub helpers available to server code without local import statements.
 _Avoid_: generated import path, hidden capability, runtime wiring
 
 **Stable ViteHub Import Path**:
@@ -83,13 +83,13 @@ _Avoid_: Virtual module path, generated file path, framework import path
 - **Discovery Identity** comes from discovery location rather than Definition Options parsed from user source.
 - **Discovery Identity** is the framework discovery rule for all package-owned Discovered Definitions, not a package-specific rule.
 - A **Vite Integration** can discover Definitions and generate Provider Output.
-- A **Nitro Integration** can discover Definitions and write a Runtime Registry.
+- A **Server Host Adapter** can wire generated Runtime Registries, routes, host runtime state, and Provider Output for a server host.
 - A **Runtime Registry** contains Discovered Definitions.
 - **Integration Options** are resolved into Runtime Config when runtime code needs them.
 - **Definition Options** travel with one Definition.
 - **Build-Extracted Definition Options** can be extracted only from the direct discovered default export, and only for non-identity Definition Options.
 - **Invocation Options** are supplied to Runtime Helpers.
-- **Nitro Auto Imports** should cover Definition Boundary Helpers and narrow read-oriented Runtime Helpers, not behavior-starting Invocation Helpers.
+- **Host Auto Imports** should cover Definition Boundary Helpers and narrow read-oriented Runtime Helpers, not behavior-starting Invocation Helpers.
 - **Definition Boundary Helpers** describe or validate a discovered Definition; they do not rename it.
 - First-class discovered definition files use a **Discovered Definition Export**.
 - A direct default-exported **Definition Boundary Helper** is the only source shape eligible for Build-Extracted Definition Options.
@@ -109,10 +109,11 @@ _Avoid_: Virtual module path, generated file path, framework import path
 ## Flagged Ambiguities
 
 - "composable" was used for runtime calls - resolved: use **Runtime Helper** unless referring to a Nuxt or Vue composable.
-- Vite and Nitro behavior were considered part of Definitions - resolved: Definitions stay portable; framework-specific behavior belongs to **Vite Integration** or **Nitro Integration**.
+- Vite and Nitro behavior were considered part of Definitions - resolved: Definitions stay portable; public framework behavior belongs to **Vite Integration**, and host-specific server wiring belongs to **Server Host Adapters**.
 - Provider fields were considered runtime-call options - resolved: use **Provider Selection** for provider choices that affect generated output or deployment binding.
 - Framework virtual modules and generated file paths were treated as app-facing imports - resolved: use **Stable ViteHub Import Path** for app-facing imports, with framework-specific paths kept as integration details unless an ADR makes them public.
 - Inline Definition Options were considered valid sources for discovered names - resolved: use **Discovery Identity** from discovery location instead.
 - Discovery Identity was considered separately for schedules and workflows - resolved: use the same location-derived rule for every framework-discovered `defineX` surface.
 - Static helper option extraction was considered generally valid from arbitrary local bindings - resolved: allow **Build-Extracted Definition Options** only from the direct discovered default export.
 - Named exports and local binding indirection were considered valid discovered definition shapes - resolved: first-class discovered definition files use a direct default-exported package-owned Definition Boundary Helper.
+- Nitro was considered a first-class public Framework Integration - resolved by ADR 0039: ViteHub is Vite-first, while Nitro remains a supported server host composition target or internal compatibility adapter.

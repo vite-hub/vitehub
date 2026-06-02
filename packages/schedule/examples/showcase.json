@@ -45,34 +45,6 @@
           ]
         }
       }
-    },
-    "nitro": {
-      "modes": {
-        "dev": {
-          "phases": {
-            "configure": "nitro.config.ts",
-            "define": "server/schedules/daily-report.ts",
-            "run": "server/api/schedules/index.post.ts"
-          },
-          "supplementalFiles": [
-            "server/schedules/database-cleanup.ts",
-            "server/api/schedules/index.get.ts",
-            "package.json"
-          ]
-        },
-        "build": {
-          "phases": {
-            "configure": "nitro.config.ts",
-            "define": "server/schedules/daily-report.ts",
-            "run": "server/api/schedules/index.post.ts"
-          },
-          "supplementalFiles": [
-            "server/schedules/database-cleanup.ts",
-            "server/api/schedules/index.get.ts",
-            "package.json"
-          ]
-        }
-      }
     }
   }
 }

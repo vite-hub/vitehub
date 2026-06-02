@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
-import queueNitroModule from "../src/nitro.ts"
+import queueNitroModule from "../src/nitro/module.ts"
 
 describe("Nitro module", () => {
   it("auto-imports queue definition and read helpers only", async () => {
