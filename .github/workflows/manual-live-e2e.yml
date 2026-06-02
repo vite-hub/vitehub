@@ -128,6 +128,9 @@ jobs:
         id: prepare_vercel
         if: matrix.provider == 'vercel'
         env:
+          BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+          KV_REST_API_TOKEN: ${{ secrets.KV_REST_API_TOKEN }}
+          KV_REST_API_URL: ${{ secrets.KV_REST_API_URL }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           APP_DIR="playground/vite"
@@ -155,30 +158,16 @@ jobs:
             [kv_url]=KV_REST_API_URL
           )
 
-          blob_token="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" BLOB_READ_WRITE_TOKEN)"
-          if [ -z "$blob_token" ]; then
-            create_log="$(mktemp)"
-            if ! npx --yes "vercel@$VERCEL_CLI_VERSION" blob create-store "vitehub-workspace-vite" --access private --region iad1 --yes --environment production --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >"$create_log" 2>&1; then
-              if ! grep -q 'existing environment variable with name BLOB_READ_WRITE_TOKEN' "$create_log"; then
-                cat "$create_log" >&2
-                exit 1
-              fi
-            fi
-            rm -f "$create_log"
-            VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
-              npx --yes "vercel@$VERCEL_CLI_VERSION" env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
-            if [ -z "$blob_token" ]; then
-              blob_token="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" BLOB_READ_WRITE_TOKEN)"
-            fi
-          fi
-
           missing=()
 
           for output_name in "${!REQUIRED_ENV_KEYS[@]}"; do
             env_name="${REQUIRED_ENV_KEYS[$output_name]}"
             value="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" "$env_name")"
-            if [ "$env_name" = "BLOB_READ_WRITE_TOKEN" ] && [ -z "$value" ]; then
-              value="$blob_token"
+            fallback_value="${!env_name:-}"
+            if [ -z "$value" ] && [ -n "$fallback_value" ]; then
+              echo "::add-mask::$fallback_value"
+              npx --yes "vercel@$VERCEL_CLI_VERSION" env add "$env_name" production --value "$fallback_value" --force --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
+              value="$fallback_value"
             fi
 
             if [ -z "$value" ]; then
@@ -187,6 +176,7 @@ jobs:
             fi
 
             echo "::add-mask::$value"
+            printf -v "$output_name" "%s" "$value"
             {
               echo "${output_name}<<EOF"
               echo "$value"
@@ -195,11 +185,11 @@ jobs:
           done
 
           if [ "${#missing[@]}" -gt 0 ]; then
-            printf 'Vercel production env verification failed: missing %s on the linked project.\n' "${missing[*]}" >&2
+            printf 'Vercel production env verification failed: missing %s on the linked project and GitHub Production environment.\n' "${missing[*]}" >&2
             exit 1
           fi
 
-          KV_URL="$(node .github/scripts/get-env-value.mjs "$PULLED_ENV_FILE" KV_REST_API_URL)"
+          KV_URL="${kv_url:-}"
           case "$KV_URL" in
             https://*) ;;
             *)
