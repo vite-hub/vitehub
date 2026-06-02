@@ -51,6 +51,7 @@ export interface ChatDevtoolsMetadata {
   instructions?: string[]
   title?: string
   tools?: ChatDevtoolsToolDefinition[]
+  version?: string
 }
 
 export interface ChatDevtoolsMessage {
@@ -78,6 +79,7 @@ export interface ChatDevtoolsStateResult {
   title?: string
   tools?: ChatDevtoolsToolDefinition[]
   uiMessages?: UIMessage[]
+  version?: string
 }
 
 export interface ChatDevtoolsSendInput {

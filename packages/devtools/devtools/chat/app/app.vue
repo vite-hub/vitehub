@@ -78,6 +78,7 @@ const splitterStyle = computed(() => ({
 }))
 const thinkingFallback = computed(() => state.value.thinkingFallback || undefined)
 const chatTitleTarget = computed(() => normalizeChatTitle(selectedChat()?.title || state.value.title))
+const agentVersion = computed(() => state.value.version?.trim())
 const recentTools = computed(() => {
   const tools = new Map<string, ChatDevtoolsTool>()
   for (const message of messages.value) {
@@ -906,6 +907,15 @@ onBeforeUnmount(() => {
           <span class="min-w-0 truncate">
             {{ chatTitleTarget }}
           </span>
+          <UBadge
+            v-if="agentVersion"
+            color="neutral"
+            variant="subtle"
+            size="sm"
+            class="ml-2 shrink-0"
+          >
+            v{{ agentVersion }}
+          </UBadge>
         </h1>
         <UButton
           icon="i-lucide-trash-2"

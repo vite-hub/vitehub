@@ -418,6 +418,7 @@ type AgentSettingsBase<
   model?: AgentModelResolver<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
   title?: string
+  version?: string
   workspace?: WorkspaceAgentWorkspaceConfig
 }
 
@@ -446,6 +447,7 @@ export interface AgentDefinition<
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
   title?: string
+  version?: string
   workspace?: WorkspaceAgentWorkspaceConfig
 }
 
@@ -695,7 +697,9 @@ export interface AgentDevtoolsToolDefinition {
 export interface AgentDevtoolsMetadata {
   files?: AgentDevtoolsFileTreeItem[]
   instructions?: string[]
+  title?: string
   tools?: AgentDevtoolsToolDefinition[]
+  version?: string
 }
 
 export interface AgentAdapterResult {
