@@ -3,7 +3,7 @@ import { defu } from "defu"
 import { normalizeHosting } from "@vite-hub/internal/feature-bridge/hosting"
 import { isPlainObject } from "@vite-hub/internal/object"
 
-import type { OpenWorkflowPostgresOptions, OpenWorkflowSqliteOptions, OpenWorkflowWorkerOptions, ResolvedWorkflowOptions, RuntimeEnvDeclarationLike, WorkflowModuleOptions, WorkflowRuntimeConfigValue, WorkflowSharedOptions } from "./types.ts"
+import type { OpenWorkflowPostgresOptions, OpenWorkflowSqliteOptions, OpenWorkflowWorkerOptions, ResolvedWorkflowOptions, WorkflowModuleOptions, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowSharedOptions } from "./types.ts"
 
 interface WorkflowResolutionInput {
   hosting?: string
@@ -44,13 +44,13 @@ function readBoolean(value: unknown, label: string): boolean | undefined {
   return value
 }
 
-function isRuntimeEnvDeclaration(value: unknown): value is RuntimeEnvDeclarationLike {
+function isRuntimeEnvDeclaration(value: unknown): value is WorkflowRuntimeEnvDeclarationLike {
   return isPlainObject(value)
     && value.kind === "env-variable"
     && (!("source" in value) || isRuntimeEnvSource(value.source))
 }
 
-function isRuntimeEnvSource(value: unknown): value is RuntimeEnvDeclarationLike["source"] {
+function isRuntimeEnvSource(value: unknown): value is WorkflowRuntimeEnvDeclarationLike["source"] {
   return isPlainObject(value)
     && value.kind === "env"
     && typeof value.name === "string"

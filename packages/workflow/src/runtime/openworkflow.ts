@@ -1,7 +1,7 @@
 import { runWorkflowHandler } from "./execute.ts"
 
 import type { RetryPolicy } from "openworkflow"
-import type { ResolvedWorkflowOptions, RuntimeEnvDeclarationLike, WorkflowDefinition, WorkflowDeferOptions, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRuntimeConfigValue, WorkflowStepOptions } from "../types.ts"
+import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStepOptions } from "../types.ts"
 
 type OpenWorkflowModule = typeof import("openworkflow")
 type OpenWorkflowPostgresModule = typeof import("openworkflow/postgres")
@@ -40,7 +40,7 @@ function resolveRuntimeConfigValue(value: WorkflowRuntimeConfigValue | undefined
   return typeof value.default === "string" && value.default.trim() ? value.default.trim() : undefined
 }
 
-function getRuntimeEnvNames(value: RuntimeEnvDeclarationLike): string[] {
+function getRuntimeEnvNames(value: WorkflowRuntimeEnvDeclarationLike): string[] {
   return value.source?.names ?? (value.source?.name ? [value.source.name] : [])
 }
 

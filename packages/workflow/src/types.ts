@@ -30,7 +30,7 @@ export interface OpenWorkflowPostgresOptions {
   url?: WorkflowRuntimeConfigValue
 }
 
-export interface RuntimeEnvDeclarationLike {
+export interface WorkflowRuntimeEnvDeclarationLike {
   default?: unknown
   kind: "env-variable"
   source?: {
@@ -40,7 +40,7 @@ export interface RuntimeEnvDeclarationLike {
   }
 }
 
-export type WorkflowRuntimeConfigValue = string | RuntimeEnvDeclarationLike
+export type WorkflowRuntimeConfigValue = string | WorkflowRuntimeEnvDeclarationLike
 
 export interface OpenWorkflowSqliteOptions {
   namespaceId?: string

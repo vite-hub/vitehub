@@ -88,7 +88,6 @@
     "nitro": "catalog:unjs",
     "ofetch": "catalog:unjs",
     "openworkflow": "catalog:workflow",
-    "postgres": "catalog:database",
     "publint": "catalog:tooling",
     "tsdown": "catalog:tooling",
     "tsx": "catalog:tooling",
