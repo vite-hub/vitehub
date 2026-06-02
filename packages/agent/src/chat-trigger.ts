@@ -367,7 +367,6 @@ function normalizeChatWebhookRegistrations(
 function inferredChatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] {
   if (!isStaticAdapterMap(options.adapters)) return []
   return Object.keys(options.adapters)
-    .filter(isKnownChatWebhookPlatform)
     .filter(platform => !hasExplicitChatWebhook(options, platform))
     .flatMap(platform => normalizeChatWebhookRegistrations(platform, {}))
 }
