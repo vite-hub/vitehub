@@ -1,6 +1,6 @@
 # Server and Public Env Are the App-Facing Runtime Env APIs
 
-Updated by [ADR 0039: Vite-First Framework Integrations](./0039-vite-first-framework-integrations.md): generated Env access now belongs to Vite Integrations only.
+Updated by [ADR 0040: Vite-First Framework Integrations](./0040-vite-first-framework-integrations.md): generated Env access now belongs to Vite Integrations only.
 
 Env-owned APIs distinguish the underlying **Runtime Env** concept from the app-facing access surfaces. Server code reads Runtime Env through **Server Env**, browser-safe build values read through **Public Env**, and app code uses stable `#vitehub/env/*` import paths instead of integration-specific virtual module ids.
 

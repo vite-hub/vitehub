@@ -1,3 +1,8 @@
+import { existsSync } from "node:fs"
+import { mkdtemp } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { WorkflowProviderStep } from "../src/types.ts"
@@ -644,6 +649,30 @@ describe("workflow runtime", () => {
       runMigrations: false,
     })
     expect(openWorkflowMock.connect).not.toHaveBeenCalled()
+  })
+
+  it("creates parent directories for OpenWorkflow SQLite files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-sqlite-parent-"))
+    const path = join(root, ".data/workflow/openworkflow.sqlite")
+    expect(existsSync(dirname(path))).toBe(false)
+    setWorkflowRuntimeConfig({
+      provider: "openworkflow",
+      sqlite: {
+        path,
+        runMigrations: false,
+      },
+    })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await runWorkflow("welcome", {})
+
+    expect(existsSync(dirname(path))).toBe(true)
+    expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(path, {
+      namespaceId: "production",
+      runMigrations: false,
+    })
   })
 
   it("reads OpenWorkflow SQLite connection options from runtime environment", async () => {

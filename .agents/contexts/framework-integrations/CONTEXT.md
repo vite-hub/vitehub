@@ -106,4 +106,4 @@ _Avoid_: Virtual module path, generated file path, framework import path
 - Discovery Identity was considered separately for schedules and workflows - resolved: use the same location-derived rule for every framework-discovered `defineX` surface.
 - Static helper option extraction was considered generally valid from arbitrary local bindings - resolved: allow **Build-Extracted Definition Options** only from the direct discovered default export.
 - Named exports and local binding indirection were considered valid discovered definition shapes - resolved: first-class discovered definition files use a direct default-exported package-owned Definition Boundary Helper.
-- Nitro was considered a first-class public Framework Integration and later an internal compatibility adapter - resolved by ADR 0039: ViteHub is Vite-only and package-owned Nitro wiring is removed.
+- Nitro was considered a first-class public Framework Integration and later an internal compatibility adapter - resolved by ADR 0040: ViteHub is Vite-only and package-owned Nitro wiring is removed.

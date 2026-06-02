@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createMessage } from "@vite-hub/agent"
+import { createMessage, getMessageText } from "@vite-hub/agent"
 import { chat, chatTitle, schedule } from "../src/capabilities.ts"
 
 describe("agent message protocol", () => {
@@ -251,6 +251,28 @@ describe("agent message protocol", () => {
         run: { runId: "trigger-run" },
       }),
     }))
+  })
+
+  it("creates custom trigger capabilities with entry()", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { entry } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      capabilities: [entry({
+        id: "portal",
+        triggers: {
+          message: {
+            invoke: (_context, input: { text: string }) => ({
+              input: { messages: [createMessage({ role: "user", text: input.text })] },
+              run: { origin: "portal", runId: "portal-run" },
+            }),
+          },
+        },
+      })],
+      run: context => `received ${getMessageText(context.messages[0]!)}`,
+    })
+    const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+
+    await expect(runAgentTrigger(agent, runtime, "portal.message", { text: "hello" })).resolves.toBe("received hello")
   })
 
   it("exposes chat webhook registration metadata through agent triggers", async () => {

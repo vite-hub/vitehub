@@ -12,7 +12,7 @@ The Workspace is the file boundary. Capabilities decide which model-facing tools
 ## Colocate workspace context
 
 ```ts [server/agents/docs/config.ts]
-import { defineAgent } from '@vite-hub/agent'
+import { defineAgent, defineInvocationProfile } from '@vite-hub/agent'
 import { workspaceShell } from '@vite-hub/agent/capabilities'
 import { source } from '@vite-hub/workspace'
 
@@ -47,7 +47,7 @@ Use the Access Capability when invocation identity should narrow the visible Wor
 import { gateway } from '@ai-sdk/gateway'
 import { createTeamsAdapter } from '@chat-adapter/teams'
 import { defineAgent } from '@vite-hub/agent'
-import { access, chat, workspaceShell } from '@vite-hub/agent/capabilities'
+import { access, chat, entry, workspaceShell } from '@vite-hub/agent/capabilities'
 import { source } from '@vite-hub/workspace'
 import { z } from 'zod'
 
@@ -71,7 +71,32 @@ const supportChat = chat({
       appType: 'SingleTenant',
     }),
   }),
-  app: 'portal',
+})
+
+const portalEntry = entry({
+  id: 'portal',
+  chat: { capability: supportChat, origin: 'portal' },
+})
+
+const supportProfile = defineInvocationProfile({
+  id: 'support',
+  input: {
+    chat: {
+      message: { metadata: portalMetadataSchema, runOrigin: ['portal'] },
+      run: { origin: ['portal', 'teams'] },
+      user: portalUserSchema,
+    },
+  },
+  resolve({ input }) {
+    const chat = input.get().context?.chat
+    if (chat?.run?.origin !== 'portal')
+      return { kind: 'support' as const }
+
+    return {
+      customer: chat.message?.metadata.quiver.customer,
+      kind: 'portal' as const,
+    }
+  },
 })
 
 export default defineAgent({
@@ -89,41 +114,34 @@ export default defineAgent({
   },
   capabilities: [
     access({
-      input: {
-        chat: {
-          capability: supportChat,
-          message: { metadata: portalMetadataSchema },
-          user: portalUserSchema,
-        },
-      },
+      profile: supportProfile,
       workspace: {
-        resolve({ input }) {
-          const chat = input.get().context?.chat
-          if (chat?.run?.origin !== 'portal')
+        resolve({ profile }) {
+          if (profile.kind !== 'portal')
             return { all: true, role: 'admin', scope: 'support' }
 
-          const customer = chat.message?.metadata.quiver.customer
           return {
             grants: [
               { path: 'AGENTS.md' },
               { source: 'forecastingEngine' },
-              { path: `ingestion/${customer}` },
+              { path: `ingestion/${profile.customer}` },
             ],
-            scope: customer,
+            scope: profile.customer,
           }
         },
       },
     }),
     workspaceShell({ mode: 'read' }),
     supportChat,
+    portalEntry,
   ],
   instructions: 'Answer from the scoped customer workspace.',
   model: gateway('openai/gpt-5.1-mini'),
 })
 ```
 
-The scope resolver sees the parsed schema output. In this example, portal chat requests must include a customer in message metadata, while non-portal chat surfaces can use the explicit all-scopes Workspace Scope. The resolver returns inline Workspace Scope definitions, so the app does not need to pre-register one scope per customer.
+The Invocation Profile sees the parsed schema output. In this example, portal chat requests must include a customer in message metadata, while non-portal chat surfaces can use the explicit all-scopes Workspace Scope. The resolver returns inline Workspace Scope definitions, so the app does not need to pre-register one scope per customer.
 
-The Chat App Route origin is configured in `chat({ app })` so the access decision does not trust a browser-controlled payload. A request body may repeat the same `run.origin`, but it cannot override the configured app origin; mismatches are rejected as bad requests so app-level proxies fail closed when their contract drifts. Passing the Chat Capability to `access({ input.chat.capability })` lets the resolver infer `chat.run.origin` from the Chat App Route origin and Chat Platform Adapter names.
+The Chat App Route origin is configured in `entry({ chat })` so the access decision does not trust a browser-controlled payload. A request body may repeat the same `run.origin`, but it cannot override the configured entry origin; mismatches are rejected as bad requests so app-level proxies fail closed when their contract drifts. The Invocation Profile declares accepted `chat.run.origin` values explicitly and uses `message.runOrigin` when a message metadata schema applies to only some origins.
 
 Order matters. Access should run before Workspace-reading Capabilities so the scope is applied before tools are exposed.

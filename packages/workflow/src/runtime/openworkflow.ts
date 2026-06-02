@@ -4,6 +4,8 @@ import type { RetryPolicy } from "openworkflow"
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDeferOptions, WorkflowProviderStep, WorkflowRun, WorkflowRunStatus, WorkflowRuntimeConfigValue, WorkflowRuntimeEnvDeclarationLike, WorkflowStepOptions } from "../types.ts"
 
 type OpenWorkflowModule = typeof import("openworkflow")
+type NodeFsModule = typeof import("node:fs")
+type NodePathModule = typeof import("node:path")
 type OpenWorkflowPostgresModule = typeof import("openworkflow/postgres")
 type OpenWorkflowSqliteModule = typeof import("openworkflow/sqlite")
 type OpenWorkflowClient = InstanceType<OpenWorkflowModule["OpenWorkflow"]>
@@ -54,6 +56,17 @@ function normalizeSqlitePath(path: string): string {
   return path.startsWith("file:") ? path.slice("file:".length) : path
 }
 
+async function prepareSqlitePath(path: string): Promise<string> {
+  if (path !== ":memory:") {
+    const [{ mkdirSync }, { dirname }] = await Promise.all([
+      openWorkflowImporter<NodeFsModule>("node:fs"),
+      openWorkflowImporter<NodePathModule>("node:path"),
+    ])
+    mkdirSync(dirname(path), { recursive: true })
+  }
+  return path
+}
+
 type OpenWorkflowStorageConfig =
   | { backend: "postgres", namespaceId: string, runMigrations?: boolean, schema: string, url: string }
   | { backend: "sqlite", namespaceId: string, path: string, runMigrations?: boolean }
@@ -102,7 +115,7 @@ async function createOpenWorkflowRuntime(config: ResolvedWorkflowOptions): Promi
       : openWorkflowImporter<OpenWorkflowPostgresModule>("openworkflow/postgres"),
   ])
   const backend = options.backend === "sqlite"
-    ? (backendModule as OpenWorkflowSqliteModule).BackendSqlite.connect(options.path, {
+    ? (backendModule as OpenWorkflowSqliteModule).BackendSqlite.connect(await prepareSqlitePath(options.path), {
         namespaceId: options.namespaceId,
         ...(typeof options.runMigrations === "boolean" ? { runMigrations: options.runMigrations } : {}),
       })

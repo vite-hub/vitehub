@@ -1,6 +1,6 @@
 # ViteHub CLI Uses Package-Contributed Features
 
-Updated by [ADR 0039: Vite-First Framework Integrations](./0039-vite-first-framework-integrations.md): package-contributed CLI behavior should prefer Vite Integration surfaces and package-owned CLI contributors, not public package-specific host modules.
+Updated by [ADR 0040: Vite-First Framework Integrations](./0040-vite-first-framework-integrations.md): package-contributed CLI behavior should prefer Vite Integration surfaces and package-owned CLI contributors, not public package-specific host modules.
 
 ViteHub CLI is a central command shell backed by internal CLI Primitives, while package integrations act as CLI Contributors for their own domain-owned command namespaces and features. The first command is `vitehub agent eval`: `agent` is the Agent Package namespace and `eval` is the Agent Eval Runner feature. This keeps the public API focused on command behavior, avoids exposing a command-builder API to application developers, and preserves ADR 0010 by keeping Evalite as an execution engine rather than the public abstraction.
 

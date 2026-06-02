@@ -30,21 +30,11 @@ type ResolvedMaybeResolvable<T> =
       ? Awaited<TResult>
       : T
 
-type AgentChatAppOrigin<TApp> =
-  TApp extends string
-    ? TApp
-    : TApp extends true
-      ? "http"
-      : TApp extends { origin?: infer TOrigin }
-        ? Extract<TOrigin, string>
-        : never
-
 type AgentChatAdapterOrigin<TAdapters> =
   Extract<keyof NonNullable<ResolvedMaybeResolvable<TAdapters>>, string>
 
 type AgentChatKnownOrigin<TOptions> =
-  (TOptions extends { app?: infer TApp } ? AgentChatAppOrigin<TApp> : never)
-  | (TOptions extends { adapters?: infer TAdapters } ? AgentChatAdapterOrigin<TAdapters> : never)
+  TOptions extends { adapters?: infer TAdapters } ? AgentChatAdapterOrigin<TAdapters> : never
 
 export type AgentChatOptionsOrigin<TOptions> =
   [AgentChatKnownOrigin<TOptions>] extends [never]

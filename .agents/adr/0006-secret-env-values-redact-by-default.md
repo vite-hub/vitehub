@@ -1,6 +1,6 @@
 # Secret Env Values Redact By Default
 
-Updated by [ADR 0039: Vite-First Framework Integrations](./0039-vite-first-framework-integrations.md): Env's public access surface is the Vite-generated Server Env/Public Env import paths, not runtime-config compatibility helpers.
+Updated by [ADR 0040: Vite-First Framework Integrations](./0040-vite-first-framework-integrations.md): Env's public access surface is the Vite-generated Server Env/Public Env import paths, not runtime-config compatibility helpers.
 
 Runtime Env declarations with `secret: true` resolve to `SecretEnv<T>` objects instead of raw strings. `SecretEnv` redacts through string coercion, template literals, JSON serialization, and Node inspect output. Application code must call `.unseal()` at the boundary that needs the raw secret value.
 
