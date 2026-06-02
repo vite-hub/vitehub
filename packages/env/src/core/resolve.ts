@@ -256,7 +256,7 @@ function segmentToEnvParts(segment: string): string[] {
     .filter(Boolean)
 }
 
-export function isEnvVariableDeclaration(value: unknown): value is EnvVariableDeclaration {
+function isEnvVariableDeclaration(value: unknown): value is EnvVariableDeclaration {
   return isPlainRecord(value) && value.kind === "env-variable"
 }
 

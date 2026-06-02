@@ -111,7 +111,7 @@ export interface ResolvedEnvEntry {
   value: unknown
 }
 
-export interface EnvRegistryEntry {
+interface EnvRegistryEntry {
   default?: unknown
   required: boolean
   schema?: EnvRuntimeSchema
@@ -120,16 +120,16 @@ export interface EnvRegistryEntry {
   type?: string
 }
 
-export interface EnvRuntimeSchema {
+interface EnvRuntimeSchema {
   kind: "string"
 }
 
-export interface EnvRuntimeLiteralEntry {
+interface EnvRuntimeLiteralEntry {
   kind: "literal"
   value: EnvRuntimeStaticValue
 }
 
-export type EnvRuntimeRegistryValue = EnvRegistryEntry | EnvRuntimeLiteralEntry | EnvRuntimeRegistry
+type EnvRuntimeRegistryValue = EnvRegistryEntry | EnvRuntimeLiteralEntry | EnvRuntimeRegistry
 
 export interface EnvRuntimeRegistry {
   [key: string]: EnvRuntimeRegistryValue
