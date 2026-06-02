@@ -14,7 +14,6 @@ import {
 } from "./devtools-shared.js"
 
 import type { Adapter, AdapterPostableMessage, FormattedContent, Message as ChatMessage, RawMessage } from "chat"
-import type { NitroModule } from "nitro/types"
 import type { Plugin } from "vite"
 import type { DevToolsRpcServerFunctions, ViteDevToolsNodeContext } from "@vitejs/devtools-kit"
 import type {
@@ -100,7 +99,7 @@ export interface ChatDevToolsOptions {
   devtools?: false
 }
 
-export type ChatDevToolsPlugin = Plugin & { nitro: NitroModule }
+export type ChatDevToolsPlugin = Plugin
 export type ChatDevToolsPanelPlugin = Plugin
 
 export type ChatDevtoolsBridgeRequest =
@@ -780,28 +779,8 @@ async function writeChatDevtoolsStream(
 }
 
 export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlugin {
-  const nitroModule: NitroModule = {
-    name: "@vite-hub/agent/chat/devtools",
-    setup(nitro) {
-      if (options.devtools === false || !nitro.options.dev) {
-        return
-      }
-
-      nitro.options.handlers ||= []
-      const handlerExtension = import.meta.url.endsWith(".ts") ? ".ts" : ".js"
-      const handler = new URL(
-        `./runtime/chat-devtools-handler${handlerExtension}`,
-        import.meta.url,
-      ).pathname
-      if (!nitro.options.handlers.some(item => item.route === chatDevtoolsBridgeRoute && item.method === "POST")) {
-        nitro.options.handlers.push({ handler, method: "POST", route: chatDevtoolsBridgeRoute })
-      }
-    },
-  }
-
   return {
     name: "@vite-hub/agent/chat/devtools",
-    nitro: nitroModule,
     devtools: chatDevToolsPanel(options).devtools,
   }
 }

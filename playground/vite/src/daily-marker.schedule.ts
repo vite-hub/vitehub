@@ -11,7 +11,6 @@ export default defineSchedule({
   cron: "* * * * *",
   handler: async ({ id, scheduledAt }) => {
     const marker = {
-      framework: "vite",
       id,
       provider: resolveScheduleMarkerProvider(),
       ranAt: scheduledAt.toISOString(),

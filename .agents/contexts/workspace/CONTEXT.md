@@ -1,6 +1,6 @@
 # Workspace
 
-Workspace names persistent file-tree state and source ingestion for agent-oriented Vite and Nitro apps.
+Workspace names persistent file-tree state and source ingestion for agent-oriented Vite apps and server hosts.
 
 ## Language
 

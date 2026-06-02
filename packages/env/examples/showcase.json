@@ -43,28 +43,6 @@
           ]
         }
       }
-    },
-    "nitro": {
-      "modes": {
-        "dev": {
-          "phases": {
-            "configure": "nitro.config.ts",
-            "run": "server/api/config.get.ts"
-          },
-          "supplementalFiles": [
-            "package.json"
-          ]
-        },
-        "build": {
-          "phases": {
-            "configure": "nitro.config.ts",
-            "run": "server/api/config.get.ts"
-          },
-          "supplementalFiles": [
-            "package.json"
-          ]
-        }
-      }
     }
   }
 }

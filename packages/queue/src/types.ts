@@ -208,5 +208,5 @@ export interface QueueDefinitionRegistry {
 export interface DiscoveredQueueDefinition {
   handler: string
   name: string
-  source?: "nitro-server-queues" | "vite-suffix"
+  source?: "server-queues" | "vite-suffix"
 }

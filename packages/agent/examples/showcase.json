@@ -28,30 +28,6 @@
           ]
         }
       }
-    },
-    "nitro": {
-      "modes": {
-        "dev": {
-          "phases": {
-            "configure": "nitro.config.ts",
-            "define": "server/agents/support.ts",
-            "run": "server/api/support.post.ts"
-          },
-          "supplementalFiles": [
-            "package.json"
-          ]
-        },
-        "build": {
-          "phases": {
-            "configure": "nitro.config.ts",
-            "define": "server/agents/support.ts",
-            "run": "server/api/support.post.ts"
-          },
-          "supplementalFiles": [
-            "package.json"
-          ]
-        }
-      }
     }
   }
 }

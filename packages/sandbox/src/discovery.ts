@@ -5,17 +5,17 @@ import {
 import type { ScannedDefinition } from './internal/shared/feature-definitions'
 
 export interface DiscoveredSandboxDefinition extends ScannedDefinition {
-  source: 'nitro-server-sandboxes'
+  source: 'server-sandboxes'
 }
 
-export function discoverNitroSandboxDefinitions(scanDirs: string[]): DiscoveredSandboxDefinition[] {
+export function discoverServerSandboxDefinitions(scanDirs: string[]): DiscoveredSandboxDefinition[] {
   return discoverDefinitions("sandbox", [
-    createDirectoryDefinitionSource<DiscoveredSandboxDefinition>("nitro-server-sandboxes", scanDirs, "sandboxes", {
+    createDirectoryDefinitionSource<DiscoveredSandboxDefinition>("server-sandboxes", scanDirs, "sandboxes", {
       createDefinition({ file, name }) {
         return {
           handler: file,
           name,
-          source: "nitro-server-sandboxes",
+          source: "server-sandboxes",
           _meta: {
             filename: name,
             sourcePath: file,

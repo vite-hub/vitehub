@@ -1,4 +1,3 @@
-import type { Nitro } from 'nitro/types'
 import type {
   MutableCloudflareTarget,
   WranglerAnalyticsEngineDataset,
@@ -9,11 +8,7 @@ import type {
   WranglerMigration,
   WranglerWorkerLoader,
   WranglerWorkflow,
-} from './nitro-target'
-
-type NitroWithCloudflareWranglerFinalizer = Nitro & {
-  __vitehubCloudflareWranglerFinalizerInstalled?: boolean
-}
+} from './cloudflare-target'
 
 function compareNumericStrings(left: string, right: string) {
   return left.localeCompare(right, undefined, { numeric: true })
@@ -175,15 +170,4 @@ export function finalizeCloudflareWranglerConfig(target: MutableCloudflareTarget
 
   wrangler.migrations = mergeMigrations(wrangler.migrations)
   validateDurableObjectMigrations(wrangler)
-}
-
-export function installCloudflareWranglerFinalizer(nitro: Nitro) {
-  const target = nitro as NitroWithCloudflareWranglerFinalizer
-  if (target.__vitehubCloudflareWranglerFinalizerInstalled)
-    return
-
-  target.__vitehubCloudflareWranglerFinalizerInstalled = true
-  nitro.hooks.hook('build:before', () => {
-    finalizeCloudflareWranglerConfig(nitro.options as MutableCloudflareTarget)
-  })
 }

@@ -21,7 +21,7 @@ describe("@vite-hub/runtime", () => {
     const context = createExecutionContext({
       capabilities: { db },
       memo: vi.fn(),
-      runtime: "nitro",
+      runtime: "vite",
       waitUntil: vi.fn(),
     })
 
@@ -34,7 +34,7 @@ describe("@vite-hub/runtime", () => {
     const context = createExecutionContext({
       capabilities: { queue: { send: vi.fn() } },
       memo: vi.fn(),
-      runtime: "nitro",
+      runtime: "vite",
       waitUntil: vi.fn(),
     })
 
@@ -48,14 +48,14 @@ describe("@vite-hub/runtime", () => {
   it("resolves static, function, and object values against an execution context", async () => {
     const context = createExecutionContext({
       memo: vi.fn(),
-      runtime: "nitro",
+      runtime: "vite",
       runtimeConfig: { region: "local" },
       waitUntil: vi.fn(),
     })
 
     await expect(resolveRuntimeValue("static", context)).resolves.toBe("static")
     await expect(resolveRuntimeValue(ctx => ctx.runtimeConfig.region, context)).resolves.toBe("local")
-    await expect(resolveRuntimeValue({ resolve: ctx => ctx.runtime }, context)).resolves.toBe("nitro")
+    await expect(resolveRuntimeValue({ resolve: ctx => ctx.runtime }, context)).resolves.toBe("vite")
   })
 
   it("models approval requests and decisions", () => {
@@ -103,7 +103,7 @@ describe("@vite-hub/runtime", () => {
     const hooks: RunLifecycleHooks = { trace }
     const context = createExecutionContext({
       memo: vi.fn(),
-      runtime: "nitro",
+      runtime: "vite",
       waitUntil: vi.fn(),
     })
 

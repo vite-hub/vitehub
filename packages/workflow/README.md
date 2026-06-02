@@ -44,18 +44,19 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts
-// nitro.config.ts
-import { defineNitroConfig } from "nitro/config"
+// vite.config.ts
+import { hubWorkflow } from "@vite-hub/workflow/vite"
+import { defineConfig } from "vite"
 
-export default defineNitroConfig({
-  modules: ["@vite-hub/workflow/nitro"],
+export default defineConfig({
+  plugins: [hubWorkflow()],
   workflow: { provider: "openworkflow" },
 })
 ```
 
-## Vite and Nitro
+## Vite Integration
 
-Nitro discovers `server/workflows/<name>.ts` and folder workflows such as `server/workflows/welcome/index.ts` with numbered step files. Vite also supports `src/<name>.workflow.ts` through `hubWorkflow()`.
+Use `hubWorkflow()` in Vite to discover `server/workflows/<name>.ts`, folder workflows such as `server/workflows/welcome/index.ts` with numbered step files, and `src/<name>.workflow.ts`.
 
 Providers map to [OpenWorkflow](https://openworkflow.dev/docs/overview), [Cloudflare Workflows](https://developers.cloudflare.com/workflows/), or [Vercel Workflow](https://vercel.com/docs/workflow).
 

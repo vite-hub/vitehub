@@ -4,7 +4,6 @@
   <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
   <img alt="AI SDK" src="https://img.shields.io/badge/AI%20SDK-models-111827?style=flat-square">
-  <img alt="Nitro" src="https://img.shields.io/badge/Nitro-routes-00dc82?style=flat-square">
 </p>
 
 `@vite-hub/agent` defines model-backed agents from files such as `server/agents/support/config.ts`.
@@ -48,20 +47,10 @@ export default defineAgent({
 // vite.config.ts
 import { hubAgent } from "@vite-hub/agent/vite"
 import { hubWorkspace } from "@vite-hub/workspace/vite"
-import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [hubWorkspace(), hubAgent(), nitro()],
-})
-```
-
-```ts
-// nitro.config.ts
-import { defineNitroConfig } from "nitro/config"
-
-export default defineNitroConfig({
-  modules: ["@vite-hub/workspace/nitro", "@vite-hub/agent/nitro"],
+  plugins: [hubWorkspace(), hubAgent()],
 })
 ```
 
@@ -78,7 +67,7 @@ export default defineNitroConfig({
 
 ## Chat state
 
-Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. Nitro uses memory state by default outside Cloudflare, so hosted node deployments should configure a durable provider explicitly.
+Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. Hosted Node deployments use memory state by default outside Cloudflare, so they should configure a durable provider explicitly.
 
 ```ts
 // vite.config.ts
@@ -112,6 +101,6 @@ This is not the Database Capability. It is Agent-owned runtime state for chat be
 
 ## Built on
 
-Vite discovers agent files for local development. Nitro mounts the generated agent routes. Model execution uses [AI SDK](https://ai-sdk.dev/docs); provider tools stay capability-scoped instead of becoming one global agent config.
+Vite discovers agent files and ViteHub generates the host route/runtime state for the active server host. Model execution uses [AI SDK](https://ai-sdk.dev/docs); provider tools stay capability-scoped instead of becoming one global agent config.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

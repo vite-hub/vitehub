@@ -1,7 +1,7 @@
 {
   "name": "@vite-hub/kv",
   "version": "0.0.1",
-  "description": "Vite-first key-value storage primitives and Nitro/Nuxt integration for ViteHub.",
+  "description": "Vite-first key-value storage primitives and integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",
   "homepage": "https://github.com/vite-hub/vitehub#readme",
@@ -14,8 +14,6 @@
   "keywords": [
     "vitehub",
     "vite",
-    "nitro",
-    "nuxt",
     "kv",
     "cloudflare",
     "vercel"
@@ -25,9 +23,6 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
-    "./nitro": "./dist/nitro.js",
-    "./nuxt": "./dist/nuxt.js",
-    "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./virtual": "./dist/virtual.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
@@ -44,21 +39,16 @@
     "test:e2e": "tsx ./test/e2e.ts"
   },
   "dependencies": {
-    "@nuxt/kit": "catalog:nuxt",
     "defu": "catalog:unjs",
     "exsolve": "catalog:unjs",
     "unstorage": "catalog:storage"
   },
   "peerDependencies": {
     "@upstash/redis": "catalog:storage",
-    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite6-compat"
   },
   "peerDependenciesMeta": {
     "@upstash/redis": {
-      "optional": true
-    },
-    "nitro": {
       "optional": true
     },
     "vite": {
@@ -66,9 +56,7 @@
     }
   },
   "devDependencies": {
-    "@nuxt/schema": "catalog:nuxt",
     "@vite-hub/internal": "workspace:*",
-    "nitro": "catalog:unjs",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",
     "tsdown": "catalog:tooling",

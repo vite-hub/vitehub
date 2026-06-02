@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -27,24 +27,24 @@ describe("agent discovery", () => {
     ])
   })
 
-  it("discovers Nitro server agent files and colocated workspace configs", async () => {
-    const root = await createTempRoot("vitehub-agent-nitro-")
+  it("discovers server agent files and colocated workspace configs", async () => {
+    const root = await createTempRoot("vitehub-agent-server-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
     await writeFile(join(root, "server", "agents", "docs", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
 
     expect(discoverAgentDefinitions({
-      mode: "nitro-server-agents",
+      mode: "server-agents",
       scanDirs: [join(root, "server")],
     })).toEqual([
-      expect.objectContaining({ name: "docs", source: "nitro-server-agent-workspace", workspace: "docs" }),
-      expect.objectContaining({ name: "support", source: "nitro-server-agents" }),
+      expect.objectContaining({ name: "docs", source: "server-agent-workspace", workspace: "docs" }),
+      expect.objectContaining({ name: "support", source: "server-agents" }),
     ])
   })
 
-  it("ignores eval definitions during Nitro server agent discovery", async () => {
-    const root = await createTempRoot("vitehub-agent-nitro-eval-")
+  it("ignores eval definitions during server agent discovery", async () => {
+    const root = await createTempRoot("vitehub-agent-server-eval-")
     await mkdir(join(root, "server", "agents", "support"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
     await writeFile(join(root, "server", "agents", "support", "config.eval.ts"), "export default defineEval({})", "utf8")
@@ -52,10 +52,10 @@ describe("agent discovery", () => {
     await writeFile(join(root, "server", "agents", "support.eval.ts"), "export default defineEval({})", "utf8")
 
     expect(discoverAgentDefinitions({
-      mode: "nitro-server-agents",
+      mode: "server-agents",
       scanDirs: [join(root, "server")],
     })).toEqual([
-      expect.objectContaining({ name: "support", source: "nitro-server-agent-workspace", workspace: "support" }),
+      expect.objectContaining({ name: "support", source: "server-agent-workspace", workspace: "support" }),
     ])
   })
 
@@ -65,63 +65,23 @@ describe("agent discovery", () => {
     await writeFile(join(root, "server", "agents", "docs", "config.ts"), "export default defineAgent({ workspace: {}, name: 'context', model })", "utf8")
 
     expect(discoverAgentDefinitions({
-      mode: "nitro-server-agents",
+      mode: "server-agents",
       scanDirs: [join(root, "server")],
     })).toEqual([
-      expect.objectContaining({ name: "docs", source: "nitro-server-agent-workspace", workspace: "docs" }),
+      expect.objectContaining({ name: "docs", source: "server-agent-workspace", workspace: "docs" }),
     ])
   })
 
-  it("throws on duplicate Nitro agent names", async () => {
+  it("throws on duplicate server agent names", async () => {
     const root = await createTempRoot("vitehub-agent-duplicate-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
     await writeFile(join(root, "server", "agents", "support.js"), "export default {}", "utf8")
 
     expect(() => discoverAgentDefinitions({
-      mode: "nitro-server-agents",
+      mode: "server-agents",
       scanDirs: [join(root, "server")],
     })).toThrow("Duplicate agent name")
-  })
-})
-
-describe("agent Nitro runtime files", () => {
-  it("generates TypeScript runtime files so discovered TypeScript agents stay in the TS build graph", async () => {
-    const root = await createTempRoot("vitehub-agent-nitro-runtime-")
-    const buildDir = ".nitro"
-    await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "docs", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
-
-    const module = (await import("../src/nitro/module.ts")).default
-    const hooks: Array<{ handler: () => Promise<void> | void, name: string }> = []
-    const nitro = {
-      hooks: {
-        hook(name: string, handler: () => Promise<void> | void) {
-          hooks.push({ handler, name })
-        },
-      },
-      options: {
-        agent: { route: true },
-        buildDir,
-        handlers: [],
-        imports: {},
-        alias: {},
-        rootDir: root,
-        runtimeConfig: {},
-        scanDirs: [join(root, "server")],
-      },
-    }
-    await module.setup(nitro as never)
-
-    const registryFile = join(root, buildDir, ".vitehub", "nitro-runtime", "agent", "nitro-registry.ts")
-    const routeFile = join(root, buildDir, ".vitehub", "nitro-runtime", "agent", "route-handler.ts")
-
-    await expect(readFile(registryFile, "utf8")).resolves.toContain("server/agents/docs/config.ts")
-    await expect(readFile(routeFile, "utf8")).resolves.toContain("./nitro-registry.ts")
-    expect((nitro.options.alias as Record<string, string>)["@vite-hub/agent/capabilities"]).toContain("/packages/agent/src/capabilities.ts")
-    expect((nitro.options.alias as Record<string, string>)["@vite-hub/agent/eval"]).toContain("/packages/agent/src/eval.ts")
-    expect((nitro.options.alias as Record<string, string>)["@vite-hub/agent/state/sqlite"]).toContain("/packages/agent/src/state/sqlite.ts")
-    expect(hooks.map(hook => hook.name)).toEqual(["build:before", "dev:reload", "compiled"])
   })
 })
 
@@ -153,70 +113,12 @@ describe("agent chat capability discovery", () => {
     ].join("\n"), "utf8")
 
     expect(discoverAgentDefinitions({
-      mode: "nitro-server-agents",
+      mode: "server-agents",
       scanDirs: [join(root, "server")],
     })).toEqual([
-      expect.objectContaining({ name: "docs", source: "nitro-server-agent-workspace", workspace: "docs" }),
-      expect.objectContaining({ name: "support", source: "nitro-server-agents" }),
+      expect.objectContaining({ name: "docs", source: "server-agent-workspace", workspace: "docs" }),
+      expect.objectContaining({ name: "support", source: "server-agents" }),
     ])
-  })
-
-  it("registers the chat devtools bridge through hubAgent by default", async () => {
-    const root = await createTempRoot("vitehub-agent-chat-devtools-")
-    const buildDir = ".nitro"
-    const plugin = (await import("../src/vite.ts")).hubAgent()
-    const nitro = {
-      hooks: {
-        hook: vi.fn(),
-      },
-      options: {
-        buildDir,
-        dev: true,
-        handlers: [],
-        imports: {},
-        rootDir: root,
-        runtimeConfig: {},
-        scanDirs: [join(root, "server")],
-      },
-    }
-
-    await plugin.nitro.setup?.(nitro as never)
-
-    expect(nitro.options.handlers).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        method: "POST",
-        route: "/__vitehub/agent/chat/devtools",
-      }),
-    ]))
-  })
-
-  it("deduplicates chat devtools bridge handlers by method and route", async () => {
-    const root = await createTempRoot("vitehub-agent-chat-devtools-dedupe-")
-    const buildDir = ".nitro"
-    const plugin = (await import("../src/vite.ts")).hubAgent()
-    const nitro = {
-      hooks: {
-        hook: vi.fn(),
-      },
-      options: {
-        buildDir,
-        chat: {},
-        dev: true,
-        handlers: [{
-          handler: "/existing/chat-devtools-handler.ts",
-          method: "POST",
-          route: "/__vitehub/agent/chat/devtools",
-        }],
-        imports: {},
-        rootDir: root,
-        runtimeConfig: {},
-        scanDirs: [join(root, "server")],
-      },
-    }
-
-    await plugin.nitro.setup?.(nitro as never)
-
-    expect(nitro.options.handlers.filter(handler => handler.method === "POST" && handler.route === "/__vitehub/agent/chat/devtools")).toHaveLength(1)
   })
 
   it("registers the chat devtools feature through hubAgent by default", async () => {
@@ -245,8 +147,6 @@ describe("agent chat capability discovery", () => {
   })
 
   it("skips chat devtools feature and bridge when package-local devtools are disabled", async () => {
-    const root = await createTempRoot("vitehub-agent-chat-devtools-disabled-")
-    const buildDir = ".nitro"
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
     const ctx = {
       messages: {
@@ -256,31 +156,11 @@ describe("agent chat capability discovery", () => {
         register: vi.fn(),
       },
     }
-    const nitro = {
-      hooks: {
-        hook: vi.fn(),
-      },
-      options: {
-        buildDir,
-        dev: true,
-        handlers: [],
-        imports: {},
-        rootDir: root,
-        runtimeConfig: {},
-        scanDirs: [join(root, "server")],
-      },
-    }
 
     await plugin.devtools?.setup?.(ctx as never)
-    await plugin.nitro.setup?.(nitro as never)
 
     expect(listViteHubDevtoolsFeatures(ctx as never)).toEqual([])
     expect(ctx.rpc.register).not.toHaveBeenCalled()
-    expect(nitro.options.handlers).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        route: "/__vitehub/agent/chat/devtools",
-      }),
-    ]))
   })
 
 })

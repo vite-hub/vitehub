@@ -14,7 +14,6 @@
   "keywords": [
     "vitehub",
     "vite",
-    "nitro",
     "schedule",
     "cron"
   ],
@@ -27,7 +26,6 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
-    "./nitro": "./dist/nitro.js",
     "./runtime": "./dist/runtime.js",
     "./runtime/state": "./dist/runtime/state.js",
     "./runtime/static": "./dist/runtime/static.js",
@@ -46,14 +44,10 @@
   },
   "peerDependencies": {
     "@vite-hub/kv": "workspace:*",
-    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite8-compat"
   },
   "peerDependenciesMeta": {
     "@vite-hub/kv": {
-      "optional": true
-    },
-    "nitro": {
       "optional": true
     },
     "vite": {
@@ -64,7 +58,6 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
-    "nitro": "catalog:unjs",
     "publint": "catalog:tooling",
     "tsdown": "catalog:tooling",
     "typescript": "catalog:tooling",

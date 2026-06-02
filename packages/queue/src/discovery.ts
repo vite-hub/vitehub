@@ -2,9 +2,11 @@ import {
   createDirectoryDefinitionSource,
   createSuffixDefinitionSource,
   discoverDefinitions,
+  mergeDefinitions,
   resolveDefinitionScanRoots,
   normalizeSuffixDefinitionName,
 } from "@vite-hub/internal/definition-catalog"
+import { resolve } from "pathe"
 
 import type { DiscoveredQueueDefinition } from "./types.ts"
 
@@ -16,15 +18,24 @@ function normalizeSuffixQueueName(rootDir: string, file: string) {
 
 export function discoverQueueDefinitions(options:
   | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[] }
-  | { mode: "nitro-server-queues", scanDirs: string[] }
+  | { mode: "server-queues", scanDirs: string[] }
 ): DiscoveredQueueDefinition[] {
-  if (options.mode === "nitro-server-queues") {
+  if (options.mode === "server-queues") {
     return discoverDefinitions("queue", [
-      createDirectoryDefinitionSource("nitro-server-queues", options.scanDirs, "queues"),
+      createDirectoryDefinitionSource("server-queues", options.scanDirs, "queues"),
     ])
   }
 
-  return discoverDefinitions("queue", [
-    createSuffixDefinitionSource("vite-suffix", resolveDefinitionScanRoots(options.rootDir, options.scanDirs), queueSuffixPattern, normalizeSuffixQueueName),
-  ])
+  const roots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
+  const serverScanDirs = roots.map(root => resolve(root, "server"))
+
+  return mergeDefinitions(
+    "queue",
+    discoverDefinitions("queue", [
+      createSuffixDefinitionSource("vite-suffix", roots, queueSuffixPattern, normalizeSuffixQueueName),
+    ]),
+    discoverDefinitions("queue", [
+      createDirectoryDefinitionSource("server-queues", serverScanDirs, "queues"),
+    ]),
+  )
 }

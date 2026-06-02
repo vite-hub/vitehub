@@ -1,21 +1,16 @@
 import { createDiscoveredDefinitionCompiler, type DiscoveredDefinitionCompilerOptions } from './internal/shared/discovered-definition'
-import { hasInstalledDependency } from './internal/shared/dependency'
 import {
   toTemplateSafeName,
   type ScannedDefinition,
 } from './internal/shared/feature-definitions'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
-import { tryResolveModule } from './internal/shared/module-resolve'
 import { getHostingProvider, getSupportedHostingProvider } from './internal/shared/hosting'
 import type { FeatureManifest, FeatureRuntimePlan, GeneratedArtifact } from './internal/shared/runtime-artifacts'
 import { bundleSandboxDefinition } from './bundle'
 import {
-  configureCloudflareSandbox,
   defaultCloudflareSandboxBinding,
   defaultCloudflareSandboxClassName,
   defaultCloudflareSandboxMigrationTag,
-  installCloudflareSandboxEntrypoint,
-  writeCloudflareSandboxDockerfile,
 } from './cloudflare'
 import { extractSandboxDefinitionOptions } from './definition-options'
 import { getSandboxFeatureProvider } from './module-types'
@@ -68,11 +63,10 @@ function createSandboxProviderLoaderAliases(defaultProviderName: keyof typeof sa
   return keys.map(key => ({ key, value: providerLoaderPath }))
 }
 
-export function createSandboxManifest(aliasPath: string, nitroPlugin: string, typeTemplate: string): FeatureManifest {
+export function createSandboxManifest(aliasPath: string, typeTemplate: string): FeatureManifest {
   return {
     alias: '@vite-hub/sandbox',
     aliasPath,
-    nitroPlugin,
     imports: [
       { name: 'defineSandbox', from: '@vite-hub/sandbox', meta: { description: 'Define a named sandbox resource.' } },
       { name: 'readValidatedPayload', as: 'readValidatedSandboxPayload', from: '@vite-hub/sandbox', meta: { description: 'Validate sandbox payload input before execution.' } },
@@ -150,7 +144,7 @@ export function createSandboxProviderLoaderContents(
     '',
     'export async function loadSandboxRuntimeProvider(selectedProvider) {',
     `  if (selectedProvider !== ${JSON.stringify(provider)})`,
-    '    throw new Error(`[vitehub] Unsupported sandbox provider for this Nitro build: ${selectedProvider}`)',
+    '    throw new Error(`[vitehub] Unsupported sandbox provider for this hosted build: ${selectedProvider}`)',
     '  return {',
     '    resolveSandboxProvider,',
     `    createSandboxClient: ${clientExportName},`,
@@ -186,14 +180,13 @@ export async function createSandboxFeaturePlan(
   definitions: ScannedDefinition[],
   paths: {
     aliasPath: string
-    nitroPlugin: string
   },
   deps: Record<string, string>,
   hosting?: string,
   discoveredDefinitionOptions: Partial<DiscoveredDefinitionCompilerOptions> = {},
 ): Promise<FeatureRuntimePlan> {
   const resolvedConfig = resolveSandboxFeatureConfig(sandboxConfig, hosting)
-  const manifest = createSandboxManifest(paths.aliasPath, paths.nitroPlugin, createSandboxTypeTemplateContents(definitions))
+  const manifest = createSandboxManifest(paths.aliasPath, createSandboxTypeTemplateContents(definitions))
   const definitionCompiler = await createDiscoveredDefinitionCompiler(discoveredDefinitionOptions)
   const definitionMetadata = await loadSandboxDefinitionMetadata(definitions)
   const metadataByName = new Map(definitionMetadata.map(definition => [definition.name, definition] as const))
@@ -258,41 +251,6 @@ export async function createSandboxFeaturePlan(
           }]
         : []),
     ],
-    extendNitro(target) {
-      const nitroTarget = target as typeof target & {
-        externals?: {
-          inline?: string[]
-          traceInclude?: string[]
-        }
-      }
-      if (cloudflareOptions) {
-        configureCloudflareSandbox(nitroTarget, cloudflareOptions)
-        installCloudflareSandboxEntrypoint(nitroTarget, cloudflareOptions)
-      }
-
-      nitroTarget.externals = nitroTarget.externals || {}
-      nitroTarget.externals.inline = nitroTarget.externals.inline || []
-      nitroTarget.externals.traceInclude = nitroTarget.externals.traceInclude || []
-
-      const runtimeDependencies = providerLoaderTarget
-        ? [sandboxRuntimeDependencyByProvider[providerLoaderTarget]].filter(Boolean)
-        : sandboxRuntimeDependencies
-
-      for (const dependency of runtimeDependencies) {
-        if (!hasInstalledDependency(deps, dependency))
-          continue
-
-        if (dependency !== '@vercel/sandbox' && !nitroTarget.externals.inline.includes(dependency))
-          nitroTarget.externals.inline.push(dependency)
-
-        const resolved = tryResolveModule(dependency)
-        if (resolved.ok && !nitroTarget.externals.traceInclude.includes(resolved.path))
-          nitroTarget.externals.traceInclude.push(resolved.path)
-      }
-    },
-    async onCompiled(nitro) {
-      if (cloudflareOptions)
-        await writeCloudflareSandboxDockerfile(nitro.options.output.serverDir)
-    },
+    cloudflare: cloudflareOptions,
   }
 }

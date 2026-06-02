@@ -3,13 +3,11 @@ import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment
 import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 
 import { generateProviderOutputs, workflowPackageName } from "./internal/vite-build.ts"
-import workflowNitroModule from "./nitro/module.ts"
 
 import type { WorkflowModuleOptions } from "./types.ts"
-import type { NitroModule } from "nitro/types"
 import type { Plugin, ResolvedConfig } from "vite"
 
-export type WorkflowVitePlugin = Plugin & { nitro: NitroModule }
+export type WorkflowVitePlugin = Plugin
 
 const mergeNoExternal = createNoExternalMerger(workflowPackageName)
 
@@ -19,7 +17,6 @@ export function hubWorkflow(options?: WorkflowModuleOptions): WorkflowVitePlugin
 
   return {
     name: "@vite-hub/workflow/vite",
-    nitro: workflowNitroModule,
     config(config) {
       workflow = config.workflow ?? workflow
     },

@@ -53,9 +53,9 @@ export default defineConfig({
 })
 ```
 
-## Vite and Nitro
+## Vite Integration
 
-Use `server/databases/config.ts` for the default database, or `server/databases/<name>/config.ts` for named databases. Vite discovers those files, writes generated Drizzle artifacts, and lets Nitro handlers import `@vite-hub/database/drizzle`.
+Use `server/databases/config.ts` for the default database, or `server/databases/<name>/config.ts` for named databases. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `@vite-hub/database/drizzle`.
 
 Built on [Drizzle ORM](https://orm.drizzle.team/), [Drizzle Kit](https://orm.drizzle.team/docs/kit-overview), [libSQL](https://www.npmjs.com/package/%40libsql/client), and Cloudflare [D1](https://developers.cloudflare.com/d1/) bindings when deployed to Cloudflare.
 

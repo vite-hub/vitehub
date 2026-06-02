@@ -1,4 +1,3 @@
-import kvNitroModule from "./nitro/module.ts"
 import {
   KV_VIRTUAL_CONFIG_ID,
   KV_VITE_PLUGIN_NAME,
@@ -7,7 +6,6 @@ import {
 
 import type { KVViteRuntimeConfig } from "./vite-config.ts"
 import type { KVModuleOptions } from "./types.ts"
-import type { NitroModule } from "nitro/types"
 import type { Plugin } from "vite"
 
 const RESOLVED_KV_VIRTUAL_CONFIG_ID = `\0${KV_VIRTUAL_CONFIG_ID}`
@@ -19,7 +17,7 @@ export interface KVVitePluginAPI {
   getConfig: () => KVViteRuntimeConfig
 }
 
-export type KVVitePlugin = Plugin & { api: KVVitePluginAPI, nitro: NitroModule }
+export type KVVitePlugin = Plugin & { api: KVVitePluginAPI }
 
 function serializeVirtualConfig(config: KVViteRuntimeConfig): string {
   return [
@@ -36,7 +34,6 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
   return {
     name: KV_VITE_PLUGIN_NAME,
     api: { getConfig },
-    nitro: kvNitroModule,
     configResolved(config) {
       runtimeConfig = resolveKVViteConfig(config.kv ?? options)
     },

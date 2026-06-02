@@ -1,5 +1,4 @@
 import type { Plugin } from 'vite'
-import type { NitroModule } from 'nitro/types'
 import { createNoExternalMerger, isServerEnvironment } from '@vite-hub/internal/build/vite'
 
 import { createFeatureVitePlugin } from './internal/shared/vite'
@@ -8,7 +7,7 @@ import { sandboxFeatureEngine, type SandboxPublicOptions } from './integration'
 
 export { createViteHubDefinitionAutoImportsPlugin } from './internal/shared/vitehub-auto-imports'
 
-export type SandboxVitePlugin = Plugin & { nitro: NitroModule }
+export type SandboxVitePlugin = Plugin
 
 const SANDBOX_PROVIDER_LOADER_ID = 'vitehub-sandbox-provider-loader'
 

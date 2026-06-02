@@ -6,7 +6,7 @@ import type { ReadonlyWorkspaceFacade, WorkspaceEntry, WorkspaceSearchHit, Works
 function runtime(): AgentRuntimeContext {
   return {
     memo: (_key, create) => create(),
-    runtime: "nitro",
+    runtime: "vite",
     runtimeConfig: {},
     waitUntil: () => {},
   }

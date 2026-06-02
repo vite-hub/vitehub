@@ -139,24 +139,6 @@ function getDbFeatureImports(options: ViteHubOptions): ServerImport[] {
   ]
 }
 
-const featureNitroModules: Partial<Record<ViteHubFeatureName, string>> = {
-  analytics: '@vite-hub/analytics/nitro',
-  blob: '@vite-hub/blob/nitro',
-  browser: '@vite-hub/browser/nitro',
-  cache: '@vite-hub/cache/nitro',
-  cron: '@vite-hub/cron/nitro',
-  db: '@vite-hub/database/nitro',
-  email: '@vite-hub/email/nitro',
-  kv: '@vite-hub/kv/nitro',
-  queue: '@vite-hub/queue/nitro',
-  vector: '@vite-hub/vector/nitro',
-  workflow: '@vite-hub/workflow/nitro',
-}
-
-function hasNitroModule(options: ViteHubOptions, modulePath: string) {
-  return Array.isArray(options.modules) && options.modules.includes(modulePath)
-}
-
 function isFeatureEnabled(feature: ViteHubFeatureName, options: ViteHubOptions) {
   if (feature === 'db')
     return typeof options.db !== 'undefined'
@@ -167,8 +149,7 @@ function isFeatureEnabled(feature: ViteHubFeatureName, options: ViteHubOptions) 
   if (typeof optionValue !== 'undefined')
     return true
 
-  const nitroModule = featureNitroModules[feature]
-  return !!nitroModule && hasNitroModule(options, nitroModule)
+  return false
 }
 
 export function getViteHubFeatureServerImports(

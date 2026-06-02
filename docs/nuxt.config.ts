@@ -50,11 +50,6 @@ export default defineNuxtConfig({
     compatibilityVersion: 4,
   },
   compatibilityDate: "2026-05-30",
-  nitro: {
-    prerender: {
-      crawlLinks: true,
-    },
-  },
   experimental: {
     payloadExtraction: false,
     defaults: {

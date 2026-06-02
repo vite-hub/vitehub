@@ -96,7 +96,7 @@ function discoverWorkflowFolders(scanDirs: string[], source: NonNullable<Discove
 
 function discoverFlatServerWorkflowDefinitions(scanDirs: string[], source: NonNullable<DiscoveredWorkflowDefinition["source"]>): DiscoveredWorkflowDefinition[] {
   return discoverDefinitions("workflow", [
-    createDirectoryDefinitionSource("nitro-server-workflows", scanDirs, "workflows", {
+    createDirectoryDefinitionSource("server-workflows", scanDirs, "workflows", {
       normalizeName(directory, file) {
         const normalizedFile = normalize(file)
         const parent = normalize(resolve(file, ".."))
@@ -116,19 +116,19 @@ function discoverFlatServerWorkflowDefinitions(scanDirs: string[], source: NonNu
 
 export function discoverWorkflowDefinitions(options:
   | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[] }
-  | { mode: "nitro-server-workflows", scanDirs: string[] }
+  | { mode: "server-workflows", scanDirs: string[] }
 ): DiscoveredWorkflowDefinition[] {
-  if (options.mode === "nitro-server-workflows") {
+  if (options.mode === "server-workflows") {
     return mergeDefinitions(
       "workflow",
-      discoverFlatServerWorkflowDefinitions(options.scanDirs, "nitro-server-workflows"),
-      discoverWorkflowFolders(options.scanDirs, "nitro-server-workflows"),
+      discoverFlatServerWorkflowDefinitions(options.scanDirs, "server-workflows"),
+      discoverWorkflowFolders(options.scanDirs, "server-workflows"),
     )
   }
 
   const roots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
   const serverScanDirs = roots.map(root => resolve(root, "server"))
-  const folderDefinitions = discoverWorkflowFolders(serverScanDirs, "nitro-server-workflows")
+  const folderDefinitions = discoverWorkflowFolders(serverScanDirs, "server-workflows")
 
   return mergeDefinitions(
     "workflow",
@@ -137,7 +137,7 @@ export function discoverWorkflowDefinitions(options:
         createDefinition: ({ file, name }) => ({ handler: file, name, source: "vite-suffix" }),
       }),
     ]),
-    discoverFlatServerWorkflowDefinitions(serverScanDirs, "nitro-server-workflows"),
+    discoverFlatServerWorkflowDefinitions(serverScanDirs, "server-workflows"),
     folderDefinitions,
   )
 }

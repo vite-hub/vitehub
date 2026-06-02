@@ -3,11 +3,6 @@ import assert from "node:assert/strict"
 
 import { FetchError, ofetch } from "ofetch"
 
-type Provider = "cloudflare" | "vercel"
-type Framework = "nitro" | "vite"
-
-const PROVIDERS = ["cloudflare", "vercel"] as const
-const FRAMEWORKS = ["nitro", "vite"] as const
 const liveOnlyMessage = "Blob e2e requires a deployed app: pnpm --dir packages/blob test:e2e --mode live --url <url>"
 const log = (message: string) => console.log(`[blob e2e] ${message}`)
 const vercelProtectionBypass = process.env.VERCEL_PROTECTION_BYPASS
@@ -76,23 +71,13 @@ async function runLive(url: string) {
 
 const { values } = parseArgs({
   options: {
-    framework: { type: "string" },
     mode: { type: "string" },
-    provider: { type: "string" },
     url: { type: "string" },
   },
   strict: true,
 })
 
 const mode = values.mode ?? "local"
-const provider = values.provider as Provider | undefined
-const framework = values.framework as Framework | undefined
-if (provider) {
-  assert.ok(PROVIDERS.includes(provider), `invalid --provider: ${provider}`)
-}
-if (framework) {
-  assert.ok(FRAMEWORKS.includes(framework), `invalid --framework: ${framework}`)
-}
 
 if (mode !== "live") {
   throw new TypeError(liveOnlyMessage)

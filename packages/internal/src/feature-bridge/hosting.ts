@@ -2,9 +2,6 @@ export type HostingProvider = 'cloudflare' | 'netlify' | 'vercel'
 
 export interface HostingDetectionTarget {
   options: {
-    nitro?: {
-      preset?: string | null
-    }
     preset?: string | null
   }
 }
@@ -16,17 +13,7 @@ export function normalizeHosting(hosting?: string | null): string {
 }
 
 export function detectHosting(target: HostingDetectionTarget) {
-  return normalizeHosting(target.options.nitro?.preset || target.options.preset || detectPresetArg() || process.env.NITRO_PRESET || process.env.VITEHUB_HOSTING || '')
-}
-
-function detectPresetArg(): string {
-  const argv = process.argv || []
-  for (let index = 0; index < argv.length; index++) {
-    const arg = argv[index]
-    if (arg === '--preset') return argv[index + 1] || ''
-    if (arg?.startsWith('--preset=')) return arg.slice('--preset='.length)
-  }
-  return ''
+  return normalizeHosting(target.options.preset || process.env.VITEHUB_HOSTING || '')
 }
 
 export function getHostingProvider(hosting?: string | null): HostingProvider | undefined {

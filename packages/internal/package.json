@@ -16,7 +16,6 @@
     "./feature-bridge": "./dist/feature-bridge/feature-engine.js",
     "./feature-bridge/hosting": "./dist/feature-bridge/hosting.js",
     "./integrations/hex": "./dist/integrations/hex.js",
-    "./nitro": "./dist/nitro.js",
     "./object": "./dist/object.js",
     "./source-scanner": "./dist/source-scanner.js",
     "./runtime/app": "./dist/runtime/app.js",

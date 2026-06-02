@@ -1,16 +1,12 @@
 import { describe, expectTypeOf, it } from "vitest"
-import type { Plugin } from "vite"
-import type { NitroModule } from "nitro/types"
-import { nitro } from "nitro/vite"
+import type { Plugin, UserConfig } from "vite"
 
-import { env, SecretEnv, type EnvVariableDeclaration } from "../src/index.ts"
-import { envNitro } from "../src/nitro.ts"
+import { env, SecretEnv, type EnvConfigOptions, type EnvVariableDeclaration } from "../src/index.ts"
 import { envVite } from "../src/vite.ts"
 
 describe("types", () => {
-  it("types framework integrations and declarations", () => {
+  it("types Vite integration and declarations", () => {
     expectTypeOf(envVite()).toMatchTypeOf<Plugin>()
-    expectTypeOf(envNitro()).toMatchTypeOf<NitroModule>()
     expectTypeOf(env.gitCommit({ short: true }).label).toMatchTypeOf<string>()
     expectTypeOf(env({ secret: true })).toMatchTypeOf<EnvVariableDeclaration>()
     expectTypeOf(env.variable({ secret: true })).toMatchTypeOf<EnvVariableDeclaration>()
@@ -19,15 +15,18 @@ describe("types", () => {
     env("SECRET")
   })
 
-  it("types env declarations on the Nitro Vite plugin config", () => {
-    expectTypeOf(nitro({
+  it("types env declarations on Vite user config", () => {
+    const config: UserConfig = {
       env: {
-        token: env({
-          secret: true,
-          source: env.source("TOKEN"),
-        }),
+        define: {
+          __APP_VERSION__: env({ mode: "build", source: env.gitCommit({ short: true }) }),
+        },
+        public: {
+          appName: env({ default: "ViteHub", mode: "build" }),
+        },
       },
-      modules: ["@vite-hub/env/nitro"],
-    })).toMatchTypeOf<Plugin[]>()
+    }
+
+    expectTypeOf(config.env).toMatchTypeOf<EnvConfigOptions | undefined>()
   })
 })

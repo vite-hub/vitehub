@@ -14,11 +14,10 @@ describe("agent Vite plugin", () => {
     expect(config({ server: { watch: { ignored: ["**/.vitehub/**"] } } }).server?.watch?.ignored).toEqual(["**/.vitehub/**"])
   })
 
-  it("attaches Nitro and merges server noExternal", async () => {
+  it("merges server noExternal", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
 
-    expect(plugin.nitro).toBeTruthy()
     const hook = plugin.configEnvironment
     const result = typeof hook === "function"
       ? hook.call({} as never, "ssr", {
@@ -129,98 +128,6 @@ describe("Cloudflare helpers", () => {
     await expect(response.json()).resolves.toEqual({ error: "Rejected" })
   })
 
-})
-
-describe("Nitro helpers", () => {
-  it("runs custom run agents without resolving a model first", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentHandler } = await import("../src/nitro.ts")
-    const run = vi.fn(() => ({ raw: { routed: true }, text: "ok" }))
-    const handler = defineAgentHandler(defineAgent({ run }) as never)
-    const event = {
-      req: {
-        headers: { host: "example.com" },
-        method: "POST",
-        url: "/agents/triager",
-      },
-      url: "https://example.com/agents/triager",
-      waitUntil: vi.fn(),
-    }
-
-    const result = await handler(event as never)
-
-    expect(result).toMatchObject({ raw: { routed: true }, text: "ok" })
-    expect(run).toHaveBeenCalled()
-  })
-
-  it("does not resolve custom run agents for resolved lifecycle hooks", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentHandler } = await import("../src/nitro.ts")
-    const run = vi.fn(() => ({ raw: { routed: true }, text: "ok" }))
-    const resolved = vi.fn()
-    const handler = defineAgentHandler(defineAgent({ run }) as never, {
-      lifecycleHooks: { resolved },
-    })
-    const event = {
-      req: {
-        headers: { host: "example.com" },
-        method: "POST",
-        url: "/agents/triager",
-      },
-      url: "https://example.com/agents/triager",
-      waitUntil: vi.fn(),
-    }
-
-    const result = await handler(event as never)
-
-    expect(result).toMatchObject({ raw: { routed: true }, text: "ok" })
-    expect(run).toHaveBeenCalled()
-    expect(resolved).not.toHaveBeenCalled()
-  })
-
-  it("keeps context.request readable for custom run agents", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentHandler } = await import("../src/nitro.ts")
-    const run = vi.fn(async ({ request }) => ({
-      text: (await request!.json()).prompt,
-    }))
-    const handler = defineAgentHandler(defineAgent({ run }) as never)
-    const request = new Request("https://example.com/agents/triager", {
-      body: JSON.stringify({ prompt: "still readable", stream: false }),
-      method: "POST",
-    })
-    const event = {
-      req: request,
-      url: "https://example.com/agents/triager",
-      waitUntil: vi.fn(),
-    }
-
-    const result = await handler(event as never)
-
-    expect(result).toMatchObject({ text: "still readable" })
-  })
-
-  it("throws declared HTTP errors with the declared status", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentHandler } = await import("../src/nitro.ts")
-    const error = new Error("Rejected")
-    ;(error as { statusCode?: number }).statusCode = 403
-    const handler = defineAgentHandler(defineAgent({ run: () => { throw error } }) as never)
-    const event = {
-      req: {
-        headers: { host: "example.com" },
-        method: "POST",
-        url: "/agents/triager",
-      },
-      url: "https://example.com/agents/triager",
-      waitUntil: vi.fn(),
-    }
-
-    await expect(handler(event as never)).rejects.toMatchObject({
-      statusCode: 403,
-      statusMessage: "Rejected",
-    })
-  })
 })
 
 describe("agent registry helpers", () => {

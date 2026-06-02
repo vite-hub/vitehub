@@ -57,7 +57,7 @@ function context(runtimeConfig: Record<string, unknown> = {}) {
   return {
     input: { messages: [] },
     memo: (_key: string, create: () => unknown) => create(),
-    runtime: "nitro",
+    runtime: "vite",
     runtimeConfig,
     waitUntil: vi.fn(),
   } as never

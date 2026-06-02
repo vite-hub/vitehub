@@ -107,7 +107,7 @@ export function createWorkspaceStoreFromProvider(definition: WorkspaceDefinition
   const runtimeStore = runtimeConfig ? runtimeConfig.store : undefined
   const store = normalizeWorkspaceStoreOptions(definition.store || runtimeStore, {
     env: typeof process !== "undefined" ? process.env : {},
-    hosting: typeof process !== "undefined" ? process.env.VITEHUB_HOSTING || process.env.NITRO_PRESET : undefined,
+    hosting: typeof process !== "undefined" ? process.env.VITEHUB_HOSTING : undefined,
     rootDir,
     runtime: true,
   })

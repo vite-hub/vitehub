@@ -31,10 +31,9 @@ describe("types", () => {
     expectTypeOf(runSandbox("release-notes", { value: "ok" })).resolves.toMatchTypeOf<SandboxRunResult>()
   })
 
-  it("returns a Vite plugin with an attached Nitro module", () => {
+  it("returns a Vite plugin", () => {
     const plugin = hubSandbox()
 
     expectTypeOf(hubSandbox({ provider: "cloudflare" })).toMatchTypeOf<typeof plugin>()
-    expectTypeOf(plugin).toMatchTypeOf<{ nitro: { name?: string } }>()
   })
 })

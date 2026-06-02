@@ -7,7 +7,6 @@ import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/
 
 import { discoverScheduleDefinitions } from "./discovery.ts"
 import { generateProviderOutputs, schedulePackageName } from "./internal/provider-output.ts"
-import scheduleNitroModule from "./nitro/module.ts"
 import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "./targets-module.ts"
 
 import type { Plugin, ResolvedConfig } from "vite"
@@ -19,7 +18,7 @@ const RESOLVED_SCHEDULE_TARGETS_ID = `\0${SCHEDULE_TARGETS_ID}`
 const registryImportAnchor = ".vitehub/schedule/registry.js"
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
 
-export type ScheduleVitePlugin = Plugin & { nitro: unknown }
+export type ScheduleVitePlugin = Plugin
 
 function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
   const aliases: Record<string, string> = {}
@@ -57,7 +56,6 @@ export function hubSchedule(): ScheduleVitePlugin {
 
   return {
     name: SCHEDULE_VITE_PLUGIN_NAME,
-    nitro: scheduleNitroModule,
     configResolved(config) {
       resolved = config
     },
@@ -70,7 +68,8 @@ export function hubSchedule(): ScheduleVitePlugin {
       }
     },
     handleHotUpdate(context) {
-      if (!/\.schedule\.(?:c|m)?[jt]s$/i.test(normalize(context.file))) {
+      const file = normalize(context.file).replace(/\\/g, "/")
+      if (!/\.schedule\.(?:c|m)?[jt]s$/i.test(file) && !/\/server\/schedules\/.*\.(?:c|m)?[jt]s$/i.test(file)) {
         return
       }
 

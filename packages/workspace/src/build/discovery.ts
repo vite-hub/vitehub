@@ -81,7 +81,7 @@ function createWorkspaceDefinition(source: string, file: string, name: string): 
   return { handler: file, name, path: file, source, sourceRootDir: resolveWorkspaceSourceRoot(file) }
 }
 
-function nitroWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource[] {
+function serverWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource[] {
   const workspacesDir = resolve(rootDir, "server", "workspaces")
   const agentsDir = resolve(rootDir, "server", "agents")
   const directoryWorkspaceDirs = collectDirectoriesWithConfig(workspacesDir)
@@ -109,17 +109,17 @@ function nitroWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource
   }
 
   return [
-    createDirectoryDefinitionSource("nitro-server-workspaces-directory-config", [resolve(rootDir, "server")], "workspaces", {
+    createDirectoryDefinitionSource("server-workspaces-directory-config", [resolve(rootDir, "server")], "workspaces", {
       includeHidden: true,
       normalizeName: normalizeDirectoryName,
       createDefinition: ({ file, name }) => {
         if (isAgentConfig(file)) {
           throw new Error(`[vitehub] Workspace config "${file}" must use defineWorkspace(); defineAgent() belongs in server/agents/<name>/config.ts.`)
         }
-        return createWorkspaceDefinition("nitro-server-workspaces-directory-config", file, name)
+        return createWorkspaceDefinition("server-workspaces-directory-config", file, name)
       },
     }),
-    createDirectoryDefinitionSource("nitro-server-agent-workspaces", [resolve(rootDir, "server")], "agents", {
+    createDirectoryDefinitionSource("server-agent-workspaces", [resolve(rootDir, "server")], "agents", {
       includeHidden: true,
       normalizeName(_agentsRoot, file) {
         if (!workspaceConfigPattern.test(basename(file))) return
@@ -127,11 +127,11 @@ function nitroWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource
         const name = relative(agentsDir, dirname(file)).replace(/\\/g, "/")
         return name && name !== "." ? name : undefined
       },
-      createDefinition: ({ file, name }) => createWorkspaceDefinition("nitro-server-agent-workspaces", file, name),
+      createDefinition: ({ file, name }) => createWorkspaceDefinition("server-agent-workspaces", file, name),
     }),
-    createDirectoryDefinitionSource("nitro-server-workspaces", [resolve(rootDir, "server")], "workspaces", {
+    createDirectoryDefinitionSource("server-workspaces", [resolve(rootDir, "server")], "workspaces", {
       normalizeName: normalizeFlatName,
-      createDefinition: ({ file, name }) => createWorkspaceDefinition("nitro-server-workspaces", file, name),
+      createDefinition: ({ file, name }) => createWorkspaceDefinition("server-workspaces", file, name),
     }),
   ]
 }
@@ -144,8 +144,8 @@ function viteWorkspaceSource(rootDir: string): WorkspaceDefinitionCatalogSource[
   ]
 }
 
-export function discoverNitroWorkspaceDefinitions(rootDir: string): DiscoveredWorkspaceDefinition[] {
-  return discoverDefinitions("workspace", [...nitroWorkspaceSource(rootDir)])
+export function discoverServerWorkspaceDefinitions(rootDir: string): DiscoveredWorkspaceDefinition[] {
+  return discoverDefinitions("workspace", [...serverWorkspaceSource(rootDir)])
 }
 
 export function discoverViteWorkspaceDefinitions(rootDir: string): DiscoveredWorkspaceDefinition[] {

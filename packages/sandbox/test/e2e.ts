@@ -4,11 +4,9 @@ import { parseArgs } from "node:util"
 import { type FetchOptions, ofetch } from "ofetch"
 
 const providers = ["cloudflare", "vercel"] as const
-const frameworks = ["nitro", "vite"] as const
-const liveOnlyMessage = "Sandbox e2e requires a deployed app: pnpm --dir packages/sandbox test:e2e --mode live --provider cloudflare|vercel --framework nitro|vite --url <url>"
+const liveOnlyMessage = "Sandbox e2e requires a deployed app: pnpm --dir packages/sandbox test:e2e --mode live --provider cloudflare|vercel --url <url>"
 
 type Provider = typeof providers[number]
-type Framework = typeof frameworks[number]
 
 const expectedProbe: Record<Provider, Record<string, unknown | unknown[]>> = {
   cloudflare: { feature: "sandbox", hasWaitUntil: [true, false], hosting: "cloudflare-module", ok: true, provider: "cloudflare", runtime: ["cloudflare", null] },
@@ -56,9 +54,9 @@ function assertMatches(actual: Record<string, unknown>, expected: Record<string,
   }
 }
 
-async function runLive(url: string, provider: Provider, framework: Framework) {
+async function runLive(url: string, provider: Provider) {
   const request = (path: string, options?: FetchOptions) => ofetch(path, { baseURL: url, ...options })
-  log(`live ${provider} ${framework} -> ${url}`)
+  log(`live ${provider} -> ${url}`)
 
   await retry(`${provider} probe`, async () => {
     assertMatches(await request("/api/tests/probe?sandbox=1"), expectedProbe[provider])
@@ -71,12 +69,11 @@ async function runLive(url: string, provider: Provider, framework: Framework) {
     }), expectedReleaseNotes)
   })
 
-  log(`live ${provider} ${framework} ok`)
+  log(`live ${provider} ok`)
 }
 
 const { values } = parseArgs({
   options: {
-    framework: { type: "string" },
     mode: { type: "string" },
     provider: { type: "string" },
     url: { type: "string" },
@@ -86,12 +83,10 @@ const { values } = parseArgs({
 
 const mode = values.mode ?? "local"
 const provider = values.provider as Provider | undefined
-const framework = values.framework as Framework | undefined
 
 if (mode !== "live")
   throw new TypeError(liveOnlyMessage)
 assert.ok(values.url, "--url required for live mode")
 assert.ok(provider && providers.includes(provider), "--provider required for live mode")
-assert.ok(framework && frameworks.includes(framework), "--framework required for live mode")
 
-await runLive(values.url, provider, framework)
+await runLive(values.url, provider)

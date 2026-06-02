@@ -1,7 +1,7 @@
 {
   "name": "@vite-hub/workspace",
   "version": "0.0.1",
-  "description": "Agent-oriented filesystem state and Vite/Nitro integration for ViteHub.",
+  "description": "Agent-oriented filesystem state and Vite integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",
   "homepage": "https://github.com/vite-hub/vitehub#readme",
@@ -14,7 +14,6 @@
   "keywords": [
     "vitehub",
     "vite",
-    "nitro",
     "workspace",
     "cloudflare",
     "vercel"
@@ -36,7 +35,6 @@
     ".": "./dist/index.js",
     "./ai": "./dist/ai.js",
     "./loader": "./dist/loader.js",
-    "./nitro": "./dist/nitro.js",
     "./publish": "./dist/publish.js",
     "./test": "./dist/test.js",
     "./vite": "./dist/vite.js",
@@ -44,7 +42,6 @@
     "./internal/runtime/assets": "./dist/runtime/assets.js",
     "./internal/runtime/empty-assets-registry": "./dist/runtime/empty-assets-registry.js",
     "./internal/runtime/empty-registry": "./dist/runtime/empty-registry.js",
-    "./internal/runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./internal/runtime/state": "./dist/runtime/state.js",
     "./internal/stores/cloudflare-artifacts": "./dist/providers/cloudflare/artifacts-store.js",
     "./internal/stores/vercel-blob": "./dist/providers/vercel/blob-store.js"
@@ -73,7 +70,6 @@
     "@vite-hub/sandbox": "workspace:*",
     "ai": "catalog:ai-compat",
     "files-sdk": "catalog:storage",
-    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite8-plus-compat"
   },
   "peerDependenciesMeta": {
@@ -81,9 +77,6 @@
       "optional": true
     },
     "files-sdk": {
-      "optional": true
-    },
-    "nitro": {
       "optional": true
     },
     "vite": {
@@ -96,7 +89,6 @@
     "@vite-hub/sandbox": "workspace:*",
     "ai": "catalog:ai",
     "files-sdk": "catalog:storage",
-    "nitro": "catalog:unjs",
     "ocache": "catalog:unjs",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",

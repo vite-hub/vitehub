@@ -50,30 +50,6 @@
           ]
         }
       }
-    },
-    "nitro": {
-      "modes": {
-        "dev": {
-          "phases": {
-            "configure": "nitro.config.ts",
-            "define": "server/sandboxes/release-notes.ts",
-            "run": "server/api/release-notes.post.ts"
-          },
-          "supplementalFiles": [
-            "package.json"
-          ]
-        },
-        "build": {
-          "phases": {
-            "configure": "nitro.config.ts",
-            "define": "server/sandboxes/release-notes.ts",
-            "run": "server/api/release-notes.post.ts"
-          },
-          "supplementalFiles": [
-            "package.json"
-          ]
-        }
-      }
     }
   }
 }

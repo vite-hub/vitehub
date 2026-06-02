@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
-import { createRequire } from "node:module"
-import { dirname, join, resolve } from "node:path"
+import { join, resolve } from "node:path"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
@@ -9,13 +8,11 @@ import { afterAll, describe, expect, it } from "vitest"
 
 import { getCloudflareWorkflowClassName } from "../src/integrations/cloudflare.ts"
 
-const require = createRequire(import.meta.url)
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
-const nitroBin = join(playgroundDir, "node_modules", ".bin", "nitro")
 const viteBin = join(playgroundDir, "node_modules", ".bin", "vite")
 const buildOutputTestTimeout = 60_000
-const tempNodeModuleBuildDirs = new Set([".nitro", ".nitro-output-test", ".vite-temp"])
+const tempNodeModuleBuildDirs = new Set([".vite-temp"])
 const tempDirs: string[] = []
 
 async function createWorkspaceTempDir(prefix: string) {
@@ -30,24 +27,6 @@ async function createWorkspaceTempDir(prefix: string) {
   return rootDir
 }
 
-function resolvePackageRoot(specifier: string) {
-  const packageParts = specifier.startsWith("@")
-    ? specifier.split("/").slice(0, 2)
-    : specifier.split("/").slice(0, 1)
-  let directory = dirname(require.resolve(specifier))
-  while (!packageParts.every((part, index) => directory.split(/[\\/]/).slice(-packageParts.length)[index] === part)) {
-    const parent = dirname(directory)
-    if (parent === directory) {
-      throw new Error(`Could not find package root for ${specifier}.`)
-    }
-    directory = parent
-  }
-  if (!existsSync(join(directory, "package.json"))) {
-    throw new Error(`Could not find package root for ${specifier}.`)
-  }
-  return directory
-}
-
 async function linkNodeModules(sourceDir: string, targetDir: string) {
   await mkdir(targetDir, { recursive: true })
   for (const entry of await readdir(sourceDir, { withFileTypes: true })) {
@@ -56,15 +35,6 @@ async function linkNodeModules(sourceDir: string, targetDir: string) {
     }
     await symlink(join(sourceDir, entry.name), join(targetDir, entry.name), entry.isDirectory() ? "dir" : "file")
   }
-}
-
-async function linkPackage(rootDir: string, packageName: string) {
-  const parts = packageName.split("/")
-  const packageDir = resolvePackageRoot(packageName)
-  const target = join(rootDir, "node_modules", ...parts)
-  await mkdir(dirname(target), { recursive: true })
-  await rm(target, { force: true, recursive: true })
-  await symlink(packageDir, target, "dir")
 }
 
 async function createPlaygroundCopy(prefix: string) {
@@ -77,51 +47,11 @@ async function createPlaygroundCopy(prefix: string) {
   await cp(join(playgroundDir, "build"), join(rootDir, "build"), { recursive: true })
   await cp(join(playgroundDir, "package.json"), join(rootDir, "package.json"))
   await cp(join(playgroundDir, "vite.config.ts"), join(rootDir, "vite.config.ts"))
-  await cp(join(playgroundDir, "nitro.config.ts"), join(rootDir, "nitro.config.ts"))
   await cp(join(playgroundDir, "src"), join(rootDir, "src"), { recursive: true })
   await cp(join(playgroundDir, "server"), join(rootDir, "server"), { recursive: true })
   await linkNodeModules(nodeModules, join(rootDir, "node_modules"))
 
   return rootDir
-}
-
-async function writeWorkflowNitroConfig(rootDir: string, options: {
-  env?: boolean
-  omitWorkflowOptions?: boolean
-  provider?: "openworkflow" | "vercel"
-} = {}) {
-  const imports = options.env
-    ? [
-        `import { env } from "@vite-hub/env/nitro"`,
-        `import { defineNitroConfig } from "nitro/config"`,
-      ]
-    : [`import { defineNitroConfig } from "nitro/config"`]
-  const modules = options.env
-    ? `["@vite-hub/env/nitro", "@vite-hub/workflow/nitro"]`
-    : `["@vite-hub/workflow/nitro"]`
-  const workflowOptions = options.provider === "openworkflow"
-    ? `{ provider: "openworkflow", postgres: { url: "postgres://example" } }`
-    : options.provider
-      ? `{ provider: "${options.provider}" }`
-      : "{}"
-  const workflow = options.omitWorkflowOptions
-    ? []
-    : [`  workflow: ${workflowOptions},`]
-  const envConfig = options.env
-    ? [`  env: { vertex: { apiKey: env({ secret: true }) } },`]
-    : []
-
-  await writeFile(join(rootDir, "nitro.config.ts"), [
-    ...imports,
-    "",
-    "export default defineNitroConfig({",
-    `  modules: ${modules},`,
-    ...envConfig,
-    ...workflow,
-    `  serverDir: "./server",`,
-    "})",
-    "",
-  ].join("\n"), "utf8")
 }
 
 afterAll(async () => {
@@ -162,66 +92,6 @@ describe("Vite workflow provider outputs", () => {
     expect(existsSync(vercelServer)).toBe(true)
   }, buildOutputTestTimeout)
 
-  it("exports Cloudflare workflow classes from Nitro output", async () => {
-    const rootDir = await createPlaygroundCopy("vitehub-workflow-nitro-playground-")
-    await writeWorkflowNitroConfig(rootDir)
-
-    await execFileAsync(nitroBin, ["build", "--preset", "cloudflare-module"], {
-      cwd: rootDir,
-      env: { ...process.env, VITEHUB_NITRO_MODE: "workflow" },
-    })
-
-    const serverEntry = join(rootDir, ".output", "server", "index.mjs")
-    const wrangler = JSON.parse(await readFile(join(rootDir, ".output", "server", "wrangler.json"), "utf8"))
-    const serverEntryContents = await readFile(serverEntry, "utf8")
-    const className = getCloudflareWorkflowClassName("welcome")
-
-    expect(wrangler.workflows).toContainEqual({
-      binding: "WORKFLOW_77656C636F6D65",
-      class_name: className,
-      name: "workflow--77656c636f6d65",
-    })
-    expect(serverEntryContents).toContain("globalThis.__vitehubRunNitroWorkflowDefinition")
-    expect(serverEntryContents).toContain(`export class ${className} extends ViteHubWorkflowEntrypoint`)
-    expect(serverEntryContents).toContain('__vitehubRunNitroWorkflowDefinition("welcome"')
-  }, buildOutputTestTimeout)
-
-  it("infers Nitro Cloudflare workflow output when workflow options are omitted", async () => {
-    const rootDir = await createPlaygroundCopy("vitehub-workflow-nitro-cloudflare-inferred-")
-    await writeWorkflowNitroConfig(rootDir, { omitWorkflowOptions: true })
-
-    await execFileAsync(nitroBin, ["build", "--preset", "cloudflare-module"], {
-      cwd: rootDir,
-      env: { ...process.env, VITEHUB_NITRO_MODE: "workflow" },
-    })
-
-    const wrangler = JSON.parse(await readFile(join(rootDir, ".output", "server", "wrangler.json"), "utf8"))
-    const className = getCloudflareWorkflowClassName("welcome")
-
-    expect(wrangler.workflows).toContainEqual({
-      binding: "WORKFLOW_77656C636F6D65",
-      class_name: className,
-      name: "workflow--77656c636f6d65",
-    })
-  }, buildOutputTestTimeout)
-
-  it("applies @vite-hub/env Runtime Env in Nitro Cloudflare workflows", async () => {
-    const rootDir = await createPlaygroundCopy("vitehub-workflow-nitro-env-")
-    await writeWorkflowNitroConfig(rootDir, { env: true })
-
-    await execFileAsync(nitroBin, ["build", "--preset", "cloudflare-module"], {
-      cwd: rootDir,
-      env: { ...process.env, VITEHUB_NITRO_MODE: "workflow" },
-    })
-
-    const serverEntryContents = await readFile(join(rootDir, ".output", "server", "index.mjs"), "utf8")
-
-    expect(serverEntryContents).toContain("applyRuntimeEnvToRuntimeConfig")
-    expect(serverEntryContents).toContain("VERTEX_API_KEY")
-    expect(serverEntryContents).toContain("applyWorkflowRuntimeEnv(runtimeConfig, env)")
-    expect(serverEntryContents).not.toContain("applyWorkflowRuntimeEnv(runtimeConfig)\n  setWorkflowRuntimeConfig")
-  }, buildOutputTestTimeout)
-
   it("does not emit Cloudflare workflow artifacts for Vercel provider overrides", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-workflow-vercel-override-")
     const viteConfig = join(rootDir, "vite.config.ts")
@@ -256,34 +126,4 @@ describe("Vite workflow provider outputs", () => {
     expect(existsSync(join(rootDir, "dist", "vite"))).toBe(false)
   }, buildOutputTestTimeout)
 
-  it("does not emit Nitro Cloudflare workflow artifacts for Vercel provider overrides", async () => {
-    const rootDir = await createPlaygroundCopy("vitehub-workflow-nitro-vercel-override-")
-    await writeWorkflowNitroConfig(rootDir, { provider: "vercel" })
-
-    await execFileAsync(nitroBin, ["build", "--preset", "cloudflare-module"], {
-      cwd: rootDir,
-      env: { ...process.env, VITEHUB_NITRO_MODE: "workflow" },
-    })
-
-    const wrangler = JSON.parse(await readFile(join(rootDir, ".output", "server", "wrangler.json"), "utf8"))
-    const serverEntryContents = await readFile(join(rootDir, ".output", "server", "index.mjs"), "utf8")
-
-    expect(wrangler.workflows).toBeUndefined()
-    expect(serverEntryContents).not.toContain("extends ViteHubWorkflowEntrypoint")
-  }, buildOutputTestTimeout)
-
-  it("traces OpenWorkflow runtime dependencies in Nitro node output", async () => {
-    const rootDir = await createPlaygroundCopy("vitehub-workflow-nitro-openworkflow-")
-    await linkPackage(rootDir, "openworkflow")
-    await linkPackage(rootDir, "postgres")
-    await writeWorkflowNitroConfig(rootDir, { provider: "openworkflow" })
-
-    await execFileAsync(nitroBin, ["build"], {
-      cwd: rootDir,
-      env: { ...process.env, VITEHUB_NITRO_MODE: "workflow" },
-    })
-
-    expect(existsSync(join(rootDir, ".output", "server", "node_modules", "openworkflow"))).toBe(true)
-    expect(existsSync(join(rootDir, ".output", "server", "node_modules", "postgres"))).toBe(true)
-  }, buildOutputTestTimeout)
 })

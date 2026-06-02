@@ -50,7 +50,7 @@ Writes require approval by default unless the developer opts into autonomous beh
 
 ## Chat state
 
-The Chat Capability can use an Agent State Provider for Chat History and the Concurrent Invocation Guard. Cloudflare deployments can use the Cloudflare Agent State Provider. Nitro node deployments can opt into the SQLite/libSQL provider explicitly:
+The Chat Capability can use an Agent State Provider for Chat History and the Concurrent Invocation Guard. Cloudflare deployments can use the Cloudflare Agent State Provider. Hosted Node deployments can opt into the SQLite/libSQL provider explicitly:
 
 ```ts [vite.config.ts]
 export default defineConfig({

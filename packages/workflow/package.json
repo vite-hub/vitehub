@@ -14,7 +14,6 @@
   "keywords": [
     "vitehub",
     "vite",
-    "nitro",
     "workflow",
     "cloudflare",
     "docker",
@@ -26,12 +25,10 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
-    "./nitro": "./dist/nitro.js",
     "./runtime/cloudflare-runner": "./dist/runtime/cloudflare-runner.js",
     "./runtime/cloudflare-shared": "./dist/runtime/cloudflare-shared.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/execute": "./dist/runtime/execute.js",
-    "./runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./runtime/openworkflow": "./dist/runtime/openworkflow.js",
     "./runtime/openworkflow-worker": "./dist/runtime/openworkflow-worker.js",
     "./runtime/state": "./dist/runtime/state.js",
@@ -59,16 +56,12 @@
   },
   "peerDependencies": {
     "@vite-hub/database": "workspace:*",
-    "nitro": "catalog:nitro-compat",
     "openworkflow": "catalog:workflow",
     "vite": "catalog:vite8-compat",
     "workflow": "catalog:workflow"
   },
   "peerDependenciesMeta": {
     "@vite-hub/database": {
-      "optional": true
-    },
-    "nitro": {
       "optional": true
     },
     "openworkflow": {
@@ -85,7 +78,6 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
-    "nitro": "catalog:unjs",
     "ofetch": "catalog:unjs",
     "openworkflow": "catalog:workflow",
     "publint": "catalog:tooling",

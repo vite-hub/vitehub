@@ -6,14 +6,14 @@ describe("runtime context helpers", () => {
   it("resolves static, function, and object values against a runtime context", async () => {
     const context = {
       memo: vi.fn(),
-      runtime: "nitro",
+      runtime: "vite",
       runtimeConfig: { region: "local" },
       waitUntil: vi.fn(),
     }
 
     await expect(resolveRuntimeValue("static", context)).resolves.toBe("static")
     await expect(resolveRuntimeValue(ctx => ctx.runtimeConfig.region, context)).resolves.toBe("local")
-    await expect(resolveRuntimeValue({ resolve: ctx => ctx.runtime }, context)).resolves.toBe("nitro")
+    await expect(resolveRuntimeValue({ resolve: ctx => ctx.runtime }, context)).resolves.toBe("vite")
   })
 
   it("detects object resolvers", () => {

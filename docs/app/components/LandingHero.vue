@@ -36,8 +36,6 @@ const activeFiles = computed(() => getShowcaseFiles(activeExample.value, display
 const activeFile = computed(() => activeFiles.value.find(f => f.path === activeFilePath.value) || activeFiles.value[0]);
 
 const fileIconMatchers = new Map<string, RegExp[]>([
-  ["i-vscode-icons-file-type-nuxt", [/^nuxt\.config\.ts$/]],
-  ["i-unjs-nitro", [/^nitro\.config\.ts$/]],
   ["i-vscode-icons-file-type-vite", [/^vite\.config\.ts$/]],
   ["i-vscode-icons-file-type-package", [/^package\.json$/]],
   ["i-vscode-icons-file-type-tsconfig-official", [/^tsconfig\.json$/, /^tsconfig\..+/]],

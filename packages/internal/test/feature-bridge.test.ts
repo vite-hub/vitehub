@@ -1,80 +1,59 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from "vitest"
 
 import {
-  buildFeatureNitroContext,
+  buildFeatureViteContext,
   createFeatureEngine,
-} from '../src/feature-bridge/feature-engine.ts'
-import { detectHosting } from '../src/feature-bridge/hosting.ts'
+} from "../src/feature-bridge/feature-engine.ts"
+import { detectHosting } from "../src/feature-bridge/hosting.ts"
 
 afterEach(() => {
-  delete process.env.NITRO_PRESET
   delete process.env.VITEHUB_HOSTING
 })
 
-describe('feature bridge hosting', () => {
-  it('prefers configured Nitro preset over NITRO_PRESET env', () => {
-    process.env.NITRO_PRESET = 'cloudflare'
+describe("feature bridge hosting", () => {
+  it("prefers configured ViteHub preset over hosting env", () => {
+    process.env.VITEHUB_HOSTING = "cloudflare"
 
     expect(detectHosting({
       options: {
-        preset: 'vercel',
+        preset: "vercel",
       },
-    })).toBe('vercel')
+    })).toBe("vercel")
   })
 
-  it('detects Nitro CLI preset arguments before falling back to NITRO_PRESET', () => {
-    process.env.NITRO_PRESET = 'cloudflare'
-    const originalArgv = process.argv
-    process.argv = ['node', 'nitro', 'build', '--preset=vercel']
-
-    try {
-      expect(detectHosting({
-        options: {},
-      })).toBe('vercel')
-    }
-    finally {
-      process.argv = originalArgv
-    }
-  })
-
-  it('falls back to explicit ViteHub hosting env', () => {
-    process.env.VITEHUB_HOSTING = 'vercel'
+  it("falls back to explicit ViteHub hosting env", () => {
+    process.env.VITEHUB_HOSTING = "vercel"
 
     expect(detectHosting({
       options: {},
-    })).toBe('vercel')
+    })).toBe("vercel")
   })
 })
 
-describe('feature bridge state', () => {
-  it('preserves explicit false config in Nitro runtime config', async () => {
-    const setupNitro = vi.fn()
+describe("feature bridge state", () => {
+  it("preserves explicit false config in Vite runtime config", async () => {
     const engine = createFeatureEngine<false | { enabled: boolean }, { enabled: boolean }, false | { enabled: boolean }>({
-      name: '@vite-hub/test-feature',
-      feature: 'testFeature',
-      configKey: 'testFeature',
+      name: "@vite-hub/test-feature",
+      feature: "testFeature",
+      configKey: "testFeature",
       normalizeOptions(options) {
         if (options === false) return
         return options
       },
       readPublicOptions(source) {
-        return source.kind === 'nitro'
-          ? (source.nitro.options as { testFeature?: false | { enabled: boolean } }).testFeature
-          : undefined
+        return source.userConfig.testFeature as false | { enabled: boolean } | undefined
       },
-      setupNitro,
     })
-    const nitro = {
-      options: {
-        rootDir: process.cwd(),
-        runtimeConfig: {},
-        testFeature: false,
-      },
-    }
 
-    const context = await buildFeatureNitroContext(engine, nitro)
+    const context = await buildFeatureViteContext(engine, {
+      root: process.cwd(),
+      testFeature: false,
+    }, {
+      command: "build",
+      mode: "production",
+    })
 
-    expect(nitro.options.runtimeConfig).toEqual({
+    expect(context?.runtimeConfig).toEqual({
       testFeature: false,
     })
     expect(context?.config).toBe(false)

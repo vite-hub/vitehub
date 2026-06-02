@@ -1,4 +1,3 @@
-import type { NitroModule } from "nitro/types"
 import type { Plugin } from "vite"
 import type { Tool, ToolSet } from "ai"
 import { describe, expectTypeOf, it } from "vitest"
@@ -133,6 +132,6 @@ describe("workspace types", () => {
     // @ts-expect-error read-only facade does not expose writes
     readonly.fs.writeFile("README.md", "nope")
     expectTypeOf(writable.fs.writeFile).toBeFunction()
-    expectTypeOf(hubWorkspace()).toMatchTypeOf<Plugin & { nitro: NitroModule }>()
+    expectTypeOf(hubWorkspace()).toMatchTypeOf<Plugin>()
   })
 })

@@ -1,7 +1,7 @@
 {
   "name": "@vite-hub/agent",
   "version": "0.0.1",
-  "description": "Agent DX layer and Vite/Nitro integration for ViteHub.",
+  "description": "Agent DX layer and Vite integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",
   "homepage": "https://github.com/vite-hub/vitehub#readme",
@@ -14,7 +14,6 @@
   "keywords": [
     "vitehub",
     "vite",
-    "nitro",
     "agent",
     "ai",
     "cloudflare",
@@ -36,10 +35,7 @@
     "./mcp/stdio": "./dist/mcp/stdio.js",
     "./memory": "./dist/memory.js",
     "./messages": "./dist/messages.js",
-    "./nitro": "./dist/nitro.js",
-    "./runtime/chat-devtools-handler": "./dist/runtime/chat-devtools-handler.js",
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
-    "./runtime/nitro-runtime-config": "./dist/runtime/nitro-runtime-config.js",
     "./state/sqlite": "./dist/state/sqlite.js",
     "./test": "./dist/test.js",
     "./vercel": "./dist/vercel.js",
@@ -70,7 +66,6 @@
     "@vercel/functions": "catalog:vercel",
     "@vitejs/devtools-kit": "catalog:vite",
     "chat": "catalog:chat",
-    "h3": "catalog:unjs",
     "hookable": "catalog:unjs"
   },
   "peerDependencies": {
@@ -79,7 +74,6 @@
     "agents": "catalog:ai",
     "ai": "catalog:ai-compat",
     "evalite": "catalog:ai",
-    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite8-plus-compat"
   },
   "peerDependenciesMeta": {
@@ -98,9 +92,6 @@
     "evalite": {
       "optional": true
     },
-    "nitro": {
-      "optional": true
-    },
     "vite": {
       "optional": true
     }
@@ -113,7 +104,6 @@
     "@vitejs/devtools-kit": "catalog:vite",
     "ai": "catalog:ai",
     "evalite": "catalog:ai",
-    "nitro": "catalog:unjs",
     "publint": "catalog:tooling",
     "tsdown": "catalog:tooling",
     "typescript": "catalog:tooling",
