@@ -24,12 +24,12 @@ describe("agent config", () => {
   it("preserves route opt out and provider options", () => {
     expect(normalizeAgentOptions({
       integrations: { sandbox: false },
-      providers: { state: { provider: "cloudflare-agents" } },
+      providers: { state: { provider: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
       route: false,
       runtime: "cloudflare-agents",
     })).toMatchObject({
       integrations: { sandbox: false, workflow: "auto" },
-      providers: { state: { provider: "cloudflare-agents" } },
+      providers: { state: { provider: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
       route: false,
       runtime: "cloudflare-agents",
     })

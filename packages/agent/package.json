@@ -40,6 +40,7 @@
     "./runtime/chat-devtools-handler": "./dist/runtime/chat-devtools-handler.js",
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
     "./runtime/nitro-runtime-config": "./dist/runtime/nitro-runtime-config.js",
+    "./state/sqlite": "./dist/state/sqlite.js",
     "./test": "./dist/test.js",
     "./vercel": "./dist/vercel.js",
     "./vite": "./dist/vite.js",
@@ -62,6 +63,7 @@
     "test": "pnpm --filter @vite-hub/agent... build && vitest run"
   },
   "dependencies": {
+    "@libsql/client": "catalog:database",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vite-hub/devtools": "workspace:*",

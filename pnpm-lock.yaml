@@ -321,6 +321,9 @@ importers:
 
   packages/agent:
     dependencies:
+      '@libsql/client':
+        specifier: catalog:database
+        version: 0.15.15
       '@vercel/functions':
         specifier: catalog:vercel
         version: 3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38)

@@ -21,6 +21,7 @@ export default defineConfig({
     "src/cli.ts",
     "src/eval.ts",
     "src/nitro.ts",
+    "src/state/sqlite.ts",
     "src/cloudflare/state.ts",
     "src/runtime/empty-registry.ts",
     "src/runtime/chat-devtools-handler.ts",

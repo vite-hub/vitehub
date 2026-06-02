@@ -5,6 +5,7 @@ import {
   resolveRuntimeContext,
 } from "@vite-hub/runtime"
 import { getChatCapabilityOptions } from "./chat-trigger.ts"
+import { defineInvocationProfile } from "./invocation-profile.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 
 import {
@@ -105,8 +106,6 @@ export type {
   AgentCapabilityPhase,
   AgentCapabilityRuntimeContext,
   AgentChatAgentHookArgs,
-  AgentChatAppExposure,
-  AgentChatAppOptions,
   AgentChatEventHookArgs,
   AgentChatEventHooks,
   AgentChatIdentityResolver,
@@ -173,11 +172,32 @@ export type {
   MaybeResolvable,
   Resolvable,
   ResolvedAgentModuleOptions,
+  ResolvedAgentStateProviderOptions,
   ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
   WorkspaceAgentWorkspaceOptions,
   WorkspaceAgentWorkspaceConfig,
 } from "./types.ts"
+
+export {
+  defineInvocationProfile,
+}
+
+export type {
+  AgentInvocationProfileChatInputSchemaOptions,
+  AgentInvocationProfileChatMessageInputSchemaOptions,
+  AgentInvocationProfileChatRunInputOptions,
+  AgentInvocationProfileContextValueId,
+  AgentInvocationProfileDefinition,
+  AgentInvocationProfileInputContextFromSchemas,
+  AgentInvocationProfileInputSchemaOptions,
+  AgentInvocationProfileOptions,
+  AgentInvocationProfileResolver,
+  AgentInvocationProfileResolverContext,
+  AgentInvocationProfileStandardSchemaResultFailure,
+  AgentInvocationProfileStandardSchemaResultSuccess,
+  AgentInvocationProfileStandardSchemaV1,
+} from "./invocation-profile.ts"
 
 export type {
   Message,

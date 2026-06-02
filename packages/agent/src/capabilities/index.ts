@@ -2,8 +2,14 @@ export {
   access,
 } from "./access.ts"
 export {
+  audience,
+} from "./audience.ts"
+export {
   chat,
 } from "../chat-trigger.ts"
+export {
+  entry,
+} from "./entry.ts"
 export {
   chatSummary,
 } from "./chat-summary.ts"
@@ -68,15 +74,11 @@ export {
 } from "./web-search/index.ts"
 
 export type {
+  AudienceCapabilityOptions,
+  AudienceInstructionsResolver,
+} from "./audience.ts"
+export type {
   AccessCapabilityOptions,
-  AccessCapabilityStandardSchemaResultFailure,
-  AccessCapabilityStandardSchemaResultSuccess,
-  AccessCapabilityStandardSchemaV1,
-  AccessChatInputSchemaOptions,
-  AccessChatMessageInputSchemaOptions,
-  AccessChatRunInputOptions,
-  AccessInputContextFromSchemas,
-  AccessInputSchemaOptions,
   AccessRoleName,
   AccessWorkspaceOptions,
   AccessWorkspaceOptionsFor,
@@ -94,6 +96,13 @@ export type {
   AgentChatOptionsOrigin,
   AgentChatRunContext,
 } from "../chat-trigger.ts"
+export type {
+  AgentEntryCapabilityMetadata,
+  AgentEntryChatExposure,
+  AgentEntryChatOptions,
+  AgentEntryOptions,
+  AgentEntryOptionsOrigin,
+} from "./entry.ts"
 export type {
   AgentChatAdapterResolver,
   AgentChatAdaptersResolver,

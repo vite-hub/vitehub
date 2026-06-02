@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { createApp, toWebHandler } from "h3"
 import { describe, expect, it, vi } from "vitest"
 
-import { chat } from "../src/capabilities.ts"
+import { chat, entry } from "../src/capabilities.ts"
 
 import type { UIMessage } from "ai"
 
@@ -33,7 +33,7 @@ describe("agent Nitro chat routes", () => {
     const { defineAgentChatHandler } = await import("../src/nitro.ts")
     const seen: Array<{ chat: unknown, messages: string[], run: unknown }> = []
     const agent = defineAgent({
-      capabilities: [chat({ app: true, sessions: true })],
+      capabilities: [chat({ sessions: true }), entry({ id: "app", chat: true })],
       run(context) {
         seen.push({
           chat: context.input.context?.chat,
@@ -91,7 +91,7 @@ describe("agent Nitro chat routes", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineAgentChatRegistryHandler } = await import("../src/nitro.ts")
     const agent = defineAgent({
-      capabilities: [chat({ app: true })],
+      capabilities: [chat(), entry({ id: "app", chat: true })],
       run: () => "registry answer",
     })
     const app = createApp()
@@ -117,7 +117,7 @@ describe("agent Nitro chat routes", () => {
     const { defineAgentChatHandler } = await import("../src/nitro.ts")
     const app = createApp()
     app.use(defineAgentChatHandler(defineAgent({
-      capabilities: [chat({ app: true })],
+      capabilities: [chat(), entry({ id: "app", chat: true })],
       run: () => "agent answer",
     })))
     const response = await toWebHandler(app)(new Request("https://example.test/api/_vitehub/agents/support/chat", {
@@ -157,9 +157,9 @@ describe("agent Nitro chat routes", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), [
       "import { defineAgent } from '@vite-hub/agent'",
-      "import { chat } from '@vite-hub/agent/capabilities'",
+      "import { chat, entry } from '@vite-hub/agent/capabilities'",
       "export default defineAgent({",
-      "  capabilities: [chat({ app: true })],",
+      "  capabilities: [chat(), entry({ id: 'app', chat: true })],",
       "  run: () => 'ok',",
       "})",
     ].join("\n"), "utf8")
@@ -207,9 +207,9 @@ describe("agent Nitro chat routes", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), [
       "import { defineAgent } from '@vite-hub/agent'",
-      "import { chat } from '@vite-hub/agent/capabilities'",
+      "import { chat, entry } from '@vite-hub/agent/capabilities'",
       "export default defineAgent({",
-      "  capabilities: [chat({ app: { route: '/api/support-chat' } })],",
+      "  capabilities: [chat(), entry({ id: 'app', chat: { route: '/api/support-chat' } })],",
       "  run: () => 'ok',",
       "})",
     ].join("\n"), "utf8")
