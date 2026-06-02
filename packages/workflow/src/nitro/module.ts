@@ -13,6 +13,8 @@ import { createCloudflareWorkflowBindings, getCloudflareWorkflowClassName } from
 import type { DiscoveredWorkflowDefinition, ResolvedWorkflowOptions, WorkflowModuleOptions } from "../types.ts"
 
 const WORKFLOW_NITRO_IMPORTS_PRESET = { from: "@vite-hub/workflow", imports: ["defineWorkflow", "getWorkflowRun"] }
+const OPENWORKFLOW_NITRO_TRACE_DEPS = ["openworkflow", "postgres"] as const
+const OPENWORKFLOW_NITRO_TRACE_IMPORTS = ["openworkflow", "openworkflow/postgres"] as const
 const WORKFLOW_VITE_PLUGIN_NAME = "@vite-hub/workflow/vite"
 
 function resolveRuntimeEntry(srcRelative: string, packageSubpath: string): string {
@@ -39,7 +41,11 @@ function resolveNitroWorkflowScanDirs(rootDir: string, scanDirs: string[] | unde
   return scanDirs?.length ? scanDirs : [resolve(rootDir, "server")]
 }
 
-function createNitroWorkflowPluginContents(file: string, registryFile: string) {
+function createNitroWorkflowPluginContents(file: string, registryFile: string, options: false | ResolvedWorkflowOptions) {
+  const openWorkflowTraceImports = options && options.provider === "openworkflow"
+    ? OPENWORKFLOW_NITRO_TRACE_IMPORTS.map(specifier => `import ${JSON.stringify(specifier)}`)
+    : []
+
   return [
     "import { definePlugin as defineNitroPlugin } from \"nitro\"",
     "import { useRuntimeConfig } from \"nitro/runtime-config\"",
@@ -47,6 +53,7 @@ function createNitroWorkflowPluginContents(file: string, registryFile: string) {
     "import { runCloudflareWorkflow } from \"@vite-hub/workflow/runtime/cloudflare-runner\"",
     "import { startOpenWorkflowWorker } from \"@vite-hub/workflow/runtime/openworkflow-worker\"",
     "import { enterWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from \"@vite-hub/workflow/runtime/state\"",
+    ...openWorkflowTraceImports,
     "",
     `import workflowRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
     "",
@@ -130,7 +137,7 @@ function createCloudflareWorkflowClassExports(definitions: DiscoveredWorkflowDef
 
 interface RuntimeFiles { definitions: DiscoveredWorkflowDefinition[], pluginFile: string, providerDefinitions: DiscoveredWorkflowDefinition[], registryFile: string }
 
-async function writeNitroWorkflowRuntimeFiles(nitro: Nitro): Promise<RuntimeFiles> {
+async function writeNitroWorkflowRuntimeFiles(nitro: Nitro, resolved: false | ResolvedWorkflowOptions): Promise<RuntimeFiles> {
   const registryFile = createNitroWorkflowRegistryPath(nitro.options.rootDir, nitro.options.buildDir)
   const pluginFile = createNitroWorkflowPluginPath(nitro.options.rootDir, nitro.options.buildDir)
   const definitions = discoverWorkflowDefinitions({
@@ -140,13 +147,23 @@ async function writeNitroWorkflowRuntimeFiles(nitro: Nitro): Promise<RuntimeFile
   const providerDefinitions = definitions
 
   const runtimeFiles = await writeRuntimeRegistryFiles({
-    createPluginContents: createNitroWorkflowPluginContents,
+    createPluginContents: (file, registryFile) => createNitroWorkflowPluginContents(file, registryFile, resolved),
     definitions,
     pluginFile,
     registryFile,
   })
 
   return { ...runtimeFiles, providerDefinitions }
+}
+
+function addOpenWorkflowNitroTraceDeps(nitro: Nitro): void {
+  const options = nitro.options as typeof nitro.options & { traceDeps?: string[] }
+  options.traceDeps ||= []
+  for (const dependency of OPENWORKFLOW_NITRO_TRACE_DEPS) {
+    if (!options.traceDeps.includes(dependency)) {
+      options.traceDeps.push(dependency)
+    }
+  }
 }
 
 const workflowNitroModule: NitroModule = {
@@ -167,7 +184,11 @@ const workflowNitroModule: NitroModule = {
     nitro.options.alias["@vite-hub/workflow/runtime/openworkflow"] = resolveRuntimeEntry("../runtime/openworkflow", "@vite-hub/workflow/runtime/openworkflow")
     nitro.options.alias["@vite-hub/workflow/runtime/openworkflow-worker"] = resolveRuntimeEntry("../runtime/openworkflow-worker", "@vite-hub/workflow/runtime/openworkflow-worker")
 
-    let runtimeFiles = await writeNitroWorkflowRuntimeFiles(nitro)
+    if (resolved?.provider === "openworkflow") {
+      addOpenWorkflowNitroTraceDeps(nitro)
+    }
+
+    let runtimeFiles = await writeNitroWorkflowRuntimeFiles(nitro, resolved || false)
     applyNitroRuntimeAliases(nitro, { "#vitehub/workflow/registry": runtimeFiles.registryFile })
 
     const importsExplicitlyDisabled = nitro.options._config?.imports === false
@@ -199,7 +220,7 @@ const workflowNitroModule: NitroModule = {
       }
     }
 
-    hookNitroRuntimeRegistryRefresh(nitro, () => writeNitroWorkflowRuntimeFiles(nitro), (nextRuntimeFiles) => {
+    hookNitroRuntimeRegistryRefresh(nitro, () => writeNitroWorkflowRuntimeFiles(nitro, resolved || false), (nextRuntimeFiles) => {
       runtimeFiles = nextRuntimeFiles
       applyNitroRuntimeAliases(nitro, { "#vitehub/workflow/registry": runtimeFiles.registryFile })
     })

@@ -820,6 +820,52 @@ describe("agent Nitro chat webhooks", () => {
     expect(output.edits).toEqual(["agent answer"])
   })
 
+  it("provides a default chat identity when transcripts are configured", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")
+    const output: { edits: unknown[], posts: unknown[] } = { edits: [], posts: [] }
+    const seenUsers: unknown[] = []
+    const adapter = createWebhookAdapter(output)
+    const handler = defineAgentChatWebhookRegistryHandler({
+      support: async () => defineAgent({
+        capabilities: [chat({
+          adapters: {
+            teams: () => adapter,
+          },
+          state: () => createMemoryState(),
+          transcripts: {
+            maxPerUser: 50,
+            retention: "30d",
+          },
+        })],
+        run(context) {
+          seenUsers.push((context.input.context as { chat?: { user?: unknown } } | undefined)?.chat?.user)
+          return "agent answer"
+        },
+      }),
+    })
+
+    const response = await handler({
+      context: {
+        params: {
+          agent: "support",
+          platform: "teams",
+        },
+      },
+      req: new Request("https://example.test/api/_vitehub/agents/support/chat/teams", {
+        body: JSON.stringify({ text: "hello from Teams" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+      waitUntil: vi.fn(),
+    } as never) as Response
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("ok")
+    expect(seenUsers).toEqual([{ id: "maxi", key: "teams:maxi", name: "Maxi" }])
+    expect(output.edits).toEqual(["agent answer"])
+  })
+
   it("memoizes configured chat state factories per agent definition", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineAgentChatWebhookRegistryHandler } = await import("../src/nitro.ts")

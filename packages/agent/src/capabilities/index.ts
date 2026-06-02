@@ -69,16 +69,30 @@ export {
 
 export type {
   AccessCapabilityOptions,
+  AccessCapabilityStandardSchemaResultFailure,
+  AccessCapabilityStandardSchemaResultSuccess,
+  AccessCapabilityStandardSchemaV1,
+  AccessChatInputSchemaOptions,
+  AccessChatMessageInputSchemaOptions,
+  AccessChatRunInputOptions,
+  AccessInputContextFromSchemas,
+  AccessInputSchemaOptions,
   AccessRoleName,
   AccessWorkspaceOptions,
+  AccessWorkspaceOptionsFor,
+  AccessWorkspaceResolverContext,
   AccessWorkspaceScopeDefinition,
   AccessWorkspaceScopeGrant,
   AccessWorkspaceScopeResolver,
   AccessWorkspaceScopeSelection,
   AccessWorkspaceScopeSelectionInput,
+  AccessWorkspaceSourceName,
 } from "./access.ts"
 export type {
+  AgentChatCapabilityOrigin,
   AgentChatMessageTriggerInput,
+  AgentChatOptionsOrigin,
+  AgentChatRunContext,
 } from "../chat-trigger.ts"
 export type {
   AgentChatAdapterResolver,
@@ -87,6 +101,7 @@ export type {
   AgentChatAgentHookArgs,
   AgentChatEventHookArgs,
   AgentChatEventHooks,
+  AgentChatIdentityResolver,
   AgentChatMessageHookArgs,
   AgentChatOptions,
   AgentChatSessionOptions,
