@@ -36,11 +36,11 @@ function exportTarget(rawTarget: unknown) {
 }
 
 function packagePublishName(packageName: PackageName) {
-  return packageName === "cli" ? "vite-hub" : `@vite-hub/${packageName}`
+  return `@vite-hub/${packageName}`
 }
 
 function packageShortName(packageName: string) {
-  return packageName === "vite-hub" ? "cli" : packageName.replace("@vite-hub/", "")
+  return packageName.replace("@vite-hub/", "")
 }
 
 function hasExport(packageName: string, specifier: string) {
