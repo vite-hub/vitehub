@@ -47,7 +47,7 @@ Use the Access Capability when invocation identity should narrow the visible Wor
 import { gateway } from '@ai-sdk/gateway'
 import { createTeamsAdapter } from '@chat-adapter/teams'
 import { defineAgent } from '@vite-hub/agent'
-import { access, chat, workspaceShell } from '@vite-hub/agent/capabilities'
+import { access, chat, entry, workspaceShell } from '@vite-hub/agent/capabilities'
 import { source } from '@vite-hub/workspace'
 import { z } from 'zod'
 
@@ -71,7 +71,11 @@ const supportChat = chat({
       appType: 'SingleTenant',
     }),
   }),
-  app: 'portal',
+})
+
+const portalEntry = entry({
+  id: 'portal',
+  chat: { capability: supportChat, origin: 'portal' },
 })
 
 export default defineAgent({
@@ -91,7 +95,7 @@ export default defineAgent({
     access({
       input: {
         chat: {
-          capability: supportChat,
+          capability: portalEntry,
           message: { metadata: portalMetadataSchema },
           user: portalUserSchema,
         },
@@ -116,6 +120,7 @@ export default defineAgent({
     }),
     workspaceShell({ mode: 'read' }),
     supportChat,
+    portalEntry,
   ],
   instructions: 'Answer from the scoped customer workspace.',
   model: gateway('openai/gpt-5.1-mini'),
@@ -124,6 +129,6 @@ export default defineAgent({
 
 The scope resolver sees the parsed schema output. In this example, portal chat requests must include a customer in message metadata, while non-portal chat surfaces can use the explicit all-scopes Workspace Scope. The resolver returns inline Workspace Scope definitions, so the app does not need to pre-register one scope per customer.
 
-The Chat App Route origin is configured in `chat({ app })` so the access decision does not trust a browser-controlled payload. A request body may repeat the same `run.origin`, but it cannot override the configured app origin; mismatches are rejected as bad requests so app-level proxies fail closed when their contract drifts. Passing the Chat Capability to `access({ input.chat.capability })` lets the resolver infer `chat.run.origin` from the Chat App Route origin and Chat Platform Adapter names.
+The Chat App Route origin is configured in `entry({ chat })` so the access decision does not trust a browser-controlled payload. A request body may repeat the same `run.origin`, but it cannot override the configured entry origin; mismatches are rejected as bad requests so app-level proxies fail closed when their contract drifts. Passing the Entry Capability to `access({ input.chat.capability })` lets the resolver infer `chat.run.origin` from the Chat App Route origin and linked Chat Platform Adapter names.
 
 Order matters. Access should run before Workspace-reading Capabilities so the scope is applied before tools are exposed.

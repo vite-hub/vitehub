@@ -412,12 +412,12 @@ describe("access capability", () => {
 
   it("gates Chat App Route metadata schemas by chat run origin", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { access, chat } = await import("../src/capabilities.ts")
+    const { access, chat, entry } = await import("../src/capabilities.ts")
 
     const supportChat = chat({
       adapters: { teams: {} as never },
-      app: "portal",
     })
+    const portalEntry = entry({ id: "portal", chat: { capability: supportChat, origin: "portal" } })
     const metadataSchema = {
       "~standard": {
         validate(input: unknown) {
@@ -434,7 +434,7 @@ describe("access capability", () => {
         access({
           input: {
             chat: {
-              capability: supportChat,
+              capability: portalEntry,
               message: { metadata: metadataSchema },
             },
           },
@@ -453,6 +453,7 @@ describe("access capability", () => {
           },
         }),
         supportChat,
+        portalEntry,
       ],
     }, { ...runtime(), runtimeConfig: {} }, {
       context: {
@@ -473,7 +474,7 @@ describe("access capability", () => {
         access({
           input: {
             chat: {
-              capability: supportChat,
+              capability: portalEntry,
               message: { metadata: metadataSchema },
             },
           },
@@ -485,6 +486,7 @@ describe("access capability", () => {
           },
         }),
         supportChat,
+        portalEntry,
       ],
     }, { ...runtime(), runtimeConfig: {} }, {
       context: {

@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, type AgentRuntimeContext } from "../src/index.ts"
-import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "../src/capabilities.ts"
+import { access, blob, chat, chatTitle, db, entry, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
@@ -353,7 +353,6 @@ describe("agent public types", () => {
     const teamsAdapter = {} as AgentChatAdapterResolver
     const supportChat = chat({
       adapters: () => ({ teams: teamsAdapter }),
-      app: "portal",
       identity({ adapter, author }) {
         expectTypeOf(adapter).toEqualTypeOf<string>()
         expectTypeOf(author.userId).toEqualTypeOf<string>()
@@ -364,13 +363,14 @@ describe("agent public types", () => {
         retention: "30d",
       },
     })
+    const portalEntry = entry({ id: "portal", chat: { capability: supportChat, origin: "portal" } })
 
     defineAgent({
       capabilities: [
         access({
           input: {
             chat: {
-              capability: supportChat,
+              capability: portalEntry,
               message: { metadata: metadataSchema },
               user: userSchema,
             },
@@ -394,6 +394,7 @@ describe("agent public types", () => {
           },
         }),
         supportChat,
+        portalEntry,
       ],
       model: {} as never,
       workspace: {

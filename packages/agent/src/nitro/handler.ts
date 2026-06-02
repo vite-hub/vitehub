@@ -3,6 +3,7 @@ import { createError, defineEventHandler, getRouterParam } from "h3"
 import { createRuntimeWaitUntilController } from "@vite-hub/runtime"
 
 import { chatWebhookRegistrations, getChatCapabilityOptions } from "../chat-trigger.ts"
+import { getEntryChatOptions } from "../capabilities/entry.ts"
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { resolveAgent, resolveAgentTriggers, runAgent, streamAgent, streamAgentTrigger } from "../index.ts"
 import { getHttpErrorMessage, getHttpErrorStatusCode } from "../http-error.ts"
@@ -18,7 +19,6 @@ import type { NitroRuntimeConfig } from "nitro/types"
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type {
   AgentCapabilityDefinition,
-  AgentChatAppOptions,
   AgentChatOptions,
   AgentHandlerOptions,
   AgentInput,
@@ -30,6 +30,7 @@ import type {
   AgentRuntimeContext,
   AgentRuntimeHooks,
 } from "../types.ts"
+import type { AgentEntryChatOptions } from "../capabilities/entry.ts"
 
 export interface NitroAgentRuntimeConfig extends NitroRuntimeConfig, AgentRuntimeConfig {}
 
@@ -337,12 +338,15 @@ function createChatSdkOptions(options: AgentChatOptions, adapters: Record<string
   const {
     adapters: _adapters,
     agent: _agent,
+    app: _app,
     event: _event,
     execution: _execution,
     fallbackStreamingPlaceholderText: _fallbackStreamingPlaceholderText,
+    history: _history,
     hooks: _hooks,
     identity,
     lifecycleHooks: _lifecycleHooks,
+    sessions: _sessions,
     state: _state,
     transcripts,
     userName,
@@ -746,16 +750,10 @@ function normalizeChatRouteSession(body: AgentChatRouteBody): AgentChatMessageTr
   return body.id ? { id: body.id } : undefined
 }
 
-function normalizeChatAppOptions(app: AgentChatOptions["app"]): AgentChatAppOptions | undefined {
-  if (!app) return
-  if (typeof app === "string") return { origin: app }
-  return app === true ? {} : app
-}
-
 function createChatRouteRunMetadata(
   body: AgentChatRouteBody,
   agentName: string | undefined,
-  app: AgentChatAppOptions,
+  app: AgentEntryChatOptions,
 ): AgentRunMetadata {
   const session = normalizeChatRouteSession(body)
   const message = body.messages?.at(-1)
@@ -765,7 +763,7 @@ function createChatRouteRunMetadata(
   if (requestedOrigin && requestedOrigin !== origin) {
     throw createError({
       statusCode: 400,
-      statusMessage: `Chat App Route run.origin ${JSON.stringify(requestedOrigin)} does not match configured origin ${JSON.stringify(origin)}. Configure chat({ app }) with that origin or remove run.origin from the request.`,
+      statusMessage: `Chat App Route run.origin ${JSON.stringify(requestedOrigin)} does not match configured origin ${JSON.stringify(origin)}. Configure entry({ chat }) with that origin or remove run.origin from the request.`,
     })
   }
 
@@ -781,7 +779,7 @@ function createChatRouteRunMetadata(
 function createChatRouteTriggerInput(
   body: AgentChatRouteBody,
   agentName: string | undefined,
-  app: AgentChatAppOptions,
+  app: AgentEntryChatOptions,
 ): AgentChatMessageTriggerInput {
   if (!Array.isArray(body.messages) || !body.messages.length) {
     throw createError({
@@ -803,21 +801,23 @@ function createChatRouteTriggerInput(
   }
 }
 
-function requireChatAppExposure(agent: AgentInput<NitroAgentRuntimeContext>, agentName?: string): AgentChatAppOptions {
-  const options = getChatCapabilityOptions(agentCapabilityOptions(agent))
-  if (!options) {
+function requireChatAppExposure(agent: AgentInput<NitroAgentRuntimeContext>, agentName?: string): AgentEntryChatOptions {
+  const capabilities = agentCapabilityOptions(agent)
+  const chatOptions = getChatCapabilityOptions(capabilities)
+  if (!chatOptions) {
     throw createError({
       statusCode: 404,
       statusMessage: `Agent "${agentName || "default"}" does not define chat().`,
     })
   }
-  if (!options.app) {
+  const appOptions = getEntryChatOptions(capabilities)
+  if (!appOptions) {
     throw createError({
       statusCode: 404,
-      statusMessage: `Agent "${agentName || "default"}" does not expose a Chat App Route.`,
+      statusMessage: `Agent "${agentName || "default"}" does not expose a Chat App Route. Attach entry({ id, chat }) to expose it.`,
     })
   }
-  return normalizeChatAppOptions(options.app) || {}
+  return appOptions
 }
 
 export function defineAgentHandler(

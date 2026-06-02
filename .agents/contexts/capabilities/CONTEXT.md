@@ -24,6 +24,10 @@ _Avoid_: Random hook, raw setup
 A Capability-owned server-side contribution that registers Agent Trigger behavior for a product event.
 _Avoid_: Chat helper, DevTools bridge, raw server route, server-only bucket
 
+**Entry Capability**:
+A small official Capability created by `entry()` that lets an Agent receive app-owned product events through Capability Trigger Contributions and trusted Chat App Route exposure.
+_Avoid_: Chat App Capability, route helper, trigger helper
+
 **Capability Requirement**:
 A primitive, workspace mode, or workspace path that a Capability needs before it can be applied to an Agent.
 _Avoid_: Capability dependency, plugin dependency
@@ -179,7 +183,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 ## Relationships
 
 - An Agent attaches zero or more **Capabilities**.
-- Official helpers such as `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `access()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, and `llmGate()` create **Capability Definitions**.
+- Official helpers such as `entry()`, `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `access()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, and `llmGate()` create **Capability Definitions**.
 - Official Capability factories and Capability-owned helper functions are imported from `@vite-hub/agent/capabilities`, not from the root `@vite-hub/agent` Agent Package entry.
 - Official helpers should map to product abilities rather than implementation mechanisms.
 - An official **Capability Definition** may carry a narrow **Capability Type Contract** when it directly consumes typed Agent Definition inputs such as Source keys, trusted Chat Capability origins, or schema-validated invocation context.
@@ -188,6 +192,8 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - A **Capability Trigger Contribution** is composed from `defineAgent({ capabilities })`, not registered through a separate helper.
 - A **Capability Trigger Contribution** belongs directly to the Capability shape unless a broader grouping earns its name later.
 - A **Capability Trigger Contribution** maps product event input into Agent Invocation input and run metadata; Agent execution remains owned by the Agent Package.
+- An **Entry Capability** is the official small helper for app-owned product events when a full product-specific Capability has not earned a name yet.
+- An **Entry Capability** may expose a trusted Chat App Route origin without adding app-route fields to Chat Capability options.
 - A **Prompt Template** belongs to the Capability that renders it and should expose only the **Prompt Template Variables** that are stable for that Capability.
 - Standard Schema validation is the preferred runtime boundary for app-owned invocation metadata that an official **Capability** directly consumes.
 - An **Input Command** is a **Capability** concern resolved before model-facing Agent behavior.
@@ -202,7 +208,8 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
 - A **Chat Capability** owns Chat History behavior for the current stack.
 - A **Chat Capability** may declare **Chat Platform Adapters** through a **Chat Adapter Callback**.
-- A **Chat Capability** carries trusted Chat Capability origins from its Chat App Route origin and Chat Platform Adapter names.
+- A **Chat Capability** carries trusted Chat Capability origins from its Chat Platform Adapter names.
+- An **Entry Capability** carries trusted Chat Capability origins from its Chat App Route origin and a linked Chat Capability's Chat Platform Adapter names.
 - A **Chat Capability** provides a platform-scoped **Chat Identity** default for Chat Platform Adapter messages when transcript persistence needs one.
 - A **Chat Platform Adapter** may come from a **Chat Adapter Package** that remains an explicit optional application dependency.
 - The Agent Package should not generate exports for every **Chat Adapter Package**.

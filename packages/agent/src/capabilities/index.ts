@@ -5,6 +5,9 @@ export {
   chat,
 } from "../chat-trigger.ts"
 export {
+  entry,
+} from "./entry.ts"
+export {
   chatSummary,
 } from "./chat-summary.ts"
 export {
@@ -94,6 +97,13 @@ export type {
   AgentChatOptionsOrigin,
   AgentChatRunContext,
 } from "../chat-trigger.ts"
+export type {
+  AgentEntryCapabilityMetadata,
+  AgentEntryChatExposure,
+  AgentEntryChatOptions,
+  AgentEntryOptions,
+  AgentEntryOptionsOrigin,
+} from "./entry.ts"
 export type {
   AgentChatAdapterResolver,
   AgentChatAdaptersResolver,

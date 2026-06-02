@@ -7,13 +7,12 @@ import type {
   AgentCapabilityDefinition,
   AgentCapabilityRuntimeContext,
   AgentCapabilityTypeContract,
-  AgentChatAppExposure,
-  AgentChatOptions,
   AgentRunInput,
   AgentRuntimeConfig,
   MaybePromise,
 } from "../types.ts"
 import type { AgentChatCapabilityOrigin, AgentChatRunContext } from "../chat-trigger.ts"
+import type { AgentEntryChatOptions } from "./entry.ts"
 import type {
   ListOptions,
   ReadonlyWorkspaceFacade,
@@ -340,25 +339,24 @@ async function applyAccessInputSchemas(
   }
 }
 
-function chatCapabilityOptions(value: unknown): AgentChatOptions | undefined {
+function capabilityMetadata(value: unknown): Record<string, unknown> | undefined {
   const metadata = isRecord(value) ? value.metadata : undefined
-  return isRecord(metadata) && metadata.kind === "chat" && isRecord(metadata.chat)
-    ? metadata.chat as AgentChatOptions
-    : undefined
+  return isRecord(metadata) ? metadata : undefined
 }
 
-function chatAppOrigin(app: AgentChatAppExposure | undefined): string | undefined {
-  if (!app) return
-  if (typeof app === "string") return app
-  if (app === true) return "http"
-  return typeof app.origin === "string" && app.origin ? app.origin : "http"
+function entryChatOptions(value: unknown): AgentEntryChatOptions | undefined {
+  const metadata = capabilityMetadata(value)
+  const entry = isRecord(metadata?.entry) ? metadata.entry : undefined
+  return metadata?.kind === "entry" && isRecord(entry?.chat)
+    ? entry.chat as AgentEntryChatOptions
+    : undefined
 }
 
 function shouldValidateChatMessageMetadata(
   schemas: AccessChatInputSchemaOptions,
   chat: Record<string, unknown>,
 ): boolean {
-  const appOrigin = chatAppOrigin(chatCapabilityOptions(schemas.capability)?.app)
+  const appOrigin = entryChatOptions(schemas.capability)?.origin
   if (!appOrigin) return true
   const run = isRecord(chat.run) ? chat.run : undefined
   const origin = run?.origin
