@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineInvocationProfile, type AgentInvocationProfileStandardSchemaV1, type AgentRuntimeContext } from "../src/index.ts"
+import { defineAgent, defineInvocationProfile, type AgentInvocationProfileInputContext, type AgentInvocationProfileRunInput, type AgentInvocationProfileRunInputFromSchemas, type AgentInvocationProfileStandardSchemaV1, type AgentRunInput, type AgentRuntimeContext } from "../src/index.ts"
 import { access, audience, blob, chat, chatTitle, db, entry, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -364,15 +364,16 @@ describe("agent public types", () => {
       },
     })
     const portalEntry = entry({ id: "portal", chat: { capability: supportChat, origin: "portal" } })
+    const supportInput = {
+      chat: {
+        message: { metadata: metadataSchema, runOrigin: ["portal"] },
+        run: { origin: ["portal", "teams"] },
+        user: userSchema,
+      },
+    } as const
     const supportProfile = defineInvocationProfile({
       id: "support",
-      input: {
-        chat: {
-          message: { metadata: metadataSchema, runOrigin: ["portal"] },
-          run: { origin: ["portal", "teams"] },
-          user: userSchema,
-        },
-      },
+      input: supportInput,
       resolve({ input }) {
         const chat = input.get().context?.chat
         expectTypeOf(chat?.message?.metadata?.quiver?.customer).toEqualTypeOf<string | undefined>()
@@ -381,6 +382,28 @@ describe("agent public types", () => {
         return { customer: chat?.message?.metadata?.quiver?.customer || "customer" }
       },
     })
+    type SupportInputContext = typeof supportProfile.$Infer.InputContext
+    expectTypeOf({} as SupportInputContext).toEqualTypeOf<AgentChatRunContext<SupportMessageMetadata, SupportChatUser, "portal" | "teams">>()
+    expectTypeOf({} as typeof supportProfile.$Infer.Profile).toEqualTypeOf<{ customer: string }>()
+    expectTypeOf({} as typeof supportProfile.$Infer.RunInput).toEqualTypeOf<AgentRunInput<unknown, SupportInputContext>>()
+    expectTypeOf({} as AgentInvocationProfileInputContext<typeof supportProfile>).toEqualTypeOf<SupportInputContext>()
+    expectTypeOf({} as AgentInvocationProfileRunInput<typeof supportProfile, { stream: boolean }>).toEqualTypeOf<AgentRunInput<{ stream: boolean }, SupportInputContext>>()
+    expectTypeOf({} as AgentInvocationProfileRunInputFromSchemas<typeof supportInput>).toEqualTypeOf<typeof supportProfile.$Infer.RunInput>()
+
+    type SupportRunInput = AgentInvocationProfileRunInputFromSchemas<typeof supportInput>
+    function resolveSupportProfile(input: SupportRunInput) {
+      const chat = input.context?.chat
+      expectTypeOf(chat?.message?.metadata?.quiver?.customer).toEqualTypeOf<string | undefined>()
+      expectTypeOf(chat?.run?.origin).toEqualTypeOf<"portal" | "teams" | undefined>()
+      expectTypeOf(chat?.user?.email).toEqualTypeOf<string | undefined>()
+      return { customer: chat?.message?.metadata?.quiver?.customer || "customer" }
+    }
+    const externalResolverProfile = defineInvocationProfile({
+      id: "support-external",
+      input: supportInput,
+      resolve: ({ input }) => resolveSupportProfile(input.get()),
+    })
+    expectTypeOf({} as typeof externalResolverProfile.$Infer.Profile).toEqualTypeOf<{ customer: string }>()
 
     defineAgent({
       capabilities: [

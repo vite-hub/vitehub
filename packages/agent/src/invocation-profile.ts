@@ -80,6 +80,32 @@ export type AgentInvocationProfileInputContextFromSchemas<TInputSchemas> =
       >
     : Record<string, unknown>
 
+export interface AgentInvocationProfileInfer<
+  TProfile,
+  TInputContext extends object = Record<string, unknown>,
+> {
+  InputContext: TInputContext
+  Profile: TProfile
+  RunInput: AgentRunInput<unknown, TInputContext>
+}
+
+export type AgentInvocationProfileInputContext<
+  TDefinition extends AgentInvocationProfileDefinition<any, any, any, any>,
+> =
+  TDefinition extends AgentInvocationProfileDefinition<any, any, any, infer TInputContext>
+    ? TInputContext
+    : Record<string, unknown>
+
+export type AgentInvocationProfileRunInput<
+  TDefinition extends AgentInvocationProfileDefinition<any, any, any, any>,
+  CALL_OPTIONS = unknown,
+> = AgentRunInput<CALL_OPTIONS, AgentInvocationProfileInputContext<TDefinition>>
+
+export type AgentInvocationProfileRunInputFromSchemas<
+  TInputSchemas extends AgentInvocationProfileInputSchemaOptions,
+  CALL_OPTIONS = unknown,
+> = AgentRunInput<CALL_OPTIONS, AgentInvocationProfileInputContextFromSchemas<TInputSchemas>>
+
 export type AgentInvocationProfileContextValueId<TId extends string = string> = `invocationProfile.${TId}`
 
 export type AgentInvocationProfileResolverContext<
@@ -110,6 +136,15 @@ export interface AgentInvocationProfileDefinition<
   id: string
   input?: AgentInvocationProfileInputSchemaOptions
   resolve: AgentInvocationProfileResolver<TProfile, TRuntimeConfig, Name, TInputContext>
+}
+
+export type DefinedAgentInvocationProfile<
+  TProfile = unknown,
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  TInputContext extends object = Record<string, unknown>,
+> = AgentInvocationProfileDefinition<TProfile, TRuntimeConfig, Name, TInputContext> & {
+  readonly $Infer: AgentInvocationProfileInfer<TProfile, TInputContext>
 }
 
 export interface AgentInvocationProfileOptions<
@@ -210,7 +245,7 @@ export function defineInvocationProfile<
   const TInputSchemas extends AgentInvocationProfileInputSchemaOptions | undefined = undefined,
 >(
   options: AgentInvocationProfileOptions<TProfile, TRuntimeConfig, Name, TInputSchemas>,
-): AgentInvocationProfileDefinition<
+): DefinedAgentInvocationProfile<
   TProfile,
   TRuntimeConfig,
   Name,
