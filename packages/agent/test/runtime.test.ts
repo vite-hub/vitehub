@@ -1379,6 +1379,7 @@ describe("agent message protocol", () => {
         files: async () => ({
           title: "Files agent",
           tools: [{ name: "reserved-chat-tool" }],
+          version: "1.2.3",
         }),
       },
     })
@@ -1389,11 +1390,12 @@ describe("agent message protocol", () => {
       headers: { "content-type": "application/json" },
       method: "POST",
     }))
-    const state = await response.json() as { chats?: Array<{ name: string, title?: string }>, title?: string, tools?: Array<{ name: string }> }
+    const state = await response.json() as { chats?: Array<{ name: string, title?: string }>, title?: string, tools?: Array<{ name: string }>, version?: string }
 
     expect(state.chats?.map(chat => chat.name)).toEqual(["files", "support"])
     expect(state.title).toBe("Files agent")
     expect(state.tools).toEqual([{ name: "reserved-chat-tool" }])
+    expect(state.version).toBe("1.2.3")
   })
 
   it("resolves direct title-only DevTools metadata", async () => {
@@ -1407,7 +1409,7 @@ describe("agent message protocol", () => {
         run: () => "ok",
       }),
     }, {
-      metadata: { title: "Support agent" },
+      metadata: { title: "Support agent", version: "2.0.0" },
     }))
 
     const response = await toWebHandler(app)(new Request("http://example.test", {
@@ -1415,9 +1417,10 @@ describe("agent message protocol", () => {
       headers: { "content-type": "application/json" },
       method: "POST",
     }))
-    const state = await response.json() as { title?: string }
+    const state = await response.json() as { title?: string, version?: string }
 
     expect(state.title).toBe("Support agent")
+    expect(state.version).toBe("2.0.0")
   })
 
   it("streams DevTools sends without timer state polling and returns final assistant state", async () => {

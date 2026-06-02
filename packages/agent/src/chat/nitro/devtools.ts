@@ -21,7 +21,7 @@ type ChatDevtoolsMetadataInput =
   | ChatDevtoolsMetadata
   | ChatDevtoolsMetadataResolver
   | Record<string, ChatDevtoolsMetadata | ChatDevtoolsMetadataResolver | undefined>
-type ResolvedChatDevtoolsMetadata = Required<Omit<ChatDevtoolsMetadata, "title">> & Pick<ChatDevtoolsMetadata, "title">
+type ResolvedChatDevtoolsMetadata = Required<Omit<ChatDevtoolsMetadata, "title" | "version">> & Pick<ChatDevtoolsMetadata, "title" | "version">
 
 interface ChatDevtoolsSession {
   name: string
@@ -109,6 +109,7 @@ function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): 
     instructions: metadata?.instructions ? [...metadata.instructions] : [],
     title: metadata?.title,
     tools: metadata?.tools ? [...metadata.tools] : [],
+    version: metadata?.version,
   }
 }
 
@@ -118,7 +119,8 @@ function isChatDevtoolsMetadata(metadata: unknown): metadata is ChatDevtoolsMeta
     && (Array.isArray((metadata as ChatDevtoolsMetadata).files)
       || Array.isArray((metadata as ChatDevtoolsMetadata).instructions)
       || typeof (metadata as ChatDevtoolsMetadata).title === "string"
-      || Array.isArray((metadata as ChatDevtoolsMetadata).tools))
+      || Array.isArray((metadata as ChatDevtoolsMetadata).tools)
+      || typeof (metadata as ChatDevtoolsMetadata).version === "string")
 }
 
 async function resolveDevtoolsMetadata(metadata: ChatDevtoolsMetadata | ChatDevtoolsMetadataResolver | undefined): Promise<ResolvedChatDevtoolsMetadata> {
@@ -213,6 +215,7 @@ async function serializeState(state: ChatDevtoolsHandlerState, selected?: string
     ...(title ? { title } : {}),
     tools: metadata.tools,
     uiMessages: selectedSession ? [...selectedSession.uiMessages] : [],
+    ...(metadata.version ? { version: metadata.version } : {}),
   }
 }
 
