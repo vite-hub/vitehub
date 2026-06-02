@@ -223,7 +223,6 @@ describe("runtime hygiene contracts", () => {
 
     const offenders = runtimeFiles
       .filter(path => !toRepoPath(path).endsWith("/empty-registry.ts"))
-      .filter(path => toRepoPath(path) !== "packages/agent/src/runtime/nitro-runtime-config.ts")
       .filter(path => readFileSync(path, "utf8").includes("__vitehub"))
       .map(toRepoPath)
 

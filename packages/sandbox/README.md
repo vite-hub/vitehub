@@ -44,11 +44,10 @@ export default defineEventHandler(async (event) => {
 ```ts
 // vite.config.ts
 import { hubSandbox } from "@vite-hub/sandbox/vite"
-import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [hubSandbox(), nitro()],
+  plugins: [hubSandbox()],
   sandbox: { provider: "cloudflare" },
 })
 ```

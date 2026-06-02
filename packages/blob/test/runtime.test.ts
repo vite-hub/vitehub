@@ -1,26 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const runtimeConfigMock = vi.hoisted(() => ({
-  blob: undefined as undefined | false | import("../src/types.ts").ResolvedBlobModuleOptions,
-}))
-
-interface NitroRequestMock {
-  context?: {
-    cloudflare?: {
-      env?: Record<string, unknown>
-    }
-  }
-  url: string
-}
-
-vi.mock("nitro", () => ({
-  definePlugin: (plugin: unknown) => plugin,
-}))
-
-vi.mock("nitro/runtime-config", () => ({
-  useRuntimeConfig: () => runtimeConfigMock,
-}))
-
 import { ensureBlob } from "../src/ensure.ts"
 import { blob } from "../src/runtime/storage.ts"
 import { createBlobCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
@@ -168,7 +147,6 @@ vi.mock("files-sdk/vercel-blob", () => ({
 }))
 
 afterEach(() => {
-  runtimeConfigMock.blob = undefined
   setActiveCloudflareEnv(undefined)
   setBlobRuntimeConfig(undefined)
   setBlobRuntimeStorage(undefined)
@@ -640,161 +618,6 @@ describe("blob runtime", () => {
     expect(await blob.get("notes/slow.txt")).toBeNull()
   })
 
-  it("hydrates Blob runtime state from the Nitro plugin", async () => {
-    runtimeConfigMock.blob = {
-      store: {
-        binding: "BLOB",
-        bucketName: "assets",
-        driver: "cloudflare-r2",
-      },
-    }
-
-    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as unknown as (nitroApp: {
-      fetch: (request: NitroRequestMock) => Promise<Response>
-      hooks: { hook: (name: string, cb: (event?: unknown) => void) => void }
-    }) => void
-
-    const hooks = new Map<string, (event?: unknown) => void>()
-    const nitroApp: {
-      fetch: (request: NitroRequestMock) => Promise<Response>
-      hooks: { hook: (name: string, cb: (event?: unknown) => void) => void }
-    } = {
-      async fetch() {
-        await blob.put("notes/nitro.txt", "hello nitro")
-        return Response.json({ ok: true })
-      },
-      hooks: {
-        hook(name: string, cb: (event?: unknown) => void) {
-          hooks.set(name, cb)
-        },
-      },
-    }
-
-    plugin(nitroApp)
-
-    hooks.get("request")?.({
-      context: {
-        cloudflare: {
-          env: {
-            BLOB: createMemoryBucket(),
-          },
-        },
-      },
-    })
-
-    const env = {
-      BLOB: createMemoryBucket(),
-    }
-
-    await nitroApp.fetch({
-      url: "https://example.com/nitro",
-      context: {
-        cloudflare: {
-          env,
-        },
-      },
-    })
-
-    setActiveCloudflareEnv(env)
-    expect(await (await blob.get("notes/nitro.txt"))?.text()).toBe("hello nitro")
-  })
-
-  it("does not clear Nitro's global Cloudflare env when request-scoped env is absent", async () => {
-    runtimeConfigMock.blob = {
-      store: {
-        binding: "BLOB",
-        bucketName: "assets",
-        driver: "cloudflare-r2",
-      },
-    }
-
-    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as unknown as (nitroApp: {
-      fetch: (request: NitroRequestMock) => Promise<Response>
-      hooks: { hook: (name: string, cb: (event?: unknown) => void) => void }
-    }) => void
-
-    const nitroApp = {
-      async fetch(_request: NitroRequestMock) {
-        await blob.put("notes/global-env.txt", "hello global")
-        return Response.json({ ok: true })
-      },
-      hooks: {
-        hook() {},
-      },
-    }
-
-    const env = {
-      BLOB: createMemoryBucket(),
-    }
-    ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = env
-
-    plugin(nitroApp)
-    await nitroApp.fetch({ url: "https://example.com/global-env" })
-
-    setActiveCloudflareEnv(env)
-    expect(await (await blob.get("notes/global-env.txt"))?.text()).toBe("hello global")
-  })
-
-  it("keeps Cloudflare bindings isolated across overlapping Nitro requests", async () => {
-    runtimeConfigMock.blob = {
-      store: {
-        binding: "BLOB",
-        bucketName: "assets",
-        driver: "cloudflare-r2",
-      },
-    }
-
-    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as unknown as (nitroApp: {
-      fetch: (request: NitroRequestMock) => Promise<Response>
-      hooks: { hook: (name: string, cb: (event?: unknown) => void) => void }
-    }) => void
-
-    const hooks = new Map<string, (event?: unknown) => void>()
-    const nitroApp = {
-      async fetch(request: NitroRequestMock) {
-        const url = new URL(request.url)
-        const delay = Number(url.searchParams.get("delay") || "0")
-        if (delay > 0) {
-          await new Promise(resolve => setTimeout(resolve, delay))
-        }
-        await blob.put(`notes/${url.pathname.slice(1)}.txt`, url.pathname)
-        return Response.json({ ok: true })
-      },
-      hooks: {
-        hook(name: string, cb: (event?: unknown) => void) {
-          hooks.set(name, cb)
-        },
-      },
-    }
-
-    plugin(nitroApp)
-
-    const envA = { BLOB: createMemoryBucket() }
-    const envB = { BLOB: createMemoryBucket() }
-
-    await Promise.all([
-      nitroApp.fetch({
-        url: "https://example.com/slow?delay=25",
-        context: {
-          cloudflare: { env: envA },
-        },
-      }),
-      nitroApp.fetch({
-        url: "https://example.com/fast",
-        context: {
-          cloudflare: { env: envB },
-        },
-      }),
-    ])
-
-    setActiveCloudflareEnv(envA)
-    expect(await (await blob.get("notes/slow.txt"))?.text()).toBe("/slow")
-    expect(await blob.get("notes/fast.txt")).toBeNull()
-
-    setActiveCloudflareEnv(envB)
-    expect(await (await blob.get("notes/fast.txt"))?.text()).toBe("/fast")
-    expect(await blob.get("notes/slow.txt")).toBeNull()
-  })
 })
 
 describe("ensureBlob", () => {

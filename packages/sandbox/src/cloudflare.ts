@@ -8,7 +8,7 @@ import type {
   WranglerContainer,
   WranglerDurableObjectBinding,
   WranglerMigration,
-} from './internal/shared/nitro-target'
+} from './internal/shared/cloudflare-target'
 
 export const defaultCloudflareSandboxBinding = 'SANDBOX'
 export const defaultCloudflareSandboxClassName = 'Sandbox'

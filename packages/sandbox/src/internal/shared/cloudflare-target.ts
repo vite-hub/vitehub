@@ -1,24 +1,3 @@
-import type { Nitro, NitroRuntimeConfig } from 'nitro/types'
-
-type BlobProviderPublicType = NonNullable<NonNullable<NitroRuntimeConfig['public']>['vitehub']>['blobProvider']
-
-export interface ViteHubPublicRuntimeConfig extends Record<string, unknown> {
-  vitehub?: Record<string, unknown> & {
-    blobProvider?: BlobProviderPublicType
-  }
-}
-
-export interface MutableNitroRuntimeConfig extends NitroRuntimeConfig {
-  hosting?: string
-  public?: ViteHubPublicRuntimeConfig
-}
-
-export type MutableFeatureNitroOptions<TOptions extends object = Record<string, never>> = Nitro['options'] & TOptions & {
-  runtimeConfig?: MutableNitroRuntimeConfig
-}
-
-export type NitroStorageMount = Record<string, unknown>
-
 export interface WranglerKVNamespace {
   binding: string
   id?: string
@@ -108,10 +87,4 @@ export interface MutableRollupTarget {
   rollupConfig?: {
     plugins?: unknown
   }
-}
-
-export interface MutableStorageTarget extends MutableCloudflareTarget {
-  dev?: boolean
-  storage?: Record<string, NitroStorageMount>
-  devStorage?: Record<string, NitroStorageMount>
 }

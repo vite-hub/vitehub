@@ -16,13 +16,11 @@ export function readFrameworkEnv(
   options: {
     plain?: string[]
     vite?: string[]
-    nitro?: string[]
     nuxt?: string[]
   },
 ): string | undefined {
   return readNonEmptyEnv(
     env,
-    ...(options.nitro || []),
     ...(options.nuxt || []),
     ...(options.vite || []),
     ...(options.plain || []),

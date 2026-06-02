@@ -20,10 +20,6 @@ _Avoid_: Inline id, definition id override, parsed helper option
 The build and dev integration installed through a Vite plugin.
 _Avoid_: Nitro module, runtime client
 
-**Server Host Adapter**:
-Host-specific wiring that lets ViteHub-generated server primitives run in a server host such as Nitro, Node, Cloudflare Workers, or Vercel.
-_Avoid_: Framework integration, Definition, package API
-
 **Runtime Registry**:
 A generated module that maps discovered names to lazy-loaded Definitions.
 _Avoid_: Definition list, route table
@@ -68,10 +64,6 @@ _Avoid_: Capability factory, invocation helper, runtime helper
 The direct default export of a package-owned Definition Boundary Helper from a discovered definition file.
 _Avoid_: Named export aggregate, local binding indirection, helper call elsewhere in source
 
-**Host Auto Import**:
-A host adapter convenience that makes selected ViteHub helpers available to server code without local import statements.
-_Avoid_: generated import path, hidden capability, runtime wiring
-
 **Stable ViteHub Import Path**:
 A ViteHub-owned app-facing import specifier for generated or integration-backed surfaces.
 _Avoid_: Virtual module path, generated file path, framework import path
@@ -83,13 +75,11 @@ _Avoid_: Virtual module path, generated file path, framework import path
 - **Discovery Identity** comes from discovery location rather than Definition Options parsed from user source.
 - **Discovery Identity** is the framework discovery rule for all package-owned Discovered Definitions, not a package-specific rule.
 - A **Vite Integration** can discover Definitions and generate Provider Output.
-- A **Server Host Adapter** can wire generated Runtime Registries, routes, host runtime state, and Provider Output for a server host.
 - A **Runtime Registry** contains Discovered Definitions.
 - **Integration Options** are resolved into Runtime Config when runtime code needs them.
 - **Definition Options** travel with one Definition.
 - **Build-Extracted Definition Options** can be extracted only from the direct discovered default export, and only for non-identity Definition Options.
 - **Invocation Options** are supplied to Runtime Helpers.
-- **Host Auto Imports** should cover Definition Boundary Helpers and narrow read-oriented Runtime Helpers, not behavior-starting Invocation Helpers.
 - **Definition Boundary Helpers** describe or validate a discovered Definition; they do not rename it.
 - First-class discovered definition files use a **Discovered Definition Export**.
 - A direct default-exported **Definition Boundary Helper** is the only source shape eligible for Build-Extracted Definition Options.
@@ -116,4 +106,4 @@ _Avoid_: Virtual module path, generated file path, framework import path
 - Discovery Identity was considered separately for schedules and workflows - resolved: use the same location-derived rule for every framework-discovered `defineX` surface.
 - Static helper option extraction was considered generally valid from arbitrary local bindings - resolved: allow **Build-Extracted Definition Options** only from the direct discovered default export.
 - Named exports and local binding indirection were considered valid discovered definition shapes - resolved: first-class discovered definition files use a direct default-exported package-owned Definition Boundary Helper.
-- Nitro was considered a first-class public Framework Integration - resolved by ADR 0039: ViteHub is Vite-first, while Nitro remains a supported server host composition target or internal compatibility adapter.
+- Nitro was considered a first-class public Framework Integration and later an internal compatibility adapter - resolved by ADR 0039: ViteHub is Vite-only and package-owned Nitro wiring is removed.

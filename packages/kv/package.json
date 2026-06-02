@@ -14,7 +14,6 @@
   "keywords": [
     "vitehub",
     "vite",
-    "nuxt",
     "kv",
     "cloudflare",
     "vercel"
@@ -24,8 +23,6 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
-    "./nuxt": "./dist/nuxt.js",
-    "./internal/runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./virtual": "./dist/virtual.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
@@ -42,21 +39,16 @@
     "test:e2e": "tsx ./test/e2e.ts"
   },
   "dependencies": {
-    "@nuxt/kit": "catalog:nuxt",
     "defu": "catalog:unjs",
     "exsolve": "catalog:unjs",
     "unstorage": "catalog:storage"
   },
   "peerDependencies": {
     "@upstash/redis": "catalog:storage",
-    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite6-compat"
   },
   "peerDependenciesMeta": {
     "@upstash/redis": {
-      "optional": true
-    },
-    "nitro": {
       "optional": true
     },
     "vite": {
@@ -64,9 +56,7 @@
     }
   },
   "devDependencies": {
-    "@nuxt/schema": "catalog:nuxt",
     "@vite-hub/internal": "workspace:*",
-    "nitro": "catalog:unjs",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",
     "tsdown": "catalog:tooling",

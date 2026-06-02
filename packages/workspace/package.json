@@ -42,7 +42,6 @@
     "./internal/runtime/assets": "./dist/runtime/assets.js",
     "./internal/runtime/empty-assets-registry": "./dist/runtime/empty-assets-registry.js",
     "./internal/runtime/empty-registry": "./dist/runtime/empty-registry.js",
-    "./internal/runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./internal/runtime/state": "./dist/runtime/state.js",
     "./internal/stores/cloudflare-artifacts": "./dist/providers/cloudflare/artifacts-store.js",
     "./internal/stores/vercel-blob": "./dist/providers/vercel/blob-store.js"
@@ -71,7 +70,6 @@
     "@vite-hub/sandbox": "workspace:*",
     "ai": "catalog:ai-compat",
     "files-sdk": "catalog:storage",
-    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite8-plus-compat"
   },
   "peerDependenciesMeta": {
@@ -79,9 +77,6 @@
       "optional": true
     },
     "files-sdk": {
-      "optional": true
-    },
-    "nitro": {
       "optional": true
     },
     "vite": {
@@ -94,7 +89,6 @@
     "@vite-hub/sandbox": "workspace:*",
     "ai": "catalog:ai",
     "files-sdk": "catalog:storage",
-    "nitro": "catalog:unjs",
     "ocache": "catalog:unjs",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",

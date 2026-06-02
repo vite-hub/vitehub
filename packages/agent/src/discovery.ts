@@ -56,7 +56,7 @@ function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefin
       definitions.push({
         handler: file,
         name: agent,
-        source: workspace ? "nitro-server-agent-workspace" : "nitro-server-agents",
+        source: workspace ? "server-agent-workspace" : "server-agents",
         workspace: workspace ? agent : undefined,
       })
     }
@@ -71,11 +71,11 @@ function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefin
 
 export function discoverAgentDefinitions(options:
   | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[] }
-  | { mode: "nitro-server-agents", scanDirs: string[] }
+  | { mode: "server-agents", scanDirs: string[] }
 ): DiscoveredAgentDefinition[] {
-  if (options.mode === "nitro-server-agents") {
+  if (options.mode === "server-agents") {
     const directoryDefinitions = discoverDefinitions("agent", [
-      createDirectoryDefinitionSource<DiscoveredAgentDefinition>("nitro-server-agents", options.scanDirs, "agents", {
+      createDirectoryDefinitionSource<DiscoveredAgentDefinition>("server-agents", options.scanDirs, "agents", {
         normalizeName(directory, file) {
           if (configPattern.test(basename(file))) return
           return relative(directory, file).replace(/\.(?:c|m)?[jt]s$/i, "").replace(/\/index$/i, "")
@@ -84,7 +84,7 @@ export function discoverAgentDefinitions(options:
           return {
             handler: file,
             name,
-            source: "nitro-server-agents",
+            source: "server-agents",
           }
         },
       }),

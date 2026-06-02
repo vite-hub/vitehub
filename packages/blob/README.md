@@ -36,7 +36,6 @@ export default defineEventHandler(async (event) => {
 ```ts
 // vite.config.ts
 import { hubBlob } from "@vite-hub/blob/vite"
-import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
@@ -44,7 +43,7 @@ export default defineConfig({
     driver: "fs",
     base: ".data/blob",
   },
-  plugins: [hubBlob(), nitro()],
+  plugins: [hubBlob()],
 })
 ```
 

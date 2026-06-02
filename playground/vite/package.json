@@ -27,7 +27,6 @@
     "chat-state-cloudflare-do": "catalog:chat",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
-    "nitro": "catalog:unjs",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite"
   }

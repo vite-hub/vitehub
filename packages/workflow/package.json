@@ -55,16 +55,12 @@
     "pathe": "catalog:unjs"
   },
   "peerDependencies": {
-    "nitro": "catalog:nitro-compat",
     "openworkflow": "catalog:workflow",
     "postgres": "catalog:database",
     "vite": "catalog:vite8-compat",
     "workflow": "catalog:workflow"
   },
   "peerDependenciesMeta": {
-    "nitro": {
-      "optional": true
-    },
     "openworkflow": {
       "optional": true
     },
@@ -81,7 +77,6 @@
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "nitro": "catalog:unjs",
     "ofetch": "catalog:unjs",
     "openworkflow": "catalog:workflow",
     "publint": "catalog:tooling",

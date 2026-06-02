@@ -1,4 +1,3 @@
-import type { NitroModule } from "nitro/types"
 import type { UserConfig } from "vite"
 import virtualConfig, { blob as virtualBlob, hosting as virtualHosting } from "#vitehub/blob/config"
 
@@ -47,7 +46,6 @@ describe("types", () => {
   it("returns a vite plugin with runtime config access", () => {
     const plugin = hubBlob()
     expectTypeOf(plugin.api.getConfig().blob).toMatchTypeOf<false | ResolvedBlobModuleOptions>()
-    expectTypeOf(plugin.nitro).toMatchTypeOf<NitroModule>()
   })
 
   it("exposes the generated config import types", () => {

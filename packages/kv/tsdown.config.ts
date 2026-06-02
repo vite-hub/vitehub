@@ -13,8 +13,6 @@ export default defineConfig({
   entry: [
     "src/index.ts",
     "src/vite.ts",
-    "src/nuxt.ts",
-    "src/runtime/nitro-plugin.ts",
     "src/virtual.ts",
   ],
   exports: {

@@ -14,7 +14,7 @@ export interface BlobViteRuntimeConfig {
 
 function resolveHosting(input: BlobResolutionInput): string | undefined {
   const env = input.env || process.env
-  return trimmed(input.hosting) ?? readEnv(env, "NITRO_PRESET", "VITEHUB_HOSTING")
+  return trimmed(input.hosting) ?? readEnv(env, "VITEHUB_HOSTING")
 }
 
 export function resolveBlobViteConfig(

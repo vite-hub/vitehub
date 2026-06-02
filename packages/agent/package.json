@@ -35,10 +35,7 @@
     "./mcp/stdio": "./dist/mcp/stdio.js",
     "./memory": "./dist/memory.js",
     "./messages": "./dist/messages.js",
-    "./internal/nitro": "./dist/internal/nitro.js",
-    "./runtime/chat-devtools-handler": "./dist/runtime/chat-devtools-handler.js",
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
-    "./runtime/nitro-runtime-config": "./dist/runtime/nitro-runtime-config.js",
     "./test": "./dist/test.js",
     "./vercel": "./dist/vercel.js",
     "./vite": "./dist/vite.js",
@@ -67,7 +64,6 @@
     "@vercel/functions": "catalog:vercel",
     "@vitejs/devtools-kit": "catalog:vite",
     "chat": "catalog:chat",
-    "h3": "catalog:unjs",
     "hookable": "catalog:unjs"
   },
   "peerDependencies": {
@@ -76,7 +72,6 @@
     "agents": "catalog:ai",
     "ai": "catalog:ai-compat",
     "evalite": "catalog:ai",
-    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite8-plus-compat"
   },
   "peerDependenciesMeta": {
@@ -95,9 +90,6 @@
     "evalite": {
       "optional": true
     },
-    "nitro": {
-      "optional": true
-    },
     "vite": {
       "optional": true
     }
@@ -110,7 +102,6 @@
     "@vitejs/devtools-kit": "catalog:vite",
     "ai": "catalog:ai",
     "evalite": "catalog:ai",
-    "nitro": "catalog:unjs",
     "publint": "catalog:tooling",
     "tsdown": "catalog:tooling",
     "typescript": "catalog:tooling",

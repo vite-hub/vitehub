@@ -26,21 +26,9 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./nuxt": {
-      "types": "./dist/nuxt.d.ts",
-      "import": "./dist/nuxt.js"
-    },
-    "./internal/nitro": {
-      "types": "./dist/internal/nitro.d.ts",
-      "import": "./dist/internal/nitro.js"
-    },
     "./presets": {
       "types": "./dist/presets.d.ts",
       "import": "./dist/presets.js"
-    },
-    "./runtime/server": {
-      "types": "./dist/runtime/server.d.ts",
-      "import": "./dist/runtime/server.js"
     },
     "./schema": {
       "types": "./dist/schema.d.ts",
@@ -70,25 +58,16 @@
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
     "test": "pnpm --filter @vite-hub/env build && vitest run"
   },
-  "dependencies": {
-    "@nuxt/kit": "catalog:nuxt"
-  },
   "peerDependencies": {
-    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite6-compat"
   },
   "peerDependenciesMeta": {
-    "nitro": {
-      "optional": true
-    },
     "vite": {
       "optional": true
     }
   },
   "devDependencies": {
-    "@nuxt/schema": "catalog:nuxt",
     "@vite-hub/internal": "workspace:*",
-    "nitro": "catalog:unjs",
     "publint": "catalog:tooling",
     "tsdown": "catalog:tooling",
     "tsx": "catalog:tooling",

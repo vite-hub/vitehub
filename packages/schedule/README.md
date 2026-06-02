@@ -48,11 +48,10 @@ export default defineEventHandler(() => {
 ```ts
 // vite.config.ts
 import { hubSchedule } from "@vite-hub/schedule/vite"
-import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [hubSchedule(), nitro()],
+  plugins: [hubSchedule()],
 })
 ```
 

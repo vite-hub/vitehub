@@ -17,7 +17,7 @@ import { getVercelSchedulePath } from "../../../packages/schedule/src/integratio
 import { readDefinitionCrons } from "../../../packages/schedule/src/internal/provider-output.ts"
 import { defaultCloudflareSandboxBinding, defaultCloudflareSandboxClassName, defaultCloudflareSandboxMigrationTag, configureCloudflareSandbox, writeCloudflareSandboxDockerfile } from "../../../packages/sandbox/src/cloudflare.ts"
 import { extractSandboxDefinitionOptions } from "../../../packages/sandbox/src/definition-options.ts"
-import { discoverNitroSandboxDefinitions } from "../../../packages/sandbox/src/discovery.ts"
+import { discoverServerSandboxDefinitions } from "../../../packages/sandbox/src/discovery.ts"
 import { bundleSandboxDefinition } from "../../../packages/sandbox/src/bundle.ts"
 import { resolveSandboxFeatureConfig } from "../../../packages/sandbox/src/feature.ts"
 import { finalizeCloudflareWranglerConfig } from "../../../packages/sandbox/src/internal/shared/cloudflare-wrangler.ts"
@@ -378,16 +378,16 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
 
   const alias: Record<string, string> = {}
   const queueDefinitions = options.queue
-    ? discoverQueueDefinitions({ mode: "nitro-server-queues", scanDirs: [resolve(options.rootDir, "server")] })
+    ? discoverQueueDefinitions({ mode: "server-queues", scanDirs: [resolve(options.rootDir, "server")] })
     : []
   const scheduleDefinitions = options.schedule
     ? discoverScheduleDefinitions({ rootDir: options.rootDir })
     : []
   const workflowDefinitions = options.workflow
-    ? discoverWorkflowDefinitions({ mode: "nitro-server-workflows", scanDirs: [resolve(options.rootDir, "server")] })
+    ? discoverWorkflowDefinitions({ mode: "server-workflows", scanDirs: [resolve(options.rootDir, "server")] })
     : []
   const sandboxDefinitions = options.sandbox
-    ? discoverNitroSandboxDefinitions([resolve(options.rootDir, "server")])
+    ? discoverServerSandboxDefinitions([resolve(options.rootDir, "server")])
     : []
   const workspaceDefinitions = options.workspace
     ? discoverViteWorkspaceDefinitions(options.rootDir)

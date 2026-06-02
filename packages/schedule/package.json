@@ -44,14 +44,10 @@
   },
   "peerDependencies": {
     "@vite-hub/kv": "workspace:*",
-    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite8-compat"
   },
   "peerDependenciesMeta": {
     "@vite-hub/kv": {
-      "optional": true
-    },
-    "nitro": {
       "optional": true
     },
     "vite": {
@@ -62,7 +58,6 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
-    "nitro": "catalog:unjs",
     "publint": "catalog:tooling",
     "tsdown": "catalog:tooling",
     "typescript": "catalog:tooling",

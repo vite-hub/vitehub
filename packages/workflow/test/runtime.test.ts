@@ -909,7 +909,7 @@ describe("workflow runtime", () => {
     await waitUntil.mock.calls[0]?.[0]
   })
 
-  it("uses Nitro request waitUntil for deferred Cloudflare workflow dispatch", async () => {
+  it("uses request waitUntil for deferred Cloudflare workflow dispatch", async () => {
     const create = vi.fn(async ({ id }: { id: string }) => ({
       id,
       status: vi.fn(async () => ({ status: "queued" })),

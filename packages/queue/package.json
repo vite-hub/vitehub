@@ -51,14 +51,10 @@
   },
   "peerDependencies": {
     "@vercel/queue": "catalog:vercel",
-    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite8-compat"
   },
   "peerDependenciesMeta": {
     "@vercel/queue": {
-      "optional": true
-    },
-    "nitro": {
       "optional": true
     },
     "vite": {
@@ -71,7 +67,6 @@
     "publint": "catalog:tooling",
     "tsdown": "catalog:tooling",
     "typescript": "catalog:tooling",
-    "nitro": "catalog:unjs",
     "vite": "catalog:vite",
     "vitest": "catalog:tooling"
   }

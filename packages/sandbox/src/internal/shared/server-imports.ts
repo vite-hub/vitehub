@@ -1,24 +1,24 @@
 import type { ScanDir } from 'unimport'
 import type { ServerImport } from './runtime-artifacts'
 
-export type NitroPresetImport = string | {
+export type ServerPresetImport = string | {
   name: string
   as?: string
   type?: boolean
 }
 
-export type NitroImportsPreset = {
+export type ServerImportsPreset = {
   from: string
-  imports: NitroPresetImport[]
+  imports: ServerPresetImport[]
 }
 
-export type NitroImportsOptions = false | {
+export type ServerImportsOptions = false | {
   autoImport?: boolean
   dirs?: Array<string | ScanDir>
   presets?: unknown[]
 } | undefined
 
-export function isNitroAutoImportEnabled(imports: NitroImportsOptions): boolean {
+export function isServerAutoImportEnabled(imports: ServerImportsOptions): boolean {
   return imports !== false && imports?.autoImport !== false
 }
 
@@ -31,7 +31,7 @@ function getServerImportKey(entry: Pick<ServerImport, 'from' | 'name' | 'as' | '
   ].join(':')
 }
 
-function normalizePresetImport(from: string, entry: NitroPresetImport): ServerImport {
+function normalizePresetImport(from: string, entry: ServerPresetImport): ServerImport {
   if (typeof entry === 'string')
     return { from, name: entry }
 
@@ -79,7 +79,7 @@ function collectPresetImports(from: string, entry: unknown, normalized: ServerIm
     normalized.push(normalizePresetImport(from, entry))
 }
 
-function toPresetImport(entry: ServerImport): NitroPresetImport {
+function toPresetImport(entry: ServerImport): ServerPresetImport {
   if (!entry.as && !entry.type)
     return entry.name
 
@@ -106,7 +106,7 @@ export function dedupeServerImports(imports: readonly ServerImport[]): ServerImp
   return deduped
 }
 
-export function readNitroServerImports(imports: NitroImportsOptions): ServerImport[] {
+export function readServerImports(imports: ServerImportsOptions): ServerImport[] {
   if (typeof imports === 'undefined' || imports === false)
     return []
 
@@ -123,8 +123,8 @@ export function readNitroServerImports(imports: NitroImportsOptions): ServerImpo
   return normalized
 }
 
-export function groupServerImportsIntoNitroPresets(imports: readonly ServerImport[]): NitroImportsPreset[] {
-  const grouped = new Map<string, NitroPresetImport[]>()
+export function groupServerImportsIntoPresets(imports: readonly ServerImport[]): ServerImportsPreset[] {
+  const grouped = new Map<string, ServerPresetImport[]>()
 
   for (const entry of imports) {
     const items = grouped.get(entry.from) || []
@@ -138,43 +138,26 @@ export function groupServerImportsIntoNitroPresets(imports: readonly ServerImpor
   }))
 }
 
-export function mergeNitroImportsWithServerImports(
-  imports: NitroImportsOptions,
+export function mergeServerImports(
+  imports: ServerImportsOptions,
   serverImports: readonly ServerImport[],
-): NitroImportsOptions {
+): ServerImportsOptions {
   if (serverImports.length === 0)
     return imports
 
   if (imports === false)
     return false
 
-  if (!isNitroAutoImportEnabled(imports))
+  if (!isServerAutoImportEnabled(imports))
     return imports
 
   const mergedImports = dedupeServerImports([
-    ...readNitroServerImports(imports),
+    ...readServerImports(imports),
     ...serverImports,
   ])
 
   return {
     ...imports,
-    presets: groupServerImportsIntoNitroPresets(mergedImports),
+    presets: groupServerImportsIntoPresets(mergedImports),
   }
-}
-
-export function applyServerImportsToNitro(
-  target: { imports?: NitroImportsOptions },
-  serverImports: readonly ServerImport[],
-): NitroImportsOptions {
-  if (serverImports.length === 0)
-    return target.imports
-
-  if (target.imports === false)
-    return false
-
-  if (!isNitroAutoImportEnabled(target.imports))
-    return target.imports
-
-  target.imports = mergeNitroImportsWithServerImports(target.imports, serverImports)
-  return target.imports
 }

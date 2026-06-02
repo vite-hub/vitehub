@@ -46,11 +46,10 @@ export default defineEventHandler(async (event) => {
 ```ts
 // vite.config.ts
 import { hubWorkflow } from "@vite-hub/workflow/vite"
-import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [hubWorkflow(), nitro()],
+  plugins: [hubWorkflow()],
   workflow: { provider: "openworkflow" },
 })
 ```

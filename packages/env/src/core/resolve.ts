@@ -10,8 +10,8 @@ import { EnvError } from "./errors.ts"
 import type {
   EnvDiagnosticEntry,
   EnvMode,
-  EnvNitroConfigOptions,
-  EnvNitroStaticValue,
+  EnvRuntimeConfigOptions,
+  EnvRuntimeStaticValue,
   EnvRuntimeRegistry,
   EnvSource,
   EnvSourceContext,
@@ -22,20 +22,8 @@ import type {
 
 const execFileAsync = promisify(execFile)
 
-export function validateEnvConfigShape(config: EnvNitroConfigOptions | EnvViteConfigOptions | undefined, target: "nitro" | "vite"): void {
+export function validateEnvConfigShape(config: EnvViteConfigOptions | undefined, target: "vite"): void {
   if (!config) {
-    return
-  }
-
-  if (target === "nitro") {
-    const nitroConfig = config as EnvNitroConfigOptions
-    if ("server" in nitroConfig) {
-      throw new EnvError("`env.server` is not available in Nitro env config. Put private runtime declarations directly under `env`.")
-    }
-    if ("define" in nitroConfig) {
-      throw new EnvError("`env.define` is build-only and only available in Vite config.")
-    }
-    validateNitroDeclarations(nitroConfig, "env")
     return
   }
 
@@ -49,7 +37,7 @@ export function validateEnvConfigShape(config: EnvNitroConfigOptions | EnvViteCo
   for (const [key, declaration] of Object.entries(viteConfig.public || {})) {
     assertEnvVariableDeclaration(`env.public.${key}`, declaration)
     if (declaration.mode !== "build") {
-      throw new EnvError(`env.public.${key} must use mode: "build" in Vite config. Runtime public config requires Nitro transport.`)
+      throw new EnvError(`env.public.${key} must use mode: "build" in Vite config.`)
     }
     if (declaration.secret) {
       throw new EnvError(`env.public.${key} cannot be marked secret.`)
@@ -150,31 +138,31 @@ export async function resolveEnvEntries(
   return { diagnostics, entries }
 }
 
-export function createRuntimeRegistry(declarations: EnvNitroConfigOptions | undefined, options: { prefix?: string } = {}): EnvRuntimeRegistry {
+export function createRuntimeRegistry(declarations: EnvRuntimeConfigOptions | undefined, options: { prefix?: string } = {}): EnvRuntimeRegistry {
   return buildRegistry(declarations, "env", options.prefix)
 }
 
-function buildRegistry(declarations: EnvNitroConfigOptions | undefined, path: string, prefix?: string): EnvRuntimeRegistry {
+function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: string, prefix?: string): EnvRuntimeRegistry {
   if (!declarations) {
     return {}
   }
   return Object.fromEntries(Object.entries(declarations).map(([key, value]) => {
     const valuePath = `${path}.${key}`
     if (!isEnvVariableDeclaration(value)) {
-      if (isNitroStaticValue(value)) {
+      if (isRuntimeStaticValue(value)) {
         return [key, { kind: "literal", value }]
       }
-      return [key, buildRegistry(value as EnvNitroConfigOptions, valuePath, prefix)]
+      return [key, buildRegistry(value as EnvRuntimeConfigOptions, valuePath, prefix)]
     }
     const source = resolveEnvSource(value, valuePath, prefix)
     if (source.kind !== "env") {
       throw new EnvError(`Runtime declaration ${valuePath} must use env.source() in v1.`)
     }
     if (!isDefaultStringEnvVariable(value)) {
-      throw new EnvError(`Runtime declaration ${valuePath} uses a custom schema, but Nitro runtime schemas cannot be serialized in v1.`)
+      throw new EnvError(`Runtime declaration ${valuePath} uses a custom schema, but runtime schemas cannot be serialized in v1.`)
     }
     if (value.type && value.type !== "string") {
-      throw new EnvError(`Runtime declaration ${valuePath} uses type ${JSON.stringify(value.type)}, but Nitro runtime values are strings in v1.`)
+      throw new EnvError(`Runtime declaration ${valuePath} uses type ${JSON.stringify(value.type)}, but runtime values are strings in v1.`)
     }
     return [key, {
       default: typeof value.default === "undefined"
@@ -232,40 +220,6 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
   }
 }
 
-function validateNitroDeclarations(declarations: EnvNitroConfigOptions, path: string): void {
-  for (const [key, value] of Object.entries(declarations)) {
-    const valuePath = `${path}.${key}`
-    if (path === "env" && key === "public") {
-      if (!isPlainRecord(value) || isEnvVariableDeclaration(value)) {
-        throw new EnvError("Invalid declaration at env.public. Use a nested object of public env() declarations.")
-      }
-      validateNitroDeclarations(value as EnvNitroConfigOptions, valuePath)
-      continue
-    }
-    if (isEnvVariableDeclaration(value)) {
-      if (value.mode !== "runtime") {
-        throw new EnvError(`${valuePath} must use runtime mode.`)
-      }
-      if (value.source && value.source.kind !== "env") {
-        throw new EnvError(`${valuePath} must use an env source in runtime mode for v1. Custom, package, and git sources are build-only.`)
-      }
-      if (path === "env.public" || path.startsWith("env.public.")) {
-        if (value.secret) {
-          throw new EnvError(`${valuePath} cannot be marked secret because public Runtime Env transport is exposed to the client.`)
-        }
-      }
-      continue
-    }
-    if (isNitroStaticValue(value)) {
-      continue
-    }
-    if (!isPlainRecord(value)) {
-      throw new EnvError(`Invalid declaration at ${valuePath}. Use env(), a serializable literal, or a nested object.`)
-    }
-    validateNitroDeclarations(value as EnvNitroConfigOptions, valuePath)
-  }
-}
-
 function assertEnvVariableDeclaration(path: string, declaration: unknown): asserts declaration is EnvVariableDeclaration {
   if (!isEnvVariableDeclaration(declaration)) {
     throw new EnvError(`Invalid declaration at ${path}. Use env().`)
@@ -314,7 +268,7 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return prototype === null || prototype === Object.prototype
 }
 
-function isNitroStaticValue(value: unknown): value is EnvNitroStaticValue {
+function isRuntimeStaticValue(value: unknown): value is EnvRuntimeStaticValue {
   if (value === null) {
     return true
   }
@@ -329,7 +283,7 @@ function isNitroStaticValue(value: unknown): value is EnvNitroStaticValue {
         return false
       }
       for (let index = 0; index < value.length; index += 1) {
-        if (!(index in value) || !isNitroStaticValue(value[index])) {
+        if (!(index in value) || !isRuntimeStaticValue(value[index])) {
           return false
         }
       }

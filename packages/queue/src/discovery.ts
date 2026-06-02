@@ -18,11 +18,11 @@ function normalizeSuffixQueueName(rootDir: string, file: string) {
 
 export function discoverQueueDefinitions(options:
   | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[] }
-  | { mode: "nitro-server-queues", scanDirs: string[] }
+  | { mode: "server-queues", scanDirs: string[] }
 ): DiscoveredQueueDefinition[] {
-  if (options.mode === "nitro-server-queues") {
+  if (options.mode === "server-queues") {
     return discoverDefinitions("queue", [
-      createDirectoryDefinitionSource("nitro-server-queues", options.scanDirs, "queues"),
+      createDirectoryDefinitionSource("server-queues", options.scanDirs, "queues"),
     ])
   }
 
@@ -35,7 +35,7 @@ export function discoverQueueDefinitions(options:
       createSuffixDefinitionSource("vite-suffix", roots, queueSuffixPattern, normalizeSuffixQueueName),
     ]),
     discoverDefinitions("queue", [
-      createDirectoryDefinitionSource("nitro-server-queues", serverScanDirs, "queues"),
+      createDirectoryDefinitionSource("server-queues", serverScanDirs, "queues"),
     ]),
   )
 }

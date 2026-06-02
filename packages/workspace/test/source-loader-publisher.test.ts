@@ -481,7 +481,7 @@ describe("sources, loaders, and publishers", () => {
     await writeFile(join(directory, "config.ts"), "export default {}\n")
     await writeFile(join(directory, "AGENTS.md"), "# Instructions\n")
     await writeFile(join(directory, "README.md"), "# Docs\n")
-    const registryFile = join(root, ".vitehub", "nitro-runtime", "workspace", "assets", "registry.mjs")
+    const registryFile = join(root, ".vitehub", "workspace", "assets", "registry.mjs")
 
     await initializeWorkspaceAssetRegistry(registryFile, [{
       handler: join(directory, "config.ts"),
@@ -510,7 +510,7 @@ describe("sources, loaders, and publishers", () => {
       "",
     ].join("\n"))
     await writeFile(join(directory, "AGENTS.md"), "# Instructions\n")
-    const registryFile = join(root, ".vitehub", "nitro-runtime", "workspace", "assets", "registry.mjs")
+    const registryFile = join(root, ".vitehub", "workspace", "assets", "registry.mjs")
 
     await syncWorkspaceBuildAssets([{
       handler: join(directory, "config.mjs"),
@@ -726,7 +726,7 @@ describe("sources, loaders, and publishers", () => {
       "}",
       "",
     ].join("\n"))
-    const registryFile = join(root, ".vitehub", "nitro-runtime", "workspace", "assets", "registry.mjs")
+    const registryFile = join(root, ".vitehub", "workspace", "assets", "registry.mjs")
 
     await syncWorkspaceBuildAssets([{
       handler: join(selectedDirectory, "config.mjs"),
@@ -766,7 +766,7 @@ describe("sources, loaders, and publishers", () => {
       "",
     ].join("\n"))
     await writeFile(join(directory, "AGENTS.md"), "# Instructions\n")
-    const registryFile = join(root, ".vitehub", "nitro-runtime", "workspace", "assets", "registry.mjs")
+    const registryFile = join(root, ".vitehub", "workspace", "assets", "registry.mjs")
     vi.stubGlobal("fetch", vi.fn(() => {
       throw new Error("lazy source should not be fetched")
     }))

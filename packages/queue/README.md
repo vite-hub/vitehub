@@ -41,11 +41,10 @@ export default defineEventHandler(async (event) => {
 ```ts
 // vite.config.ts
 import { hubQueue } from "@vite-hub/queue/vite"
-import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [hubQueue(), nitro()],
+  plugins: [hubQueue()],
   queue: { provider: "cloudflare" },
 })
 ```

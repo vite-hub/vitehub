@@ -1,7 +1,5 @@
 import { readPackageJSON } from 'pkg-types'
 import { resolve as resolveFs } from 'pathe'
-import { assertNoVitePluginInNitro } from '@vite-hub/internal/nitro'
-import type { Nitro, NitroModule } from 'nitro/types'
 import type { ConfigEnv, UserConfig } from 'vite'
 import { detectHosting } from './hosting'
 import { normalizeFeatureOptions } from './feature-options'
@@ -26,14 +24,10 @@ export interface FeatureViteSetupResult {
 }
 
 export type FeatureStateSource<_TOptions> =
-  | {
+  {
     kind: 'vite'
     userConfig: Record<string, unknown>
     env: ConfigEnv
-  }
-  | {
-    kind: 'nitro'
-    nitro: Nitro
   }
 
 export interface FeatureEngine<TOptions, TInput, TConfig = TInput> {
@@ -47,7 +41,6 @@ export interface FeatureEngine<TOptions, TInput, TConfig = TInput> {
   assignRuntimeConfig?: (runtimeConfig: Record<string, unknown>, config: TConfig) => void
   readPublicOptions: (source: FeatureStateSource<TOptions>) => TOptions | undefined
   setupVite?: (context: FeatureViteContext<TConfig>) => Promise<FeatureViteSetupResult | void> | FeatureViteSetupResult | void
-  setupNitro?: (nitro: Nitro, context: FeatureModuleContext<TConfig>) => void | Promise<void>
 }
 
 export function createFeatureEngine<TOptions, TInput, TConfig = TInput>(
@@ -67,10 +60,7 @@ export function readFeaturePublicOptions<TOptions>(
   source: FeatureStateSource<TOptions>,
   key: string,
 ): TOptions | undefined {
-  if (source.kind === 'vite')
-    return source.userConfig[key] as TOptions | undefined
-
-  return (source.nitro.options as typeof source.nitro.options & Record<string, TOptions | undefined>)[key]
+  return source.userConfig[key] as TOptions | undefined
 }
 
 export function resolveDefaultOptions<TOptions>(defaultOptions: TOptions | (() => TOptions)) {
@@ -113,9 +103,7 @@ function resolveNormalizedConfig<TOptions, TInput, TConfig>(
   if (!normalizedOptions)
     return undefined
 
-  const hosting = source.kind === 'vite'
-    ? detectHosting({ options: source.userConfig as { nitro?: { preset?: string | null }, preset?: string | null } })
-    : detectHosting(source.nitro)
+  const hosting = detectHosting({ options: source.userConfig as { preset?: string | null } })
   const config = engine.resolveConfig
     ? engine.resolveConfig(normalizedOptions, hosting)
     : normalizedOptions as unknown as TConfig
@@ -134,12 +122,8 @@ export async function buildFeatureResolvedState<TOptions, TInput, TConfig>(
   if (!resolved)
     return undefined
 
-  const rootDir = source.kind === 'vite'
-    ? resolveViteRoot(source.userConfig)
-    : source.nitro.options.rootDir
-  const runtimeConfig: Record<string, unknown> = source.kind === 'nitro'
-    ? ((source.nitro.options as typeof source.nitro.options & { runtimeConfig?: Record<string, unknown> }).runtimeConfig ||= {})
-    : {}
+  const rootDir = resolveViteRoot(source.userConfig)
+  const runtimeConfig: Record<string, unknown> = {}
 
   if (resolved.hosting)
     runtimeConfig.hosting ||= resolved.hosting
@@ -177,32 +161,5 @@ export async function buildFeatureViteContext<TOptions, TInput, TConfig>(
     ...state,
     command: env.command,
     mode: env.mode,
-  }
-}
-
-export async function buildFeatureNitroContext<TOptions, TInput, TConfig>(
-  engine: FeatureEngine<TOptions, TInput, TConfig>,
-  nitro: Nitro,
-): Promise<FeatureModuleContext<TConfig> | undefined> {
-  return await buildFeatureResolvedState(engine, {
-    kind: 'nitro',
-    nitro,
-  })
-}
-
-export function createFeatureNitroBridge<TOptions, TInput, TConfig>(
-  engine: FeatureEngine<TOptions, TInput, TConfig>,
-): NitroModule {
-  return {
-    name: engine.name,
-    async setup(nitro) {
-      await assertNoVitePluginInNitro(nitro, `${engine.name}/vite`, `${engine.name}/nitro`)
-
-      const context = await buildFeatureNitroContext(engine, nitro)
-      if (!context)
-        return
-
-      await engine.setupNitro?.(nitro, context)
-    },
   }
 }

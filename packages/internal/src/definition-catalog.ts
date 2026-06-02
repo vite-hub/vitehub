@@ -8,7 +8,7 @@ import { generatedDirSegments } from "./build/paths.ts"
 
 const sourceFilePattern = /\.(?:c|m)?[jt]s$/i
 const declarationFilePattern = /\.d\.(?:c|m)?[jt]s$/i
-const ignoredDirs = new Set(["node_modules", "dist", ".nitro", ".output", ".nuxt", ".vercel", ".git", ".vitehub"])
+const ignoredDirs = new Set(["node_modules", "dist", ".output", ".nuxt", ".vercel", ".git", ".vitehub"])
 
 export interface DiscoveredDefinition {
   handler: string
@@ -353,18 +353,6 @@ export function createGeneratedDefinitionPath(
   return resolve(...pathSegments)
 }
 
-export function createNitroRuntimeFilePath(
-  rootDir: string,
-  options: {
-    buildDir?: string
-    fileName: string
-    productName?: string
-    segments?: readonly string[]
-  },
-): string {
-  return createGeneratedDefinitionPath(rootDir, options)
-}
-
 export interface RuntimeRegistryFiles<TDefinition extends Pick<DiscoveredDefinition, "handler" | "name">> {
   definitions: TDefinition[]
   pluginFile: string
@@ -388,27 +376,6 @@ export async function writeRuntimeRegistryFiles<TDefinition extends Pick<Discove
     definitions: options.definitions,
     pluginFile: options.pluginFile,
     registryFile: options.registryFile,
-  }
-}
-
-export function applyNitroRuntimeAliases(
-  nitro: { options: { alias?: Record<string, string> } },
-  aliases: Record<string, string>,
-): void {
-  nitro.options.alias ||= {}
-  Object.assign(nitro.options.alias, aliases)
-}
-
-export function hookNitroRuntimeRegistryRefresh<TRuntimeFiles>(
-  nitro: { hooks: { hook: (name: "build:before" | "dev:reload", handler: () => Promise<void>) => void } },
-  refresh: () => Promise<TRuntimeFiles>,
-  onRefresh: (runtimeFiles: TRuntimeFiles, hookName: "build:before" | "dev:reload") => Promise<void> | void = () => {},
-): void {
-  for (const hookName of ["build:before", "dev:reload"] as const) {
-    nitro.hooks.hook(hookName, async () => {
-      const runtimeFiles = await refresh()
-      await onRefresh(runtimeFiles, hookName)
-    })
   }
 }
 

@@ -2,23 +2,6 @@ import { readFile } from 'node:fs/promises'
 import { resolve as resolveFs } from 'pathe'
 import { detectHosting } from './hosting.ts'
 import { normalizeFeatureOptions } from './feature-options.ts'
-import { assertNoVitePluginInNitro } from '../nitro.ts'
-
-export interface FeatureNitroLike {
-  options: {
-    rootDir: string
-    nitro?: {
-      preset?: string | null
-    }
-    preset?: string | null
-    runtimeConfig?: Record<string, unknown>
-  }
-}
-
-export interface FeatureNitroModuleLike {
-  name: string
-  setup: (nitro: FeatureNitroLike) => void | Promise<void>
-}
 
 export interface FeatureConfigEnvLike {
   command: 'build' | 'serve'
@@ -56,14 +39,10 @@ export interface FeatureViteSetupResult {
 }
 
 export type FeatureStateSource<_TOptions> =
-  | {
+  {
     kind: 'vite'
     userConfig: Record<string, unknown>
     env: FeatureConfigEnvLike
-  }
-  | {
-    kind: 'nitro'
-    nitro: FeatureNitroLike
   }
 
 export interface FeatureEngine<TOptions, TInput, TConfig = TInput> {
@@ -77,7 +56,6 @@ export interface FeatureEngine<TOptions, TInput, TConfig = TInput> {
   assignRuntimeConfig?: (runtimeConfig: Record<string, unknown>, config: TConfig) => void
   readPublicOptions: (source: FeatureStateSource<TOptions>) => TOptions | false | undefined
   setupVite?: (context: FeatureViteContext<TConfig>) => Promise<FeatureViteSetupResult | void> | FeatureViteSetupResult | void
-  setupNitro?: (nitro: FeatureNitroLike, context: FeatureModuleContext<TConfig>) => void | Promise<void>
 }
 
 export function createFeatureEngine<TOptions, TInput, TConfig = TInput>(
@@ -97,10 +75,7 @@ export function readFeaturePublicOptions<TOptions>(
   source: FeatureStateSource<TOptions>,
   key: string,
 ): TOptions | undefined {
-  if (source.kind === 'vite')
-    return source.userConfig[key] as TOptions | undefined
-
-  return (source.nitro.options as typeof source.nitro.options & Record<string, TOptions | undefined>)[key]
+  return source.userConfig[key] as TOptions | undefined
 }
 
 export function resolveDefaultOptions<TOptions>(defaultOptions: TOptions | (() => TOptions)) {
@@ -143,9 +118,7 @@ function resolveNormalizedConfig<TOptions, TInput, TConfig>(
   source: FeatureStateSource<TOptions>,
 ) {
   const rawOptions = resolveRawOptions(engine, source)
-  const hosting = source.kind === 'vite'
-    ? detectHosting({ options: source.userConfig as { nitro?: { preset?: string | null }, preset?: string | null } })
-    : detectHosting(source.nitro)
+  const hosting = detectHosting({ options: source.userConfig as { preset?: string | null } })
 
   if (rawOptions === false) {
     return {
@@ -176,12 +149,8 @@ export async function buildFeatureResolvedState<TOptions, TInput, TConfig>(
   if (!resolved)
     return undefined
 
-  const rootDir = source.kind === 'vite'
-    ? resolveViteRoot(source.userConfig)
-    : source.nitro.options.rootDir
-  const runtimeConfig: Record<string, unknown> = source.kind === 'nitro'
-    ? ((source.nitro.options as typeof source.nitro.options & { runtimeConfig?: Record<string, unknown> }).runtimeConfig ||= {})
-    : {}
+  const rootDir = resolveViteRoot(source.userConfig)
+  const runtimeConfig: Record<string, unknown> = {}
 
   if (resolved.hosting)
     runtimeConfig.hosting ||= resolved.hosting
@@ -219,32 +188,5 @@ export async function buildFeatureViteContext<TOptions, TInput, TConfig>(
     ...state,
     command: env.command,
     mode: env.mode,
-  }
-}
-
-export async function buildFeatureNitroContext<TOptions, TInput, TConfig>(
-  engine: FeatureEngine<TOptions, TInput, TConfig>,
-  nitro: FeatureNitroLike,
-): Promise<FeatureModuleContext<TConfig> | undefined> {
-  return await buildFeatureResolvedState(engine, {
-    kind: 'nitro',
-    nitro,
-  })
-}
-
-export function createFeatureNitroBridge<TOptions, TInput, TConfig>(
-  engine: FeatureEngine<TOptions, TInput, TConfig>,
-): FeatureNitroModuleLike {
-  return {
-    name: engine.name,
-    async setup(nitro) {
-      await assertNoVitePluginInNitro(nitro, `${engine.name}/vite`, `${engine.name}/nitro`)
-
-      const context = await buildFeatureNitroContext(engine, nitro)
-      if (!context)
-        return
-
-      await engine.setupNitro?.(nitro, context)
-    },
   }
 }

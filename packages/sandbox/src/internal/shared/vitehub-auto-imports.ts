@@ -1,7 +1,7 @@
 import { resolve as resolvePath } from 'pathe'
 import type { Plugin } from 'vite'
 import { createDiscoveredDefinitionCompiler } from './discovered-definition'
-import type { NitroImportsOptions } from './server-imports'
+import type { ServerImportsOptions } from './server-imports'
 import { dedupeServerImports } from './server-imports'
 import {
   getViteHubFeatureServerImports,
@@ -13,7 +13,7 @@ export interface ViteHubDefinitionAutoImportsPluginOptions {
   scanRoots?: string[]
   features?: ViteHubFeatureName[]
   include?: RegExp
-  nitroImports?: NitroImportsOptions
+  serverImports?: ServerImportsOptions
 }
 
 const defaultFeatures = ['browser', 'queue', 'sandbox', 'workflow'] as const satisfies ViteHubFeatureName[]
@@ -41,7 +41,7 @@ export function createViteHubDefinitionAutoImportsPlugin(
       compilerPromise ||= createDiscoveredDefinitionCompiler({
         rootDir,
         scanRoots,
-        nitroImports: options.nitroImports ?? { presets: [] },
+        serverImports: options.serverImports ?? { presets: [] },
         featureImports,
       })
 

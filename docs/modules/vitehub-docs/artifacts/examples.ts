@@ -141,7 +141,6 @@ function isVisibleExampleFile(file: ExampleFile) {
     "dist/",
     ".nuxt/",
     ".output/",
-    ".nitro/",
     ".vercel/",
     ".netlify/",
     ".wrangler/",

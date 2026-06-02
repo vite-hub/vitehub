@@ -1,6 +1,6 @@
 import { env } from "./core/declarations.ts"
 
-import type { EnvNitroConfigOptions } from "./types.ts"
+import type { EnvRuntimeConfigOptions } from "./types.ts"
 
 export interface OpenWorkflowEnvOptions {
   namespaceId?: string
@@ -8,7 +8,7 @@ export interface OpenWorkflowEnvOptions {
   workerConcurrency?: string
 }
 
-export function openWorkflowEnv(options: OpenWorkflowEnvOptions = {}): EnvNitroConfigOptions {
+export function openWorkflowEnv(options: OpenWorkflowEnvOptions = {}): EnvRuntimeConfigOptions {
   return {
     namespaceId: env({
       default: options.namespaceId || "production",

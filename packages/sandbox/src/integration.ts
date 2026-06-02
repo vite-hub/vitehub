@@ -2,7 +2,6 @@ import { createFeatureEngine, normalizeFeaturePublicOptions, readFeaturePublicOp
 import { resolveSandboxFeatureConfig } from './feature'
 import type { AgentSandboxConfig } from './module-types'
 import { getSandboxFeatureProvider } from './module-types'
-import { setupSandboxNitro } from './setup-nitro'
 
 export type SandboxPublicOptions = AgentSandboxConfig | false
 
@@ -36,7 +35,4 @@ export const sandboxFeatureEngine = createFeatureEngine<SandboxPublicOptions, Ag
   resolveConfig: resolveSandboxFeatureConfig,
   assignRuntimeConfig: assignSandboxRuntimeConfig,
   readPublicOptions: source => readFeaturePublicOptions(source, 'sandbox'),
-  async setupNitro(nitro, context) {
-    await setupSandboxNitro(nitro, context.config, context.deps)
-  },
 })

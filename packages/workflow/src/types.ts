@@ -152,6 +152,6 @@ export interface WorkflowDefinitionRegistry {
 export interface DiscoveredWorkflowDefinition {
   handler: string
   name: string
-  source?: "inline" | "nitro-server-workflows" | "vite-suffix"
+  source?: "inline" | "server-workflows" | "vite-suffix"
   steps?: string[]
 }

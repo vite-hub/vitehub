@@ -140,23 +140,23 @@ function createDatabaseDefinition(source: string, file: string, name: string, mo
   }
 }
 
-function discoverNitroDatabases(rootDir: string) {
+function discoverServerDatabases(rootDir: string) {
   const serverDir = resolve(rootDir, "server")
   return discoverDefinitions<DiscoveredDatabaseDefinition>("database", [
-    createDirectoryDefinitionSource("nitro-server-database-default", [serverDir], "databases", {
+    createDirectoryDefinitionSource("server-database-default", [serverDir], "databases", {
       normalizeName(directory, file) {
         if (!configFilePattern.test(file.split(/[\\/]/).pop() || "")) return
         return dirname(file).replace(/\\/g, "/") === directory.replace(/\\/g, "/") ? "default" : undefined
       },
-      createDefinition: ({ file, name }) => createDatabaseDefinition("nitro-server-database-default", file, name, "default"),
+      createDefinition: ({ file, name }) => createDatabaseDefinition("server-database-default", file, name, "default"),
     }),
-    createDirectoryDefinitionSource("nitro-server-databases-named", [serverDir], "databases", {
+    createDirectoryDefinitionSource("server-databases-named", [serverDir], "databases", {
       normalizeName(directory, file) {
         if (!configFilePattern.test(file.split(/[\\/]/).pop() || "")) return
         const name = relative(directory, dirname(file)).replace(/\\/g, "/")
         return name && name !== "." ? name : undefined
       },
-      createDefinition: ({ file, name }) => createDatabaseDefinition("nitro-server-databases-named", file, name, "named"),
+      createDefinition: ({ file, name }) => createDatabaseDefinition("server-databases-named", file, name, "named"),
     }),
   ])
 }
@@ -178,7 +178,7 @@ function discoverViteDatabases(rootDir: string) {
 }
 
 export function discoverDatabaseDefinitions(rootDir: string): DiscoveredDatabaseDefinition[] {
-  const definitions = [...discoverNitroDatabases(rootDir), ...discoverViteDatabases(rootDir)]
+  const definitions = [...discoverServerDatabases(rootDir), ...discoverViteDatabases(rootDir)]
     .filter((definition, index, all) => all.findIndex(item => item.handler === definition.handler) === index)
   const hasDefault = definitions.some(definition => definition.mode === "default")
   const hasNamed = definitions.some(definition => definition.mode === "named")
@@ -202,10 +202,10 @@ function getDefaultCloudflareBindingName(name: string) {
 }
 
 function getDefaultMigrationsDir(rootDir: string, definition: DiscoveredDatabaseDefinition) {
-  if (definition.source === "nitro-server-database-default") {
+  if (definition.source === "server-database-default") {
     return relative(rootDir, resolve(rootDir, "server", "databases", "migrations"))
   }
-  if (definition.source === "nitro-server-databases-named") {
+  if (definition.source === "server-databases-named") {
     return relative(rootDir, resolve(dirname(definition.handler), "migrations"))
   }
   return relative(rootDir, resolve(dirname(definition.handler), "migrations"))

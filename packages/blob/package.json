@@ -51,7 +51,6 @@
     "./runtime/state": "./dist/runtime/state.js",
     "./runtime/storage": "./dist/runtime/storage.js",
     "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",
-    "./internal/runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./storage": "./dist/storage.js",
     "./virtual": "./dist/virtual.js",
     "./vite": "./dist/vite.js",
@@ -77,14 +76,10 @@
   },
   "peerDependencies": {
     "files-sdk": "catalog:storage",
-    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite8-compat"
   },
   "peerDependenciesMeta": {
     "files-sdk": {
-      "optional": true
-    },
-    "nitro": {
       "optional": true
     },
     "vite": {
@@ -95,7 +90,6 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "files-sdk": "catalog:storage",
-    "nitro": "catalog:unjs",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",
     "tsdown": "catalog:tooling",

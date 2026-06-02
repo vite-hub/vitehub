@@ -2,9 +2,7 @@ import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatch
 
 import { chatDevTools } from "./chat/devtools.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
-import { agentNitro } from "./nitro/module.ts"
 
-import type { NitroModule } from "nitro/types"
 import type { Plugin } from "vite"
 import type { AgentModuleOptions } from "./types.ts"
 
@@ -14,7 +12,7 @@ interface AgentCliContributingPlugin {
   }
 }
 
-export type AgentVitePlugin = Plugin & AgentCliContributingPlugin & { nitro: NitroModule }
+export type AgentVitePlugin = Plugin & AgentCliContributingPlugin
 
 const agentPackageName = "@vite-hub/agent"
 const mergeNoExternal = createNoExternalMerger(agentPackageName)
@@ -23,26 +21,12 @@ function agentDevtoolsEnabled(agent: AgentModuleOptions | false | undefined): bo
   return agent !== false && agent?.devtools !== false
 }
 
-function configuredNitroAgent(nitro: unknown): AgentModuleOptions | false | undefined {
-  return (nitro as { options?: { agent?: AgentModuleOptions | false } }).options?.agent
-}
-
 export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   let agent: AgentModuleOptions | false | undefined = options
   const chatDevtoolsPlugin = chatDevTools()
 
   return {
     name: "@vite-hub/agent/vite",
-    nitro: {
-      name: "@vite-hub/agent/vite",
-      async setup(nitro) {
-        const configured = configuredNitroAgent(nitro) ?? agent
-        await agentNitro(configured).setup(nitro)
-        if (agentDevtoolsEnabled(configured)) {
-          await chatDevtoolsPlugin.nitro.setup(nitro)
-        }
-      },
-    },
     devtools: {
       setup(ctx) {
         if (agentDevtoolsEnabled(agent)) {

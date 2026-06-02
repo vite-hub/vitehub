@@ -95,7 +95,7 @@ describe("schedule provider output", () => {
     expect(resolveScheduleRuntimeEntry("file:///C:/repo/packages/schedule/src/internal/provider-output.ts")).toBe("/C:/repo/packages/schedule/src/runtime/static.ts")
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/internal/provider-output.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/vite.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
-    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/nitro.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
+    expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/vite.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
     expect(resolveScheduleRuntimeEntry("file:///home/user/src/app/node_modules/@vite-hub/schedule/dist/internal/provider-output.js")).toBe("/home/user/src/app/node_modules/@vite-hub/schedule/dist/runtime/static.js")
   })
 
@@ -410,13 +410,13 @@ describe("schedule provider output", () => {
     ])
   })
 
-  it("uses Nitro aliases when bundling Vercel schedule functions", async () => {
+  it("uses server aliases when bundling Vercel schedule functions", async () => {
     const rootDir = await createTempProject("vitehub-schedule-vercel-alias-")
-    const aliasFile = join(rootDir, "nitro-imports.mjs")
+    const aliasFile = join(rootDir, "server-imports.mjs")
     const outputRoot = join(rootDir, ".vercel", "output")
     const registryFile = join(rootDir, ".vitehub", "schedule", "registry.mjs")
     await mkdir(join(rootDir, ".vitehub", "schedule"), { recursive: true })
-    await writeFile(aliasFile, "export const marker = 'nitro-alias-marker'\n", "utf8")
+    await writeFile(aliasFile, "export const marker = 'server-alias-marker'\n", "utf8")
     await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
       "import { marker } from '#imports'",
       "export default defineSchedule({ cron: '0 0 * * *', handler: () => marker })",
@@ -441,7 +441,7 @@ describe("schedule provider output", () => {
       rootDir,
     }, new Map([["cleanup", "0 0 * * *"]]))
 
-    await expect(readFile(join(outputRoot, "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8")).resolves.toContain("nitro-alias-marker")
+    await expect(readFile(join(outputRoot, "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs"), "utf8")).resolves.toContain("server-alias-marker")
   })
 
   it("uses Vite aliases when bundling provider output", async () => {

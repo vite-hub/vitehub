@@ -297,12 +297,12 @@ function normalizeDirectoryScheduleName(directory: string, file: string) {
 
 export function discoverScheduleDefinitions(options:
   | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[] }
-  | { mode: "nitro-server-schedules", scanDirs: string[] }
+  | { mode: "server-schedules", scanDirs: string[] }
 ): DiscoveredScheduleDefinition[] {
-  if (options.mode === "nitro-server-schedules") {
+  if (options.mode === "server-schedules") {
     return discoverDefinitions("schedule", [
-      createDirectoryDefinitionSource("nitro-server-schedules", options.scanDirs, "schedules", {
-        createDefinition: createDiscoveredScheduleDefinition("nitro-server-schedules"),
+      createDirectoryDefinitionSource("server-schedules", options.scanDirs, "schedules", {
+        createDefinition: createDiscoveredScheduleDefinition("server-schedules"),
         normalizeName: normalizeDirectoryScheduleName,
       }),
     ])
@@ -319,8 +319,8 @@ export function discoverScheduleDefinitions(options:
       }),
     ]),
     discoverDefinitions("schedule", [
-      createDirectoryDefinitionSource("nitro-server-schedules", serverScanDirs, "schedules", {
-        createDefinition: createDiscoveredScheduleDefinition("nitro-server-schedules"),
+      createDirectoryDefinitionSource("server-schedules", serverScanDirs, "schedules", {
+        createDefinition: createDiscoveredScheduleDefinition("server-schedules"),
         normalizeName: normalizeDirectoryScheduleName,
       }),
     ]),

@@ -23,7 +23,7 @@ export type {
   Resolvable,
 }
 
-export type AgentRuntimeName = "cloudflare-agents" | "nitro" | "unknown" | "vercel"
+export type AgentRuntimeName = "cloudflare-agents" | "unknown" | "vercel" | "vite"
 export type AgentRuntime = "auto" | AgentRuntimeName
 export type AgentExecution = "inline" | "sandbox" | "workflow"
 export type AgentRuntimeBinding =
@@ -545,7 +545,7 @@ export interface DiscoveredAgentDefinition {
   exportName?: string
   handler: string
   name: string
-  source?: "nitro-server-agent" | "nitro-server-agent-workspace" | "nitro-server-agents" | "vite-suffix"
+  source?: "server-agent" | "server-agent-workspace" | "server-agents" | "vite-suffix"
   workspace?: string
 }
 

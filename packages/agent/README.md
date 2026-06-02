@@ -47,11 +47,10 @@ export default defineAgent({
 // vite.config.ts
 import { hubAgent } from "@vite-hub/agent/vite"
 import { hubWorkspace } from "@vite-hub/workspace/vite"
-import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [hubWorkspace(), hubAgent(), nitro()],
+  plugins: [hubWorkspace(), hubAgent()],
 })
 ```
 

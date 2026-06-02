@@ -4,7 +4,7 @@ import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { createImportPath } from "@vite-hub/internal/build/paths"
-import { resolveRuntimeEntry } from "@vite-hub/internal/nitro"
+import { resolveModulePath } from "exsolve"
 import { createJiti } from "jiti"
 
 import { syncWorkspaceDefinition } from "../lifecycle.ts"
@@ -46,7 +46,15 @@ async function importWorkspaceConfig(path: string): Promise<{ default?: Workspac
 }
 
 function runtimeAssetsModulePath() {
-  return resolveRuntimeEntry("../runtime/assets", "@vite-hub/workspace/internal/runtime/assets", import.meta.url)
+  const fromSource = resolveModulePath("../runtime/assets", {
+    extensions: [".ts", ".mts"],
+    from: import.meta.url,
+    try: true,
+  })
+  return fromSource ?? resolveModulePath("@vite-hub/workspace/internal/runtime/assets", {
+    extensions: [".js", ".mjs"],
+    from: import.meta.url,
+  })
 }
 
 export async function collectWorkspaceStoreAssetBundle(name: string, store: WorkspaceStore): Promise<WorkspaceAssetBundle> {

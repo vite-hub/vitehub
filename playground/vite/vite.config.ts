@@ -153,11 +153,6 @@ export default defineConfig(async () => {
       ...baseConfig,
       agent: {},
       plugins: [...await DevTools(), hubDevtools(), hubAgent()],
-      server: {
-        proxy: {
-          "/__vitehub": process.env.VITEHUB_NITRO_DEV_ORIGIN || "http://127.0.0.1:3000",
-        },
-      },
     }
   }
 

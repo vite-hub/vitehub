@@ -34,7 +34,6 @@ export default defineEventHandler(async (event) => {
 ```ts
 // vite.config.ts
 import { hubKv } from "@vite-hub/kv/vite"
-import { nitro } from "nitro/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
@@ -42,7 +41,7 @@ export default defineConfig({
     driver: "fs-lite",
     base: ".data/kv",
   },
-  plugins: [hubKv(), nitro()],
+  plugins: [hubKv()],
 })
 ```
 

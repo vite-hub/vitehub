@@ -72,7 +72,6 @@
   "peerDependencies": {
     "@cloudflare/sandbox": "catalog:sandbox",
     "@vercel/sandbox": "catalog:sandbox",
-    "nitro": "catalog:nitro-compat",
     "vite": "catalog:vite8-plus-compat"
   },
   "peerDependenciesMeta": {
@@ -82,9 +81,6 @@
     "@vercel/sandbox": {
       "optional": true
     },
-    "nitro": {
-      "optional": true
-    },
     "vite": {
       "optional": true
     }
@@ -92,7 +88,6 @@
   "devDependencies": {
     "@cloudflare/sandbox": "catalog:sandbox",
     "@vercel/sandbox": "catalog:sandbox",
-    "nitro": "catalog:unjs",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",
     "tsdown": "catalog:tooling",

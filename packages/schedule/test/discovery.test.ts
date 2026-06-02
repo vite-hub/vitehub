@@ -47,8 +47,8 @@ describe("discoverScheduleDefinitions", () => {
     ])
   })
 
-  it("derives Nitro schedule identity from the server schedules location", async () => {
-    const scanDir = await createTempDir("vitehub-schedule-nitro-discovery-")
+  it("derives server schedule identity from the server schedules location", async () => {
+    const scanDir = await createTempDir("vitehub-schedule-server-discovery-")
     await mkdir(join(scanDir, "schedules", "emails"), { recursive: true })
     await mkdir(join(scanDir, "schedules", "billing"), { recursive: true })
     await writeFile(join(scanDir, "schedules", "emails", "digest.ts"), "export default null\n", "utf8")
@@ -56,7 +56,7 @@ describe("discoverScheduleDefinitions", () => {
     await writeFile(join(scanDir, "schedules", "welcome.d.ts"), "export type Welcome = string\n", "utf8")
 
     expect(discoverScheduleDefinitions({
-      mode: "nitro-server-schedules",
+      mode: "server-schedules",
       scanDirs: [scanDir],
     }).map(definition => definition.name)).toEqual([
       "billing",
@@ -72,8 +72,8 @@ describe("discoverScheduleDefinitions", () => {
     await writeFile(join(rootDir, "server", "schedules", "billing", "index.ts"), "export default null\n", "utf8")
 
     expect(discoverScheduleDefinitions({ rootDir })).toMatchObject([
-      { name: "billing", source: "nitro-server-schedules" },
-      { name: "emails/digest", source: "nitro-server-schedules" },
+      { name: "billing", source: "server-schedules" },
+      { name: "emails/digest", source: "server-schedules" },
     ])
   })
 
