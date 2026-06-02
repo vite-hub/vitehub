@@ -72,6 +72,10 @@ _Avoid_: Chat History identity, Agent Memory, model-facing user profile
 A typed value recorded for one Agent Invocation and exposed to later Agent and Capability callbacks through invocation context access.
 _Avoid_: Runtime Config, Agent Memory, dynamic Capability, arbitrary metadata
 
+**Invocation Profile**:
+A reusable Agent Package definition that resolves trusted invocation context into one typed profile value for Capabilities to consume during an Agent Invocation.
+_Avoid_: Access Role, Workspace Scope, Invoker, top-level Agent Definition profile
+
 **Agent Memory**:
 Durable knowledge or preferences an Agent can carry across Agent Invocations when explicitly configured.
 _Avoid_: Chat History, better chat state
@@ -134,6 +138,9 @@ _Avoid_: Fake agent, dummy model, test bot
 - **Agent Invocation Context Values** can be produced by Pre-Invocation Decisions and read by later Agent or Capability callbacks.
 - **Agent Invocation Context Values** do not grant Capabilities dynamically.
 - **Agent Invocation Context Value** ids must be unique per Agent so every invocation has one writer per context value.
+- An **Invocation Profile** is resolved once per Agent Invocation and exposed as an **Agent Invocation Context Value**.
+- An **Invocation Profile** can drive multiple Capability effects, but each effect remains explicit.
+- An **Invocation Profile** is not a top-level Agent Definition option and does not grant Capabilities dynamically.
 - **Agent Memory** can outlive one conversation.
 - A **Concurrent Invocation Guard** protects **Agent Run State**.
 - A **Development State Provider** is not acceptable for hosted production runtimes.
@@ -157,6 +164,9 @@ _Avoid_: Fake agent, dummy model, test bot
 > **Dev:** "Should an instruction callback read a routing decision from arbitrary metadata?"
 > **Domain expert:** "No. Read it as an **Agent Invocation Context Value** produced by a Pre-Invocation Decision."
 >
+> **Dev:** "Should we put customer, staff, and technical-user branching into both `access()` and prompt instructions?"
+> **Domain expert:** "No. Resolve one **Invocation Profile**, then let `access()` map it to Workspace Scope and an audience Capability map it to instructions."
+>
 > **Dev:** "Is a new Chat Session the same as Agent Memory reset?"
 > **Domain expert:** "No. A **Chat Session** changes which Chat History messages enter the Chat History Window; **Agent Memory** is durable knowledge across invocations."
 
@@ -170,6 +180,8 @@ _Avoid_: Fake agent, dummy model, test bot
 - Chat Sessions were considered as Agent Memory or separate Chat Session Capabilities - resolved: **Chat Session** is Chat History behavior owned by the Chat Capability.
 - Hidden model-selected history slicing was considered - resolved: **Chat Session** selection is a host-visible boundary over preserved Chat History, not destructive message truncation.
 - Route and gate results were considered for ad hoc input context or metadata - resolved: expose them as typed **Agent Invocation Context Values**.
+- Shared access-and-audience branching was considered for `defineAgent({ profiles })` - resolved: use reusable **Invocation Profiles** consumed by Capabilities rather than a top-level Agent Definition option.
+- `invoker` was considered as the name for trusted invocation classification - resolved: reject it because it sounds like the caller or trigger that starts an **Agent Invocation**, not the selected profile value.
 - Chat state was considered separate from Agent State Provider - resolved: Chat History state is satisfied through the Agent State Provider when available.
 - Chat actor identity was considered a chat-history-only detail - resolved: expose **Chat Identity** as a trusted Agent Invocation Context Value so other Capabilities can consume it.
 - Chat History was considered an implicit Chat Capability default - resolved: keep Chat History opt-in, aligned with Chat SDK-style application control.

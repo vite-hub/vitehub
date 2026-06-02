@@ -40,6 +40,10 @@ _Avoid_: Dynamic prompt, hardcoded prompt, prompt callback
 A named value available when rendering a Prompt Template.
 _Avoid_: Placeholder, interpolation value, prompt arg
 
+**Audience Capability**:
+A Capability created by `audience()` that contributes model-facing instruction blocks for the selected invocation audience.
+_Avoid_: Access Role, model role, user profile, prompt middleware
+
 **Storage Capability Tool Surface**:
 The two-tool read/edit shape used by official storage Capabilities to expose scoped storage operations to a model.
 _Avoid_: Primitive method proxy, storage method fanout
@@ -183,7 +187,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 ## Relationships
 
 - An Agent attaches zero or more **Capabilities**.
-- Official helpers such as `entry()`, `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `access()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, and `llmGate()` create **Capability Definitions**.
+- Official helpers such as `entry()`, `audience()`, `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `access()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, and `llmGate()` create **Capability Definitions**.
 - Official Capability factories and Capability-owned helper functions are imported from `@vite-hub/agent/capabilities`, not from the root `@vite-hub/agent` Agent Package entry.
 - Official helpers should map to product abilities rather than implementation mechanisms.
 - An official **Capability Definition** may carry a narrow **Capability Type Contract** when it directly consumes typed Agent Definition inputs such as Source keys, trusted Chat Capability origins, or schema-validated invocation context.
@@ -195,6 +199,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - An **Entry Capability** is the official small helper for app-owned product events when a full product-specific Capability has not earned a name yet.
 - An **Entry Capability** may expose a trusted Chat App Route origin without adding app-route fields to Chat Capability options.
 - A **Prompt Template** belongs to the Capability that renders it and should expose only the **Prompt Template Variables** that are stable for that Capability.
+- An **Audience Capability** contributes prompt instructions; it does not apply access boundaries.
 - Standard Schema validation is the preferred runtime boundary for app-owned invocation metadata that an official **Capability** directly consumes.
 - An **Input Command** is a **Capability** concern resolved before model-facing Agent behavior.
 - A **Host Command** is not an **Input Command** and is outside the Capability Lifecycle.
@@ -230,6 +235,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - In the first version, an **Access Capability** applies **Workspace Scope** only.
 - An **Access Capability** can record the active Workspace Scope as an Agent Invocation Context Value for later callbacks and instructions.
 - An **Access Capability** owns both Workspace Scope selection and application, but keeps resolver logic separate from grants.
+- An **Access Capability** may consume an **Invocation Profile** to select Workspace Scope without owning the profile resolution.
 - An **Access Capability** may reference a **Chat Capability** for typed origin context instead of asking users to repeat Chat Capability origins in Access configuration.
 - An **Access Capability** can use static named Workspace Scopes or an inline Workspace Scope definition returned by its resolver.
 - An **Access Capability** must be ordered before other Workspace-reading Capabilities so Workspace Scope is applied before they resolve tools or requirements.
@@ -285,6 +291,9 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 > **Dev:** "Can I add any request field to a Prompt Template?"
 > **Domain expert:** "No. Use only the Prompt Template Variables exposed by that Capability, or provide a callback when the prompt needs custom runtime data."
 >
+> **Dev:** "Should technical-user answer style be an Access Role?"
+> **Domain expert:** "No. Use an **Audience Capability** for model-facing style and keep **Access Role** for scope-selection authority."
+>
 > **Dev:** "Should Chat DevTools wire its own chat send helper?"
 > **Domain expert:** "No. The **Chat Capability** should provide a **Capability Trigger Contribution**, and DevTools should consume the resolved Agent Trigger."
 >
@@ -328,6 +337,8 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - `workspaceScope()` was considered as the public helper name - resolved: use `access()` for the Capability while preserving **Workspace Scope** for the Workspace-specific boundary.
 - `organization()` was considered as the public helper name - resolved: reject it because access decisions may come from organizations, customer domains, local config, or other trusted invocation context.
 - Pre-registering every customer Workspace Scope was considered necessary - resolved: an Access Capability resolver may return an inline Workspace Scope definition for invocation-specific grants.
+- Prompt audience was considered part of the **Access Capability** because it may use the same trusted identity facts - resolved: keep **Audience Capability** separate and let both capabilities consume an **Invocation Profile** when they need shared selection.
+- Prompt audience variants were considered as roles - resolved: reserve **Access Role** for access authority and use audience language for model-facing instructions.
 - "audio input", "voice input", and "voice transcription" were considered as names for spoken user messages - resolved: use **Transcription** for the capability.
 - `transcribe({ workspace })` was considered for persisted transcript and audio artifacts - resolved: use **Transcription Artifacts** so the option does not masquerade as a Workspace Definition.
 - Separate Transcription Artifacts `directory`, `stem`, and `extension` fields were considered - resolved: use a **Transcript Workspace Path** as the canonical destination and derive path parts internally.

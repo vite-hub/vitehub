@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import type { AgentRuntimeContext, AgentToolSet } from "../src/types.ts"
 import type { ReadonlyWorkspaceFacade, WorkspaceEntry, WorkspaceSearchHit, WorkspaceStat } from "@vite-hub/workspace"
@@ -137,6 +137,88 @@ describe("access capability", () => {
 
     await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(false)
     await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(true)
+  })
+
+  it("shares an Invocation Profile across access and audience capabilities", async () => {
+    const { defineInvocationProfile } = await import("../src/index.ts")
+    const { applyCapabilityInstructionSlots, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access, audience } = await import("../src/capabilities.ts")
+
+    const profileResolver = vi.fn(({ input }) => {
+      const chat = input.get().context?.chat
+      const email = chat?.user?.email?.toLowerCase()
+      if (email === "maximo@quiver.dk") return { kind: "quiverTechnical" as const }
+      const customer = chat?.message?.metadata?.quiver?.customer
+      if (customer) return { customer, kind: "customerPortal" as const }
+      throw new Error("missing profile")
+    })
+    const supportProfile = defineInvocationProfile({
+      id: "quiver-support",
+      input: {
+        chat: {
+          message: {
+            metadata: {
+              "~standard": {
+                validate(input: unknown) {
+                  const metadata = typeof input === "object" && input !== null ? input as { quiver?: { customer?: string } } : {}
+                  return { value: metadata }
+                },
+              },
+            },
+          },
+          user: {
+            "~standard": {
+              validate(input: unknown) {
+                const user = typeof input === "object" && input !== null ? input as { email?: string } : {}
+                return { value: user }
+              },
+            },
+          },
+        },
+      },
+      resolve: profileResolver,
+    })
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          profile: supportProfile,
+          workspace: {
+            resolve({ profile }) {
+              if (profile.kind === "quiverTechnical") return { role: "admin", scope: "quiver" }
+              return { role: "viewer", scope: profile.customer }
+            },
+            scopes: {
+              acme: { paths: ["customers/acme"] },
+              quiver: { all: true },
+            },
+          },
+        }),
+        audience({
+          profile: supportProfile,
+          instructions({ profile }) {
+            return profile.kind === "quiverTechnical"
+              ? "Prefer implementation details."
+              : "Prefer product-level support answers."
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, {
+      context: {
+        chat: {
+          message: {
+            metadata: { quiver: { customer: "acme" } },
+          },
+          user: { email: "customer@example.com" },
+        },
+      },
+      prompt: "check",
+    }, createWorkspace())
+
+    expect(profileResolver).toHaveBeenCalledOnce()
+    await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
+    await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(false)
+    expect(applyCapabilityInstructionSlots("{{ audience }}", resolved.capabilityInstructions)).toBe("Prefer product-level support answers.")
   })
 
   it("can resolve an inline Workspace Scope definition", async () => {

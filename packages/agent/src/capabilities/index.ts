@@ -2,6 +2,9 @@ export {
   access,
 } from "./access.ts"
 export {
+  audience,
+} from "./audience.ts"
+export {
   chat,
 } from "../chat-trigger.ts"
 export {
@@ -70,6 +73,10 @@ export {
   webSearch,
 } from "./web-search/index.ts"
 
+export type {
+  AudienceCapabilityOptions,
+  AudienceInstructionsResolver,
+} from "./audience.ts"
 export type {
   AccessCapabilityOptions,
   AccessCapabilityStandardSchemaResultFailure,
