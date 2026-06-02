@@ -295,13 +295,14 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("infers telegram webhook registration metadata from static chat adapters", async () => {
+  it("infers webhook registration metadata from static chat adapters", async () => {
     const { chat } = await import("../src/chat-trigger.ts")
     const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
     const agent = {
       capabilities: [
         chat({
           adapters: {
+            teams: () => ({}) as never,
             telegram: () => ({}) as never,
           },
         }),
@@ -312,6 +313,10 @@ describe("agent message protocol", () => {
     await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "chat.message": {
         webhooks: [{
+          id: "teams",
+          method: "POST",
+          provider: "teams",
+        }, {
           id: "telegram",
           method: "POST",
           provider: "telegram",
@@ -1398,6 +1403,42 @@ describe("agent message protocol", () => {
     expect(state.version).toBe("1.2.3")
   })
 
+  it("does not resolve Nitro runtime env for chat-capable DevTools state discovery", async () => {
+    const { createApp, toWebHandler } = await import("h3")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentDevtoolsRegistryHandler } = await import("../src/chat/nitro/devtools.ts")
+    const app = createApp()
+    const applyRuntimeEnv = vi.fn(() => {
+      throw new Error("runtime env should not be resolved for DevTools state discovery")
+    })
+    globalThis.__vitehubApplyRuntimeEnvToRuntimeConfig = applyRuntimeEnv
+    app.use(defineAgentDevtoolsRegistryHandler({
+      ignored: async () => defineAgent({
+        run: () => "not a chat",
+      }),
+      support: async () => defineAgent({
+        capabilities: [chat({ concurrency: "queue" })],
+        run: () => "ok",
+      }),
+    }))
+
+    try {
+      const response = await toWebHandler(app)(new Request("http://example.test", {
+        body: JSON.stringify({ action: "get-state", chat: "support" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }))
+      const state = await response.json() as { chats?: Array<{ name: string }> }
+
+      expect(response.status).toBe(200)
+      expect(state.chats?.map(chat => chat.name)).toEqual(["support"])
+      expect(applyRuntimeEnv).not.toHaveBeenCalled()
+    }
+    finally {
+      delete globalThis.__vitehubApplyRuntimeEnvToRuntimeConfig
+    }
+  })
+
   it("resolves direct title-only DevTools metadata", async () => {
     const { createApp, toWebHandler } = await import("h3")
     const { defineAgent } = await import("../src/index.ts")
@@ -1464,10 +1505,10 @@ describe("agent message protocol", () => {
         state?: {
           chats: Array<{
             messages: Array<{ loading?: boolean, role: string, text: string }>
-            uiMessages?: Array<{ parts: Array<{ text?: string, toolCallId?: string, type: string }>, role: string }>
+            uiMessages?: Array<{ metadata?: Record<string, unknown>, parts: Array<{ text?: string, toolCallId?: string, type: string }>, role: string }>
           }>
           thinkingFallback?: string | null
-          uiMessages?: Array<{ parts: Array<{ text?: string, toolCallId?: string, type: string }>, role: string }>
+          uiMessages?: Array<{ metadata?: Record<string, unknown>, parts: Array<{ text?: string, toolCallId?: string, type: string }>, role: string }>
         }
         type: string
       })
@@ -1492,6 +1533,7 @@ describe("agent message protocol", () => {
         { parts: ["text", "tool-search"], role: "assistant" },
       ])
       expect(finalState?.uiMessages?.[1]?.parts.filter(part => part.type === "tool-search")).toHaveLength(1)
+      expect(finalState?.uiMessages?.[0]?.metadata).toEqual({})
       expect(state.thinkingFallback).toBe("Thinking from config...")
       expect(state.uiMessages?.[1]?.parts.map(part => part.type)).toEqual(["text", "tool-search"])
     }

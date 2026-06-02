@@ -43,6 +43,22 @@ describe("agent discovery", () => {
     ])
   })
 
+  it("ignores eval definitions during Nitro server agent discovery", async () => {
+    const root = await createTempRoot("vitehub-agent-nitro-eval-")
+    await mkdir(join(root, "server", "agents", "support"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "support", "config.eval.ts"), "export default defineEval({})", "utf8")
+    await writeFile(join(root, "server", "agents", "support", "eval.ts"), "export default defineEval({})", "utf8")
+    await writeFile(join(root, "server", "agents", "support.eval.ts"), "export default defineEval({})", "utf8")
+
+    expect(discoverAgentDefinitions({
+      mode: "nitro-server-agents",
+      scanDirs: [join(root, "server")],
+    })).toEqual([
+      expect.objectContaining({ name: "support", source: "nitro-server-agent-workspace", workspace: "support" }),
+    ])
+  })
+
   it("uses folder identity for colocated workspace agents", async () => {
     const root = await createTempRoot("vitehub-agent-workspace-name-")
     await mkdir(join(root, "server", "agents", "docs"), { recursive: true })

@@ -12,6 +12,11 @@ import type { DiscoveredAgentDefinition } from "./types.ts"
 
 const agentSuffixPattern = /\.agent\.(?:c|m)?[jt]s$/i
 const configPattern = /^config\.(?:c|m)?[jt]s$/i
+const evalDefinitionPattern = /^(?:.+\.)?eval\.(?:c|m)?[jt]s$/i
+
+function isEvalDefinitionFile(file: string): boolean {
+  return evalDefinitionPattern.test(basename(file))
+}
 
 function normalizeSuffixAgentName(rootDir: string, file: string) {
   const name = normalizeSuffixDefinitionName(rootDir, file, agentSuffixPattern, { stripPrefix: "src/" })
@@ -77,7 +82,7 @@ export function discoverAgentDefinitions(options:
     const directoryDefinitions = discoverDefinitions("agent", [
       createDirectoryDefinitionSource<DiscoveredAgentDefinition>("nitro-server-agents", options.scanDirs, "agents", {
         normalizeName(directory, file) {
-          if (configPattern.test(basename(file))) return
+          if (configPattern.test(basename(file)) || isEvalDefinitionFile(file)) return
           return relative(directory, file).replace(/\.(?:c|m)?[jt]s$/i, "").replace(/\/index$/i, "")
         },
         createDefinition({ file, name }) {

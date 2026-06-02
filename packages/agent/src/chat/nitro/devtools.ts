@@ -84,6 +84,15 @@ function createRuntimeContext(event: H3Event): NitroAgentDevtoolsRuntimeContext 
   }) as NitroAgentDevtoolsRuntimeContext
 }
 
+function createDevtoolsDiscoveryContext(event: H3Event): NitroAgentDevtoolsRuntimeContext {
+  return createAgentRuntimeContext({
+    event,
+    runtime: "nitro",
+    runtimeConfig: {},
+    waitUntil: task => event.waitUntil(task),
+  }) as NitroAgentDevtoolsRuntimeContext
+}
+
 function resolveRegistryModule(module: AgentRegistryModule): AgentInput<NitroAgentDevtoolsRuntimeContext> {
   return typeof module === "object" && module !== null && "default" in module
     ? module.default as AgentInput<NitroAgentDevtoolsRuntimeContext>
@@ -232,6 +241,7 @@ function createRunMetadata(session: ChatDevtoolsSession, userMessageId: string):
 function createUserUIMessage(text: string): UIMessage {
   return {
     id: `devtools-user-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    metadata: {},
     role: "user",
     parts: [{ type: "text", text }],
   }
@@ -415,7 +425,6 @@ export function defineAgentDevtoolsRegistryHandler(registry: AgentDevtoolsRegist
 
   return defineEventHandler(async (event) => {
     setHeader(event, "access-control-allow-origin", "*")
-    state.registry = await chatCapableAgentRegistry(registry, createRuntimeContext(event))
     const body = parseChatDevtoolsBridgeBody(await readBody<ChatDevtoolsBridgeBody | string>(event))
     if (!body || typeof body.action !== "string") {
       throw createError({
@@ -425,6 +434,7 @@ export function defineAgentDevtoolsRegistryHandler(registry: AgentDevtoolsRegist
     }
 
     const action = normalizeChatDevtoolsAction(body.action)
+    state.registry = await chatCapableAgentRegistry(registry, createDevtoolsDiscoveryContext(event))
     if (body.chat && getChatNames(state).includes(body.chat)) {
       state.selected = body.chat
     }

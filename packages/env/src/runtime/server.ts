@@ -20,8 +20,7 @@ export function useServerEnv(event?: unknown): ServerEnv {
 }
 
 export function applyRuntimeEnvToRuntimeConfig(runtimeConfig: Record<string, unknown>, event?: unknown): ServerEnv {
-  const values = resolveRuntimeValues(registry, resolveRuntimeEnv(event))
-  assignRuntimeValues(runtimeConfig, values)
+  assignRuntimeEntries(runtimeConfig, registry, resolveRuntimeEnv(event))
   return runtimeConfig as ServerEnv
 }
 
@@ -46,30 +45,19 @@ function resolveRuntimeEnv(event?: unknown): Record<string, string | undefined> 
   ]))
 }
 
-function resolveRuntimeValues(declarations: EnvRuntimeRegistry, env: Record<string, string | undefined>, path = "env"): Record<string, unknown> {
-  const values: Record<string, unknown> = {}
-  for (const [key, entry] of Object.entries(declarations)) {
-    if (isLiteralEntry(entry)) {
-      values[key] = entry.value
-      continue
-    }
-    if (!isRegistryEntry(entry)) {
-      values[key] = resolveRuntimeValues(entry, env, `${path}.${key}`)
-      continue
-    }
-    const declaration = entry
-    const rawValue = resolveEnvValue(declaration.source, env) ?? declaration.default
-    if (typeof rawValue === "undefined") {
-      if (declaration.required) {
-        throw new Error(`[vitehub] Missing runtime env value ${path}.${key} from ${declaration.source.label}.`)
-      }
-      values[key] = undefined
-      continue
-    }
-    const value = parseRuntimeValue(declaration.schema, rawValue, `${path}.${key}`)
-    values[key] = declaration.secret ? new SecretEnv(value) : value
+function resolveRuntimeEntry(entry: EnvRegistryEntry | EnvRuntimeLiteralEntry, env: Record<string, string | undefined>, path: string): unknown {
+  if (isLiteralEntry(entry)) {
+    return entry.value
   }
-  return values
+  const rawValue = resolveEnvValue(entry.source, env) ?? entry.default
+  if (typeof rawValue === "undefined") {
+    if (entry.required) {
+      throw new Error(`[vitehub] Missing runtime env value ${path} from ${entry.source.label}.`)
+    }
+    return undefined
+  }
+  const value = parseRuntimeValue(entry.schema, rawValue, path)
+  return entry.secret ? new SecretEnv(value) : value
 }
 
 function parseRuntimeValue(schema: EnvRuntimeSchema | undefined, value: unknown, label: string): unknown {
@@ -92,16 +80,22 @@ function resolveEnvValue(source: EnvRegistryEntry["source"], env: Record<string,
   return undefined
 }
 
-function assignRuntimeValues(target: Record<string, unknown>, values: Record<string, unknown>): void {
-  for (const [key, value] of Object.entries(values)) {
-    if (isPlainRuntimeObject(value)) {
-      const existing = target[key]
+function assignRuntimeEntries(target: Record<string, unknown>, entries: EnvRuntimeRegistry, env: Record<string, string | undefined>, path = "env"): void {
+  for (const [key, entry] of Object.entries(entries)) {
+    const nextPath = `${path}.${key}`
+    if (!isRegistryEntry(entry) && !isLiteralEntry(entry)) {
+      const descriptor = Object.getOwnPropertyDescriptor(target, key)
+      const existing = descriptor && "value" in descriptor ? descriptor.value : undefined
       const next = isPlainRuntimeObject(existing) ? existing : {}
-      assignRuntimeValues(next, value)
+      assignRuntimeEntries(next, entry, env, nextPath)
       target[key] = next
       continue
     }
-    target[key] = value
+    Object.defineProperty(target, key, {
+      configurable: true,
+      enumerable: true,
+      get: () => resolveRuntimeEntry(entry, env, nextPath),
+    })
   }
 }
 
