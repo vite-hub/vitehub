@@ -51,6 +51,7 @@ afterEach(() => {
   delete process.env.OPENWORKFLOW_WORKER_CONCURRENCY
   delete process.env.PUBLIC_API_BASE
   delete process.env.TELEGRAM_BOT_TOKEN
+  delete process.env.VERTEX_MODEL
 })
 
 describe("Nitro module", () => {
@@ -634,7 +635,38 @@ describe("Nitro module", () => {
       },
     })
 
-    expect(() => applyRuntimeEnvToRuntimeConfig({})).toThrow("Missing runtime env value env.telegram.botToken")
+    const config = applyRuntimeEnvToRuntimeConfig({}) as {
+      telegram: { botToken: unknown }
+    }
+    expect(() => config.telegram.botToken).toThrow("Missing runtime env value env.telegram.botToken")
+  })
+
+  it("does not resolve missing sibling Server Env values until they are read", async () => {
+    const { applyRuntimeEnvToRuntimeConfig, setEnvRegistry } = await import("../src/runtime/server.ts")
+
+    setEnvRegistry({
+      githubToken: {
+        required: true,
+        secret: true,
+        source: { kind: "env", label: "env:GITHUB_TOKEN", name: "GITHUB_TOKEN", serializable: true },
+      },
+      vertex: {
+        model: {
+          default: "gemini-3.1-pro-preview-customtools",
+          required: true,
+          secret: false,
+          source: { kind: "env", label: "env:VERTEX_MODEL", name: "VERTEX_MODEL", serializable: true },
+        },
+      },
+    })
+
+    const config = applyRuntimeEnvToRuntimeConfig({}) as {
+      githubToken: unknown
+      vertex: { model: string }
+    }
+
+    expect(config.vertex.model).toBe("gemini-3.1-pro-preview-customtools")
+    expect(() => config.githubToken).toThrow("Missing runtime env value env.githubToken")
   })
 
   it("validates serialized runtime registry defaults", async () => {
@@ -652,7 +684,10 @@ describe("Nitro module", () => {
       },
     })
 
-    expect(() => applyRuntimeEnvToRuntimeConfig({})).toThrow("Invalid env.vertex.model: Expected string")
+    const config = applyRuntimeEnvToRuntimeConfig({}) as {
+      vertex: { model: string }
+    }
+    expect(() => config.vertex.model).toThrow("Invalid env.vertex.model: Expected string")
   })
 
   it("rejects custom Nitro runtime schemas because generated registries cannot preserve them", async () => {
