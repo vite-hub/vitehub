@@ -1,14 +1,102 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { Readable } from "node:stream"
 
 import { describe, expect, it, vi } from "vitest"
 
 import { listViteHubDevtoolsFeatures } from "@vite-hub/devtools"
 import { discoverAgentDefinitions } from "../src/discovery.ts"
 
+import type { IncomingMessage, ServerResponse } from "node:http"
+import type { Connect } from "vite"
+
 async function createTempRoot(prefix: string) {
   return await mkdtemp(join(tmpdir(), prefix))
+}
+
+function textFromUiMessage(message: { parts?: Array<Record<string, unknown>> } | undefined) {
+  return (message?.parts || [])
+    .filter(part => part.type === "text" && typeof part.text === "string")
+    .map(part => part.text)
+    .join("")
+}
+
+function responseChunkText(chunk: unknown) {
+  if (typeof chunk === "string") return chunk
+  if (Buffer.isBuffer(chunk)) return chunk.toString("utf8")
+  if (chunk instanceof Uint8Array) return Buffer.from(chunk).toString("utf8")
+  return String(chunk)
+}
+
+function createFakeServer(root: string, module: unknown) {
+  const handlers: Connect.NextHandleFunction[] = []
+  const server = {
+    config: {
+      root,
+      server: { port: 3000 },
+    },
+    middlewares: {
+      use: vi.fn((handler: Connect.NextHandleFunction) => {
+        handlers.push(handler)
+      }),
+    },
+    resolvedUrls: {
+      local: ["http://localhost:3000/"],
+    },
+    ssrLoadModule: vi.fn(async () => module),
+  }
+  return { handlers, server }
+}
+
+async function configurePluginServer(plugin: { configureServer?: unknown }, server: unknown) {
+  const hook = plugin.configureServer
+  if (typeof hook === "function") {
+    await hook(server)
+  }
+  else if (hook && typeof hook === "object" && "handler" in hook && typeof hook.handler === "function") {
+    await hook.handler(server)
+  }
+}
+
+async function invokeMiddleware(
+  handler: Connect.NextHandleFunction,
+  body: Record<string, unknown>,
+  url = "/__vitehub/agent/chat/devtools",
+) {
+  let output = ""
+  const req = Readable.from([JSON.stringify(body)]) as IncomingMessage
+  req.headers = { "content-type": "text/plain" }
+  req.method = "POST"
+  req.url = url
+
+  const result = await new Promise<{ body: string, statusCode: number }>((resolve, reject) => {
+    let statusCode = 200
+    const res = {
+      destroy(error?: Error) {
+        reject(error || new Error("response destroyed"))
+      },
+      end(chunk?: unknown) {
+        if (chunk) output += responseChunkText(chunk)
+        resolve({ body: output, statusCode })
+      },
+      get statusCode() {
+        return statusCode
+      },
+      set statusCode(value: number) {
+        statusCode = value
+      },
+      setHeader: vi.fn(),
+      write(chunk: unknown) {
+        output += responseChunkText(chunk)
+        return true
+      },
+    } as unknown as ServerResponse
+
+    handler(req, res, () => reject(new Error("middleware passed through")))
+  })
+
+  return result
 }
 
 describe("agent discovery", () => {
@@ -146,6 +234,86 @@ describe("agent chat capability discovery", () => {
     expect(ctx.rpc.register).toHaveBeenCalledTimes(3)
   })
 
+  it("serves chat devtools state and send requests from the Vite bridge", async () => {
+    const root = await createTempRoot("vitehub-agent-devtools-bridge-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { access, chat } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: () => ({ role: "admin", scope: "support" }),
+            scopes: {
+              support: { all: true },
+            },
+          },
+        }),
+        chat(),
+      ],
+      workspace: {},
+      run: (context: { input: { context?: { chat?: { run?: { origin?: string } } } }, workspace?: unknown }) => `answered through ${context.input.context?.chat?.run?.origin} with ${context.workspace ? "workspace" : "no workspace"}`,
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
+
+    await configurePluginServer(plugin, server)
+    expect(server.middlewares.use).toHaveBeenCalledTimes(1)
+
+    const stateResponse = await invokeMiddleware(handlers[0]!, { action: "get-state" })
+    const state = JSON.parse(stateResponse.body)
+    expect(state).toMatchObject({
+      chats: [{ name: "support", uiMessages: [] }],
+      selected: "support",
+    })
+
+    const sendResponse = await invokeMiddleware(handlers[0]!, {
+      action: "send",
+      chat: "support",
+      stream: true,
+      text: "hello",
+    })
+    const events = sendResponse.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+    const finalState = events.filter(event => event.type === "state").at(-1)?.state
+
+    expect(events.at(-1)).toEqual({ type: "done" })
+    expect(finalState.selected).toBe("support")
+    expect(finalState.uiMessages.map((message: { role: string }) => message.role)).toEqual(["user", "assistant"])
+    expect(textFromUiMessage(finalState.uiMessages[1])).toBe("answered through devtools with workspace")
+  })
+
+  it("omits unfinished tool-call assistant messages from devtools prompt history", async () => {
+    const { createChatDevtoolsPromptHistory } = await import("../src/chat/vite/devtools-bridge.ts")
+    const history = createChatDevtoolsPromptHistory([
+      {
+        id: "user-1",
+        parts: [{ text: "first", type: "text" }],
+        role: "user",
+      },
+      {
+        id: "assistant-partial",
+        parts: [{ input: { command: "rg forecast" }, state: "input-available", toolCallId: "call-1", type: "tool-shell" }],
+        role: "assistant",
+      },
+      {
+        id: "assistant-complete",
+        metadata: { completedAt: "2026-06-03T08:00:00.000Z" },
+        parts: [
+          { input: { command: "rg forecast" }, output: { stdout: "ok" }, state: "output-available", toolCallId: "call-2", type: "tool-shell" },
+          { text: "done", type: "text" },
+        ],
+        role: "assistant",
+      },
+    ])
+
+    expect(history.map(message => message.id)).toEqual(["user-1", "assistant-complete"])
+  })
+
   it("skips chat devtools feature and bridge when package-local devtools are disabled", async () => {
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
     const ctx = {
@@ -161,6 +329,10 @@ describe("agent chat capability discovery", () => {
 
     expect(listViteHubDevtoolsFeatures(ctx as never)).toEqual([])
     expect(ctx.rpc.register).not.toHaveBeenCalled()
+
+    const { server } = createFakeServer(await createTempRoot("vitehub-agent-devtools-disabled-"), {})
+    await configurePluginServer(plugin, server)
+    expect(server.middlewares.use).not.toHaveBeenCalled()
   })
 
 })

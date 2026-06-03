@@ -557,23 +557,14 @@ async function refreshFromBridge(chat?: string) {
 }
 
 async function pollFinalBridgeState(input: { chat?: string, text: string }, signal: AbortSignal) {
-  const startedAt = Date.now()
-  let sawSubmittedMessage = false
-
   while (!signal.aborted) {
     await new Promise(resolve => setTimeout(resolve, 700))
     if (signal.aborted) break
 
     const next = await callBridgeState({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }, signal)
-    if (!next) {
-      if (!sawSubmittedMessage && Date.now() - startedAt > 3_000) {
-        return false
-      }
-      continue
-    }
+    if (!next) continue
 
     if (hasCurrentUserMessage(next, input.chat, input.text)) {
-      sawSubmittedMessage = true
       if (!signal.aborted) {
         applyState(next)
         error.value = undefined
@@ -642,14 +633,15 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
   currentReader = { cancel: () => abortController.abort() }
 
   let response: Response | undefined
-  let timeoutSignal: AbortSignal | undefined
+  const connectTimeoutController = new AbortController()
+  let connectTimeout: ReturnType<typeof setTimeout> | undefined
   try {
-    timeoutSignal = AbortSignal.timeout(2_000)
+    connectTimeout = setTimeout(() => connectTimeoutController.abort(), 15_000)
     response = await fetch(localBridgeRoute(), {
         method: "POST",
         headers: { "content-type": "text/plain" },
         body: JSON.stringify({ action: "send", ...input, stream: true }),
-        signal: AbortSignal.any([abortController.signal, timeoutSignal]),
+        signal: AbortSignal.any([abortController.signal, connectTimeoutController.signal]),
       })
   }
   catch {
@@ -657,9 +649,13 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
       currentReader = undefined
       return true
     }
-    if (timeoutSignal?.aborted) {
+    if (connectTimeoutController.signal.aborted) {
       try {
-        return await recoverTimedOutBridgeSend(input, abortController.signal)
+        if (await recoverTimedOutBridgeSend(input, abortController.signal)) {
+          return true
+        }
+        error.value = "Chat DevTools bridge timed out before confirming the message."
+        return true
       }
       finally {
         abortController.abort()
@@ -669,6 +665,9 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
 
     currentReader = undefined
     return false
+  }
+  finally {
+    if (connectTimeout) clearTimeout(connectTimeout)
   }
 
   if (!response.ok || !response.body) {
@@ -708,7 +707,7 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
       return "done"
     }
     catch {
-      return abortController.signal.aborted ? "done" : false
+      return abortController.signal.aborted ? "done" : "interrupted"
     }
   }
 
@@ -721,6 +720,13 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
       return true
     }
     if (outcome === "done") {
+      return true
+    }
+    if (outcome === "interrupted") {
+      if (await recoverTimedOutBridgeSend(input, abortController.signal)) {
+        return true
+      }
+      error.value = "Chat DevTools bridge stream disconnected before confirming the message."
       return true
     }
     if (!outcome || hasCompletedResponse(state.value, input.chat, input.text)) {
@@ -993,11 +999,10 @@ onBeforeUnmount(() => {
                               {{ toolMetadataLabel(part.tool) }}
                             </UBadge>
                           </template>
-                          <Suspense v-if="hasToolOutput(part.tool)">
-                            <Comark class="space-y-1 text-toned [&_em]:text-muted [&_h3]:font-medium [&_h3]:text-highlighted [&_p]:my-0 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2">
-                              {{ renderToolOutput(part.tool) }}
-                            </Comark>
-                          </Suspense>
+                          <pre
+                            v-if="hasToolOutput(part.tool)"
+                            class="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-md bg-elevated p-2 font-mono text-xs/5 text-toned"
+                          >{{ renderToolOutput(part.tool) }}</pre>
                           <p v-else class="italic text-muted">
                             No output
                           </p>

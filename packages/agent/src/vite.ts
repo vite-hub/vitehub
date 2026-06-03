@@ -1,6 +1,7 @@
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vite-hub/internal/build/vite"
 
 import { chatDevTools } from "./chat/devtools.ts"
+import { registerChatDevtoolsBridge } from "./chat/vite/devtools-bridge.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 
 import type { Plugin } from "vite"
@@ -33,6 +34,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           return chatDevtoolsPlugin.devtools?.setup?.(ctx)
         }
       },
+    },
+    configureServer(server) {
+      if (agentDevtoolsEnabled(agent)) {
+        registerChatDevtoolsBridge(server)
+      }
     },
     vitehub: {
       cli: async () => {
