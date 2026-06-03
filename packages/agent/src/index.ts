@@ -188,15 +188,20 @@ export type {
   AgentInvocationProfileChatMessageInputSchemaOptions,
   AgentInvocationProfileChatRunInputOptions,
   AgentInvocationProfileContextValueId,
+  AgentInvocationProfileInputContext,
   AgentInvocationProfileDefinition,
+  AgentInvocationProfileInfer,
   AgentInvocationProfileInputContextFromSchemas,
   AgentInvocationProfileInputSchemaOptions,
   AgentInvocationProfileOptions,
   AgentInvocationProfileResolver,
   AgentInvocationProfileResolverContext,
+  AgentInvocationProfileRunInput,
+  AgentInvocationProfileRunInputFromSchemas,
   AgentInvocationProfileStandardSchemaResultFailure,
   AgentInvocationProfileStandardSchemaResultSuccess,
   AgentInvocationProfileStandardSchemaV1,
+  DefinedAgentInvocationProfile,
 } from "./invocation-profile.ts"
 
 export type {
