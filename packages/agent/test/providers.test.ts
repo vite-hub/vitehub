@@ -40,6 +40,42 @@ describe("agent Vite plugin", () => {
 
     expect(result).toMatchObject({ agent: { route: true } })
   })
+
+  it("registers configured agent routes with Nitro", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ route: "/api/_vitehub/agents/[agent]/chat" })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
+      : undefined
+
+    expect(result).toMatchObject({
+      nitro: {
+        handlers: [{
+          handler: ".vitehub/agent/chat-route.ts",
+          route: "/api/_vitehub/agents/:agent/chat",
+        }],
+      },
+    })
+  })
+})
+
+describe("server helpers", () => {
+  it("rejects chat route requests without messages", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgentChatFetchHandler } = await import("../src/server.ts")
+    const handler = defineAgentChatFetchHandler(defineAgent({ run: () => "unused" }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({}),
+      method: "POST",
+    }))
+
+    await expect(response.json()).resolves.toMatchObject({
+      message: "Agent chat route requires messages.",
+      status: 400,
+    })
+    expect(response.status).toBe(400)
+  })
 })
 
 describe("Vercel helpers", () => {
