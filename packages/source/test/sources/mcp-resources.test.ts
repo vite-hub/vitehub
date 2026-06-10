@@ -13,7 +13,6 @@ function createClient(): McpResourcesClient {
           nextCursor: "next",
           resources: [{
             description: "Complete list of available Nuxt documentation pages",
-            mimeType: "application/json",
             name: "documentation-pages",
             title: "Nuxt documentation pages",
             uri: "resource://nuxt-com/documentation-pages",
@@ -23,7 +22,6 @@ function createClient(): McpResourcesClient {
       return {
         resources: [{
           description: "Complete list of Nuxt blog posts",
-          mimeType: "application/json",
           name: "blog-posts",
           uri: "resource://nuxt-com/blog-posts",
         }],
@@ -43,7 +41,7 @@ function createClient(): McpResourcesClient {
 
 describe("source.mcpResources", () => {
   it("lists paginated MCP resources as source paths", async () => {
-    const source = mcpResources({ server: createClient() })
+    const source = mcpResources({ include: "**/*.json", server: createClient() })
 
     await expect(source.getKeys({ rootDir: "/tmp" })).resolves.toEqual([
       "nuxt-com/documentation-pages.json",

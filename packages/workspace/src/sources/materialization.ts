@@ -128,7 +128,6 @@ export async function materializeWorkspaceSources(
   options: WorkspaceMaterializeSourcesOptions = {},
 ): Promise<WorkspaceMaterializeSourcesResult> {
   const started = Date.now()
-  const ctx = createSourceContext(definition)
   const sources = normalizeWorkspaceSources(definition.sources).filter(source => source.materialize === "lazy" && sourcePathMatches("", source, options))
   const resultSources: WorkspaceSourceMaterializationStatus[] = []
   let files = 0
@@ -162,6 +161,7 @@ export async function materializeWorkspaceSources(
     })
 
     try {
+      const ctx = createSourceContext(definition, source)
       await source.source.prepare?.(ctx)
       const items = source.source.getItems
         ? await source.source.getItems(ctx)

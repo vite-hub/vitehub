@@ -1,5 +1,8 @@
 import { mcpResources as createMcpResourcesSource } from "@vite-hub/source"
 
+import { normalizeSafeWorkspacePath } from "../core/path.ts"
+import { markLiveWorkspaceSource } from "./config.ts"
+
 import type { WorkspaceSource } from "../core/types.ts"
 import type { McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions } from "@vite-hub/source"
 
@@ -9,17 +12,37 @@ export interface McpResourcesSourceOptions<TKey extends string = string>
   extends Omit<SourcePackageMcpResourcesSourceOptions<TKey>, "cache">, SourceRuntimeOptions {}
 
 export function mcpResources<const TKey extends string = string>(options: McpResourcesSourceOptions<TKey>): WorkspaceSource {
+  const livePaths: Record<string, string> = {}
   const baseSource = createMcpResourcesSource({
     ...options,
     cache: options.cache,
   })
 
-  return {
+  return markLiveWorkspaceSource({
     ...baseSource,
     cache: options.cache,
     materialize: options.materialize || "lazy",
     mount: options.mount,
+    async prepare(ctx) {
+      await baseSource.prepare?.(ctx)
+      const mountPath = resolveMountPath(options.mount, ctx)
+      const keys = await baseSource.getKeys(ctx)
+      resetLivePaths(livePaths, mountPath, keys)
+    },
     validate: options.validate,
+  }, livePaths)
+}
+
+function resolveMountPath(mount: WorkspaceSource["mount"], ctx: { mountPath?: string, source?: string }) {
+  const explicit = typeof mount === "string" ? mount : mount?.path
+  return normalizeSafeWorkspacePath(explicit ?? ctx.mountPath ?? ctx.source ?? "", { allowEmpty: true })
+}
+
+function resetLivePaths(paths: Record<string, string>, mountPath: string, keys: string[]) {
+  for (const path of Object.keys(paths)) delete paths[path]
+  for (const key of keys) {
+    const path = normalizeSafeWorkspacePath(`${mountPath}/${key}`.replace(/\/+/g, "/"), { allowEmpty: false })
+    paths[path] = key
   }
 }
 

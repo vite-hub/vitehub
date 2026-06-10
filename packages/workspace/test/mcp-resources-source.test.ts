@@ -11,7 +11,6 @@ const client: McpResourcesClient = {
     return {
       resources: [{
         description: "Complete list of available Nuxt documentation pages",
-        mimeType: "application/json",
         name: "documentation-pages",
         uri: "resource://nuxt-com/documentation-pages",
       }],
@@ -49,6 +48,9 @@ describe("MCP resource workspace sources", () => {
     await expect(workspace.readFile("nuxt/nuxt-com/documentation-pages.json")).resolves.toBe(
       JSON.stringify([{ path: "/docs/getting-started/introduction" }], null, 2),
     )
+    await expect(workspace.diff()).resolves.toMatchObject({ entries: [] })
+
+    await workspace.materializeSources?.({ sources: ["nuxt"] })
     await expect(workspace.diff()).resolves.toMatchObject({
       entries: [
         expect.objectContaining({ path: "nuxt", type: "added" }),

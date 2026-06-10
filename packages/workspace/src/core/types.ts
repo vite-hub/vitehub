@@ -250,7 +250,9 @@ export interface WorkspaceStore {
 }
 
 export interface SourceContext {
+  mountPath?: string
   rootDir: string
+  source?: string
   sourceRootDir?: string
   workspace: string
 }

@@ -64,6 +64,7 @@ export interface McpResourcesSourceOptions<TKey extends string = string> {
 }
 
 interface ResourceEntry<TKey extends string = string> {
+  contents?: McpResourceContent[]
   key: TKey
   resource: McpResourceDescriptor
 }
@@ -152,6 +153,19 @@ function defaultResourcePath(resource: McpResourceDescriptor) {
   return normalizeSafeSourcePath(normalized)
 }
 
+function resourcePathNeedsContentMimeType(resource: McpResourceDescriptor, options: McpResourcesSourceOptions) {
+  if (options.path || resource.mimeType) return false
+  const path = defaultResourcePath(resource)
+  return !path.split("/").at(-1)?.includes(".")
+}
+
+function resourceWithContentMimeType(resource: McpResourceDescriptor, contents: McpResourceContent[]) {
+  if (resource.mimeType) return resource
+  const content = contents.find(item => item.uri === resource.uri) || contents[0]
+  const mimeType = contents.length > 1 ? "application/json" : content?.mimeType
+  return mimeType ? { ...resource, mimeType } : resource
+}
+
 function resourceKey<TKey extends string>(resource: McpResourceDescriptor, options: McpResourcesSourceOptions<TKey>) {
   const resolved = options.path?.(resource) ?? defaultResourcePath(resource)
   return normalizeSafeSourcePath(resolved) as TKey
@@ -177,18 +191,35 @@ async function listAllResources(client: McpResourcesClient, request: McpResource
   return resources
 }
 
-function createEntries<TKey extends string>(resources: McpResourceDescriptor[], options: McpResourcesSourceOptions<TKey>) {
+function readResourceInput(resource: McpResourceDescriptor, request: McpResourcesRequestOptions | undefined) {
+  return {
+    uri: resource.uri,
+    ...(request ? { options: request } : {}),
+  }
+}
+
+async function createEntries<TKey extends string>(
+  resources: McpResourceDescriptor[],
+  options: McpResourcesSourceOptions<TKey>,
+  client?: McpResourcesClient,
+) {
   const entries: ResourceEntry<TKey>[] = []
   const seen = new Map<string, string>()
   for (const resource of resources) {
-    const key = resourceKey(resource, options)
+    let contents: McpResourceContent[] | undefined
+    let resolvedResource = resource
+    if (client && resourcePathNeedsContentMimeType(resource, options)) {
+      contents = (await client.readResource(readResourceInput(resource, options.request))).contents
+      resolvedResource = resourceWithContentMimeType(resource, contents)
+    }
+    const key = resourceKey(resolvedResource, options)
     if (!shouldInclude(key, options)) continue
     const existingUri = seen.get(key)
     if (existingUri) {
       throw new SourceError(`[vitehub] source.mcpResources produced duplicate path ${JSON.stringify(key)} for ${JSON.stringify(existingUri)} and ${JSON.stringify(resource.uri)}.`)
     }
     seen.set(key, resource.uri)
-    entries.push({ key, resource })
+    entries.push({ contents, key, resource: resolvedResource })
   }
   return entries
 }
@@ -242,16 +273,16 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
 
   async function getEntries(ctx: SourceContext) {
     return await withMcpClient(options.server, ctx, async (client) => {
-      return createEntries(await listAllResources(client, options.request), options)
+      return await createEntries(await listAllResources(client, options.request), options, client)
     })
   }
 
   async function getItems(ctx: SourceContext) {
     return await withMcpClient(options.server, ctx, async (client) => {
-      const entries = createEntries(await listAllResources(client, options.request), options)
-      return await Promise.all(entries.map(async ({ key, resource }) => {
-        const result = await client.readResource({ uri: resource.uri, ...(options.request ? { options: options.request } : {}) })
-        return createResourceItem(key, resource, result.contents)
+      const entries = await createEntries(await listAllResources(client, options.request), options, client)
+      return await Promise.all(entries.map(async ({ contents, key, resource }) => {
+        const result = contents ?? (await client.readResource(readResourceInput(resource, options.request))).contents
+        return createResourceItem(key, resource, result)
       }))
     })
   }
@@ -288,12 +319,12 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
     },
     async getItem(key, ctx) {
       return await withMcpClient(options.server, ctx, async (client) => {
-        const entry = createEntries(await listAllResources(client, options.request), options).find(entry => entry.key === key)
+        const entry = (await createEntries(await listAllResources(client, options.request), options, client)).find(entry => entry.key === key)
         if (!entry) {
           throw new SourceError(`[vitehub] source.mcpResources could not find ${JSON.stringify(key)}.`)
         }
-        const result = await client.readResource({ uri: entry.resource.uri, ...(options.request ? { options: options.request } : {}) })
-        return createResourceItem(key, entry.resource, result.contents)
+        const result = entry.contents ?? (await client.readResource(readResourceInput(entry.resource, options.request))).contents
+        return createResourceItem(key, entry.resource, result)
       })
     },
     async search(query, ctx) {
