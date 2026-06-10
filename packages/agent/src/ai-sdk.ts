@@ -27,7 +27,7 @@ import type {
   AgentAdapterMetadataContext,
   AgentAdapterRunContext,
   AgentAdapterResult,
-  AgentModelInstrumentation,
+  AgentModelExecutionOptions,
   AgentRuntimeConfig,
   AgentToolSet,
   AgentToolResolverWithWorkspace,
@@ -42,19 +42,24 @@ export interface AiSdkAdapterOptions<
   TTools extends ToolSet = ToolSet,
   Name extends WorkspaceName = WorkspaceName,
 > {
-  adapterOptions?: AiSdkAdapterExecutionOptions<TCallOptions, TTools>
   instructions?: AgentAdapterInstructions<TRuntimeConfig, Name>
-  instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
+  modelExecution?: AiSdkModelExecutionOptions<TRuntimeConfig, TCallOptions, TTools>
   model: ToolLoopAgentSettings<TCallOptions, TTools>["model"] | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<ToolLoopAgentSettings<TCallOptions, TTools>["model"]>)
   tools?: AgentToolResolverWithWorkspace<TRuntimeConfig, Name>
 }
 
-export type AiSdkAdapterExecutionOptions<
+export type AiSdkModelCallSettings<
   TCallOptions = unknown,
   TTools extends ToolSet = ToolSet,
-> = Omit<ToolLoopAgentSettings<TCallOptions, TTools>, "instructions" | "model" | "tools"> & {
-  fallback?: boolean | AiSdkWorkspaceFallbackOptions
-  stepLimit?: number
+> = Omit<ToolLoopAgentSettings<TCallOptions, TTools>, "instructions" | "model" | "tools">
+
+export type AiSdkModelExecutionOptions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TCallOptions = unknown,
+  TTools extends ToolSet = ToolSet,
+> = Omit<AgentModelExecutionOptions<TRuntimeConfig, TCallOptions>, "callSettings" | "workspaceFallback"> & {
+  callSettings?: AiSdkModelCallSettings<TCallOptions, TTools>
+  workspaceFallback?: boolean | AiSdkWorkspaceFallbackOptions
 }
 
 export interface AiSdkWorkspaceFallbackOptions {
@@ -193,7 +198,7 @@ function getCallInput(context: AgentAdapterRunContext) {
   }
 }
 
-function getFallbackOptions(fallback: AiSdkAdapterExecutionOptions["fallback"]): Required<AiSdkWorkspaceFallbackOptions> {
+function getFallbackOptions(fallback: AiSdkModelExecutionOptions["workspaceFallback"]): Required<AiSdkWorkspaceFallbackOptions> {
   if (fallback === false) return { enabled: false, maxToolResults: 0 }
   if (fallback === true || fallback === undefined) return { enabled: true, maxToolResults: 8 }
   return {
@@ -516,8 +521,9 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
     workspace: context.workspace,
   } as AgentAdapterMetadataContext
   const model = await resolveValue(options.model as never, metadataContext)
-  const instrumentedModel = options.instrumentModel
-    ? await options.instrumentModel({ ...runtime, context: context.context, model, run: context.runtime.run })
+  const modelInstrumentation = options.modelExecution?.instrumentation?.model
+  const instrumentedModel = modelInstrumentation
+    ? await modelInstrumentation({ ...runtime, context: context.context, model, run: context.runtime.run })
     : model
   const instructions = context.instructions
     ?? applyCapabilityInstructionSlots(await resolveInstructions(options, metadataContext), context.capabilityInstructions)
@@ -534,17 +540,23 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   }]))
   const toolSet = { ...resolvedTools, ...providerTools }
   const {
-    adapterOptions: _adapterOptions,
     instructions: _instructions,
-    instrumentModel: _instrumentModel,
+    modelExecution: _modelExecution,
     model: _model,
     tools: _tools,
   } = options
-  const {
-    fallback: _fallback,
-    stepLimit,
-    ...settings
-  } = options.adapterOptions || {}
+  const stepLimit = options.modelExecution?.stepLimit
+  const baseCallSettings = options.modelExecution?.callSettings || {}
+  const instrumentedCallSettings = await options.modelExecution?.instrumentation?.callSettings?.({
+    ...runtime,
+    callSettings: baseCallSettings,
+    context: context.context,
+    input: context.input,
+    model: instrumentedModel,
+    run: context.runtime.run,
+    ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
+  })
+  const settings = instrumentedCallSettings ? { ...baseCallSettings, ...instrumentedCallSettings } : baseCallSettings
 
   return {
     agent: new ToolLoopAgent({
@@ -573,7 +585,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const text = result.text.trim()
       if (text) return result as unknown as AgentAdapterResult
 
-      const fallback = getFallbackOptions(options.adapterOptions?.fallback)
+      const fallback = getFallbackOptions(options.modelExecution?.workspaceFallback)
       if (fallback.enabled && (result.finishReason === "tool-calls" || hasToolResults(result))) {
         const synthesized = await synthesizeWorkspaceFallback(model as never, context, result, fallback.maxToolResults)
         if (synthesized) return { raw: result, text: synthesized }
@@ -602,7 +614,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     async stream(context) {
       const { agent, model } = await createAgent(options, context)
       const result = await agent.stream(getCallInput(context) as never) as StreamTextResult<ToolSet, never>
-      return withWorkspaceFallbackStreamResult(result, model as never, context, getFallbackOptions(options.adapterOptions?.fallback))
+      return withWorkspaceFallbackStreamResult(result, model as never, context, getFallbackOptions(options.modelExecution?.workspaceFallback))
     },
   }
 }

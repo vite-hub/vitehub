@@ -66,17 +66,24 @@ function withTestModelInstrumentation<TRuntimeConfig extends AgentRuntimeConfig>
   }
 
   const workspaceAgent = agent as WorkspaceAgentDefinition<TRuntimeConfig>
-  const originalInstrumentation = workspaceAgent.__vitehubWorkspaceAgentOptions.instrumentModel as AgentModelInstrumentation<TRuntimeConfig> | undefined
+  const modelExecution = workspaceAgent.__vitehubWorkspaceAgentOptions.modelExecution
+  const originalInstrumentation = modelExecution?.instrumentation?.model as AgentModelInstrumentation<TRuntimeConfig> | undefined
   return defineAgent({
     ...workspaceAgent.__vitehubWorkspaceAgentOptions,
-    async instrumentModel(context: Parameters<AgentModelInstrumentation<TRuntimeConfig>>[0]) {
-      const model = originalInstrumentation
-        ? await originalInstrumentation(context)
-        : context.model
-      return await instrumentation({
-        ...context,
-        model,
-      })
+    modelExecution: {
+      ...modelExecution,
+      instrumentation: {
+        ...modelExecution?.instrumentation,
+        async model(context: Parameters<AgentModelInstrumentation<TRuntimeConfig>>[0]) {
+          const model = originalInstrumentation
+            ? await originalInstrumentation(context)
+            : context.model
+          return await instrumentation({
+            ...context,
+            model,
+          })
+        },
+      },
     },
   }) as AgentInput<AgentRuntimeContext<TRuntimeConfig>>
 }
