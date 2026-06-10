@@ -486,13 +486,15 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapterOptions: {
-        experimental_telemetry: experimental_telemetry as never,
-        maxOutputTokens: 100,
-        onStepFinish,
-        stopWhen: stopWhen as never,
-        temperature: 0.2,
-        toolChoice: "auto",
+      modelExecution: {
+        callSettings: {
+          experimental_telemetry: experimental_telemetry as never,
+          maxOutputTokens: 100,
+          onStepFinish,
+          stopWhen: stopWhen as never,
+          temperature: 0.2,
+          toolChoice: "auto",
+        },
       },
       model: {} as never,
     }), { workspace: "docs" })
@@ -554,9 +556,13 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      instrumentModel,
-      adapterOptions: {
-        onStepFinish: vi.fn(),
+      modelExecution: {
+        callSettings: {
+          onStepFinish: vi.fn(),
+        },
+        instrumentation: {
+          model: instrumentModel,
+        },
       },
       model: baseModel as never,
     }), { workspace: "docs" })
@@ -578,7 +584,92 @@ describe("defineAgent workspace option", () => {
       model: wrappedModel,
       onStepFinish: expect.any(Function),
     })
-    expect(agentSettings.at(-1)).not.toHaveProperty("instrumentModel")
+    expect(agentSettings.at(-1)).not.toHaveProperty("modelExecution")
+  })
+
+  it("lets workspace agents instrument AI SDK call settings per run", async () => {
+    const execute = vi.fn(async () => "workspace result")
+    const instrumentCallSettings = vi.fn(({ callSettings }) => ({
+      experimental_telemetry: { isEnabled: true, runScoped: true },
+      temperature: callSettings.temperature,
+    }))
+    inspectTools.mockReturnValueOnce({
+      shell: { execute },
+    })
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const model = { id: "base" }
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      modelExecution: {
+        callSettings: {
+          temperature: 0.2,
+        },
+        instrumentation: {
+          callSettings: instrumentCallSettings,
+        },
+        stepLimit: 7,
+      },
+      model: model as never,
+      capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
+    }), { workspace: "docs" })
+
+    await agent.run!({
+      ...(context() as Record<string, unknown>),
+      input: { messages: [] },
+      run: {
+        origin: "teams",
+        runId: "run_123",
+        threadId: "thread_1",
+      },
+    } as never)
+
+    expect(instrumentCallSettings).toHaveBeenCalledWith(expect.objectContaining({
+      input: { messages: [] },
+      model,
+      run: expect.objectContaining({ origin: "teams", runId: "run_123" }),
+      callSettings: expect.objectContaining({ temperature: 0.2 }),
+      tools: expect.objectContaining({ shell: expect.any(Object) }),
+    }))
+    expect(instrumentCallSettings.mock.calls[0]?.[0].callSettings).not.toHaveProperty("stepLimit")
+    expect(agentSettings.at(-1)).toMatchObject({
+      experimental_telemetry: { isEnabled: true, runScoped: true },
+      stopWhen: { count: 7 },
+      temperature: 0.2,
+    })
+    expect(agentSettings.at(-1)).not.toHaveProperty("modelExecution")
+  })
+
+  it("isolates call settings instrumentation from definition-owned settings", async () => {
+    const observedTemperatures: unknown[] = []
+    const instrumentCallSettings = vi.fn(({ callSettings }) => {
+      observedTemperatures.push(callSettings.temperature)
+      ;(callSettings as Record<string, unknown>).temperature = 0.8
+    })
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const settingsStart = agentSettings.length
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      modelExecution: {
+        callSettings: {
+          temperature: 0.2,
+        },
+        instrumentation: {
+          callSettings: instrumentCallSettings,
+        },
+      },
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+    await agent.run!(context())
+
+    expect(observedTemperatures).toEqual([0.2, 0.2])
+    expect(agentSettings.slice(settingsStart)).toEqual([
+      expect.objectContaining({ temperature: 0.2 }),
+      expect.objectContaining({ temperature: 0.2 }),
+    ])
   })
 
   it("passes runtime context to run-aware step and tool callbacks", async () => {
@@ -592,13 +683,15 @@ describe("defineAgent workspace option", () => {
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
-      adapterOptions: {
-        experimental_onToolCallFinish: experimental_onToolCallFinish as never,
-        experimental_onToolCallStart: experimental_onToolCallStart as never,
-        onRunStepFinish,
-        onRunToolCallFinish,
-        onRunToolCallStart,
-        onStepFinish,
+      modelExecution: {
+        callSettings: {
+          experimental_onToolCallFinish: experimental_onToolCallFinish as never,
+          experimental_onToolCallStart: experimental_onToolCallStart as never,
+          onRunStepFinish,
+          onRunToolCallFinish,
+          onRunToolCallStart,
+          onStepFinish,
+        },
       },
       model: {} as never,
     }), { workspace: "docs" })

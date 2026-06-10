@@ -399,15 +399,54 @@ export interface AgentModelInstrumentationContext<TRuntimeConfig extends AgentRu
 export type AgentModelInstrumentation<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   (context: AgentModelInstrumentationContext<TRuntimeConfig>) => MaybePromise<AgentModelInput>
 
+export interface AgentCallSettingsInstrumentationContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> extends AgentCallbackContext<TRuntimeConfig> {
+  callSettings: Readonly<Record<string, unknown>>
+  context: AgentInvocationContextStore
+  input: AgentRunInput<CALL_OPTIONS>
+  model: AgentModelInput
+  run?: AgentRunMetadata
+  tools?: AgentToolSet
+}
+
+export type AgentCallSettingsInstrumentation<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> =
+  (context: AgentCallSettingsInstrumentationContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<Record<string, unknown> | void>
+
+export interface AgentModelExecutionInstrumentation<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> {
+  callSettings?: AgentCallSettingsInstrumentation<TRuntimeConfig, CALL_OPTIONS>
+  model?: AgentModelInstrumentation<TRuntimeConfig>
+}
+
+export interface AgentModelExecutionOptions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> {
+  callSettings?: Record<string, unknown>
+  instrumentation?: AgentModelExecutionInstrumentation<TRuntimeConfig, CALL_OPTIONS>
+  stepLimit?: number
+  workspaceFallback?: boolean | {
+    enabled?: boolean
+    maxToolResults?: number
+  }
+}
+
 type AgentSettingsBase<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
 > = {
-  adapterOptions?: Record<string, unknown>
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig>
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
-  instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
   capabilities?: AgentCapabilitiesList<TRuntimeConfig>
+  modelExecution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
   model?: AgentModelResolver<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
   title?: string
@@ -418,12 +457,12 @@ type AgentSettingsBase<
 export type AgentSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> = AgentSettingsBase<TRuntimeConfig> & (
+> = AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS> & (
   | {
     run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
   | {
-    model: NonNullable<AgentSettingsBase<TRuntimeConfig>["model"]>
+    model: NonNullable<AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS>["model"]>
     run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
 )

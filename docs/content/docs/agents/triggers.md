@@ -7,7 +7,7 @@ icon: i-lucide-route
 
 An Agent Trigger is server-side behavior that starts an Agent Invocation for a specific event.
 
-Triggers are not model adapters. They are not chat platform adapters. They prepare input, context, and run state, then start the Agent.
+Triggers do not configure model execution. They are not chat platform adapters. They prepare input, context, and run state, then start the Agent.
 
 ## Route trigger
 

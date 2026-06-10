@@ -227,8 +227,43 @@ describe("agent public types", () => {
 
     defineAgent({
       model: {} as never,
-      // @ts-expect-error adapter settings belong under adapterOptions
+      // @ts-expect-error model call settings belong under modelExecution.callSettings
       temperature: 0.2,
+    })
+
+    defineAgent({
+      model: {} as never,
+      // @ts-expect-error adapterOptions was removed; use modelExecution
+      adapterOptions: {
+        temperature: 0.2,
+      },
+    })
+
+    defineAgent({
+      model: {} as never,
+      modelExecution: {
+        callSettings: {
+          temperature: 0.2,
+        },
+        instrumentation: {
+          callSettings({ callSettings, input }) {
+            expectTypeOf(callSettings).toEqualTypeOf<Readonly<Record<string, unknown>>>()
+            expectTypeOf(input.messages).toEqualTypeOf<AgentRunInput["messages"]>()
+            return {
+              temperature: callSettings.temperature,
+            }
+          },
+          model({ model }) {
+            expectTypeOf(model).toEqualTypeOf<unknown>()
+            return model
+          },
+        },
+        stepLimit: 3,
+        workspaceFallback: {
+          enabled: true,
+          maxToolResults: 2,
+        },
+      },
     })
 
     inputCommands({

@@ -319,7 +319,11 @@ describe("agent test runner", () => {
 
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
-      instrumentModel: agentInstrumentation,
+      modelExecution: {
+        instrumentation: {
+          model: agentInstrumentation,
+        },
+      },
       model: baseModel as never,
     }), {
       instrumentModel: testInstrumentation,

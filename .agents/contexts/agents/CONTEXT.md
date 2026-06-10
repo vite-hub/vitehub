@@ -9,16 +9,16 @@ A named server-side actor that receives inputs, runs model-backed behavior, and 
 _Avoid_: Bot, chat definition, workflow
 
 **Agent Definition**:
-The code declaration that names an Agent and configures its model, model adapter, workspace, instructions, and Capabilities.
+The code declaration that names an Agent and configures its model, model execution, workspace, instructions, and Capabilities.
 _Avoid_: Chat definition, server route
 
-**Agent Model Adapter**:
-The selected integration layer that turns an Agent Definition's model configuration into model execution.
-_Avoid_: LLM provider, provider
+**Agent Model Execution**:
+The Agent Definition boundary for model call settings, step limits, workspace fallback behavior, and model execution instrumentation.
+_Avoid_: Adapter options, provider options, passthrough
 
-**Agent Adapter Options**:
-Adapter-owned model execution settings passed through the selected Agent Model Adapter.
-_Avoid_: Top-level Agent Definition fields, passthrough, provider options
+**Agent Model Execution Instrumentation**:
+Invocation-scoped hooks that wrap the resolved model or adjust model call settings before an Agent Invocation calls the model.
+_Avoid_: Agent Invocation Lifecycle hooks, adapter middleware, provider wrapper
 
 **Agent Invocation**:
 One runtime request to an Agent.
@@ -108,14 +108,15 @@ _Avoid_: Fake agent, dummy model, test bot
 
 - An **Agent Definition** declares one **Agent**.
 - An **Agent Definition** uses the AI SDK model execution path when it uses a model.
-- **Agent Adapter Options** are legacy multi-adapter language and should be removed with the adapter selector.
+- **Agent Model Execution** belongs to the Agent Definition and is not an adapter boundary.
+- **Agent Model Execution Instrumentation** is lower-level Agent execution behavior and should not become root Agent Definition fields.
 - An **Agent** receives zero or more **Agent Invocations**.
 - An **Agent Trigger** starts one or more **Agent Invocations**.
 - An **Agent Trigger** prepares **Agent Run State** and **Chat History** when the product event needs them.
 - An **Agent Trigger** may provide message-shaped input, but message-shaped input is not required for every Agent Trigger.
 - An **Agent Trigger** may pass host or client intent with the Agent Invocation, but it does not grant Capabilities dynamically.
 - An **Agent Trigger** is registered by a Capability when the trigger belongs to a Capability-owned product ability.
-- An **Agent Trigger** is not an **Agent Model Adapter**.
+- An **Agent Trigger** is not **Agent Model Execution**.
 - An **Agent Trigger** is not a **Chat Platform Adapter**; Chat Platform Adapters receive platform events, while Agent Triggers start Agent Invocations.
 - An **Agent Invocation** follows one **Agent Invocation Lifecycle**.
 - An **Agent Finish Hook** belongs to the **Agent Invocation Lifecycle**.
@@ -174,6 +175,7 @@ _Avoid_: Fake agent, dummy model, test bot
 
 - Raw tools were considered as top-level Agent Definition fields - resolved: tools are contributed by Capabilities.
 - Multi-adapter support was considered part of Agent Definition shape - resolved: remove the adapter selector and make AI SDK the only model execution path for now.
+- Adapter-owned options were considered the home for model execution settings - resolved: use **Agent Model Execution** and do not reintroduce public adapter-boundary language.
 - Evalite-backed checks were considered generic tests - resolved: use **Agent Eval** when the check runs an Agent Definition and scores Agent Invocation output.
 - Chat runtime state was considered a public Chat option - resolved: use **Agent Run State** for Agent-owned runtime state.
 - Chat History and Agent Memory were considered interchangeable - resolved: Chat History is conversation-scoped message history; Agent Memory is durable knowledge or preferences across invocations.
