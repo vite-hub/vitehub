@@ -37,6 +37,7 @@
     "./messages": "./dist/messages.js",
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
     "./runtime/workflow": "./dist/runtime/workflow.js",
+    "./server": "./dist/server.js",
     "./state/sqlite": "./dist/state/sqlite.js",
     "./test": "./dist/test.js",
     "./vercel": "./dist/vercel.js",

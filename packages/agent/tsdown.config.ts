@@ -24,6 +24,7 @@ export default defineConfig({
     "src/cloudflare/state.ts",
     "src/runtime/empty-registry.ts",
     "src/runtime/workflow.ts",
+    "src/server.ts",
     "src/test.ts",
     "src/vercel.ts",
     "src/vite.ts",
