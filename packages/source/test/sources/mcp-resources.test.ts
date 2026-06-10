@@ -8,7 +8,7 @@ function createClient(): McpResourcesClient {
   return {
     serverInfo: { name: "Nuxt", version: "test" },
     async listResources(options) {
-      if (!options?.params?.cursor) {
+      if (!options?.cursor) {
         return {
           nextCursor: "next",
           resources: [{
@@ -81,24 +81,44 @@ describe("source.mcpResources", () => {
 
   it("closes owned MCP clients created from config", async () => {
     const close = vi.fn()
-    vi.doMock("@ai-sdk/mcp", () => ({
-      createMCPClient: vi.fn(async () => ({
-        close,
-        async listResources() {
-          return {
-            resources: [{
-              mimeType: "text/plain",
-              name: "resource.txt",
-              uri: "file:///mock/resource.txt",
-            }],
-          }
-        },
-        async readResource() {
-          return {
-            contents: [{ text: "hello", uri: "file:///mock/resource.txt" }],
-          }
-        },
-      })),
+    const connect = vi.fn()
+    const transport = {
+      close: vi.fn(),
+      send: vi.fn(),
+      start: vi.fn(),
+    }
+    vi.doMock("@modelcontextprotocol/sdk/client/index.js", () => ({
+      Client: vi.fn(function () {
+        return {
+          close,
+          connect,
+          getServerVersion: () => ({ name: "mock", version: "test" }),
+          async listResources() {
+            return {
+              resources: [{
+                mimeType: "text/plain",
+                name: "resource.txt",
+                uri: "file:///mock/resource.txt",
+              }],
+            }
+          },
+          async readResource() {
+            return {
+              contents: [{ text: "hello", uri: "file:///mock/resource.txt" }],
+            }
+          },
+        }
+      }),
+    }))
+    vi.doMock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
+      StreamableHTTPClientTransport: vi.fn(function () {
+        return transport
+      }),
+    }))
+    vi.doMock("@modelcontextprotocol/sdk/client/sse.js", () => ({
+      SSEClientTransport: vi.fn(function () {
+        return transport
+      }),
     }))
     vi.resetModules()
     const { mcpResources } = await import("../../src/sources/mcp-resources.ts")
@@ -107,8 +127,11 @@ describe("source.mcpResources", () => {
     await expect(source.getItem("mock/resource.txt", { rootDir: "/tmp" })).resolves.toMatchObject({
       content: "hello",
     })
+    expect(connect).toHaveBeenCalledWith(transport)
     expect(close).toHaveBeenCalledTimes(1)
-    vi.doUnmock("@ai-sdk/mcp")
+    vi.doUnmock("@modelcontextprotocol/sdk/client/index.js")
+    vi.doUnmock("@modelcontextprotocol/sdk/client/streamableHttp.js")
+    vi.doUnmock("@modelcontextprotocol/sdk/client/sse.js")
     vi.resetModules()
   })
 })

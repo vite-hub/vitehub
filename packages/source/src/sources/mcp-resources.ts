@@ -2,51 +2,34 @@ import { SourceError } from "../core/errors.ts"
 import { matchesAny, normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
 
 import type { Source, SourceCacheOptions, SourceContent, SourceContext } from "../core/types.ts"
+import type { Client as SdkMcpClient } from "@modelcontextprotocol/sdk/client/index.js"
+import type { SSEClientTransportOptions } from "@modelcontextprotocol/sdk/client/sse.js"
+import type { StreamableHTTPClientTransportOptions } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
+import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js"
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
+import type { BlobResourceContents, Resource, TextResourceContents } from "@modelcontextprotocol/sdk/types.js"
 
-export interface McpResourcesRequestOptions {
-  maxTotalTimeout?: number
-  signal?: AbortSignal
-  timeout?: number
-}
+export type McpResourcesRequestOptions = RequestOptions
 
-export interface McpResourceDescriptor {
-  uri: string
-  name: string
-  title?: string
-  description?: string
-  mimeType?: string
-  size?: number
-}
+export type McpResourceDescriptor = Resource
 
-export interface McpResourceContent {
-  uri: string
-  name?: string
-  title?: string
-  mimeType?: string
-  text?: string
-  blob?: string
-}
+export type McpResourceContent = TextResourceContents | BlobResourceContents
 
 export interface McpResourcesClient {
   close?: () => void | Promise<void>
-  listResources: (options?: {
-    params?: { cursor?: string }
-    options?: McpResourcesRequestOptions
-  }) => Promise<{
-    nextCursor?: string
-    resources: McpResourceDescriptor[]
-  }>
-  readResource: (args: {
-    options?: McpResourcesRequestOptions
-    uri: string
-  }) => Promise<{
-    contents: McpResourceContent[]
-  }>
+  getServerVersion?: SdkMcpClient["getServerVersion"]
+  listResources: SdkMcpClient["listResources"]
+  readResource: SdkMcpClient["readResource"]
   serverInfo?: unknown
 }
 
+export type McpResourcesTransportConfig =
+  | Transport
+  | ({ type?: "http", url: string | URL } & StreamableHTTPClientTransportOptions)
+  | ({ type: "sse", url: string | URL } & SSEClientTransportOptions)
+
 export interface McpResourcesClientConfig {
-  transport: unknown
+  transport: McpResourcesTransportConfig
 }
 
 export type McpResourcesServer =
@@ -82,12 +65,36 @@ function isMcpResourcesClientConfig(value: unknown): value is McpResourcesClient
     && "transport" in value
 }
 
-async function createMcpClient(config: McpResourcesClientConfig): Promise<McpResourcesClient> {
-  const specifier = ["@ai-sdk", "mcp"].join("/")
-  const runtime = await import(specifier) as {
-    createMCPClient: (config: unknown) => Promise<McpResourcesClient>
+function isMcpTransport(value: unknown): value is Transport {
+  return typeof value === "object"
+    && value !== null
+    && typeof (value as { close?: unknown }).close === "function"
+    && typeof (value as { send?: unknown }).send === "function"
+    && typeof (value as { start?: unknown }).start === "function"
+}
+
+async function createMcpTransport(config: McpResourcesTransportConfig): Promise<Transport> {
+  if (isMcpTransport(config)) return config
+  const { type = "http", url, ...options } = config
+  if (type === "sse") {
+    const { SSEClientTransport } = await import("@modelcontextprotocol/sdk/client/sse.js")
+    return new SSEClientTransport(new URL(url), options)
   }
-  return await runtime.createMCPClient(config as never)
+  const { StreamableHTTPClientTransport } = await import("@modelcontextprotocol/sdk/client/streamableHttp.js")
+  return new StreamableHTTPClientTransport(new URL(url), options)
+}
+
+async function createMcpClient(config: McpResourcesClientConfig): Promise<McpResourcesClient> {
+  const [{ Client }, transport] = await Promise.all([
+    import("@modelcontextprotocol/sdk/client/index.js"),
+    createMcpTransport(config.transport),
+  ])
+  const client = new Client({
+    name: "vitehub-source",
+    version: "0.0.1",
+  })
+  await client.connect(transport)
+  return client
 }
 
 async function resolveMcpClient(server: McpResourcesServer, ctx: SourceContext) {
@@ -181,21 +188,19 @@ async function listAllResources(client: McpResourcesClient, request: McpResource
   const resources: McpResourceDescriptor[] = []
   let cursor: string | undefined
   do {
-    const page = await client.listResources({
-      ...(cursor ? { params: { cursor } } : {}),
-      ...(request ? { options: request } : {}),
-    })
+    const page = await client.listResources(cursor ? { cursor } : undefined, request)
     resources.push(...page.resources)
     cursor = page.nextCursor
   } while (cursor)
   return resources
 }
 
-function readResourceInput(resource: McpResourceDescriptor, request: McpResourcesRequestOptions | undefined) {
-  return {
-    uri: resource.uri,
-    ...(request ? { options: request } : {}),
-  }
+async function readResourceContents(
+  client: McpResourcesClient,
+  resource: McpResourceDescriptor,
+  request: McpResourcesRequestOptions | undefined,
+) {
+  return (await client.readResource({ uri: resource.uri }, request)).contents
 }
 
 async function createEntries<TKey extends string>(
@@ -209,7 +214,7 @@ async function createEntries<TKey extends string>(
     let contents: McpResourceContent[] | undefined
     let resolvedResource = resource
     if (client && resourcePathNeedsContentMimeType(resource, options)) {
-      contents = (await client.readResource(readResourceInput(resource, options.request))).contents
+      contents = await readResourceContents(client, resource, options.request)
       resolvedResource = resourceWithContentMimeType(resource, contents)
     }
     const key = resourceKey(resolvedResource, options)
@@ -235,8 +240,8 @@ function decodeBase64(value: string) {
 }
 
 function contentToSourceContent(content: McpResourceContent): SourceContent {
-  if (typeof content.text === "string") return content.text
-  if (typeof content.blob === "string") return decodeBase64(content.blob)
+  if ("text" in content && typeof content.text === "string") return content.text
+  if ("blob" in content && typeof content.blob === "string") return decodeBase64(content.blob)
   return ""
 }
 
@@ -281,7 +286,7 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
     return await withMcpClient(options.server, ctx, async (client) => {
       const entries = await createEntries(await listAllResources(client, options.request), options, client)
       return await Promise.all(entries.map(async ({ contents, key, resource }) => {
-        const result = contents ?? (await client.readResource(readResourceInput(resource, options.request))).contents
+        const result = contents ?? await readResourceContents(client, resource, options.request)
         return createResourceItem(key, resource, result)
       }))
     })
@@ -323,7 +328,7 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
         if (!entry) {
           throw new SourceError(`[vitehub] source.mcpResources could not find ${JSON.stringify(key)}.`)
         }
-        const result = entry.contents ?? (await client.readResource(readResourceInput(entry.resource, options.request))).contents
+        const result = entry.contents ?? await readResourceContents(client, entry.resource, options.request)
         return createResourceItem(key, entry.resource, result)
       })
     },

@@ -87,7 +87,6 @@ ignoreDependencies = [
   "chat-state-cloudflare-do",
   "agents",
   "ai",
-  "@ai-sdk/mcp",
   "publint",
   "@iconify-json/lucide",
   "@iconify-json/simple-icons",

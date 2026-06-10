@@ -50,15 +50,15 @@
     "tinyglobby": "catalog:workspace"
   },
   "peerDependencies": {
-    "@ai-sdk/mcp": "catalog:ai"
+    "@modelcontextprotocol/sdk": "catalog:ai"
   },
   "peerDependenciesMeta": {
-    "@ai-sdk/mcp": {
+    "@modelcontextprotocol/sdk": {
       "optional": true
     }
   },
   "devDependencies": {
-    "@ai-sdk/mcp": "catalog:ai",
+    "@modelcontextprotocol/sdk": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@types/picomatch": "catalog:tooling",
     "publint": "catalog:tooling",

@@ -9,6 +9,9 @@ catalogs:
     '@ai-sdk/mcp':
       specifier: ^1.0.36
       version: 1.0.36
+    '@modelcontextprotocol/sdk':
+      specifier: ^1.29.0
+      version: 1.29.0
     agents:
       specifier: ^0.12.3
       version: 0.12.3
@@ -971,9 +974,9 @@ importers:
         specifier: catalog:workspace
         version: 0.2.16
     devDependencies:
-      '@ai-sdk/mcp':
+      '@modelcontextprotocol/sdk':
         specifier: catalog:ai
-        version: 1.0.36(zod@4.4.3)
+        version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
       '@types/node':
         specifier: catalog:tooling
         version: 25.6.0
