@@ -1,12 +1,12 @@
 import { mkdir, writeFile } from "node:fs/promises"
-import { resolve } from "node:path"
+import { builtinModules } from "node:module"
+import { dirname, relative, resolve } from "node:path"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { createDefaultCloudflareOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { VITEHUB_MODES, getViteMode } from "@vite-hub/internal/build/mode"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
-import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 
 import { normalizeWorkflowOptions } from "../config.ts"
 import { discoverWorkflowDefinitions } from "../discovery.ts"
@@ -21,6 +21,8 @@ const productName = "workflow"
 const generatedRegistryFileName = "registry.mjs"
 const packageDir = computePackageDir(import.meta.url)
 const resolveRuntimeModule = (modulePath: string) => resolveRuntimeFromPkg(packageDir, modulePath)
+const nodeBuiltinExternals = [...new Set(["node:*", ...builtinModules, ...builtinModules.map(module => `node:${module}`)])]
+const optionalAgentRuntimeExternals = ["@vite-hub/workspace", "@vite-hub/workspace/*"]
 const WORKFLOW_ENTRY_BASE_NAMES = ["server.ts", "server.mts", "server.js", "server.mjs", "worker.ts", "worker.mts", "worker.js", "worker.mjs"] as const
 const WORKFLOW_PRIORITY_NAMES = ["server-workflow.ts", "server-workflow.mts", "server-workflow.js", "server-workflow.mjs"] as const
 
@@ -72,6 +74,93 @@ interface CloudflareWorkflowConfig {
   name?: string
   observability: { enabled: true }
   workflows?: Array<{ binding: string, class_name: string, name: string }>
+}
+
+function renderRegistryImport(registryFile: string, file: string): string {
+  return `import(${JSON.stringify(createImportPath(registryFile, file))})`
+}
+
+function renderAgentWorkflowRegistryEntry(registryFile: string, definition: DiscoveredWorkflowDefinition) {
+  return [
+    `  ${JSON.stringify(definition.name)}: async () => {`,
+    `    const cached = registryEntryCache.get(${JSON.stringify(definition.name)})`,
+    "    if (cached) return cached",
+    `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
+    "    const agent = \"default\" in loaded ? loaded.default : loaded",
+    "    const entry = { handler: async (context) => await runAgentWorkflowDefinition(agent, context) }",
+    `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
+    "    return entry",
+    "  },",
+  ].join("\n")
+}
+
+function renderWorkflowRegistryEntry(registryFile: string, definition: DiscoveredWorkflowDefinition) {
+  if (definition.source === "agent-workflow") {
+    return renderAgentWorkflowRegistryEntry(registryFile, definition)
+  }
+
+  if (!definition.steps?.length) {
+    return `  ${JSON.stringify(definition.name)}: async () => ${renderRegistryImport(registryFile, definition.handler)},`
+  }
+
+  const workflowDirectory = /\.(?:c|m)?[jt]s$/i.test(definition.handler) ? dirname(definition.handler) : definition.handler
+  const stepImports = definition.steps.map((step) => {
+    const stepName = relative(workflowDirectory, step)
+    return `{ name: ${JSON.stringify(stepName)}, run: (await ${renderRegistryImport(registryFile, step)}).default }`
+  })
+
+  const hasIndex = /\.(?:c|m)?[jt]s$/i.test(definition.handler)
+  const indexImport = hasIndex ? `const index = await ${renderRegistryImport(registryFile, definition.handler)}` : ""
+  const handler = hasIndex
+    ? `index.default?.handler ? index.default : takeInlineWorkflowDefinitionForModule(${JSON.stringify(definition.name)}, index) || { handler: index.default }`
+    : "{ handler: async (context) => { let value = context.payload; for (const step of Object.values(context.steps || {})) value = await step(value); return value } }"
+
+  return [
+    `  ${JSON.stringify(definition.name)}: async () => {`,
+    `    const cached = registryEntryCache.get(${JSON.stringify(definition.name)})`,
+    "    if (cached) return cached",
+    indexImport ? `    ${indexImport}` : "",
+    `    const steps = [${stepImports.join(", ")}]`,
+    `    const definition = ${handler}`,
+    "    const entry = {",
+    "      ...definition,",
+    "      options: { ...definition.options, rootStep: false },",
+    "      handler: async (context) => {",
+    "        const workflowSteps = createWorkflowSteps(context, steps)",
+    "        return await definition.handler({ ...context, steps: workflowSteps })",
+    "      },",
+    "    }",
+    `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
+    "    return entry",
+    "  },",
+  ].filter(Boolean).join("\n")
+}
+
+function createWorkflowRegistryContents(registryFile: string, definitions: DiscoveredWorkflowDefinition[]): string {
+  const needsWorkflowRuntime = definitions.some(definition => definition.steps?.length)
+  const needsAgentRuntime = definitions.some(definition => definition.source === "agent-workflow")
+  const needsRegistryEntryCache = needsWorkflowRuntime || needsAgentRuntime
+  const imports = [
+    ...(needsAgentRuntime ? [`import { runAgentWorkflowDefinition } from "@vite-hub/agent/runtime/workflow"`] : []),
+    ...(needsWorkflowRuntime
+      ? [
+          `import { createWorkflowSteps } from "@vite-hub/workflow/runtime/execute"`,
+          `import { takeInlineWorkflowDefinitionForModule } from "@vite-hub/workflow/runtime/state"`,
+        ]
+      : []),
+  ]
+
+  return [
+    ...imports,
+    imports.length ? "" : "",
+    ...(needsRegistryEntryCache ? ["const registryEntryCache = new Map()", ""] : []),
+    "const registry = {",
+    ...definitions.map(definition => renderWorkflowRegistryEntry(registryFile, definition)),
+    "}",
+    "",
+    "export default registry",
+    "",
+  ].join("\n")
 }
 
 function renderCloudflareWorkerWrapper(definitions: DiscoveredWorkflowDefinition[]) {
@@ -153,7 +242,7 @@ async function writeProviderEntries(rootDir: string, workflow: WorkflowModuleOpt
   const userAppEntry = resolveWorkflowUserAppEntry(rootDir)
   const cloudflareWorkflowConfig = resolveWorkflowConfig(workflow, "cloudflare")
 
-  await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
+  await writeFile(registryFile, createWorkflowRegistryContents(registryFile, definitions), "utf8")
 
   const entryFiles: Record<WorkflowProvider, string> = { cloudflare: "", openworkflow: "", vercel: "" }
   await Promise.all(providerEntrySpecs.map(async (spec) => {
@@ -202,8 +291,9 @@ function createCloudflareOutput(rootDir: string, artifacts: GeneratedWorkflowArt
         "@vercel/functions",
         "@vercel/queue",
         "@vercel/sandbox",
+        ...optionalAgentRuntimeExternals,
         "cloudflare:workers",
-        "node:async_hooks",
+        ...nodeBuiltinExternals,
         "workflow",
         "workflow/api",
         "workflow/runtime",
@@ -231,7 +321,7 @@ function createVercelOutput(artifacts: GeneratedWorkflowArtifacts): VercelProvid
   return {
     bundleEntry: artifacts.vercelServerFile,
     bundleOptions: {
-      external: ["@cloudflare/sandbox", "cloudflare:workers", "workflow", "workflow/api", "workflow/runtime"],
+      external: ["@cloudflare/sandbox", ...optionalAgentRuntimeExternals, "cloudflare:workers", ...nodeBuiltinExternals, "workflow", "workflow/api", "workflow/runtime"],
       format: "esm",
       platform: "node",
     },

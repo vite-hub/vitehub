@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from "node:fs"
+import { readFileSync, readdirSync, statSync } from "node:fs"
 import { relative } from "node:path"
 
 import { normalize, resolve } from "pathe"
@@ -18,12 +18,20 @@ import {
 import type { DiscoveredWorkflowDefinition } from "./types.ts"
 
 const workflowSuffixPattern = /\.workflow\.(?:c|m)?[jt]s$/i
+const agentSuffixPattern = /\.agent\.(?:c|m)?[jt]s$/i
 const sourceFilePattern = /\.(?:c|m)?[jt]s$/i
 const declarationFilePattern = /\.d\.(?:c|m)?[jt]s$/i
 const stepFilePattern = /^\d+[.-].*\.(?:c|m)?[jt]s$/i
+const agentConfigFilePattern = /^config\.(?:c|m)?[jt]s$/i
+const agentEvalFilePattern = /\.eval\.(?:c|m)?[jt]s$/i
 
 function normalizeSuffixWorkflowName(rootDir: string, file: string) {
   return normalizeSuffixDefinitionName(rootDir, file, workflowSuffixPattern, { stripPrefix: "src/" })
+}
+
+function normalizeSuffixAgentName(rootDir: string, file: string) {
+  const name = normalizeSuffixDefinitionName(rootDir, file, agentSuffixPattern, { stripPrefix: "src/" })
+  return name.startsWith("server/") ? undefined : name
 }
 
 function readDirEntries(root: string) {
@@ -40,6 +48,23 @@ function readDirEntries(root: string) {
 
 function isSourceFile(file: string) {
   return sourceFilePattern.test(file) && !declarationFilePattern.test(file)
+}
+
+function stripSourceComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1")
+}
+
+function extractAgentWorkflowName(file: string, fallbackName: string): string | undefined {
+  const source = stripSourceComments(readFileSync(file, "utf8"))
+  const match = /\bruntime\s*:\s*workflow\s*\(([^)]*)\)/m.exec(source)
+  if (!match) return undefined
+  const literal = /^\s*(["'`])([^"'`]+)\1\s*$/.exec(match[1] || "")
+  return literal?.[2] || fallbackName
+}
+
+function toAgentWorkflowDefinition(file: string, fallbackName: string): DiscoveredWorkflowDefinition | undefined {
+  const name = extractAgentWorkflowName(file, fallbackName)
+  return name ? { handler: file, name, source: "agent-workflow" } : undefined
 }
 
 function isWorkflowFolder(directory: string) {
@@ -63,6 +88,90 @@ function findWorkflowFolders(workflowsDir: string): string[] {
   }
 
   return folders.sort()
+}
+
+function hasConfigAgentDefinition(directory: string): boolean {
+  return readDirEntries(directory).some(entry => entry.isFile() && agentConfigFilePattern.test(entry.name) && isSourceFile(entry.name))
+}
+
+function findAgentConfigFiles(agentsDir: string): string[] {
+  const files: string[] = []
+  for (const entry of readDirEntries(agentsDir)) {
+    if (entry.name.startsWith(".")) {
+      continue
+    }
+    const absolute = resolve(agentsDir, entry.name)
+    if (entry.isDirectory() && !entry.isSymbolicLink()) {
+      files.push(...findAgentConfigFiles(absolute))
+      continue
+    }
+    if (entry.isFile() && agentConfigFilePattern.test(entry.name) && isSourceFile(entry.name)) {
+      files.push(absolute)
+    }
+  }
+  return files.sort()
+}
+
+function discoverSuffixAgentWorkflowDefinitions(roots: string[]): DiscoveredWorkflowDefinition[] {
+  return discoverDefinitions("agent workflow", [
+    createSuffixDefinitionSource<DiscoveredWorkflowDefinition>("agent-workflow", roots, agentSuffixPattern, normalizeSuffixAgentName, {
+      createDefinition: ({ file, name }) => ({ handler: file, name, source: "agent-workflow" }),
+    }),
+  ]).flatMap((definition) => {
+    const workflowDefinition = toAgentWorkflowDefinition(definition.handler, definition.name)
+    return workflowDefinition ? [workflowDefinition] : []
+  })
+}
+
+function discoverFlatServerAgentWorkflowDefinitions(scanDirs: string[]): DiscoveredWorkflowDefinition[] {
+  return discoverDefinitions("agent workflow", [
+    createDirectoryDefinitionSource<DiscoveredWorkflowDefinition>("agent-workflow", scanDirs, "agents", {
+      normalizeName(directory, file) {
+        const fileName = normalize(file).split("/").pop()!
+        if (agentConfigFilePattern.test(fileName) || agentEvalFilePattern.test(fileName)) {
+          return undefined
+        }
+        const parent = normalize(resolve(file, ".."))
+        if (parent !== normalize(directory) && hasConfigAgentDefinition(parent)) {
+          return undefined
+        }
+        return normalizePathDefinitionName(directory, file)
+      },
+      createDefinition: ({ file, name }) => ({ handler: file, name, source: "agent-workflow" }),
+    }),
+  ]).flatMap((definition) => {
+    const workflowDefinition = toAgentWorkflowDefinition(definition.handler, definition.name)
+    return workflowDefinition ? [workflowDefinition] : []
+  })
+}
+
+function discoverConfiguredServerAgentWorkflowDefinitions(scanDirs: string[]): DiscoveredWorkflowDefinition[] {
+  const definitions = new Map<string, DiscoveredWorkflowDefinition>()
+
+  for (const scanDir of scanDirs) {
+    const agentsDir = resolve(scanDir, "agents")
+    for (const file of findAgentConfigFiles(agentsDir)) {
+      const name = normalize(relative(agentsDir, resolve(file, "..")))
+      if (!name || name === ".") {
+        continue
+      }
+      const definition = toAgentWorkflowDefinition(file, name)
+      if (definition) {
+        registerDefinition(definitions, definition, "agent workflow")
+      }
+    }
+  }
+
+  return sortDefinitions(definitions)
+}
+
+function discoverAgentWorkflowDefinitions(roots: string[], serverScanDirs: string[]): DiscoveredWorkflowDefinition[] {
+  return mergeDefinitions(
+    "agent workflow",
+    discoverSuffixAgentWorkflowDefinitions(roots),
+    discoverFlatServerAgentWorkflowDefinitions(serverScanDirs),
+    discoverConfiguredServerAgentWorkflowDefinitions(serverScanDirs),
+  )
 }
 
 function discoverWorkflowFolders(scanDirs: string[], source: NonNullable<DiscoveredWorkflowDefinition["source"]>): DiscoveredWorkflowDefinition[] {
@@ -139,5 +248,6 @@ export function discoverWorkflowDefinitions(options:
     ]),
     discoverFlatServerWorkflowDefinitions(serverScanDirs, "server-workflows"),
     folderDefinitions,
+    discoverAgentWorkflowDefinitions(roots, serverScanDirs),
   )
 }
