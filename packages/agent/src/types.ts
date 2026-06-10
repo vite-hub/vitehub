@@ -403,7 +403,7 @@ export interface AgentCallSettingsInstrumentationContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > extends AgentCallbackContext<TRuntimeConfig> {
-  callSettings: Record<string, unknown>
+  callSettings: Readonly<Record<string, unknown>>
   context: AgentInvocationContextStore
   input: AgentRunInput<CALL_OPTIONS>
   model: AgentModelInput

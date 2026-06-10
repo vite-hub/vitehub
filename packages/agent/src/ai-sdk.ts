@@ -546,10 +546,10 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
     tools: _tools,
   } = options
   const stepLimit = options.modelExecution?.stepLimit
-  const baseCallSettings = options.modelExecution?.callSettings || {}
+  const baseCallSettings = { ...(options.modelExecution?.callSettings || {}) }
   const instrumentedCallSettings = await options.modelExecution?.instrumentation?.callSettings?.({
     ...runtime,
-    callSettings: baseCallSettings,
+    callSettings: { ...baseCallSettings },
     context: context.context,
     input: context.input,
     model: instrumentedModel,

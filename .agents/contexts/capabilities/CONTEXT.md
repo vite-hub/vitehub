@@ -258,7 +258,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - A **Web Search Capability** resolves provider secrets through **Web Search Credential Sources**.
 - **Web Search Credential Sources** prefer explicit Secret Env resolvers, then ViteHub-scoped provider env vars, then canonical provider env vars.
 - A **Web Read Result** defaults to normalized Markdown content, with plain text available when requested.
-- **Model Web Search Mode** is adapter-gated; TanStack AI is not supported for model mode in the first version.
+- **Model Web Search Mode** is model-execution-gated; TanStack AI is not supported for model mode in the first version.
 - A tool search provider and **Web Search Mode** are separate axes; provider is only used by tool-based **Web Search Mode**.
 - Chat History is not a standalone **Capability** in the current stack.
 - Agent Memory is a separate Capability concern from the **Chat Capability**.
@@ -317,7 +317,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - `nativeModel` was considered as a provider value - resolved: keep model search as **Web Search Mode**, not a tool search provider.
 - Normalizing **Model Web Search Output** into tool-mode result shapes was considered - resolved: preserve adapter/provider output as much as possible without promising cross-provider normalized search or read data.
 - Snake_case web search input fields were considered - resolved: use camelCase input fields for structured tool arguments.
-- Model-mode support for TanStack AI was considered - resolved: fail early for TanStack AI until ViteHub has an adapter-native provider-tool contribution path.
+- Model-mode support for TanStack AI was considered - resolved: fail early for TanStack AI until ViteHub has a model-execution-native provider-tool contribution path.
 - Model-controlled provider choice, automatic provider choice, and provider fan-out were considered - resolved: provider choice belongs to explicit **Web Search Provider Policy**, and the first version selects one provider only.
 - Requiring the selected search provider to also own URL reading was considered - resolved: search provider policy and **Web Read Provider** are separate in the first version.
 - Model-facing provider reachability was considered - resolved: keep provider reachability developer-facing in the first version.

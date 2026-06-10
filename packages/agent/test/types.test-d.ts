@@ -247,7 +247,7 @@ describe("agent public types", () => {
         },
         instrumentation: {
           callSettings({ callSettings, input }) {
-            expectTypeOf(callSettings).toEqualTypeOf<Record<string, unknown>>()
+            expectTypeOf(callSettings).toEqualTypeOf<Readonly<Record<string, unknown>>>()
             expectTypeOf(input.messages).toEqualTypeOf<AgentRunInput["messages"]>()
             return {
               temperature: callSettings.temperature,

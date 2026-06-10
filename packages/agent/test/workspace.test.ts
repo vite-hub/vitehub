@@ -640,6 +640,38 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)).not.toHaveProperty("modelExecution")
   })
 
+  it("isolates call settings instrumentation from definition-owned settings", async () => {
+    const observedTemperatures: unknown[] = []
+    const instrumentCallSettings = vi.fn(({ callSettings }) => {
+      observedTemperatures.push(callSettings.temperature)
+      ;(callSettings as Record<string, unknown>).temperature = 0.8
+    })
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const settingsStart = agentSettings.length
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      modelExecution: {
+        callSettings: {
+          temperature: 0.2,
+        },
+        instrumentation: {
+          callSettings: instrumentCallSettings,
+        },
+      },
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+    await agent.run!(context())
+
+    expect(observedTemperatures).toEqual([0.2, 0.2])
+    expect(agentSettings.slice(settingsStart)).toEqual([
+      expect.objectContaining({ temperature: 0.2 }),
+      expect.objectContaining({ temperature: 0.2 }),
+    ])
+  })
+
   it("passes runtime context to run-aware step and tool callbacks", async () => {
     const onStepFinish = vi.fn()
     const onRunStepFinish = vi.fn()
