@@ -36,7 +36,6 @@ async function createPlaygroundCopy(prefix: string) {
   await cp(join(playgroundDir, "build"), join(rootDir, "build"), { recursive: true })
   await cp(join(playgroundDir, "package.json"), join(rootDir, "package.json"))
   await cp(join(playgroundDir, "vite.config.ts"), join(rootDir, "vite.config.ts"))
-  await cp(join(playgroundDir, "nitro.config.ts"), join(rootDir, "nitro.config.ts"))
   await cp(join(playgroundDir, "src"), join(rootDir, "src"), { recursive: true })
   await cp(join(playgroundDir, "server"), join(rootDir, "server"), { recursive: true })
   await symlink(nodeModules, join(rootDir, "node_modules"), "dir")

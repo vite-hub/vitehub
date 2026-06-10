@@ -4,9 +4,9 @@ import { createUnimport, type Import, type ScanDir } from 'unimport'
 
 import { bundleDiscoveredDefinitionModule } from './discovered-definition/bundler'
 import { injectTypeImportsFromUnimport } from './discovered-definition/ast'
-import { isNitroAutoImportEnabled } from './server-imports'
+import { isServerAutoImportEnabled } from './server-imports'
 
-import type { NitroImportsOptions } from './server-imports'
+import type { ServerImportsOptions } from './server-imports'
 import type { ServerImport } from './runtime-artifacts'
 import type { DiscoveredDefinitionBundleOptions } from './discovered-definition/bundler'
 
@@ -16,7 +16,7 @@ export { bundleDiscoveredDefinitionModule, bundleDiscoveredDefinitionModuleGraph
 export interface DiscoveredDefinitionCompilerOptions {
   rootDir: string
   scanRoots: string[]
-  nitroImports?: NitroImportsOptions
+  serverImports?: ServerImportsOptions
   featureImports?: ServerImport[]
 }
 
@@ -119,14 +119,14 @@ function normalizePresetImports(presets: unknown[] = []): Import[] {
 }
 
 async function createInitializedUnimport(options: DiscoveredDefinitionCompilerOptions) {
-  const nitroImports = options.nitroImports !== false ? options.nitroImports : undefined
+  const serverImports = options.serverImports !== false ? options.serverImports : undefined
   const imports = [
-    ...normalizePresetImports(nitroImports?.presets),
+    ...normalizePresetImports(serverImports?.presets),
     ...(options.featureImports || []).map(normalizeServerImport),
   ]
   const dirs = [
     ...resolveDefaultImportDirs(options.rootDir, options.scanRoots),
-    ...((nitroImports?.dirs || []).map(dir => normalizeDir(options.rootDir, dir))),
+    ...((serverImports?.dirs || []).map(dir => normalizeDir(options.rootDir, dir))),
   ]
 
   const unimport = createUnimport({
@@ -143,11 +143,11 @@ export async function createDiscoveredDefinitionCompiler(
   const resolvedOptions: DiscoveredDefinitionCompilerOptions = {
     rootDir: options.rootDir || process.cwd(),
     scanRoots: options.scanRoots || [],
-    nitroImports: options.nitroImports,
+    serverImports: options.serverImports,
     featureImports: options.featureImports || [],
   }
 
-  if (!isNitroAutoImportEnabled(resolvedOptions.nitroImports)) {
+  if (!isServerAutoImportEnabled(resolvedOptions.serverImports)) {
     return {
       enabled: false,
       async injectSource(source) {

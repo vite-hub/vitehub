@@ -25,6 +25,7 @@
   "exports": {
     ".": "./dist/index.js",
     "./cli": "./dist/cli.js",
+    "./config": "./dist/config.js",
     "./drizzle": "./dist/drizzle.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",
@@ -45,15 +46,15 @@
     "test:e2e": "tsx ./test/e2e.ts"
   },
   "dependencies": {
-    "@libsql/client": "catalog:",
-    "esbuild": "catalog:",
-    "h3": "catalog:",
-    "pathe": "catalog:"
+    "@libsql/client": "catalog:database",
+    "esbuild": "catalog:tooling",
+    "h3": "catalog:unjs",
+    "pathe": "catalog:unjs"
   },
   "peerDependencies": {
-    "drizzle-kit": "catalog:",
-    "drizzle-orm": "catalog:",
-    "vite": ">=6.0.0"
+    "drizzle-kit": "catalog:database",
+    "drizzle-orm": "catalog:database",
+    "vite": "catalog:vite6-compat"
   },
   "peerDependenciesMeta": {
     "vite": {
@@ -62,12 +63,12 @@
   },
   "devDependencies": {
     "@vite-hub/internal": "workspace:*",
-    "drizzle-orm": "catalog:",
-    "publint": "^0.3.15",
-    "tsdown": "^0.21.8",
-    "tsx": "catalog:",
-    "typescript": "catalog:",
-    "vite": "catalog:",
-    "vitest": "catalog:"
+    "drizzle-orm": "catalog:database",
+    "publint": "catalog:tooling",
+    "tsdown": "catalog:tooling",
+    "tsx": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vitest": "catalog:tooling"
   }
 }

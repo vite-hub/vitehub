@@ -16,7 +16,6 @@
     "./feature-bridge": "./dist/feature-bridge/feature-engine.js",
     "./feature-bridge/hosting": "./dist/feature-bridge/hosting.js",
     "./integrations/hex": "./dist/integrations/hex.js",
-    "./nitro": "./dist/nitro.js",
     "./object": "./dist/object.js",
     "./source-scanner": "./dist/source-scanner.js",
     "./runtime/app": "./dist/runtime/app.js",
@@ -48,16 +47,16 @@
   },
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
-    "esbuild": "^0.27.7",
-    "exsolve": "catalog:",
-    "h3": "catalog:",
-    "ofetch": "catalog:",
-    "pathe": "catalog:"
+    "esbuild": "catalog:esbuild-v27",
+    "exsolve": "catalog:unjs",
+    "h3": "catalog:unjs",
+    "ofetch": "catalog:unjs",
+    "pathe": "catalog:unjs"
   },
   "devDependencies": {
-    "@types/node": "catalog:",
-    "tsdown": "^0.21.8",
-    "typescript": "catalog:",
-    "vitest": "catalog:"
+    "@types/node": "catalog:tooling",
+    "tsdown": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vitest": "catalog:tooling"
   }
 }

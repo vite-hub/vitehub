@@ -41,13 +41,13 @@
     "test": "pnpm --filter @vite-hub/ci build && vitest run"
   },
   "dependencies": {
-    "ofetch": "catalog:",
-    "ufo": "catalog:"
+    "ofetch": "catalog:unjs",
+    "ufo": "catalog:unjs"
   },
   "devDependencies": {
-    "@types/node": "catalog:",
-    "tsdown": "^0.21.8",
-    "typescript": "catalog:",
-    "vitest": "catalog:"
+    "@types/node": "catalog:tooling",
+    "tsdown": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vitest": "catalog:tooling"
   }
 }

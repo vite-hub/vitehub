@@ -41,7 +41,7 @@ export async function getBlobRuntimeConfig(): Promise<false | ResolvedBlobModule
       const env = typeof process !== "undefined" ? process.env : {}
       const hosting = getActiveCloudflareEnv()
         ? "cloudflare"
-        : readEnv(env, "VITEHUB_HOSTING", "NITRO_PRESET") || (readEnv(env, "BLOB_READ_WRITE_TOKEN") ? "vercel" : undefined)
+        : readEnv(env, "VITEHUB_HOSTING") || (readEnv(env, "BLOB_READ_WRITE_TOKEN") ? "vercel" : undefined)
       return normalizeBlobOptions(undefined, { env, hosting }) || false
     }
   })()

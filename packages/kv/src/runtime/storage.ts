@@ -12,7 +12,7 @@ function inferHosting(env: Record<string, string | undefined>) {
     return "cloudflare"
   }
 
-  const explicit = readEnv(env, "VITEHUB_HOSTING", "NITRO_PRESET")
+  const explicit = readEnv(env, "VITEHUB_HOSTING")
   if (explicit) {
     return explicit
   }
@@ -47,22 +47,6 @@ async function resolveHostedConfig(): Promise<false | ResolvedKVModuleOptions | 
   }
 }
 
-async function assertRuntimeStore(name: string): Promise<void> {
-  if (name === "default") return
-  try {
-    const module = await import("nitro/runtime-config")
-    const runtimeConfig = module.useRuntimeConfig() as { kv?: false | ResolvedKVModuleOptions }
-    const config = runtimeConfig.kv
-    if (config) {
-      const stores = config.stores || { default: config.store }
-      if (!stores[name]) throw new Error(`[vitehub] Unknown KV store "${name}".`)
-    }
-  }
-  catch (error) {
-    if ((error as Error).message.startsWith("[vitehub] Unknown KV store")) throw error
-  }
-}
-
 async function resolveStorage(name = "default") {
   const existing = storagePromises.get(name)
   if (existing) return existing
@@ -76,18 +60,11 @@ async function resolveStorage(name = "default") {
     storagePromises.set(name, promise)
     return promise
   }
-  const storageName = name === "default" ? "kv" : `kv:${name}`
-  const promise = assertRuntimeStore(name).then(() => import("nitro/storage"))
-    .then(module => module.useStorage(storageName) as RuntimeStorage)
-    .catch(async () => {
-      if (name === "default") {
-        const config = await resolveHostedConfig()
-        return createHostedKVStorage(config)
-      }
-
-      const config = await resolveHostedConfig()
-      return createNamedHostedKVStorage(config, name)
-    })
+  const promise = resolveHostedConfig().then(config =>
+    name === "default"
+      ? createHostedKVStorage(config)
+      : createNamedHostedKVStorage(config, name),
+  )
   storagePromises.set(name, promise)
   return promise
 }

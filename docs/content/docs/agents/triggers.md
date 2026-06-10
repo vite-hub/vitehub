@@ -18,7 +18,7 @@ import { runAgent } from '@vite-hub/agent'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  return runAgent(support, { runtime: 'nitro' }, await readBody(event))
+  return runAgent(support, { runtime: 'unknown' }, await readBody(event))
 })
 ```
 
@@ -27,12 +27,18 @@ export default defineEventHandler(async (event) => {
 Some Capabilities own product event behavior. Chat is the clearest example: a chat platform event is adapted into an Agent Invocation through the Chat Capability.
 
 ```ts
-import { chat } from '@vite-hub/agent/capabilities'
+import { chat, entry } from '@vite-hub/agent/capabilities'
+
+const supportChat = chat({
+  history: { maxMessages: 20 },
+})
 
 export default defineAgent({
   capabilities: [
-    chat({
-      history: { maxMessages: 20 },
+    supportChat,
+    entry({
+      id: 'portal',
+      chat: { capability: supportChat, origin: 'portal' },
     }),
   ],
   instructions,

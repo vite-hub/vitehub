@@ -36,11 +36,11 @@ function exportTarget(rawTarget: unknown) {
 }
 
 function packagePublishName(packageName: PackageName) {
-  return packageName === "cli" ? "vite-hub" : `@vite-hub/${packageName}`
+  return `@vite-hub/${packageName}`
 }
 
 function packageShortName(packageName: string) {
-  return packageName === "vite-hub" ? "cli" : packageName.replace("@vite-hub/", "")
+  return packageName.replace("@vite-hub/", "")
 }
 
 function hasExport(packageName: string, specifier: string) {
@@ -223,7 +223,6 @@ describe("runtime hygiene contracts", () => {
 
     const offenders = runtimeFiles
       .filter(path => !toRepoPath(path).endsWith("/empty-registry.ts"))
-      .filter(path => toRepoPath(path) !== "packages/agent/src/runtime/nitro-runtime-config.ts")
       .filter(path => readFileSync(path, "utf8").includes("__vitehub"))
       .map(toRepoPath)
 

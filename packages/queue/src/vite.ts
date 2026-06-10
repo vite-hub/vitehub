@@ -3,13 +3,11 @@ import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment
 import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 
 import { generateProviderOutputs, queuePackageName } from "./internal/vite-build.ts"
-import queueNitroModule from "./nitro/module.ts"
 
 import type { QueueModuleOptions } from "./types.ts"
-import type { NitroModule } from "nitro/types"
 import type { Plugin, ResolvedConfig } from "vite"
 
-export type QueueVitePlugin = Plugin & { nitro: NitroModule }
+export type QueueVitePlugin = Plugin
 
 export { createCloudflareQueueConfig, type CloudflareQueueConfig, type CloudflareQueueConfigOptions } from "./internal/vite-build.ts"
 
@@ -21,7 +19,6 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
 
   return {
     name: "@vite-hub/queue/vite",
-    nitro: queueNitroModule,
     config(config) {
       queue = config.queue ?? queue
     },

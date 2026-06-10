@@ -78,6 +78,7 @@ const splitterStyle = computed(() => ({
 }))
 const thinkingFallback = computed(() => state.value.thinkingFallback || undefined)
 const chatTitleTarget = computed(() => normalizeChatTitle(selectedChat()?.title || state.value.title))
+const agentVersion = computed(() => state.value.version?.trim())
 const recentTools = computed(() => {
   const tools = new Map<string, ChatDevtoolsTool>()
   for (const message of messages.value) {
@@ -906,6 +907,15 @@ onBeforeUnmount(() => {
           <span class="min-w-0 truncate">
             {{ chatTitleTarget }}
           </span>
+          <UBadge
+            v-if="agentVersion"
+            color="neutral"
+            variant="subtle"
+            size="sm"
+            class="ml-2 shrink-0"
+          >
+            v{{ agentVersion }}
+          </UBadge>
         </h1>
         <UButton
           icon="i-lucide-trash-2"
@@ -918,7 +928,7 @@ onBeforeUnmount(() => {
         />
       </header>
 
-      <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_1px_minmax(280px,var(--chat-devtools-sidebar-width))]" :style="splitterStyle">
+      <div class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(220px,40vh)] overflow-hidden lg:grid-cols-[minmax(0,1fr)_1px_minmax(280px,var(--chat-devtools-sidebar-width))] lg:grid-rows-1" :style="splitterStyle">
         <section class="flex min-h-0 flex-col overflow-hidden">
           <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-2">
             <UChatMessages
@@ -1032,6 +1042,20 @@ onBeforeUnmount(() => {
                 title: 'text-xs font-normal leading-5',
               }"
             />
+            <UAlert
+              v-if="error"
+              color="error"
+              variant="soft"
+              icon="i-lucide-triangle-alert"
+              :title="error"
+              class="mb-1"
+              :ui="{
+                root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0',
+                icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80',
+                wrapper: 'min-w-0',
+                title: 'text-xs font-normal leading-5',
+              }"
+            />
             <form
               class="flex min-h-9 items-center gap-1 rounded-md border border-default bg-default px-2 py-1 shadow-xs"
               @submit.prevent="submitComposer"
@@ -1068,7 +1092,7 @@ onBeforeUnmount(() => {
           <span class="block h-full w-px bg-transparent group-hover:bg-primary" />
         </button>
 
-        <aside class="hidden min-h-0 border-l border-default p-2 lg:block">
+        <aside class="min-h-0 border-t border-default p-2 lg:border-l lg:border-t-0">
           <UCard
             variant="subtle"
             class="flex h-full min-h-0 flex-col"

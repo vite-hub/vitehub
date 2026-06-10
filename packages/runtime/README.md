@@ -26,7 +26,7 @@ import {
 } from "@vite-hub/runtime"
 
 const context = createExecutionContext({
-  runtime: "nitro",
+  runtime: "vite",
   memo: (key, create) => create(),
   waitUntil: task => task.catch(() => {}),
   capabilities: {

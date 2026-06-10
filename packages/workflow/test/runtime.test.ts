@@ -1,3 +1,8 @@
+import { existsSync } from "node:fs"
+import { mkdtemp } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { WorkflowProviderStep } from "../src/types.ts"
@@ -13,6 +18,10 @@ const openWorkflowMock = vi.hoisted(() => {
   const runs = new Map<string, any>()
   const definitions = new Map<string, any>()
   const connect = vi.fn(async (_url: string, _options?: unknown) => ({
+    getWorkflowRun: vi.fn(async ({ workflowRunId }: { workflowRunId: string }) => runs.get(workflowRunId) || null),
+    stop: vi.fn(),
+  }))
+  const sqliteConnect = vi.fn((_path: string, _options?: unknown) => ({
     getWorkflowRun: vi.fn(async ({ workflowRunId }: { workflowRunId: string }) => runs.get(workflowRunId) || null),
     stop: vi.fn(),
   }))
@@ -94,6 +103,7 @@ const openWorkflowMock = vi.hoisted(() => {
     OpenWorkflow,
     runOptions,
     runs,
+    sqliteConnect,
   }
 })
 
@@ -107,6 +117,12 @@ vi.mock("openworkflow/postgres", () => ({
   },
 }))
 
+vi.mock("openworkflow/sqlite", () => ({
+  BackendSqlite: {
+    connect: openWorkflowMock.sqliteConnect,
+  },
+}))
+
 beforeEach(async () => {
   resetWorkflowRuntime()
   await resetOpenWorkflowRuntime()
@@ -117,9 +133,13 @@ beforeEach(async () => {
     if (specifier === "openworkflow/postgres") {
       return { BackendPostgres: { connect: openWorkflowMock.connect } } as never
     }
+    if (specifier === "openworkflow/sqlite") {
+      return { BackendSqlite: { connect: openWorkflowMock.sqliteConnect } } as never
+    }
     return await import(specifier) as never
   })
   openWorkflowMock.connect.mockClear()
+  openWorkflowMock.sqliteConnect.mockClear()
   openWorkflowMock.definitions.clear()
   openWorkflowMock.newWorker.mockClear()
   openWorkflowMock.runOptions.length = 0
@@ -129,6 +149,8 @@ beforeEach(async () => {
   delete process.env.OPENWORKFLOW_NAMESPACE_ID
   delete process.env.OPENWORKFLOW_POSTGRES_URL
   delete process.env.OPENWORKFLOW_SCHEMA
+  delete process.env.OPENWORKFLOW_SQLITE_PATH
+  delete process.env.VITEHUB_WORKFLOW_DATABASE_URL
 })
 
 afterEach(() => {
@@ -607,13 +629,97 @@ describe("workflow runtime", () => {
     })
   })
 
-  it("requires a Postgres URL for the OpenWorkflow provider", async () => {
+  it("runs registered definitions through the OpenWorkflow SQLite provider", async () => {
+    setWorkflowRuntimeConfig({
+      provider: "openworkflow",
+      sqlite: {
+        namespaceId: "local",
+        path: ".data/workflow.sqlite",
+        runMigrations: false,
+      },
+    })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await runWorkflow("welcome", {})
+
+    expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(".data/workflow.sqlite", {
+      namespaceId: "local",
+      runMigrations: false,
+    })
+    expect(openWorkflowMock.connect).not.toHaveBeenCalled()
+  })
+
+  it("creates parent directories for OpenWorkflow SQLite files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-sqlite-parent-"))
+    const path = join(root, ".data/workflow/openworkflow.sqlite")
+    expect(existsSync(dirname(path))).toBe(false)
+    setWorkflowRuntimeConfig({
+      provider: "openworkflow",
+      sqlite: {
+        path,
+        runMigrations: false,
+      },
+    })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await runWorkflow("welcome", {})
+
+    expect(existsSync(dirname(path))).toBe(true)
+    expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(path, {
+      namespaceId: "production",
+      runMigrations: false,
+    })
+  })
+
+  it("reads OpenWorkflow SQLite connection options from runtime environment", async () => {
+    process.env.OPENWORKFLOW_NAMESPACE_ID = "local"
+    process.env.OPENWORKFLOW_SQLITE_PATH = ".data/env-workflow.sqlite"
     setWorkflowRuntimeConfig({ provider: "openworkflow" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    await expect(runWorkflow("welcome", {})).rejects.toThrow(/Missing OpenWorkflow Postgres URL/)
+    await runWorkflow("welcome", {})
+
+    expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(".data/env-workflow.sqlite", {
+      namespaceId: "local",
+    })
+  })
+
+  it("resolves OpenWorkflow SQLite connection options from runtime config env declarations", async () => {
+    process.env.VITEHUB_WORKFLOW_DATABASE_URL = "file:.data/runtime-workflow.sqlite"
+    setWorkflowRuntimeConfig({
+      provider: "openworkflow",
+      sqlite: {
+        path: {
+          default: "file:.data/default-workflow.sqlite",
+          kind: "env-variable",
+          source: { kind: "env", name: "VITEHUB_WORKFLOW_DATABASE_URL" },
+        },
+      },
+    })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await runWorkflow("welcome", {})
+
+    expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(".data/runtime-workflow.sqlite", {
+      namespaceId: "production",
+    })
+  })
+
+  it("requires storage for the OpenWorkflow provider", async () => {
+    setWorkflowRuntimeConfig({ provider: "openworkflow" })
+    setWorkflowRuntimeRegistry({
+      welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
+    })
+
+    await expect(runWorkflow("welcome", {})).rejects.toThrow(/Missing OpenWorkflow storage/)
   })
 
   it("creates an OpenWorkflow worker from the runtime registry", async () => {
@@ -909,7 +1015,7 @@ describe("workflow runtime", () => {
     await waitUntil.mock.calls[0]?.[0]
   })
 
-  it("uses Nitro request waitUntil for deferred Cloudflare workflow dispatch", async () => {
+  it("uses request waitUntil for deferred Cloudflare workflow dispatch", async () => {
     const create = vi.fn(async ({ id }: { id: string }) => ({
       id,
       status: vi.fn(async () => ({ status: "queued" })),

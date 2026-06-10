@@ -46,16 +46,17 @@ export default defineEventHandler(() => {
 ```
 
 ```ts
-// nitro.config.ts
-import { defineNitroConfig } from "nitro/config"
+// vite.config.ts
+import { hubSchedule } from "@vite-hub/schedule/vite"
+import { defineConfig } from "vite"
 
-export default defineNitroConfig({
-  modules: ["@vite-hub/schedule/nitro"],
+export default defineConfig({
+  plugins: [hubSchedule()],
 })
 ```
 
-## Vite and Nitro
+## Vite Integration
 
-Nitro discovers `server/schedules/<name>.ts`; Vite supports `src/<name>.schedule.ts` through `hubSchedule()`. Static schedules can produce provider cron output, including [Vercel Cron Jobs](https://vercel.com/docs/cron-jobs/). Cron parsing uses [`cron-schedule`](https://github.com/P4sca1/cron-schedule).
+Use `hubSchedule()` in Vite to discover `server/schedules/<name>.ts` and `src/<name>.schedule.ts`. Static schedules can produce provider cron output, including [Vercel Cron Jobs](https://vercel.com/docs/cron-jobs/). Cron parsing uses [`cron-schedule`](https://github.com/P4sca1/cron-schedule).
 
 Learn more at [vitehub.dev](https://vitehub.dev).

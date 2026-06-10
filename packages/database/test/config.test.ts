@@ -35,7 +35,7 @@ afterEach(async () => {
 })
 
 describe("discoverDatabaseDefinitions", () => {
-  it("discovers the Nitro default database definition", async () => {
+  it("discovers the server default database definition", async () => {
     const rootDir = await createTempProject()
     const file = await writeDefinition(rootDir, "server/databases/config.ts")
 
@@ -43,12 +43,12 @@ describe("discoverDatabaseDefinitions", () => {
       handler: file,
       mode: "default",
       name: "default",
-      source: "nitro-server-database-default",
+      source: "server-database-default",
       tableNames: ["notes"],
     }])
   })
 
-  it("discovers named Nitro database definitions", async () => {
+  it("discovers named server database definitions", async () => {
     const rootDir = await createTempProject()
     const analytics = await writeDefinition(rootDir, "server/databases/analytics/config.ts", "events")
     const tenant = await writeDefinition(rootDir, "server/databases/tenant/config.ts", "accounts")

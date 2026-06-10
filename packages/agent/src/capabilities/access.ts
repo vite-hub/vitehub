@@ -1,13 +1,19 @@
 import { workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
+import { resolveInvocationProfile } from "../invocation-profile.ts"
 import { createWorkspaceTools } from "@vite-hub/workspace"
 
 import type {
   AgentCapabilityDefinition,
   AgentCapabilityRuntimeContext,
+  AgentCapabilityTypeContract,
+  AgentRunInput,
   AgentRuntimeConfig,
   MaybePromise,
 } from "../types.ts"
+import type {
+  AgentInvocationProfileDefinition,
+} from "../invocation-profile.ts"
 import type {
   ListOptions,
   ReadonlyWorkspaceFacade,
@@ -17,63 +23,140 @@ import type {
   WorkspaceName,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
+  WorkspaceSource,
 } from "@vite-hub/workspace"
 import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
 
 export type AccessRoleName = "viewer" | "admin" | (string & {})
 
-export interface AccessWorkspaceScopeGrant {
-  path?: string
-  paths?: string[]
-  source?: string
-  sources?: string[]
+export type AccessCapabilityTypeContract<
+  TSourceName extends string = string,
+  TInputContext extends object = Record<string, unknown>,
+> = AgentCapabilityTypeContract & {
+  inputContext: TInputContext
+  workspaceSources: TSourceName
 }
 
-export interface AccessWorkspaceScopeDefinition {
+type AccessGrantSourceName<TGrant> =
+  (TGrant extends { source?: infer TSource }
+    ? TSource
+    : never)
+  | (TGrant extends { sources?: readonly (infer TSource)[] }
+    ? TSource
+    : never)
+
+type AccessScopeDefinitionSourceName<TDefinition> =
+  AccessGrantSourceName<TDefinition>
+  | (TDefinition extends { grants?: readonly (infer TGrant)[] }
+    ? AccessGrantSourceName<TGrant>
+    : never)
+
+type AccessResolvedScopeSelection<TResolve> =
+  TResolve extends (...args: any[]) => infer TResult
+    ? Awaited<TResult>
+    : TResolve
+
+export type AccessWorkspaceScopeSourceName<TWorkspace> =
+  Extract<
+    (TWorkspace extends { scopes?: infer TScopes }
+      ? { [Scope in keyof NonNullable<TScopes>]: AccessScopeDefinitionSourceName<NonNullable<TScopes>[Scope]> }[keyof NonNullable<TScopes>]
+      : never)
+    | (TWorkspace extends { resolve?: infer TResolve }
+      ? AccessScopeDefinitionSourceName<AccessResolvedScopeSelection<NonNullable<TResolve>>>
+      : never),
+    string
+  >
+
+export interface AccessWorkspaceScopeGrant<TSourceName extends string = string> {
+  path?: string
+  paths?: readonly string[]
+  source?: TSourceName
+  sources?: readonly TSourceName[]
+}
+
+export interface AccessWorkspaceScopeDefinition<TSourceName extends string = string> {
   all?: boolean
-  grants?: AccessWorkspaceScopeGrant[]
+  grants?: readonly AccessWorkspaceScopeGrant<TSourceName>[]
   path?: string
-  paths?: string[]
-  source?: string
-  sources?: string[]
+  paths?: readonly string[]
+  source?: TSourceName
+  sources?: readonly TSourceName[]
 }
 
-export interface AccessWorkspaceScopeSelection {
+export interface AccessWorkspaceScopeSelection<TSourceName extends string = string> extends AccessWorkspaceScopeDefinition<TSourceName> {
   role?: AccessRoleName
   scope: string
 }
 
-export type AccessWorkspaceScopeSelectionInput =
+export type AccessWorkspaceScopeSelectionInput<TSourceName extends string = string> =
   | string
-  | AccessWorkspaceScopeSelection
+  | AccessWorkspaceScopeSelection<TSourceName>
+
+export type AccessWorkspaceResolverContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  TInputContext extends object = Record<string, unknown>,
+  TProfile = undefined,
+> = Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, "input"> & {
+  input: Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>["input"], "get"> & {
+    get: () => AgentRunInput<unknown, TInputContext>
+  }
+} & ([TProfile] extends [undefined] ? {} : { profile: TProfile })
 
 export type AccessWorkspaceScopeResolver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
+  TInputContext extends object = Record<string, unknown>,
+  TSourceName extends string = string,
+  TProfile = undefined,
 > = (
-  context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
-) => MaybePromise<AccessWorkspaceScopeSelectionInput | undefined>
+  context: AccessWorkspaceResolverContext<TRuntimeConfig, Name, TInputContext, TProfile>,
+) => MaybePromise<AccessWorkspaceScopeSelectionInput<TSourceName> | undefined>
 
 export interface AccessWorkspaceOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
+  TSourceName extends string = string,
+  TInputContext extends object = Record<string, unknown>,
+  TProfile = undefined,
 > {
   defaultScope?: string
-  resolve?: AccessWorkspaceScopeSelectionInput | AccessWorkspaceScopeResolver<TRuntimeConfig, Name>
-  scopes: Record<string, AccessWorkspaceScopeDefinition>
+  resolve?: AccessWorkspaceScopeSelectionInput<TSourceName> | AccessWorkspaceScopeResolver<TRuntimeConfig, Name, TInputContext, TSourceName, TProfile>
+  scopes?: Record<string, AccessWorkspaceScopeDefinition<TSourceName>>
 }
 
 export interface AccessCapabilityOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
+  TSourceName extends string = string,
+  TInputContext extends object = Record<string, unknown>,
+  TProfile = undefined,
 > {
-  workspace: AccessWorkspaceOptions<TRuntimeConfig, Name>
+  profile?: AgentInvocationProfileDefinition<TProfile, TRuntimeConfig, Name, TInputContext>
+  workspace: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext, TProfile>
 }
+
+export type AccessWorkspaceSourceName<TWorkspace extends { sources?: Record<string, WorkspaceSource> }> =
+  Extract<keyof NonNullable<TWorkspace["sources"]>, string>
+
+export type AccessWorkspaceOptionsFor<
+  TWorkspace extends { sources?: Record<string, WorkspaceSource> },
+  TInputContext extends object = Record<string, unknown>,
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  TProfile = undefined,
+> = AccessWorkspaceOptions<TRuntimeConfig, Name, AccessWorkspaceSourceName<TWorkspace>, TInputContext, TProfile>
 
 interface ResolvedWorkspaceScope {
   all: boolean
   paths: string[]
   role: AccessRoleName
+  scope: string
+}
+
+interface NormalizedWorkspaceScopeSelection<TSourceName extends string = string> {
+  definition?: AccessWorkspaceScopeDefinition<TSourceName>
+  role?: AccessRoleName
   scope: string
 }
 
@@ -94,7 +177,17 @@ function setWorkspaceOverride<
 export function access<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
->(options: AccessCapabilityOptions<TRuntimeConfig, Name>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
+  TProfile = unknown,
+  TInputContext extends object = Record<string, unknown>,
+  const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext, TProfile> = AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext, TProfile>,
+>(options: { input?: undefined, profile: AgentInvocationProfileDefinition<TProfile, TRuntimeConfig, Name, TInputContext>, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext>>
+export function access<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  TInputContext extends object = Record<string, unknown>,
+  const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext> = AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext>,
+>(options: { input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext>>
+export function access(options: AccessCapabilityOptions): AgentCapabilityDefinition {
   if (!options || typeof options !== "object" || !options.workspace) {
     throw new TypeError("[vitehub] access() requires workspace options.")
   }
@@ -109,7 +202,10 @@ export function access<
       if ("diff" in context.workspace) {
         throw new Error("[vitehub] access({ workspace }) is read-only in the first version and requires workspace.mode: \"read\".")
       }
-      const scope = await resolveWorkspaceScope(options.workspace, context)
+      const profile = options.profile
+        ? await resolveInvocationProfile(options.profile, context)
+        : undefined
+      const scope = await resolveWorkspaceScope(options.workspace, context, profile)
       const scopedWorkspace = scope.all
         ? context.workspace
         : createScopedWorkspaceFacade(context.workspace, scope)
@@ -123,21 +219,29 @@ export function access<
   })
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
 async function resolveWorkspaceScope<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
+  TSourceName extends string,
+  TInputContext extends object,
+  TProfile,
 >(
-  options: AccessWorkspaceOptions<TRuntimeConfig, Name>,
+  options: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext, TProfile>,
   context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
+  profile: TProfile | undefined,
 ): Promise<ResolvedWorkspaceScope> {
-  const selection = normalizeSelection(await resolveSelection(options, context))
+  const selection = normalizeSelection(await resolveSelection(options, context, profile))
   if (!selection) {
     throw new Error("[vitehub] access({ workspace }) could not resolve a Workspace Scope. Configure defaultScope or resolve().")
   }
 
-  const definition = options.scopes[selection.scope]
+  const definition = selection.definition || options.scopes?.[selection.scope]
   if (!definition) {
-    throw new Error(`[vitehub] access({ workspace }) resolved unknown Workspace Scope "${selection.scope}".`)
+    throw new Error(`[vitehub] access({ workspace }) resolved unknown Workspace Scope "${selection.scope}". Configure scopes.${selection.scope} or return an inline scope definition.`)
   }
 
   const role = selection.role || "viewer"
@@ -157,25 +261,57 @@ async function resolveWorkspaceScope<
 async function resolveSelection<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
+  TSourceName extends string,
+  TInputContext extends object,
+  TProfile,
 >(
-  options: AccessWorkspaceOptions<TRuntimeConfig, Name>,
+  options: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext, TProfile>,
   context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
-): Promise<AccessWorkspaceScopeSelectionInput | undefined> {
+  profile: TProfile | undefined,
+): Promise<AccessWorkspaceScopeSelectionInput<TSourceName> | undefined> {
   if (options.resolve !== undefined) {
+    const resolverContext = profile === undefined
+      ? context
+      : { ...context, profile }
     const resolved = typeof options.resolve === "function"
-      ? await options.resolve(context)
+      ? await options.resolve(resolverContext as AccessWorkspaceResolverContext<TRuntimeConfig, Name, TInputContext, TProfile>)
       : options.resolve
-    return normalizeSelection(resolved) || options.defaultScope
+    return normalizeSelection(resolved) ? resolved : options.defaultScope
   }
   return options.defaultScope
 }
 
-function normalizeSelection(value: unknown): AccessWorkspaceScopeSelection | undefined {
+function hasNonEmptyString(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0
+}
+
+function hasNonEmptyStringList(value: unknown): boolean {
+  return Array.isArray(value) && value.some(hasNonEmptyString)
+}
+
+function hasNonEmptyScopeGrant(value: unknown): boolean {
+  return isRecord(value)
+    && (hasNonEmptyString(value.path)
+      || hasNonEmptyStringList(value.paths)
+      || hasNonEmptyString(value.source)
+      || hasNonEmptyStringList(value.sources))
+}
+
+function hasInlineScopeDefinition(value: Record<string, unknown>): boolean {
+  return value.all === true
+    || (Array.isArray(value.grants) && value.grants.some(hasNonEmptyScopeGrant))
+    || hasNonEmptyScopeGrant(value)
+}
+
+function normalizeSelection<TSourceName extends string>(value: unknown): NormalizedWorkspaceScopeSelection<TSourceName> | undefined {
   if (typeof value === "string" && value.trim()) return { scope: value }
   if (!value || typeof value !== "object") return undefined
   const candidate = value as { role?: unknown, scope?: unknown }
   if (typeof candidate.scope !== "string" || !candidate.scope.trim()) return undefined
   return {
+    ...(hasInlineScopeDefinition(value as Record<string, unknown>)
+      ? { definition: value as AccessWorkspaceScopeDefinition<TSourceName> }
+      : {}),
     ...(typeof candidate.role === "string" && candidate.role.trim() ? { role: candidate.role } : {}),
     scope: candidate.scope,
   }
@@ -197,7 +333,7 @@ function scopePaths(definition: AccessWorkspaceScopeDefinition, workspaceDefinit
   return normalized.sort((left, right) => left.length - right.length || left.localeCompare(right))
 }
 
-function normalizeStringList(single: string | undefined, multiple: string[] | undefined): string[] {
+function normalizeStringList(single: string | undefined, multiple: readonly string[] | undefined): string[] {
   return [
     ...(single ? [single] : []),
     ...(multiple || []),

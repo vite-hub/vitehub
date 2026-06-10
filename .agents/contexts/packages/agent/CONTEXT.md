@@ -37,7 +37,7 @@ A host surface such as DevTools, a webhook, or an app route that invokes a resol
 _Avoid_: Chat handler, trigger definition, capability config
 
 **Chat Webhook Route**:
-The Agent Package generated Nitro POST route that receives platform webhooks for chat-capable Agents.
+The Agent Package generated POST route that receives platform webhooks for chat-capable Agents.
 _Avoid_: App route, Teams route, public registration helper
 
 **Chat Webhook Handler**:
@@ -45,11 +45,11 @@ The Agent Package runtime handler behind the Chat Webhook Route that resolves th
 _Avoid_: User route handler, adapter registration API, Chat Capability definition
 
 **Chat App Route**:
-The Agent Package generated Nitro POST route that lets application chat UIs send UI messages to chat-capable Agents.
+The Agent Package generated POST route that lets application chat UIs send UI messages to chat-capable Agents.
 _Avoid_: DevTools bridge, webhook route, client SDK route
 
 **Chat App Exposure**:
-The Chat Capability choice that makes a discovered Agent reachable through a Chat App Route.
+The Entry Capability choice that makes a discovered Agent reachable through a Chat App Route.
 _Avoid_: Nuxt UI adapter, public chat trigger, route capability
 
 **Chat Adapter Facade**:
@@ -66,18 +66,19 @@ _Avoid_: Root Agent Package export, generated adapter barrel, upstream package m
 - A **Chat Webhook Handler** consumes resolved Chat Capability options and platform adapters; it does not declare Chat Capability behavior itself.
 - A **Chat Webhook Route** is automatic for discovered chat-capable Agents and does not require a public registration helper or app-owned route file.
 - Generated **Chat Webhook Route** and **Chat App Route** paths live under `/api/_vitehub/agents/:agent/...` so Agent identity stays explicit and package-owned API space is clear.
-- **Chat App Exposure** belongs to the Chat Capability and is not a separate Capability.
+- **Chat App Exposure** belongs to the Entry Capability so app-route exposure stays out of Chat Capability options.
 - A **Chat App Route** is automatic for discovered Agents with **Chat App Exposure**.
 - A **Chat App Route** is an **Agent Trigger Consumer**; it consumes `chat.message` and does not declare Chat Capability behavior itself.
 - A public endpoint consumes an **Agent Trigger**; it does not own, declare, or attach the trigger.
 - The **Agent Package** owns Agent capability composition.
 - The root `@vite-hub/agent` entry exports Agent Definition, invocation, message, and generic composition primitives; official Capability factories live on `@vite-hub/agent/capabilities`.
+- The root `@vite-hub/agent` entry exports Invocation Profile helpers as generic Agent Invocation composition primitives.
 - The root `@vite-hub/agent` entry does not export optional Chat Platform Adapter factories.
 - The **Agent Package** may expose a **Chat Adapter Facade** only for a first-party-supported adapter with a stable shim and clear missing-package diagnostics.
 - The **Agent Package** should not mirror every upstream `@chat-adapter/*` package as public ViteHub API.
 - The **Agent Package** owns chat behavior after the **Chat Package Migration**.
 - **Chat Definition Removal** means chat behavior is discovered through Agent Definitions that attach the Chat Capability, not through chat definitions, chat modules, or standalone chat discovery.
-- A discovered Agent Definition that attaches the Chat Capability is implicitly chat-capable; no separate chat route option, chat module, or chat registry declares that capability.
+- A discovered Agent Definition that attaches the Chat Capability is implicitly chat-capable; an Entry Capability can additionally expose the generated Chat App Route for app-owned chat UIs.
 - An **Agent File Name** provides Discovery Identity for discovered Agent Definitions.
 - The **Agent Route Owner** is the Agent Package when generated Agent routes are enabled.
 - The legacy **Agent Adapter Boundary** is removed from the public Agent Definition shape while AI SDK is the only model execution path.
@@ -107,6 +108,7 @@ _Avoid_: Root Agent Package export, generated adapter barrel, upstream package m
 - Full multi-agent chat selection in DevTools was deferred during **Chat Definition Removal** - resolved: the first cleanup can support the first discovered Agent with a `chat.message` trigger to keep the new pattern small.
 - App-owned Teams webhook files and public webhook registration helpers were considered for ChatSDK adapters - resolved: the Agent Package owns automatic **Chat Webhook Routes** that consume Chat Capability adapter configuration.
 - Root-exporting Chat and other official Capability factories was considered for quickstart convenience - resolved: import them from `@vite-hub/agent/capabilities` so Chat remains visibly a Capability and the Agent Package root does not become an ability grab bag.
-- A separate client chat route Capability was considered for app UIs - resolved: automatic **Chat App Routes** are exposed through **Chat App Exposure** on the existing Chat Capability, not from a second route-specific Capability.
+- Root-exporting Invocation Profile helpers was considered alongside Capability factories - resolved: export them from the root Agent Package entry because they are reusable Agent Invocation composition primitives, not Capability factories.
+- A separate client chat route Capability was considered for app UIs - resolved: app-owned Chat App Route exposure belongs to the Entry Capability, while the Chat Capability keeps the shared `chat.message` trigger and chat behavior.
 - "Endpoint has an Agent Trigger" was used for route exposure - resolved: Capabilities contribute **Agent Triggers**, while public endpoints are **Agent Trigger Consumers**.
 - "Nuxt UI adapter" was considered for application chat UIs - resolved: application chat UIs use **Chat App Routes**, while Chat Platform Adapters remain for external chat platforms.

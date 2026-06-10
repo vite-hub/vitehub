@@ -14,14 +14,6 @@ function getPhasePriority(modeConfig: ShowcaseModeConfigLike, path: string) {
 }
 
 export function getFrameworkConfigPath(framework: Framework) {
-  if (framework === "nuxt") {
-    return "nuxt.config.ts";
-  }
-
-  if (framework === "nitro") {
-    return "nitro.config.ts";
-  }
-
   return "vite.config.ts";
 }
 
@@ -31,14 +23,6 @@ export function generateFrameworkConfig(framework: Framework, pkg: string, confi
   }
 
   const modulePath = `@vite-hub/${pkg}/${framework}`;
-  if (framework === "nuxt") {
-    return `export default defineNuxtConfig({\n  modules: ['${modulePath}'],\n${configOverride}\n})`;
-  }
-
-  if (framework === "nitro") {
-    return `import { defineNitroConfig } from 'nitro/config'\n\nexport default defineNitroConfig({\n  modules: ['${modulePath}'],\n${configOverride}\n})`;
-  }
-
   const fnName = `hub${pkg[0]!.toUpperCase()}${pkg.slice(1)}`;
   return `import { defineConfig } from 'vite'\nimport { ${fnName} } from '${modulePath}'\n\nexport default defineConfig({\n  plugins: [${fnName}()],\n${configOverride}\n})`;
 }

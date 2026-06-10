@@ -27,7 +27,25 @@ export interface OpenWorkflowPostgresOptions {
   namespaceId?: string
   runMigrations?: boolean
   schema?: string
-  url?: string
+  url?: WorkflowRuntimeConfigValue
+}
+
+export interface WorkflowRuntimeEnvDeclarationLike {
+  default?: unknown
+  kind: "env-variable"
+  source?: {
+    kind: "env"
+    name: string
+    names?: string[]
+  }
+}
+
+export type WorkflowRuntimeConfigValue = string | WorkflowRuntimeEnvDeclarationLike
+
+export interface OpenWorkflowSqliteOptions {
+  namespaceId?: string
+  path?: WorkflowRuntimeConfigValue
+  runMigrations?: boolean
 }
 
 export interface OpenWorkflowWorkerOptions {
@@ -35,14 +53,18 @@ export interface OpenWorkflowWorkerOptions {
 }
 
 export interface OpenWorkflowProviderOptions extends WorkflowSharedOptions {
+  database?: string
   postgres?: OpenWorkflowPostgresOptions
   provider: "openworkflow"
+  sqlite?: OpenWorkflowSqliteOptions
   worker?: OpenWorkflowWorkerOptions
 }
 
 export interface InferredWorkflowProviderOptions extends WorkflowSharedOptions {
+  database?: string
   postgres?: OpenWorkflowPostgresOptions
   provider?: undefined
+  sqlite?: OpenWorkflowSqliteOptions
   worker?: OpenWorkflowWorkerOptions
 }
 
@@ -152,6 +174,6 @@ export interface WorkflowDefinitionRegistry {
 export interface DiscoveredWorkflowDefinition {
   handler: string
   name: string
-  source?: "inline" | "nitro-server-workflows" | "vite-suffix"
+  source?: "inline" | "server-workflows" | "vite-suffix"
   steps?: string[]
 }

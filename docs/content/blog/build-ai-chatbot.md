@@ -20,7 +20,7 @@ icon: i-lucide-message-circle-code
 The Agent Package is the second ViteHub layer.
 
 The first layer gives you server primitives: KV, Blob, Queue, Workflow,
-Sandbox, Workspace, and the framework integrations that wire them to a host.
+Sandbox, Workspace, and the Vite Integrations that wire them to a host.
 The Agent layer composes those pieces into one model-backed server actor.
 
 The developer experience should feel closer to [Better Auth](https://better-auth.com/)
@@ -112,9 +112,7 @@ pnpm add @vite-hub/devtools @ai-sdk/gateway ai
 pnpm add -D @vitejs/devtools
 ```
 
-Register the integrations for your framework:
-
-**Vite**
+Register the Vite Integrations:
 
 ::code-tree-intersection
 ```ts [vite.config.ts]
@@ -122,7 +120,6 @@ import { hubAgent } from '@vite-hub/agent/vite'
 import { hubDevtools } from '@vite-hub/devtools'
 import { hubWorkspace } from '@vite-hub/workspace/vite'
 import { DevTools } from '@vitejs/devtools'
-import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig(async () => ({
@@ -131,28 +128,10 @@ export default defineConfig(async () => ({
     hubDevtools(),
     hubWorkspace(),
     hubAgent(),
-    nitro(),
   ],
 }))
 ```
 ::
-
-**Nitro**
-
-::code-tree-intersection
-```ts [nitro.config.ts]
-import { defineNitroConfig } from 'nitro/config'
-
-export default defineNitroConfig({
-  modules: [
-    '@vite-hub/workspace/nitro',
-    '@vite-hub/agent/nitro',
-  ],
-})
-```
-::
-
-**Vite**
 
 The Vite plugins split the local wiring into small pieces:
 
@@ -160,29 +139,13 @@ The Vite plugins split the local wiring into small pieces:
 - `hubDevtools()` adds the ViteHub panel.
 - `hubWorkspace()` registers Workspace Sources.
 - `hubAgent()` discovers Agent Definitions and contributes Chat DevTools when the ViteHub panel is present.
-- `nitro()` gives the app a Nitro server runtime.
-
-**Nitro**
-
-The Nitro modules split the server wiring into small pieces:
-
-- `@vite-hub/workspace/nitro` registers Workspace Sources.
-- `@vite-hub/agent/nitro` discovers Agent Definitions.
 
 ## Create the first Agent
-
-**Vite**
 
 Create `server/agents/support/config.ts` for this example. ViteHub can also
 discover plain Vite Agent files such as `src/support.agent.ts`, but this Agent
 owns Workspace Sources, so the folder form keeps the Agent and its source files
 together.
-
-**Nitro**
-
-Create `server/agents/support/config.ts`. In Nitro, the folder name gives the
-Agent its discovery name. Later, when this file declares `workspace`, the same
-file also becomes the Workspace Definition.
 
 Start with chat and a short instruction:
 
@@ -226,17 +189,9 @@ The file lives beside the Agent. Because the folder has a `workspace/`
 directory, `source.file('support.md')` reads from that directory and exposes the
 file as `support.md` inside the Workspace.
 
-**Vite**
-
-If you want a standalone Workspace, Vite uses `src/support.workspace.ts`. Here,
-the Workspace stays in `server/agents/support/config.ts` because the support
-Agent is the only consumer.
-
-**Nitro**
-
-If you want a standalone Workspace, Nitro uses `server/workspaces/support.ts`.
-Here, `server/agents/support/config.ts` owns the Workspace so the support policy
-stays beside the Agent.
+If you want a standalone Workspace, use a Workspace Definition such as
+`server/workspaces/support.ts`. Here, `server/agents/support/config.ts` owns the
+Workspace so the support policy stays beside the Agent.
 
 ViteHub does not load sibling files by convention. Declare the file as a
 Workspace Source and attach the Workspace Shell Capability:
@@ -286,8 +241,6 @@ the chat integration.
 
 ## Test the loop in DevTools
 
-**Vite**
-
 Run the app:
 
 ```bash [Terminal]
@@ -308,18 +261,6 @@ answer.
 Use this view when the Agent gives a weak answer. If the timeline never reads
 `support.md`, the problem is source access. If it reads the file and still gives
 the wrong answer, the next place to tune is the instructions.
-
-**Nitro**
-
-Run the app:
-
-```bash [Terminal]
-pnpm dev
-```
-
-The Chat DevTools feature is registered through the Vite DevTools integration.
-For a Nitro-only app, keep the same Agent Definition and use an HTTP route or an
-Agent Eval for non-interactive verification.
 
 DevTools is the fast local inspection loop. Once the answer looks right, turn the
 expectation into an Agent Eval:

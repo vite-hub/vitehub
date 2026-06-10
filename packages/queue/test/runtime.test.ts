@@ -178,7 +178,7 @@ describe("cloudflare queue runtime", () => {
     expect(owner.calls).toBe(1)
   })
 
-  it("uses Nitro request waitUntil for deferred Cloudflare queue dispatch", async () => {
+  it("uses request waitUntil for deferred Cloudflare queue dispatch", async () => {
     const send = vi.fn(async () => {})
     const sendBatch = vi.fn(async () => {})
     const waitUntil = vi.fn()

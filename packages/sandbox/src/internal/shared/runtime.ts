@@ -1,23 +1,10 @@
-import { useRuntimeConfig } from 'nitro/runtime-config'
-import { getContext } from 'unctx'
-
-type NitroAsyncContext = {
-  request?: unknown
-}
-
 let requestEventResolver: (() => unknown) | undefined
-const nitroAsyncContext = getContext<NitroAsyncContext>('nitro-app')
 
 export function safeUseRequest<TEvent = unknown>() {
   if (requestEventResolver)
     return requestEventResolver() as TEvent
 
-  try {
-    return nitroAsyncContext.use().request as TEvent
-  }
-  catch {
-    return undefined
-  }
+  return undefined
 }
 
 export function getRequestEventResolver() {
@@ -29,19 +16,11 @@ export function setRequestEventResolver(resolver?: (() => unknown) | undefined) 
 }
 
 export function readRuntimeValue<T>(
-  read: (config: ReturnType<typeof useRuntimeConfig>) => T | undefined,
+  read: (config: Record<string, unknown>) => T | undefined,
   fallback: () => T | undefined,
 ): T | undefined {
-  try {
-    const value = read(useRuntimeConfig())
-    if (typeof value !== 'undefined')
-      return value
-  }
-  catch {
-    return fallback()
-  }
-
-  return fallback()
+  const value = read({})
+  return typeof value === 'undefined' ? fallback() : value
 }
 
 export async function loadRegistryEntry<TEntry, TModule extends { default?: TEntry }>(

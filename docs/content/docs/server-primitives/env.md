@@ -1,66 +1,55 @@
 ---
 title: Env
-description: Model public and server-only runtime values without leaking secrets across boundaries.
+description: Model Vite build-time and public values without leaking secrets across boundaries.
 navigation.order: 3
 icon: i-lucide-key-round
 ---
 
-Env is the server primitive for typed runtime values. Use it when the app needs clear boundaries between public values, server-only values, and secrets.
+Env is the server primitive for typed build-time values. Use it when the app needs clear boundaries between public client values, compile-time replacements, and secrets.
 
 ## What Env owns
 
 Env owns:
 
 - Public Env values that may be exposed to the client.
-- Server Env values that stay server-only.
-- Secret values that should redact by default in logs, traces, and DevTools.
-- Runtime access through stable ViteHub imports.
+- Compile-time replacements through Vite define values.
+- Public access through stable ViteHub imports.
 
-Env does not own secret storage for each host. The host still supplies environment variables. ViteHub gives the app a typed, redaction-aware access layer.
+Env does not own secret storage for each host. The host still supplies environment variables. ViteHub gives the app a typed build layer.
 
 ## Minimal setup
 
 ```ts [vite.config.ts]
-import { env, hubEnv } from '@vite-hub/env/vite'
+import { env, envVite } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [hubEnv()],
+  plugins: [envVite()],
   env: {
     public: {
       appName: env({ default: 'Acme' }),
     },
-    server: {
-      authToken: env({ secret: true }),
+    define: {
+      __BUILD_TARGET__: env({ default: 'preview' }),
     },
   },
 })
 ```
 
-Use the generated server import from server code:
+Use the generated public import from client or server code:
 
-```ts [server/api/config.get.ts]
-import { useServerEnv } from '#vitehub/env/server'
+```ts [src/config.ts]
+import { usePublicEnv } from '#vitehub/env/public'
 
-export default defineEventHandler((event) => {
-  const env = useServerEnv(event)
-  return {
-    appName: env.public.appName,
-    hasToken: Boolean(env.server.authToken),
-  }
-})
+const env = usePublicEnv()
+
+export const appName = env.appName
 ```
 
 ## Secrets
 
-Secrets should be unsealed only at the edge where they are needed.
+Do not put secrets in `env.public` or `env.define`; Vite bundles those values. Keep server-only secrets in the host runtime and pass them to the server primitive that needs them.
 
-```ts
-const token = env.server.authToken.unseal()
-```
+## Host environment behavior
 
-Keep sealed values in structured logs and runtime metadata. That gives DevTools enough shape to explain what exists without exposing credentials.
-
-## Runtime environment behavior
-
-Cloudflare and Vercel both provide environment variables, but their dashboards, local development files, and preview behavior differ. Keep those differences in deployment setup. Application code should keep using `useServerEnv()`.
+Cloudflare and Vercel both provide environment variables, but their dashboards, local development files, and preview behavior differ. Keep those differences in deployment setup. Application code should keep using the generated public import and explicit Vite define values.

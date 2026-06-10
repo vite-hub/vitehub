@@ -88,76 +88,7 @@ describe("env declarations", () => {
   it("rejects flat runtime declarations in Vite config", () => {
     expect(() => validateEnvConfigShape({
       databaseUrl: env(),
-    }, "vite")).toThrow("Invalid declaration")
-  })
-
-  it("rejects nested Nitro server buckets", () => {
-    expect(() => validateEnvConfigShape({
-      server: env(),
-    }, "nitro")).toThrow("`env.server` is not available")
-  })
-
-  it("rejects scalar Nitro public runtime declarations", () => {
-    expect(() => validateEnvConfigShape({
-      public: env(),
-    }, "nitro")).toThrow("Invalid declaration at env.public")
-  })
-
-  it("accepts nested Nitro runtime declaration groups and public runtime transport", () => {
-    expect(() => validateEnvConfigShape({
-      public: {
-        apiBase: env(),
-      },
-      teams: {
-        appId: env({ secret: true }),
-        appType: "SingleTenant",
-      },
-      telegram: {
-        botToken: env({ secret: true }),
-      },
-      vertex: {
-        model: env({ default: "gemini-3.1-pro-preview-customtools" }),
-      },
-    }, "nitro")).not.toThrow()
-  })
-
-  it("rejects unsupported Nitro runtime values", () => {
-    expect(() => validateEnvConfigShape({
-      teams: {
-        appType: () => "SingleTenant",
-      },
-    } as never, "nitro")).toThrow("serializable literal")
-    expect(() => validateEnvConfigShape({
-      teams: {
-        createdAt: new Date(),
-      },
-    } as never, "nitro")).toThrow("serializable literal")
-  })
-
-  it("rejects Nitro runtime literals that JSON cannot preserve", () => {
-    expect(() => validateEnvConfigShape({
-      teams: {
-        retryDelay: Number.NaN,
-      },
-    }, "nitro")).toThrow("serializable literal")
-    expect(() => validateEnvConfigShape({
-      teams: {
-        retryDelay: Number.POSITIVE_INFINITY,
-      },
-    }, "nitro")).toThrow("serializable literal")
-    expect(() => validateEnvConfigShape({
-      teams: {
-        labels: [undefined, "primary"],
-      },
-    } as never, "nitro")).toThrow("serializable literal")
-  })
-
-  it("rejects secret Nitro public Runtime Env declarations", () => {
-    expect(() => validateEnvConfigShape({
-      public: {
-        apiBase: env({ secret: true }),
-      },
-    }, "nitro")).toThrow("env.public.apiBase cannot be marked secret")
+    } as never, "vite")).toThrow("Invalid declaration")
   })
 
   it("creates a runtime registry with inferred nested env sources", () => {
@@ -300,19 +231,19 @@ describe("env declarations", () => {
     })).toThrow("Expected string")
   })
 
-  it("rejects non-string Nitro runtime types", () => {
+  it("rejects non-string runtime registry types", () => {
     expect(() => createRuntimeRegistry({
       sentryDebug: env({ type: "boolean" }),
-    })).toThrow("Nitro runtime values are strings")
+    })).toThrow("runtime values are strings")
   })
 
-  it("rejects custom runtime sources in Nitro config", () => {
-    expect(() => validateEnvConfigShape({
+  it("rejects custom runtime registry sources", () => {
+    expect(() => createRuntimeRegistry({
       commit: env({
         mode: "runtime",
         source: env.gitCommit(),
       }),
-    }, "nitro")).toThrow("build-only")
+    })).toThrow("must use env.source()")
   })
 
   it("accepts standard-schema results with empty issues", () => {

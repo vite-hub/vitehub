@@ -29,7 +29,7 @@ describe("workflow definitions", () => {
 
     expect(discoverWorkflowDefinitions({ rootDir })).toEqual([
       expect.objectContaining({ name: "daily", source: "vite-suffix" }),
-      expect.objectContaining({ name: "welcome", source: "nitro-server-workflows" }),
+      expect.objectContaining({ name: "welcome", source: "server-workflows" }),
     ])
   })
 
@@ -40,10 +40,10 @@ describe("workflow definitions", () => {
     await writeFile(join(rootDir, "server", "workflows", "import-products", "02.load.ts"), "export default null\n", "utf8")
     await writeFile(join(rootDir, "server", "workflows", "import-products", "01.extract.ts"), "export default null\n", "utf8")
 
-    expect(discoverWorkflowDefinitions({ mode: "nitro-server-workflows", scanDirs: [join(rootDir, "server")] })).toEqual([
+    expect(discoverWorkflowDefinitions({ mode: "server-workflows", scanDirs: [join(rootDir, "server")] })).toEqual([
       expect.objectContaining({
         name: "import-products",
-        source: "nitro-server-workflows",
+        source: "server-workflows",
         steps: [
           join(rootDir, "server", "workflows", "import-products", "01.extract.ts"),
           join(rootDir, "server", "workflows", "import-products", "02.load.ts"),
@@ -59,7 +59,7 @@ describe("workflow definitions", () => {
     await writeFile(join(rootDir, "server", "workflows", "welcome.ts"), "export default null\n", "utf8")
     await writeFile(join(rootDir, "server", "workflows", "welcome", "01.step.ts"), "export default null\n", "utf8")
 
-    expect(() => discoverWorkflowDefinitions({ mode: "nitro-server-workflows", scanDirs: [join(rootDir, "server")] })).toThrow(/Duplicate workflow name "welcome"/)
+    expect(() => discoverWorkflowDefinitions({ mode: "server-workflows", scanDirs: [join(rootDir, "server")] })).toThrow(/Duplicate workflow name "welcome"/)
   })
 
   it("does not discover createWorkflow calls outside workflow definition locations", async () => {
@@ -84,8 +84,8 @@ describe("workflow definitions", () => {
     await writeFile(join(rootDir, "server", "workflows", "index.ts"), "export default null\n", "utf8")
     await writeFile(join(rootDir, "server", "workflows", "welcome.ts"), "export default null\n", "utf8")
 
-    expect(discoverWorkflowDefinitions({ mode: "nitro-server-workflows", scanDirs: [join(rootDir, "server")] })).toContainEqual(
-      expect.objectContaining({ name: "welcome", source: "nitro-server-workflows" }),
+    expect(discoverWorkflowDefinitions({ mode: "server-workflows", scanDirs: [join(rootDir, "server")] })).toContainEqual(
+      expect.objectContaining({ name: "welcome", source: "server-workflows" }),
     )
   })
 
@@ -124,7 +124,7 @@ describe("workflow definitions", () => {
       expect.objectContaining({
         handler: file,
         name: "chat",
-        source: "nitro-server-workflows",
+        source: "server-workflows",
         steps: [step],
       }),
     ])

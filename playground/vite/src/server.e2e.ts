@@ -18,7 +18,7 @@ const queueName = "welcome-email"
 const workflowName = "welcome"
 
 declare global {
-  var __vitehubScheduleMarker: { id: string, ranAt: string, schedule: string } | undefined
+  var __vitehubScheduleMarker: { id: string, provider: string, ranAt: string, schedule: string } | undefined
 }
 
 const blobDeleteBody = v.object({
@@ -273,7 +273,7 @@ app.post("/api/tests/queue", async (event) => {
 })
 
 app.get("/api/tests/schedule", async () => {
-  const marker = await kv.get("schedule-e2e:vite:daily-marker") ?? globalThis.__vitehubScheduleMarker
+  const marker = await kv.get("schedule-e2e:daily-marker") ?? globalThis.__vitehubScheduleMarker
   return {
     ok: true,
     marker,

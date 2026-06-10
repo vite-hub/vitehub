@@ -57,7 +57,7 @@ function context(runtimeConfig: Record<string, unknown> = {}) {
   return {
     input: { messages: [] },
     memo: (_key: string, create: () => unknown) => create(),
-    runtime: "nitro",
+    runtime: "vite",
     runtimeConfig,
     waitUntil: vi.fn(),
   } as never
@@ -846,6 +846,7 @@ describe("defineAgent workspace option", () => {
       instructions: "Answer from the workspace.",
       model: {} as never,
       title: "Support agent",
+      version: "1.2.3",
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 
@@ -861,6 +862,7 @@ describe("defineAgent workspace option", () => {
       }],
       instructions: ["Answer from the workspace."],
       title: "Support agent",
+      version: "1.2.3",
       tools: expect.arrayContaining([
         expect.objectContaining({
           commands: ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"],

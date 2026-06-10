@@ -59,7 +59,7 @@ _Avoid_: Raw client, ORM config
 - **Generated Validation Schema** is derived from **Database Table Schema**.
 - A **Named Database** is selected through the **Drizzle Runtime Surface**.
 - A **Live Database Schema** can diverge from **Database Table Schema** when an agent has explicit schema write permission.
-- The **Database Package** owns Vite-centered database integration until a Nitro boundary is explicitly designed.
+- The **Database Package** owns Vite-centered database integration.
 - Provider selection stays in DB Integration Options, while **Database Provider Binding** may live in a **Database Definition**.
 
 ## Example Dialogue

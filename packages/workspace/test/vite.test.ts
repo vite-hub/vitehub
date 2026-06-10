@@ -65,7 +65,7 @@ describe("hubWorkspace", () => {
     expect(config({ server: { watch: { ignored: ["**/.vitehub/**"] } } }).server?.watch?.ignored).toEqual(["**/.vitehub/**"])
   })
 
-  it("attaches Nitro, noExternal, and virtual workspace manifests", async () => {
+  it("attaches noExternal and virtual workspace manifests", async () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
@@ -76,7 +76,6 @@ describe("hubWorkspace", () => {
 
     await configResolved({ root } as never)
 
-    expect(plugin.nitro.name).toBe("@vite-hub/workspace")
     expect(process.env.VITEHUB_WORKSPACE_DEV).toBe("true")
     expect(configEnvironment("ssr", { consumer: "server" })).toEqual({
       resolve: { noExternal: ["@vite-hub/workspace"] },

@@ -48,7 +48,6 @@ describe("types", () => {
     const plugin = hubKv()
 
     expectTypeOf(plugin.api.getConfig().kv).toMatchTypeOf<false | ResolvedKVModuleOptions>()
-    expectTypeOf(plugin.nitro).toMatchTypeOf<{ name?: string }>()
   })
 
   it("exposes the generated config import types", () => {

@@ -1,7 +1,7 @@
 {
   "name": "@vite-hub/env",
   "version": "0.0.1",
-  "description": "Safe build and runtime environment variables for Vite and Nitro.",
+  "description": "Safe build and runtime environment variables for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",
   "homepage": "https://github.com/vite-hub/vitehub#readme",
@@ -14,7 +14,6 @@
   "keywords": [
     "vitehub",
     "vite",
-    "nitro",
     "env",
     "environment-variables",
     "runtime-config"
@@ -27,21 +26,9 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./nitro": {
-      "types": "./dist/nitro.d.ts",
-      "import": "./dist/nitro.js"
-    },
-    "./nuxt": {
-      "types": "./dist/nuxt.d.ts",
-      "import": "./dist/nuxt.js"
-    },
     "./presets": {
       "types": "./dist/presets.d.ts",
       "import": "./dist/presets.js"
-    },
-    "./runtime/server": {
-      "types": "./dist/runtime/server.d.ts",
-      "import": "./dist/runtime/server.js"
     },
     "./schema": {
       "types": "./dist/schema.d.ts",
@@ -71,30 +58,21 @@
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
     "test": "pnpm --filter @vite-hub/env build && vitest run"
   },
-  "dependencies": {
-    "@nuxt/kit": "catalog:"
-  },
   "peerDependencies": {
-    "nitro": "^3.0.0-0",
-    "vite": ">=6.0.0"
+    "vite": "catalog:vite6-compat"
   },
   "peerDependenciesMeta": {
-    "nitro": {
-      "optional": true
-    },
     "vite": {
       "optional": true
     }
   },
   "devDependencies": {
-    "@nuxt/schema": "catalog:",
     "@vite-hub/internal": "workspace:*",
-    "nitro": "catalog:",
-    "publint": "^0.3.15",
-    "tsdown": "^0.21.8",
-    "tsx": "catalog:",
-    "typescript": "catalog:",
-    "vite": "catalog:",
-    "vitest": "catalog:"
+    "publint": "catalog:tooling",
+    "tsdown": "catalog:tooling",
+    "tsx": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vitest": "catalog:tooling"
   }
 }

@@ -29,7 +29,7 @@ afterEach(async () => {
 })
 
 describe("hubSandbox", () => {
-  it("exposes Vite feature state and attaches a Nitro bridge", async () => {
+  it("exposes Vite feature state", async () => {
     const rootDir = await createViteRoot()
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox()
@@ -50,7 +50,6 @@ describe("hubSandbox", () => {
     const resolvedId = await resolveId("#vitehub/sandbox")
     const code = await load(resolvedId as string)
 
-    expect(plugin.nitro?.name).toBe("@vite-hub/sandbox")
     expect(code).toContain('"feature": "sandbox"')
     expect(code).toContain('"provider": "vercel"')
     expect(configResult).toEqual({
@@ -131,7 +130,6 @@ describe("hubSandbox", () => {
     const { createSandboxFeaturePlan } = await import("../src/feature.ts")
     const plan = await createSandboxFeaturePlan({}, [], {
       aliasPath: "/tmp/vitehub-sandbox/index.js",
-      nitroPlugin: "/tmp/vitehub-sandbox/runtime/nitro-plugin.js",
     }, {})
 
     expect(plan.aliases).toContainEqual(expect.objectContaining({
@@ -144,7 +142,6 @@ describe("hubSandbox", () => {
     const { createSandboxFeaturePlan } = await import("../src/feature.ts")
     const plan = await createSandboxFeaturePlan({}, [], {
       aliasPath: "/tmp/vitehub-sandbox/index.js",
-      nitroPlugin: "/tmp/vitehub-sandbox/runtime/nitro-plugin.js",
     }, {
       "@vercel/sandbox": "1.0.0",
     })
@@ -162,7 +159,6 @@ describe("hubSandbox", () => {
     const { createSandboxFeaturePlan } = await import("../src/feature.ts")
     const plan = await createSandboxFeaturePlan({}, [], {
       aliasPath: "/tmp/vitehub-sandbox/index.js",
-      nitroPlugin: "/tmp/vitehub-sandbox/runtime/nitro-plugin.js",
     }, {
       "@cloudflare/sandbox": "1.0.0",
     })
@@ -176,68 +172,17 @@ describe("hubSandbox", () => {
     }))
   })
 
-  it("adds a Nitro build resolver for provider loader aliases", async () => {
-    const { addSandboxProviderLoaderResolver } = await import("../src/nitro/setup.ts")
-    const hookCalls: Array<{ name: string, handler: (nitro: unknown, config: { plugins?: Array<{ resolveId?: (id: string) => string | undefined }> }) => void }> = []
-    const nitro = {
-      hooks: {
-        hook(name: string, handler: (nitro: unknown, config: { plugins?: Array<{ resolveId?: (id: string) => string | undefined }> }) => void) {
-          hookCalls.push({ name, handler })
-        },
-      },
-    }
-
-    addSandboxProviderLoaderResolver(nitro as never, [
-      { key: "vitehub-sandbox-provider-loader", value: "/tmp/provider-loader.mjs" },
-    ])
-
-    const config: { plugins?: Array<{ resolveId?: (id: string) => string | undefined }> } = {}
-    hookCalls[0]?.handler(nitro, config)
-
-    expect(hookCalls[0]?.name).toBe("rollup:before")
-    expect(config.plugins?.[0]?.resolveId?.("vitehub-sandbox-provider-loader")).toBe("/tmp/provider-loader.mjs")
-    expect(config.plugins?.[0]?.resolveId?.("@vite-hub/sandbox")).toBeUndefined()
-  })
-
-  it("passes explicit Cloudflare sandbox container names to Nitro targets", async () => {
+  it("passes explicit Cloudflare sandbox container names to Cloudflare targets", async () => {
     const { createSandboxFeaturePlan } = await import("../src/feature.ts")
-    const { extendSandboxNitro } = await import("../src/nitro/setup.ts")
-    const target: Record<string, unknown> = {}
     const plan = await createSandboxFeaturePlan({ provider: "cloudflare", name: "custom-sandbox" }, [], {
       aliasPath: "/tmp/vitehub-sandbox/index.js",
-      nitroPlugin: "/tmp/vitehub-sandbox/runtime/nitro-plugin.js",
     }, {})
 
-    expect(plan.extendNitro).toEqual(expect.any(Function))
-    if (!plan.extendNitro) throw new Error("Expected sandbox feature plan to expose extendNitro.")
-    plan.extendNitro(target as never, new Map())
-
-    expect(target).toMatchObject({
-      cloudflare: {
-        wrangler: {
-          containers: [
-            expect.objectContaining({ class_name: "Sandbox", name: "custom-sandbox" }),
-          ],
-        },
-      },
-    })
-
-    const nitroTarget = {
-      hooks: {
-        hook: () => undefined,
-      },
-      options: {},
-    }
-    extendSandboxNitro(nitroTarget as never, { provider: "cloudflare", name: "nitro-sandbox" }, {}, "cloudflare")
-
-    expect(nitroTarget.options).toMatchObject({
-      cloudflare: {
-        wrangler: {
-          containers: [
-            expect.objectContaining({ class_name: "Sandbox", name: "nitro-sandbox" }),
-          ],
-        },
-      },
+    expect(plan.cloudflare).toEqual({
+      binding: "SANDBOX",
+      className: "Sandbox",
+      migrationTag: "v1",
+      name: "custom-sandbox",
     })
   })
 })

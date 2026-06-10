@@ -1,8 +1,15 @@
-import type { NitroOptions } from "nitro/types"
 import type { ResolvedWorkspaceModuleOptions } from "../core/types.ts"
 
+interface CloudflareArtifactsTarget {
+  cloudflare?: {
+    wrangler?: {
+      artifacts?: Array<{ binding: string, namespace: string }>
+    }
+  }
+}
+
 export function configureCloudflareArtifacts(
-  target: Pick<NitroOptions, "cloudflare">,
+  target: CloudflareArtifactsTarget,
   config: false | ResolvedWorkspaceModuleOptions,
 ): void {
   if (!config) return

@@ -1,9 +1,11 @@
 import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 
 import {
   createDirectoryDefinitionSource,
   createSuffixDefinitionSource,
   discoverDefinitions,
+  mergeDefinitions,
   normalizePathDefinitionName,
   normalizeSuffixDefinitionName,
   resolveDefinitionScanRoots,
@@ -295,20 +297,32 @@ function normalizeDirectoryScheduleName(directory: string, file: string) {
 
 export function discoverScheduleDefinitions(options:
   | { mode?: "vite-suffix", rootDir: string, scanDirs?: string[] }
-  | { mode: "nitro-server-schedules", scanDirs: string[] }
+  | { mode: "server-schedules", scanDirs: string[] }
 ): DiscoveredScheduleDefinition[] {
-  if (options.mode === "nitro-server-schedules") {
+  if (options.mode === "server-schedules") {
     return discoverDefinitions("schedule", [
-      createDirectoryDefinitionSource("nitro-server-schedules", options.scanDirs, "schedules", {
-        createDefinition: createDiscoveredScheduleDefinition("nitro-server-schedules"),
+      createDirectoryDefinitionSource("server-schedules", options.scanDirs, "schedules", {
+        createDefinition: createDiscoveredScheduleDefinition("server-schedules"),
         normalizeName: normalizeDirectoryScheduleName,
       }),
     ])
   }
 
-  return discoverDefinitions("schedule", [
-    createSuffixDefinitionSource("vite-suffix", resolveDefinitionScanRoots(options.rootDir, options.scanDirs), scheduleSuffixPattern, normalizeSuffixScheduleName, {
-      createDefinition: createDiscoveredScheduleDefinition("vite-suffix"),
-    }),
-  ])
+  const roots = resolveDefinitionScanRoots(options.rootDir, options.scanDirs)
+  const serverScanDirs = roots.map(root => resolve(root, "server"))
+
+  return mergeDefinitions(
+    "schedule",
+    discoverDefinitions("schedule", [
+      createSuffixDefinitionSource("vite-suffix", roots, scheduleSuffixPattern, normalizeSuffixScheduleName, {
+        createDefinition: createDiscoveredScheduleDefinition("vite-suffix"),
+      }),
+    ]),
+    discoverDefinitions("schedule", [
+      createDirectoryDefinitionSource("server-schedules", serverScanDirs, "schedules", {
+        createDefinition: createDiscoveredScheduleDefinition("server-schedules"),
+        normalizeName: normalizeDirectoryScheduleName,
+      }),
+    ]),
+  )
 }

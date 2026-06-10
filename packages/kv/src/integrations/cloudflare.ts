@@ -1,10 +1,17 @@
 import { pushUnique } from "@vite-hub/internal/arrays"
 
-import type { NitroOptions } from "nitro/types"
 import type { ResolvedKVModuleOptions } from "../types.ts"
 
+interface CloudflareKVTarget {
+  cloudflare?: {
+    wrangler?: {
+      kv_namespaces?: Array<{ binding: string, id?: string }>
+    }
+  }
+}
+
 export function configureCloudflareKV(
-  target: Pick<NitroOptions, "cloudflare">,
+  target: CloudflareKVTarget,
   config: ResolvedKVModuleOptions,
 ): void {
   for (const store of Object.values(config.stores || { default: config.store })) {

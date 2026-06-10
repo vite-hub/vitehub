@@ -5,6 +5,7 @@ import {
   resolveRuntimeContext,
 } from "@vite-hub/runtime"
 import { getChatCapabilityOptions } from "./chat-trigger.ts"
+import { defineInvocationProfile } from "./invocation-profile.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 
 import {
@@ -45,6 +46,7 @@ import type {
   AgentCapabilityDefinition,
   AgentCapabilityInput,
   AgentCapabilityMode,
+  AgentCapabilityTypeContract,
   AgentDefinition,
   AgentFinishEvent,
   AgentChatOptions,
@@ -104,10 +106,9 @@ export type {
   AgentCapabilityPhase,
   AgentCapabilityRuntimeContext,
   AgentChatAgentHookArgs,
-  AgentChatAppExposure,
-  AgentChatAppOptions,
   AgentChatEventHookArgs,
   AgentChatEventHooks,
+  AgentChatIdentityResolver,
   AgentChatMessageHookArgs,
   AgentChatOptions,
   AgentChatSessionOptions,
@@ -171,11 +172,37 @@ export type {
   MaybeResolvable,
   Resolvable,
   ResolvedAgentModuleOptions,
+  ResolvedAgentStateProviderOptions,
   ResolvedAgentTriggerDefinition,
   ResolvedAgentRuntimeContext,
   WorkspaceAgentWorkspaceOptions,
   WorkspaceAgentWorkspaceConfig,
 } from "./types.ts"
+
+export {
+  defineInvocationProfile,
+}
+
+export type {
+  AgentInvocationProfileChatInputSchemaOptions,
+  AgentInvocationProfileChatMessageInputSchemaOptions,
+  AgentInvocationProfileChatRunInputOptions,
+  AgentInvocationProfileContextValueId,
+  AgentInvocationProfileInputContext,
+  AgentInvocationProfileDefinition,
+  AgentInvocationProfileInfer,
+  AgentInvocationProfileInputContextFromSchemas,
+  AgentInvocationProfileInputSchemaOptions,
+  AgentInvocationProfileOptions,
+  AgentInvocationProfileResolver,
+  AgentInvocationProfileResolverContext,
+  AgentInvocationProfileRunInput,
+  AgentInvocationProfileRunInputFromSchemas,
+  AgentInvocationProfileStandardSchemaResultFailure,
+  AgentInvocationProfileStandardSchemaResultSuccess,
+  AgentInvocationProfileStandardSchemaV1,
+  DefinedAgentInvocationProfile,
+} from "./invocation-profile.ts"
 
 export type {
   Message,
@@ -188,6 +215,10 @@ export type {
   ToolInvocationState,
 } from "./messages.ts"
 
+export type {
+  AgentChatRunContext,
+} from "./chat-trigger.ts"
+
 const syntheticWorkspaceRun = Symbol("vitehub.syntheticWorkspaceRun")
 const baseAgentResolve = Symbol("vitehub.baseAgentResolve")
 const baseAgentModel = Symbol("vitehub.baseAgentModel")
@@ -195,6 +226,43 @@ const defaultWorkspaceName = "workspace"
 
 type NormalizedWorkspaceOptions = WorkspaceAgentWorkspaceOptions & { mode: AgentCapabilityMode }
 type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapabilityMode }
+type WorkspaceSourceNames<TWorkspace> =
+  TWorkspace extends { sources: infer TSources }
+    ? Extract<keyof NonNullable<TSources>, string>
+    : string
+type InvalidWorkspaceSourceGrant<TSourceName> = {
+  readonly __vitehubInvalidWorkspaceSourceGrant: TSourceName
+}
+type ValidateCapabilityWorkspaceSources<
+  TSourceName,
+  TWorkspace,
+  TCapability,
+> =
+  [TSourceName] extends [never]
+    ? TCapability
+    : TSourceName extends string
+    ? string extends TSourceName
+      ? TCapability
+      : Exclude<TSourceName, WorkspaceSourceNames<TWorkspace>> extends never
+        ? TCapability
+        : TCapability & InvalidWorkspaceSourceGrant<Exclude<TSourceName, WorkspaceSourceNames<TWorkspace>>>
+    : TCapability
+type ValidateAgentCapability<TCapability, TWorkspace> =
+  TCapability extends AgentCapabilityDefinition<any, any, infer TTypeContract>
+    ? TTypeContract extends AgentCapabilityTypeContract
+      ? ValidateCapabilityWorkspaceSources<TTypeContract["workspaceSources"], TWorkspace, TCapability>
+      : TCapability
+    : TCapability
+type ValidateAgentCapabilities<TCapabilities, TWorkspace> =
+  TCapabilities extends readonly [unknown, ...unknown[]] | readonly []
+    ? { [Index in keyof TCapabilities]: ValidateAgentCapability<TCapabilities[Index], TWorkspace> }
+    : TCapabilities extends readonly (infer TCapability)[]
+      ? ValidateAgentCapability<TCapability, TWorkspace>[]
+      : TCapabilities
+type ValidateWorkspaceAgentOptions<TOptions> =
+  TOptions extends { capabilities?: infer TCapabilities, workspace: infer TWorkspace }
+    ? { capabilities?: ValidateAgentCapabilities<TCapabilities, TWorkspace> }
+    : unknown
 type BaseAgentResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown> =
   (context: AgentRuntimeContext<TRuntimeConfig>) => Promise<AgentAdapter<CALL_OPTIONS>>
 type AgentDefinitionWithBaseResolve<
@@ -367,7 +435,7 @@ function defineBaseAgent<
 >(
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
-  const { capabilities, description, hooks, run, runtime, title, workspace } = options
+  const { capabilities, description, hooks, run, runtime, title, version, workspace } = options
   const normalizedCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const chat = getChatCapabilityOptions<TRuntimeConfig>(normalizedCapabilities)
   validateNonWorkspaceCapabilities(normalizedCapabilities, !!workspace)
@@ -393,6 +461,7 @@ function defineBaseAgent<
     runtime,
     run,
     title,
+    version,
     workspace,
     ...(normalizedCapabilities.length ? { capabilities: normalizedCapabilities } : {}),
     async resolve(context) {
@@ -446,10 +515,14 @@ export interface AgentDevtoolsMetadata {
   instructions?: string[]
   title?: string
   tools?: AgentDevtoolsToolDefinition[]
+  version?: string
 }
 
-function agentDevtoolsTitle(definition: Pick<AgentDefinition, "title">): Pick<AgentDevtoolsMetadata, "title"> {
-  return definition.title ? { title: definition.title } : {}
+function agentDevtoolsMetadata(definition: Pick<AgentDefinition, "title" | "version">): Pick<AgentDevtoolsMetadata, "title" | "version"> {
+  return {
+    ...(definition.title ? { title: definition.title } : {}),
+    ...(definition.version ? { version: definition.version } : {}),
+  }
 }
 
 function normalizeWorkspaceOptions(workspace: WorkspaceAgentWorkspaceConfig): NormalizedWorkspaceOptions {
@@ -508,8 +581,9 @@ export interface DefineAgent {
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     Name extends WorkspaceName = WorkspaceName,
+    const TOptions extends WorkspaceAgentOptions<TRuntimeConfig, Name> = WorkspaceAgentOptions<TRuntimeConfig, Name>,
   >(
-    options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+    options: TOptions & ValidateWorkspaceAgentOptions<TOptions>,
   ): WorkspaceAgentDefinition<TRuntimeConfig, Name>
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -763,14 +837,14 @@ export function createAgentDevtoolsMetadata<
 ): AgentDevtoolsMetadata {
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
-    return { files: [], ...agentDevtoolsTitle(definition), tools: [] }
+    return { files: [], ...agentDevtoolsMetadata(definition), tools: [] }
   }
 
   const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>
   return {
     files: workspaceMetadataFiles(options, workspaceDefinition.__vitehubWorkspaceAgentDefaults || workspaceDefinition as WorkspaceAgentDefaults<Name>),
     instructions: workspaceMetadataInstructions(options),
-    ...agentDevtoolsTitle(workspaceDefinition as AgentDefinition),
+    ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition),
     tools: workspaceMetadataTools(options),
   }
 }
@@ -784,7 +858,7 @@ export async function resolveAgentDevtoolsMetadata<
 ): Promise<AgentDevtoolsMetadata> {
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
   if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
-    return { files: [], ...agentDevtoolsTitle(definition), tools: [] }
+    return { files: [], ...agentDevtoolsMetadata(definition), tools: [] }
   }
 
   const defaults = {
@@ -802,7 +876,7 @@ export async function resolveAgentDevtoolsMetadata<
   return {
     files: await resolveWorkspaceMetadataFiles(options, defaults, workspace),
     instructions: await resolveWorkspaceMetadataInstructions(options, workspace),
-    ...agentDevtoolsTitle(workspaceDefinition as AgentDefinition),
+    ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition),
     tools: workspaceMetadataTools(options),
   }
 }
@@ -822,6 +896,7 @@ function createWorkspaceAgentDefinition<
     hooks: options.hooks,
     run: options.run,
     runtime: options.runtime,
+    version: options.version,
     workspace: workspaceDefinition,
   } as never) as WorkspaceAgentDefinition<TRuntimeConfig, Name>
 

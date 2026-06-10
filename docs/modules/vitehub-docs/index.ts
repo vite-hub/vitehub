@@ -1,6 +1,5 @@
 import { resolve } from "node:path";
 import { defineNuxtModule } from "nuxt/kit";
-import type { NitroConfig } from "nitropack/types";
 import { readDocsArtifactsManifest, writeDocsArtifacts } from "./artifacts";
 
 function collectPrerenderRoutes(manifest: NonNullable<ReturnType<typeof readDocsArtifactsManifest>>) {
@@ -13,15 +12,6 @@ function collectPrerenderRoutes(manifest: NonNullable<ReturnType<typeof readDocs
   }
 
   return routes;
-}
-
-function extendNitroPrerenderRoutes(nuxt: { options: { nitro?: NitroConfig } & Record<string, any> }, routes: string[]) {
-  const nitroOptions = ((nuxt.options as typeof nuxt.options & { nitro?: NitroConfig }).nitro ??= {});
-  nitroOptions.prerender ??= {};
-  nitroOptions.prerender.routes = [...new Set([
-    ...(nitroOptions.prerender.routes || []),
-    ...routes,
-  ])];
 }
 
 function removeDocusCatchAllPage(pages: Array<{ path?: string, file?: string }>) {
@@ -42,7 +32,11 @@ export default defineNuxtModule({
 
     const manifest = readDocsArtifactsManifest(outputDir) || writeDocsArtifacts({ docsRoot, repoRoot, outputDir });
     nuxt.options.alias["#vitehub-docs-manifest"] = resolve(outputDir, "docs-manifest.mjs");
-    extendNitroPrerenderRoutes(nuxt, collectPrerenderRoutes(manifest));
+    nuxt.hook("prerender:routes", (context) => {
+      for (const route of collectPrerenderRoutes(manifest)) {
+        context.routes.add(route);
+      }
+    });
 
     // Remove Docus catch-all page; ViteHub owns the docs route shell.
     nuxt.hook("pages:extend", removeDocusCatchAllPage);

@@ -114,5 +114,5 @@ export interface DiscoveredScheduleDefinition {
   allowRuntimeSchedules?: boolean
   handler: string
   name: string
-  source?: "nitro-server-schedules" | "vite-suffix"
+  source?: "server-schedules" | "vite-suffix"
 }

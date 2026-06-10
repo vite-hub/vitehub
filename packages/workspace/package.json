@@ -1,7 +1,7 @@
 {
   "name": "@vite-hub/workspace",
   "version": "0.0.1",
-  "description": "Agent-oriented filesystem state and Vite/Nitro integration for ViteHub.",
+  "description": "Agent-oriented filesystem state and Vite integration for ViteHub.",
   "author": "onmax <maximogarciamtnez@gmail.com>",
   "license": "Apache-2.0",
   "homepage": "https://github.com/vite-hub/vitehub#readme",
@@ -14,7 +14,6 @@
   "keywords": [
     "vitehub",
     "vite",
-    "nitro",
     "workspace",
     "cloudflare",
     "vercel"
@@ -36,7 +35,6 @@
     ".": "./dist/index.js",
     "./ai": "./dist/ai.js",
     "./loader": "./dist/loader.js",
-    "./nitro": "./dist/nitro.js",
     "./publish": "./dist/publish.js",
     "./test": "./dist/test.js",
     "./vite": "./dist/vite.js",
@@ -44,7 +42,6 @@
     "./internal/runtime/assets": "./dist/runtime/assets.js",
     "./internal/runtime/empty-assets-registry": "./dist/runtime/empty-assets-registry.js",
     "./internal/runtime/empty-registry": "./dist/runtime/empty-registry.js",
-    "./internal/runtime/nitro-plugin": "./dist/runtime/nitro-plugin.js",
     "./internal/runtime/state": "./dist/runtime/state.js",
     "./internal/stores/cloudflare-artifacts": "./dist/providers/cloudflare/artifacts-store.js",
     "./internal/stores/vercel-blob": "./dist/providers/vercel/blob-store.js"
@@ -63,24 +60,23 @@
   "dependencies": {
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/source": "workspace:*",
-    "defu": "^6.1.4",
-    "exsolve": "^1.0.8",
-    "files-sdk": "catalog:",
-    "isomorphic-git": "^1.37.6",
-    "jiti": "^2.6.1",
-    "minimatch": "^10.1.1"
+    "defu": "catalog:unjs",
+    "exsolve": "catalog:unjs",
+    "isomorphic-git": "catalog:workspace",
+    "jiti": "catalog:unjs",
+    "minimatch": "catalog:workspace"
   },
   "peerDependencies": {
     "@vite-hub/sandbox": "workspace:*",
-    "ai": "^6.0.0",
-    "nitro": "^3.0.0-0",
-    "vite": ">=8.0.0"
+    "ai": "catalog:ai-compat",
+    "files-sdk": "catalog:storage",
+    "vite": "catalog:vite8-plus-compat"
   },
   "peerDependenciesMeta": {
     "@vite-hub/sandbox": {
       "optional": true
     },
-    "nitro": {
+    "files-sdk": {
       "optional": true
     },
     "vite": {
@@ -88,18 +84,18 @@
     }
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
+    "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
-    "ai": "^6.0.172",
-    "nitro": "3.0.260311-beta",
-    "ocache": "^0.1.4",
-    "ofetch": "^1.5.1",
-    "publint": "^0.3.15",
-    "tsdown": "^0.21.8",
-    "tsx": "^4.21.0",
-    "typescript": "^6.0.2",
-    "vite": "^8.0.8",
-    "vitest": "^4.1.4"
+    "ai": "catalog:ai",
+    "files-sdk": "catalog:storage",
+    "ocache": "catalog:unjs",
+    "ofetch": "catalog:unjs",
+    "publint": "catalog:tooling",
+    "tsdown": "catalog:tooling",
+    "tsx": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vitest": "catalog:tooling"
   }
 }

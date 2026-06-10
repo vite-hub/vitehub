@@ -5,10 +5,8 @@ import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatch
 import { initializeWorkspaceAssetRegistry, refreshWorkspaceBuildState, syncWorkspaceBuildAssets } from "../../build/integration.ts"
 import { normalizeWorkspaceOptions } from "../../config.ts"
 import { discoverViteWorkspaceDefinitions } from "../../build/discovery.ts"
-import workspaceNitroModule from "../nitro/module.ts"
 import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
 
-import type { NitroModule } from "nitro/types"
 import type { HmrContext, Plugin, ResolvedConfig, ViteDevServer } from "vite"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
 import type { WorkspaceModuleOptions } from "../../core/types.ts"
@@ -32,7 +30,7 @@ export interface WorkspaceVitePluginAPI {
   getWorkspaces: () => Array<{ name: string }>
 }
 
-export type WorkspaceVitePlugin = Plugin & { api: WorkspaceVitePluginAPI, nitro: NitroModule }
+export type WorkspaceVitePlugin = Plugin & { api: WorkspaceVitePluginAPI }
 
 export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlugin {
   let resolved: ResolvedConfig | undefined
@@ -70,7 +68,6 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     api: {
       getWorkspaces: () => manifest.workspaces,
     },
-    nitro: workspaceNitroModule,
     config(config) {
       return {
         server: {

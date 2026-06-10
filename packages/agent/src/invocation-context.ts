@@ -9,7 +9,7 @@ function assertContextId(id: unknown): asserts id is string {
   }
 }
 
-export function createAgentInvocationContextStore(initial?: Record<string, unknown>): AgentInvocationContextStore {
+export function createAgentInvocationContextStore(initial?: object): AgentInvocationContextStore {
   const values = new Map<string, unknown>()
 
   for (const [id, value] of Object.entries(initial || {})) {

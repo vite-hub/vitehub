@@ -14,6 +14,7 @@ export default defineConfig({
   entry: [
     "src/index.ts",
     "src/cli.ts",
+    "src/config.ts",
     "src/drizzle.ts",
     "src/virtual.ts",
     "src/vite.ts",

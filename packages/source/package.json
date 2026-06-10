@@ -42,18 +42,18 @@
     "test": "pnpm --filter @vite-hub/source build && vitest run"
   },
   "dependencies": {
-    "mrmime": "catalog:",
-    "ocache": "^0.1.4",
-    "pathe": "catalog:",
-    "picomatch": "^4.0.4",
-    "tinyglobby": "^0.2.16"
+    "mrmime": "catalog:workspace",
+    "ocache": "catalog:unjs",
+    "pathe": "catalog:unjs",
+    "picomatch": "catalog:workspace",
+    "tinyglobby": "catalog:workspace"
   },
   "devDependencies": {
-    "@types/node": "catalog:",
-    "@types/picomatch": "^4.0.3",
-    "publint": "^0.3.15",
-    "tsdown": "^0.21.8",
-    "typescript": "catalog:",
-    "vitest": "catalog:"
+    "@types/node": "catalog:tooling",
+    "@types/picomatch": "catalog:tooling",
+    "publint": "catalog:tooling",
+    "tsdown": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vitest": "catalog:tooling"
   }
 }

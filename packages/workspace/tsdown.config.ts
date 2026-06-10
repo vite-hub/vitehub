@@ -11,12 +11,10 @@ export default defineConfig({
     "src/ai.ts",
     "src/index.ts",
     "src/loader.ts",
-    "src/nitro.ts",
     "src/publish.ts",
     "src/runtime/empty-assets-registry.ts",
     "src/runtime/empty-registry.ts",
     "src/runtime/assets.ts",
-    "src/runtime/nitro-plugin.ts",
     "src/runtime/state.ts",
     "src/providers/cloudflare/artifacts-store.ts",
     "src/providers/vercel/blob-store.ts",
@@ -28,7 +26,6 @@ export default defineConfig({
       "runtime/assets",
       "runtime/empty-assets-registry",
       "runtime/empty-registry",
-      "runtime/nitro-plugin",
       "runtime/state",
       "providers/cloudflare/artifacts-store",
       "providers/vercel/blob-store",
@@ -38,7 +35,6 @@ export default defineConfig({
       exports["./internal/runtime/empty-assets-registry"] =
         "./dist/runtime/empty-assets-registry.js"
       exports["./internal/runtime/empty-registry"] = "./dist/runtime/empty-registry.js"
-      exports["./internal/runtime/nitro-plugin"] = "./dist/runtime/nitro-plugin.js"
       exports["./internal/runtime/state"] = "./dist/runtime/state.js"
       exports["./internal/stores/cloudflare-artifacts"] =
         "./dist/providers/cloudflare/artifacts-store.js"

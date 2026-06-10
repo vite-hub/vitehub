@@ -10,7 +10,6 @@ export default defineConfig({
     "src/definition-discovery.ts",
     "src/env.ts",
     "src/http-request.ts",
-    "src/nitro.ts",
     "src/object.ts",
     "src/source-scanner.ts",
     "src/workspace-inventory.ts",

@@ -1,7 +1,6 @@
-export const scheduleMarkerKey = "schedule-e2e:vite:daily-marker"
+export const scheduleMarkerKey = "schedule-e2e:daily-marker"
 
 export type ScheduleMarker = {
-  framework: "vite"
   id: string
   provider: string
   ranAt: string

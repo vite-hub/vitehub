@@ -32,7 +32,6 @@ async function waitForSchedule(run, dispatched) {
       if (
         payload?.ok
         && payload?.seen === true
-        && payload?.marker?.framework === run.framework
         && payload?.marker?.provider === run.provider
         && payload?.marker?.schedule === "daily-marker"
         && ranAt >= startedAt
@@ -49,7 +48,6 @@ async function waitForSchedule(run, dispatched) {
 
   throw new Error(`Schedule marker was not observed before timeout: ${JSON.stringify({
     attempts,
-    framework: run.framework,
     lastError: lastError instanceof Error ? lastError.message : lastError ? String(lastError) : undefined,
     lastPayload,
     provider: run.provider,

@@ -3,6 +3,7 @@ import { createMessage } from "./messages.ts"
 
 import type {
   AgentCapabilityDefinition,
+  AgentCapabilityTypeContract,
   AgentChatAgentHookArgs,
   AgentChatAdapterResolver,
   AgentChatOptions,
@@ -21,6 +22,35 @@ type ChatCapabilityMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRun
   chat: AgentChatOptions<TRuntimeConfig>
   kind: "chat"
 }
+
+type ResolvedMaybeResolvable<T> =
+  T extends (...args: any[]) => infer TResult
+    ? Awaited<TResult>
+    : T extends { resolve: (...args: any[]) => infer TResult }
+      ? Awaited<TResult>
+      : T
+
+type AgentChatAdapterOrigin<TAdapters> =
+  Extract<keyof NonNullable<ResolvedMaybeResolvable<TAdapters>>, string>
+
+type AgentChatKnownOrigin<TOptions> =
+  TOptions extends { adapters?: infer TAdapters } ? AgentChatAdapterOrigin<TAdapters> : never
+
+export type AgentChatOptionsOrigin<TOptions> =
+  [AgentChatKnownOrigin<TOptions>] extends [never]
+    ? string
+    : AgentChatKnownOrigin<TOptions>
+
+type ChatCapabilityTypeContract<TOrigin extends string = string> = AgentCapabilityTypeContract & {
+  chatOrigins: TOrigin
+}
+
+export type AgentChatCapabilityOrigin<TCapability> =
+  TCapability extends AgentCapabilityDefinition<any, any, infer TTypeContract>
+    ? TTypeContract extends { chatOrigins: infer TOrigin }
+      ? Extract<TOrigin, string>
+      : string
+    : string
 
 const CHAT_WEBHOOK_DEFAULTS = {
   telegram: {
@@ -50,6 +80,19 @@ export interface AgentChatMessageTriggerInput {
   }
   timeout?: number
   user?: Record<string, unknown>
+}
+
+export interface AgentChatRunContext<
+  TMessageMetadata extends object = Record<string, unknown>,
+  TUser extends object = Record<string, unknown>,
+  TOrigin extends string = string,
+> {
+  chat?: {
+    message?: Omit<AgentChatAgentHookArgs["message"], "metadata"> & { metadata?: TMessageMetadata }
+    run?: AgentRunMetadata<TOrigin>
+    session?: AgentChatMessageTriggerInput["session"]
+    user?: TUser
+  }
 }
 
 function uiMessageText(message: UIMessageLike): string {
@@ -92,11 +135,22 @@ function uiAudioPartToAgentPart(part: Record<string, unknown>): MessagePart[] {
   if (!mediaType) return []
 
   const id = firstString(part.id)
+  const base = {
+    ...(id ? { id } : {}),
+    ...(typeof part.name === "string" ? { name: part.name } : {}),
+    ...(typeof part.size === "number" && Number.isFinite(part.size) ? { size: part.size } : {}),
+    ...(typeof part.fetchMetadata === "object" && part.fetchMetadata !== null ? { fetchMetadata: part.fetchMetadata as Record<string, string> } : {}),
+    mediaType,
+    type: "audio" as const,
+  }
+  if (typeof part.fetchData === "function") {
+    return [{ ...base, fetchData: part.fetchData as () => AudioData | Promise<AudioData> }]
+  }
   if (typeof part.url === "string" && part.url) {
-    return [{ ...(id ? { id } : {}), mediaType, type: "audio", url: part.url }]
+    return [{ ...base, url: part.url }]
   }
   if (isAudioData(part.data)) {
-    return [{ ...(id ? { id } : {}), data: part.data, mediaType, type: "audio" }]
+    return [{ ...base, data: part.data }]
   }
   return []
 }
@@ -303,7 +357,6 @@ function normalizeChatWebhookRegistrations(
 function inferredChatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] {
   if (!isStaticAdapterMap(options.adapters)) return []
   return Object.keys(options.adapters)
-    .filter(isKnownChatWebhookPlatform)
     .filter(platform => !hasExplicitChatWebhook(options, platform))
     .flatMap(platform => normalizeChatWebhookRegistrations(platform, {}))
 }
@@ -363,9 +416,12 @@ export function getChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConf
     ?.metadata?.chat as AgentChatOptions<TRuntimeConfig> | undefined
 }
 
-export function chat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  options: AgentChatOptions<TRuntimeConfig> = {},
-): AgentCapabilityDefinition<TRuntimeConfig> {
+export function chat<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  const TOptions extends AgentChatOptions<TRuntimeConfig> = AgentChatOptions<TRuntimeConfig>,
+>(
+  options: TOptions = {} as TOptions,
+): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName, ChatCapabilityTypeContract<AgentChatOptionsOrigin<TOptions>>> {
   return defineCapability({
     id: "chat",
     metadata: {

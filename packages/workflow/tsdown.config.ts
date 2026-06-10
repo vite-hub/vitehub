@@ -10,13 +10,11 @@ export default defineConfig({
   dts: true,
   entry: [
     "src/index.ts",
-    "src/nitro.ts",
     "src/vite.ts",
     "src/runtime/cloudflare-runner.ts",
     "src/runtime/cloudflare-vite.ts",
     "src/runtime/cloudflare-shared.ts",
     "src/runtime/execute.ts",
-    "src/runtime/nitro-plugin.ts",
     "src/runtime/openworkflow.ts",
     "src/runtime/openworkflow-worker.ts",
     "src/runtime/state.ts",

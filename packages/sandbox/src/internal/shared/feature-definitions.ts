@@ -1,7 +1,6 @@
 import { existsSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
-import { basename, join, relative, resolve as resolveFs, sep } from 'pathe'
-import type { Nitro } from 'nitro/types'
+import { basename, join, relative, sep } from 'pathe'
 
 export interface ScannedDefinition {
   name: string
@@ -75,13 +74,6 @@ async function walkFlatDefinitions(
   }
 
   return out
-}
-
-export function resolveNitroScanRoots(nitro: Nitro): string[] {
-  return Array.from(new Set([
-    nitro.options.rootDir,
-    nitro.options.srcDir ? resolveFs(nitro.options.rootDir, nitro.options.srcDir) : nitro.options.rootDir,
-  ]))
 }
 
 export function normalizeDefinitionName(relativePath: string) {

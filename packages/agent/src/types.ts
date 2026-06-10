@@ -1,5 +1,5 @@
 import type { Message, StreamEvent } from "./messages.ts"
-import type { Adapter, StateAdapter } from "chat"
+import type { Adapter, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
 import type {
   MaybePromise,
   MaybeResolvable,
@@ -23,7 +23,7 @@ export type {
   Resolvable,
 }
 
-export type AgentRuntimeName = "cloudflare-agents" | "nitro" | "unknown" | "vercel"
+export type AgentRuntimeName = "cloudflare-agents" | "unknown" | "vercel" | "vite"
 export type AgentRuntime = "auto" | AgentRuntimeName
 export type AgentExecution = "inline" | "sandbox" | "workflow"
 export type AgentRuntimeBinding =
@@ -64,9 +64,12 @@ export interface AgentInvocationContextStore {
   toJSON: () => Record<string, unknown>
 }
 
-export interface AgentRunInput<CALL_OPTIONS = unknown> {
+export interface AgentRunInput<
+  CALL_OPTIONS = unknown,
+  TContext extends object = Record<string, unknown>,
+> {
   abortSignal?: AbortSignal
-  context?: Record<string, unknown>
+  context?: TContext
   messages?: Message[]
   options?: CALL_OPTIONS
   prompt?: string | Message[]
@@ -82,10 +85,10 @@ export interface AgentScheduleInvocationInput {
   target?: string
 }
 
-export interface AgentRunMetadata {
+export interface AgentRunMetadata<TOrigin extends string = string> {
   channelId?: string
   messageId?: string
-  origin?: string
+  origin?: TOrigin
   runId: string
   threadId?: string
 }
@@ -108,12 +111,6 @@ export interface AgentWebhookRegistrationDefinition {
 
 export type AgentChatWebhookRegistrationDefinition =
   Omit<AgentWebhookRegistrationDefinition, "provider"> & { provider?: string }
-
-export interface AgentChatAppOptions {
-  route?: never
-}
-
-export type AgentChatAppExposure = boolean | AgentChatAppOptions
 
 export interface AgentTriggerContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -328,10 +325,17 @@ export interface AgentCapabilityRuntimeContext<
   }
 }
 
+export interface AgentCapabilityTypeContract {
+  inputContext?: object
+  workspaceSources?: string
+}
+
 export interface AgentCapabilityDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
+  TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
 > {
+  readonly __vitehubTypeContract?: TTypeContract
   bind?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   close?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   configure?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
@@ -407,6 +411,7 @@ type AgentSettingsBase<
   model?: AgentModelResolver<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
   title?: string
+  version?: string
   workspace?: WorkspaceAgentWorkspaceConfig
 }
 
@@ -435,6 +440,7 @@ export interface AgentDefinition<
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
   title?: string
+  version?: string
   workspace?: WorkspaceAgentWorkspaceConfig
 }
 
@@ -449,8 +455,14 @@ export type AgentRegistry<TContext extends AgentRuntimeContext<any> = AgentRunti
   Record<string, () => MaybePromise<AgentRegistryModule<TContext>>>
 
 export interface AgentStateProviderOptions {
-  provider?: "auto" | "cloudflare-agents" | "memory" | (string & {})
+  authToken?: string
+  provider?: "auto" | "cloudflare" | "cloudflare-agents" | "libsql" | "memory" | "sqlite" | (string & {})
+  tablePrefix?: string
+  url?: string
 }
+
+export type ResolvedAgentStateProviderOptions =
+  Omit<AgentStateProviderOptions, "provider"> & { provider: NonNullable<AgentStateProviderOptions["provider"]> }
 
 export interface AgentSchedulerProviderOptions {
   provider?: "auto" | "cloudflare-agents" | "memory" | (string & {})
@@ -506,7 +518,7 @@ export interface ResolvedAgentModuleOptions {
   providers: {
     sandbox: Required<AgentSandboxProviderOptions>
     scheduler: Required<AgentSchedulerProviderOptions>
-    state: Required<AgentStateProviderOptions>
+    state: ResolvedAgentStateProviderOptions
   }
   route: false | string
   runtime: AgentRuntime
@@ -532,7 +544,7 @@ export interface DiscoveredAgentDefinition {
   exportName?: string
   handler: string
   name: string
-  source?: "nitro-server-agent" | "nitro-server-agent-workspace" | "nitro-server-agents" | "vite-suffix"
+  source?: "server-agent" | "server-agent-workspace" | "server-agents" | "vite-suffix"
   workspace?: string
 }
 
@@ -593,6 +605,8 @@ export type AgentChatAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig =
 export type AgentChatAdaptersResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   MaybeResolvable<Record<string, AgentChatAdapterResolver<TRuntimeConfig>>, AgentCallbackContext<TRuntimeConfig>>
 
+export type AgentChatIdentityResolver = IdentityResolver
+
 export interface AgentChatStateContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentCallbackContext<TRuntimeConfig> {
   chat: {
@@ -607,15 +621,17 @@ export type AgentChatStateResolver<TRuntimeConfig extends AgentRuntimeConfig = A
 export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapters?: AgentChatAdaptersResolver<TRuntimeConfig>
   agent?: never
-  app?: AgentChatAppExposure
   event?: AgentChatAgentBindingOptions["event"]
   execution?: never
   fallbackStreamingPlaceholderText?: string | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   history?: AgentChatAgentBindingOptions["history"]
   hooks?: AgentChatEventHooks<TRuntimeConfig>
+  identity?: AgentChatIdentityResolver
   lifecycleHooks?: Record<string, unknown>
   sessions?: boolean | AgentChatSessionOptions
   state?: AgentChatStateResolver<TRuntimeConfig>
+  transcripts?: TranscriptsConfig
+  userName?: string
   webhooks?: Record<string, AgentChatWebhookRegistrationDefinition | AgentChatWebhookRegistrationDefinition[]>
   workflow?: never
   [key: string]: unknown
@@ -679,7 +695,9 @@ export interface AgentDevtoolsToolDefinition {
 export interface AgentDevtoolsMetadata {
   files?: AgentDevtoolsFileTreeItem[]
   instructions?: string[]
+  title?: string
   tools?: AgentDevtoolsToolDefinition[]
+  version?: string
 }
 
 export interface AgentAdapterResult {

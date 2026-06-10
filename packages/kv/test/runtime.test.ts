@@ -1,13 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { createStorage, prefixStorage } from "unstorage"
+import { createStorage } from "unstorage"
 import type { Driver } from "unstorage"
 import memoryDriver from "unstorage/drivers/memory"
-
-const runtimeState = {
-  config: {
-    kv: false,
-  } as Record<string, unknown>,
-}
 
 const mountedDrivers: {
   cloudflare?: Record<string, unknown>
@@ -15,21 +9,10 @@ const mountedDrivers: {
   upstash?: Record<string, unknown>
 } = {}
 
-let storage = createStorage({ driver: memoryDriver() })
 let cloudflareDriver: Driver | undefined
 let fsLiteDriver: Driver | undefined
-let shouldThrowUseStorage = false
-
-const mockedUseStorage = (base = "") => {
-  if (shouldThrowUseStorage) {
-    throw new Error("nitro/storage is unavailable")
-  }
-
-  return base ? prefixStorage(storage, base) : storage
-}
 
 function resetStorage() {
-  storage = createStorage({ driver: memoryDriver() })
   cloudflareDriver = undefined
   fsLiteDriver = undefined
   delete mountedDrivers.cloudflare
@@ -73,19 +56,6 @@ function createDriverWithoutOptionalMethods(): Driver {
   } as Driver
 }
 
-vi.mock("nitro", () => ({
-  definePlugin: (plugin: unknown) => plugin,
-}))
-
-vi.mock("nitro/runtime-config", () => ({
-  useRuntimeConfig: () => runtimeState.config,
-}))
-
-vi.mock("nitro/storage", () => ({
-  defineNitroPlugin: (plugin: unknown) => plugin,
-  useStorage: mockedUseStorage,
-}))
-
 vi.mock("unstorage/drivers/fs-lite", () => ({
   default: vi.fn((options: Record<string, unknown> = {}) => {
     mountedDrivers.fsLite = options
@@ -108,142 +78,15 @@ describe("kv runtime", () => {
   beforeEach(async () => {
     vi.resetModules()
     resetStorage()
-    shouldThrowUseStorage = false
-    runtimeState.config = {
-      kv: false,
-    }
   })
 
   afterEach(() => {
     delete process.env.KV_REST_API_URL
     delete process.env.KV_REST_API_TOKEN
+    delete process.env.VITEHUB_HOSTING
   })
 
-  it("mounts fs-lite storage when the local fallback is active", async () => {
-    runtimeState.config = {
-      kv: {
-        store: {
-          base: ".data/kv",
-          driver: "fs-lite",
-        },
-      },
-    }
-
-    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => void | Promise<void>
-    await plugin()
-
-    const { kv } = await import("../src/runtime/storage.ts")
-    await kv.set("notes/hello", "world")
-
-    expect(await kv.get("notes/hello")).toBe("world")
-    expect(mountedDrivers.fsLite).toMatchObject({
-      base: ".data/kv",
-      driver: "fs-lite",
-    })
-  })
-
-  it("selects named stores from runtime config", async () => {
-    runtimeState.config = {
-      kv: {
-        store: {
-          base: ".data/kv",
-          driver: "fs-lite",
-        },
-        stores: {
-          chat: {
-            base: ".data/chat-kv",
-            driver: "fs-lite",
-          },
-          default: {
-            base: ".data/kv",
-            driver: "fs-lite",
-          },
-        },
-      },
-    }
-
-    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => void | Promise<void>
-    await plugin()
-
-    const { kv } = await import("../src/runtime/storage.ts")
-    await kv.store("chat").set("state", "ok")
-
-    expect(await kv.store("chat").get("state")).toBe("ok")
-    expect(mountedDrivers.fsLite).toMatchObject({
-      base: ".data/chat-kv",
-      driver: "fs-lite",
-    })
-  })
-
-  it("rejects missing named stores at runtime", async () => {
-    runtimeState.config = {
-      kv: {
-        store: {
-          base: ".data/kv",
-          driver: "fs-lite",
-        },
-        stores: {
-          default: {
-            base: ".data/kv",
-            driver: "fs-lite",
-          },
-        },
-      },
-    }
-
-    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => void | Promise<void>
-    await plugin()
-
-    const { kv } = await import("../src/runtime/storage.ts")
-
-    await expect(kv.store("missing").get("state")).rejects.toThrow("[vitehub] Unknown KV store \"missing\".")
-  })
-
-  it("prefers runtime env vars over masked Upstash config values", async () => {
-    process.env.KV_REST_API_URL = "https://upstash.example.com"
-    process.env.KV_REST_API_TOKEN = "upstash-token"
-    runtimeState.config = {
-      kv: {
-        store: {
-          driver: "upstash",
-          token: "************",
-          url: "************",
-        },
-      },
-    }
-
-    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => void | Promise<void>
-    await plugin()
-
-    expect(mountedDrivers.upstash).toBeUndefined()
-
-    const { kv } = await import("../src/runtime/storage.ts")
-    await kv.set("notes/hello", "world")
-
-    expect(await kv.get("notes/hello")).toBe("world")
-    expect(mountedDrivers.upstash).toMatchObject({
-      driver: "upstash",
-      token: "upstash-token",
-      url: "https://upstash.example.com",
-    })
-  })
-
-  it("falls back to env config when the hosted config import cannot load", async () => {
-    shouldThrowUseStorage = true
-    process.env.KV_REST_API_URL = "https://upstash.example.com"
-    process.env.KV_REST_API_TOKEN = "upstash-token"
-
-    const { kv } = await import("../src/runtime/storage.ts")
-    await kv.has("notes/hello")
-
-    expect(mountedDrivers.upstash).toMatchObject({
-      driver: "upstash",
-      token: "upstash-token",
-      url: "https://upstash.example.com",
-    })
-  })
-
-  it("uses hosted KV on Vercel even when Nitro storage is importable", async () => {
+  it("falls back to hosted env config when the generated config import cannot load", async () => {
     process.env.KV_REST_API_URL = "https://upstash.example.com"
     process.env.KV_REST_API_TOKEN = "upstash-token"
 
@@ -255,47 +98,6 @@ describe("kv runtime", () => {
       driver: "upstash",
       token: "upstash-token",
       url: "https://upstash.example.com",
-    })
-  })
-
-  it("does not initialize Upstash during plugin startup for non-KV requests", async () => {
-    runtimeState.config = {
-      kv: {
-        store: {
-          driver: "upstash",
-          token: "********",
-          url: "********",
-        },
-      },
-    }
-
-    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => void | Promise<void>
-    await plugin()
-    expect(mountedDrivers.upstash).toBeUndefined()
-  })
-
-  it("replaces the masked kv mount during plugin startup", async () => {
-    runtimeState.config = {
-      kv: {
-        store: {
-          driver: "upstash",
-          token: "********",
-          url: "********",
-        },
-      },
-    }
-
-    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => void | Promise<void>
-    await plugin()
-
-    const { useStorage } = await import("nitro/storage")
-    expect(useStorage().getMount("kv")?.driver).toMatchObject({
-      name: "lazy:upstash",
-      options: {
-        driver: "upstash",
-        token: "********",
-        url: "********",
-      },
     })
   })
 
@@ -390,24 +192,5 @@ describe("kv runtime", () => {
     await expect(driver.getItemRaw?.("greeting", {})).resolves.toEqual(Buffer.from("hello"))
     await expect(driver.getMeta?.("greeting", {})).resolves.toBe(metadata)
     await expect(driver.setItemRaw?.("greeting", Buffer.from("hello"), {})).resolves.toBeUndefined()
-  })
-
-  it("fails clearly when masked Upstash values have no runtime env vars on first KV access", async () => {
-    runtimeState.config = {
-      kv: {
-        store: {
-          driver: "upstash",
-          token: "********",
-          url: "********",
-        },
-      },
-    }
-
-    const plugin = (await import("../src/runtime/nitro-plugin.ts")).default as () => void | Promise<void>
-    await plugin()
-
-    const { kv } = await import("../src/runtime/storage.ts")
-
-    await expect(kv.get("notes/hello")).rejects.toThrow("Missing runtime environment variable `KV_REST_API_URL` for Upstash KV.")
   })
 })

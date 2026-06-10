@@ -2,7 +2,6 @@ import { getViteMode } from "@vite-hub/internal/build/mode"
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 
-import blobNitroModule from "./nitro/module.ts"
 import { generateProviderOutputs, blobPackageName } from "./internal/vite-build.ts"
 import {
   BLOB_VIRTUAL_CONFIG_ID,
@@ -12,7 +11,6 @@ import {
 
 import type { BlobViteRuntimeConfig } from "./vite-config.ts"
 import type { BlobModuleOptions } from "./types.ts"
-import type { NitroModule } from "nitro/types"
 import type { Plugin } from "vite"
 
 const RESOLVED_BLOB_VIRTUAL_CONFIG_ID = `\0${BLOB_VIRTUAL_CONFIG_ID}`
@@ -24,7 +22,7 @@ export interface BlobVitePluginAPI {
   getConfig: () => BlobViteRuntimeConfig
 }
 
-export type BlobVitePlugin = Plugin & { api: BlobVitePluginAPI, nitro: NitroModule }
+export type BlobVitePlugin = Plugin & { api: BlobVitePluginAPI }
 
 const mergeNoExternal = createNoExternalMerger(blobPackageName)
 
@@ -47,7 +45,6 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
   return {
     name: BLOB_VITE_PLUGIN_NAME,
     api: { getConfig },
-    nitro: blobNitroModule,
     config(config, env) {
       command = env.command
       blob = config.blob ?? blob

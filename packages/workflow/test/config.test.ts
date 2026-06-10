@@ -44,6 +44,43 @@ describe("workflow config", () => {
     })
   })
 
+  it("infers openworkflow from node hosting with SQLite config", () => {
+    expect(normalizeWorkflowOptions({
+      sqlite: {
+        path: ".data/workflow.sqlite",
+      },
+    }, { hosting: "node-server" })).toEqual({
+      provider: "openworkflow",
+      sqlite: {
+        path: ".data/workflow.sqlite",
+      },
+    })
+  })
+
+  it("accepts runtime env declarations for OpenWorkflow SQLite storage", () => {
+    const path = {
+      default: "file:.data/workflow.sqlite",
+      kind: "env-variable",
+      source: { kind: "env", name: "VITEHUB_WORKFLOW_DATABASE_URL" },
+    } as const
+
+    expect(normalizeWorkflowOptions({
+      sqlite: { path },
+    }, { hosting: "node-server" })).toEqual({
+      provider: "openworkflow",
+      sqlite: { path },
+    })
+  })
+
+  it("infers openworkflow from node hosting with a database reference", () => {
+    expect(normalizeWorkflowOptions({
+      database: "workflow",
+    }, { hosting: "node-server" })).toEqual({
+      database: "workflow",
+      provider: "openworkflow",
+    })
+  })
+
   it("does not infer openworkflow from docker hosting without Postgres config", () => {
     expect(normalizeWorkflowOptions({}, { hosting: "docker" })).toEqual({
       provider: "vercel",
@@ -59,6 +96,15 @@ describe("workflow config", () => {
       provider: "openworkflow",
       worker: { concurrency: 0 },
     } as never)).toThrow(/workflow\.worker\.concurrency/)
+    expect(() => normalizeWorkflowOptions({
+      provider: "openworkflow",
+      sqlite: "file:.data/workflow.sqlite",
+    } as never)).toThrow(/workflow\.sqlite/)
+    expect(() => normalizeWorkflowOptions({
+      database: "workflow",
+      provider: "openworkflow",
+      sqlite: { path: ".data/workflow.sqlite" },
+    } as never)).toThrow(/workflow\.database/)
   })
 
   it("rejects unknown providers", () => {
