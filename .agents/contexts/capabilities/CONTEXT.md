@@ -66,7 +66,7 @@ _Avoid_: Chat History Capability, Agent Memory
 
 **Chat Platform Adapter**:
 A ChatSDK adapter returned by Chat Capability configuration for an external chat platform such as Teams.
-_Avoid_: Agent Model Adapter, Agent Trigger, Nitro handler
+_Avoid_: Agent Model Execution, Agent Trigger, Nitro handler
 
 **Chat Adapter Package**:
 An optional integration package that constructs a Chat Platform Adapter or Chat Capability state backend, such as `@chat-adapter/teams` or `@chat-adapter/state-pg`.
@@ -105,11 +105,11 @@ The required developer-selected execution strategy for a Web Search Capability.
 _Avoid_: Implicit web behavior, auto mode, provider type
 
 **Model Web Search Mode**:
-A Web Search Mode that asks the selected Agent Model Adapter to enable the model provider's built-in web search facility.
+A Web Search Mode that asks Agent Model Execution to enable the model provider's built-in web search facility.
 _Avoid_: Native search, adapter search, provider value
 
 **Model Web Search Output**:
-The web-search-related sources, citations, provider metadata, warnings, and raw fields returned by an Agent Model Adapter in Model Web Search Mode.
+The web-search-related sources, citations, provider metadata, warnings, and raw fields returned through Agent Model Execution in Model Web Search Mode.
 _Avoid_: Web Search Result, Web Read Result, normalized tool output
 
 **Web Search Result**:
@@ -220,7 +220,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - The Agent Package should not generate exports for every **Chat Adapter Package**.
 - A **Chat Adapter Facade** is reserved for first-party-supported adapters where ViteHub owns the public compatibility surface.
 - A **Chat Capability** can contribute trusted chat actor identity into Agent Invocation Context Values before later Capabilities resolve.
-- **Chat Platform Adapters** are platform integration adapters, not **Agent Model Adapters**.
+- **Chat Platform Adapters** are platform integration adapters, not **Agent Model Execution**.
 - **Chat Webhook Autowiring** is inferred from the Agent's attached **Chat Capability**; users do not attach a second Capability or call a webhook registration helper.
 - **Chat Webhook Autowiring** resolves the **Chat Adapter Callback** at request time so callbacks can read Server Env and other request-local server state.
 - **Transcription** is an input-phase Official Capability.
@@ -247,8 +247,8 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - A **Web Search Capability** hides its underlying search library from users and model-facing labels.
 - A **Web Search Capability** requires an explicit **Web Search Mode** in the first version.
 - A tool-based **Web Search Mode** exposes web search and URL reading as ordinary ViteHub tools.
-- **Model Web Search Mode** uses Agent Model Adapter support and does not expose URL reading.
-- **Model Web Search Mode** preserves **Model Web Search Output** through the normal Agent result path when the selected Agent Model Adapter exposes it.
+- **Model Web Search Mode** uses Agent Model Execution support and does not expose URL reading.
+- **Model Web Search Mode** preserves **Model Web Search Output** through the normal Agent result path when Agent Model Execution exposes it.
 - A tool-based **Web Search Capability** exposes web search and URL reading as separate model-facing tools.
 - A **Web Search Capability** returns **Web Search Results** and **Web Read Results** as structured data instead of raw HTML.
 - A tool-based **Web Search Capability** uses camelCase **Web Search Input** fields while keeping tool names consistent with existing ViteHub tool naming.
