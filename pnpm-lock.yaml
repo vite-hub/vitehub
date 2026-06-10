@@ -971,6 +971,9 @@ importers:
         specifier: catalog:workspace
         version: 0.2.16
     devDependencies:
+      '@ai-sdk/mcp':
+        specifier: catalog:ai
+        version: 1.0.36(zod@4.4.3)
       '@types/node':
         specifier: catalog:tooling
         version: 25.6.0

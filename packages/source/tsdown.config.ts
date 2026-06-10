@@ -11,6 +11,7 @@ export default defineConfig({
     "src/sources/glob.ts",
     "src/sources/index.ts",
     "src/sources/markdown.ts",
+    "src/sources/mcp-resources.ts",
   ],
   exports: {
     inlinedDependencies: false,

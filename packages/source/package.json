@@ -29,6 +29,7 @@
     "./sources/github": "./dist/sources/github.js",
     "./sources/glob": "./dist/sources/glob.js",
     "./sources/markdown": "./dist/sources/markdown.js",
+    "./sources/mcp-resources": "./dist/sources/mcp-resources.js",
     "./package.json": "./package.json"
   },
   "files": [
@@ -48,7 +49,16 @@
     "picomatch": "catalog:workspace",
     "tinyglobby": "catalog:workspace"
   },
+  "peerDependencies": {
+    "@ai-sdk/mcp": "catalog:ai"
+  },
+  "peerDependenciesMeta": {
+    "@ai-sdk/mcp": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@ai-sdk/mcp": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@types/picomatch": "catalog:tooling",
     "publint": "catalog:tooling",

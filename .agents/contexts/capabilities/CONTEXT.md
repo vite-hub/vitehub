@@ -40,6 +40,10 @@ _Avoid_: Dynamic prompt, hardcoded prompt, prompt callback
 A named value available when rendering a Prompt Template.
 _Avoid_: Placeholder, interpolation value, prompt arg
 
+**MCP Prompt Template**:
+A prompt template exposed by an MCP Server and consumed through Capability prompt or input behavior.
+_Avoid_: MCP Resource Source, Workspace file, model tool
+
 **Audience Capability**:
 A Capability created by `audience()` that contributes model-facing instruction blocks for the selected invocation audience.
 _Avoid_: Access Role, model role, user profile, prompt middleware
@@ -158,7 +162,7 @@ _Avoid_: Bash, sandbox, raw workspace tools
 
 **MCP Capability**:
 A Capability that connects an Agent to external MCP servers and exposes their model-facing tools.
-_Avoid_: MCP server implementation, MCP Source
+_Avoid_: MCP server implementation, MCP Resource Source
 
 **MCP Server**:
 An external Model Context Protocol server consumed by an Agent through the MCP Capability.
@@ -199,6 +203,9 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - An **Entry Capability** is the official small helper for app-owned product events when a full product-specific Capability has not earned a name yet.
 - An **Entry Capability** may expose a trusted Chat App Route origin without adding app-route fields to Chat Capability options.
 - A **Prompt Template** belongs to the Capability that renders it and should expose only the **Prompt Template Variables** that are stable for that Capability.
+- An **MCP Prompt Template** is Capability behavior, not Workspace content by default.
+- An **MCP Prompt Template** can be exposed as an **Input Command** when the host should let users invoke a named prompt before the Agent runs.
+- If an **MCP Prompt Template** references read-only MCP resources, those resources can be exposed separately through an **MCP Resource Source**.
 - An **Audience Capability** contributes prompt instructions; it does not apply access boundaries.
 - Standard Schema validation is the preferred runtime boundary for app-owned invocation metadata that an official **Capability** directly consumes.
 - An **Input Command** is a **Capability** concern resolved before model-facing Agent behavior.
@@ -244,6 +251,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - The default `admin` **Access Role** can select the explicit all-scopes mode when the developer configured that mode.
 - A **Workspace Shell Capability** contributes shell-shaped Workspace tools without implying Sandbox execution.
 - An **MCP Capability** consumes one or more external **MCP Servers**.
+- An **MCP Capability** exposes executable MCP tools; read-only MCP resources belong to Source design.
 - A **Web Search Capability** hides its underlying search library from users and model-facing labels.
 - A **Web Search Capability** requires an explicit **Web Search Mode** in the first version.
 - A tool-based **Web Search Mode** exposes web search and URL reading as ordinary ViteHub tools.

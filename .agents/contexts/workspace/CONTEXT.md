@@ -31,6 +31,10 @@ _Avoid_: Stored connector, synced files
 A Source whose items are fetched on demand without being written into the Workspace Store by default.
 _Avoid_: Virtual Source, Ephemeral Source, query tool
 
+**MCP Resource Source**:
+A Source that exposes read-only MCP resources from an external MCP Server as addressable Source-Backed Paths.
+_Avoid_: MCP Capability, MCP tool bridge, query-only MCP wrapper
+
 **Source Map**:
 The keyed object that declares a Workspace's Sources.
 _Avoid_: Source list, source array
@@ -122,6 +126,8 @@ _Avoid_: Open workspace, sandbox, mount
 - A **Source** has zero or one **Mount**.
 - A **Source** can expose local or external read-only information when that information has addressable files or items.
 - A **Source** must expose addressable files or items; query-only read tools belong outside the Source concept.
+- An **MCP Resource Source** is appropriate when an MCP Server mostly exposes read-only resources that can be addressed as files or items.
+- MCP tools remain Capability behavior; an **MCP Resource Source** should not turn executable MCP tools into Source-Backed Paths.
 - A **Materialized Source** persists its items in the **Workspace Store**.
 - A **Live Source** resolves Source-Backed Paths directly from its origin unless an explicit cache or materialization policy says otherwise.
 - A **Live Source** cache is separate from the **Workspace Store** and is opt-in.
