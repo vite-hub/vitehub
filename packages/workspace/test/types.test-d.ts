@@ -83,6 +83,17 @@ describe("workspace types", () => {
       },
       url: "https://status.example.com/api/summary",
     })
+    source.mcpResources({
+      mount: "nuxt",
+      server: {
+        async listResources() {
+          return { resources: [] }
+        },
+        async readResource() {
+          return { contents: [] }
+        },
+      },
+    })
     // @ts-expect-error source.fetch does not expose public lifecycle hooks
     source.fetch({ url: "https://status.example.com/api/summary", beforeRequest() {} })
     // @ts-expect-error source.fetch uses path as its only Workspace-facing address

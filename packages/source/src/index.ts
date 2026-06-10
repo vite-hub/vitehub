@@ -18,10 +18,18 @@ export {
   github,
   glob,
   markdown,
+  mcpResources,
 } from "./sources/index.ts"
 export * as source from "./sources/index.ts"
 export type {
   FileSourceOptions,
   GitHubSourceOptions,
   GlobSourceOptions,
+  McpResourceContent,
+  McpResourceDescriptor,
+  McpResourcesClient,
+  McpResourcesClientConfig,
+  McpResourcesRequestOptions,
+  McpResourcesServer,
+  McpResourcesSourceOptions,
 } from "./sources/index.ts"

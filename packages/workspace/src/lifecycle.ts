@@ -101,14 +101,21 @@ function isSyncedBuildSource(value: unknown): value is SyncedBuildSource {
 }
 
 function createMountedBuildSource(source: ResolvedWorkspaceSource): WorkspaceLoaderSource {
+  function getSourceContext(ctx: Parameters<WorkspaceLoaderSource["getKeys"]>[0]) {
+    return { ...ctx, mountPath: source.mountPath, source: source.key }
+  }
+
   return {
     ...source.source,
     key: source.key,
+    async prepare(ctx) {
+      await source.source.prepare?.(getSourceContext(ctx))
+    },
     async getKeys(ctx) {
-      return await source.source.getKeys(ctx)
+      return await source.source.getKeys(getSourceContext(ctx))
     },
     async getItem(key, ctx) {
-      const item = await source.source.getItem(key, ctx)
+      const item = await source.source.getItem(key, getSourceContext(ctx))
       const path = normalizeWorkspacePath(`${source.mountPath}/${item.path || item.key}`)
       return { ...item, path, metadata: { ...item.metadata, source: source.key } }
     },

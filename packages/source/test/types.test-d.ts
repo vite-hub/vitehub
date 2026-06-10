@@ -6,6 +6,7 @@ import {
   defineSources,
   file,
   github,
+  mcpResources,
   registerSources,
   source,
   type Source,
@@ -28,6 +29,15 @@ describe("@vite-hub/source types", () => {
   it("types registered source names and keys", async () => {
     const staticSource = file({ content: "# Docs\n", workspacePath: "README.md" })
     expectTypeOf(source.file({ content: "# Docs\n", workspacePath: "README.md" })).toMatchTypeOf<Source<"README.md">>()
+    expectTypeOf(source.mcpResources({ server: {
+      async listResources() {
+        return { resources: [] }
+      },
+      async readResource() {
+        return { contents: [] }
+      },
+    } })).toMatchTypeOf<Source<string>>()
+    expectTypeOf(mcpResources({ server: { transport: { type: "http", url: "https://example.com/mcp" } } })).toMatchTypeOf<Source<string>>()
     const sources = defineSources({
       docs: staticSource,
       dynamic: github({ repo: "acme/app" }),

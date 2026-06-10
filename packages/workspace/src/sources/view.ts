@@ -49,6 +49,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   const prepareBySource = new Map<string, Promise<void>>()
   const materializeBySource = new Map<string, Promise<void>>()
 
+  function getSourceContext(source: { key: string, mountPath: string }) {
+    return createSourceContext(definition, source)
+  }
+
   function isLazySourcePath(path: string) {
     return sources.some(source => sourceMountContainsPath(source, path))
   }
@@ -62,11 +66,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   async function ensurePrepared(sourceKey: string) {
-    const source = sources.find(item => item.key === sourceKey)?.source
-    if (!source?.prepare) return
+    const source = sources.find(item => item.key === sourceKey)
+    if (!source?.source.prepare) return
     let pending = prepareBySource.get(sourceKey)
     if (!pending) {
-      pending = source.prepare(sourceContext)
+      pending = source.source.prepare(getSourceContext(source))
       prepareBySource.set(sourceKey, pending)
     }
     await pending
@@ -101,7 +105,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
       if (!path && options.recursive && !await hasCurrentSourceSnapshot(store, source)) {
         if ([...result.keys()].some(key => sourceMountContainsPath(source, key))) {
-          const allowed = await currentSourceTreePaths(source, sourceContext)
+          const allowed = await currentSourceTreePaths(source, getSourceContext(source))
           for (const key of result.keys()) {
             if (sourceMountContainsPath(source, key) && !allowed.has(key)) result.delete(key)
           }
@@ -167,7 +171,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         for (const entry of liveEntries) {
           const sourcePath = source.livePaths[entry.path]
           if (typeof sourcePath !== "string") continue
-          const item = await source.source.getItem(sourcePath, sourceContext)
+          const item = await source.source.getItem(sourcePath, getSourceContext(source))
           const content = item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2))
           const text = typeof content === "string" ? content : new TextDecoder().decode(content)
           results.push(...searchText(entry.path, text, { ...query, limit: limit - results.length }))
@@ -235,7 +239,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       if (resolution.type === "source") {
         await ensurePrepared(resolution.sourceKey)
         if (isLiveSource(resolution.sourceKey)) {
-          const item = await resolution.source.source.getItem(resolution.sourcePath, sourceContext)
+          const item = await resolution.source.source.getItem(resolution.sourcePath, getSourceContext(resolution.source))
           return decodeFile(item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2)), options)
         }
         await ensureMaterialized(resolution.sourceKey)
@@ -301,7 +305,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           return result
         }
         await ensureMaterialized(resolution.sourceKey)
-        const result = await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, sourceContext)
+        const result = await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, getSourceContext(resolution.source))
         if (!result) throw new WorkspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
         return result
       }
@@ -328,7 +332,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           return Boolean(liveSourceStat(resolution.source, resolution.workspacePath))
         }
         await ensureMaterialized(resolution.sourceKey)
-        return Boolean(await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, sourceContext))
+        return Boolean(await statVirtualSourcePath(resolution.source, resolution.workspacePath, store, getSourceContext(resolution.source)))
       }
       if (await store.stat(resolution.workspacePath)) return true
       if (!resolution.workspacePath && sources.some(source => !source.mountPath && source.livePaths)) return true

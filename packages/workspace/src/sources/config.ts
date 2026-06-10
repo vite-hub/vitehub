@@ -29,9 +29,11 @@ export function markLiveWorkspaceSource(source: WorkspaceSource, paths: Record<s
   return source
 }
 
-export function createSourceContext(definition: WorkspaceDefinition): SourceContext {
+export function createSourceContext(definition: WorkspaceDefinition, source?: { key: string, mountPath: string }): SourceContext {
   return {
+    mountPath: source?.mountPath,
     rootDir: definition.rootDir || process.cwd(),
+    source: source?.key,
     sourceRootDir: definition.sourceRootDir,
     workspace: definition.name,
   }

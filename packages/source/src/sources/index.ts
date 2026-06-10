@@ -6,3 +6,13 @@ export type { GitHubSourceOptions } from "./github/types.ts"
 export { glob } from "./glob.ts"
 export type { GlobSourceOptions } from "./glob.ts"
 export { markdown } from "./markdown.ts"
+export { mcpResources } from "./mcp-resources.ts"
+export type {
+  McpResourceContent,
+  McpResourceDescriptor,
+  McpResourcesClient,
+  McpResourcesClientConfig,
+  McpResourcesRequestOptions,
+  McpResourcesServer,
+  McpResourcesSourceOptions,
+} from "./mcp-resources.ts"
