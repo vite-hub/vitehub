@@ -1,6 +1,6 @@
 # Web Search Capability Shape
 
-ViteHub will expose one `webSearch()` factory from `@vite-hub/agent/capabilities`, with an explicit `mode: "tool" | "model"` option. Tool mode contributes ordinary ViteHub tools for `web_search` and `web_read` backed by one explicit search provider, while model mode asks the selected Agent Model Adapter to enable provider-native model web search through an adapter-agnostic and provider-agnostic ViteHub contract.
+ViteHub will expose one `webSearch()` factory from `@vite-hub/agent/capabilities`, with an explicit `mode: "tool" | "model"` option. Tool mode contributes ordinary ViteHub tools for `web_search` and `web_read` backed by one explicit search provider, while model mode asks Agent Model Execution to enable provider-native model web search through a ViteHub-owned and provider-agnostic contract.
 
 ## Considered Options
 
@@ -11,4 +11,4 @@ ViteHub will expose one `webSearch()` factory from `@vite-hub/agent/capabilities
 
 ## Consequences
 
-`webSearch({ mode: "tool", provider })` returns normalized structured tool results and URL-read content, using camelCase tool input fields. `webSearch({ mode: "model" })` contributes no `web_read` tool and preserves model/provider web-search metadata through the normal Agent result path when the adapter exposes it. Unsupported model-mode adapter, model, or provider combinations fail early; TanStack AI is not supported for model mode until ViteHub has an adapter-native provider-tool contribution path.
+`webSearch({ mode: "tool", provider })` returns normalized structured tool results and URL-read content, using camelCase tool input fields. `webSearch({ mode: "model" })` contributes no `web_read` tool and preserves model/provider web-search metadata through the normal Agent result path when Agent Model Execution exposes it. Unsupported model or provider combinations in model mode fail early; TanStack AI is not supported for model mode until ViteHub has a model-execution-native provider-tool contribution path.
