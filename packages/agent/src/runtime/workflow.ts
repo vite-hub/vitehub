@@ -1,8 +1,6 @@
 import { getActiveCloudflareEnv, getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getWorkflowRuntimeEvent } from "@vite-hub/workflow/runtime/state"
 
-import { runAgentInline } from "../index.ts"
-
 import { createAgentRuntimeContext } from "./context.ts"
 
 import type {
@@ -20,6 +18,12 @@ export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   runtime?: AgentRuntimeName
 }
 
+export type AgentWorkflowRunner = (
+  agent: any,
+  context: any,
+  input: any,
+) => Promise<Response | unknown>
+
 function agentRuntimeFromWorkflowProvider(provider: WorkflowProvider): AgentRuntimeName {
   if (provider === "cloudflare") return "cloudflare-agents"
   if (provider === "vercel") return "vercel"
@@ -36,6 +40,7 @@ export async function runAgentWorkflowDefinition<
 >(
   agent: AgentInput,
   context: WorkflowExecutionContext<AgentWorkflowInvocationPayload<CALL_OPTIONS> | undefined>,
+  runAgentInline: AgentWorkflowRunner,
 ): Promise<Response | unknown> {
   const payload = context.payload || {}
   const cloudflareEnv = context.provider === "cloudflare"
@@ -51,8 +56,8 @@ export async function runAgentWorkflowDefinition<
   } as never)
 
   return await runAgentInline(
-    agent as AgentInput<typeof runtimeContext>,
+    agent,
     runtimeContext,
-    (payload.input || {}) as AgentRunInput<CALL_OPTIONS>,
+    payload.input || {},
   )
 }

@@ -381,7 +381,7 @@ async function getAgentWorkflowHandle<
   const { createWorkflow } = await import("@vite-hub/workflow")
   const handle = createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>(name, async (workflowContext) => {
     const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
-    return await runAgentWorkflowDefinition(agent as never, workflowContext as never)
+    return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never)
   })
   handles.set(name, handle as WorkflowHandle<AgentWorkflowInvocationPayload, unknown>)
   agentWorkflowHandles.set(agent as object, handles)

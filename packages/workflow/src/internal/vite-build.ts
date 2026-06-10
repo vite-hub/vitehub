@@ -87,7 +87,7 @@ function renderAgentWorkflowRegistryEntry(registryFile: string, definition: Disc
     "    if (cached) return cached",
     `    const loaded = await ${renderRegistryImport(registryFile, definition.handler)}`,
     "    const agent = \"default\" in loaded ? loaded.default : loaded",
-    "    const entry = { handler: async (context) => await runAgentWorkflowDefinition(agent, context) }",
+    "    const entry = { handler: async (context) => await runAgentWorkflowDefinition(agent, context, runAgentInline) }",
     `    registryEntryCache.set(${JSON.stringify(definition.name)}, entry)`,
     "    return entry",
     "  },",
@@ -141,7 +141,12 @@ function createWorkflowRegistryContents(registryFile: string, definitions: Disco
   const needsAgentRuntime = definitions.some(definition => definition.source === "agent-workflow")
   const needsRegistryEntryCache = needsWorkflowRuntime || needsAgentRuntime
   const imports = [
-    ...(needsAgentRuntime ? [`import { runAgentWorkflowDefinition } from "@vite-hub/agent/runtime/workflow"`] : []),
+    ...(needsAgentRuntime
+      ? [
+          `import { runAgentInline } from "@vite-hub/agent"`,
+          `import { runAgentWorkflowDefinition } from "@vite-hub/agent/runtime/workflow"`,
+        ]
+      : []),
     ...(needsWorkflowRuntime
       ? [
           `import { createWorkflowSteps } from "@vite-hub/workflow/runtime/execute"`,
