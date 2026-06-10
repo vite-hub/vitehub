@@ -58,7 +58,7 @@ Most ViteHub features follow the same shape:
 
 1. Start with [Installation](/docs/getting-started/installation).
 2. Install the package that owns the primitive or Agent surface.
-3. Register the ViteHub integration for your server runtime.
+3. Register the package's Vite Integration in `vite.config.ts`.
 4. Define named work when the primitive needs a Definition.
 5. Keep host-specific output and credentials in configuration.
 6. Call a stable Runtime Helper from server code.

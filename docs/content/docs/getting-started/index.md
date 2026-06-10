@@ -16,7 +16,7 @@ Use **Agents** when your app needs model-backed actors with instructions, invoca
   :::u-page-card
   ---
   title: Installation
-  description: Add the packages you need and register their ViteHub integrations.
+  description: Add the packages you need and register their Vite Integrations.
   icon: i-lucide-download
   to: /docs/getting-started/installation
   ---
