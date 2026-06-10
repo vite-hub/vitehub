@@ -1,0 +1,74 @@
+import { describe, expect, it } from "vitest"
+
+import {
+  readAgentRequestBody,
+  toAgentEventStreamResponse,
+  toAgentFetchResponse,
+  toAgentHttpResult,
+  toJsonSafeAgentResult,
+} from "../src/http-response.ts"
+
+describe("agent HTTP response helpers", () => {
+  it("reads object request bodies and falls back to an empty request body", async () => {
+    await expect(readAgentRequestBody(new Request("https://example.com", {
+      body: JSON.stringify({ prompt: "hello", stream: false }),
+      method: "POST",
+    }))).resolves.toEqual({ prompt: "hello", stream: false })
+
+    await expect(readAgentRequestBody(new Request("https://example.com", {
+      body: "not-json",
+      method: "POST",
+    }))).resolves.toEqual({})
+  })
+
+  it("keeps only JSON-safe Agent run result fields", () => {
+    expect(toJsonSafeAgentResult({
+      extra: "private",
+      raw: { answer: 42 },
+      text: "ok",
+      usage: { inputTokens: 1 },
+    })).toEqual({
+      finishReason: undefined,
+      raw: { answer: 42 },
+      text: "ok",
+      usage: { inputTokens: 1 },
+      usageRecord: undefined,
+      warnings: undefined,
+    })
+  })
+
+  it("returns host-native Response objects unchanged", () => {
+    const response = Response.json({ ok: true })
+
+    expect(toAgentHttpResult(response, true)).toBe(response)
+    expect(toAgentFetchResponse(response, true)).toBe(response)
+  })
+
+  it("uses AI SDK stream response helpers when streaming Agent results provide them", async () => {
+    const response = new Response("hello")
+    const result = {
+      toTextStreamResponse: () => response,
+    }
+
+    expect(toAgentHttpResult(result, true)).toBe(response)
+    expect(await toAgentFetchResponse(result, true).text()).toBe("hello")
+  })
+
+  it("renders async iterable events as newline-delimited JSON", async () => {
+    async function* events() {
+      yield { type: "start" }
+      yield { type: "done", text: "ok" }
+    }
+
+    const response = toAgentEventStreamResponse(events())
+
+    expect(response.headers.get("content-type")).toBe("application/x-ndjson; charset=utf-8")
+    await expect(response.text()).resolves.toBe("{\"type\":\"start\"}\n{\"type\":\"done\",\"text\":\"ok\"}\n")
+  })
+
+  it("wraps non-streaming results in fetch JSON responses", async () => {
+    const response = toAgentFetchResponse({ extra: "private", text: "ok" }, false)
+
+    await expect(response.json()).resolves.toEqual({ text: "ok" })
+  })
+})
