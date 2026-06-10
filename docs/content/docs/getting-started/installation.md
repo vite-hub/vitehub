@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: Add ViteHub packages to your app and register the integrations you use.
+description: Add ViteHub packages to your app and register the Vite Integrations you use.
 navigation.order: 2
 icon: i-lucide-download
 ---
@@ -52,7 +52,7 @@ Add more primitives only when your app needs them.
 pnpm add @vite-hub/env @vite-hub/database @vite-hub/blob @vite-hub/queue @vite-hub/workflow @vite-hub/schedule @vite-hub/sandbox @vite-hub/workspace
 ```
 
-Each package exports its own ViteHub integration.
+Each package exports its own Vite Integration.
 
 ```ts [vite.config.ts]
 import { hubBlob } from '@vite-hub/blob/vite'
@@ -122,4 +122,3 @@ Confirm the app starts without missing integration errors. If a page imports `kv
 - Continue with [First agent](/docs/getting-started/first-agent) to define and run an Agent.
 - Open [Server primitives](/docs/server-primitives) when you already know which primitive your app needs.
 - Open [Agents](/docs/agents) when the main product value is model-backed behavior.
-
