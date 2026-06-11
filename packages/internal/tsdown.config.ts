@@ -21,6 +21,7 @@ export default defineConfig({
     "src/build/paths.ts",
     "src/build/user-entry.ts",
     "src/build/vercel-config.ts",
+    "src/build/vercel-runtime-packages.ts",
     "src/build/vite.ts",
     "src/feature-bridge/feature-engine.ts",
     "src/feature-bridge/hosting.ts",

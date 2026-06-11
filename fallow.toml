@@ -78,6 +78,7 @@ ignoreDependencies = [
   "docus",
   "@cloudflare/sandbox",
   "@vercel/blob",
+  "@vercel/nft",
   "@vercel/queue",
   "@vercel/sandbox",
   "async-retry",
