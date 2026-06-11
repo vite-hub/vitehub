@@ -222,8 +222,8 @@ _Avoid_: App middleware, model-facing counter tool, KV wrapper
 - An **LLM Gate Capability** chooses one developer-defined allow or reject category through an LLM and may reject before the main Agent Invocation.
 - Deterministic or callback-based routing is not an official Capability in V1; users can define inline Capabilities or hooks that set named invocation context values.
 - A **Rate Limit Capability** records a typed **Agent Invocation Context Value** with the consumed budget result when an invocation is allowed or rejected.
-- A **Rate Limit Capability** consumes trusted identity from Agent Invocation context, Agent Run metadata, request metadata, or a developer callback, not from model output.
-- A **Rate Limit Capability** uses an explicit rate-limit store contract; model-facing storage Capabilities are not the runtime enforcement mechanism.
+- A **Rate Limit Capability** consumes trusted identity from Chat Identity, stable Agent Run metadata, explicitly trusted request metadata, or a developer callback, not from model output or client-supplied Chat App Route identity fields.
+- A **Rate Limit Capability** uses an explicit rate-limit store contract; model-facing storage Capabilities are not the runtime enforcement mechanism, and hosted runtimes require an explicit store choice.
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
 - A **Chat Capability** owns Chat History behavior for the current stack.
 - A **Chat Capability** may declare **Chat Platform Adapters** through a **Chat Adapter Callback**.
@@ -371,6 +371,8 @@ _Avoid_: App middleware, model-facing counter tool, KV wrapper
 - A generic `decisionPolicy()` helper and request-refinement Capability were considered - resolved: defer them until **LLM Route Capability**, **LLM Gate Capability**, and Chat Sessions prove the internal primitive.
 - App-level rate-limit middleware was considered for agent chat routes - resolved: use a **Rate Limit Capability** so invocation budgets compose through Agent Definitions and can run before model execution on every Agent Invocation path.
 - Plain KV `get`/`set` counters were considered for **Rate Limit Capability** storage - resolved: rate limiting needs an explicit consume contract because distributed enforcement depends on atomic store behavior.
+- Client-provided Chat App Route user/run fields were considered for **Rate Limit Capability** defaults - resolved: do not trust them as budget identity; official chat triggers should produce Chat Identity from trusted server-side inputs.
+- Forwarded request headers were considered for default IP identity - resolved: require explicit trusted header names because proxy trust is deployment-specific.
 - Typed capability preparation was considered as a runtime lifecycle phase - resolved: use narrow **Capability Type Contracts** for type-only Agent Definition checks on official Capabilities, and keep runtime validation inside the **Capability Lifecycle**.
 - A generic custom-Capability contract framework was considered - resolved: defer it until user-defined Capabilities prove a stable story; the current contract exists for official Capabilities that directly consume Agent Definition inputs.
 - Input Command display metadata was considered capability-level - resolved: Capability id owns identity, while command descriptions are the user-facing metadata hosts may render.

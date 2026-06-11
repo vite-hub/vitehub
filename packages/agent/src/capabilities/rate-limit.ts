@@ -71,7 +71,8 @@ export interface RateLimitOptions {
   limit: number
   message?: string | ((decision: RateLimitDecision) => string)
   scope?: string | ((context: AgentCapabilityRuntimeContext) => MaybePromise<string>)
-  store?: RateLimitStore | ((context: AgentCapabilityRuntimeContext) => MaybePromise<RateLimitStore>)
+  store?: RateLimitStore | "memory" | ((context: AgentCapabilityRuntimeContext) => MaybePromise<RateLimitStore | "memory">)
+  trustedIpHeaders?: string[]
   window: RateLimitWindow
 }
 
@@ -192,20 +193,7 @@ function firstString(...values: unknown[]): string | undefined {
 }
 
 function resolveChatIdentity(context: AgentCapabilityRuntimeContext): string | undefined {
-  const input = context.input.get()
-  const chat = typeof input.context?.chat === "object" && input.context.chat !== null
-    ? input.context.chat as Record<string, unknown>
-    : undefined
-  const user = typeof chat?.user === "object" && chat.user !== null
-    ? chat.user as Record<string, unknown>
-    : undefined
-  return firstString(
-    context.context.get("chat.identity"),
-    user?.id,
-    user?.sub,
-    user?.email,
-    user?.username,
-  )
+  return firstString(context.context.get("chat.identity"))
 }
 
 function resolveRunIdentity(context: AgentCapabilityRuntimeContext): string | undefined {
@@ -216,8 +204,6 @@ function resolveRunIdentity(context: AgentCapabilityRuntimeContext): string | un
     run.threadId ? `thread:${run.threadId}` : undefined,
     run.channelId && run.origin ? `${run.origin}:channel:${run.channelId}` : undefined,
     run.channelId ? `channel:${run.channelId}` : undefined,
-    run.origin && run.runId ? `${run.origin}:run:${run.runId}` : undefined,
-    run.runId,
   )
 }
 
@@ -232,20 +218,22 @@ function forwardedHeader(value: string): string | undefined {
   return match?.[1]
 }
 
-function resolveIpIdentity(context: AgentCapabilityRuntimeContext): string | undefined {
+function resolveIpIdentity(context: AgentCapabilityRuntimeContext, trustedIpHeaders: string[] | undefined): string | undefined {
   const headers = context.request?.headers
-  if (!headers) return
-  return firstString(
-    headers.get("cf-connecting-ip"),
-    headers.get("x-real-ip"),
-    headers.get("x-forwarded-for") ? forwardedFor(headers.get("x-forwarded-for")!) : undefined,
-    headers.get("forwarded") ? forwardedHeader(headers.get("forwarded")!) : undefined,
-  )
+  if (!headers || !trustedIpHeaders?.length) return
+  for (const name of trustedIpHeaders) {
+    const value = headers.get(name)
+    if (!value) continue
+    if (name.toLowerCase() === "x-forwarded-for") return forwardedFor(value)
+    if (name.toLowerCase() === "forwarded") return forwardedHeader(value)
+    return value.trim() || undefined
+  }
 }
 
 async function resolveIdentity(
   identity: RateLimitIdentity,
   context: AgentCapabilityRuntimeContext,
+  trustedIpHeaders: string[] | undefined,
 ): Promise<{ source: string, value: string }> {
   if (typeof identity === "function") {
     const value = await identity(context)
@@ -263,19 +251,19 @@ async function resolveIdentity(
     throw new Error("[vitehub] rateLimit({ identity: \"run\" }) could not resolve Agent Run metadata.")
   }
   if (identity === "ip") {
-    const value = resolveIpIdentity(context)
+    const value = resolveIpIdentity(context, trustedIpHeaders)
     if (value) return { source: "ip", value }
-    throw new Error("[vitehub] rateLimit({ identity: \"ip\" }) could not resolve a request IP.")
+    throw new Error("[vitehub] rateLimit({ identity: \"ip\" }) requires trustedIpHeaders and a matching request header.")
   }
-  return resolveAutoIdentity(context)
+  return resolveAutoIdentity(context, trustedIpHeaders)
 }
 
-function resolveAutoIdentity(context: AgentCapabilityRuntimeContext): { source: string, value: string } {
+function resolveAutoIdentity(context: AgentCapabilityRuntimeContext, trustedIpHeaders: string[] | undefined): { source: string, value: string } {
   const chat = resolveChatIdentity(context)
   if (chat) return { source: "chat", value: chat }
   const run = resolveRunIdentity(context)
   if (run) return { source: "run", value: run }
-  const ip = resolveIpIdentity(context)
+  const ip = resolveIpIdentity(context, trustedIpHeaders)
   if (ip) return { source: "ip", value: ip }
   return { source: "anonymous", value: "anonymous" }
 }
@@ -316,12 +304,22 @@ async function resolveStore(
   context: AgentCapabilityRuntimeContext,
   fallback: RateLimitStore,
 ): Promise<RateLimitStore> {
-  if (!store) return fallback
+  if (!store) {
+    if (isHostedRuntime(context.runtime)) {
+      throw new Error(`[vitehub] rateLimit() requires an explicit store on hosted runtime "${context.runtime}". Use store: "memory" only for local development, tests, or single-process hosts.`)
+    }
+    return fallback
+  }
   const resolved = typeof store === "function" ? await store(context) : store
+  if (resolved === "memory") return fallback
   if (!resolved || typeof resolved.consume !== "function") {
     throw new TypeError("[vitehub] rateLimit({ store }) must provide a consume() function.")
   }
   return resolved
+}
+
+function isHostedRuntime(runtime: string): boolean {
+  return runtime === "vercel" || runtime === "cloudflare-agents"
 }
 
 function retryAfterSeconds(resetAt: number, now: number): number {
@@ -343,6 +341,7 @@ export function rateLimit(
   const windowMs = parseRateLimitWindow(options.window)
   const fallbackStore = memoryRateLimitStore()
   const identity = options.identity || "auto"
+  const trustedIpHeaders = options.trustedIpHeaders?.map(header => header.trim()).filter(Boolean)
 
   return defineCapability({
     id,
@@ -357,7 +356,7 @@ export function rateLimit(
         throw new Error(`[vitehub] Invocation context value "${id}" is already set.`)
       }
       const now = Date.now()
-      const resolvedIdentity = await resolveIdentity(identity, context)
+      const resolvedIdentity = await resolveIdentity(identity, context, trustedIpHeaders)
       const scope = await resolveScope(options.scope, context, id)
       const key = `vitehub:rate-limit:${stableKeyPart(id)}:${scope}:${await hashKeyPart(`${resolvedIdentity.source}:${resolvedIdentity.value}`)}`
       const store = await resolveStore(options.store, context, fallbackStore)

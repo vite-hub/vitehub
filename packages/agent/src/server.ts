@@ -64,6 +64,15 @@ async function readJsonBody(request: Request): Promise<AgentChatRouteBody> {
   return typeof body === "object" && body !== null ? body as AgentChatRouteBody : { messages: [] }
 }
 
+function chatAppRouteTriggerInput(body: AgentChatRouteBody): AgentChatMessageTriggerInput {
+  return {
+    ...(body.history !== undefined ? { history: body.history } : {}),
+    messages: body.messages,
+    ...(body.session !== undefined ? { session: body.session } : {}),
+    ...(body.timeout !== undefined ? { timeout: body.timeout } : {}),
+  }
+}
+
 function readableStreamFromResult(value: unknown): ReadableStream<unknown> {
   if (value instanceof ReadableStream) return value
   if (value instanceof Response && value.body) return value.body
@@ -708,8 +717,8 @@ export function defineAgentChatFetchHandler(
     }
 
     try {
-      const context = createRuntimeContext(request, body.run, await resolveRuntimeWaitUntil(handlerOptions.waitUntil))
-      const result = await streamAgentTrigger(agent as never, context, "chat.message", body, {
+      const context = createRuntimeContext(request, undefined, await resolveRuntimeWaitUntil(handlerOptions.waitUntil))
+      const result = await streamAgentTrigger(agent as never, context, "chat.message", chatAppRouteTriggerInput(body), {
         output: "ui-message-stream",
       })
       return await toUiMessageStreamResponse(readableStreamFromResult(result))

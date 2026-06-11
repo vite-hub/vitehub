@@ -8,10 +8,17 @@ import {
 } from "../src/capabilities.ts"
 import { toHttpErrorResponse } from "../src/http-error.ts"
 
-const runtime = (request?: Request) => ({
+import type { AgentRunMetadata, AgentRuntimeName } from "../src/index.ts"
+
+const runtime = (options: {
+  request?: Request
+  run?: AgentRunMetadata
+  runtime?: AgentRuntimeName
+} = {}) => ({
   memo: vi.fn(),
-  ...(request ? { request } : {}),
-  runtime: "unknown" as const,
+  ...(options.request ? { request: options.request } : {}),
+  ...(options.run ? { run: options.run } : {}),
+  runtime: options.runtime || "unknown" as const,
   runtimeConfig: {},
   waitUntil: vi.fn(),
 })
@@ -75,14 +82,32 @@ describe("rateLimit capability", () => {
     })
 
     await expect(runAgent(agent, runtime(), {
-      context: { chat: { user: { id: "user_1" } } },
+      context: { "chat.identity": "user_1" },
     })).resolves.toBe("ok")
     await expect(runAgent(agent, runtime(), {
-      context: { chat: { user: { id: "user_2" } } },
+      context: { "chat.identity": "user_2" },
     })).resolves.toBe("ok")
     await expect(runAgent(agent, runtime(), {
-      context: { chat: { user: { id: "user_1" } } },
+      context: { "chat.identity": "user_1" },
     })).rejects.toBeInstanceOf(RateLimitRejectedError)
+  })
+
+  it("does not treat untrusted chat user context as Chat Identity", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [
+        rateLimit({
+          identity: "chat",
+          limit: 1,
+          window: "1m",
+        }),
+      ],
+      run: () => "ok",
+    })
+
+    await expect(runAgent(agent, runtime(), {
+      context: { chat: { user: { id: "user_1" } } },
+    })).rejects.toThrow("could not resolve a Chat Identity")
   })
 
   it("resets the memory store after the fixed window elapses", async () => {
@@ -125,6 +150,7 @@ describe("rateLimit capability", () => {
             identity: "ip",
             limit: 1,
             message: decision => `Try again in ${decision.retryAfter}s.`,
+            trustedIpHeaders: ["x-forwarded-for"],
             window: "1m",
           }),
         ],
@@ -136,8 +162,8 @@ describe("rateLimit capability", () => {
         },
       })
 
-      await expect(runAgent(agent, runtime(request), {})).resolves.toBe("ok")
-      const error = await runAgent(agent, runtime(request), {}).catch(error => error)
+      await expect(runAgent(agent, runtime({ request }), {})).resolves.toBe("ok")
+      const error = await runAgent(agent, runtime({ request }), {}).catch(error => error)
       const response = toHttpErrorResponse(error)
 
       expect(response?.status).toBe(429)
@@ -148,5 +174,70 @@ describe("rateLimit capability", () => {
     finally {
       vi.useRealTimers()
     }
+  })
+
+  it("requires explicit trusted IP headers for IP identity", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [
+        rateLimit({
+          identity: "ip",
+          limit: 1,
+          window: "1m",
+        }),
+      ],
+      run: () => "ok",
+    })
+
+    await expect(runAgent(agent, runtime({
+      request: new Request("https://example.com", {
+        headers: { "x-forwarded-for": "203.0.113.10" },
+      }),
+    }), {})).rejects.toThrow("requires trustedIpHeaders")
+  })
+
+  it("requires an explicit store for hosted runtimes", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const withoutStore = defineAgent({
+      capabilities: [
+        rateLimit({
+          identity: () => "user_1",
+          limit: 1,
+          window: "1m",
+        }),
+      ],
+      run: () => "ok",
+    })
+    const withMemoryOptIn = defineAgent({
+      capabilities: [
+        rateLimit({
+          identity: () => "user_1",
+          limit: 1,
+          store: "memory",
+          window: "1m",
+        }),
+      ],
+      run: () => "ok",
+    })
+
+    await expect(runAgent(withoutStore, runtime({ runtime: "vercel" }), {})).rejects.toThrow("requires an explicit store")
+    await expect(runAgent(withMemoryOptIn, runtime({ runtime: "vercel" }), {})).resolves.toBe("ok")
+  })
+
+  it("requires stable run metadata for run identity", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [
+        rateLimit({
+          identity: "run",
+          limit: 1,
+          window: "1m",
+        }),
+      ],
+      run: () => "ok",
+    })
+
+    await expect(runAgent(agent, runtime({ run: { runId: "run_1" } }), {})).rejects.toThrow("could not resolve Agent Run metadata")
+    await expect(runAgent(agent, runtime({ run: { runId: "run_2", threadId: "thread_1" } }), {})).resolves.toBe("ok")
   })
 })
