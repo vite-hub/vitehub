@@ -64,6 +64,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, secr
       chatInstance = chat
     }),
     isDM: vi.fn(() => true),
+    editMessage: vi.fn(async (threadId: string, messageId: string, message: unknown) => ({ id: messageId, raw: { message }, threadId })),
     name: "telegram",
     postMessage: vi.fn(async (threadId: string, message: unknown) => ({ id: "sent-1", raw: { message }, threadId })),
     startTyping: vi.fn(async () => {}),
@@ -71,6 +72,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, secr
   }
   return adapter as unknown as Adapter & {
     handleWebhook: ReturnType<typeof vi.fn>
+    editMessage: ReturnType<typeof vi.fn>
     postMessage: ReturnType<typeof vi.fn>
     startTyping: ReturnType<typeof vi.fn>
   }
@@ -305,7 +307,8 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "echo: hello" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "echo: hello" })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
       markdown: expect.stringContaining("**Usage**"),
     })
@@ -400,7 +403,72 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
-    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "ok" })
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "...")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "ok" })
+  })
+
+  it("posts configured chat fallback while streamed webhook work is still running", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    let runStarted!: () => void
+    let finishRun!: () => void
+    const runStartedPromise = new Promise<void>(resolve => {
+      runStarted = resolve
+    })
+    const finishRunPromise = new Promise<void>(resolve => {
+      finishRun = resolve
+    })
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+          fallbackStreamingPlaceholderText: "Working on it...",
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      run: async () => {
+        runStarted()
+        await finishRunPromise
+        return "done"
+      },
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 1045,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1045,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    await runStartedPromise
+    await Promise.resolve()
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Working on it...")
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+    await expect(Promise.race([
+      responsePromise.then(() => "settled"),
+      Promise.resolve("pending"),
+    ])).resolves.toBe("pending")
+
+    finishRun()
+    const response = await responsePromise
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "done" })
   })
 
   it("lets chat webhooks opt out of streaming model execution", async () => {
@@ -794,7 +862,8 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:789", { markdown: "ok" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:789", "...")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:789", "sent-1", { markdown: "ok" })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:789", { markdown: "Custom usage: `15` tokens via telegram" })
     expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
       usage: {

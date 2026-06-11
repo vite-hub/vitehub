@@ -245,6 +245,41 @@ async function collectAgentOutput(result: unknown): Promise<CollectedAgentOutput
   }
 }
 
+function streamAgentOutputToChatText(
+  result: Promise<unknown>,
+  onUsageRecord: (usageRecord: AgentUsageRecord) => void,
+): AsyncIterable<string> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      const output = await result
+      if (output instanceof Response) {
+        if (output.headers.get("content-type")?.includes("application/json")) {
+          const body = await output.clone().json().catch(() => undefined)
+          if (isRecord(body)) {
+            if (isRecord(body.usageRecord)) onUsageRecord(body.usageRecord as AgentUsageRecord)
+            if (typeof body.text === "string") yield body.text
+            return
+          }
+        }
+        yield await output.text()
+        return
+      }
+
+      for await (const event of streamAgentOutputToEvents(output)) {
+        if (event.type === "text-delta") {
+          yield event.text
+        }
+        if (event.type === "usage") {
+          onUsageRecord(event.usageRecord)
+        }
+        if (event.type === "error") {
+          throw new Error(event.error)
+        }
+      }
+    },
+  }
+}
+
 function randomToken(): string {
   return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
@@ -704,14 +739,22 @@ async function handleChatSdkMessage(
     invocation.input as AgentRunInput,
     createChatFinishExtension(input, registration, thread),
   )
-  const result = options?.stream === false
-    ? await runAgentInline(agent as never, runContext as never, invocationInput as never)
-    : await streamAgent(agent as never, runContext as never, invocationInput as never, {
-        output: "events",
-      })
-  const { text, usageRecord } = await collectAgentOutput(result)
-  if (text) {
-    await thread.post({ markdown: text })
+  let usageRecord: AgentUsageRecord | undefined
+  if (options?.stream === false) {
+    const result = await runAgentInline(agent as never, runContext as never, invocationInput as never)
+    const collected = await collectAgentOutput(result)
+    usageRecord = collected.usageRecord
+    if (collected.text) {
+      await thread.post({ markdown: collected.text })
+    }
+  }
+  else {
+    const result = streamAgent(agent as never, runContext as never, invocationInput as never, {
+      output: "events",
+    })
+    await thread.post(streamAgentOutputToChatText(result, record => {
+      usageRecord = record
+    }))
   }
   await postUsageTelemetry(agent, Date.now() - startedAt, input, registration, thread, usageRecord)
 }
