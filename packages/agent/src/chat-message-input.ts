@@ -48,6 +48,12 @@ function firstString(...values: unknown[]): string | undefined {
   return values.find((value): value is string => typeof value === "string" && value.length > 0)
 }
 
+function chatIdentity(user: Record<string, unknown> | undefined, run: AgentRunMetadata | undefined): string | undefined {
+  const identity = firstString(user?.id, user?.sub, user?.email, user?.username)
+  if (!identity) return
+  return run?.origin ? `${run.origin}:${identity}` : identity
+}
+
 function uiToolName(part: Record<string, unknown>): string {
   if (part.type === "dynamic-tool") {
     return firstString(part.toolName, part.name) || "tool"
@@ -256,10 +262,12 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   }
   const selectedMessages = selectChatHistory(messages, triggerInput?.history ?? options.history, options.sessions, triggerInput?.session)
   const hookArgs = createChatTriggerHookArgs<TRuntimeConfig>(selectedMessages, triggerInput?.run, triggerInput?.session)
+  const identity = chatIdentity(triggerInput?.user, triggerInput?.run)
   return {
     hookArgs,
     input: {
       context: {
+        ...(identity ? { "chat.identity": identity } : {}),
         chat: {
           message: hookArgs.message,
           run: triggerInput?.run,
