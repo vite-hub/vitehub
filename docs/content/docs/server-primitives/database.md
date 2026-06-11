@@ -61,7 +61,7 @@ Cloudflare uses D1 bindings. Keep binding names, database names, and database id
 
 ```ts [vite.config.ts]
 export default defineConfig({
-  db: {
+  database: {
     cloudflare: {
       binding: 'DB',
       databaseName: 'app',
@@ -82,7 +82,7 @@ TURSO_AUTH_TOKEN=<token>
 
 ```ts [vite.config.ts]
 export default defineConfig({
-  db: {
+  database: {
     connection: {
       url: process.env.TURSO_DATABASE_URL,
       authToken: process.env.TURSO_AUTH_TOKEN,

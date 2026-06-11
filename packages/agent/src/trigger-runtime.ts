@@ -8,6 +8,7 @@ import type {
   AgentRunResult,
   AgentRuntimeConfig,
   AgentRuntimeContext,
+  AgentWebhookRegistrationDefinition,
   MaybePromise,
   ResolvedAgentRuntimeContext,
   ResolvedAgentTriggerDefinition,
@@ -100,6 +101,57 @@ export interface ResolvedAgentTriggerInvocation<
   trigger: ResolvedAgentTriggerDefinition<TRuntimeConfig, unknown, CALL_OPTIONS>
 }
 
+export interface AgentWebhookVerificationResult {
+  registration?: AgentWebhookRegistrationDefinition
+  verified: boolean
+}
+
+async function sha256(value: string): Promise<Uint8Array> {
+  const bytes = new TextEncoder().encode(value)
+  return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes))
+}
+
+async function constantTimeEqual(left: string, right: string): Promise<boolean> {
+  const [leftDigest, rightDigest] = await Promise.all([sha256(left), sha256(right)])
+  let diff = leftDigest.length ^ rightDigest.length
+  for (let index = 0; index < Math.max(leftDigest.length, rightDigest.length); index += 1) {
+    diff |= (leftDigest[index] ?? 0) ^ (rightDigest[index] ?? 0)
+  }
+  return diff === 0
+}
+
+function webhookVerificationError(message: string): Error & { statusCode: number } {
+  return Object.assign(new Error(message), { statusCode: 401 })
+}
+
+export async function verifyAgentWebhookRequest(
+  registrations: AgentWebhookRegistrationDefinition[],
+  request: Request,
+): Promise<AgentWebhookVerificationResult> {
+  const targeted = registrations
+    .map(registration => ({
+      headerValue: registration.secretHeader ? request.headers.get(registration.secretHeader) : null,
+      registration,
+    }))
+    .filter((entry): entry is { headerValue: string, registration: AgentWebhookRegistrationDefinition } => entry.headerValue !== null)
+
+  if (!targeted.length) return { verified: true }
+
+  for (const { headerValue, registration } of targeted) {
+    if (registration.secretToken === false) {
+      return { registration, verified: true }
+    }
+    if (!registration.secretToken) {
+      throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Set secretToken (from Server Env) or secretToken: false to explicitly disable verification.`)
+    }
+    if (await constantTimeEqual(registration.secretToken, headerValue)) {
+      return { registration, verified: true }
+    }
+  }
+
+  throw webhookVerificationError("[vitehub] Webhook secret verification failed.")
+}
+
 function withAgentTriggerContext<CALL_OPTIONS>(
   input: AgentRunInput<CALL_OPTIONS>,
   trigger: Pick<ResolvedAgentTriggerDefinition, "capabilityId" | "id" | "name">,
@@ -150,6 +202,9 @@ export async function resolveAgentTriggerInvocation<
   const trigger = triggers[triggerId] as ResolvedAgentTriggerDefinition<TRuntimeConfig, TInput, CALL_OPTIONS> | undefined
   if (!trigger) {
     throw new Error(`[vitehub] Agent trigger "${triggerId}" is not defined by this agent.`)
+  }
+  if (trigger.webhooks?.length && context.request) {
+    await verifyAgentWebhookRequest(trigger.webhooks, context.request)
   }
   const invocation = await trigger.invoke(input)
   return {

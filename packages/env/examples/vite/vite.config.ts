@@ -1,8 +1,8 @@
-import { env, envVite } from '@vite-hub/env/vite'
+import { env, hubEnv } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [envVite({ prefix: 'VITEHUB_' })],
+  plugins: [hubEnv({ prefix: 'VITEHUB_' })],
   env: {
     define: {
       __APP_VERSION__: env({

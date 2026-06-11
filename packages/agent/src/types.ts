@@ -105,7 +105,7 @@ export interface AgentWebhookRegistrationDefinition {
   path?: string
   provider: string
   secretHeader?: string
-  secretToken?: string
+  secretToken?: string | false
   url?: string
 }
 

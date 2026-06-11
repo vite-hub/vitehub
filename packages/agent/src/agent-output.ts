@@ -107,26 +107,35 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   }
   if (isAsyncIterable(value)) {
     const toolNames = new Map<string, string>()
+    let finished = false
     for await (const chunk of value as AsyncIterable<unknown>) {
       const event = toAgentStreamEvent(chunk, toolNames)
-      if (event) yield event
+      if (!event) continue
+      if (event.type === "finish") finished = true
+      yield event
     }
+    if (!finished) yield { type: "finish" }
     return
   }
   const result = value as { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> }
   const fullStream = result.fullStream
   if (fullStream) {
     const toolNames = new Map<string, string>()
+    let finished = false
     for await (const chunk of fullStream) {
       const event = toAgentStreamEvent(chunk, toolNames)
-      if (event) yield event
+      if (!event) continue
+      if (event.type === "finish") finished = true
+      yield event
     }
+    if (!finished) yield { type: "finish" }
     return
   }
   if (result.textStream) {
     for await (const text of result.textStream) {
       yield { text, type: "text-delta" }
     }
+    yield { type: "finish" }
     return
   }
   const text = typeof value === "object" && value !== null

@@ -2,13 +2,6 @@ import { DurableObject } from "cloudflare:workers"
 
 import type { Lock } from "chat"
 
-export { createCloudflareAgentState, ViteHubAgentStateAdapter } from "../state/providers/cloudflare.ts"
-export type {
-  CloudflareAgentStateOptions,
-  ViteHubAgentStateDurableObjectNamespace,
-  ViteHubAgentStateDurableObjectStub,
-} from "../state/providers/cloudflare.ts"
-
 interface CloudflareSqlCursor {
   one(): Record<string, unknown>
   toArray(): Array<Record<string, unknown>>

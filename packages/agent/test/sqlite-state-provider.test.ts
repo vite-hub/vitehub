@@ -104,6 +104,19 @@ describe("SQLite Agent State Provider", () => {
     await state.disconnect()
   })
 
+  it("deletes cache and list rows for the same key", async () => {
+    const { state } = await createState()
+    await state.connect()
+
+    await state.set("thread", { seen: true })
+    await state.appendToList("thread", "one")
+    await state.delete("thread")
+
+    await expect(state.get("thread")).resolves.toBeNull()
+    await expect(state.getList("thread")).resolves.toEqual([])
+    await state.disconnect()
+  })
+
   it("does not restore expired list entries when appending", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-06-02T10:00:00.000Z"))

@@ -126,5 +126,9 @@ files = ["packages/agent/src/state/providers/cloudflare.ts"]
 rules = { "unused-class-members" = "off" }
 
 [[overrides]]
+files = ["packages/agent/src/cloudflare-state-do.ts"]
+rules = { "unused-class-members" = "off" }
+
+[[overrides]]
 files = ["packages/shell/test/workspace-test-utils.ts"]
 rules = { "unused-class-members" = "off" }

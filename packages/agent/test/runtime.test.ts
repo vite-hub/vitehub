@@ -1137,6 +1137,7 @@ describe("agent message protocol", () => {
     expect(events).toEqual([
       { text: "hel", type: "text-delta" },
       { text: "lo", type: "text-delta" },
+      { type: "finish" },
     ])
   })
 
@@ -1529,6 +1530,7 @@ describe("agent message protocol", () => {
     expect(events).toEqual([
       { id: "call-1", input: false, name: "confirm", type: "tool-call" },
       { error: undefined, id: "call-1", name: "confirm", output: 0, type: "tool-result" },
+      { type: "finish" },
     ])
   })
 
@@ -1557,6 +1559,7 @@ describe("agent message protocol", () => {
     expect(events).toEqual([
       { id: "call-1", input: { query: "stock" }, name: "search", type: "tool-call" },
       { error: "lookup failed", id: "call-1", name: "search", output: undefined, type: "tool-result" },
+      { type: "finish" },
     ])
   })
 
@@ -1599,6 +1602,7 @@ describe("agent message protocol", () => {
         reason: "Refunds require review",
         type: "approval-request",
       },
+      { type: "finish" },
     ])
   })
 

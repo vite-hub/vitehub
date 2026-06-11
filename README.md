@@ -30,7 +30,8 @@
 - `pnpm typecheck` runs `typecheck` in `packages/*`
 - `pnpm build` runs `build` in `packages/*`
 - `pnpm lint` stays root-owned
-- `pnpm dev:docs` and `pnpm build:docs` are explicit docs commands
+- `pnpm docs:dev` and `pnpm docs:build` are explicit docs commands
+- `pnpm verify` runs lint, typecheck, contracts, tests, and build - the full local gate
 
 ## Package Baseline
 
