@@ -88,7 +88,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let runtimeConfig: ResolvedDBViteConfig | undefined
 
   function resolvedOptions() {
-    return resolved?.db ?? options
+    return resolved?.database ?? options
   }
 
   async function refreshRuntimeConfig() {
@@ -165,6 +165,6 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
 declare module "vite" {
   interface UserConfig {
-    db?: DBModulePublicOptions
+    database?: DBModulePublicOptions
   }
 }

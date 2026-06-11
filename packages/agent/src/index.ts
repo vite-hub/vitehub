@@ -458,7 +458,8 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
-export type { ResolvedAgentTriggerInvocation }
+export { verifyAgentWebhookRequest } from "./trigger-runtime.ts"
+export type { AgentWebhookVerificationResult, ResolvedAgentTriggerInvocation } from "./trigger-runtime.ts"
 export * from "./messages.ts"
 
 function validateSandboxCommands(commands: unknown): string[] {
@@ -527,7 +528,7 @@ function defineBaseAgent<
       : resolvedAdapter
   }
 
-  return {
+  const definition = {
     ...("model" in options ? { [baseAgentModel]: options.model } : {}),
     [baseAgentResolve]: resolveBaseAgent,
     chat,
@@ -553,6 +554,8 @@ function defineBaseAgent<
         : adapterInstance
     },
   } as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS>
+  Object.defineProperty(definition, "__vitehubAgentSettings", { value: options })
+  return definition
 }
 
 export function workflow(name?: string): AgentWorkflowRuntimeBinding {

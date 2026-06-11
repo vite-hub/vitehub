@@ -50,7 +50,12 @@ export function glob<const TKey extends string = string>(options: GlobSourceOpti
     if (options.keyCache === false) return await refreshKeys(ctx)
     const key = await getContextKey(ctx)
     if (!snapshot || snapshot.key !== key) {
-      snapshot = { key, keys: refreshKeys(ctx) }
+      const keys = refreshKeys(ctx)
+      const entry = { key, keys }
+      snapshot = entry
+      keys.catch(() => {
+        if (snapshot === entry) snapshot = undefined
+      })
     }
     return await snapshot.keys
   }

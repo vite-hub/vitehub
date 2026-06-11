@@ -2,11 +2,11 @@ import { describe, expectTypeOf, it } from "vitest"
 import type { Plugin, UserConfig } from "vite"
 
 import { env, SecretEnv, type EnvConfigOptions, type EnvVariableDeclaration } from "../src/index.ts"
-import { envVite } from "../src/vite.ts"
+import { hubEnv } from "../src/vite.ts"
 
 describe("types", () => {
   it("types Vite integration and declarations", () => {
-    expectTypeOf(envVite()).toMatchTypeOf<Plugin>()
+    expectTypeOf(hubEnv()).toMatchTypeOf<Plugin>()
     expectTypeOf(env.gitCommit({ short: true }).label).toMatchTypeOf<string>()
     expectTypeOf(env({ secret: true })).toMatchTypeOf<EnvVariableDeclaration>()
     expectTypeOf(env.variable({ secret: true })).toMatchTypeOf<EnvVariableDeclaration>()

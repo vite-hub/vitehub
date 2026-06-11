@@ -18,11 +18,11 @@ pnpm add @vite-hub/env
 
 ```ts
 // vite.config.ts
-import { env, envVite } from "@vite-hub/env/vite"
+import { env, hubEnv } from "@vite-hub/env/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [envVite({ prefix: "VITEHUB_" })],
+  plugins: [hubEnv({ prefix: "VITEHUB_" })],
   env: {
     public: {
       appName: env({ default: "ViteHub App", mode: "build" }),
@@ -40,6 +40,6 @@ export const appName = publicEnv.appName
 
 ## Vite Integration
 
-Use `envVite()` in Vite to resolve public/build env, generate `#vitehub/env/public`, and keep environment declarations close to the app config.
+Use `hubEnv()` in Vite to resolve public/build env, generate `#vitehub/env/public`, and keep environment declarations close to the app config.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

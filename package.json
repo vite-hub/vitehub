@@ -16,6 +16,7 @@
     "test:contracts": "vitest run",
     "test": "pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run test",
     "build": "pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run build",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test:contracts && pnpm test && pnpm build",
     "release": "pnpm dlx bumpp@11.1.0 package.json packages/*/package.json --commit \"chore(release): v%s\" --tag \"v%s\" --push --no-push-all --git-check",
     "playground:vite:build": "pnpm --dir playground/vite build",
     "playground:vite:build:cloudflare": "pnpm build && pnpm playground:vite:build --mode chat",

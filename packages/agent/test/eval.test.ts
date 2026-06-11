@@ -269,6 +269,53 @@ describe("agent eval", () => {
     })
   })
 
+  it("applies replacement instruction variants for base agents", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineEval } = await import("../src/eval.ts")
+    const baseModel = { id: "base" }
+
+    defineEval({
+      agent: defineAgent({
+        instructions: "Base instructions.",
+        model: baseModel as never,
+      }),
+      name: "support",
+      scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
+      variants: [{ instructions: "Variant instructions.", name: "variant" }],
+    })
+
+    await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input, evaliteCalls[0]!.variants![0]!.input)
+
+    expect(agentSettings.at(-1)).toMatchObject({
+      instructions: "Variant instructions.",
+      model: baseModel,
+    })
+  })
+
+  it("applies model variants for base agents", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineEval } = await import("../src/eval.ts")
+    const baseModel = { id: "base" }
+    const variantModel = { id: "variant" }
+
+    defineEval({
+      agent: defineAgent({
+        instructions: "Base instructions.",
+        model: baseModel as never,
+      }),
+      name: "support",
+      scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
+      variants: [{ model: variantModel, name: "variant" }],
+    })
+
+    await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input, evaliteCalls[0]!.variants![0]!.input)
+
+    expect(agentSettings.at(-1)).toMatchObject({
+      instructions: "Base instructions.",
+      model: variantModel,
+    })
+  })
+
   it("rejects variant overrides for non-inspectable agents", async () => {
     const { defineEval } = await import("../src/eval.ts")
 
@@ -281,7 +328,7 @@ describe("agent eval", () => {
 
     await expect(evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input, evaliteCalls[0]!.variants![0]!.input))
       .rejects
-      .toThrow("Agent Evaluation variants with model or instructions require an inspectable defineAgent({ workspace }) Agent Definition.")
+      .toThrow("Agent Evaluation variants with model or instructions require an Agent Definition created with defineAgent(...).")
   })
 
   it("ignores undefined variant override fields", async () => {

@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { env, envVite } from "../src/vite.ts"
+import { env, hubEnv } from "../src/vite.ts"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
 
@@ -14,7 +14,7 @@ describe("Vite plugin", () => {
     await writeFile(join(root, "package.json"), JSON.stringify({ version: "1.2.3" }), "utf8")
     await writeFile(join(root, ".env.production"), "PUBLIC_APP_NAME=Quiver\nDEFINE_SENTRY_DEBUG=true\n", "utf8")
 
-    const plugin = envVite({ diagnostics: "trace" })
+    const plugin = hubEnv({ diagnostics: "trace" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
     const result = await configHook({
       env: {
@@ -82,7 +82,7 @@ describe("Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-"))
     await writeFile(join(root, ".env.production"), "VITEHUB_PUBLIC_APP_NAME=Quiver\n", "utf8")
 
-    const plugin = envVite({ prefix: "VITEHUB_" })
+    const plugin = hubEnv({ prefix: "VITEHUB_" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
     await configHook({
       env: {

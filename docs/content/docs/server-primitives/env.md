@@ -20,11 +20,11 @@ Env does not own secret storage for each host. The host still supplies environme
 ## Minimal setup
 
 ```ts [vite.config.ts]
-import { env, envVite } from '@vite-hub/env/vite'
+import { env, hubEnv } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [envVite()],
+  plugins: [hubEnv()],
   env: {
     public: {
       appName: env({ default: 'Acme' }),

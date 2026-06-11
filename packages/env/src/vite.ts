@@ -23,7 +23,7 @@ export interface EnvVitePluginAPI {
 
 export type EnvVitePlugin = Plugin & { api: EnvVitePluginAPI }
 
-export function envVite(options: EnvIntegrationOptions = {}): EnvVitePlugin {
+export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   let buildPublicConfig: Record<string, unknown> = {}
   let diagnosticsText: string | undefined
   const getPublicEnv = () => buildPublicConfig

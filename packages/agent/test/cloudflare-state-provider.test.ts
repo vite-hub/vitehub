@@ -235,7 +235,7 @@ describe("Cloudflare Agent State Provider", () => {
   it("clears list expiry when appending without ttlMs", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-05-31T10:00:00.000Z"))
-    const { ViteHubAgentStateDO } = await import("../src/cloudflare/state.ts")
+    const { ViteHubAgentStateDO } = await import("../src/cloudflare-state-do.ts")
     const { ctx } = createFakeDurableObjectState()
     const state = new ViteHubAgentStateDO(ctx as never, {})
 

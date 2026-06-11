@@ -125,7 +125,7 @@ describe("hubDb", () => {
 
     const plugin = hubDb()
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({ db: false, root: rootDir } as never)
+    await configResolved({ database: false, root: rootDir } as never)
 
     expect(plugin.api.getConfig()).toBeUndefined()
   })
@@ -136,7 +136,7 @@ describe("hubDb", () => {
 
     const plugin = hubDb()
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({ db: false, root: rootDir } as never)
+    await configResolved({ database: false, root: rootDir } as never)
 
     await expect(resolveCliContributor(plugin)).resolves.toBeUndefined()
   })
@@ -147,7 +147,7 @@ describe("hubDb", () => {
 
     const plugin = hubDb()
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({ db: { cli: false }, root: rootDir } as never)
+    await configResolved({ database: { cli: false }, root: rootDir } as never)
 
     await expect(resolveCliContributor(plugin)).resolves.toBeUndefined()
   })
