@@ -263,6 +263,9 @@ describe("provider deployment outputs", () => {
     await writePackage(rootDir, "transitive-peer")
     await writePackage(rootDir, "optional-peer")
     await writePackage(runtimePackageDir, "nested-ignored")
+    await writeFile(join(runtimePackageDir, "index.js"), "import './runtime-file.js'\nexport default {}\n", "utf8")
+    await writeFile(join(runtimePackageDir, "runtime-file.js"), "export const runtime = true\n", "utf8")
+    await writeFile(join(runtimePackageDir, "unused-file.js"), "export const unused = true\n", "utf8")
     await mkdir(serverDir, { recursive: true })
 
     await copyVercelFunctionRuntimePackages({
@@ -273,6 +276,8 @@ describe("provider deployment outputs", () => {
     await expect(readFile(join(serverDir, "node_modules", "@scope", "runtime", "package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
       name: "@scope/runtime",
     })
+    expect(existsSync(join(serverDir, "node_modules", "@scope", "runtime", "runtime-file.js"))).toBe(true)
+    expect(existsSync(join(serverDir, "node_modules", "@scope", "runtime", "unused-file.js"))).toBe(false)
     expect(existsSync(join(serverDir, "node_modules", "@scope", "runtime", "node_modules", "nested-ignored"))).toBe(false)
     expect(existsSync(join(serverDir, "node_modules", "runtime-dependency", "package.json"))).toBe(true)
     expect(existsSync(join(serverDir, "node_modules", "runtime-peer", "package.json"))).toBe(true)

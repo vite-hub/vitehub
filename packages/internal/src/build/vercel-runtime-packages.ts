@@ -1,8 +1,11 @@
-import { access, cp, mkdir, readFile, rm } from "node:fs/promises"
+import { access, copyFile, cp, mkdir, readFile, rm, stat } from "node:fs/promises"
 import { createRequire } from "node:module"
-import { dirname, join, relative, resolve, sep } from "node:path"
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import { createDefaultVercelOutputRoot } from "./deployment-output.ts"
+
+const runtimeExportConditions = new Set(["default", "import", "module", "node", "node-addons", "require"])
+let nodeFileTracePromise: Promise<typeof import("@vercel/nft").nodeFileTrace> | undefined
 
 interface VercelFunctionRuntimePackage {
   includePeerDependencies?: boolean
@@ -57,6 +60,9 @@ async function copyPackageToNodeModules(
   const packageDir = dirname(packageJsonPath)
   const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as {
     dependencies?: Record<string, string>
+    exports?: unknown
+    main?: string
+    module?: string
     name?: string
     peerDependencies?: Record<string, string>
     peerDependenciesMeta?: Record<string, { optional?: boolean }>
@@ -67,12 +73,8 @@ async function copyPackageToNodeModules(
     copied.add(packageKey)
     const targetDir = join(outputNodeModules, ...name.split("/"))
     await rm(targetDir, { force: true, recursive: true })
-    await mkdir(dirname(targetDir), { recursive: true })
-    await cp(packageDir, targetDir, {
-      dereference: true,
-      filter: source => !relative(packageDir, source).split(sep).includes("node_modules"),
-      recursive: true,
-    })
+    const copiedTrace = await copyTracedPackageFiles(name, resolver, packageDir, packageJsonPath, packageJson, targetDir)
+    if (!copiedTrace) await copyPackageDirectory(packageDir, targetDir)
   }
 
   const packageRequire = createRequire(packageJsonPath)
@@ -89,6 +91,129 @@ async function copyPackageToNodeModules(
       name: dependencyName,
     })
   }
+}
+
+async function copyTracedPackageFiles(
+  name: string,
+  resolver: NodeJS.Require,
+  packageDir: string,
+  packageJsonPath: string,
+  packageJson: { exports?: unknown, main?: string, module?: string },
+  targetDir: string,
+): Promise<boolean> {
+  const entries = await resolvePackageTraceEntries(name, resolver, packageDir, packageJson)
+  if (!entries) return false
+
+  const nodeFileTrace = await loadNodeFileTrace()
+  const { fileList } = await nodeFileTrace([...entries], {
+    base: packageDir,
+    conditions: ["node"],
+    exportsOnly: true,
+    processCwd: packageDir,
+  })
+
+  fileList.add(relative(packageDir, packageJsonPath))
+  for (const file of fileList) {
+    const source = resolve(packageDir, file)
+    if (!isInsideDirectory(packageDir, source) || hasNodeModulesSegment(file)) continue
+    const target = resolve(targetDir, file)
+    await mkdir(dirname(target), { recursive: true })
+    await copyFile(source, target)
+  }
+
+  return true
+}
+
+async function copyPackageDirectory(packageDir: string, targetDir: string): Promise<void> {
+  await mkdir(dirname(targetDir), { recursive: true })
+  await cp(packageDir, targetDir, {
+    dereference: true,
+    filter: source => !hasNodeModulesSegment(relative(packageDir, source)),
+    recursive: true,
+  })
+}
+
+async function loadNodeFileTrace(): Promise<typeof import("@vercel/nft").nodeFileTrace> {
+  nodeFileTracePromise ??= import("@vercel/nft").then(({ nodeFileTrace }) => nodeFileTrace)
+  return nodeFileTracePromise
+}
+
+async function resolvePackageTraceEntries(
+  name: string,
+  resolver: NodeJS.Require,
+  packageDir: string,
+  packageJson: { exports?: unknown, main?: string, module?: string },
+): Promise<string[] | undefined> {
+  const entryCandidates = new Set<string>()
+
+  if (packageJson.exports) {
+    const exportedTargets = collectRuntimeExportTargets(packageJson.exports)
+    if (!exportedTargets) return undefined
+    for (const target of exportedTargets) entryCandidates.add(resolve(packageDir, target))
+  } else {
+    try {
+      entryCandidates.add(resolver.resolve(name))
+    }
+    catch (error) {
+      if (!isPackageResolutionMiss(error)) throw error
+    }
+    if (packageJson.main) entryCandidates.add(resolve(packageDir, packageJson.main))
+    if (packageJson.module) entryCandidates.add(resolve(packageDir, packageJson.module))
+    entryCandidates.add(resolve(packageDir, "index.js"))
+  }
+
+  const entries: string[] = []
+  for (const candidate of entryCandidates) {
+    try {
+      const candidateStat = await stat(candidate)
+      if (candidateStat.isFile()) entries.push(candidate)
+      else if (candidateStat.isDirectory()) return undefined
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+  }
+
+  return entries.length ? entries : undefined
+}
+
+function collectRuntimeExportTargets(exportsValue: unknown, condition?: string): Set<string> | undefined {
+  if (typeof exportsValue === "string") {
+    if (condition === "types") return new Set()
+    if (exportsValue.includes("*")) return undefined
+    return exportsValue.startsWith("./") ? new Set([exportsValue]) : new Set()
+  }
+
+  if (Array.isArray(exportsValue)) {
+    const targets = new Set<string>()
+    for (const entry of exportsValue) {
+      const entryTargets = collectRuntimeExportTargets(entry, condition)
+      if (!entryTargets) return undefined
+      for (const target of entryTargets) targets.add(target)
+    }
+    return targets
+  }
+
+  if (typeof exportsValue !== "object" || exportsValue === null) return new Set()
+
+  const targets = new Set<string>()
+  for (const [key, value] of Object.entries(exportsValue)) {
+    if (key === "types") continue
+    if (!key.startsWith(".") && !runtimeExportConditions.has(key)) continue
+    const entryTargets = collectRuntimeExportTargets(value, key)
+    if (!entryTargets) return undefined
+    for (const target of entryTargets) targets.add(target)
+  }
+  return targets
+}
+
+function hasNodeModulesSegment(path: string): boolean {
+  return path.split(/[\\/]/).includes("node_modules")
+}
+
+function isInsideDirectory(parent: string, child: string): boolean {
+  const childRelativePath = relative(parent, child)
+  return childRelativePath === "" || (!childRelativePath.startsWith(`..${sep}`) && childRelativePath !== ".." && !isAbsolute(childRelativePath))
 }
 
 async function resolvePackageJson(name: string, resolver: NodeJS.Require, fromDir: string): Promise<string | undefined> {

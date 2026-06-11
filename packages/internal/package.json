@@ -47,6 +47,7 @@
     "typecheck": "tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
+    "@vercel/nft": "catalog:vercel",
     "@vite-hub/runtime": "workspace:*",
     "esbuild": "catalog:esbuild-v27",
     "exsolve": "catalog:unjs",
