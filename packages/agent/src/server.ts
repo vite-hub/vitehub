@@ -1,11 +1,11 @@
 import { createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import { Chat } from "chat"
 
-import { resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgentTrigger } from "./index.ts"
+import { resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent, streamAgentTrigger } from "./index.ts"
 import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { getAccessCapabilityOptions } from "./capabilities/access.ts"
 import { formatUsageTelemetryChatMessage, getUsageTelemetryChatOptions } from "./capabilities/usage-telemetry.ts"
-import { getChatCapabilityOptions } from "./chat-trigger.ts"
+import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "./chat-trigger.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
 import { toHttpErrorResponse } from "./http-error.ts"
 
@@ -13,8 +13,11 @@ import type { AgentChatMessageTriggerInput } from "./chat-trigger.ts"
 import type {
   AgentChatStateResolver,
   AgentCapabilityDefinition,
+  AgentChatFinishExtension,
+  AgentChatMessage,
   AgentChatOptions,
   AgentInput,
+  AgentRunInput,
   AgentRunMetadata,
   AgentRuntimeConfig,
   AgentRuntimeContext,
@@ -239,6 +242,41 @@ async function collectAgentOutput(result: unknown): Promise<CollectedAgentOutput
   return {
     ...(usageRecord ? { usageRecord } : {}),
     text: text.trim(),
+  }
+}
+
+function streamAgentOutputToChatText(
+  result: Promise<unknown>,
+  onUsageRecord: (usageRecord: AgentUsageRecord) => void,
+): AsyncIterable<string> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      const output = await result
+      if (output instanceof Response) {
+        if (output.headers.get("content-type")?.includes("application/json")) {
+          const body = await output.clone().json().catch(() => undefined)
+          if (isRecord(body)) {
+            if (isRecord(body.usageRecord)) onUsageRecord(body.usageRecord as AgentUsageRecord)
+            if (typeof body.text === "string") yield body.text
+            return
+          }
+        }
+        yield await output.text()
+        return
+      }
+
+      for await (const event of streamAgentOutputToEvents(output)) {
+        if (event.type === "text-delta") {
+          yield event.text
+        }
+        if (event.type === "usage") {
+          onUsageRecord(event.usageRecord)
+        }
+        if (event.type === "error") {
+          throw new Error(event.error)
+        }
+      }
+    },
   }
 }
 
@@ -584,6 +622,44 @@ function accessChatInput(thread: Thread, message: ChatSdkMessage, messageContext
   }
 }
 
+function isTextChatMessage(message: AgentChatMessage): message is { text: string } {
+  return typeof message === "object"
+    && message !== null
+    && "text" in message
+    && typeof message.text === "string"
+}
+
+async function postChatMessage(thread: Thread, message: AgentChatMessage): Promise<void> {
+  await thread.post(isTextChatMessage(message) ? message.text : message)
+}
+
+function createChatFinishExtension(
+  input: AgentChatMessageTriggerInput,
+  registration: AgentWebhookRegistrationDefinition,
+  thread: Thread,
+): AgentChatFinishExtension {
+  return {
+    provider: registration.provider,
+    ...(input.run ? { run: input.run } : {}),
+    sendMessage: async (message) => {
+      await postChatMessage(thread, message)
+    },
+  }
+}
+
+function withChatFinishExtension<CALL_OPTIONS>(
+  input: AgentRunInput<CALL_OPTIONS>,
+  chat: AgentChatFinishExtension,
+): AgentRunInput<CALL_OPTIONS> {
+  return {
+    ...input,
+    context: {
+      ...(input.context || {}),
+      [CHAT_FINISH_EXTENSION_CONTEXT_KEY]: chat,
+    },
+  }
+}
+
 async function isChatMessageAuthorized(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   context: ViteAgentRouteRuntimeContext,
@@ -622,7 +698,7 @@ async function postUsageTelemetry(
       provider: registration.provider,
       ...(input.run ? { run: input.run } : {}),
       sendMessage: async (message: UsageTelemetryChatMessage) => {
-        await thread.post("text" in message ? message.text : message)
+        await postChatMessage(thread, message)
       },
     }
     if (options.onUsage) {
@@ -654,28 +730,33 @@ async function handleChatSdkMessage(
   if (options?.stream !== false) {
     context.waitUntil(thread.startTyping().catch(() => undefined))
   }
-  const result = options?.stream === false
-    ? await runChatAgentTriggerInline(agent, context, input)
-    : await streamAgentTrigger(agent as never, context as never, "chat.message", input, {
-        output: "events",
-      })
-  const { text, usageRecord } = await collectAgentOutput(result)
-  if (text) {
-    await thread.post({ markdown: text })
-  }
-  await postUsageTelemetry(agent, Date.now() - startedAt, input, registration, thread, usageRecord)
-}
-
-async function runChatAgentTriggerInline(
-  agent: AgentInput<ViteAgentRouteRuntimeContext>,
-  context: ViteAgentRouteRuntimeContext,
-  input: AgentChatMessageTriggerInput,
-): Promise<Response | unknown> {
   const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
-  return await runAgentInline(agent as never, {
+  const runContext = {
     ...context,
     ...(invocation.run ? { run: invocation.run } : {}),
-  }, invocation.input as never)
+  }
+  const invocationInput = withChatFinishExtension(
+    invocation.input as AgentRunInput,
+    createChatFinishExtension(input, registration, thread),
+  )
+  let usageRecord: AgentUsageRecord | undefined
+  if (options?.stream === false) {
+    const result = await runAgentInline(agent as never, runContext as never, invocationInput as never)
+    const collected = await collectAgentOutput(result)
+    usageRecord = collected.usageRecord
+    if (collected.text) {
+      await thread.post({ markdown: collected.text })
+    }
+  }
+  else {
+    const result = streamAgent(agent as never, runContext as never, invocationInput as never, {
+      output: "events",
+    })
+    await thread.post(streamAgentOutputToChatText(result, record => {
+      usageRecord = record
+    }))
+  }
+  await postUsageTelemetry(agent, Date.now() - startedAt, input, registration, thread, usageRecord)
 }
 
 async function createChatWebhookHandler(

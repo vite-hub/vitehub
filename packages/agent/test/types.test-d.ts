@@ -5,7 +5,7 @@ import { access, audience, blob, chat, chatTitle, db, entry, fetch, getTranscrip
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
-import type { AgentInvocationContextStore, AgentUsageRecord } from "../src/index.ts"
+import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentUsageRecord } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import { source } from "@vite-hub/workspace"
 import type { AccessWorkspaceOptionsFor, AgentChatAdapterResolver, AgentChatRunContext, FetchCapabilityToolOptions, TranscriptionResult } from "../src/capabilities.ts"
@@ -205,6 +205,8 @@ describe("agent public types", () => {
       model: {} as never,
       hooks: {
         "agent:finish"(event) {
+          expectTypeOf(event.extensions.get<AgentChatFinishExtension>("chat")).toEqualTypeOf<AgentChatFinishExtension | undefined>()
+          expectTypeOf(event.extensions.get<TranscriptionResult[]>("transcribe")).toEqualTypeOf<TranscriptionResult[] | undefined>()
           expectTypeOf(event.extensions.get<AgentUsageRecord>("usage-telemetry")).toEqualTypeOf<AgentUsageRecord | undefined>()
         },
       },

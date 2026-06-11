@@ -23,6 +23,11 @@ const RESOLVED_WORKSPACE_REGISTRY_ID = `\0${WORKSPACE_REGISTRY_ID}`
 const mergeNoExternal = createNoExternalMerger(WORKSPACE_PACKAGE_NAME)
 const workspacesDirSegment = /[\\/](?:server[\\/])?workspaces(?:[\\/]|$)/
 
+function mergeDedupe(current: string[] | undefined): string[] {
+  if (!current) return [WORKSPACE_PACKAGE_NAME]
+  return current.includes(WORKSPACE_PACKAGE_NAME) ? current : [...current, WORKSPACE_PACKAGE_NAME]
+}
+
 function isWorkspaceFile(file: string) {
   return workspaceSuffixPattern.test(file) || workspacesDirSegment.test(file)
 }
@@ -98,6 +103,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       if (!isServerEnvironment(name, config)) return
       return {
         resolve: {
+          dedupe: mergeDedupe(config.resolve?.dedupe),
           noExternal: mergeNoExternal(config.resolve?.noExternal),
         },
       }

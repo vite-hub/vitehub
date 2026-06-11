@@ -1,5 +1,5 @@
 import type { Message, StreamEvent } from "./messages.ts"
-import type { Adapter, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
+import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
 import type {
   MaybePromise,
   MaybeResolvable,
@@ -658,6 +658,16 @@ export interface AgentChatStateContext<TRuntimeConfig extends AgentRuntimeConfig
 
 export type AgentChatStateResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   MaybeResolvable<StateAdapter, AgentChatStateContext<TRuntimeConfig>>
+
+export type AgentChatMessage = AdapterPostableMessage | { text: string }
+
+export type AgentChatSendMessage = (message: AgentChatMessage) => Promise<void>
+
+export interface AgentChatFinishExtension {
+  provider?: string
+  run?: Partial<AgentRunMetadata>
+  sendMessage: AgentChatSendMessage
+}
 
 export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapters?: AgentChatAdaptersResolver<TRuntimeConfig>
