@@ -116,6 +116,8 @@ async function copyTracedPackageFiles(
   for (const file of fileList) {
     const source = resolve(packageDir, file)
     if (!isInsideDirectory(packageDir, source) || hasNodeModulesSegment(file)) continue
+    const sourceStat = await stat(source)
+    if (!sourceStat.isFile()) continue
     const target = resolve(targetDir, file)
     await mkdir(dirname(target), { recursive: true })
     await copyFile(source, target)
