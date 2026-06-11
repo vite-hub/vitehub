@@ -33,11 +33,17 @@ import { source } from "@vite-hub/workspace"
 
 export default defineAgent({
   model: gateway("openai/gpt-5.1-mini"),
-  instructions: "Answer support questions from the workspace.",
+  instructions: [
+    "Answer support questions from the workspace.",
+    "{{ sources }}",
+  ],
   capabilities: [chat(), workspaceShell()],
   workspace: {
     sources: {
-      support: source.file("support.md"),
+      support: source.file({
+        path: "support.md",
+        instructions: "Use this source for support policies and known answers.",
+      }),
     },
   },
 })

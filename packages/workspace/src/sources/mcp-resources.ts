@@ -6,7 +6,7 @@ import { markLiveWorkspaceSource } from "./config.ts"
 import type { WorkspaceSource } from "../core/types.ts"
 import type { McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions } from "@vite-hub/source"
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "validate">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "mount" | "validate">
 
 export interface McpResourcesSourceOptions<TKey extends string = string>
   extends Omit<SourcePackageMcpResourcesSourceOptions<TKey>, "cache">, SourceRuntimeOptions {}
@@ -21,6 +21,7 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
   return markLiveWorkspaceSource({
     ...baseSource,
     cache: options.cache,
+    instructions: options.instructions,
     materialize: options.materialize || "lazy",
     mount: options.mount,
     async prepare(ctx) {

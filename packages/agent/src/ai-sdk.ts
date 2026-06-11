@@ -3,6 +3,7 @@ import {
   applyCapabilityInstructionSlots,
   applyCapabilityToolTransforms,
 } from "./capability-runtime.ts"
+import { applyWorkspaceSourceInstructionSlot } from "./workspace-agent.ts"
 import {
   applyAgentToolPolicies,
   reportWorkspaceMaterialization,
@@ -526,7 +527,10 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
     ? await modelInstrumentation({ ...runtime, context: context.context, model, run: context.runtime.run })
     : model
   const instructions = context.instructions
-    ?? applyCapabilityInstructionSlots(await resolveInstructions(options, metadataContext), context.capabilityInstructions)
+    ?? applyWorkspaceSourceInstructionSlot(
+      applyCapabilityInstructionSlots(await resolveInstructions(options, metadataContext), context.capabilityInstructions),
+      context.sourceInstructions,
+    )
   const adapterTools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)
   const resolvedTools = await applyCapabilityToolTransforms({
     ...context.tools,

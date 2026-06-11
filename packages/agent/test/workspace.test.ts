@@ -10,6 +10,7 @@ const diff = vi.fn()
 const snapshot = vi.fn()
 const tools = vi.fn(() => ({}))
 const inspectTools = vi.fn(() => ({}))
+const createWorkspaceTools = vi.fn(() => ({}))
 const resolveWorkspaceAutoCommit = vi.fn()
 const useWorkspace = vi.fn(() => ({
   diff,
@@ -49,6 +50,7 @@ vi.mock("ai", () => ({
 }))
 
 vi.mock("@vite-hub/workspace", () => ({
+  createWorkspaceTools,
   resolveWorkspaceAutoCommit,
   useWorkspace,
 }))
@@ -61,6 +63,17 @@ function context(runtimeConfig: Record<string, unknown> = {}) {
     runtimeConfig,
     waitUntil: vi.fn(),
   } as never
+}
+
+function readonlyWorkspaceFacade() {
+  return {
+    fs: { exists, list, readFile },
+    tools: Object.assign(vi.fn(() => ({})), {
+      inspect: inspectTools,
+      none: vi.fn(() => ({})),
+      readonly: inspectTools,
+    }),
+  }
 }
 
 describe("defineAgent workspace option", () => {
@@ -90,6 +103,8 @@ describe("defineAgent workspace option", () => {
     tools.mockClear()
     inspectTools.mockReset()
     inspectTools.mockReturnValue({})
+    createWorkspaceTools.mockReset()
+    createWorkspaceTools.mockReturnValue({})
     useWorkspace.mockClear()
   })
 
@@ -316,6 +331,201 @@ describe("defineAgent workspace option", () => {
 
     expect(readFile).toHaveBeenCalledWith("AGENTS.md")
     expect(agentSettings.at(-1)?.instructions).toBe("Workspace instructions")
+  })
+
+  it("appends visible source instructions by default", async () => {
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        sources: {
+          docs: { instructions: "Use docs for product behavior.", name: "docs" } as never,
+          raw: { name: "raw" } as never,
+        },
+      },
+      instructions: "Answer from the workspace.",
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(agentSettings.at(-1)?.instructions).toBe([
+      "Answer from the workspace.",
+      "## Workspace Sources",
+      "### docs\n\nUse docs for product behavior.",
+    ].join("\n\n"))
+  })
+
+  it("places source instructions in the sources slot", async () => {
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        sources: {
+          docs: {
+            instructions: [
+              "Use docs first.",
+              "Say when docs do not contain the answer.",
+            ],
+            name: "docs",
+          } as never,
+        },
+      },
+      instructions: [
+        "Answer from the workspace.",
+        "{{ sources }}",
+        "Keep replies short.",
+      ],
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(agentSettings.at(-1)?.instructions).toBe([
+      "Answer from the workspace.",
+      "## Workspace Sources",
+      "### docs\n\nUse docs first.\n\nSay when docs do not contain the answer.",
+      "Keep replies short.",
+    ].join("\n\n"))
+  })
+
+  it("replaces the sources slot with empty instructions when no source instructions are visible", async () => {
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        sources: {
+          docs: { name: "docs" } as never,
+        },
+      },
+      instructions: [
+        "Answer from the workspace.",
+        "{{ sources }}",
+        "Keep replies short.",
+      ],
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(agentSettings.at(-1)?.instructions).toBe("Answer from the workspace.\n\nKeep replies short.")
+  })
+
+  it("filters source instructions through Access-scoped workspace visibility", async () => {
+    exists.mockResolvedValue(true)
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        sources: {
+          private: { instructions: "Use private source.", name: "private" } as never,
+          public: { instructions: "Use public source.", name: "public" } as never,
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "public",
+            scopes: {
+              public: { source: "public" },
+            },
+          },
+        }),
+      ],
+      instructions: "Answer from the workspace.",
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(agentSettings.at(-1)?.instructions).toBe([
+      "Answer from the workspace.",
+      "## Workspace Sources",
+      "### public\n\nUse public source.",
+    ].join("\n\n"))
+  })
+
+  it("omits root-mounted source instructions when only another scoped source is visible", async () => {
+    exists.mockImplementation(async path => path === "public")
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        sources: {
+          guide: {
+            getKeys: vi.fn(async () => ["AGENTS.md"]),
+            instructions: "Use private guide.",
+            mount: "",
+            name: "file",
+          } as never,
+          public: { instructions: "Use public source.", mount: "public", name: "public" } as never,
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "public",
+            scopes: {
+              public: { source: "public" },
+            },
+          },
+        }),
+      ],
+      instructions: "Answer from the workspace.",
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(agentSettings.at(-1)?.instructions).toBe([
+      "Answer from the workspace.",
+      "## Workspace Sources",
+      "### public\n\nUse public source.",
+    ].join("\n\n"))
+  })
+
+  it("includes root-mounted source instructions when a source path is visible", async () => {
+    exists.mockImplementation(async path => path === "AGENTS.md")
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        sources: {
+          guide: {
+            getKeys: vi.fn(async () => ["AGENTS.md"]),
+            instructions: "Use support guide.",
+            mount: "",
+            name: "file",
+          } as never,
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "support",
+            scopes: {
+              support: { path: "AGENTS.md" },
+            },
+          },
+        }),
+      ],
+      instructions: "Answer from the workspace.",
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(agentSettings.at(-1)?.instructions).toBe([
+      "Answer from the workspace.",
+      "## Workspace Sources",
+      "### guide\n\nUse support guide.",
+    ].join("\n\n"))
   })
 
   it("synthesizes an answer when tool loop stops without text after tool results", async () => {

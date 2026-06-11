@@ -37,6 +37,7 @@ _Avoid_: MCP tool bridge, Agent Capability, MCP server implementation
 - An **MCP Resource Source Loader** belongs in Source Package language when MCP resources are used as read-only retrievable content.
 - An **MCP Resource Source Loader** does not expose executable MCP tools; those belong to the MCP Capability.
 - Workspace can consume source retrieval concepts, but Workspace owns file-tree placement and persistence.
+- Source Package does not own v1 Source Instructions; Workspace Package owns Source helper metadata for Workspace-backed Agent prompt composition.
 
 ## Example Dialogue
 
@@ -47,3 +48,4 @@ _Avoid_: MCP tool bridge, Agent Capability, MCP server implementation
 
 - Source retrieval and Workspace file placement were considered one concept - resolved: Source Package owns retrieval, Workspace owns file-tree placement.
 - MCP resources and MCP tools were considered one ViteHub integration surface - resolved: read-only MCP resources belong to Source retrieval, while executable MCP tools belong to the MCP Capability.
+- Adding Source Instructions to Source Definitions was considered - resolved: keep v1 Source Instructions on Workspace Source helpers because prompt composition is Workspace-backed Agent behavior.

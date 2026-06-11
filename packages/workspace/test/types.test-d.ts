@@ -62,6 +62,7 @@ describe("workspace types", () => {
       root: "docs",
       include: "**/*.md",
       exclude: "docs/drafts/**",
+      instructions: "Use for hosted docs.",
     })
     source.glob({
       cwd: "docs",
@@ -69,9 +70,11 @@ describe("workspace types", () => {
       followSymlinks: false,
       ignore: "drafts/**",
       include: "**/*.md",
+      instructions: ["Use for local docs.", "Prefer README files first."] as const,
       prefix: "content",
     })
     source.fetch({
+      instructions: "Use for live status.",
       schema: {
         "~standard": {
           validate: (input: unknown) => ({ value: input as { status: string } }),
@@ -84,6 +87,7 @@ describe("workspace types", () => {
       url: "https://status.example.com/api/summary",
     })
     source.mcpResources({
+      instructions: "Use for MCP resource docs.",
       mount: "nuxt",
       server: {
         async listResources() {

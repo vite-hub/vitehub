@@ -32,6 +32,8 @@ _Avoid_: Public store constructor, user-facing provider API
 
 - The **Workspace Package** owns **Workspace Definitions**.
 - The **Workspace Package** owns Workspace Stores.
+- The **Workspace Package** owns Source Instruction metadata on Workspace Sources.
+- The **Workspace Package** owns the v1 public `instructions` option on Workspace Source helpers.
 - A Workspace Store can be backed by a Blob Store.
 - A Workspace Store can be backed by a **Workspace Provider Adapter**.
 - The **Workspace Runtime Surface** enforces Workspace Rules before writes reach the store.
@@ -50,3 +52,5 @@ _Avoid_: Public store constructor, user-facing provider API
 - Workspace assets were considered a separate public read API - resolved: keep one public Workspace tree and treat the **Workspace Asset Surface** as an internal backing layer unless a concrete advanced workflow needs direct access.
 - Workspace loaders and publishers were considered part of the root package API - resolved: keep them public only through the **Workspace Extension Surface**.
 - Provider store constructors were considered public subpath exports - resolved: keep **Workspace Provider Adapters** behind configuration and generated runtime wiring, not user-facing imports.
+- Source Instruction prompt rendering was considered Workspace Package ownership - resolved: Workspace exposes metadata, while Agent Package composes model instructions.
+- Adding Source Instructions to the lower-level Source Package was considered - resolved: keep v1 Source Instructions on Workspace Source helpers because the behavior serves Workspace-backed Agent prompt composition.
