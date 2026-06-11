@@ -185,7 +185,7 @@ A Capability that asks an LLM to classify a request against developer-defined al
 _Avoid_: Gate, auth gate, security gate, deterministic guard
 
 **Rate Limit Capability**:
-A Capability created by `rateLimit()` that consumes a trusted invocation budget and may reject before the main Agent Invocation proceeds.
+A Capability created by `rateLimit()` that checks or consumes a trusted invocation budget and may reject before the main Agent Invocation proceeds.
 _Avoid_: App middleware, model-facing counter tool, KV wrapper
 
 ## Relationships
@@ -216,9 +216,9 @@ _Avoid_: App middleware, model-facing counter tool, KV wrapper
 - An **LLM Route Capability** chooses one developer-defined option through an LLM and records the route decision. It does not apply route effects directly.
 - An **LLM Gate Capability** chooses one developer-defined allow or reject category through an LLM and may reject before the main Agent Invocation.
 - Deterministic or callback-based routing is not an official Capability in V1; users can define inline Capabilities or hooks that set named invocation context values.
-- A **Rate Limit Capability** records a typed **Agent Invocation Context Value** with the consumed budget result when an invocation is allowed or rejected.
-- A **Rate Limit Capability** consumes trusted identity from the Agent Invoker by default, or from stable Agent Run metadata, trusted IP headers, or a developer callback when explicitly configured.
-- A **Rate Limit Capability** uses an explicit rate-limit store contract; model-facing storage Capabilities are not the runtime enforcement mechanism, and hosted runtimes require an explicit store choice.
+- A **Rate Limit Capability** records a typed **Agent Invocation Context Value** with the checked or consumed budget result when an invocation is allowed or rejected.
+- A **Rate Limit Capability** consumes trusted identity from the Agent Invoker by default, including Agent Invoker kind, or from stable Agent Run metadata, trusted IP headers, or a developer callback when explicitly configured.
+- A **Rate Limit Capability** uses an explicit rate-limit store contract with non-consuming checks and consuming budget operations; model-facing storage Capabilities are not the runtime enforcement mechanism, and hosted runtimes require an explicit store choice.
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
 - A **Chat Capability** owns Chat History behavior for the current stack.
 - A **Chat Capability** may declare **Chat Platform Adapters** through a **Chat Adapter Callback**.

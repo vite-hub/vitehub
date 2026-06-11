@@ -3,6 +3,7 @@ import { defineCapability } from "../capability-runtime.ts"
 import type {
   AgentCapabilityDefinition,
   AgentCapabilityRuntimeContext,
+  AgentInvoker,
   AgentRuntimeConfig,
   MaybePromise,
 } from "../types.ts"
@@ -25,22 +26,39 @@ export type RateLimitIdentityResolver = (
   context: AgentCapabilityRuntimeContext,
 ) => MaybePromise<string | null | undefined>
 
-export interface RateLimitConsumeInput {
+export type RateLimitAction = "check" | "consume"
+
+export type RateLimitLimitResolver = (
+  context: AgentCapabilityRuntimeContext,
+) => MaybePromise<number>
+
+export type RateLimitLimit = number | RateLimitLimitResolver
+
+export interface RateLimitStoreInput {
+  action: RateLimitAction
+  capabilityId: string
+  context: AgentCapabilityRuntimeContext
+  identity: string
+  identitySource: string
+  invoker: AgentInvoker
   key: string
   limit: number
   now: number
+  scope: string
   windowMs: number
 }
 
-export interface RateLimitConsumeResult {
+export interface RateLimitStoreResult {
   allowed: boolean
   limit: number
   remaining: number
   resetAt: number
+  used: number
 }
 
 export interface RateLimitStore {
-  consume: (input: RateLimitConsumeInput) => MaybePromise<RateLimitConsumeResult>
+  check: (input: RateLimitStoreInput) => MaybePromise<RateLimitStoreResult>
+  consume: (input: RateLimitStoreInput) => MaybePromise<RateLimitStoreResult>
 }
 
 export interface MemoryRateLimitStore extends RateLimitStore {
@@ -53,6 +71,7 @@ export interface MemoryRateLimitStoreOptions {
 }
 
 export interface RateLimitDecision {
+  action: RateLimitAction
   allowed: boolean
   capabilityId: string
   identity: string
@@ -62,14 +81,27 @@ export interface RateLimitDecision {
   remaining: number
   resetAt: number
   retryAfter: number
+  scope: string
+  used: number
   windowMs: number
 }
 
+export interface RateLimitEvent {
+  context: AgentCapabilityRuntimeContext
+  decision: RateLimitDecision
+  input: RateLimitStoreInput
+  store: RateLimitStore
+}
+
 export interface RateLimitOptions {
+  action?: RateLimitAction
   id?: string
   identity?: RateLimitIdentity
-  limit: number
+  limit: RateLimitLimit
   message?: string | ((decision: RateLimitDecision) => string)
+  onAllowed?: (event: RateLimitEvent) => MaybePromise<void>
+  onDecision?: (event: RateLimitEvent) => MaybePromise<void>
+  onRejected?: (event: RateLimitEvent) => MaybePromise<void>
   scope?: string | ((context: AgentCapabilityRuntimeContext) => MaybePromise<string>)
   store?: RateLimitStore | "memory" | ((context: AgentCapabilityRuntimeContext) => MaybePromise<RateLimitStore | "memory">)
   trustedIpHeaders?: string[]
@@ -124,18 +156,32 @@ export function memoryRateLimitStore(options: MemoryRateLimitStoreOptions = {}):
     }
   }
 
+  function readEntry(input: RateLimitStoreInput): MemoryEntry {
+    prune(input.now)
+    const windowStart = Math.floor(input.now / input.windowMs) * input.windowMs
+    const resetAt = windowStart + input.windowMs
+    const current = entries.get(input.key)
+    return current && current.resetAt > input.now
+      ? current
+      : { count: 0, resetAt }
+  }
+
   return {
+    async check(input) {
+      const active = readEntry(input)
+      return {
+        allowed: active.count < input.limit,
+        limit: input.limit,
+        remaining: Math.max(0, input.limit - active.count),
+        resetAt: active.resetAt,
+        used: active.count,
+      }
+    },
     clear() {
       entries.clear()
     },
     async consume(input) {
-      prune(input.now)
-      const windowStart = Math.floor(input.now / input.windowMs) * input.windowMs
-      const resetAt = windowStart + input.windowMs
-      const current = entries.get(input.key)
-      const active = current && current.resetAt > input.now
-        ? current
-        : { count: 0, resetAt }
+      const active = readEntry(input)
       const nextCount = active.count + 1
       if (nextCount > input.limit) {
         return {
@@ -143,6 +189,7 @@ export function memoryRateLimitStore(options: MemoryRateLimitStoreOptions = {}):
           limit: input.limit,
           remaining: 0,
           resetAt: active.resetAt,
+          used: active.count,
         }
       }
       entries.set(input.key, { count: nextCount, resetAt: active.resetAt })
@@ -151,6 +198,7 @@ export function memoryRateLimitStore(options: MemoryRateLimitStoreOptions = {}):
         limit: input.limit,
         remaining: Math.max(0, input.limit - nextCount),
         resetAt: active.resetAt,
+        used: nextCount,
       }
     },
     size() {
@@ -188,6 +236,19 @@ function normalizeLimit(value: number): number {
   return value
 }
 
+async function resolveLimit(
+  value: RateLimitLimit,
+  context: AgentCapabilityRuntimeContext,
+): Promise<number> {
+  return normalizeLimit(typeof value === "function" ? await value(context) : value)
+}
+
+function normalizeAction(value: RateLimitAction | undefined): RateLimitAction {
+  if (value === undefined) return "consume"
+  if (value === "check" || value === "consume") return value
+  throw new TypeError("[vitehub] rateLimit({ action }) must be \"check\" or \"consume\".")
+}
+
 function resolveRunIdentity(context: AgentCapabilityRuntimeContext): string | undefined {
   const run = context.run
   if (!run) return
@@ -222,6 +283,10 @@ function resolveIpIdentity(context: AgentCapabilityRuntimeContext, trustedIpHead
   }
 }
 
+function invokerIdentity(invoker: AgentInvoker): string {
+  return `${invoker.kind || "invoker"}:${invoker.id}`
+}
+
 async function resolveIdentity(
   identity: RateLimitIdentity,
   context: AgentCapabilityRuntimeContext,
@@ -233,7 +298,7 @@ async function resolveIdentity(
     throw new Error("[vitehub] rateLimit({ identity }) returned no identity.")
   }
   if (identity === "invoker") {
-    return { source: "invoker", value: context.invoker.id }
+    return { source: "invoker", value: invokerIdentity(context.invoker) }
   }
   if (identity === "run") {
     const value = resolveRunIdentity(context)
@@ -249,7 +314,7 @@ async function resolveIdentity(
 }
 
 function resolveAutoIdentity(context: AgentCapabilityRuntimeContext, trustedIpHeaders: string[] | undefined): { source: string, value: string } {
-  if (context.invoker.id) return { source: "invoker", value: context.invoker.id }
+  if (context.invoker.id) return { source: "invoker", value: invokerIdentity(context.invoker) }
   const run = resolveRunIdentity(context)
   if (run) return { source: "run", value: run }
   const ip = resolveIpIdentity(context, trustedIpHeaders)
@@ -301,8 +366,8 @@ async function resolveStore(
   }
   const resolved = typeof store === "function" ? await store(context) : store
   if (resolved === "memory") return fallback
-  if (!resolved || typeof resolved.consume !== "function") {
-    throw new TypeError("[vitehub] rateLimit({ store }) must provide a consume() function.")
+  if (!resolved || typeof resolved.check !== "function" || typeof resolved.consume !== "function") {
+    throw new TypeError("[vitehub] rateLimit({ store }) must provide check() and consume() functions.")
   }
   return resolved
 }
@@ -315,6 +380,36 @@ function retryAfterSeconds(resetAt: number, now: number): number {
   return Math.max(1, Math.ceil((resetAt - now) / 1_000))
 }
 
+function normalizeNonNegativeInteger(value: number, label: string): number {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new TypeError(`[vitehub] ${label} must be a non-negative integer.`)
+  }
+  return value
+}
+
+function normalizeTimestamp(value: number, label: string): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new TypeError(`[vitehub] ${label} must be a positive timestamp.`)
+  }
+  return value
+}
+
+function normalizeStoreResult(result: RateLimitStoreResult): RateLimitStoreResult {
+  if (!result || typeof result !== "object") {
+    throw new TypeError("[vitehub] rateLimit store methods must return a result object.")
+  }
+  if (typeof result.allowed !== "boolean") {
+    throw new TypeError("[vitehub] rateLimit store result allowed must be a boolean.")
+  }
+  return {
+    allowed: result.allowed,
+    limit: normalizeLimit(result.limit),
+    remaining: normalizeNonNegativeInteger(result.remaining, "rateLimit store result remaining"),
+    resetAt: normalizeTimestamp(result.resetAt, "rateLimit store result resetAt"),
+    used: normalizeNonNegativeInteger(result.used, "rateLimit store result used"),
+  }
+}
+
 function resolveRejectedMessage(
   option: RateLimitOptions["message"],
   decision: RateLimitDecision,
@@ -322,12 +417,28 @@ function resolveRejectedMessage(
   return typeof option === "function" ? option(decision) : option
 }
 
+async function notifyRateLimitDecision(
+  options: RateLimitOptions,
+  event: RateLimitEvent,
+): Promise<void> {
+  await options.onDecision?.(event)
+  if (event.decision.allowed) {
+    await options.onAllowed?.(event)
+  }
+  else {
+    await options.onRejected?.(event)
+  }
+}
+
 export function rateLimit(
   options: RateLimitOptions,
 ): AgentCapabilityDefinition<AgentRuntimeConfig> {
   const id = options.id || "rate-limit"
-  const limit = normalizeLimit(options.limit)
+  const staticLimit = typeof options.limit === "number"
+    ? normalizeLimit(options.limit)
+    : undefined
   const windowMs = parseRateLimitWindow(options.window)
+  const action = normalizeAction(options.action)
   const fallbackStore = memoryRateLimitStore()
   const identity = options.identity || "auto"
   const trustedIpHeaders = options.trustedIpHeaders?.map(header => header.trim()).filter(Boolean)
@@ -345,12 +456,27 @@ export function rateLimit(
         throw new Error(`[vitehub] Invocation context value "${id}" is already set.`)
       }
       const now = Date.now()
+      const limit = staticLimit ?? await resolveLimit(options.limit, context)
       const resolvedIdentity = await resolveIdentity(identity, context, trustedIpHeaders)
       const scope = await resolveScope(options.scope, context, id)
       const key = `vitehub:rate-limit:${stableKeyPart(id)}:${scope}:${await hashKeyPart(`${resolvedIdentity.source}:${resolvedIdentity.value}`)}`
       const store = await resolveStore(options.store, context, fallbackStore)
-      const consumed = await store.consume({ key, limit, now, windowMs })
+      const storeInput: RateLimitStoreInput = {
+        action,
+        capabilityId: id,
+        context,
+        identity: resolvedIdentity.value,
+        identitySource: resolvedIdentity.source,
+        invoker: context.invoker,
+        key,
+        limit,
+        now,
+        scope,
+        windowMs,
+      }
+      const consumed = normalizeStoreResult(await store[action](storeInput))
       const decision: RateLimitDecision = {
+        action,
         allowed: consumed.allowed,
         capabilityId: id,
         identity: resolvedIdentity.value,
@@ -360,9 +486,17 @@ export function rateLimit(
         remaining: Math.max(0, consumed.remaining),
         resetAt: consumed.resetAt,
         retryAfter: consumed.allowed ? 0 : retryAfterSeconds(consumed.resetAt, now),
+        scope,
+        used: consumed.used,
         windowMs,
       }
       context.context.set(id, decision)
+      await notifyRateLimitDecision(options, {
+        context,
+        decision,
+        input: storeInput,
+        store,
+      })
       if (!decision.allowed) {
         throw new RateLimitRejectedError(id, decision, resolveRejectedMessage(options.message, decision))
       }

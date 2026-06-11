@@ -168,13 +168,17 @@ export type {
 export type {
   MemoryRateLimitStore,
   MemoryRateLimitStoreOptions,
-  RateLimitConsumeInput,
-  RateLimitConsumeResult,
+  RateLimitAction,
   RateLimitDecision,
+  RateLimitEvent,
   RateLimitIdentity,
   RateLimitIdentityResolver,
+  RateLimitLimit,
+  RateLimitLimitResolver,
   RateLimitOptions,
   RateLimitStore,
+  RateLimitStoreInput,
+  RateLimitStoreResult,
   RateLimitWindow,
 } from "./rate-limit.ts"
 export type {
