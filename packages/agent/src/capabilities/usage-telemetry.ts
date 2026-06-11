@@ -2,6 +2,8 @@ import { defineCapability } from "../capability-runtime.ts"
 
 import type {
   AgentCapabilityDefinition,
+  AgentChatMessage,
+  AgentChatSendMessage,
   AgentFinishEvent,
   AgentRunMetadata,
   AgentRuntimeConfig,
@@ -30,13 +32,9 @@ export interface UsageTelemetryContext {
   run?: Partial<AgentRunMetadata>
 }
 
-export type UsageTelemetryChatMessage =
-  | { markdown: string }
-  | { text: string }
+export type UsageTelemetryChatMessage = AgentChatMessage
 
-export interface UsageTelemetryChatSendMessage {
-  (message: UsageTelemetryChatMessage): Promise<void>
-}
+export type UsageTelemetryChatSendMessage = AgentChatSendMessage
 
 export interface UsageTelemetryChatCallbackContext extends UsageTelemetryChatMessageContext {
   sendMessage: UsageTelemetryChatSendMessage

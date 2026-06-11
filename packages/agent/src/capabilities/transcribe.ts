@@ -485,6 +485,12 @@ export function transcribe(options: TranscribeOptions): AgentCapabilityDefinitio
       appendTranscriptionResults(context.context, results)
     },
     instructions: typeof options === "function" ? false : options.instructions ?? false,
+    output(context) {
+      context.finish.provide(() => {
+        const results = getTranscriptionResults(context)
+        return results.length ? results : undefined
+      })
+    },
     requires: typeof options === "function" ? undefined : options.artifacts ? [{ primitive: "workspace", workspace: { mode: "write", required: true } }] : undefined,
   })
 }

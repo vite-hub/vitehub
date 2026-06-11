@@ -603,6 +603,55 @@ describe("server helpers", () => {
     }))
   })
 
+  it("exposes chat sendMessage to agent finish hooks for chat webhooks", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const finish = vi.fn(async (event) => {
+      const chat = event.extensions.get("chat") as { provider?: string, sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
+      await chat?.sendMessage?.({ markdown: `side message via ${chat.provider}` })
+    })
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+          stream: false,
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({ text: "agent answer" }),
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 88,
+        message: {
+          chat: { id: 888, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 88,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(finish).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:888", { markdown: "side message via telegram" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:888", { markdown: "agent answer" })
+  })
+
   it("flushes deferred non-streaming chat webhook work before returning", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat, usageTelemetry } = await import("../src/capabilities.ts")

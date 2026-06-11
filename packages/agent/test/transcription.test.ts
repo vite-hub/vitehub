@@ -152,10 +152,14 @@ describe("agent transcription", () => {
 
   it("transcribes audio input with custom execution before agent execution", async () => {
     const execute = vi.fn(async () => "voice transcript")
+    const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [
         transcribe({ execute }),
       ],
+      hooks: {
+        "agent:finish": finish,
+      },
       run(context) {
         const latest = context.messages.at(-1)
         return {
@@ -178,6 +182,13 @@ describe("agent transcription", () => {
     expect(execute).toHaveBeenCalledWith({
       audio: { data: "AAAA", mediaType: "audio/wav", type: "audio" },
     })
+    expect(finish.mock.calls[0]![0].extensions.get("transcribe")).toEqual([{
+      createdAt: expect.any(String),
+      date: expect.any(String),
+      messageId: expect.any(String),
+      stem: expect.any(String),
+      transcript: "voice transcript",
+    }])
   })
 
   it("resolves transcription options lazily", async () => {

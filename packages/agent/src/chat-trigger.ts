@@ -6,6 +6,7 @@ import type {
   AgentCapabilityTypeContract,
   AgentChatAgentHookArgs,
   AgentChatAdapterResolver,
+  AgentChatFinishExtension,
   AgentChatOptions,
   AgentChatWebhookRegistrationDefinition,
   AgentRunMetadata,
@@ -62,6 +63,8 @@ const CHAT_WEBHOOK_DEFAULTS = {
     secretHeader: "x-telegram-bot-api-secret-token",
   },
 } satisfies Record<string, Partial<AgentWebhookRegistrationDefinition> & { provider?: string }>
+
+export const CHAT_FINISH_EXTENSION_CONTEXT_KEY = "chat.finish"
 
 type KnownChatWebhookPlatform = keyof typeof CHAT_WEBHOOK_DEFAULTS
 
@@ -186,6 +189,9 @@ export function chat<
     } satisfies ChatCapabilityMetadata<TRuntimeConfig>,
     prepare(context) {
       context.state.require("chat-history", { optional: true })
+    },
+    output(context) {
+      context.finish.provide(() => context.context.get<AgentChatFinishExtension>(CHAT_FINISH_EXTENSION_CONTEXT_KEY))
     },
     triggers: {
       message: createChatMessageTrigger(options),
