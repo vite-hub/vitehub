@@ -20,6 +20,7 @@ describe("chat message trigger input", () => {
       session: { id: "b" },
       user: { id: "user_1" },
     })
+    expect(result.input.context?.["chat.identity"]).toBe("user_1")
     expect(result.input.messages?.map(message => message.parts
       .filter((part): part is { text: string, type: "text" } => part.type === "text")
       .map(part => part.text)
