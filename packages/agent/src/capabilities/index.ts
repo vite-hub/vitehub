@@ -27,6 +27,11 @@ export {
   llmGate,
 } from "./llm-gate.ts"
 export {
+  memoryRateLimitStore,
+  RateLimitRejectedError,
+  rateLimit,
+} from "./rate-limit.ts"
+export {
   llmRoute,
 } from "./llm-route.ts"
 export {
@@ -164,6 +169,18 @@ export type {
   LlmGateDecision,
   LlmGateOptions,
 } from "./llm-gate.ts"
+export type {
+  MemoryRateLimitStore,
+  MemoryRateLimitStoreOptions,
+  RateLimitConsumeInput,
+  RateLimitConsumeResult,
+  RateLimitDecision,
+  RateLimitIdentity,
+  RateLimitIdentityResolver,
+  RateLimitOptions,
+  RateLimitStore,
+  RateLimitWindow,
+} from "./rate-limit.ts"
 export type {
   LlmRouteDecision,
   LlmRouteOptions,
