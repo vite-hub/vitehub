@@ -244,7 +244,7 @@ describe("agent chat capability discovery", () => {
     const supportAudience = defineCapability({
       id: "support-audience",
       prepare(context) {
-        context.instructions.add(`Audience resolved for ${context.invoker.meta?.audience}.`, { aliases: ["audience"] })
+        context.instructions.add(`Audience resolved for ${context.invoker.meta?.audience}.`)
       },
     })
     const agent = withWorkspaceAgentDefaults(defineAgent({

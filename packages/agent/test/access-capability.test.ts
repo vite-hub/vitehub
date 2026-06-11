@@ -173,7 +173,6 @@ describe("access capability", () => {
           context.invoker.meta?.audience === "technical"
             ? "Prefer implementation details."
             : "Prefer product-level support answers.",
-          { aliases: ["audience"] },
         )
       },
     })
@@ -211,7 +210,7 @@ describe("access capability", () => {
 
     await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
     await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(false)
-    expect(applyCapabilityInstructionSlots("{{ capabilities.audience }}", resolved.capabilityInstructions)).toBe("Prefer product-level support answers.")
+    expect(applyCapabilityInstructionSlots("{{ capabilities.support-audience }}", resolved.capabilityInstructions)).toBe("Prefer product-level support answers.")
   })
 
   it("can resolve an inline Workspace Scope definition", async () => {
