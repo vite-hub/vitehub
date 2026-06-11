@@ -42,6 +42,7 @@ type ChatDevtoolsAction = "clear" | "get-state" | "send"
 type ChatDevtoolsBridgeBody = {
   action?: string
   chat?: string
+  invokerProfileId?: string
   stream?: boolean
   text?: string
 }
@@ -57,6 +58,7 @@ interface ViteAgentDevtoolsRuntimeContext extends AgentRuntimeContext<ViteAgentD
 }
 
 interface ChatDevtoolsSession {
+  invokerProfileId?: string
   name: string
   thinkingFallback?: string | null
   title?: string
@@ -173,9 +175,10 @@ function createRuntimeContext(server: ViteDevServer, req: IncomingMessage, run: 
   }) as ViteAgentDevtoolsRuntimeContext
 }
 
-function createDevtoolsMetadataInput(): AgentRunInput {
+function createDevtoolsMetadataInput(invokerProfileId?: string): AgentRunInput {
   return {
     context: {
+      ...(invokerProfileId ? { invokerProfileId } : {}),
       chat: {
         message: { metadata: {} },
         run: { origin: "devtools" },
@@ -185,7 +188,7 @@ function createDevtoolsMetadataInput(): AgentRunInput {
   }
 }
 
-async function discoverChatAgents(server: ViteDevServer): Promise<Map<string, ChatDevtoolsAgentEntry>> {
+async function discoverChatAgents(server: ViteDevServer, invokerProfileId?: string): Promise<Map<string, ChatDevtoolsAgentEntry>> {
   const context = createDevtoolsDiscoveryContext()
   const entries = new Map<string, ChatDevtoolsAgentEntry>()
   const definitions = discoverAgentDefinitions({
@@ -205,7 +208,7 @@ async function discoverChatAgents(server: ViteDevServer): Promise<Map<string, Ch
       agent,
       metadata: await resolveAgentDevtoolsMetadata(agent as never, {
         ...workspaceDefaults(definition),
-        input: createDevtoolsMetadataInput(),
+        input: createDevtoolsMetadataInput(invokerProfileId),
       } as never),
       name: definition.name,
     })
@@ -270,6 +273,7 @@ async function serializeState(state: ChatDevtoolsBridgeState, selected?: string)
     const title = sessionTitle(session)
     return {
       messages: [],
+      ...(session.invokerProfileId ? { invokerProfileId: session.invokerProfileId } : {}),
       name,
       ...(title ? { title } : {}),
       uiMessages: [...session.uiMessages],
@@ -285,6 +289,8 @@ async function serializeState(state: ChatDevtoolsBridgeState, selected?: string)
     chats,
     files: metadata?.files || [],
     instructions: metadata?.instructions || [],
+    ...(selectedSession?.invokerProfileId ? { invokerProfileId: selectedSession.invokerProfileId } : {}),
+    invokerProfiles: metadata?.invokerProfiles || [],
     selected: nextSelected,
     thinkingFallback: selectedSession?.thinkingFallback ?? null,
     ...(title ? { title } : {}),
@@ -361,7 +367,7 @@ async function sendDevtoolsUIMessage(
   server: ViteDevServer,
   req: IncomingMessage,
   state: ChatDevtoolsBridgeState,
-  input: { chat?: string, stream?: boolean, text?: string },
+  input: { chat?: string, invokerProfileId?: string, stream?: boolean, text?: string },
   onChange?: (next: ChatDevtoolsStateResult) => void | Promise<void>,
 ): Promise<ChatDevtoolsStateResult> {
   if (!input.stream) {
@@ -385,6 +391,17 @@ async function sendDevtoolsUIMessage(
 
   const session = getSession(state, selected)
   state.selected = selected
+  const profileIds = new Set((entry.metadata.invokerProfiles || []).map(profile => profile.id))
+  const requestedProfileId = input.invokerProfileId?.trim() || undefined
+  if (requestedProfileId && !profileIds.has(requestedProfileId)) {
+    throw new Response(`Unknown invoker profile: ${requestedProfileId}`, { status: 400 })
+  }
+  if (session.uiMessages.length > 0 && requestedProfileId && session.invokerProfileId && requestedProfileId !== session.invokerProfileId) {
+    throw new Response("Clear the conversation to change invoker.", { status: 409 })
+  }
+  if (!session.uiMessages.length) {
+    session.invokerProfileId = requestedProfileId || entry.metadata.invokerProfiles?.[0]?.id
+  }
   const userMessage = createUserUIMessage(text)
   const baseMessages = [...createChatDevtoolsPromptHistory(session.uiMessages), userMessage]
   const run = createRunMetadata(session, userMessage.id)
@@ -395,6 +412,7 @@ async function sendDevtoolsUIMessage(
 
   const runtimeContext = createRuntimeContext(server, req, run)
   const triggerInput: AgentChatMessageTriggerInput = {
+    ...(session.invokerProfileId ? { invokerProfileId: session.invokerProfileId } : {}),
     messages: baseMessages,
     run,
     timeout: 90_000,
@@ -445,6 +463,7 @@ async function clearDevtoolsMessages(state: ChatDevtoolsBridgeState, input: { ch
   const session = getSession(state, selected)
   state.selected = selected
   session.thinkingFallback = null
+  session.invokerProfileId = undefined
   session.title = undefined
   session.uiMessages = []
   return await serializeState(state, selected)
@@ -525,7 +544,7 @@ async function handleChatDevtoolsRequest(
     return new Response("Missing chat devtools action.", { status: 400 })
   }
 
-  state.entries = await discoverChatAgents(server)
+  state.entries = await discoverChatAgents(server, body.invokerProfileId)
   if (body.chat && state.entries.has(body.chat)) {
     state.selected = body.chat
   }

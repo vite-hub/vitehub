@@ -16,7 +16,7 @@ export type RateLimitWindow =
 
 export type RateLimitIdentity =
   | "auto"
-  | "chat"
+  | "invoker"
   | "ip"
   | "run"
   | RateLimitIdentityResolver
@@ -188,23 +188,15 @@ function normalizeLimit(value: number): number {
   return value
 }
 
-function firstString(...values: unknown[]): string | undefined {
-  return values.find((value): value is string => typeof value === "string" && value.length > 0)
-}
-
-function resolveChatIdentity(context: AgentCapabilityRuntimeContext): string | undefined {
-  return firstString(context.context.get("chat.identity"))
-}
-
 function resolveRunIdentity(context: AgentCapabilityRuntimeContext): string | undefined {
   const run = context.run
   if (!run) return
-  return firstString(
+  return [
     run.threadId && run.origin ? `${run.origin}:thread:${run.threadId}` : undefined,
     run.threadId ? `thread:${run.threadId}` : undefined,
     run.channelId && run.origin ? `${run.origin}:channel:${run.channelId}` : undefined,
     run.channelId ? `channel:${run.channelId}` : undefined,
-  )
+  ].find((value): value is string => typeof value === "string" && value.length > 0)
 }
 
 function forwardedFor(value: string): string | undefined {
@@ -240,10 +232,8 @@ async function resolveIdentity(
     if (value) return { source: "custom", value }
     throw new Error("[vitehub] rateLimit({ identity }) returned no identity.")
   }
-  if (identity === "chat") {
-    const value = resolveChatIdentity(context)
-    if (value) return { source: "chat", value }
-    throw new Error("[vitehub] rateLimit({ identity: \"chat\" }) could not resolve a Chat Identity.")
+  if (identity === "invoker") {
+    return { source: "invoker", value: context.invoker.id }
   }
   if (identity === "run") {
     const value = resolveRunIdentity(context)
@@ -259,8 +249,7 @@ async function resolveIdentity(
 }
 
 function resolveAutoIdentity(context: AgentCapabilityRuntimeContext, trustedIpHeaders: string[] | undefined): { source: string, value: string } {
-  const chat = resolveChatIdentity(context)
-  if (chat) return { source: "chat", value: chat }
+  if (context.invoker.id) return { source: "invoker", value: context.invoker.id }
   const run = resolveRunIdentity(context)
   if (run) return { source: "run", value: run }
   const ip = resolveIpIdentity(context, trustedIpHeaders)

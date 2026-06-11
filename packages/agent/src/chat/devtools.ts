@@ -48,6 +48,7 @@ export type {
   ChatDevtoolsConversation,
   ChatDevtoolsFileKind,
   ChatDevtoolsFileTreeItem,
+  ChatDevtoolsInvokerProfile,
   ChatDevtoolsMetadata,
   ChatDevtoolsMessage,
   ChatDevtoolsMessageRole,
@@ -462,6 +463,7 @@ function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): 
   return {
     files: metadata?.files ? [...metadata.files] : [],
     instructions: metadata?.instructions ? [...metadata.instructions] : [],
+    invokerProfiles: metadata?.invokerProfiles ? [...metadata.invokerProfiles] : [],
     title: metadata?.title,
     tools: metadata?.tools ? [...metadata.tools] : [],
     version: metadata?.version,
@@ -653,6 +655,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
         chats,
         files: metadata.files,
         instructions: metadata.instructions,
+        invokerProfiles: metadata.invokerProfiles,
         selected: chat && chats.some(item => item.name === chat) ? chat : chats[0]!.name,
         ...(metadata.title ? { title: metadata.title } : {}),
         tools: metadata.tools,
@@ -754,9 +757,14 @@ async function writeChatDevtoolsStream(
         }
         if (event.type === "done") {
           const chat = "chat" in body && typeof body.chat === "string" ? body.chat : undefined
+          const invokerProfileId = "invokerProfileId" in body && typeof body.invokerProfileId === "string" ? body.invokerProfileId : undefined
           stream.write({
             type: "state",
-            state: await postChatDevtoolsBridge(ctx, route, { action: "get-state", ...(chat ? { chat } : {}) }),
+            state: await postChatDevtoolsBridge(ctx, route, {
+              action: "get-state",
+              ...(chat ? { chat } : {}),
+              ...(invokerProfileId ? { invokerProfileId } : {}),
+            }),
           })
           stream.close()
           return

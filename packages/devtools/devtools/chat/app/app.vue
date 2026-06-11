@@ -9,6 +9,7 @@ import {
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
   type ChatDevtoolsFileTreeItem,
+  type ChatDevtoolsInvokerProfile,
   type ChatDevtoolsSendResult,
   type ChatDevtoolsStateResult,
   type ChatDevtoolsStreamEvent,
@@ -30,6 +31,7 @@ const state = ref<ChatDevtoolsStateResult>({
   chats: [],
   files: [],
   instructions: [],
+  invokerProfiles: [],
   selected: "",
   tools: [],
 })
@@ -79,6 +81,16 @@ const splitterStyle = computed(() => ({
 const thinkingFallback = computed(() => state.value.thinkingFallback || undefined)
 const chatTitleTarget = computed(() => normalizeChatTitle(selectedChat()?.title || state.value.title))
 const agentVersion = computed(() => state.value.version?.trim())
+const selectedInvokerProfileId = ref<string | undefined>()
+const invokerProfiles = computed<ChatDevtoolsInvokerProfile[]>(() => state.value.invokerProfiles || [])
+const showInvokerSelector = computed(() => invokerProfiles.value.length > 0)
+const selectedConversationMessages = computed(() => stateUiMessages(state.value, state.value.selected))
+const isInvokerLocked = computed(() => selectedConversationMessages.value.length > 0 || messages.value.length > 0 || isBusy.value)
+const invokerSelectorTooltip = computed(() => isInvokerLocked.value ? "Clear the conversation to change invoker." : "")
+const invokerSelectItems = computed(() => invokerProfiles.value.map(profile => ({
+  label: profile.label || profile.kind || profile.id,
+  value: profile.id,
+})))
 const recentTools = computed(() => {
   const tools = new Map<string, ChatDevtoolsTool>()
   for (const message of messages.value) {
@@ -118,9 +130,11 @@ function applyState(next: ChatDevtoolsStateResult) {
   state.value = {
     files: next.files || [],
     instructions: next.instructions || [],
+    invokerProfiles: next.invokerProfiles || [],
     tools: next.tools || [],
     ...next,
   }
+  syncInvokerSelection(next)
   const chat = selectedChat(next)
   const serverMessages = chat?.uiMessages || next.uiMessages || []
   const nextMessages = [...serverMessages]
@@ -139,6 +153,19 @@ function applyState(next: ChatDevtoolsStateResult) {
   messages.value = nextMessages
   syncExpandedFiles(state.value.files || [])
 
+}
+
+function syncInvokerSelection(next: ChatDevtoolsStateResult) {
+  const profiles = next.invokerProfiles || []
+  if (!profiles.length) {
+    selectedInvokerProfileId.value = undefined
+    return
+  }
+  const selected = selectedChat(next)
+  const profileId = selected?.invokerProfileId || next.invokerProfileId
+  selectedInvokerProfileId.value = profileId && profiles.some(profile => profile.id === profileId)
+    ? profileId
+    : profiles[0]?.id
 }
 
 function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
@@ -523,7 +550,7 @@ async function callBridgeState(body: Record<string, unknown>, signal?: AbortSign
 
 async function refresh() {
   if (!shouldPreferRpcBridge()) {
-    const bridgeState = await callBridgeState({ action: "get-state" })
+    const bridgeState = await callBridgeState({ action: "get-state", ...(selectedInvokerProfileId.value ? { invokerProfileId: selectedInvokerProfileId.value } : {}) })
     if (bridgeState) {
       applyState(bridgeState)
       error.value = undefined
@@ -547,7 +574,11 @@ async function refreshFromBridge(chat?: string) {
     return
   }
 
-  const bridgeState = await callBridgeState({ action: "get-state", ...(chat ? { chat } : {}) })
+  const bridgeState = await callBridgeState({
+    action: "get-state",
+    ...(chat ? { chat } : {}),
+    ...(selectedInvokerProfileId.value ? { invokerProfileId: selectedInvokerProfileId.value } : {}),
+  })
   if (bridgeState) {
     applyState(bridgeState)
     error.value = undefined
@@ -556,12 +587,16 @@ async function refreshFromBridge(chat?: string) {
   await refresh()
 }
 
-async function pollFinalBridgeState(input: { chat?: string, text: string }, signal: AbortSignal) {
+async function pollFinalBridgeState(input: { chat?: string, invokerProfileId?: string, text: string }, signal: AbortSignal) {
   while (!signal.aborted) {
     await new Promise(resolve => setTimeout(resolve, 700))
     if (signal.aborted) break
 
-    const next = await callBridgeState({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }, signal)
+    const next = await callBridgeState({
+      action: "get-state",
+      ...(input.chat ? { chat: input.chat } : {}),
+      ...(input.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
+    }, signal)
     if (!next) continue
 
     if (hasCurrentUserMessage(next, input.chat, input.text)) {
@@ -578,7 +613,7 @@ async function pollFinalBridgeState(input: { chat?: string, text: string }, sign
   return false
 }
 
-async function recoverTimedOutBridgeSend(input: { chat?: string, text: string }, signal: AbortSignal) {
+async function recoverTimedOutBridgeSend(input: { chat?: string, invokerProfileId?: string, text: string }, signal: AbortSignal) {
   const startedAt = Date.now()
   let sawSubmittedMessage = false
 
@@ -586,7 +621,11 @@ async function recoverTimedOutBridgeSend(input: { chat?: string, text: string },
     await new Promise(resolve => setTimeout(resolve, 700))
     if (signal.aborted) break
 
-    const next = await callBridgeState({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }, signal)
+    const next = await callBridgeState({
+      action: "get-state",
+      ...(input.chat ? { chat: input.chat } : {}),
+      ...(input.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
+    }, signal)
     if (!next) continue
 
     if (hasCurrentUserMessage(next, input.chat, input.text)) {
@@ -605,7 +644,7 @@ async function recoverTimedOutBridgeSend(input: { chat?: string, text: string },
   return false
 }
 
-async function pollFinalRpcState(input: { chat?: string, text: string }, signal: AbortSignal) {
+async function pollFinalRpcState(input: { chat?: string, invokerProfileId?: string, text: string }, signal: AbortSignal) {
   while (!signal.aborted) {
     await new Promise(resolve => setTimeout(resolve, 700))
     if (signal.aborted) break
@@ -628,7 +667,7 @@ async function pollFinalRpcState(input: { chat?: string, text: string }, signal:
   return false
 }
 
-async function readDirectBridgeStream(input: { chat?: string, text: string }): Promise<boolean> {
+async function readDirectBridgeStream(input: { chat?: string, invokerProfileId?: string, text: string }): Promise<boolean> {
   const abortController = new AbortController()
   currentReader = { cancel: () => abortController.abort() }
 
@@ -741,7 +780,7 @@ async function readDirectBridgeStream(input: { chat?: string, text: string }): P
   }
 }
 
-async function readRpcStream(streamId: string, input: { chat?: string, text: string }) {
+async function readRpcStream(streamId: string, input: { chat?: string, invokerProfileId?: string, text: string }) {
   const abortController = new AbortController()
   const reader = (rpcClient as { streaming?: { subscribe: <T>(channel: string, id: string, options?: Record<string, unknown>) => AsyncIterable<T> & { cancel: () => unknown } } } | undefined)?.streaming?.subscribe<ChatDevtoolsStreamEvent>(chatDevtoolsStreamChannel, streamId, {
     highWaterMark: 1024,
@@ -808,7 +847,11 @@ async function send() {
     await waitForFrame()
     status.value = "streaming"
 
-    const bridgeInput = { ...(chat ? { chat } : {}), text }
+    const bridgeInput = {
+      ...(chat ? { chat } : {}),
+      ...(selectedInvokerProfileId.value ? { invokerProfileId: selectedInvokerProfileId.value } : {}),
+      text,
+    }
     if (!shouldPreferRpcBridge()) {
       if (await readDirectBridgeStream(bridgeInput)) {
         if (error.value) {
@@ -822,6 +865,7 @@ async function send() {
 
     const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
       ...(chat ? { chat } : {}),
+      ...(selectedInvokerProfileId.value ? { invokerProfileId: selectedInvokerProfileId.value } : {}),
       stream: true,
       text,
     })
@@ -831,7 +875,7 @@ async function send() {
       return
     }
 
-    if (await readRpcStream(result.streamId, { ...(chat ? { chat } : {}), text })) {
+    if (await readRpcStream(result.streamId, bridgeInput)) {
       shouldRefreshFinalState = true
     }
   }
@@ -881,6 +925,7 @@ async function clear() {
       chats: [{ name: state.value.selected || "dev", messages: [] }],
       files: state.value.files || [],
       instructions: state.value.instructions || [],
+      invokerProfiles: state.value.invokerProfiles || [],
       selected: state.value.selected || "dev",
       tools: state.value.tools || [],
     }
@@ -894,6 +939,10 @@ async function clear() {
 onMounted(() => {
   syncExpandedFiles(state.value.files || [])
   refresh()
+})
+watch(selectedInvokerProfileId, async (next, previous) => {
+  if (!next || next === previous || isInvokerLocked.value) return
+  await refreshFromBridge(state.value.selected)
 })
 onBeforeUnmount(() => {
   stopSidebarResize?.()
@@ -923,15 +972,33 @@ onBeforeUnmount(() => {
             v{{ agentVersion }}
           </UBadge>
         </h1>
-        <UButton
-          icon="i-lucide-trash-2"
-          label="Clear"
-          color="neutral"
-          variant="outline"
-          size="sm"
-          class="shrink-0"
-          @click="clear"
-        />
+        <div class="flex shrink-0 items-center gap-2">
+          <UTooltip
+            v-if="showInvokerSelector"
+            :text="invokerSelectorTooltip"
+            :disabled="!isInvokerLocked"
+          >
+            <USelect
+              v-model="selectedInvokerProfileId"
+              :items="invokerSelectItems"
+              value-key="value"
+              label-key="label"
+              :disabled="isInvokerLocked"
+              size="sm"
+              class="w-44"
+              :ui="{ base: 'min-w-0' }"
+            />
+          </UTooltip>
+          <UButton
+            icon="i-lucide-trash-2"
+            label="Clear"
+            color="neutral"
+            variant="outline"
+            size="sm"
+            class="shrink-0"
+            @click="clear"
+          />
+        </div>
       </header>
 
       <div class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(220px,40vh)] overflow-hidden lg:grid-cols-[minmax(0,1fr)_1px_minmax(280px,var(--chat-devtools-sidebar-width))] lg:grid-rows-1" :style="splitterStyle">

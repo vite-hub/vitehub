@@ -1,6 +1,5 @@
 import { workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
-import { resolveInvocationProfile } from "../invocation-profile.ts"
 import { createWorkspaceTools } from "@vite-hub/workspace"
 
 import type {
@@ -13,9 +12,6 @@ import type {
   AgentWebhookRegistrationDefinition,
   MaybePromise,
 } from "../types.ts"
-import type {
-  AgentInvocationProfileDefinition,
-} from "../invocation-profile.ts"
 import type {
   ListOptions,
   ReadonlyWorkspaceFacade,
@@ -98,21 +94,19 @@ export type AccessWorkspaceResolverContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   TInputContext extends object = Record<string, unknown>,
-  TProfile = undefined,
 > = Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, "input"> & {
   input: Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>["input"], "get"> & {
     get: () => AgentRunInput<unknown, TInputContext>
   }
-} & ([TProfile] extends [undefined] ? {} : { profile: TProfile })
+}
 
 export type AccessWorkspaceScopeResolver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   TInputContext extends object = Record<string, unknown>,
   TSourceName extends string = string,
-  TProfile = undefined,
 > = (
-  context: AccessWorkspaceResolverContext<TRuntimeConfig, Name, TInputContext, TProfile>,
+  context: AccessWorkspaceResolverContext<TRuntimeConfig, Name, TInputContext>,
 ) => MaybePromise<AccessWorkspaceScopeSelectionInput<TSourceName> | undefined>
 
 export interface AccessWorkspaceOptions<
@@ -120,10 +114,9 @@ export interface AccessWorkspaceOptions<
   Name extends WorkspaceName = WorkspaceName,
   TSourceName extends string = string,
   TInputContext extends object = Record<string, unknown>,
-  TProfile = undefined,
 > {
   defaultScope?: string
-  resolve?: AccessWorkspaceScopeSelectionInput<TSourceName> | AccessWorkspaceScopeResolver<TRuntimeConfig, Name, TInputContext, TSourceName, TProfile>
+  resolve?: AccessWorkspaceScopeSelectionInput<TSourceName> | AccessWorkspaceScopeResolver<TRuntimeConfig, Name, TInputContext, TSourceName>
   scopes?: Record<string, AccessWorkspaceScopeDefinition<TSourceName>>
 }
 
@@ -157,11 +150,9 @@ export interface AccessCapabilityOptions<
   Name extends WorkspaceName = WorkspaceName,
   TSourceName extends string = string,
   TInputContext extends object = Record<string, unknown>,
-  TProfile = undefined,
 > {
   chat?: AccessChatOptions<TRuntimeConfig>
-  profile?: AgentInvocationProfileDefinition<TProfile, TRuntimeConfig, Name, TInputContext>
-  workspace?: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext, TProfile>
+  workspace?: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext>
 }
 
 export type AccessWorkspaceSourceName<TWorkspace extends { sources?: Record<string, WorkspaceSource> }> =
@@ -172,8 +163,7 @@ export type AccessWorkspaceOptionsFor<
   TInputContext extends object = Record<string, unknown>,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-  TProfile = undefined,
-> = AccessWorkspaceOptions<TRuntimeConfig, Name, AccessWorkspaceSourceName<TWorkspace>, TInputContext, TProfile>
+> = AccessWorkspaceOptions<TRuntimeConfig, Name, AccessWorkspaceSourceName<TWorkspace>, TInputContext>
 
 interface ResolvedWorkspaceScope {
   all: boolean
@@ -228,13 +218,6 @@ function setWorkspaceOverride<
 export function access<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-  TProfile = unknown,
-  TInputContext extends object = Record<string, unknown>,
-  const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext, TProfile> = AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext, TProfile>,
->(options: { chat?: AccessChatOptions<TRuntimeConfig>, input?: undefined, profile: AgentInvocationProfileDefinition<TProfile, TRuntimeConfig, Name, TInputContext>, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext>>
-export function access<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
   TInputContext extends object = Record<string, unknown>,
   const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext> = AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext>,
 >(options: { chat?: AccessChatOptions<TRuntimeConfig>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext>>
@@ -268,10 +251,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       if ("diff" in context.workspace) {
         throw new Error("[vitehub] access({ workspace }) is read-only in the first version and requires workspace.mode: \"read\".")
       }
-      const profile = options.profile
-        ? await resolveInvocationProfile(options.profile, context)
-        : undefined
-      const scope = await resolveWorkspaceScope(options.workspace, context, profile)
+      const scope = await resolveWorkspaceScope(options.workspace, context)
       const scopedWorkspace = scope.all
         ? context.workspace
         : createScopedWorkspaceFacade(context.workspace, scope)
@@ -294,13 +274,11 @@ async function resolveWorkspaceScope<
   Name extends WorkspaceName,
   TSourceName extends string,
   TInputContext extends object,
-  TProfile,
 >(
-  options: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext, TProfile>,
+  options: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext>,
   context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
-  profile: TProfile | undefined,
 ): Promise<ResolvedWorkspaceScope> {
-  const selection = normalizeSelection(await resolveSelection(options, context, profile))
+  const selection = normalizeSelection(await resolveSelection(options, context))
   if (!selection) {
     throw new Error("[vitehub] access({ workspace }) could not resolve a Workspace Scope. Configure defaultScope or resolve().")
   }
@@ -329,18 +307,13 @@ async function resolveSelection<
   Name extends WorkspaceName,
   TSourceName extends string,
   TInputContext extends object,
-  TProfile,
 >(
-  options: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext, TProfile>,
+  options: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext>,
   context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
-  profile: TProfile | undefined,
 ): Promise<AccessWorkspaceScopeSelectionInput<TSourceName> | undefined> {
   if (options.resolve !== undefined) {
-    const resolverContext = profile === undefined
-      ? context
-      : { ...context, profile }
     const resolved = typeof options.resolve === "function"
-      ? await options.resolve(resolverContext as AccessWorkspaceResolverContext<TRuntimeConfig, Name, TInputContext, TProfile>)
+      ? await options.resolve(context as AccessWorkspaceResolverContext<TRuntimeConfig, Name, TInputContext>)
       : options.resolve
     return normalizeSelection(resolved) ? resolved : options.defaultScope
   }

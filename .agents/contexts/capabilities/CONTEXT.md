@@ -44,10 +44,6 @@ _Avoid_: Placeholder, interpolation value, prompt arg
 A prompt template exposed by an MCP Server and consumed through Capability prompt or input behavior.
 _Avoid_: MCP Resource Source, Workspace file, model tool
 
-**Audience Capability**:
-A Capability created by `audience()` that contributes model-facing instruction blocks for the selected invocation audience.
-_Avoid_: Access Role, model role, user profile, prompt middleware
-
 **Storage Capability Tool Surface**:
 The two-tool read/edit shape used by official storage Capabilities to expose scoped storage operations to a model.
 _Avoid_: Primitive method proxy, storage method fanout
@@ -195,7 +191,7 @@ _Avoid_: App middleware, model-facing counter tool, KV wrapper
 ## Relationships
 
 - An Agent attaches zero or more **Capabilities**.
-- Official helpers such as `entry()`, `audience()`, `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `access()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, `llmGate()`, and `rateLimit()` create **Capability Definitions**.
+- Official helpers such as `entry()`, `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `access()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, `llmGate()`, and `rateLimit()` create **Capability Definitions**.
 - Official Capability factories and Capability-owned helper functions are imported from `@vite-hub/agent/capabilities`, not from the root `@vite-hub/agent` Agent Package entry.
 - Official helpers should map to product abilities rather than implementation mechanisms.
 - An official **Capability Definition** may carry a narrow **Capability Type Contract** when it directly consumes typed Agent Definition inputs such as Source keys, trusted Chat Capability origins, or schema-validated invocation context.
@@ -210,7 +206,6 @@ _Avoid_: App middleware, model-facing counter tool, KV wrapper
 - An **MCP Prompt Template** is Capability behavior, not Workspace content by default.
 - An **MCP Prompt Template** can be exposed as an **Input Command** when the host should let users invoke a named prompt before the Agent runs.
 - If an **MCP Prompt Template** references read-only MCP resources, those resources can be exposed separately through an **MCP Resource Source**.
-- An **Audience Capability** contributes prompt instructions; it does not apply access boundaries.
 - Standard Schema validation is the preferred runtime boundary for app-owned invocation metadata that an official **Capability** directly consumes.
 - An **Input Command** is a **Capability** concern resolved before model-facing Agent behavior.
 - A **Host Command** is not an **Input Command** and is outside the Capability Lifecycle.
@@ -222,18 +217,18 @@ _Avoid_: App middleware, model-facing counter tool, KV wrapper
 - An **LLM Gate Capability** chooses one developer-defined allow or reject category through an LLM and may reject before the main Agent Invocation.
 - Deterministic or callback-based routing is not an official Capability in V1; users can define inline Capabilities or hooks that set named invocation context values.
 - A **Rate Limit Capability** records a typed **Agent Invocation Context Value** with the consumed budget result when an invocation is allowed or rejected.
-- A **Rate Limit Capability** consumes trusted identity from Chat Identity, stable Agent Run metadata, explicitly trusted request metadata, or a developer callback, not from model output or client-supplied Chat App Route identity fields.
+- A **Rate Limit Capability** consumes trusted identity from the Agent Invoker by default, or from stable Agent Run metadata, trusted IP headers, or a developer callback when explicitly configured.
 - A **Rate Limit Capability** uses an explicit rate-limit store contract; model-facing storage Capabilities are not the runtime enforcement mechanism, and hosted runtimes require an explicit store choice.
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
 - A **Chat Capability** owns Chat History behavior for the current stack.
 - A **Chat Capability** may declare **Chat Platform Adapters** through a **Chat Adapter Callback**.
 - A **Chat Capability** carries trusted Chat Capability origins from its Chat Platform Adapter names.
 - An **Entry Capability** carries trusted Chat Capability origins from its Chat App Route origin and a linked Chat Capability's Chat Platform Adapter names.
-- A **Chat Capability** provides a platform-scoped **Chat Identity** default for Chat Platform Adapter messages when transcript persistence needs one.
+- A **Chat Capability** can provide a platform-scoped Agent Invoker default for Chat Platform Adapter messages when trusted chat identity is available.
 - A **Chat Platform Adapter** may come from a **Chat Adapter Package** that remains an explicit optional application dependency.
 - The Agent Package should not generate exports for every **Chat Adapter Package**.
 - A **Chat Adapter Facade** is reserved for first-party-supported adapters where ViteHub owns the public compatibility surface.
-- A **Chat Capability** can contribute trusted chat actor identity into Agent Invocation Context Values before later Capabilities resolve.
+- A **Chat Capability** can contribute trusted chat actor identity as the Agent Invoker before later Capabilities resolve.
 - **Chat Platform Adapters** are platform integration adapters, not **Agent Model Execution**.
 - **Chat Webhook Autowiring** is inferred from the Agent's attached **Chat Capability**; users do not attach a second Capability or call a webhook registration helper.
 - **Chat Webhook Autowiring** resolves the **Chat Adapter Callback** at request time so callbacks can read Server Env and other request-local server state.
@@ -250,7 +245,7 @@ _Avoid_: App middleware, model-facing counter tool, KV wrapper
 - An **Access Capability** can apply **Workspace Scope** to narrow an already-declared Workspace.
 - An **Access Capability** can record the active Workspace Scope as an Agent Invocation Context Value for later callbacks and instructions.
 - An **Access Capability** owns both Workspace Scope selection and application, but keeps resolver logic separate from grants.
-- An **Access Capability** may consume an **Invocation Profile** to select Workspace Scope without owning the profile resolution.
+- An **Access Capability** may consume `context.invoker` to select Workspace Scope without owning invoker resolution.
 - An **Access Capability** may consume normalized chat identity and request context from **Chat Webhook Autowiring** without repeating **Chat Capability** origins in Access configuration.
 - An **Access Capability** can use static named Workspace Scopes or an inline Workspace Scope definition returned by its resolver.
 - An **Access Capability** must be ordered before other Capabilities so invocation access is applied before they read scoped runtime surfaces or expose tools.
@@ -310,7 +305,7 @@ _Avoid_: App middleware, model-facing counter tool, KV wrapper
 > **Domain expert:** "No. Use only the Prompt Template Variables exposed by that Capability, or provide a callback when the prompt needs custom runtime data."
 >
 > **Dev:** "Should technical-user answer style be an Access Role?"
-> **Domain expert:** "No. Use an **Audience Capability** for model-facing style and keep **Access Role** for scope-selection authority."
+> **Domain expert:** "No. Keep **Access Role** for scope-selection authority; model-facing style can be normal prompt behavior that reads **Agent Invoker** metadata."
 >
 > **Dev:** "Should Chat DevTools wire its own chat send helper?"
 > **Domain expert:** "No. The **Chat Capability** should provide a **Capability Trigger Contribution**, and DevTools should consume the resolved Agent Trigger."
@@ -356,7 +351,7 @@ _Avoid_: App middleware, model-facing counter tool, KV wrapper
 - `workspaceScope()` was considered as the public helper name - resolved: use `access()` for the Capability while preserving **Workspace Scope** for the Workspace-specific boundary.
 - `organization()` was considered as the public helper name - resolved: reject it because access decisions may come from organizations, customer domains, local config, or other trusted invocation context.
 - Pre-registering every customer Workspace Scope was considered necessary - resolved: an Access Capability resolver may return an inline Workspace Scope definition for invocation-specific grants.
-- Prompt audience was considered part of the **Access Capability** because it may use the same trusted identity facts - resolved: keep **Audience Capability** separate and let both capabilities consume an **Invocation Profile** when they need shared selection.
+- Prompt audience was considered part of the **Access Capability** because it may use the same trusted identity facts - resolved: keep prompt instructions as normal Capability or Agent behavior that reads **Agent Invoker** metadata when shared selection is needed.
 - Prompt audience variants were considered as roles - resolved: reserve **Access Role** for access authority and use audience language for model-facing instructions.
 - "audio input", "voice input", and "voice transcription" were considered as names for spoken user messages - resolved: use **Transcription** for the capability.
 - `transcribe({ workspace })` was considered for persisted transcript and audio artifacts - resolved: use **Transcription Artifacts** so the option does not masquerade as a Workspace Definition.
@@ -374,7 +369,7 @@ _Avoid_: App middleware, model-facing counter tool, KV wrapper
 - A generic `decisionPolicy()` helper and request-refinement Capability were considered - resolved: defer them until **LLM Route Capability**, **LLM Gate Capability**, and Chat Sessions prove the internal primitive.
 - App-level rate-limit middleware was considered for agent chat routes - resolved: use a **Rate Limit Capability** so invocation budgets compose through Agent Definitions and can run before model execution on every Agent Invocation path.
 - Plain KV `get`/`set` counters were considered for **Rate Limit Capability** storage - resolved: rate limiting needs an explicit consume contract because distributed enforcement depends on atomic store behavior.
-- Client-provided Chat App Route user/run fields were considered for **Rate Limit Capability** defaults - resolved: do not trust them as budget identity; official chat triggers should produce Chat Identity from trusted server-side inputs.
+- Client-provided Chat App Route user/run fields were considered for **Rate Limit Capability** defaults - resolved: do not trust them as budget identity; official chat triggers should produce an Agent Invoker from trusted server-side inputs.
 - Forwarded request headers were considered for default IP identity - resolved: require explicit trusted header names because proxy trust is deployment-specific.
 - Typed capability preparation was considered as a runtime lifecycle phase - resolved: use narrow **Capability Type Contracts** for type-only Agent Definition checks on official Capabilities, and keep runtime validation inside the **Capability Lifecycle**.
 - A generic custom-Capability contract framework was considered - resolved: defer it until user-defined Capabilities prove a stable story; the current contract exists for official Capabilities that directly consume Agent Definition inputs.

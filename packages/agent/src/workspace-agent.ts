@@ -4,6 +4,11 @@ import {
   normalizeMode,
   resolveAgentCapabilities,
 } from "./capability-runtime.ts"
+import { createAgentInvocationContextStore } from "./invocation-context.ts"
+import {
+  normalizeAgentInvokerProfiles,
+  resolveAgentInvoker,
+} from "./invoker.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -164,8 +169,10 @@ function capabilityMetadataTool(capability: NormalizedCapability): AgentDevtools
     : undefined
 }
 
-function agentDevtoolsMetadata(definition: Pick<AgentDefinition, "title" | "version">): Pick<AgentDevtoolsMetadata, "title" | "version"> {
+function agentDevtoolsMetadata(definition: Pick<AgentDefinition, "invoker" | "title" | "version">): Pick<AgentDevtoolsMetadata, "invokerProfiles" | "title" | "version"> {
+  const invokerProfiles = normalizeAgentInvokerProfiles(definition.invoker?.profiles)
   return {
+    ...(invokerProfiles.length ? { invokerProfiles } : {}),
     ...(definition.title ? { title: definition.title } : {}),
     ...(definition.version ? { version: definition.version } : {}),
   }
@@ -560,10 +567,16 @@ async function resolveWorkspaceMetadataCapabilityInstructions<
 
   const runtime = createDevtoolsMetadataRuntime(resolution.runtime)
   const workspaceName = resolution.workspace || resolution.name || workspaceNameFromOptions(options)
+  const input = resolution.input || {}
+  const { runtimeConfig: _runtimeConfig, ...callbackContext } = runtime
+  const invocationContext = createAgentInvocationContextStore(input.context)
+  const invoker = await resolveAgentInvoker(options.invoker, callbackContext, invocationContext, input, runtime.run)
   const resolved = await resolveAgentCapabilities({
     capabilities: options.capabilities as AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined,
     hooks: options.hooks as never,
-  }, runtime, resolution.input || {}, workspace, workspaceModeFromOptions(options), {
+  }, runtime, input, workspace, workspaceModeFromOptions(options), {
+    context: invocationContext,
+    invoker,
     model: "model" in options ? options.model as never : undefined,
     workspaceDefinition: workspaceDefinitionWithNameFromOptions(options, { workspace: workspaceName }),
   })
