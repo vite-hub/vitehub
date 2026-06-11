@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
@@ -25,9 +24,7 @@ export interface WorkspaceBuildState {
 }
 
 export function workspaceAmbientTypesPath(root: string) {
-  return existsSync(resolve(root, "src"))
-    ? resolve(root, "src", "vitehub-workspace.d.ts")
-    : resolve(root, "vitehub-workspace.d.ts")
+  return resolve(root, ".vitehub", "types", "workspace.d.ts")
 }
 
 export async function createWorkspaceBuildState(definitions: DiscoveredWorkspaceDefinition[]): Promise<WorkspaceBuildState> {
