@@ -65,14 +65,14 @@ interface ResolvedClientOutput {
   staticIndex: boolean
 }
 
-export interface VercelFunctionRuntimePackage {
+interface VercelFunctionRuntimePackage {
   includePeerDependencies?: boolean
   name: string
   optional?: boolean
   resolveFrom?: string
 }
 
-export interface VercelFunctionRuntimePackagesOptions {
+interface VercelFunctionRuntimePackagesOptions {
   outputRoot?: string
   packages: VercelFunctionRuntimePackage[]
   rootDir: string
