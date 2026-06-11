@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
 import { chat, chatTitle, schedule } from "../src/capabilities.ts"
@@ -1721,5 +1721,109 @@ describe("agent message protocol", () => {
     })
 
     await expect(agent.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() })).rejects.toThrow("requires the kv primitive")
+  })
+
+  describe("workflow-backed agents", () => {
+    afterEach(async () => {
+      const { resetWorkflowRuntime } = await import("@vite-hub/workflow/runtime/state")
+      resetWorkflowRuntime()
+    })
+
+    it("queues direct agent runs as Workflow Runs", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({
+        runtime: workflow("support-agent"),
+        run: context => `received ${context.prompt}`,
+      })
+      const run = await runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      expect(run).toMatchObject({
+        provider: "vercel",
+        status: "queued",
+      })
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("support-agent", run.id)).resolves.toMatchObject({
+        result: "received hello",
+        status: "completed",
+      })
+    })
+
+    it("uses trigger run ids as workflow run ids", async () => {
+      const { defineAgent, runAgentTrigger, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({
+        capabilities: [{
+          id: "portal",
+          triggers: {
+            message: {
+              invoke: (_context, input: { text: string }) => ({
+                input: { prompt: input.text },
+                run: { origin: "portal", runId: "portal-run" },
+              }),
+            },
+          },
+        }],
+        runtime: workflow("portal-agent"),
+        run: context => `received ${context.prompt}`,
+      })
+      const run = await runAgentTrigger(agent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, "portal.message", { text: "hello" }) as { id: string }
+
+      expect(run).toMatchObject({
+        id: "portal-run",
+        provider: "vercel",
+        status: "queued",
+      })
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("portal-agent", "portal-run")).resolves.toMatchObject({
+        result: "received hello",
+        status: "completed",
+      })
+    })
+
+    it("passes Cloudflare env through workflow inline fallback", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "cloudflare" })
+
+      const agent = defineAgent({
+        runtime: workflow("cloudflare-agent"),
+        run: context => context.cloudflare?.env?.NUXT_SITE,
+      })
+      const run = await runAgent(agent, {
+        cloudflare: { env: { NUXT_SITE: "nuxt.com" } },
+        memo: vi.fn(),
+        runtime: "cloudflare-agents",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+
+      expect(run).toMatchObject({
+        provider: "cloudflare",
+        status: "queued",
+      })
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("cloudflare-agent", run.id)).resolves.toMatchObject({
+        result: "nuxt.com",
+        status: "completed",
+      })
+    })
   })
 })

@@ -64,6 +64,7 @@ import type {
   AgentRequestBody,
   AgentRunContext,
   AgentRunInput,
+  AgentRunMetadata,
   AgentRunResult,
   AgentRuntimeBinding,
   AgentRuntimeConfig,
@@ -89,6 +90,7 @@ import type {
   WorkspaceDefinition,
   WorkspaceName,
 } from "@vite-hub/workspace"
+import type { WorkflowHandle } from "@vite-hub/workflow"
 
 export type {
   AgentAdapter,
@@ -293,6 +295,11 @@ type AgentDefinitionWithBaseResolve<
   [baseAgentResolve]?: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS>
   [baseAgentModel]?: AgentModelResolver<TRuntimeConfig>
 }
+interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
+  input: AgentRunInput<CALL_OPTIONS>
+  run?: AgentRunMetadata
+  runtime?: AgentRuntimeContext["runtime"]
+}
 interface ScheduleRunContextLike {
   attemptId?: string
   id: string
@@ -301,6 +308,8 @@ interface ScheduleRunContextLike {
   scheduledAt: Date
   target?: string
 }
+
+const agentWorkflowHandles = new WeakMap<object, Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>>()
 
 function hasAgentMethods(value: unknown): value is AgentAdapter {
   return typeof value === "object"
@@ -341,6 +350,71 @@ function hasAgentDefinition(value: unknown): value is AgentDefinition {
     && value !== null
     && "resolve" in value
     && typeof (value as { resolve?: unknown }).resolve === "function"
+}
+
+function resolveAgentWorkflowRuntimeBinding<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+): AgentWorkflowRuntimeBinding | undefined {
+  if (!hasAgentDefinition(agent)) return undefined
+  return agent.runtime?.kind === "workflow" ? agent.runtime : undefined
+}
+
+function resolveAgentWorkflowName(binding: AgentWorkflowRuntimeBinding): string {
+  if (binding.name) return binding.name
+  throw new Error("[vitehub] Agent runtime workflow() requires a name when invoked directly. Use workflow(\"name\") so the Agent Invocation can target a stable Workflow Definition.")
+}
+
+async function getAgentWorkflowHandle<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  name: string,
+): Promise<WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>> {
+  const handles = agentWorkflowHandles.get(agent as object) || new Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>()
+  const existing = handles.get(name)
+  if (existing) return existing as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>
+
+  const { createWorkflow } = await import("@vite-hub/workflow")
+  const handle = createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>(name, async (workflowContext) => {
+    const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
+    return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never)
+  })
+  handles.set(name, handle as WorkflowHandle<AgentWorkflowInvocationPayload, unknown>)
+  agentWorkflowHandles.set(agent as object, handles)
+  return handle
+}
+
+async function runAgentAsWorkflow<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+) {
+  const binding = resolveAgentWorkflowRuntimeBinding<TRuntimeConfig, CALL_OPTIONS>(agent)
+  if (!binding) return undefined
+
+  const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS>(agent, resolveAgentWorkflowName(binding))
+  const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
+    input,
+    runtime: context.runtime,
+    ...(context.run ? { run: context.run } : {}),
+  }
+  const workflowEvent = {
+    ...(context.cloudflare?.env ? { env: context.cloudflare.env } : {}),
+    waitUntil: context.waitUntil,
+    context: {
+      ...(context.cloudflare ? { cloudflare: context.cloudflare } : {}),
+      waitUntil: context.waitUntil,
+    },
+  }
+  const { runWithWorkflowRuntimeEvent } = await import("@vite-hub/workflow/runtime/state")
+  return await runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(payload, context.run?.runId ? { id: context.run.runId } : {}))
 }
 
 function resolveRegistryModule<TContext extends AgentRuntimeContext>(
@@ -887,7 +961,7 @@ async function finalizeAgentInvocationResult<
   }
 }
 
-export async function runAgent<
+export async function runAgentInline<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 >(
@@ -937,6 +1011,19 @@ export async function runAgent<
   }, "[vitehub] Agent run failed and finish lifecycle also failed.")
 }
 
+export async function runAgent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+): Promise<Response | AgentRunResult | unknown> {
+  const workflowRun = await runAgentAsWorkflow(agent, context, input)
+  if (workflowRun) return workflowRun
+  return await runAgentInline(agent, context, input)
+}
+
 export async function runScheduledAgent(
   agent: AgentInput<AgentRuntimeContext>,
   context: ScheduleRunContextLike,
@@ -968,7 +1055,7 @@ export async function runScheduledAgent(
   })
 }
 
-export async function streamAgent<
+export async function streamAgentInline<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 >(
@@ -1039,6 +1126,20 @@ export async function streamAgent<
       value: shouldWrapOutput ? withCapabilityCleanup(events, error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error)) : events,
     }
   }, "[vitehub] Agent stream failed and finish lifecycle also failed.", { finalizeRawStreams: output === "ui-message-stream" })
+}
+
+export async function streamAgent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+  options: { output?: "events" | "ui-message-stream" } = {},
+): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  const workflowRun = await runAgentAsWorkflow(agent, context, input)
+  if (workflowRun) return workflowRun
+  return await streamAgentInline(agent, context, input, options)
 }
 
 export async function getAgent<TContext extends AgentRuntimeContext>(

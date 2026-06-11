@@ -23,6 +23,7 @@ export default defineConfig({
     "src/state/sqlite.ts",
     "src/cloudflare/state.ts",
     "src/runtime/empty-registry.ts",
+    "src/runtime/workflow.ts",
     "src/server.ts",
     "src/test.ts",
     "src/vercel.ts",
