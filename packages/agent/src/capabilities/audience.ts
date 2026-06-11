@@ -56,10 +56,7 @@ export function audience<
       const instructions = typeof options.instructions === "function"
         ? await options.instructions({ ...context, profile } as AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & { profile: TProfile })
         : options.instructions
-      context.instructions.add(instructions, {
-        ...(id === "audience" ? {} : { aliases: ["audience"] }),
-        id,
-      })
+      context.instructions.add(instructions, { id })
     },
   })
 }

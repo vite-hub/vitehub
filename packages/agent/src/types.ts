@@ -264,7 +264,6 @@ export type AgentCapabilityPhase = "configure" | "prepare" | "bind" | "input" | 
 export type AgentCapabilityHookName = `capability:${AgentCapabilityPhase}` | `capability:${AgentCapabilityPhase}:after`
 
 export interface AgentInstructionBlock {
-  aliases?: string[]
   id: string
   instructions: string
 }
@@ -297,7 +296,7 @@ export interface AgentCapabilityRuntimeContext<
 > extends AgentCapabilityContext<TRuntimeConfig, Name> {
   capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
   instructions: {
-    add: (instructions: AgentAdapterInstructionsValue | false | undefined, options?: { aliases?: string[], id?: string }) => void
+    add: (instructions: AgentAdapterInstructionsValue | false | undefined, options?: { id?: string }) => void
   }
   input: {
     get: () => AgentRunInput

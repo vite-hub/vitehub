@@ -41,7 +41,7 @@ export default defineAgent({
 
 Sources can include Source Instructions. They are static developer-authored guidance for how the agent should use that source; ViteHub does not infer them from provider metadata.
 
-When at least one visible source has instructions, ViteHub renders a `## Workspace Sources` block into the model instructions. Put `{{ sources }}` where that block belongs, or omit the slot and ViteHub appends it at the end. If the slot is present but no visible source has instructions, the slot is replaced with an empty string.
+When at least one visible source has instructions, ViteHub renders a `## Workspace Sources` block into the model instructions. Put `{{ workspace.sources }}` where that block belongs, or omit the slot and ViteHub appends it at the end. If the slot is present but no visible source has instructions, the slot is replaced with an empty string.
 
 Only visible sources render. When `access()` selects a Workspace Scope, hidden or scoped-out source instructions are omitted along with the hidden files.
 
@@ -159,7 +159,7 @@ export default defineAgent({
   ],
   instructions: [
     'Answer from the scoped customer workspace.',
-    '{{ sources }}',
+    '{{ workspace.sources }}',
   ],
   model: gateway('openai/gpt-5.1-mini'),
 })

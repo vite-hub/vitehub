@@ -40,7 +40,7 @@ import { tickets } from './capabilities/tickets'
 export default defineAgent({
   instructions: [
     'Triage support requests.',
-    '{{ tickets }}',
+    '{{ capabilities.tickets }}',
   ].join('\n\n'),
   capabilities: [
     tickets(),

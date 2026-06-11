@@ -277,7 +277,7 @@ describe("agent chat capability discovery", () => {
         }),
         chat(),
       ],
-      instructions: "# Support\n\n{{ audience }}",
+      instructions: "# Support\n\n{{ capabilities.support-audience }}",
       workspace: {},
       run: (context: { input: { context?: { chat?: { run?: { origin?: string } } } }, workspace?: unknown }) => `answered through ${context.input.context?.chat?.run?.origin} with ${context.workspace ? "workspace" : "no workspace"}`,
     }), { workspace: "support" })

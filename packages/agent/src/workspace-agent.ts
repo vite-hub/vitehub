@@ -506,7 +506,7 @@ export async function resolveWorkspaceSourceInstructionBlock(
   return renderWorkspaceSourceInstructionBlock(sources, visible)
 }
 
-const sourceInstructionSlotPattern = /\{\{\s*sources\s*\}\}/g
+const sourceInstructionSlotPattern = /\{\{\s*workspace\.sources\s*\}\}/g
 
 export function applyWorkspaceSourceInstructionSlot(instructions: string, sourceInstructions: string | undefined): string {
   const sourceBlock = sourceInstructions?.trim()
@@ -523,7 +523,7 @@ export function applyWorkspaceSourceInstructionSlot(instructions: string, source
 }
 
 function applyWorkspaceSourceInstructionsToParts(parts: string[], sourceInstructions: string | undefined): string[] {
-  const hasSourceSlot = parts.some(part => /\{\{\s*sources\s*\}\}/.test(part))
+  const hasSourceSlot = parts.some(part => /\{\{\s*workspace\.sources\s*\}\}/.test(part))
   if (!hasSourceSlot && !sourceInstructions?.trim()) return parts
   const instructions = applyWorkspaceSourceInstructionSlot(parts.join("\n\n"), sourceInstructions)
   return instructions ? [instructions] : []
