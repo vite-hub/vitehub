@@ -58,6 +58,7 @@
     "test": "pnpm --filter @vite-hub/workspace... build && vitest run"
   },
   "dependencies": {
+    "@vercel/nft": "catalog:vercel",
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",

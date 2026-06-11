@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 
+vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
+  copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
+}))
+
 describe("agent Vite plugin", () => {
   it("ignores generated ViteHub files in the Vite dev watcher", async () => {
     const { hubAgent } = await import("../src/vite.ts")
@@ -55,6 +59,23 @@ describe("agent Vite plugin", () => {
           route: "/api/_vitehub/agents/:agent/chat",
         }],
       },
+    })
+  })
+
+  it("materializes the MCP runtime package for Vercel build output", async () => {
+    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ eval: false })
+    const configResolved = plugin.configResolved as (config: { agent?: unknown, command: "build", root: string }) => Promise<void>
+    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+    vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
+
+    await configResolved({ command: "build", root: "/app" })
+    await closeBundle.handler()
+
+    expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
+      packages: [{ includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true }],
+      rootDir: "/app",
     })
   })
 })
