@@ -281,6 +281,8 @@ _Avoid_: App middleware, model-facing counter tool, KV wrapper
 - User-defined Capabilities use the same **Capability Definition** shape as official helpers.
 - A **Capability Definition** can contribute instructions, tools, policy, and metadata.
 - A **Capability Definition** uses `id` as its only capability-level identity and display label.
+- Capability-specific instruction placement uses the `capabilities.<id>` namespace, such as `capabilities.mcp`.
+- Bare Capability ids are not instruction placement slots.
 - A **Capability** can declare **Capability Requirements**.
 - The **Capability Lifecycle** validates **Capability Requirements** as early as possible.
 - Tools are exposed through **Capability Definitions**, not through top-level Agent Definition fields.
@@ -346,6 +348,7 @@ _Avoid_: App middleware, model-facing counter tool, KV wrapper
 - Build-time Chat Platform Adapter detection was considered - resolved: resolve the **Chat Adapter Callback** at request time because platform credentials and adapter construction can depend on Server Env.
 - Repeating Chat Capability origins in `access()` was considered - resolved: **Chat Capability** owns adapter/webhook origin configuration, while **Access Capability** consumes normalized chat identity and request context for chat admission.
 - Capability phases, contexts, hooks, and instruction slots were considered glossary terms - resolved: group that detail under **Capability Lifecycle** unless a feature needs a sharper term.
+- Bare Capability id instruction slots such as `mcp` were considered - resolved: use `capabilities.<id>` without backwards compatibility aliases.
 - Chat History was considered as a standalone Capability - resolved: keep Chat History inside the **Chat Capability** for this stack and revisit during a future Agent Memory pass.
 - Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.
 - Workspace inspection was considered a hand-written raw tool contribution or Bash concern - resolved: expose it through a **Workspace Capability**.

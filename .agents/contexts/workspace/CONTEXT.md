@@ -124,14 +124,15 @@ _Avoid_: Open workspace, sandbox, mount
 - A **Workspace** has zero or more **Sources**.
 - A **Workspace** declares Sources through one **Source Map**.
 - A **Source Namespace** contains local, inline, tree, and provider Source helpers.
+- A **Source Map** key is ordinary Source identity; a key such as `instructions` does not make Source content into Agent instructions.
 - A **Source** may have **Source Instructions**.
 - **Source Instructions** are static strings or string arrays on a Source declaration.
 - **Source Instructions** are explicit developer-authored Source configuration, not inferred provider metadata.
 - **Source Instructions** guide Agent behavior, but they do not grant access to hidden Sources or change Workspace Scope.
 - An Agent should receive **Source Instructions** only for Sources visible through the **Selected Workspace Scope**.
 - If any visible Source has **Source Instructions**, the Agent should receive them by default at the end of its instructions unless the **Agent Definition** explicitly places the source guidance.
-- If an **Agent Definition** places Source guidance but no visible Source has **Source Instructions**, the placement should render as empty instructions.
-- Explicit Source Instruction placement renders the complete generated Source guidance block, including its heading.
+- If an **Agent Definition** places `workspace.sources` but no visible Source has **Source Instructions**, the placement should render as empty instructions.
+- Explicit Source Instruction placement uses `workspace.sources` and renders the complete generated Source guidance block, including its heading.
 - The generated Source guidance block should render each Source under a Source Map key heading and should not add generated descriptions or Mount summaries when the Source already has **Source Instructions**.
 - Sources without **Source Instructions** should be omitted from the generated Source guidance block.
 - A **Colocated Workspace Definition** has a **Workspace Source Root**.
@@ -201,6 +202,8 @@ _Avoid_: Open workspace, sandbox, mount
 - Live Source search was considered mandatory - resolved: search is optional, and any search hit must resolve to a readable Source-Backed Path.
 - "mount" was considered as the name for `workspace.sources` - resolved: **Mount** is only the placement of a Source inside the Workspace.
 - `workspace.sources` was considered as an array for simple one-off Sources - resolved: use a **Source Map** so every Source has stable identity.
+- A Source Map key named `instructions` was considered as a special prompt signal - resolved: keep it an ordinary Source key and use explicit **Source Instructions** for model-facing guidance.
+- A broad `workspace` instruction placement slot was considered for **Source Instructions** - resolved: use `workspace.sources` so Source guidance is precise and does not imply all Workspace behavior.
 - Agent `workspace: { ... }` shorthand was considered as Agent-owned configuration - resolved: treat it as a **Colocated Workspace Definition**.
 - Sibling files next to a **Colocated Workspace Definition** were considered for automatic ingestion - resolved: require explicit **Sources** instead.
 - Single-file Source root mounting was considered equivalent to tree Source root mounting - resolved: **Single-File Source** can use basename-at-root defaults because it contributes one build-time materialized file.

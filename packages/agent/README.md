@@ -35,7 +35,7 @@ export default defineAgent({
   model: gateway("openai/gpt-5.1-mini"),
   instructions: [
     "Answer support questions from the workspace.",
-    "{{ sources }}",
+    "{{ workspace.sources }}",
   ],
   capabilities: [chat(), workspaceShell()],
   workspace: {

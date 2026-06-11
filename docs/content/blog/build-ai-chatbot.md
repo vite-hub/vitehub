@@ -110,7 +110,7 @@ export default defineAgent({
   ],
   instructions: [
     'Answer support requests from the connected workspace.',
-    '{{ sources }}',
+    '{{ workspace.sources }}',
     '{{ capabilities }}',
   ].join('\n\n'),
   model: gateway('openai/gpt-5.1-mini'),
@@ -182,8 +182,8 @@ export default defineAgent({
   adapter: 'ai-sdk',
   instructions: [
     'Answer support requests from the connected workspace.',
+    '{{ capabilities.tickets }}',
     '{{ capabilities }}',
-    '{{ tickets }}',
   ].join('\n\n'),
   capabilities: [
     workspaceShell({ mode: 'read' }),

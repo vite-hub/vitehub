@@ -166,7 +166,7 @@ function addInstructionBlock(
   capabilityInstructions: AgentInstructionBlock[],
   capabilityId: string,
   value: AgentAdapterInstructionsValue | false | undefined,
-  options?: { aliases?: string[], id?: string },
+  options?: { id?: string },
 ) {
   if (value === false || value === undefined) return
   const instructions = (Array.isArray(value) ? value : [value])
@@ -175,8 +175,7 @@ function addInstructionBlock(
     .join("\n\n")
   if (instructions) {
     capabilityInstructions.push({
-      ...(options?.aliases?.length ? { aliases: options.aliases } : {}),
-      id: options?.id || capabilityId,
+      id: `capabilities.${options?.id || capabilityId}`,
       instructions,
     })
   }
@@ -473,7 +472,7 @@ export function applyCapabilityInstructionSlots(instructions: string, blocks: Ag
       return remaining.splice(0).map(block => block.instructions).join("\n\n")
     }
 
-    const selected = blocks.filter(block => instructionBlockMatchesSlot(block, slot))
+    const selected = blocks.filter(block => block.id === slot)
     if (!selected.length) {
       return match
     }
@@ -493,10 +492,6 @@ export function applyCapabilityInstructionSlots(instructions: string, blocks: Ag
 
   const appendix = remaining.map(block => block.instructions).join("\n\n")
   return [rendered.trim(), appendix.trim()].filter(Boolean).join("\n\n")
-}
-
-function instructionBlockMatchesSlot(block: AgentInstructionBlock, slot: string): boolean {
-  return block.id === slot || !!block.aliases?.includes(slot)
 }
 
 export async function applyCapabilityToolTransforms(

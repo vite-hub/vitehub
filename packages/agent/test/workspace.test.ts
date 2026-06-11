@@ -356,7 +356,7 @@ describe("defineAgent workspace option", () => {
     ].join("\n\n"))
   })
 
-  it("places source instructions in the sources slot", async () => {
+  it("places source instructions in the workspace sources slot", async () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
@@ -373,7 +373,7 @@ describe("defineAgent workspace option", () => {
       },
       instructions: [
         "Answer from the workspace.",
-        "{{ sources }}",
+        "{{ workspace.sources }}",
         "Keep replies short.",
       ],
       model: {} as never,
@@ -389,7 +389,7 @@ describe("defineAgent workspace option", () => {
     ].join("\n\n"))
   })
 
-  it("replaces the sources slot with empty instructions when no source instructions are visible", async () => {
+  it("replaces the workspace sources slot with empty instructions when no source instructions are visible", async () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
@@ -400,7 +400,7 @@ describe("defineAgent workspace option", () => {
       },
       instructions: [
         "Answer from the workspace.",
-        "{{ sources }}",
+        "{{ workspace.sources }}",
         "Keep replies short.",
       ],
       model: {} as never,
@@ -1217,7 +1217,7 @@ describe("defineAgent workspace option", () => {
   it("renders capability instruction slots in resolved DevTools metadata", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const readInstructions = vi.fn(async ({ fs }) => await fs.readFile("AGENTS.md"))
-    readFile.mockResolvedValue("# Workspace instructions\n\n{{ audience }}\n")
+    readFile.mockResolvedValue("# Workspace instructions\n\n{{ capabilities.audience }}\n")
     list.mockResolvedValue([{ path: "AGENTS.md", type: "file" }])
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {},
