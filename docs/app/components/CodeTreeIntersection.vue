@@ -65,7 +65,7 @@ useIntersectionObserver(
 </script>
 
 <template>
-  <div ref="target" class="lg:h-px">
+  <div ref="target" class="lg:-my-2.5 lg:h-px">
     <div class="lg:hidden">
       <slot />
     </div>
