@@ -4,6 +4,7 @@ import type {
   AgentCapabilityDefinition,
   AgentFinishEvent,
   AgentRunMetadata,
+  AgentRuntimeConfig,
   AgentUsage,
   AgentUsageCost,
   AgentUsageRecord,
@@ -19,8 +20,53 @@ export interface AgentUsagePricingContext {
 
 export type AgentUsagePricing = (context: AgentUsagePricingContext) => MaybePromise<AgentUsageCost | undefined>
 
+export interface UsageTelemetryChatMessageContext {
+  durationMs?: number
+  provider?: string
+  run?: Partial<AgentRunMetadata>
+}
+
+export interface UsageTelemetryContext {
+  run?: Partial<AgentRunMetadata>
+}
+
+export type UsageTelemetryChatMessage =
+  | { markdown: string }
+  | { text: string }
+
+export interface UsageTelemetryChatSendMessage {
+  (message: UsageTelemetryChatMessage): Promise<void>
+}
+
+export interface UsageTelemetryChatCallbackContext extends UsageTelemetryChatMessageContext {
+  sendMessage: UsageTelemetryChatSendMessage
+}
+
+export type UsageTelemetryChatFormatter = (
+  record: AgentUsageRecord,
+  context: UsageTelemetryChatMessageContext,
+) => MaybePromise<string | undefined>
+
+export type UsageTelemetryCallback = (
+  record: AgentUsageRecord,
+  context: UsageTelemetryContext,
+) => MaybePromise<void>
+
+export type UsageTelemetryChatCallback = (
+  record: AgentUsageRecord,
+  context: UsageTelemetryChatCallbackContext,
+) => MaybePromise<void>
+
+export interface UsageTelemetryChatOptions {
+  enabled?: boolean
+  format?: UsageTelemetryChatFormatter
+  onUsage?: UsageTelemetryChatCallback
+}
+
 export interface UsageTelemetryOptions {
+  chat?: boolean | UsageTelemetryChatOptions
   includeRaw?: boolean
+  onUsage?: UsageTelemetryCallback
   pricing?: AgentUsagePricing
 }
 
@@ -40,10 +86,44 @@ export interface VercelAiGatewayPricingOptions {
 
 type UnknownRecord = Record<string, unknown>
 
+interface UsageTelemetryCapabilityMetadata {
+  kind: "usage-telemetry"
+  usageTelemetry: UsageTelemetryOptions
+}
+
+const usageTelemetryWrapped = Symbol("vitehub.usageTelemetryWrapped")
+
 const vercelAiGatewayModelsUrl = "https://ai-gateway.vercel.sh/v1/models"
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === "object" && value !== null
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
+  return !!value && typeof value === "object" && Symbol.asyncIterator in value
+}
+
+function isUsageTelemetryMetadata(value: unknown): value is UsageTelemetryCapabilityMetadata {
+  return isRecord(value)
+    && value.kind === "usage-telemetry"
+    && isRecord(value.usageTelemetry)
+}
+
+function normalizeChatOptions(value: UsageTelemetryOptions["chat"]): UsageTelemetryChatOptions | undefined {
+  if (value === true) return {}
+  if (!value) return
+  return value.enabled === false ? undefined : value
+}
+
+export function getUsageTelemetryChatOptions<TRuntimeConfig extends AgentRuntimeConfig>(
+  capabilities: AgentCapabilityDefinition<TRuntimeConfig>[],
+): UsageTelemetryChatOptions[] {
+  return capabilities
+    .map((capability) => {
+      if (capability.id !== "usage-telemetry" || !isUsageTelemetryMetadata(capability.metadata)) return undefined
+      return normalizeChatOptions(capability.metadata.usageTelemetry.chat)
+    })
+    .filter((options): options is UsageTelemetryChatOptions => !!options)
 }
 
 function readNumber(record: UnknownRecord, ...keys: string[]): number | undefined {
@@ -175,16 +255,132 @@ function removeRawUsage(usage: AgentUsage): AgentUsage {
   return rest
 }
 
+async function recordUsage(
+  result: UnknownRecord,
+  options: UsageTelemetryOptions,
+  run?: Partial<AgentRunMetadata>,
+): Promise<AgentUsageRecord | undefined> {
+  const usageRecord = await createAgentUsageRecord(result, options, run)
+  if (usageRecord) await options.onUsage?.(usageRecord, run ? { run } : {})
+  return usageRecord
+}
+
+async function* withUsageTelemetryStream(
+  stream: AsyncIterable<unknown>,
+  options: UsageTelemetryOptions,
+  run?: Partial<AgentRunMetadata>,
+  onRecord?: (record: AgentUsageRecord) => void,
+): AsyncIterable<unknown> {
+  for await (const chunk of stream) {
+    if (isRecord(chunk) && chunk.type === "finish") {
+      const usageRecord = await recordUsage(chunk, options, run)
+      if (usageRecord) {
+        onRecord?.(usageRecord)
+        yield { type: "usage", usageRecord }
+      }
+    }
+    yield chunk
+  }
+}
+
+function withAsyncIterator<T>(stream: ReadableStream<T>): AsyncIterable<T> & ReadableStream<T> {
+  if (typeof (stream as AsyncIterable<T>)[Symbol.asyncIterator] === "function") {
+    return stream as AsyncIterable<T> & ReadableStream<T>
+  }
+
+  Object.defineProperty(stream, Symbol.asyncIterator, {
+    configurable: true,
+    value: async function* () {
+      const reader = stream.getReader()
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) return
+          yield value
+        }
+      }
+      finally {
+        reader.releaseLock()
+      }
+    },
+  })
+  return stream as AsyncIterable<T> & ReadableStream<T>
+}
+
+function toReadableAsyncIterableStream<T>(iterable: AsyncIterable<T>): AsyncIterable<T> & ReadableStream<T> {
+  if (typeof (iterable as ReadableStream<T>).pipeThrough === "function") {
+    return withAsyncIterator(iterable as ReadableStream<T>)
+  }
+
+  const iterator = iterable[Symbol.asyncIterator]()
+  return withAsyncIterator(new ReadableStream<T>({
+    async cancel() {
+      await iterator.return?.()
+    },
+    async pull(controller) {
+      try {
+        const { done, value } = await iterator.next()
+        if (done) {
+          controller.close()
+        }
+        else {
+          controller.enqueue(value)
+        }
+      }
+      catch (error) {
+        controller.error(error)
+      }
+    },
+  }))
+}
+
+function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
+  result: T,
+  options: UsageTelemetryOptions,
+  run?: Partial<AgentRunMetadata>,
+): T {
+  if ((result as UnknownRecord & { [usageTelemetryWrapped]?: boolean })[usageTelemetryWrapped]) return result
+  const fullStream = result.fullStream
+  if (!isAsyncIterable(fullStream)) return result
+
+  const clone = Object.create(Object.getPrototypeOf(result)) as T
+  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(result))
+  let stream = toReadableAsyncIterableStream(withUsageTelemetryStream(fullStream, options, run, (usageRecord) => {
+    const output = clone as UnknownRecord
+    output.usage = usageRecord.usage
+    output.usageRecord = usageRecord
+  }))
+  Object.defineProperty(clone, "fullStream", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const [next, branch] = stream.tee()
+      stream = withAsyncIterator(next)
+      return withAsyncIterator(branch)
+    },
+  })
+  Object.defineProperty(clone, usageTelemetryWrapped, {
+    value: true,
+  })
+  return clone
+}
+
 export function usageTelemetry(options: UsageTelemetryOptions = {}): AgentCapabilityDefinition {
   return defineCapability({
     id: "usage-telemetry",
+    metadata: {
+      kind: "usage-telemetry",
+      usageTelemetry: options,
+    } satisfies UsageTelemetryCapabilityMetadata,
     output(context) {
       context.finish.provide((event: AgentFinishEvent) => isRecord(event.result)
         ? event.result.usageRecord
         : undefined)
       context.output.render(async (result) => {
+        if (isAsyncIterable(result)) return withUsageTelemetryStream(result, options, context.run)
         if (!isRecord(result)) return result
-        const usageRecord = await createAgentUsageRecord(result, options, context.run)
+        if (isAsyncIterable(result.fullStream)) return cloneWithUsageTelemetryStream(result, options, context.run)
+        const usageRecord = await recordUsage(result, options, context.run)
         if (!usageRecord) return result
         return {
           ...result,
@@ -194,6 +390,56 @@ export function usageTelemetry(options: UsageTelemetryOptions = {}): AgentCapabi
       })
     },
   })
+}
+
+function formatNumber(value: number | undefined): string | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? new Intl.NumberFormat("en-US").format(value)
+    : undefined
+}
+
+function formatSeconds(value: number | undefined): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return
+  return `${(value / 1000).toFixed(value < 10_000 ? 2 : 1)}s`
+}
+
+function formatTokenSummary(usage: AgentUsage | undefined): string {
+  if (!usage) return "`n/a`"
+  const input = formatNumber(usage.inputTokens)
+  const output = formatNumber(usage.outputTokens)
+  const total = formatNumber(usage.totalTokens ?? (usage.inputTokens !== undefined && usage.outputTokens !== undefined ? usage.inputTokens + usage.outputTokens : undefined))
+  const details = [
+    input ? `${input} in` : undefined,
+    output ? `${output} out` : undefined,
+  ].filter(Boolean).join(", ")
+  return `${total ? `\`${total}\`` : "`n/a`"} total${details ? ` (${details})` : ""}`
+}
+
+function formatCost(cost: AgentUsageCost | undefined): string {
+  if (!cost) return "`n/a`"
+  const prefix = cost.estimated ? "~" : ""
+  const suffix = cost.source ? ` ${cost.source}` : ""
+  return `\`${prefix}${cost.amount} ${cost.currency}\`${suffix}`
+}
+
+export function formatUsageTelemetryChatMessage(
+  record: AgentUsageRecord,
+  context: UsageTelemetryChatMessageContext = {},
+): string {
+  const durationMs = record.latency?.durationMs ?? context.durationMs
+  const lines = [
+    "**Usage**",
+    `- Tokens: ${formatTokenSummary(record.usage)}`,
+    `- Time: \`${formatSeconds(durationMs) || "n/a"}\``,
+    `- Price: ${formatCost(record.cost)}`,
+  ]
+  if (record.latency?.tokensPerSecond !== undefined) {
+    lines.push(`- Speed: \`${record.latency.tokensPerSecond.toFixed(1)} tok/s\``)
+  }
+  if (record.model?.id) {
+    lines.push(`- Model: \`${record.model.id}\``)
+  }
+  return lines.join("\n")
 }
 
 function decimalToParts(value: string): { scale: bigint, units: bigint } {

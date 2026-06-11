@@ -239,9 +239,28 @@ describe("agent chat capability discovery", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
 
-    const { access, chat } = await import("../src/capabilities.ts")
-    const { defineAgent } = await import("../src/index.ts")
-    const agent = defineAgent({
+    const { access, audience, chat } = await import("../src/capabilities.ts")
+    const { defineAgent, defineInvocationProfile, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const metadataSchema = {
+      "~standard": {
+        validate(input: unknown) {
+          return typeof input === "object" && input !== null
+            ? { value: input }
+            : { issues: ["missing metadata"] }
+        },
+      },
+    }
+    const supportProfile = defineInvocationProfile({
+      id: "bridge-support",
+      input: {
+        chat: {
+          message: { metadata: metadataSchema },
+          run: { origin: ["devtools"] },
+        },
+      },
+      resolve: ({ input }) => ({ origin: input.get().context?.chat?.run?.origin }),
+    })
+    const agent = withWorkspaceAgentDefaults(defineAgent({
       capabilities: [
         access({
           workspace: {
@@ -251,11 +270,17 @@ describe("agent chat capability discovery", () => {
             },
           },
         }),
+        audience({
+          id: "support-audience",
+          profile: supportProfile,
+          instructions: ({ profile }) => `Audience resolved for ${profile.origin}.`,
+        }),
         chat(),
       ],
+      instructions: "# Support\n\n{{ audience }}",
       workspace: {},
       run: (context: { input: { context?: { chat?: { run?: { origin?: string } } } }, workspace?: unknown }) => `answered through ${context.input.context?.chat?.run?.origin} with ${context.workspace ? "workspace" : "no workspace"}`,
-    })
+    }), { workspace: "support" })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent()
 
@@ -266,6 +291,7 @@ describe("agent chat capability discovery", () => {
     const state = JSON.parse(stateResponse.body)
     expect(state).toMatchObject({
       chats: [{ name: "support", uiMessages: [] }],
+      instructions: ["# Support\n\nAudience resolved for devtools."],
       selected: "support",
     })
 

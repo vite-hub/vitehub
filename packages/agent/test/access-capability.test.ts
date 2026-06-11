@@ -83,6 +83,30 @@ function createWorkspace(): ReadonlyWorkspaceFacade {
 }
 
 describe("access capability", () => {
+  it("accepts chat admission without requiring a workspace", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          chat: {
+            resolve: ({ identity }) => identity?.id === "123",
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" })
+
+    expect(resolved.tools).toBeUndefined()
+    expect(resolved.workspace).toBeUndefined()
+  })
+
+  it("fails fast when no access surface is configured", async () => {
+    const { access } = await import("../src/capabilities.ts")
+
+    expect(() => access({} as never)).toThrow("access() requires at least one access surface")
+  })
+
   it("applies the selected Workspace Scope before later capabilities resolve tools", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")

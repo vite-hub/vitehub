@@ -134,7 +134,7 @@ export function normalizeCapabilities(
 function validateAccessCapabilityOrder(capabilities: AgentCapabilityDefinition[]): void {
   const accessIndex = capabilities.findIndex(capability => capability.id === "access")
   if (accessIndex > 0) {
-    throw new Error("[vitehub] access() must be the first capability so Workspace Scope is applied before other capabilities can read the workspace or expose tools.")
+    throw new Error("[vitehub] access() must be the first capability so invocation access is applied before other capabilities can read scoped runtime surfaces or expose tools.")
   }
 }
 
@@ -166,7 +166,7 @@ function addInstructionBlock(
   capabilityInstructions: AgentInstructionBlock[],
   capabilityId: string,
   value: AgentAdapterInstructionsValue | false | undefined,
-  options?: { id?: string },
+  options?: { aliases?: string[], id?: string },
 ) {
   if (value === false || value === undefined) return
   const instructions = (Array.isArray(value) ? value : [value])
@@ -175,6 +175,7 @@ function addInstructionBlock(
     .join("\n\n")
   if (instructions) {
     capabilityInstructions.push({
+      ...(options?.aliases?.length ? { aliases: options.aliases } : {}),
       id: options?.id || capabilityId,
       instructions,
     })
@@ -465,21 +466,24 @@ export function applyCapabilityInstructionSlots(instructions: string, blocks: Ag
   if (!blocks.length) return instructions
 
   const remaining = [...blocks]
-  const known = new Set(blocks.map(block => block.id))
   const used = new Set<string>()
   const slotPattern = /\{\{\s*([a-zA-Z][\w.-]*)\s*\}\}/g
   const rendered = instructions.replace(slotPattern, (match, slot: string) => {
     if (slot === "capabilities") {
       return remaining.splice(0).map(block => block.instructions).join("\n\n")
     }
-    if (!known.has(slot)) {
+
+    const selected = blocks.filter(block => instructionBlockMatchesSlot(block, slot))
+    if (!selected.length) {
       return match
     }
     if (used.has(slot)) {
       throw new Error(`[vitehub] Duplicate capability instruction slot "${slot}". Use {{ capabilities }} for repeated catch-all insertion.`)
     }
+    if (selected.some(block => !remaining.includes(block))) {
+      throw new Error(`[vitehub] Capability instruction slot "${slot}" references instructions that were already inserted by another slot.`)
+    }
     used.add(slot)
-    const selected = remaining.filter(block => block.id === slot)
     for (const block of selected) {
       const index = remaining.indexOf(block)
       if (index >= 0) remaining.splice(index, 1)
@@ -489,6 +493,10 @@ export function applyCapabilityInstructionSlots(instructions: string, blocks: Ag
 
   const appendix = remaining.map(block => block.instructions).join("\n\n")
   return [rendered.trim(), appendix.trim()].filter(Boolean).join("\n\n")
+}
+
+function instructionBlockMatchesSlot(block: AgentInstructionBlock, slot: string): boolean {
+  return block.id === slot || !!block.aliases?.includes(slot)
 }
 
 export async function applyCapabilityToolTransforms(

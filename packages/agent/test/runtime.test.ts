@@ -1729,6 +1729,45 @@ describe("agent message protocol", () => {
       resetWorkflowRuntime()
     })
 
+    it("streams workflow-backed chat triggers inline for DevTools", async () => {
+      const { createUIMessageStream, readUIMessageStream } = await import("ai")
+      const { defineAgent, streamAgentTrigger, workflow } = await import("../src/index.ts")
+
+      const agent = defineAgent({
+        capabilities: [chat()],
+        runtime: workflow("support-agent"),
+        run: () => ({
+          toUIMessageStream() {
+            return createUIMessageStream({
+              execute({ writer }) {
+                writer.write({ type: "start", messageId: "assistant-1" })
+                writer.write({ type: "text-start", id: "text-1" })
+                writer.write({ type: "text-delta", id: "text-1", delta: "pong" })
+                writer.write({ type: "text-end", id: "text-1" })
+                writer.write({ type: "finish", finishReason: "stop" })
+              },
+            })
+          },
+        }),
+      })
+
+      const stream = await streamAgentTrigger(agent, {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, "chat.message", {
+        messages: [createMessage({ role: "user", text: "Say pong only." })],
+      }, { output: "ui-message-stream" }) as ReadableStream<never>
+      const messages = []
+      for await (const message of readUIMessageStream({ stream })) {
+        messages.push(message)
+      }
+
+      expect(messages.at(-1)?.parts).toEqual([
+        { providerMetadata: undefined, state: "done", text: "pong", type: "text" },
+      ])
+    })
+
     it("queues direct agent runs as Workflow Runs", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
@@ -1753,6 +1792,45 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("support-agent", run.id)).resolves.toMatchObject({
         result: "received hello",
+        status: "completed",
+      })
+    })
+
+    it("reuses generated workflow definitions across equivalent agent instances", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const run = (context: { prompt?: string }) => `received ${context.prompt}`
+      const firstAgent = defineAgent({
+        runtime: workflow("support-agent"),
+        run,
+      })
+      const secondAgent = defineAgent({
+        runtime: workflow("support-agent"),
+        run,
+      })
+
+      const first = await runAgent(firstAgent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "first" }) as { id: string }
+      const second = await runAgent(secondAgent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "second" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("support-agent", first.id)).resolves.toMatchObject({
+        result: "received first",
+        status: "completed",
+      })
+      await expect(getWorkflowRun("support-agent", second.id)).resolves.toMatchObject({
+        result: "received second",
         status: "completed",
       })
     })

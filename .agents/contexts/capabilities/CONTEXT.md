@@ -93,7 +93,7 @@ A Capability that gives an Agent model-facing access to Workspace files.
 _Avoid_: Bash, raw workspace tools, built-in tool
 
 **Access Capability**:
-A Capability created by `access()` that resolves trusted invocation access and applies allow-only access boundaries to configured runtime surfaces, starting with Workspace Scope.
+A Capability created by `access()` that resolves trusted invocation access and applies allow-only access boundaries to configured runtime surfaces, starting with chat admission and Workspace Scope.
 _Avoid_: Organization Capability, Workspace Definition mutator, dynamic Source, dynamic Capability
 
 **Access Role**:
@@ -239,13 +239,14 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - A **Workspace Capability** contributes Workspace tools without implying unrestricted process execution.
 - An **Access Capability** applies invocation-time access rules without mutating Workspace Definitions or granting new Capabilities dynamically.
 - The `access()` helper creates an **Access Capability**.
-- In the first version, an **Access Capability** applies **Workspace Scope** only.
+- An **Access Capability** can admit or reject normalized chat-origin invocations before the Agent Invocation starts.
+- An **Access Capability** can apply **Workspace Scope** to narrow an already-declared Workspace.
 - An **Access Capability** can record the active Workspace Scope as an Agent Invocation Context Value for later callbacks and instructions.
 - An **Access Capability** owns both Workspace Scope selection and application, but keeps resolver logic separate from grants.
 - An **Access Capability** may consume an **Invocation Profile** to select Workspace Scope without owning the profile resolution.
-- An **Access Capability** may reference a **Chat Capability** for typed origin context instead of asking users to repeat Chat Capability origins in Access configuration.
+- An **Access Capability** may consume normalized chat identity and request context from **Chat Webhook Autowiring** without repeating **Chat Capability** origins in Access configuration.
 - An **Access Capability** can use static named Workspace Scopes or an inline Workspace Scope definition returned by its resolver.
-- An **Access Capability** must be ordered before other Workspace-reading Capabilities so Workspace Scope is applied before they resolve tools or requirements.
+- An **Access Capability** must be ordered before other Capabilities so invocation access is applied before they read scoped runtime surfaces or expose tools.
 - An **Access Capability** provides tiny default **Access Roles** for the first version.
 - The default `viewer` **Access Role** can read granted Source keys and path prefixes through Workspace Scope Grants.
 - The default `admin` **Access Role** can select the explicit all-scopes mode when the developer configured that mode.
@@ -336,7 +337,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - Trigger handlers were considered for direct Agent execution - resolved: trigger contributions map input and run metadata, while the Agent Package executes the Agent Invocation through the standard lifecycle.
 - Public chat webhook registration helpers were considered for platform adapters - resolved: use **Chat Webhook Autowiring** from the **Chat Capability** so adapter configuration remains the only source of truth.
 - Build-time Chat Platform Adapter detection was considered - resolved: resolve the **Chat Adapter Callback** at request time because platform credentials and adapter construction can depend on Server Env.
-- Repeating Chat Capability origins in `access()` was considered - resolved: Invocation Profiles declare trusted chat origins explicitly, and Access consumes the resolved profile rather than owning chat input configuration.
+- Repeating Chat Capability origins in `access()` was considered - resolved: **Chat Capability** owns adapter/webhook origin configuration, while **Access Capability** consumes normalized chat identity and request context for chat admission.
 - Capability phases, contexts, hooks, and instruction slots were considered glossary terms - resolved: group that detail under **Capability Lifecycle** unless a feature needs a sharper term.
 - Chat History was considered as a standalone Capability - resolved: keep Chat History inside the **Chat Capability** for this stack and revisit during a future Agent Memory pass.
 - Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.

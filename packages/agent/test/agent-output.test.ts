@@ -25,6 +25,33 @@ describe("agent output helpers", () => {
     })
   })
 
+  it("normalizes AI SDK v6 output objects into Agent run results", () => {
+    const value = {
+      _output: "ok from output",
+      finishReason: "stop",
+      steps: [{ text: "older" }],
+      usage: { inputTokens: 1 },
+    }
+
+    expect(toAgentRunResult(value)).toEqual({
+      finishReason: "stop",
+      raw: value,
+      text: "ok from output",
+      usage: { inputTokens: 1 },
+      usageRecord: undefined,
+      warnings: undefined,
+    })
+  })
+
+  it("falls back to the latest step text for AI SDK result objects", () => {
+    const value = {
+      finishReason: "stop",
+      steps: [{ text: "older" }, { text: "latest" }],
+    }
+
+    expect(toAgentRunResult(value).text).toBe("latest")
+  })
+
   it("tracks tool names across stream events", () => {
     const toolNames = new Map<string, string>()
 
@@ -49,6 +76,44 @@ describe("agent output helpers", () => {
       events.push(event)
     }
 
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      { reason: "stop", type: "finish" },
+    ])
+  })
+
+  it("converts AI SDK v6 output objects into stream events", async () => {
+    const usageRecord = { usage: { totalTokens: 1 } }
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents({ _output: "ok from output", finishReason: "stop", usageRecord })) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok from output", type: "text-delta" },
+      { type: "usage", usageRecord },
+      { reason: "stop", type: "finish" },
+    ])
+  })
+
+  it("reads fullStream getters once while converting stream events", async () => {
+    let reads = 0
+    const output = {
+      get fullStream() {
+        reads++
+        return (async function* () {
+          yield { text: "ok", type: "text-delta" }
+          yield { finishReason: "stop", type: "finish" }
+        })()
+      },
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(reads).toBe(1)
     expect(events).toEqual([
       { text: "ok", type: "text-delta" },
       { reason: "stop", type: "finish" },

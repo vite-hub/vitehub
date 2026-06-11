@@ -1,8 +1,80 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { Message } from "chat"
 import { describe, expect, it, vi } from "vitest"
+
+import type { Adapter, ChatInstance, WebhookOptions } from "chat"
 
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
   copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
 }))
+
+function createTestChatAdapter(options: { deferMessageProcessing?: boolean, secret?: string } = {}) {
+  let chatInstance: ChatInstance | undefined
+  const adapter = {
+    channelIdFromThreadId: vi.fn((threadId: string) => threadId),
+    handleWebhook: vi.fn(async (request: Request, webhookOptions?: WebhookOptions) => {
+      if (options.secret && request.headers.get("x-test-secret") !== options.secret) {
+        return Response.json({ ok: false }, { status: 401 })
+      }
+      const body = await request.json().catch(() => undefined) as { message?: Record<string, unknown>, update_id?: number } | undefined
+      const rawMessage = body?.message
+      if (!rawMessage || !chatInstance) {
+        return Response.json({ ignored: true, ok: true })
+      }
+      const chat = rawMessage.chat as { id?: number | string } | undefined
+      const from = rawMessage.from as { id?: number | string, username?: string } | undefined
+      const date = typeof rawMessage.date === "number"
+        ? new Date(rawMessage.date * 1000)
+        : new Date("2026-06-10T12:00:00.000Z")
+      const message = new Message({
+        attachments: rawMessage.audio
+          ? [{
+              fetchData: async () => Buffer.from([1, 2, 3]),
+              fetchMetadata: { fileId: "audio-file" },
+              mimeType: "audio/ogg",
+              name: "voice.ogg",
+              size: 3,
+              type: "audio",
+            }]
+          : [],
+        author: {
+          fullName: "Maxi",
+          isBot: false,
+          isMe: false,
+          userId: String(from?.id ?? "123"),
+          userName: String(from?.username ?? "maxi"),
+        },
+        formatted: { children: [], type: "root" },
+        id: String(rawMessage.message_id ?? "7"),
+        metadata: { dateSent: date, edited: false },
+        raw: body,
+        text: typeof rawMessage.text === "string" ? rawMessage.text : "",
+        threadId: `telegram:${String(chat?.id ?? "456")}`,
+      })
+      const task = chatInstance.processMessage(adapter as unknown as Adapter, message.threadId, message, webhookOptions)
+      if (!options.deferMessageProcessing) {
+        await task
+      }
+      return Response.json({ ok: true })
+    }),
+    initialize: vi.fn(async (chat: ChatInstance) => {
+      chatInstance = chat
+    }),
+    isDM: vi.fn(() => true),
+    name: "telegram",
+    postMessage: vi.fn(async (threadId: string, message: unknown) => ({ id: "sent-1", raw: { message }, threadId })),
+    startTyping: vi.fn(async () => {}),
+    userName: "vitehub",
+  }
+  return adapter as unknown as Adapter & {
+    handleWebhook: ReturnType<typeof vi.fn>
+    postMessage: ReturnType<typeof vi.fn>
+    startTyping: ReturnType<typeof vi.fn>
+  }
+}
 
 describe("agent Vite plugin", () => {
   it("ignores generated ViteHub files in the Vite dev watcher", async () => {
@@ -78,6 +150,74 @@ describe("agent Vite plugin", () => {
       rootDir: "/app",
     })
   })
+
+  it("registers configured agent webhook routes with Nitro", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ webhooks: true })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
+      : undefined
+
+    expect(result).toMatchObject({
+      nitro: {
+        handlers: [{
+          handler: ".vitehub/agent/chat-webhook-route.ts",
+          route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
+        }],
+      },
+    })
+  })
+
+  it("keeps chat routes and webhook routes independent", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({
+      route: "/api/_vitehub/agents/[agent]/chat",
+      webhooks: "/hooks/[agent]/[webhook]",
+    })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
+      : undefined
+
+    expect(result).toMatchObject({
+      nitro: {
+        handlers: [
+          {
+            handler: ".vitehub/agent/chat-route.ts",
+            route: "/api/_vitehub/agents/:agent/chat",
+          },
+          {
+            handler: ".vitehub/agent/chat-webhook-route.ts",
+            route: "/hooks/:agent/:webhook",
+          },
+        ],
+      },
+    })
+  })
+
+  it("writes generated Nitro handlers that pass Web Requests to agent routes", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-routes-"))
+    try {
+      const plugin = hubAgent({ route: true, webhooks: true })
+      if (typeof plugin.configResolved === "function") {
+        await plugin.configResolved.call({} as never, { root } as never)
+      }
+
+      const chatRoute = await readFile(join(root, ".vitehub/agent/chat-route.ts"), "utf8")
+      const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+
+      expect(chatRoute).toContain("async function toRequest(event)")
+      expect(chatRoute).toContain("function waitUntilFromEvent(event)")
+      expect(chatRoute).toContain("return await handler(await toRequest(event), { waitUntil: waitUntilFromEvent(event) })")
+      expect(webhookRoute).toContain("async function toRequest(event)")
+      expect(webhookRoute).toContain("function waitUntilFromEvent(event)")
+      expect(webhookRoute).toContain("waitUntil: waitUntilFromEvent(event)")
+      expect(webhookRoute).toContain("return await handler(await toRequest(event), webhook")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
 })
 
 describe("server helpers", () => {
@@ -96,6 +236,598 @@ describe("server helpers", () => {
       status: 400,
     })
     expect(response.status).toBe(400)
+  })
+
+  it("handles Chat SDK webhooks through the chat capability", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { access, chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const admitChat = vi.fn(({ identity }) => identity?.id === "123")
+    const run = vi.fn(({ messages }) => {
+      const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
+      return {
+        durationMs: 1200,
+        response: {
+          modelId: "openai/gpt-test",
+        },
+        text: `echo: ${text?.text}`,
+        usage: {
+          inputTokens: 10,
+          outputTokens: 5,
+        },
+      }
+    })
+    const agent = defineAgent({
+      capabilities: [
+        access({
+          chat: {
+            resolve: admitChat,
+          },
+        }),
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+        usageTelemetry({
+          chat: true,
+          pricing: staticModelPricing({
+            "openai/gpt-test": {
+              input: "0.00000010",
+              output: "0.00000020",
+            },
+          }),
+        }),
+      ],
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 42,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 7,
+          audio: { file_id: "audio-file" },
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "echo: hello" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
+      markdown: expect.stringContaining("**Usage**"),
+    })
+    expect(adapter.postMessage.mock.calls[1]![1]).toEqual({
+      markdown: expect.stringContaining("`15` total (10 in, 5 out)"),
+    })
+    expect(adapter.postMessage.mock.calls[1]![1]).toEqual({
+      markdown: expect.stringContaining("`1.20s`"),
+    })
+    expect(adapter.postMessage.mock.calls[1]![1]).toEqual({
+      markdown: expect.stringContaining("`~0.000002 USD`"),
+    })
+    expect(admitChat).toHaveBeenCalledWith(expect.objectContaining({
+      identity: expect.objectContaining({
+        id: "123",
+        provider: "telegram",
+        username: "maxi",
+      }),
+      input: expect.objectContaining({
+        message: expect.objectContaining({
+          attachmentCount: 1,
+          id: "7",
+          text: "hello",
+        }),
+      }),
+    }))
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      context: expect.objectContaining({
+        get: expect.any(Function),
+      }),
+      messages: [expect.objectContaining({
+        metadata: expect.objectContaining({
+          chat: expect.objectContaining({
+            messageId: "7",
+            threadId: "telegram:456",
+          }),
+        }),
+        parts: [
+          expect.objectContaining({ text: "hello", type: "text" }),
+          expect.objectContaining({
+            fetchData: expect.any(Function),
+            mediaType: "audio/ogg",
+            type: "audio",
+          }),
+        ],
+      })],
+      run: expect.objectContaining({
+        origin: "telegram",
+        runId: "telegram:7",
+      }),
+    }))
+  })
+
+  it("does not block chat webhook handling on typing status", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    adapter.startTyping.mockImplementation(() => new Promise(() => {}))
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      run: () => ({ text: "ok" }),
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await Promise.race([
+      handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 44,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 9,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      }), "telegram"),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("webhook blocked on typing status")), 100)),
+    ])
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "ok" })
+  })
+
+  it("lets chat webhooks opt out of streaming model execution", async () => {
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const model = {
+      generate: vi.fn(async () => ({ finishReason: "stop", text: "generated ok" })),
+      stream: vi.fn(async () => {
+        throw new Error("stream should not be used")
+      }),
+      tools: {},
+      version: "agent-v1",
+    }
+    const agent = {
+      capabilities: [
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+          stream: false,
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      resolve: vi.fn(async () => model),
+    }
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 45,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 10,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(model.generate).toHaveBeenCalledOnce()
+    expect(model.stream).not.toHaveBeenCalled()
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "generated ok" })
+  })
+
+  it("runs non-streaming chat webhooks inline for workflow-backed agents", async () => {
+    const { workflow } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const adapter = createTestChatAdapter()
+    const model = {
+      generate: vi.fn(async () => ({ finishReason: "stop", text: "generated ok" })),
+      stream: vi.fn(),
+      tools: {},
+      version: "agent-v1",
+    }
+    const agent = {
+      capabilities: [
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+          stream: false,
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      resolve: vi.fn(async () => model),
+      runtime: workflow("support-agent"),
+    }
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    try {
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 46,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 11,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      }), "telegram")
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      expect(model.generate).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "generated ok" })
+    }
+    finally {
+      resetWorkflowRuntime()
+    }
+  })
+
+  it("posts usage telemetry callbacks for non-streaming model chat webhooks", async () => {
+    const { chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const onUsage = vi.fn(async (record, context) => {
+      await context.sendMessage({
+        markdown: `Custom usage: \`${record.usage.totalTokens}\` tokens via ${context.provider}`,
+      })
+    })
+    const model = {
+      generate: vi.fn(async () => ({
+        durationMs: 900,
+        finishReason: "stop",
+        response: {
+          modelId: "openai/gpt-test",
+        },
+        text: "generated ok",
+        usage: {
+          inputTokens: 12,
+          outputTokens: 3,
+        },
+      })),
+      stream: vi.fn(async () => {
+        throw new Error("stream should not be used")
+      }),
+      tools: {},
+      version: "agent-v1",
+    }
+    const agent = {
+      capabilities: [
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+          stream: false,
+          webhooks: {
+            telegram: {},
+          },
+        }),
+        usageTelemetry({
+          chat: { onUsage },
+          pricing: staticModelPricing({
+            "openai/gpt-test": {
+              input: "0.00000010",
+              output: "0.00000020",
+            },
+          }),
+        }),
+      ],
+      resolve: vi.fn(async () => model),
+    }
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 47,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 12,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(model.generate).toHaveBeenCalledOnce()
+    expect(model.stream).not.toHaveBeenCalled()
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "generated ok" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Custom usage: `15` tokens via telegram" })
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
+      cost: expect.objectContaining({
+        amount: "0.0000018",
+        currency: "USD",
+      }),
+      latency: expect.objectContaining({
+        durationMs: 900,
+      }),
+      model: {
+        id: "openai/gpt-test",
+      },
+      usage: {
+        inputTokens: 12,
+        outputTokens: 3,
+        totalTokens: 15,
+      },
+    }), expect.objectContaining({
+      durationMs: expect.any(Number),
+      provider: "telegram",
+      sendMessage: expect.any(Function),
+    }))
+  })
+
+  it("flushes deferred non-streaming chat webhook work before returning", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat, usageTelemetry } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter({ deferMessageProcessing: true })
+    adapter.startTyping.mockImplementation(() => new Promise(() => {}))
+    let runStarted!: () => void
+    let finishRun!: () => void
+    const runStartedPromise = new Promise<void>(resolve => {
+      runStarted = resolve
+    })
+    const finishRunPromise = new Promise<void>(resolve => {
+      finishRun = resolve
+    })
+    const run = vi.fn(async () => {
+      runStarted()
+      await finishRunPromise
+      return {
+        text: "ok",
+        usage: {
+          inputTokens: 1,
+          outputTokens: 1,
+        },
+      }
+    })
+    const onUsage = vi.fn(async (_record, context) => {
+      await context.sendMessage({ markdown: "usage ok" })
+    })
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+          stream: false,
+          webhooks: {
+            telegram: {},
+          },
+        }),
+        usageTelemetry({
+          chat: { onUsage },
+        }),
+      ],
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 48,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 13,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    await runStartedPromise
+    await Promise.resolve()
+    await expect(Promise.race([
+      responsePromise.then(() => "settled"),
+      Promise.resolve("pending"),
+    ])).resolves.toBe("pending")
+
+    finishRun()
+    const response = await responsePromise
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.startTyping).not.toHaveBeenCalled()
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "ok" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "usage ok" })
+  })
+
+  it("lets usageTelemetry chat callbacks post custom follow-up messages", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { access, chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const onUsage = vi.fn(async (record, context) => {
+      await context.sendMessage({
+        markdown: `Custom usage: \`${record.usage.totalTokens}\` tokens via ${context.provider}`,
+      })
+    })
+    const agent = defineAgent({
+      capabilities: [
+        access({
+          chat: {
+            resolve: () => true,
+          },
+        }),
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+        usageTelemetry({
+          chat: { onUsage },
+          pricing: staticModelPricing({
+            "openai/gpt-test": {
+              input: "0.00000010",
+              output: "0.00000020",
+            },
+          }),
+        }),
+      ],
+      run: () => ({
+        response: {
+          modelId: "openai/gpt-test",
+        },
+        text: "ok",
+        usage: {
+          inputTokens: 10,
+          outputTokens: 5,
+        },
+      }),
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 43,
+        message: {
+          chat: { id: 789, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 8,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:789", { markdown: "ok" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:789", { markdown: "Custom usage: `15` tokens via telegram" })
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+      },
+    }), expect.objectContaining({
+      provider: "telegram",
+      sendMessage: expect.any(Function),
+    }))
+  })
+
+  it("lets access() reject app-specific chat identities", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { access, chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "unused")
+    const agent = defineAgent({
+      capabilities: [
+        access({
+          chat: {
+            resolve: ({ identity }) => identity?.id === "123",
+          },
+        }),
+        chat({
+          adapters: { telegram: () => adapter as never },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 42,
+        message: {
+          chat: { id: 456, type: "private" },
+          from: { id: 999 },
+          message_id: 7,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(run).not.toHaveBeenCalled()
+    expect(adapter.postMessage).not.toHaveBeenCalled()
+  })
+
+  it("returns Chat SDK adapter webhook responses", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter({ secret: "secret" })
+    const run = vi.fn(() => "unused")
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+        }),
+      ],
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({ update_id: 42 }),
+      headers: { "x-test-secret": "wrong" },
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(401)
+    expect(run).not.toHaveBeenCalled()
   })
 })
 
