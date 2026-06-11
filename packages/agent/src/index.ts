@@ -310,6 +310,7 @@ interface ScheduleRunContextLike {
 }
 
 const agentWorkflowHandles = new WeakMap<object, Map<string, WorkflowHandle<AgentWorkflowInvocationPayload, unknown>>>()
+const agentWorkflowNames = new Set<string>()
 
 function hasAgentMethods(value: unknown): value is AgentAdapter {
   return typeof value === "object"
@@ -379,10 +380,14 @@ async function getAgentWorkflowHandle<
   if (existing) return existing as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>
 
   const { createWorkflow } = await import("@vite-hub/workflow")
-  const handle = createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>(name, async (workflowContext) => {
-    const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
-    return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never)
-  })
+  const { getInlineWorkflowDefinitions } = await import("@vite-hub/workflow/runtime/state")
+  const handle = agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name)
+    ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>(name)
+    : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>(name, async (workflowContext) => {
+        const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
+        return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never)
+      })
+  agentWorkflowNames.add(name)
   handles.set(name, handle as WorkflowHandle<AgentWorkflowInvocationPayload, unknown>)
   agentWorkflowHandles.set(agent as object, handles)
   return handle
@@ -477,10 +482,18 @@ function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: Work
   }
 }
 
+function accessCapabilityRequiresWorkspace(capability: NormalizedCapability): boolean {
+  if (capability.id !== "access") return false
+  const metadata = capability.metadata
+  return typeof metadata === "object"
+    && metadata !== null
+    && (metadata as { workspace?: unknown }).workspace === true
+}
+
 function validateNonWorkspaceCapabilities(capabilities: NormalizedCapability[], hasWorkspace: boolean): void {
   if (hasWorkspace) return
   for (const capability of capabilities) {
-    if (capability.id === "workspace-shell" || capability.id === "sandbox" || capability.id === "access") {
+    if (capability.id === "workspace-shell" || capability.id === "sandbox" || accessCapabilityRequiresWorkspace(capability)) {
       const name = capability.id === "workspace-shell" ? "workspaceShell" : capability.id
       throw new Error(`[vitehub] ${name}() requires an explicit workspace.`)
     }
@@ -1137,8 +1150,6 @@ export async function streamAgent<
   input: AgentRunInput<CALL_OPTIONS>,
   options: { output?: "events" | "ui-message-stream" } = {},
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  const workflowRun = await runAgentAsWorkflow(agent, context, input)
-  if (workflowRun) return workflowRun
   return await streamAgentInline(agent, context, input, options)
 }
 

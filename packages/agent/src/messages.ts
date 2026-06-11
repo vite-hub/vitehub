@@ -1,3 +1,5 @@
+import type { AgentUsageRecord } from "./types.ts"
+
 export type MessageRole = "assistant" | "system" | "tool" | "user"
 
 export interface MessageMetadata {
@@ -116,6 +118,7 @@ export type StreamEvent =
   | { id: string, input?: unknown, messageId?: string, name: string, reason?: string, type: "approval-request" }
   | { approved: boolean, decidedAt?: Date | string, id: string, messageId?: string, reason?: string, type: "approval-decision" }
   | { error: string, id?: string, messageId?: string, recoverable?: boolean, type: "error" }
+  | { messageId?: string, usageRecord: AgentUsageRecord, type: "usage" }
   | { messageId?: string, reason?: string, type: "finish" }
 
 export type RunEvent = StreamEvent
@@ -351,7 +354,7 @@ function findOrCreateMessage(messages: Message[], event: StreamEvent): Message {
 
 export function applyStreamEvent(messages: Message[], event: StreamEvent): Message[] {
   const next = messages.map(message => ({ ...message, parts: [...message.parts] }))
-  if (event.type === "finish") {
+  if (event.type === "finish" || event.type === "usage") {
     return next
   }
 

@@ -18,6 +18,7 @@ describe("agent config", () => {
       },
       route: false,
       runtime: "auto",
+      webhooks: false,
     })
   })
 
@@ -32,12 +33,27 @@ describe("agent config", () => {
       providers: { state: { provider: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
       route: false,
       runtime: "cloudflare-agents",
+      webhooks: false,
     })
   })
 
   it("uses the default route when route is true", () => {
     expect(normalizeAgentOptions({ route: true })).toMatchObject({
       route: "/agents/[agent]",
+    })
+  })
+
+  it("uses the default webhook route when webhooks is true", () => {
+    expect(normalizeAgentOptions({ webhooks: true })).toMatchObject({
+      route: false,
+      webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
+    })
+  })
+
+  it("preserves a custom webhook route", () => {
+    expect(normalizeAgentOptions({ webhooks: "/hooks/[agent]/[webhook]" })).toMatchObject({
+      route: false,
+      webhooks: "/hooks/[agent]/[webhook]",
     })
   })
 })

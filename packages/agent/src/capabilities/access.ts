@@ -4,11 +4,13 @@ import { resolveInvocationProfile } from "../invocation-profile.ts"
 import { createWorkspaceTools } from "@vite-hub/workspace"
 
 import type {
+  AgentCallbackContext,
   AgentCapabilityDefinition,
   AgentCapabilityRuntimeContext,
   AgentCapabilityTypeContract,
   AgentRunInput,
   AgentRuntimeConfig,
+  AgentWebhookRegistrationDefinition,
   MaybePromise,
 } from "../types.ts"
 import type {
@@ -125,6 +127,31 @@ export interface AccessWorkspaceOptions<
   scopes?: Record<string, AccessWorkspaceScopeDefinition<TSourceName>>
 }
 
+export interface AccessChatIdentity {
+  id?: string
+  metadata?: Record<string, unknown>
+  name?: string
+  provider: string
+  username?: string
+}
+
+export interface AccessChatContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends AgentCallbackContext<TRuntimeConfig> {
+  identity?: AccessChatIdentity
+  input?: unknown
+  provider: string
+  request: Request
+  webhook: AgentWebhookRegistrationDefinition
+}
+
+export type AccessDecision = boolean | void
+export type AccessChatResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  (context: AccessChatContext<TRuntimeConfig>) => MaybePromise<AccessDecision>
+
+export interface AccessChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  resolve: AccessChatResolver<TRuntimeConfig>
+}
+
 export interface AccessCapabilityOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -132,8 +159,9 @@ export interface AccessCapabilityOptions<
   TInputContext extends object = Record<string, unknown>,
   TProfile = undefined,
 > {
+  chat?: AccessChatOptions<TRuntimeConfig>
   profile?: AgentInvocationProfileDefinition<TProfile, TRuntimeConfig, Name, TInputContext>
-  workspace: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext, TProfile>
+  workspace?: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext, TProfile>
 }
 
 export type AccessWorkspaceSourceName<TWorkspace extends { sources?: Record<string, WorkspaceSource> }> =
@@ -160,6 +188,29 @@ interface NormalizedWorkspaceScopeSelection<TSourceName extends string = string>
   scope: string
 }
 
+interface AccessCapabilityMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  access: AccessCapabilityOptions<TRuntimeConfig>
+  chat: boolean
+  kind: "access"
+  workspace: boolean
+}
+
+function isAccessMetadata(value: unknown): value is AccessCapabilityMetadata {
+  return typeof value === "object"
+    && value !== null
+    && (value as { kind?: unknown }).kind === "access"
+    && typeof (value as { access?: unknown }).access === "object"
+    && (value as { access?: unknown }).access !== null
+}
+
+export function getAccessCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig>(
+  capabilities: AgentCapabilityDefinition[],
+): AccessCapabilityOptions<TRuntimeConfig>[] {
+  return capabilities
+    .map(capability => capability.id === "access" && isAccessMetadata(capability.metadata) ? capability.metadata.access : undefined)
+    .filter((options): options is AccessCapabilityOptions<TRuntimeConfig> => !!options)
+}
+
 function setWorkspaceOverride<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -180,22 +231,37 @@ export function access<
   TProfile = unknown,
   TInputContext extends object = Record<string, unknown>,
   const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext, TProfile> = AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext, TProfile>,
->(options: { input?: undefined, profile: AgentInvocationProfileDefinition<TProfile, TRuntimeConfig, Name, TInputContext>, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext>>
+>(options: { chat?: AccessChatOptions<TRuntimeConfig>, input?: undefined, profile: AgentInvocationProfileDefinition<TProfile, TRuntimeConfig, Name, TInputContext>, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext>>
 export function access<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   TInputContext extends object = Record<string, unknown>,
   const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext> = AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext>,
->(options: { input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext>>
+>(options: { chat?: AccessChatOptions<TRuntimeConfig>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext>>
+export function access<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+>(options: { chat: AccessChatOptions<TRuntimeConfig>, input?: undefined }): AgentCapabilityDefinition<TRuntimeConfig, Name>
 export function access(options: AccessCapabilityOptions): AgentCapabilityDefinition {
-  if (!options || typeof options !== "object" || !options.workspace) {
-    throw new TypeError("[vitehub] access() requires workspace options.")
+  if (!options || typeof options !== "object") {
+    throw new TypeError("[vitehub] access() requires options.")
+  }
+  if (!options.chat && !options.workspace) {
+    throw new TypeError("[vitehub] access() requires at least one access surface.")
   }
   return defineCapability({
     id: "access",
-    metadata: { kind: "access", workspace: true },
-    requires: [{ primitive: "workspace", workspace: { required: true } }],
+    metadata: {
+      access: options,
+      chat: !!options.chat,
+      kind: "access",
+      workspace: !!options.workspace,
+    } satisfies AccessCapabilityMetadata,
+    requires: options.workspace
+      ? [{ primitive: "workspace", workspace: { required: true } }]
+      : undefined,
     async prepare(context) {
+      if (!options.workspace) return
       if (!context.workspace) {
         throw new Error("[vitehub] access({ workspace }) requires an explicit workspace.")
       }

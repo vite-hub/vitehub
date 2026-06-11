@@ -264,6 +264,7 @@ export type AgentCapabilityPhase = "configure" | "prepare" | "bind" | "input" | 
 export type AgentCapabilityHookName = `capability:${AgentCapabilityPhase}` | `capability:${AgentCapabilityPhase}:after`
 
 export interface AgentInstructionBlock {
+  aliases?: string[]
   id: string
   instructions: string
 }
@@ -296,7 +297,7 @@ export interface AgentCapabilityRuntimeContext<
 > extends AgentCapabilityContext<TRuntimeConfig, Name> {
   capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
   instructions: {
-    add: (instructions: AgentAdapterInstructionsValue | false | undefined, options?: { id?: string }) => void
+    add: (instructions: AgentAdapterInstructionsValue | false | undefined, options?: { aliases?: string[], id?: string }) => void
   }
   input: {
     get: () => AgentRunInput
@@ -548,6 +549,7 @@ export interface AgentModuleOptions {
   providers?: AgentProvidersOptions
   route?: boolean | string
   runtime?: AgentRuntime
+  webhooks?: boolean | string
 }
 
 export interface ResolvedAgentModuleOptions {
@@ -561,6 +563,7 @@ export interface ResolvedAgentModuleOptions {
   }
   route: false | string
   runtime: AgentRuntime
+  webhooks: false | string
 }
 
 export interface AgentHandlerOptions<TRuntimeContext extends AgentRuntimeContext = AgentRuntimeContext> {
@@ -669,6 +672,7 @@ export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
   lifecycleHooks?: Record<string, unknown>
   sessions?: boolean | AgentChatSessionOptions
   state?: AgentChatStateResolver<TRuntimeConfig>
+  stream?: boolean
   transcripts?: TranscriptsConfig
   userName?: string
   webhooks?: Record<string, AgentChatWebhookRegistrationDefinition | AgentChatWebhookRegistrationDefinition[]>

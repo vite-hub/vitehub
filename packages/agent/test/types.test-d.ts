@@ -14,6 +14,15 @@ describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
     defineAgent({
       capabilities: [
+        access({
+          chat: {
+            resolve({ identity, provider }) {
+              expectTypeOf(identity?.id).toEqualTypeOf<string | undefined>()
+              expectTypeOf(provider).toEqualTypeOf<string>()
+              return true
+            },
+          },
+        }),
         workspaceShell(),
         blob({ mode: "write", policy: () => "allow", store: "assets" }),
         db({ database: "analytics", mode: "write", policy: "allow", schemaMode: "write" }),
