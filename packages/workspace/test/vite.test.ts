@@ -88,7 +88,7 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
     const configResolved = plugin.configResolved as (config: { root: string }) => Promise<void>
-    const configEnvironment = plugin.configEnvironment as (name: string, environment: { consumer: "client" | "server", resolve?: { noExternal?: string[] } }) => unknown
+    const configEnvironment = plugin.configEnvironment as (name: string, environment: { consumer: "client" | "server", resolve?: { dedupe?: string[], noExternal?: string[] } }) => unknown
     const resolveId = plugin.resolveId as (id: string) => string | undefined
     const load = plugin.load as (id: string) => string | undefined
 
@@ -96,7 +96,19 @@ describe("hubWorkspace", () => {
 
     expect(process.env.VITEHUB_WORKSPACE_DEV).toBe("true")
     expect(configEnvironment("ssr", { consumer: "server" })).toEqual({
-      resolve: { noExternal: ["@vite-hub/workspace"] },
+      resolve: { dedupe: ["@vite-hub/workspace"], noExternal: ["@vite-hub/workspace"] },
+    })
+    expect(configEnvironment("ssr", {
+      consumer: "server",
+      resolve: {
+        dedupe: ["existing"],
+        noExternal: ["existing"],
+      },
+    })).toEqual({
+      resolve: {
+        dedupe: ["existing", "@vite-hub/workspace"],
+        noExternal: ["existing", "@vite-hub/workspace"],
+      },
     })
     await expect(readFile(join(root, ".vitehub", "types", "workspace.d.ts"), "utf8")).resolves.toContain('"docs": true')
     await expect(readFile(join(root, "src", "vitehub-workspace.d.ts"), "utf8")).rejects.toThrow()
