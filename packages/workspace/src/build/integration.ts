@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -25,9 +24,14 @@ export interface WorkspaceBuildState {
 }
 
 export function workspaceAmbientTypesPath(root: string) {
-  return existsSync(resolve(root, "src"))
-    ? resolve(root, "src", "vitehub-workspace.d.ts")
-    : resolve(root, "vitehub-workspace.d.ts")
+  return resolve(root, ".vitehub", "types", "workspace.d.ts")
+}
+
+function legacyWorkspaceAmbientTypesPaths(root: string) {
+  return [
+    resolve(root, "vitehub-workspace.d.ts"),
+    resolve(root, "src", "vitehub-workspace.d.ts"),
+  ]
 }
 
 export async function createWorkspaceBuildState(definitions: DiscoveredWorkspaceDefinition[]): Promise<WorkspaceBuildState> {
@@ -38,7 +42,10 @@ export async function createWorkspaceBuildState(definitions: DiscoveredWorkspace
 }
 
 export async function refreshWorkspaceAmbientTypes(root: string, definitions: DiscoveredWorkspaceDefinition[]): Promise<void> {
-  await writeFileIfChanged(workspaceAmbientTypesPath(root), createWorkspaceTypeAugmentation(definitions))
+  await Promise.all([
+    writeFileIfChanged(workspaceAmbientTypesPath(root), createWorkspaceTypeAugmentation(definitions)),
+    ...legacyWorkspaceAmbientTypesPaths(root).map(path => rm(path, { force: true })),
+  ])
 }
 
 export async function refreshWorkspaceBuildState(root: string, definitions: DiscoveredWorkspaceDefinition[]): Promise<WorkspaceBuildState> {

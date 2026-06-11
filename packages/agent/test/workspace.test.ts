@@ -1214,6 +1214,38 @@ describe("defineAgent workspace option", () => {
     expect(readInstructions).toHaveBeenCalledOnce()
   })
 
+  it("renders capability instruction slots in resolved DevTools metadata", async () => {
+    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const readInstructions = vi.fn(async ({ fs }) => await fs.readFile("AGENTS.md"))
+    readFile.mockResolvedValue("# Workspace instructions\n\n{{ audience }}\n")
+    list.mockResolvedValue([{ path: "AGENTS.md", type: "file" }])
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      instructions: readInstructions,
+      model: {} as never,
+      capabilities: [{
+        id: "audience",
+        prepare({ input, instructions }) {
+          const origin = (input.get().context as { chat?: { run?: { origin?: string } } } | undefined)?.chat?.run?.origin
+          instructions.add(`Audience resolved for ${origin}.`)
+        },
+      }],
+    }), { workspace: "support" })
+
+    expect(await resolveAgentDevtoolsMetadata(agent, {
+      input: {
+        context: {
+          chat: {
+            run: { origin: "devtools" },
+          },
+        },
+      },
+    })).toMatchObject({
+      instructions: ["# Workspace instructions\n\nAudience resolved for devtools."],
+    })
+    expect(readInstructions).toHaveBeenCalledOnce()
+  })
+
   it("resolves recursive DevTools file metadata for lazy source entries", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     list.mockResolvedValue([

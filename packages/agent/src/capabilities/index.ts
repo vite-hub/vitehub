@@ -64,6 +64,8 @@ export {
   mcp,
 } from "./mcp.ts"
 export {
+  formatUsageTelemetryChatMessage,
+  getUsageTelemetryChatOptions,
   normalizeAgentUsage,
   staticModelPricing,
   usageTelemetry,
@@ -78,7 +80,12 @@ export type {
   AudienceInstructionsResolver,
 } from "./audience.ts"
 export type {
+  AccessChatContext,
+  AccessChatIdentity,
+  AccessChatOptions,
+  AccessChatResolver,
   AccessCapabilityOptions,
+  AccessDecision,
   AccessRoleName,
   AccessWorkspaceOptions,
   AccessWorkspaceOptionsFor,
@@ -219,6 +226,15 @@ export type {
   AgentUsagePricing,
   AgentUsagePricingContext,
   StaticModelPrice,
+  UsageTelemetryCallback,
+  UsageTelemetryChatCallback,
+  UsageTelemetryChatCallbackContext,
+  UsageTelemetryChatFormatter,
+  UsageTelemetryChatMessage,
+  UsageTelemetryChatMessageContext,
+  UsageTelemetryChatOptions,
+  UsageTelemetryChatSendMessage,
+  UsageTelemetryContext,
   UsageTelemetryOptions,
   VercelAiGatewayPricingOptions,
 } from "./usage-telemetry.ts"

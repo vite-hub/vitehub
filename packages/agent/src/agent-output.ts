@@ -3,6 +3,21 @@ import { ApprovalRequiredError } from "@vite-hub/runtime"
 import type { StreamEvent } from "./messages.ts"
 import type { AgentRunResult, AgentUsageRecord } from "./types.ts"
 
+function textFromResult(result: Record<string, unknown>): string | undefined {
+  if (typeof result.text === "string") return result.text
+  if (typeof result.output === "string") return result.output
+  if (typeof result._output === "string") return result._output
+
+  const steps = result.steps
+  if (Array.isArray(steps)) {
+    for (const step of steps.slice().reverse()) {
+      if (step && typeof step === "object" && typeof (step as { text?: unknown }).text === "string") {
+        return (step as { text: string }).text
+      }
+    }
+  }
+}
+
 export function toAgentRunResult(value: unknown): AgentRunResult {
   if (typeof value !== "object" || value === null) {
     return { raw: value, text: typeof value === "string" ? value : undefined }
@@ -12,7 +27,7 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
   return {
     finishReason: result.finishReason,
     raw: value,
-    text: typeof result.text === "string" ? result.text : undefined,
+    text: textFromResult(result),
     usage: result.usage,
     usageRecord: result.usageRecord as AgentUsageRecord | undefined,
     warnings: result.warnings,
@@ -21,6 +36,10 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
 
 export function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
   return !!value && typeof value === "object" && Symbol.asyncIterator in value
+}
+
+function isUsageRecord(value: unknown): value is AgentUsageRecord {
+  return typeof value === "object" && value !== null
 }
 
 export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, string>): StreamEvent | undefined {
@@ -71,6 +90,9 @@ export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, strin
     }
     return { error: value.error instanceof Error ? value.error.message : String(value.error || "Unknown error"), type: "error" }
   }
+  if (type === "usage" && isUsageRecord(value.usageRecord)) {
+    return { messageId: value.messageId as string | undefined, type: "usage", usageRecord: value.usageRecord }
+  }
   if (type === "finish") {
     return { reason: typeof value.finishReason === "string" ? value.finishReason : undefined, type: "finish" }
   }
@@ -92,9 +114,10 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     return
   }
   const result = value as { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> }
-  if (result.fullStream) {
+  const fullStream = result.fullStream
+  if (fullStream) {
     const toolNames = new Map<string, string>()
-    for await (const chunk of result.fullStream) {
+    for await (const chunk of fullStream) {
       const event = toAgentStreamEvent(chunk, toolNames)
       if (event) yield event
     }
@@ -106,9 +129,14 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     }
     return
   }
-  if (typeof (value as { text?: unknown } | undefined)?.text === "string") {
-    const text = (value as { text: string }).text
+  const text = typeof value === "object" && value !== null
+    ? textFromResult(value as Record<string, unknown>)
+    : undefined
+  if (typeof text === "string") {
     if (text) yield { text, type: "text-delta" }
+    if (isUsageRecord((value as { usageRecord?: unknown }).usageRecord)) {
+      yield { type: "usage", usageRecord: (value as { usageRecord: AgentUsageRecord }).usageRecord }
+    }
     yield {
       reason: typeof (value as { finishReason?: unknown }).finishReason === "string"
         ? (value as { finishReason: string }).finishReason

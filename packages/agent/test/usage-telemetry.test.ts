@@ -13,6 +13,27 @@ const runtime = () => ({
 })
 
 describe("usage telemetry", () => {
+  it("exposes opt-in chat telemetry options and formats a chat summary", async () => {
+    const { formatUsageTelemetryChatMessage, getUsageTelemetryChatOptions, usageTelemetry } = await import("../src/capabilities.ts")
+    const capability = usageTelemetry({ chat: true })
+
+    expect(getUsageTelemetryChatOptions([capability])).toEqual([{}])
+    expect(formatUsageTelemetryChatMessage({
+      cost: {
+        amount: "0.000002",
+        currency: "USD",
+        estimated: true,
+        source: "vercel-ai-gateway",
+      },
+      model: { id: "openai/gpt-test" },
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+      },
+    }, { durationMs: 1234 })).toContain("`15` total (10 in, 5 out)")
+  })
+
   it("normalizes usage and attaches a priced usage record", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
@@ -87,6 +108,94 @@ describe("usage telemetry", () => {
     expect(finish).toHaveBeenCalledTimes(1)
     const usageRecord = (result as { usageRecord?: unknown }).usageRecord
     expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(usageRecord)
+  })
+
+  it("emits usage records from streamed finish chunks", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { streamAgentOutputToEvents } = await import("../src/agent-output.ts")
+    const { staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const onUsage = vi.fn()
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry({
+          onUsage,
+          pricing: staticModelPricing({
+            "openai/gpt-test": {
+              input: "0.00000010",
+              output: "0.00000020",
+            },
+          }),
+        }),
+      ],
+      run: () => ({
+        fullStream: (async function* () {
+          yield { text: "ok", type: "text-delta" }
+          yield {
+            finishReason: "stop",
+            response: {
+              id: "response-1",
+              modelId: "openai/gpt-test",
+              timestamp: "2026-05-21T00:00:00.000Z",
+            },
+            totalUsage: {
+              inputTokens: 10,
+              outputTokens: 5,
+            },
+            type: "finish",
+          }
+        })(),
+      }),
+    })
+
+    const output = await streamAgent(agent, runtime(), {})
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: expect.objectContaining({
+          cost: {
+            amount: "0.000002",
+            currency: "USD",
+            estimated: true,
+            source: "custom",
+          },
+          usage: {
+            inputTokens: 10,
+            outputTokens: 5,
+            totalTokens: 15,
+          },
+        }),
+      },
+      { reason: "stop", type: "finish" },
+    ])
+    expect(output).toMatchObject({
+      usageRecord: {
+        usage: {
+          inputTokens: 10,
+          outputTokens: 5,
+          totalTokens: 15,
+        },
+      },
+    })
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+      },
+    }), {
+      run: {
+        messageId: "message-1",
+        runId: "run-1",
+        threadId: "thread-1",
+      },
+    })
   })
 
   it("does not fail the invocation when pricing fails", async () => {

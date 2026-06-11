@@ -29,6 +29,7 @@ import type { ViteDevServer } from "vite"
 import type { AgentChatMessageTriggerInput } from "../../chat-trigger.ts"
 import type {
   AgentInput,
+  AgentRunInput,
   AgentRunMetadata,
   AgentRuntimeConfig,
   AgentRuntimeContext,
@@ -172,6 +173,18 @@ function createRuntimeContext(server: ViteDevServer, req: IncomingMessage, run: 
   }) as ViteAgentDevtoolsRuntimeContext
 }
 
+function createDevtoolsMetadataInput(): AgentRunInput {
+  return {
+    context: {
+      chat: {
+        message: { metadata: {} },
+        run: { origin: "devtools" },
+      },
+    },
+    messages: [],
+  }
+}
+
 async function discoverChatAgents(server: ViteDevServer): Promise<Map<string, ChatDevtoolsAgentEntry>> {
   const context = createDevtoolsDiscoveryContext()
   const entries = new Map<string, ChatDevtoolsAgentEntry>()
@@ -190,7 +203,10 @@ async function discoverChatAgents(server: ViteDevServer): Promise<Map<string, Ch
 
     entries.set(definition.name, {
       agent,
-      metadata: await resolveAgentDevtoolsMetadata(agent as never, workspaceDefaults(definition) as never),
+      metadata: await resolveAgentDevtoolsMetadata(agent as never, {
+        ...workspaceDefaults(definition),
+        input: createDevtoolsMetadataInput(),
+      } as never),
       name: definition.name,
     })
   }
