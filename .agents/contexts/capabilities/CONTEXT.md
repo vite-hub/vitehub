@@ -188,6 +188,10 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 A Capability created by `rateLimit()` that checks or consumes a trusted invocation budget and may reject before the main Agent Invocation proceeds.
 _Avoid_: App middleware, model-facing counter tool, KV wrapper
 
+**Rate Limit Store**:
+A runtime enforcement contract used by a Rate Limit Capability to check and consume invocation budgets.
+_Avoid_: KV Store, hubKv, model-facing storage
+
 ## Relationships
 
 - An Agent attaches zero or more **Capabilities**.
@@ -218,7 +222,9 @@ _Avoid_: App middleware, model-facing counter tool, KV wrapper
 - Deterministic or callback-based routing is not an official Capability in V1; users can define inline Capabilities or hooks that set named invocation context values.
 - A **Rate Limit Capability** records a typed **Agent Invocation Context Value** with the checked or consumed budget result when an invocation is allowed or rejected.
 - A **Rate Limit Capability** consumes trusted identity from the Agent Invoker by default, including Agent Invoker kind, or from stable Agent Run metadata, trusted IP headers, or a developer callback when explicitly configured.
-- A **Rate Limit Capability** uses an explicit rate-limit store contract with non-consuming checks and consuming budget operations; model-facing storage Capabilities are not the runtime enforcement mechanism, and hosted runtimes require an explicit store choice.
+- A **Rate Limit Capability** uses an explicit **Rate Limit Store** contract with non-consuming checks and consuming budget operations; model-facing storage Capabilities are not the runtime enforcement mechanism, and hosted runtimes require an explicit store choice.
+- A **Rate Limit Store** owns persistence and coordination semantics for a Rate Limit Capability; model-facing storage tool surfaces do not become runtime enforcement APIs.
+- A **Rate Limit Capability** consumes one budget unit per Agent Invocation in the first version; token, cost, or weighted usage budgets need a separate future design.
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
 - A **Chat Capability** owns Chat History behavior for the current stack.
 - A **Chat Capability** may declare **Chat Platform Adapters** through a **Chat Adapter Callback**.
@@ -371,6 +377,8 @@ _Avoid_: App middleware, model-facing counter tool, KV wrapper
 - Plain KV `get`/`set` counters were considered for **Rate Limit Capability** storage - resolved: rate limiting needs an explicit consume contract because distributed enforcement depends on atomic store behavior.
 - Client-provided Chat App Route user/run fields were considered for **Rate Limit Capability** defaults - resolved: do not trust them as budget identity; official chat triggers should produce an Agent Invoker from trusted server-side inputs.
 - Forwarded request headers were considered for default IP identity - resolved: require explicit trusted header names because proxy trust is deployment-specific.
+- Exposing `hubKv` as a **Rate Limit Capability** option was considered - resolved: keep `store` as the Rate Limit Store boundary and let provider-specific KV handles live inside adapters or future helpers.
+- Weighted rate-limit costs were considered for the first version - resolved: use one Agent Invocation as the budget unit and defer token, cost, and usage quotas until Agent Usage requirements prove the shape.
 - Typed capability preparation was considered as a runtime lifecycle phase - resolved: use narrow **Capability Type Contracts** for type-only Agent Definition checks on official Capabilities, and keep runtime validation inside the **Capability Lifecycle**.
 - A generic custom-Capability contract framework was considered - resolved: defer it until user-defined Capabilities prove a stable story; the current contract exists for official Capabilities that directly consume Agent Definition inputs.
 - Input Command display metadata was considered capability-level - resolved: Capability id owns identity, while command descriptions are the user-facing metadata hosts may render.

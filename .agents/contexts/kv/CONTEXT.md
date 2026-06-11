@@ -48,6 +48,7 @@ _Avoid_: Global browsing, key tree
 - A **KV Store** may provide **KV Coordination**.
 - A KV Capability can use **KV Store Selection** chosen by the developer when the Capability is attached.
 - Agent-facing KV reads can use **KV Prefix Discovery** when the developer provides stable key conventions.
+- Runtime behavior such as rate limiting should use KV Stores through primitive-specific adapters that state their coordination needs instead of accepting provider-specific KV handles directly.
 
 ## Example Dialogue
 
@@ -59,3 +60,4 @@ _Avoid_: Global browsing, key tree
 - "namespace" was considered for multiple KV backends - resolved: use **KV Store** publicly because provider namespaces and bindings are backend details.
 - Named KV APIs were considered as separate top-level exports - resolved: keep the default KV API and add **KV Store Selection**.
 - KV listing was considered a separate agent tool - resolved: keep scoped prefix listing inside the KV read tool rather than adding a standalone discovery tool.
+- Provider-specific KV names such as `hubKv` were considered for higher-level runtime primitives - resolved: public ViteHub runtime APIs should speak **KV Store** or primitive-specific store contracts, not framework-specific handles.
