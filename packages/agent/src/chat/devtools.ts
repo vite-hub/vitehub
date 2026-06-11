@@ -48,6 +48,7 @@ export type {
   ChatDevtoolsConversation,
   ChatDevtoolsFileKind,
   ChatDevtoolsFileTreeItem,
+  ChatDevtoolsInvokerProfile,
   ChatDevtoolsMetadata,
   ChatDevtoolsMessage,
   ChatDevtoolsMessageRole,
@@ -103,7 +104,7 @@ export type ChatDevToolsPlugin = Plugin
 export type ChatDevToolsPanelPlugin = Plugin
 
 export type ChatDevtoolsBridgeRequest =
-  | { action: "get-state" }
+  | { action: "get-state", chat?: string, invokerFallback?: boolean, invokerProfileId?: string }
   | ({ action: "send" } & ChatDevtoolsSendInput)
   | ({ action: "clear" } & ChatDevtoolsClearInput)
 
@@ -462,6 +463,7 @@ function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): 
   return {
     files: metadata?.files ? [...metadata.files] : [],
     instructions: metadata?.instructions ? [...metadata.instructions] : [],
+    invokerProfiles: metadata?.invokerProfiles ? [...metadata.invokerProfiles] : [],
     title: metadata?.title,
     tools: metadata?.tools ? [...metadata.tools] : [],
     version: metadata?.version,
@@ -653,6 +655,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
         chats,
         files: metadata.files,
         instructions: metadata.instructions,
+        invokerProfiles: metadata.invokerProfiles,
         selected: chat && chats.some(item => item.name === chat) ? chat : chats[0]!.name,
         ...(metadata.title ? { title: metadata.title } : {}),
         tools: metadata.tools,
@@ -754,9 +757,16 @@ async function writeChatDevtoolsStream(
         }
         if (event.type === "done") {
           const chat = "chat" in body && typeof body.chat === "string" ? body.chat : undefined
+          const invokerFallback = "invokerFallback" in body && body.invokerFallback === true
+          const invokerProfileId = "invokerProfileId" in body && typeof body.invokerProfileId === "string" ? body.invokerProfileId : undefined
           stream.write({
             type: "state",
-            state: await postChatDevtoolsBridge(ctx, route, { action: "get-state", ...(chat ? { chat } : {}) }),
+            state: await postChatDevtoolsBridge(ctx, route, {
+              action: "get-state",
+              ...(chat ? { chat } : {}),
+              ...(invokerFallback ? { invokerFallback } : {}),
+              ...(invokerProfileId ? { invokerProfileId } : {}),
+            }),
           })
           stream.close()
           return
@@ -809,7 +819,14 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsGetStateRpc,
           type: "query",
-          setup: () => ({ handler: async () => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, { action: "get-state" }) }),
+          setup: () => ({
+            handler: async (input?: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string }) => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, {
+              action: "get-state",
+              ...(input?.chat ? { chat: input.chat } : {}),
+              ...(input?.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
+              ...(input?.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
+            }),
+          }),
         }) as never)
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsSendRpc,
@@ -841,7 +858,7 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
 
 declare module "@vitejs/devtools-kit" {
   interface DevToolsRpcServerFunctions {
-    [chatDevtoolsGetStateRpc]: () => Promise<ChatDevtoolsStateResult>
+    [chatDevtoolsGetStateRpc]: (input?: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string }) => Promise<ChatDevtoolsStateResult>
     [chatDevtoolsSendRpc]: (input: ChatDevtoolsSendInput) => Promise<ChatDevtoolsSendResult>
     [chatDevtoolsClearRpc]: (input: ChatDevtoolsClearInput) => Promise<ChatDevtoolsStateResult>
   }

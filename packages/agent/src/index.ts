@@ -3,8 +3,11 @@ import { getMessageText } from "./messages.ts"
 import { resolveRuntimeContext } from "@vite-hub/runtime"
 import { isAsyncIterable, streamAgentOutputToEvents, toAgentRunResult } from "./agent-output.ts"
 import { getChatCapabilityOptions } from "./chat-trigger.ts"
-import { defineInvocationProfile } from "./invocation-profile.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
+import {
+  normalizeAgentInvokerOptions,
+  resolveAgentInvoker,
+} from "./invoker.ts"
 
 import {
   applyCapabilityToolTransforms,
@@ -59,6 +62,7 @@ import type {
   AgentInstructionBlock,
   AgentInvocationHooks,
   AgentInvocationContextStore,
+  AgentInvoker,
   AgentModelResolver,
   AgentRegistry,
   AgentRegistryModule,
@@ -141,6 +145,10 @@ export type {
   AgentInvocationContextStore,
   AgentInvocationHooks,
   AgentIntegrationsOptions,
+  AgentInvoker,
+  AgentInvokerOptions,
+  AgentInvokerProfile,
+  AgentInvokerResolveContext,
   AgentModelInput,
   AgentModelExecutionInstrumentation,
   AgentModelExecutionOptions,
@@ -198,10 +206,6 @@ export type {
 } from "./types.ts"
 
 export {
-  defineInvocationProfile,
-}
-
-export {
   createAgentDevtoolsMetadata,
   resolveAgentDevtoolsMetadata,
 } from "./workspace-agent.ts"
@@ -211,27 +215,6 @@ export type {
   WorkspaceAgentDefaults,
   WorkspaceAgentOptions,
 } from "./workspace-agent.ts"
-
-export type {
-  AgentInvocationProfileChatInputSchemaOptions,
-  AgentInvocationProfileChatMessageInputSchemaOptions,
-  AgentInvocationProfileChatRunInputOptions,
-  AgentInvocationProfileContextValueId,
-  AgentInvocationProfileInputContext,
-  AgentInvocationProfileDefinition,
-  AgentInvocationProfileInfer,
-  AgentInvocationProfileInputContextFromSchemas,
-  AgentInvocationProfileInputSchemaOptions,
-  AgentInvocationProfileOptions,
-  AgentInvocationProfileResolver,
-  AgentInvocationProfileResolverContext,
-  AgentInvocationProfileRunInput,
-  AgentInvocationProfileRunInputFromSchemas,
-  AgentInvocationProfileStandardSchemaResultFailure,
-  AgentInvocationProfileStandardSchemaResultSuccess,
-  AgentInvocationProfileStandardSchemaV1,
-  DefinedAgentInvocationProfile,
-} from "./invocation-profile.ts"
 
 export type {
   Message,
@@ -513,6 +496,7 @@ function defineBaseAgent<
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const { capabilities, description, hooks, run, runtime, title, version, workspace } = options
   const normalizedCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
+  const invoker = normalizeAgentInvokerOptions(options.invoker)
   const chat = getChatCapabilityOptions<TRuntimeConfig>(normalizedCapabilities)
   validateNonWorkspaceCapabilities(normalizedCapabilities, !!workspace)
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
@@ -534,6 +518,7 @@ function defineBaseAgent<
     chat,
     description,
     hooks,
+    invoker,
     runtime,
     run,
     title,
@@ -763,6 +748,7 @@ type AgentInvocationContext<
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
   sourceInstructions?: string
   startedAt: number
+  invoker: AgentInvoker
   workspace?: ReadonlyWorkspaceFacade<WorkspaceName> | WritableWorkspaceFacade<WorkspaceName>
   workspaceDefinition?: WorkspaceDefinition
   workspaceMode: AgentCapabilityMode
@@ -794,6 +780,7 @@ async function createAgentInvocationContext<
   const resolvedContext = createResolvedRuntimeContext(context)
   const callbackContext = createAgentCallbackContext(context)
   const invocationContext = createAgentInvocationContextStore(input.context)
+  const invoker = await resolveAgentInvoker(definition?.invoker, callbackContext, invocationContext, input, context.run)
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
   const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
   const workspaceName = workspaceOptions
@@ -816,6 +803,7 @@ async function createAgentInvocationContext<
   const agentModel = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
   const capabilities = await resolveAgentCapabilities(capabilityOptions, resolvedContext, input, workspace as never, workspaceMode, {
     context: invocationContext,
+    invoker,
     model: agentModel as never,
     workspaceDefinition: resolvedWorkspaceDefinition,
   })
@@ -842,6 +830,7 @@ async function createAgentInvocationContext<
     finishHook: definition?.hooks?.["agent:finish"] as never,
     hasCapabilityCleanup: capabilities.hasCloseCallbacks,
     input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
+    invoker,
     messages: capabilities.messages,
     outputRenderers: capabilities.registries.outputRenderers,
     prompt: typeof capabilities.input.prompt === "string" ? capabilities.input.prompt : undefined,
@@ -865,6 +854,7 @@ type InvocationRunContext<
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finishHook?: (event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void>
   input: AgentRunInput<CALL_OPTIONS>
+  invoker: AgentInvoker
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
   run?: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>["run"]
   startedAt: number
@@ -927,6 +917,7 @@ async function finishAgentInvocation<
   const eventBase = {
     ...(error !== undefined ? { error } : {}),
     input: context.input,
+    invoker: context.invoker,
     invocation: {
       durationMs: Date.now() - context.startedAt,
       ...(context.run ? { run: context.run } : {}),

@@ -480,6 +480,7 @@ function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapt
     ...context.runtime,
     context: context.context,
     input: context.input,
+    invoker: context.invoker,
     run: context.runtime.run,
   }
 
@@ -519,12 +520,13 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
     ...runtime,
     context: context.context,
     fs: context.workspace?.fs,
+    invoker: context.invoker,
     workspace: context.workspace,
   } as AgentAdapterMetadataContext
   const model = await resolveValue(options.model as never, metadataContext)
   const modelInstrumentation = options.modelExecution?.instrumentation?.model
   const instrumentedModel = modelInstrumentation
-    ? await modelInstrumentation({ ...runtime, context: context.context, model, run: context.runtime.run })
+    ? await modelInstrumentation({ ...runtime, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
   const instructions = context.instructions
     ?? applyWorkspaceSourceInstructionSlot(
@@ -556,6 +558,7 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
     callSettings: { ...baseCallSettings },
     context: context.context,
     input: context.input,
+    invoker: context.invoker,
     model: instrumentedModel,
     run: context.runtime.run,
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),

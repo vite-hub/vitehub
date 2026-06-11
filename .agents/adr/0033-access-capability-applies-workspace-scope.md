@@ -16,6 +16,6 @@ ViteHub will add a read-only `access()` Capability. In the first version, `acces
 
 ## Consequences
 
-`access({ workspace: ... })` grants can target Source keys, path prefixes, or both through **Workspace Scope Grants**. Source grants fail closed for unknown or root-mounted sources, where explicit path grants are required. A missing selected scope fails the Agent Invocation unless the developer declared a default scope, and `all` is an explicit privileged scope rather than an implicit fallback. Chat can contribute **Chat Identity** as an Agent Invocation Context Value so `access()` and other Capabilities can resolve trusted identity without making that identity model-facing by default.
+`access({ workspace: ... })` grants can target Source keys, path prefixes, or both through **Workspace Scope Grants**. Source grants fail closed for unknown or root-mounted sources, where explicit path grants are required. A missing selected scope fails the Agent Invocation unless the developer declared a default scope, and `all` is an explicit privileged scope rather than an implicit fallback. Chat and other hosts can contribute an **Agent Invoker** so `access()` and other Capabilities can resolve trusted identity without making that identity model-facing by default.
 
 Future access surfaces must be explicit sections inside `access()` rather than stretching **Workspace Scope** beyond Workspace visibility.

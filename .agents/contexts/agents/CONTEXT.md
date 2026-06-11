@@ -64,17 +64,17 @@ _Avoid_: memory size, transcript limit, context length
 A host-visible conversation boundary inside Chat History that determines which messages are eligible for the Chat History Window.
 _Avoid_: Agent Memory, Agent Run State, hidden slice
 
-**Chat Identity**:
-A trusted Agent Invocation Context Value produced by the Chat Capability that identifies the external chat actor for the current Agent Invocation.
-_Avoid_: Chat History identity, Agent Memory, model-facing user profile
+**Agent Invoker**:
+The trusted caller identity for one Agent Invocation, exposed as `context.invoker` with a stable `id`, optional `kind`, optional display `label`, and application-owned `meta`.
+_Avoid_: Auth User, Agent Trigger, Access Role, model-facing user profile
+
+**Agent Invoker Profile**:
+A static selectable Agent Invoker declared on an Agent Definition through `defineAgent({ invoker: { profiles } })`, mainly for development selection and trusted app routing.
+_Avoid_: Invocation Profile, Access Role, dynamic profile Capability
 
 **Agent Invocation Context Value**:
 A typed value recorded for one Agent Invocation and exposed to later Agent and Capability callbacks through invocation context access.
 _Avoid_: Runtime Config, Agent Memory, dynamic Capability, arbitrary metadata
-
-**Invocation Profile**:
-A reusable Agent Package definition that resolves trusted invocation context into one typed profile value for Capabilities to consume during an Agent Invocation.
-_Avoid_: Access Role, Workspace Scope, Invoker, top-level Agent Definition profile
 
 **Agent Memory**:
 Durable knowledge or preferences an Agent can carry across Agent Invocations when explicitly configured.
@@ -132,16 +132,16 @@ _Avoid_: Fake agent, dummy model, test bot
 - The Chat Capability resolves the active **Chat Session** before applying the **Chat History Window**.
 - A **Chat History Window** is configured by the Agent Definition when the application wants bounded Chat History.
 - The Chat Capability can require state for **Chat History** through the Agent State Provider.
-- The Chat Capability can produce **Chat Identity** before later Capabilities resolve.
-- The default **Chat Identity** for Chat Platform Adapter messages is platform-scoped as `adapter:userId`; applications can override it when they own a stronger cross-platform identity.
-- **Chat Identity** is available through Agent Invocation Context Values and is not model-facing by default.
+- Every **Agent Invocation** has an **Agent Invoker**; when no trusted identity is supplied, ViteHub provides an origin-specific anonymous fallback.
+- The Chat Capability can produce an **Agent Invoker** from trusted Chat Platform Adapter identity before later Capabilities resolve.
+- **Agent Invoker** is available through `context.invoker` and as the `invoker` Agent Invocation Context Value; it is not model-facing by default.
+- **Agent Invoker Profiles** are static objects in the first version.
+- **Agent Invoker Profile** ids must be unique per Agent Definition.
+- DevTools can select configured **Agent Invoker Profiles** before a new Chat Session starts, but does not switch invokers in the middle of one conversation.
 - Chat History is explicit application behavior and is not enabled by default.
 - **Agent Invocation Context Values** can be produced by Pre-Invocation Decisions and read by later Agent or Capability callbacks.
 - **Agent Invocation Context Values** do not grant Capabilities dynamically.
 - **Agent Invocation Context Value** ids must be unique per Agent so every invocation has one writer per context value.
-- An **Invocation Profile** is resolved once per Agent Invocation and exposed as an **Agent Invocation Context Value**.
-- An **Invocation Profile** can drive multiple Capability effects, but each effect remains explicit.
-- An **Invocation Profile** is not a top-level Agent Definition option and does not grant Capabilities dynamically.
 - **Agent Memory** can outlive one conversation.
 - A **Concurrent Invocation Guard** protects **Agent Run State**.
 - A **Development State Provider** is not acceptable for hosted production runtimes.
@@ -166,7 +166,7 @@ _Avoid_: Fake agent, dummy model, test bot
 > **Domain expert:** "No. Read it as an **Agent Invocation Context Value** produced by a Pre-Invocation Decision."
 >
 > **Dev:** "Should we put customer, staff, and technical-user branching into both `access()` and prompt instructions?"
-> **Domain expert:** "No. Resolve one **Invocation Profile**, then let `access()` map it to Workspace Scope and an audience Capability map it to instructions."
+> **Domain expert:** "Keep the shared facts on the **Agent Invoker**. Let `access()` map `context.invoker` to Workspace Scope, and let any prompt Capability or instruction callback read the same invoker metadata for model-facing text."
 >
 > **Dev:** "Is a new Chat Session the same as Agent Memory reset?"
 > **Domain expert:** "No. A **Chat Session** changes which Chat History messages enter the Chat History Window; **Agent Memory** is durable knowledge across invocations."
@@ -182,10 +182,9 @@ _Avoid_: Fake agent, dummy model, test bot
 - Chat Sessions were considered as Agent Memory or separate Chat Session Capabilities - resolved: **Chat Session** is Chat History behavior owned by the Chat Capability.
 - Hidden model-selected history slicing was considered - resolved: **Chat Session** selection is a host-visible boundary over preserved Chat History, not destructive message truncation.
 - Route and gate results were considered for ad hoc input context or metadata - resolved: expose them as typed **Agent Invocation Context Values**.
-- Shared access-and-audience branching was considered for `defineAgent({ profiles })` - resolved: use reusable **Invocation Profiles** consumed by Capabilities rather than a top-level Agent Definition option.
-- `invoker` was considered as the name for trusted invocation classification - resolved: reject it because it sounds like the caller or trigger that starts an **Agent Invocation**, not the selected profile value.
+- Shared access-and-audience branching was considered for reusable Invocation Profiles - resolved: use **Agent Invoker** as the root Agent Definition concept, with static **Agent Invoker Profiles** and app-owned `invoker.meta` for V1.
 - Chat state was considered separate from Agent State Provider - resolved: Chat History state is satisfied through the Agent State Provider when available.
-- Chat actor identity was considered a chat-history-only detail - resolved: expose **Chat Identity** as a trusted Agent Invocation Context Value so other Capabilities can consume it.
+- Chat actor identity was considered a chat-history-only detail - resolved: expose it as an **Agent Invoker** so other Capabilities can consume it.
 - Chat History was considered an implicit Chat Capability default - resolved: keep Chat History opt-in, aligned with Chat SDK-style application control.
 - Local and hosted state providers were considered equivalent - resolved: hosted production runtimes require a durable provider and a **Concurrent Invocation Guard**.
 - Model-free playground behavior was described as a dummy Agent - resolved: use **Mock Agent Adapter** for deterministic, cost-free Agent Invocations.

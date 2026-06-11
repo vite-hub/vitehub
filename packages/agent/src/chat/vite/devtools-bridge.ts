@@ -42,8 +42,15 @@ type ChatDevtoolsAction = "clear" | "get-state" | "send"
 type ChatDevtoolsBridgeBody = {
   action?: string
   chat?: string
+  invokerFallback?: boolean
+  invokerProfileId?: string
   stream?: boolean
   text?: string
+}
+
+interface ChatDevtoolsInvokerSelection {
+  invokerFallback?: boolean
+  invokerProfileId?: string
 }
 
 interface ViteAgentDevtoolsRuntimeConfig extends AgentRuntimeConfig {
@@ -57,6 +64,8 @@ interface ViteAgentDevtoolsRuntimeContext extends AgentRuntimeContext<ViteAgentD
 }
 
 interface ChatDevtoolsSession {
+  invokerFallback?: boolean
+  invokerProfileId?: string
   name: string
   thinkingFallback?: string | null
   title?: string
@@ -173,9 +182,10 @@ function createRuntimeContext(server: ViteDevServer, req: IncomingMessage, run: 
   }) as ViteAgentDevtoolsRuntimeContext
 }
 
-function createDevtoolsMetadataInput(): AgentRunInput {
+function createDevtoolsMetadataInput(selection: ChatDevtoolsInvokerSelection = {}): AgentRunInput {
   return {
     context: {
+      ...(!selection.invokerFallback && selection.invokerProfileId ? { invokerProfileId: selection.invokerProfileId } : {}),
       chat: {
         message: { metadata: {} },
         run: { origin: "devtools" },
@@ -185,7 +195,21 @@ function createDevtoolsMetadataInput(): AgentRunInput {
   }
 }
 
-async function discoverChatAgents(server: ViteDevServer): Promise<Map<string, ChatDevtoolsAgentEntry>> {
+function agentHasInvokerProfile(agent: AgentInput<ViteAgentDevtoolsRuntimeContext>, invokerProfileId: string | undefined): boolean {
+  return Boolean(invokerProfileId && Array.isArray(agent.invoker?.profiles) && agent.invoker.profiles.some(profile => profile.id === invokerProfileId))
+}
+
+function metadataSelectionForAgent(
+  agent: AgentInput<ViteAgentDevtoolsRuntimeContext>,
+  selection: ChatDevtoolsInvokerSelection = {},
+): ChatDevtoolsInvokerSelection {
+  if (selection.invokerFallback) return { invokerFallback: true }
+  return agentHasInvokerProfile(agent, selection.invokerProfileId)
+    ? { invokerProfileId: selection.invokerProfileId }
+    : {}
+}
+
+async function discoverChatAgents(server: ViteDevServer, selection: ChatDevtoolsInvokerSelection = {}): Promise<Map<string, ChatDevtoolsAgentEntry>> {
   const context = createDevtoolsDiscoveryContext()
   const entries = new Map<string, ChatDevtoolsAgentEntry>()
   const definitions = discoverAgentDefinitions({
@@ -205,7 +229,7 @@ async function discoverChatAgents(server: ViteDevServer): Promise<Map<string, Ch
       agent,
       metadata: await resolveAgentDevtoolsMetadata(agent as never, {
         ...workspaceDefaults(definition),
-        input: createDevtoolsMetadataInput(),
+        input: createDevtoolsMetadataInput(metadataSelectionForAgent(agent, selection)),
       } as never),
       name: definition.name,
     })
@@ -262,7 +286,29 @@ function getSelectedName(state: ChatDevtoolsBridgeState, selected?: string): str
   return next
 }
 
-async function serializeState(state: ChatDevtoolsBridgeState, selected?: string): Promise<ChatDevtoolsStateResult> {
+function validMetadataInvokerProfileId(metadata: ChatDevtoolsMetadata | undefined, value: string | undefined): string | undefined {
+  return value && metadata?.invokerProfiles?.some(profile => profile.id === value)
+    ? value
+    : undefined
+}
+
+function assertKnownInvokerProfile(metadata: ChatDevtoolsMetadata | undefined, invokerProfileId: string | undefined): void {
+  if (invokerProfileId && !validMetadataInvokerProfileId(metadata, invokerProfileId)) {
+    throw new Response(`Unknown invoker profile: ${invokerProfileId}`, { status: 400 })
+  }
+}
+
+function normalizeInvokerSelection(input: { invokerFallback?: boolean, invokerProfileId?: string } | undefined): ChatDevtoolsInvokerSelection {
+  if (input?.invokerFallback === true) return { invokerFallback: true }
+  const invokerProfileId = input?.invokerProfileId?.trim()
+  return invokerProfileId ? { invokerProfileId } : {}
+}
+
+async function serializeState(
+  state: ChatDevtoolsBridgeState,
+  selected?: string,
+  requestedSelection: ChatDevtoolsInvokerSelection = {},
+): Promise<ChatDevtoolsStateResult> {
   for (const name of state.entries.keys()) getSession(state, name)
 
   const chats: ChatDevtoolsConversation[] = [...state.entries.keys()].map((name) => {
@@ -270,6 +316,8 @@ async function serializeState(state: ChatDevtoolsBridgeState, selected?: string)
     const title = sessionTitle(session)
     return {
       messages: [],
+      ...(session.invokerFallback ? { invokerFallback: true } : {}),
+      ...(session.invokerProfileId ? { invokerProfileId: session.invokerProfileId } : {}),
       name,
       ...(title ? { title } : {}),
       uiMessages: [...session.uiMessages],
@@ -280,11 +328,16 @@ async function serializeState(state: ChatDevtoolsBridgeState, selected?: string)
   const selectedSession = nextSelected ? getSession(state, nextSelected) : undefined
   const metadata = nextSelected ? state.entries.get(nextSelected)?.metadata : undefined
   const title = selectedSession ? sessionTitle(selectedSession) || metadata?.title : metadata?.title
+  const invokerProfileId = selectedSession?.invokerProfileId || (!requestedSelection.invokerFallback ? validMetadataInvokerProfileId(metadata, requestedSelection.invokerProfileId) : undefined)
+  const invokerFallback = selectedSession?.invokerFallback || (!invokerProfileId && requestedSelection.invokerFallback === true)
 
   return {
     chats,
     files: metadata?.files || [],
     instructions: metadata?.instructions || [],
+    ...(invokerFallback ? { invokerFallback: true } : {}),
+    ...(invokerProfileId ? { invokerProfileId } : {}),
+    invokerProfiles: metadata?.invokerProfiles || [],
     selected: nextSelected,
     thinkingFallback: selectedSession?.thinkingFallback ?? null,
     ...(title ? { title } : {}),
@@ -361,7 +414,7 @@ async function sendDevtoolsUIMessage(
   server: ViteDevServer,
   req: IncomingMessage,
   state: ChatDevtoolsBridgeState,
-  input: { chat?: string, stream?: boolean, text?: string },
+  input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, stream?: boolean, text?: string },
   onChange?: (next: ChatDevtoolsStateResult) => void | Promise<void>,
 ): Promise<ChatDevtoolsStateResult> {
   if (!input.stream) {
@@ -385,6 +438,22 @@ async function sendDevtoolsUIMessage(
 
   const session = getSession(state, selected)
   state.selected = selected
+  const requestedSelection = normalizeInvokerSelection(input)
+  const requestedProfileId = requestedSelection.invokerProfileId
+  assertKnownInvokerProfile(entry.metadata, requestedProfileId)
+  if (
+    session.uiMessages.length > 0
+    && ((requestedSelection.invokerFallback && !session.invokerFallback)
+      || (requestedProfileId && (session.invokerFallback || (session.invokerProfileId && requestedProfileId !== session.invokerProfileId))))
+  ) {
+    throw new Response("Clear the conversation to change invoker.", { status: 409 })
+  }
+  if (!session.uiMessages.length) {
+    session.invokerFallback = requestedSelection.invokerFallback === true
+    session.invokerProfileId = session.invokerFallback
+      ? undefined
+      : requestedProfileId || entry.metadata.invokerProfiles?.[0]?.id
+  }
   const userMessage = createUserUIMessage(text)
   const baseMessages = [...createChatDevtoolsPromptHistory(session.uiMessages), userMessage]
   const run = createRunMetadata(session, userMessage.id)
@@ -395,6 +464,7 @@ async function sendDevtoolsUIMessage(
 
   const runtimeContext = createRuntimeContext(server, req, run)
   const triggerInput: AgentChatMessageTriggerInput = {
+    ...(session.invokerProfileId ? { invokerProfileId: session.invokerProfileId } : {}),
     messages: baseMessages,
     run,
     timeout: 90_000,
@@ -439,15 +509,21 @@ async function sendDevtoolsUIMessage(
   return await serializeState(state, selected)
 }
 
-async function clearDevtoolsMessages(state: ChatDevtoolsBridgeState, input: { chat?: string }): Promise<ChatDevtoolsStateResult> {
+async function clearDevtoolsMessages(state: ChatDevtoolsBridgeState, input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string }): Promise<ChatDevtoolsStateResult> {
   const selected = getSelectedName(state, input.chat)
   if (!selected) return await serializeState(state)
+  const entry = state.entries.get(selected)
+  if (!entry) return await serializeState(state)
   const session = getSession(state, selected)
+  const requestedSelection = normalizeInvokerSelection(input)
+  assertKnownInvokerProfile(entry.metadata, requestedSelection.invokerProfileId)
   state.selected = selected
   session.thinkingFallback = null
+  session.invokerFallback = requestedSelection.invokerFallback === true
+  session.invokerProfileId = session.invokerFallback ? undefined : requestedSelection.invokerProfileId
   session.title = undefined
   session.uiMessages = []
-  return await serializeState(state, selected)
+  return await serializeState(state, selected, requestedSelection)
 }
 
 function createChatDevtoolsStreamResponse(run: (emit: (event: ChatDevtoolsStreamEvent) => void, signal: AbortSignal) => Promise<void>): Response {
@@ -525,14 +601,15 @@ async function handleChatDevtoolsRequest(
     return new Response("Missing chat devtools action.", { status: 400 })
   }
 
-  state.entries = await discoverChatAgents(server)
+  const invokerSelection = normalizeInvokerSelection(body)
+  state.entries = await discoverChatAgents(server, invokerSelection)
   if (body.chat && state.entries.has(body.chat)) {
     state.selected = body.chat
   }
 
   const action = normalizeChatDevtoolsAction(body.action)
   if (action === "get-state") {
-    return Response.json(await serializeState(state, body.chat))
+    return Response.json(await serializeState(state, body.chat, invokerSelection))
   }
   if (action === "send") {
     if (!body.stream) {

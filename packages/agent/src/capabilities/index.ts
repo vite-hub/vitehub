@@ -2,9 +2,6 @@ export {
   access,
 } from "./access.ts"
 export {
-  audience,
-} from "./audience.ts"
-export {
   chat,
 } from "../chat-trigger.ts"
 export {
@@ -80,10 +77,6 @@ export {
   webSearch,
 } from "./web-search/index.ts"
 
-export type {
-  AudienceCapabilityOptions,
-  AudienceInstructionsResolver,
-} from "./audience.ts"
 export type {
   AccessChatContext,
   AccessChatIdentity,
@@ -175,13 +168,17 @@ export type {
 export type {
   MemoryRateLimitStore,
   MemoryRateLimitStoreOptions,
-  RateLimitConsumeInput,
-  RateLimitConsumeResult,
+  RateLimitAction,
   RateLimitDecision,
+  RateLimitEvent,
   RateLimitIdentity,
   RateLimitIdentityResolver,
+  RateLimitLimit,
+  RateLimitLimitResolver,
   RateLimitOptions,
   RateLimitStore,
+  RateLimitStoreInput,
+  RateLimitStoreResult,
   RateLimitWindow,
 } from "./rate-limit.ts"
 export type {

@@ -60,8 +60,36 @@ export interface AgentInvocationContextStore {
   entries: () => IterableIterator<[string, unknown]>
   get: <T = unknown>(id: string) => T | undefined
   has: (id: string) => boolean
-  set: (id: string, value: unknown) => void
+  set: (id: string, value: unknown, options?: { overwrite?: boolean }) => void
   toJSON: () => Record<string, unknown>
+}
+
+export interface AgentInvoker {
+  id: string
+  kind?: "anonymous" | "chat" | "devtools" | (string & {})
+  label?: string
+  meta?: Record<string, unknown>
+}
+
+export type AgentInvokerProfile = AgentInvoker
+
+export interface AgentInvokerResolveContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> extends AgentCallbackContext<TRuntimeConfig> {
+  context: AgentInvocationContextStore
+  defaultInvoker: AgentInvoker
+  input: AgentRunInput<CALL_OPTIONS>
+  profiles: readonly AgentInvokerProfile[]
+  selectedProfile?: AgentInvokerProfile
+}
+
+export interface AgentInvokerOptions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> {
+  profiles?: readonly AgentInvokerProfile[]
+  resolve?: (context: AgentInvokerResolveContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<AgentInvoker | null | undefined>
 }
 
 export interface AgentRunInput<
@@ -159,6 +187,7 @@ export interface AgentRunCallbackContext<
 > extends AgentCallbackContext<TRuntimeConfig> {
   context: AgentInvocationContextStore
   input: AgentRunInput<CALL_OPTIONS>
+  invoker: AgentInvoker
   run?: AgentRunMetadata
 }
 
@@ -182,6 +211,7 @@ export interface AgentFinishEvent<
   error?: unknown
   extensions: AgentInvocationExtensions
   input: AgentRunInput<CALL_OPTIONS>
+  invoker: AgentInvoker
   invocation: {
     durationMs: number
     run?: AgentRunMetadata
@@ -210,6 +240,7 @@ export interface AgentRunContext<
   adapter?: AgentAdapter<CALL_OPTIONS>
   context: AgentInvocationContextStore
   input: AgentRunInput<CALL_OPTIONS>
+  invoker: AgentInvoker
   messages: Message[]
   prompt?: string
   providerTools?: AgentProviderToolContribution[]
@@ -392,6 +423,7 @@ export type AgentModelResolver<
 export interface AgentModelInstrumentationContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentCallbackContext<TRuntimeConfig> {
   context: AgentInvocationContextStore
+  invoker: AgentInvoker
   model: AgentModelInput
   run?: AgentRunMetadata
 }
@@ -406,6 +438,7 @@ export interface AgentCallSettingsInstrumentationContext<
   callSettings: Readonly<Record<string, unknown>>
   context: AgentInvocationContextStore
   input: AgentRunInput<CALL_OPTIONS>
+  invoker: AgentInvoker
   model: AgentModelInput
   run?: AgentRunMetadata
   tools?: AgentToolSet
@@ -446,6 +479,7 @@ type AgentSettingsBase<
   hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig>
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   capabilities?: AgentCapabilitiesList<TRuntimeConfig>
+  invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS>
   modelExecution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
   model?: AgentModelResolver<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
@@ -475,6 +509,7 @@ export interface AgentDefinition<
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS>
+  invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS>
   runtime?: AgentRuntimeBinding
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
@@ -747,6 +782,7 @@ export interface AgentDevtoolsToolDefinition {
 export interface AgentDevtoolsMetadata {
   files?: AgentDevtoolsFileTreeItem[]
   instructions?: string[]
+  invokerProfiles?: AgentInvokerProfile[]
   title?: string
   tools?: AgentDevtoolsToolDefinition[]
   version?: string
@@ -804,6 +840,7 @@ export interface AgentAdapterMetadataContext<
 > extends AgentCallbackContext<TRuntimeConfig> {
   context: AgentInvocationContextStore
   fs: ReadonlyWorkspaceFacade<Name>["fs"]
+  invoker: AgentInvoker
   workspace: ReadonlyWorkspaceFacade<Name>
 }
 
@@ -819,6 +856,7 @@ export interface AgentAdapterRunContext<
   hasCapabilityCleanup?: boolean
   input: AgentRunInput<TOptions>
   instructions?: string
+  invoker: AgentInvoker
   messages: Message[]
   outputRenderers?: Array<(result: unknown) => MaybePromise<unknown>>
   prompt?: string

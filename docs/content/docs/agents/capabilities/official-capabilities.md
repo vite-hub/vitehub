@@ -20,6 +20,7 @@ import {
   llmGate,
   llmRoute,
   mcp,
+  rateLimit,
   sandbox,
   transcribe,
   webSearch,
@@ -41,6 +42,7 @@ import {
 | MCP servers | `mcp()` | The Agent should consume external MCP tools. |
 | Audio input | `transcribe()` | Audio message parts should become transcript text before the Agent runs. |
 | Routing and gates | `llmRoute()`, `llmGate()` | A pre-invocation model decision should select a route or reject input. |
+| Rate limiting | `rateLimit()` | A trusted invocation budget should be checked before model execution. |
 
 ## Storage capabilities
 
@@ -80,3 +82,9 @@ Without an execution Capability, an Agent cannot execute programs.
 `llmRoute()` and `llmGate()` produce typed Pre-Invocation Decisions. They do not dynamically attach new Capabilities or mutate the Agent Definition.
 
 Use them to record a decision, reject a request, or let later callbacks read a typed context value.
+
+## Rate limiting
+
+`rateLimit()` runs before model execution and consumes one budget unit per Agent Invocation in the first version. By default, it uses the Agent Invoker as the trusted identity, so the same caller metadata can drive access, prompt behavior, and invocation budgets.
+
+Use the memory store only for local development, tests, and single-process hosts. Hosted runtimes should provide an explicit Rate Limit Store with `check()` and `consume()` methods so the storage boundary owns its coordination guarantees.

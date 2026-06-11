@@ -239,47 +239,41 @@ describe("agent chat capability discovery", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
 
-    const { access, audience, chat } = await import("../src/capabilities.ts")
-    const { defineAgent, defineInvocationProfile, withWorkspaceAgentDefaults } = await import("../src/index.ts")
-    const metadataSchema = {
-      "~standard": {
-        validate(input: unknown) {
-          return typeof input === "object" && input !== null
-            ? { value: input }
-            : { issues: ["missing metadata"] }
-        },
+    const { access, chat } = await import("../src/capabilities.ts")
+    const { defineAgent, defineCapability, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const supportAudience = defineCapability({
+      id: "support-audience",
+      prepare(context) {
+        context.instructions.add(`Audience resolved for ${context.invoker.meta?.audience}.`)
       },
-    }
-    const supportProfile = defineInvocationProfile({
-      id: "bridge-support",
-      input: {
-        chat: {
-          message: { metadata: metadataSchema },
-          run: { origin: ["devtools"] },
-        },
-      },
-      resolve: ({ input }) => ({ origin: input.get().context?.chat?.run?.origin }),
     })
     const agent = withWorkspaceAgentDefaults(defineAgent({
+      invoker: {
+        profiles: [
+          { id: "support-customer", kind: "customer", label: "Customer", meta: { audience: "customer", scope: "customer" } },
+          { id: "support-technical", kind: "technical", label: "Technical", meta: { audience: "technical", scope: "support" } },
+        ],
+      },
       capabilities: [
         access({
           workspace: {
-            resolve: () => ({ role: "admin", scope: "support" }),
+            resolve({ invoker }) {
+              return invoker.meta?.scope === "support"
+                ? { role: "admin", scope: "support" }
+                : { role: "viewer", scope: "customer" }
+            },
             scopes: {
+              customer: { paths: ["customers/acme"] },
               support: { all: true },
             },
           },
         }),
-        audience({
-          id: "support-audience",
-          profile: supportProfile,
-          instructions: ({ profile }) => `Audience resolved for ${profile.origin}.`,
-        }),
+        supportAudience,
         chat(),
       ],
       instructions: "# Support\n\n{{ capabilities.support-audience }}",
       workspace: {},
-      run: (context: { input: { context?: { chat?: { run?: { origin?: string } } } }, workspace?: unknown }) => `answered through ${context.input.context?.chat?.run?.origin} with ${context.workspace ? "workspace" : "no workspace"}`,
+      run: (context: { invoker: { kind?: string }, workspace?: unknown }) => `answered as ${context.invoker.kind} with ${context.workspace ? "workspace" : "no workspace"}`,
     }), { workspace: "support" })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent()
@@ -287,17 +281,23 @@ describe("agent chat capability discovery", () => {
     await configurePluginServer(plugin, server)
     expect(server.middlewares.use).toHaveBeenCalledTimes(1)
 
-    const stateResponse = await invokeMiddleware(handlers[0]!, { action: "get-state" })
+    const stateResponse = await invokeMiddleware(handlers[0]!, { action: "get-state", invokerProfileId: "support-technical" })
     const state = JSON.parse(stateResponse.body)
     expect(state).toMatchObject({
       chats: [{ name: "support", uiMessages: [] }],
-      instructions: ["# Support\n\nAudience resolved for devtools."],
+      instructions: ["# Support\n\nAudience resolved for technical."],
+      invokerProfileId: "support-technical",
+      invokerProfiles: [
+        { id: "support-customer", kind: "customer", label: "Customer" },
+        { id: "support-technical", kind: "technical", label: "Technical" },
+      ],
       selected: "support",
     })
 
     const sendResponse = await invokeMiddleware(handlers[0]!, {
       action: "send",
       chat: "support",
+      invokerProfileId: "support-technical",
       stream: true,
       text: "hello",
     })
@@ -310,7 +310,53 @@ describe("agent chat capability discovery", () => {
     expect(events.at(-1)).toEqual({ type: "done" })
     expect(finalState.selected).toBe("support")
     expect(finalState.uiMessages.map((message: { role: string }) => message.role)).toEqual(["user", "assistant"])
-    expect(textFromUiMessage(finalState.uiMessages[1])).toBe("answered through devtools with workspace")
+    expect(finalState.invokerProfileId).toBe("support-technical")
+    expect(textFromUiMessage(finalState.uiMessages[1])).toBe("answered as technical with workspace")
+
+    const clearedTechnicalResponse = await invokeMiddleware(handlers[0]!, {
+      action: "clear",
+      chat: "support",
+      invokerProfileId: "support-technical",
+    })
+    const clearedTechnicalState = JSON.parse(clearedTechnicalResponse.body)
+    expect(clearedTechnicalState).toMatchObject({
+      instructions: ["# Support\n\nAudience resolved for technical."],
+      invokerProfileId: "support-technical",
+      selected: "support",
+      uiMessages: [],
+    })
+
+    const clearedFallbackResponse = await invokeMiddleware(handlers[0]!, {
+      action: "clear",
+      chat: "support",
+      invokerFallback: true,
+    })
+    const clearedFallbackState = JSON.parse(clearedFallbackResponse.body)
+    expect(clearedFallbackState).toMatchObject({
+      instructions: ["# Support\n\nAudience resolved for undefined."],
+      invokerFallback: true,
+      selected: "support",
+      uiMessages: [],
+    })
+    expect(clearedFallbackState.invokerProfileId).toBeUndefined()
+
+    const fallbackSendResponse = await invokeMiddleware(handlers[0]!, {
+      action: "send",
+      chat: "support",
+      invokerFallback: true,
+      stream: true,
+      text: "hello fallback",
+    })
+    const fallbackEvents = fallbackSendResponse.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+    const fallbackFinalState = fallbackEvents.filter(event => event.type === "state").at(-1)?.state
+
+    expect(fallbackEvents.at(-1)).toEqual({ type: "done" })
+    expect(fallbackFinalState.invokerFallback).toBe(true)
+    expect(fallbackFinalState.invokerProfileId).toBeUndefined()
+    expect(textFromUiMessage(fallbackFinalState.uiMessages[1])).toBe("answered as devtools with workspace")
   })
 
   it("omits unfinished tool-call assistant messages from devtools prompt history", async () => {

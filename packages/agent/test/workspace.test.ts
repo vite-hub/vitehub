@@ -1288,6 +1288,60 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("filters resolved DevTools file metadata through Access-scoped workspace visibility", async () => {
+    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    list.mockResolvedValue([
+      { path: "customers", type: "directory" },
+      { path: "customers/acme", type: "directory" },
+      { path: "customers/acme/orders.sql", type: "file" },
+      { path: "customers/globex", type: "directory" },
+      { path: "customers/globex/orders.sql", type: "file" },
+      { path: "portal", type: "directory" },
+    ])
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      invoker: {
+        profiles: [
+          { id: "customer", kind: "customer", label: "Customer", meta: { scope: "customer" } },
+          { id: "support", kind: "support", label: "Support", meta: { scope: "support" } },
+        ],
+      },
+      workspace: {
+        sources: {
+          customers: { mount: "customers", name: "customers" } as never,
+          portal: { mount: "portal", name: "portal" } as never,
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            resolve({ invoker }) {
+              return invoker.meta?.scope === "support"
+                ? { role: "admin", scope: "support" }
+                : { role: "viewer", scope: "customer" }
+            },
+            scopes: {
+              customer: { paths: ["customers/acme"] },
+              support: { all: true },
+            },
+          },
+        }),
+      ],
+      instructions: "Answer from the workspace.",
+      model: {} as never,
+    }), { workspace: "support" })
+
+    const metadata = await resolveAgentDevtoolsMetadata(agent, {
+      input: { context: { invokerProfileId: "customer" } },
+    })
+    const paths = JSON.stringify(metadata.files)
+
+    expect(paths).toContain("customers/acme/orders.sql")
+    expect(paths).not.toContain("customers/globex")
+    expect(paths).not.toContain("portal")
+  })
+
   it("flattens virtual workspace AGENTS.md while keeping sibling instruction files", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     list.mockResolvedValue([
