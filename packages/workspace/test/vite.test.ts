@@ -26,6 +26,20 @@ async function createViteRoot() {
     `export default defineWorkspace({})`,
     ``,
   ].join("\n"))
+  await writeFile(join(rootDir, "src", "vitehub-workspace.d.ts"), `stale src generated types\n`)
+  await writeFile(join(rootDir, "vitehub-workspace.d.ts"), `stale root generated types\n`)
+  return rootDir
+}
+
+async function createViteRootWithoutSrc() {
+  const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-root-"))
+  tempDirs.push(rootDir)
+  await writeFile(join(rootDir, "docs.workspace.ts"), [
+    `import { defineWorkspace } from "@vite-hub/workspace"`,
+    `export default defineWorkspace({})`,
+    ``,
+  ].join("\n"))
+  await writeFile(join(rootDir, "vitehub-workspace.d.ts"), `stale root generated types\n`)
   return rootDir
 }
 
@@ -84,7 +98,9 @@ describe("hubWorkspace", () => {
     expect(configEnvironment("ssr", { consumer: "server" })).toEqual({
       resolve: { noExternal: ["@vite-hub/workspace"] },
     })
-    await expect(readFile(join(root, "src", "vitehub-workspace.d.ts"), "utf8")).resolves.toContain('"docs": true')
+    await expect(readFile(join(root, ".vitehub", "types", "workspace.d.ts"), "utf8")).resolves.toContain('"docs": true')
+    await expect(readFile(join(root, "src", "vitehub-workspace.d.ts"), "utf8")).rejects.toThrow()
+    await expect(readFile(join(root, "vitehub-workspace.d.ts"), "utf8")).rejects.toThrow()
 
     const rootId = resolveId("#vitehub/workspaces")!
     expect(load(rootId)).toContain('"docs"')
@@ -94,6 +110,18 @@ describe("hubWorkspace", () => {
     const registryId = resolveId("#vitehub-workspace-registry")!
     expect(load(registryId)).toContain('"docs": async () => {')
     expect(load(registryId)).toContain("sourceRootDir")
+  })
+
+  it("keeps ambient workspace types in generated ViteHub state without src", async () => {
+    const root = await createViteRootWithoutSrc()
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const configResolved = plugin.configResolved as (config: { root: string }) => Promise<void>
+
+    await configResolved({ root } as never)
+
+    await expect(readFile(join(root, ".vitehub", "types", "workspace.d.ts"), "utf8")).resolves.toContain('"docs": true')
+    await expect(readFile(join(root, "vitehub-workspace.d.ts"), "utf8")).rejects.toThrow()
   })
 
   it("materializes the workspace runtime package for Vercel build output", async () => {
