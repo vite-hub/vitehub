@@ -4,7 +4,7 @@ export default defineConfig({
   clean: true,
   deps: {
     alwaysBundle: [/^@vite-hub\/(devtools|internal)/],
-    neverBundle: ["#vitehub/agent/registry", "cloudflare:workers", /^@chat-adapter\/telegram$/, /^evalite/, /^vitest/],
+    neverBundle: ["#vitehub/agent/registry", "@vercel/nft", "cloudflare:workers", /^@chat-adapter\/telegram$/, /^evalite/, /^vitest/],
     onlyBundle: false,
   },
   dts: true,

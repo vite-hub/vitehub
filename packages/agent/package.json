@@ -66,6 +66,7 @@
     "@vite-hub/workspace": "workspace:*",
     "@vite-hub/devtools": "workspace:*",
     "@vercel/functions": "catalog:vercel",
+    "@vercel/nft": "catalog:vercel",
     "@vitejs/devtools-kit": "catalog:vite",
     "chat": "catalog:chat",
     "hookable": "catalog:unjs"

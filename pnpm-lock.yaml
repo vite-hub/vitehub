@@ -199,6 +199,9 @@ catalogs:
     '@vercel/functions':
       specifier: ^3.4.3
       version: 3.4.3
+    '@vercel/nft':
+      specifier: ^1.5.0
+      version: 1.5.0
     '@vercel/queue':
       specifier: ^0.0.0-alpha.23
       version: 0.0.0-alpha.40
@@ -318,6 +321,9 @@ importers:
       '@vercel/functions':
         specifier: catalog:vercel
         version: 3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38)
+      '@vercel/nft':
+        specifier: catalog:vercel
+        version: 1.5.0(rollup@4.60.4)
       '@vite-hub/devtools':
         specifier: workspace:*
         version: link:../devtools
@@ -637,6 +643,9 @@ importers:
 
   packages/internal:
     dependencies:
+      '@vercel/nft':
+        specifier: catalog:vercel
+        version: 1.5.0(rollup@4.60.4)
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -1065,6 +1074,9 @@ importers:
 
   packages/workspace:
     dependencies:
+      '@vercel/nft':
+        specifier: catalog:vercel
+        version: 1.5.0(rollup@4.60.4)
       '@vite-hub/shell':
         specifier: workspace:*
         version: link:../shell
