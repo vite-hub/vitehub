@@ -312,6 +312,51 @@ describe("agent chat capability discovery", () => {
     expect(finalState.uiMessages.map((message: { role: string }) => message.role)).toEqual(["user", "assistant"])
     expect(finalState.invokerProfileId).toBe("support-technical")
     expect(textFromUiMessage(finalState.uiMessages[1])).toBe("answered as technical with workspace")
+
+    const clearedTechnicalResponse = await invokeMiddleware(handlers[0]!, {
+      action: "clear",
+      chat: "support",
+      invokerProfileId: "support-technical",
+    })
+    const clearedTechnicalState = JSON.parse(clearedTechnicalResponse.body)
+    expect(clearedTechnicalState).toMatchObject({
+      instructions: ["# Support\n\nAudience resolved for technical."],
+      invokerProfileId: "support-technical",
+      selected: "support",
+      uiMessages: [],
+    })
+
+    const clearedFallbackResponse = await invokeMiddleware(handlers[0]!, {
+      action: "clear",
+      chat: "support",
+      invokerFallback: true,
+    })
+    const clearedFallbackState = JSON.parse(clearedFallbackResponse.body)
+    expect(clearedFallbackState).toMatchObject({
+      instructions: ["# Support\n\nAudience resolved for undefined."],
+      invokerFallback: true,
+      selected: "support",
+      uiMessages: [],
+    })
+    expect(clearedFallbackState.invokerProfileId).toBeUndefined()
+
+    const fallbackSendResponse = await invokeMiddleware(handlers[0]!, {
+      action: "send",
+      chat: "support",
+      invokerFallback: true,
+      stream: true,
+      text: "hello fallback",
+    })
+    const fallbackEvents = fallbackSendResponse.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+    const fallbackFinalState = fallbackEvents.filter(event => event.type === "state").at(-1)?.state
+
+    expect(fallbackEvents.at(-1)).toEqual({ type: "done" })
+    expect(fallbackFinalState.invokerFallback).toBe(true)
+    expect(fallbackFinalState.invokerProfileId).toBeUndefined()
+    expect(textFromUiMessage(fallbackFinalState.uiMessages[1])).toBe("answered as devtools with workspace")
   })
 
   it("omits unfinished tool-call assistant messages from devtools prompt history", async () => {

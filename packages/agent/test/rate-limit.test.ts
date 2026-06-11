@@ -157,9 +157,15 @@ describe("rateLimit capability", () => {
 
     await expect(runAgent(agent, runtime(), {})).resolves.toBe("ok")
     await expect(runAgent(agent, runtime(), {
+      context: { invokerProfileId: "support:acme" },
+    })).resolves.toBe("ok")
+    await expect(runAgent(agent, runtime(), {
       context: { invokerProfileId: "support:globex" },
     })).resolves.toBe("ok")
     await expect(runAgent(agent, runtime(), {})).rejects.toBeInstanceOf(RateLimitRejectedError)
+    await expect(runAgent(agent, runtime(), {
+      context: { invokerProfileId: "support:acme" },
+    })).rejects.toBeInstanceOf(RateLimitRejectedError)
     await expect(runAgent(agent, runtime(), {
       context: { invokerProfileId: "support:globex" },
     })).rejects.toBeInstanceOf(RateLimitRejectedError)

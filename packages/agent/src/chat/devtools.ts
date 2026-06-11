@@ -104,7 +104,7 @@ export type ChatDevToolsPlugin = Plugin
 export type ChatDevToolsPanelPlugin = Plugin
 
 export type ChatDevtoolsBridgeRequest =
-  | { action: "get-state" }
+  | { action: "get-state", chat?: string, invokerFallback?: boolean, invokerProfileId?: string }
   | ({ action: "send" } & ChatDevtoolsSendInput)
   | ({ action: "clear" } & ChatDevtoolsClearInput)
 
@@ -757,12 +757,14 @@ async function writeChatDevtoolsStream(
         }
         if (event.type === "done") {
           const chat = "chat" in body && typeof body.chat === "string" ? body.chat : undefined
+          const invokerFallback = "invokerFallback" in body && body.invokerFallback === true
           const invokerProfileId = "invokerProfileId" in body && typeof body.invokerProfileId === "string" ? body.invokerProfileId : undefined
           stream.write({
             type: "state",
             state: await postChatDevtoolsBridge(ctx, route, {
               action: "get-state",
               ...(chat ? { chat } : {}),
+              ...(invokerFallback ? { invokerFallback } : {}),
               ...(invokerProfileId ? { invokerProfileId } : {}),
             }),
           })
@@ -818,9 +820,10 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
           name: chatDevtoolsGetStateRpc,
           type: "query",
           setup: () => ({
-            handler: async (input?: { chat?: string, invokerProfileId?: string }) => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, {
+            handler: async (input?: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string }) => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, {
               action: "get-state",
               ...(input?.chat ? { chat: input.chat } : {}),
+              ...(input?.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
               ...(input?.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
             }),
           }),
@@ -855,7 +858,7 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
 
 declare module "@vitejs/devtools-kit" {
   interface DevToolsRpcServerFunctions {
-    [chatDevtoolsGetStateRpc]: (input?: { chat?: string, invokerProfileId?: string }) => Promise<ChatDevtoolsStateResult>
+    [chatDevtoolsGetStateRpc]: (input?: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string }) => Promise<ChatDevtoolsStateResult>
     [chatDevtoolsSendRpc]: (input: ChatDevtoolsSendInput) => Promise<ChatDevtoolsSendResult>
     [chatDevtoolsClearRpc]: (input: ChatDevtoolsClearInput) => Promise<ChatDevtoolsStateResult>
   }

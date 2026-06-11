@@ -72,6 +72,7 @@ export interface ChatDevtoolsMessage {
 }
 
 export interface ChatDevtoolsConversation {
+  invokerFallback?: boolean
   invokerProfileId?: string
   messages: ChatDevtoolsMessage[]
   name: string
@@ -83,6 +84,7 @@ export interface ChatDevtoolsStateResult {
   chats: ChatDevtoolsConversation[]
   files?: ChatDevtoolsFileTreeItem[]
   instructions?: string[]
+  invokerFallback?: boolean
   invokerProfileId?: string
   invokerProfiles?: ChatDevtoolsInvokerProfile[]
   selected: string
@@ -95,6 +97,7 @@ export interface ChatDevtoolsStateResult {
 
 export interface ChatDevtoolsSendInput {
   chat?: string
+  invokerFallback?: boolean
   invokerProfileId?: string
   stream?: boolean
   text: string
@@ -102,6 +105,8 @@ export interface ChatDevtoolsSendInput {
 
 export interface ChatDevtoolsClearInput {
   chat?: string
+  invokerFallback?: boolean
+  invokerProfileId?: string
 }
 
 export interface ChatDevtoolsSendResult extends ChatDevtoolsStateResult {

@@ -141,7 +141,6 @@ function selectedProfileId(inputContext: object | undefined): string | undefined
 function selectAgentInvokerProfile(
   profiles: readonly AgentInvokerProfile[],
   inputContext: object | undefined,
-  requestedInvoker: AgentInvoker | undefined,
 ): AgentInvokerProfile | undefined {
   if (!profiles.length) return undefined
 
@@ -153,12 +152,6 @@ function selectAgentInvokerProfile(
     }
     return selected
   }
-
-  if (requestedInvoker) {
-    return profiles.find(profile => profile.id === requestedInvoker.id)
-  }
-
-  return profiles[0]
 }
 
 export async function resolveAgentInvoker<
@@ -175,7 +168,7 @@ export async function resolveAgentInvoker<
   const profiles = normalizedOptions?.profiles || []
   const requestedInvoker = resolveInputAgentInvoker(input.context)
   const defaultInvoker = requestedInvoker || createFallbackAgentInvoker(run)
-  const selectedProfile = selectAgentInvokerProfile(profiles, input.context, requestedInvoker)
+  const selectedProfile = selectAgentInvokerProfile(profiles, input.context)
   const resolved = await normalizedOptions?.resolve?.({
     ...callbackContext,
     context: invocationContext,

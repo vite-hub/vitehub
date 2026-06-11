@@ -81,16 +81,20 @@ const splitterStyle = computed(() => ({
 const thinkingFallback = computed(() => state.value.thinkingFallback || undefined)
 const chatTitleTarget = computed(() => normalizeChatTitle(selectedChat()?.title || state.value.title))
 const agentVersion = computed(() => state.value.version?.trim())
+const fallbackInvokerProfileId = "__vitehub_fallback__"
 const selectedInvokerProfileId = ref<string | undefined>()
 const invokerProfiles = computed<ChatDevtoolsInvokerProfile[]>(() => state.value.invokerProfiles || [])
 const showInvokerSelector = computed(() => invokerProfiles.value.length > 0)
 const selectedConversationMessages = computed(() => stateUiMessages(state.value, state.value.selected))
 const isInvokerLocked = computed(() => selectedConversationMessages.value.length > 0 || messages.value.length > 0 || isBusy.value)
 const invokerSelectorTooltip = computed(() => isInvokerLocked.value ? "Clear the conversation to change invoker." : "")
-const invokerSelectItems = computed(() => invokerProfiles.value.map(profile => ({
-  label: profile.label || profile.kind || profile.id,
-  value: profile.id,
-})))
+const invokerSelectItems = computed(() => [
+  ...invokerProfiles.value.map(profile => ({
+    label: profile.label || profile.kind || profile.id,
+    value: profile.id,
+  })),
+  { label: "Fallback", value: fallbackInvokerProfileId },
+])
 const recentTools = computed(() => {
   const tools = new Map<string, ChatDevtoolsTool>()
   for (const message of messages.value) {
@@ -162,12 +166,31 @@ function syncInvokerSelection(next: ChatDevtoolsStateResult) {
     return
   }
   const selected = selectedChat(next)
+  if (selected?.invokerFallback || next.invokerFallback) {
+    selectedInvokerProfileId.value = fallbackInvokerProfileId
+    return
+  }
   const profileId = selected?.invokerProfileId || next.invokerProfileId
-  selectedInvokerProfileId.value = profileId && profiles.some(profile => profile.id === profileId)
-    ? profileId
-    : selectedInvokerProfileId.value && profiles.some(profile => profile.id === selectedInvokerProfileId.value)
-      ? selectedInvokerProfileId.value
-      : profiles[0]?.id
+  if (profileId && profiles.some(profile => profile.id === profileId)) {
+    selectedInvokerProfileId.value = profileId
+    return
+  }
+  if (selectedInvokerProfileId.value === fallbackInvokerProfileId) {
+    return
+  }
+  if (selectedInvokerProfileId.value && profiles.some(profile => profile.id === selectedInvokerProfileId.value)) {
+    return
+  }
+  selectedInvokerProfileId.value = profiles[0]?.id
+}
+
+function selectedInvokerRequest() {
+  if (selectedInvokerProfileId.value === fallbackInvokerProfileId) {
+    return { invokerFallback: true }
+  }
+  return selectedInvokerProfileId.value
+    ? { invokerProfileId: selectedInvokerProfileId.value }
+    : {}
 }
 
 function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
@@ -552,7 +575,7 @@ async function callBridgeState(body: Record<string, unknown>, signal?: AbortSign
 
 async function refresh() {
   if (!shouldPreferRpcBridge()) {
-    const bridgeState = await callBridgeState({ action: "get-state", ...(selectedInvokerProfileId.value ? { invokerProfileId: selectedInvokerProfileId.value } : {}) })
+    const bridgeState = await callBridgeState({ action: "get-state", ...selectedInvokerRequest() })
     if (bridgeState) {
       applyState(bridgeState)
       error.value = undefined
@@ -563,7 +586,7 @@ async function refresh() {
   try {
     applyState(await callRpc<ChatDevtoolsStateResult>(
       chatDevtoolsGetStateRpc,
-      selectedInvokerProfileId.value ? { invokerProfileId: selectedInvokerProfileId.value } : {},
+      selectedInvokerRequest(),
     ))
     error.value = undefined
   }
@@ -582,7 +605,7 @@ async function refreshFromBridge(chat?: string) {
   const bridgeState = await callBridgeState({
     action: "get-state",
     ...(chat ? { chat } : {}),
-    ...(selectedInvokerProfileId.value ? { invokerProfileId: selectedInvokerProfileId.value } : {}),
+    ...selectedInvokerRequest(),
   })
   if (bridgeState) {
     applyState(bridgeState)
@@ -592,7 +615,7 @@ async function refreshFromBridge(chat?: string) {
   await refresh()
 }
 
-async function pollFinalBridgeState(input: { chat?: string, invokerProfileId?: string, text: string }, signal: AbortSignal) {
+async function pollFinalBridgeState(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, text: string }, signal: AbortSignal) {
   while (!signal.aborted) {
     await new Promise(resolve => setTimeout(resolve, 700))
     if (signal.aborted) break
@@ -600,6 +623,7 @@ async function pollFinalBridgeState(input: { chat?: string, invokerProfileId?: s
     const next = await callBridgeState({
       action: "get-state",
       ...(input.chat ? { chat: input.chat } : {}),
+      ...(input.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
       ...(input.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
     }, signal)
     if (!next) continue
@@ -618,7 +642,7 @@ async function pollFinalBridgeState(input: { chat?: string, invokerProfileId?: s
   return false
 }
 
-async function recoverTimedOutBridgeSend(input: { chat?: string, invokerProfileId?: string, text: string }, signal: AbortSignal) {
+async function recoverTimedOutBridgeSend(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, text: string }, signal: AbortSignal) {
   const startedAt = Date.now()
   let sawSubmittedMessage = false
 
@@ -629,6 +653,7 @@ async function recoverTimedOutBridgeSend(input: { chat?: string, invokerProfileI
     const next = await callBridgeState({
       action: "get-state",
       ...(input.chat ? { chat: input.chat } : {}),
+      ...(input.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
       ...(input.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
     }, signal)
     if (!next) continue
@@ -649,13 +674,17 @@ async function recoverTimedOutBridgeSend(input: { chat?: string, invokerProfileI
   return false
 }
 
-async function pollFinalRpcState(input: { chat?: string, invokerProfileId?: string, text: string }, signal: AbortSignal) {
+async function pollFinalRpcState(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, text: string }, signal: AbortSignal) {
   while (!signal.aborted) {
     await new Promise(resolve => setTimeout(resolve, 700))
     if (signal.aborted) break
 
     try {
-      const next = await callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc)
+      const next = await callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc, {
+        ...(input.chat ? { chat: input.chat } : {}),
+        ...(input.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
+        ...(input.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
+      })
       if (hasCurrentUserMessage(next, input.chat, input.text)) {
         applyState(next)
         error.value = undefined
@@ -672,7 +701,7 @@ async function pollFinalRpcState(input: { chat?: string, invokerProfileId?: stri
   return false
 }
 
-async function readDirectBridgeStream(input: { chat?: string, invokerProfileId?: string, text: string }): Promise<boolean> {
+async function readDirectBridgeStream(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, text: string }): Promise<boolean> {
   const abortController = new AbortController()
   currentReader = { cancel: () => abortController.abort() }
 
@@ -785,7 +814,7 @@ async function readDirectBridgeStream(input: { chat?: string, invokerProfileId?:
   }
 }
 
-async function readRpcStream(streamId: string, input: { chat?: string, invokerProfileId?: string, text: string }) {
+async function readRpcStream(streamId: string, input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, text: string }) {
   const abortController = new AbortController()
   const reader = (rpcClient as { streaming?: { subscribe: <T>(channel: string, id: string, options?: Record<string, unknown>) => AsyncIterable<T> & { cancel: () => unknown } } } | undefined)?.streaming?.subscribe<ChatDevtoolsStreamEvent>(chatDevtoolsStreamChannel, streamId, {
     highWaterMark: 1024,
@@ -854,7 +883,7 @@ async function send() {
 
     const bridgeInput = {
       ...(chat ? { chat } : {}),
-      ...(selectedInvokerProfileId.value ? { invokerProfileId: selectedInvokerProfileId.value } : {}),
+      ...selectedInvokerRequest(),
       text,
     }
     if (!shouldPreferRpcBridge()) {
@@ -870,7 +899,7 @@ async function send() {
 
     const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
       ...(chat ? { chat } : {}),
-      ...(selectedInvokerProfileId.value ? { invokerProfileId: selectedInvokerProfileId.value } : {}),
+      ...selectedInvokerRequest(),
       stream: true,
       text,
     })
@@ -919,9 +948,11 @@ async function clear() {
     currentReader?.cancel()
     currentReader = undefined
     pendingUserMessage.value = undefined
-    const bridgeState = await callBridgeState({ action: "clear", chat: state.value.selected })
+    const invokerRequest = selectedInvokerRequest()
+    const bridgeState = await callBridgeState({ action: "clear", chat: state.value.selected, ...invokerRequest })
     applyState(bridgeState || await callRpc<ChatDevtoolsStateResult>(chatDevtoolsClearRpc, {
         chat: state.value.selected,
+        ...invokerRequest,
       }))
     error.value = undefined
   }
