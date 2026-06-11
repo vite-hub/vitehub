@@ -58,20 +58,9 @@ Use the Access Capability when invocation identity should narrow the visible Wor
 ```ts [server/agents/support/config.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { createTeamsAdapter } from '@chat-adapter/teams'
-import { defineAgent, defineInvocationProfile, type AgentInvocationProfileRunInputFromSchemas } from '@vite-hub/agent'
+import { defineAgent } from '@vite-hub/agent'
 import { access, chat, entry, workspaceShell } from '@vite-hub/agent/capabilities'
 import { source } from '@vite-hub/workspace'
-import { z } from 'zod'
-
-const portalMetadataSchema = z.object({
-  quiver: z.object({
-    customer: z.string().min(1),
-  }),
-})
-
-const portalUserSchema = z.object({
-  email: z.string().email().optional(),
-})
 
 const supportChat = chat({
   adapters: () => ({
@@ -90,30 +79,23 @@ const portalEntry = entry({
   chat: { capability: supportChat, origin: 'portal' },
 })
 
-const supportInput = {
-  chat: {
-    message: { metadata: portalMetadataSchema, runOrigin: ['portal'] },
-    run: { origin: ['portal', 'teams'] },
-    user: portalUserSchema,
-  },
-} as const
-
-const supportProfile = defineInvocationProfile({
-  id: 'support',
-  input: supportInput,
-  resolve({ input }) {
-    const chat = input.get().context?.chat
-    if (chat?.run?.origin !== 'portal')
-      return { kind: 'support' as const }
-
-    return {
-      customer: chat.message?.metadata.quiver.customer,
-      kind: 'portal' as const,
-    }
-  },
-})
-
 export default defineAgent({
+  invoker: {
+    profiles: [
+      {
+        id: 'portal-acme',
+        kind: 'customerPortal',
+        label: 'Acme Portal',
+        meta: { audience: 'customer', customer: 'acme' },
+      },
+      {
+        id: 'support-technical',
+        kind: 'support',
+        label: 'Support Technical',
+        meta: { audience: 'technical', scope: 'all' },
+      },
+    ],
+  },
   workspace: {
     sources: {
       supportGuide: source.file({
@@ -136,19 +118,29 @@ export default defineAgent({
   },
   capabilities: [
     access({
-      profile: supportProfile,
       workspace: {
-        resolve({ profile }) {
-          if (profile.kind !== 'portal')
+        resolve({ invoker }) {
+          if (invoker.meta?.scope === 'all')
             return { all: true, role: 'admin', scope: 'support' }
+
+          const customer = typeof invoker.meta?.customer === 'string'
+            ? invoker.meta.customer
+            : undefined
+
+          if (!customer) {
+            return {
+              grants: [{ path: 'AGENTS.md' }],
+              scope: 'public',
+            }
+          }
 
           return {
             grants: [
               { path: 'AGENTS.md' },
               { source: 'forecastingEngine' },
-              { path: `ingestion/${profile.customer}` },
+              { path: `ingestion/${customer}` },
             ],
-            scope: profile.customer,
+            scope: customer,
           }
         },
       },
@@ -165,16 +157,8 @@ export default defineAgent({
 })
 ```
 
-The Invocation Profile sees the parsed schema output. In this example, portal chat requests must include a customer in message metadata, while non-portal chat surfaces can use the explicit all-scopes Workspace Scope. The resolver returns inline Workspace Scope definitions, so the app does not need to pre-register one scope per customer.
+Agent Invoker metadata drives the access decision. In this example, a customer invoker can see the shared support guide, the forecasting engine source, and only that customer's ingestion path. A support invoker with `scope: 'all'` receives the explicit all-files Workspace Scope.
 
-If a helper used by the Invocation Profile needs the parsed run input, infer it from the input schema:
-
-```ts
-type SupportRunInput = AgentInvocationProfileRunInputFromSchemas<typeof supportInput>
-```
-
-After the profile value exists, `typeof supportProfile.$Infer.RunInput` and `AgentInvocationProfileRunInput<typeof supportProfile, CallOptions>` can infer from the profile directly.
-
-The Chat App Route origin is configured in `entry({ chat })` so the access decision does not trust a browser-controlled payload. A request body may repeat the same `run.origin`, but it cannot override the configured entry origin; mismatches are rejected as bad requests so app-level proxies fail closed when their contract drifts. The Invocation Profile declares accepted `chat.run.origin` values explicitly and uses `message.runOrigin` when a message metadata schema applies to only some origins.
+Configured Agent Invoker Profiles give DevTools and trusted app routing stable identities to select. Server-owned routes can also pass `context.invoker` after authenticating the request, and Chat Platform Adapters can provide a chat invoker from trusted platform identity. V1 trusts request-provided invoker context and profile ids, so validate requests before they reach a Chat App Route or other Agent Trigger Consumer when identity affects access.
 
 Order matters. Access should run before Workspace-reading Capabilities so the scope is applied before tools are exposed.

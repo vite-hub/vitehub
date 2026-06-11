@@ -46,7 +46,7 @@ export default defineAgent({
 })
 ```
 
-The Chat Capability can own webhook autowiring, chat identity, and chat history behavior. The Agent still owns the model-backed invocation.
+The Chat Capability can own webhook autowiring, Agent Invoker identity, and Chat History behavior. The Agent still owns the model-backed invocation.
 
 ## Schedule trigger
 
