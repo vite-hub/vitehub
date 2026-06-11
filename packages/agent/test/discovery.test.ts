@@ -286,6 +286,7 @@ describe("agent chat capability discovery", () => {
     expect(state).toMatchObject({
       chats: [{ name: "support", uiMessages: [] }],
       instructions: ["# Support\n\nAudience resolved for technical."],
+      invokerProfileId: "support-technical",
       invokerProfiles: [
         { id: "support-customer", kind: "customer", label: "Customer" },
         { id: "support-technical", kind: "technical", label: "Technical" },

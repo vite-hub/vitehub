@@ -165,7 +165,9 @@ function syncInvokerSelection(next: ChatDevtoolsStateResult) {
   const profileId = selected?.invokerProfileId || next.invokerProfileId
   selectedInvokerProfileId.value = profileId && profiles.some(profile => profile.id === profileId)
     ? profileId
-    : profiles[0]?.id
+    : selectedInvokerProfileId.value && profiles.some(profile => profile.id === selectedInvokerProfileId.value)
+      ? selectedInvokerProfileId.value
+      : profiles[0]?.id
 }
 
 function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
@@ -559,7 +561,10 @@ async function refresh() {
   }
 
   try {
-    applyState(await callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc))
+    applyState(await callRpc<ChatDevtoolsStateResult>(
+      chatDevtoolsGetStateRpc,
+      selectedInvokerProfileId.value ? { invokerProfileId: selectedInvokerProfileId.value } : {},
+    ))
     error.value = undefined
   }
   catch (cause) {

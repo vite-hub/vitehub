@@ -265,7 +265,17 @@ function getSelectedName(state: ChatDevtoolsBridgeState, selected?: string): str
   return next
 }
 
-async function serializeState(state: ChatDevtoolsBridgeState, selected?: string): Promise<ChatDevtoolsStateResult> {
+function validMetadataInvokerProfileId(metadata: ChatDevtoolsMetadata | undefined, value: string | undefined): string | undefined {
+  return value && metadata?.invokerProfiles?.some(profile => profile.id === value)
+    ? value
+    : undefined
+}
+
+async function serializeState(
+  state: ChatDevtoolsBridgeState,
+  selected?: string,
+  requestedInvokerProfileId?: string,
+): Promise<ChatDevtoolsStateResult> {
   for (const name of state.entries.keys()) getSession(state, name)
 
   const chats: ChatDevtoolsConversation[] = [...state.entries.keys()].map((name) => {
@@ -284,12 +294,13 @@ async function serializeState(state: ChatDevtoolsBridgeState, selected?: string)
   const selectedSession = nextSelected ? getSession(state, nextSelected) : undefined
   const metadata = nextSelected ? state.entries.get(nextSelected)?.metadata : undefined
   const title = selectedSession ? sessionTitle(selectedSession) || metadata?.title : metadata?.title
+  const invokerProfileId = selectedSession?.invokerProfileId || validMetadataInvokerProfileId(metadata, requestedInvokerProfileId)
 
   return {
     chats,
     files: metadata?.files || [],
     instructions: metadata?.instructions || [],
-    ...(selectedSession?.invokerProfileId ? { invokerProfileId: selectedSession.invokerProfileId } : {}),
+    ...(invokerProfileId ? { invokerProfileId } : {}),
     invokerProfiles: metadata?.invokerProfiles || [],
     selected: nextSelected,
     thinkingFallback: selectedSession?.thinkingFallback ?? null,
@@ -551,7 +562,7 @@ async function handleChatDevtoolsRequest(
 
   const action = normalizeChatDevtoolsAction(body.action)
   if (action === "get-state") {
-    return Response.json(await serializeState(state, body.chat))
+    return Response.json(await serializeState(state, body.chat, body.invokerProfileId))
   }
   if (action === "send") {
     if (!body.stream) {

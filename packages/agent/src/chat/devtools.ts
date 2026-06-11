@@ -817,7 +817,13 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsGetStateRpc,
           type: "query",
-          setup: () => ({ handler: async () => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, { action: "get-state" }) }),
+          setup: () => ({
+            handler: async (input?: { chat?: string, invokerProfileId?: string }) => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, {
+              action: "get-state",
+              ...(input?.chat ? { chat: input.chat } : {}),
+              ...(input?.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
+            }),
+          }),
         }) as never)
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsSendRpc,
@@ -849,7 +855,7 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
 
 declare module "@vitejs/devtools-kit" {
   interface DevToolsRpcServerFunctions {
-    [chatDevtoolsGetStateRpc]: () => Promise<ChatDevtoolsStateResult>
+    [chatDevtoolsGetStateRpc]: (input?: { chat?: string, invokerProfileId?: string }) => Promise<ChatDevtoolsStateResult>
     [chatDevtoolsSendRpc]: (input: ChatDevtoolsSendInput) => Promise<ChatDevtoolsSendResult>
     [chatDevtoolsClearRpc]: (input: ChatDevtoolsClearInput) => Promise<ChatDevtoolsStateResult>
   }
