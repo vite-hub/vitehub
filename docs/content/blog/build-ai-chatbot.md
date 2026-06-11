@@ -77,7 +77,7 @@ The file path names the agent. In this example, `server/agents/support.ts` regis
 
 ## Add project context
 
-Models need source material before they can answer product questions safely. Add workspace sources for docs, package files, and an inline instruction file.
+Models need source material before they can answer product questions safely. Add workspace sources for docs and package files, then describe how the agent should use each source.
 
 ::code-tree-intersection
 ```ts [server/agents/support.ts]
@@ -93,18 +93,15 @@ export default defineAgent({
       docs: source.glob({
         cwd: '.',
         include: ['README.md', 'docs/**/*.md'],
+        instructions: 'Use these docs for public product behavior.',
       }),
       packages: source.glob({
         cwd: '.',
         include: ['packages/*/src/**/*.ts'],
-      }),
-      instructions: source.file({
-        workspacePath: 'AGENTS.md',
-        content: [
-          '# Support agent',
-          'Inspect the workspace before answering product questions.',
+        instructions: [
+          'Use package source files to verify implementation details.',
           'Say when the workspace does not contain enough information.',
-        ].join('\n'),
+        ],
       }),
     },
   },
@@ -113,6 +110,7 @@ export default defineAgent({
   ],
   instructions: [
     'Answer support requests from the connected workspace.',
+    '{{ sources }}',
     '{{ capabilities }}',
   ].join('\n\n'),
   model: gateway('openai/gpt-5.1-mini'),

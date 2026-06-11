@@ -23,8 +23,11 @@ import type {
 } from "./types.ts"
 import type {
   ReadonlyWorkspaceFacade,
+  SourceContext,
   WorkspaceEntry,
+  WorkspaceDefinition,
   WorkspaceName,
+  WorkspaceSource,
 } from "@vite-hub/workspace"
 
 const defaultWorkspaceName = "workspace"
@@ -33,6 +36,7 @@ const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
 
 type NormalizedWorkspaceOptions = WorkspaceAgentWorkspaceOptions & { mode: AgentCapabilityMode }
 type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapabilityMode }
+type WorkspaceSourceMap = NonNullable<WorkspaceDefinition["sources"]>
 
 export type WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -92,6 +96,20 @@ export function workspaceDefinitionFromOptions<
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
 ): WorkspaceAgentWorkspaceOptions {
   return typeof options.workspace === "string" ? { mode: "read" } : options.workspace
+}
+
+function workspaceDefinitionWithNameFromOptions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+  defaults: WorkspaceAgentDefaults<Name> = {},
+): WorkspaceDefinition {
+  const { mode: _mode, ...definition } = workspaceDefinitionFromOptions(options)
+  return {
+    ...definition,
+    name: workspaceNameFromOptions(options, defaults),
+  }
 }
 
 export function workspaceModeFromOptions<
@@ -334,7 +352,7 @@ function workspaceMetadataInstructions<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
 ): string[] {
   const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
-  return parts.flatMap((part) => {
+  const instructions = parts.flatMap((part) => {
     if (typeof part === "string" && part.trim().length > 0) return [part]
     if (typeof part === "function") {
       const localInstructions = readLocalWorkspaceInstructions(options as WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>)
@@ -343,6 +361,7 @@ function workspaceMetadataInstructions<Name extends WorkspaceName>(
     }
     return []
   })
+  return applyWorkspaceSourceInstructionsToParts(instructions, renderWorkspaceSourceInstructionBlock(workspaceDefinitionFromOptions(options).sources))
 }
 
 function readLocalWorkspaceInstructions(options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>): string | undefined {
@@ -375,15 +394,139 @@ async function resolveWorkspaceMetadataInstructions<
   const instructions = await Promise.all(parts.map(part => typeof part === "function"
     ? part(instructionContext as never)
     : part))
-  const resolved = instructions
+  const baseInstructions = instructions
     .flatMap(part => Array.isArray(part) ? part : [part])
     .map(part => part?.trim())
     .filter((part): part is string => Boolean(part))
   const capabilityInstructions = await resolveWorkspaceMetadataCapabilityInstructions(options, workspace, resolution)
-  if (!capabilityInstructions.length) return resolved
+  const renderedInstructions = capabilityInstructions.length
+    ? applyCapabilityInstructionSlots(baseInstructions.join("\n\n"), capabilityInstructions).trim()
+    : baseInstructions.join("\n\n")
+  return applyWorkspaceSourceInstructionsToParts(
+    renderedInstructions ? [renderedInstructions] : [],
+    await resolveWorkspaceSourceInstructionBlock(workspaceDefinitionWithNameFromOptions(options, resolution), workspace),
+  )
+}
 
-  const rendered = applyCapabilityInstructionSlots(resolved.join("\n\n"), capabilityInstructions).trim()
-  return rendered ? [rendered] : []
+function sourceInstructionsText(value: WorkspaceSource["instructions"]): string | undefined {
+  const instructions = (Array.isArray(value) ? value : [value])
+    .map(part => part?.trim())
+    .filter(Boolean)
+    .join("\n\n")
+  return instructions || undefined
+}
+
+function renderWorkspaceSourceInstructionBlock(sources: WorkspaceDefinition["sources"] | undefined, visible?: Set<string>): string | undefined {
+  const entries = Object.entries(sources || {})
+    .filter(([key]) => !visible || visible.has(key))
+    .map(([key, source]) => ({ instructions: sourceInstructionsText(source.instructions), key }))
+    .filter((entry): entry is { instructions: string, key: string } => Boolean(entry.instructions))
+    .sort((left, right) => left.key.localeCompare(right.key))
+
+  if (!entries.length) return undefined
+
+  return [
+    "## Workspace Sources",
+    ...entries.map(entry => `### ${entry.key}\n\n${entry.instructions}`),
+  ].join("\n\n")
+}
+
+async function visibleWorkspaceSourceNames(
+  sources: WorkspaceSourceMap,
+  workspace: ReadonlyWorkspaceFacade,
+  definition?: WorkspaceDefinition,
+): Promise<Set<string>> {
+  const visible = new Set<string>()
+  await Promise.all(Object.entries(sources).map(async ([key, source]) => {
+    try {
+      const paths = await sourceVisibilityProbePaths(key, source, definition)
+      for (const path of paths) {
+        if (await workspace.fs.exists(path)) {
+          visible.add(key)
+          break
+        }
+      }
+    }
+    catch {}
+  }))
+  return visible
+}
+
+async function sourceVisibilityProbePaths(
+  key: string,
+  source: WorkspaceSource,
+  definition?: WorkspaceDefinition,
+): Promise<string[]> {
+  const mountPath = normalizeSourceInstructionPath(sourceMountPath(key, source))
+  if (mountPath === undefined) return []
+  if (mountPath) return [mountPath]
+
+  const ctx = sourceInstructionContext(definition, key, mountPath)
+  try {
+    const keys = await source.getKeys?.(ctx)
+    return (keys || [])
+      .map(sourcePath => joinSourceInstructionPath(mountPath, sourcePath))
+      .filter((path): path is string => Boolean(path))
+  }
+  catch {
+    return []
+  }
+}
+
+function sourceInstructionContext(definition: WorkspaceDefinition | undefined, key: string, mountPath: string): SourceContext {
+  const cwd = (globalThis.process as { cwd?: () => string } | undefined)?.cwd?.() || "."
+  return {
+    mountPath,
+    rootDir: definition?.rootDir || cwd,
+    source: key,
+    sourceRootDir: definition?.sourceRootDir,
+    workspace: definition?.name || defaultWorkspaceName,
+  }
+}
+
+function joinSourceInstructionPath(...parts: string[]): string | undefined {
+  return normalizeSourceInstructionPath(parts.filter(Boolean).join("/"))
+}
+
+function normalizeSourceInstructionPath(path = ""): string | undefined {
+  const raw = path.replace(/\\/g, "/")
+  const normalized = raw.replace(/^\/+/, "").replace(/\/+$/, "").replace(/\/+/g, "/")
+  const parts = normalized.split("/").filter(Boolean)
+  if (raw.startsWith("/") || parts.some(part => part === "." || part === "..")) return undefined
+  return normalized
+}
+
+export async function resolveWorkspaceSourceInstructionBlock(
+  definition: WorkspaceDefinition | undefined,
+  workspace: ReadonlyWorkspaceFacade | undefined,
+): Promise<string | undefined> {
+  const sources = definition?.sources
+  if (!sources) return undefined
+  const visible = workspace ? await visibleWorkspaceSourceNames(sources, workspace, definition) : undefined
+  return renderWorkspaceSourceInstructionBlock(sources, visible)
+}
+
+const sourceInstructionSlotPattern = /\{\{\s*sources\s*\}\}/g
+
+export function applyWorkspaceSourceInstructionSlot(instructions: string, sourceInstructions: string | undefined): string {
+  const sourceBlock = sourceInstructions?.trim()
+  let placed = false
+  const rendered = instructions.replace(sourceInstructionSlotPattern, () => {
+    placed = true
+    return sourceBlock || ""
+  })
+
+  if (placed) return rendered.trim().replace(/\n{3,}/g, "\n\n")
+  return sourceBlock
+    ? [instructions.trim(), sourceBlock].filter(Boolean).join("\n\n")
+    : instructions
+}
+
+function applyWorkspaceSourceInstructionsToParts(parts: string[], sourceInstructions: string | undefined): string[] {
+  const hasSourceSlot = parts.some(part => /\{\{\s*sources\s*\}\}/.test(part))
+  if (!hasSourceSlot && !sourceInstructions?.trim()) return parts
+  const instructions = applyWorkspaceSourceInstructionSlot(parts.join("\n\n"), sourceInstructions)
+  return instructions ? [instructions] : []
 }
 
 function createDevtoolsMetadataRuntime<
@@ -422,10 +565,7 @@ async function resolveWorkspaceMetadataCapabilityInstructions<
     hooks: options.hooks as never,
   }, runtime, resolution.input || {}, workspace, workspaceModeFromOptions(options), {
     model: "model" in options ? options.model as never : undefined,
-    workspaceDefinition: {
-      ...workspaceDefinitionFromOptions(options),
-      name: workspaceName,
-    },
+    workspaceDefinition: workspaceDefinitionWithNameFromOptions(options, { workspace: workspaceName }),
   })
   try {
     return [...resolved.capabilityInstructions]

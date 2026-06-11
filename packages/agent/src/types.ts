@@ -815,6 +815,7 @@ export interface AgentAdapterRunContext<
   prompt?: string
   providerTools?: AgentProviderToolContribution[]
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
+  sourceInstructions?: string
   tools?: AgentToolSet
   workspace?: ReadonlyWorkspaceFacade<Name>
 }

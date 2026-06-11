@@ -2,7 +2,7 @@ import { glob as createGlobSource, type GlobSourceOptions as SourcePackageGlobSo
 
 import type { WorkspaceSource } from "../core/types.ts"
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "validate">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "mount" | "validate">
 
 export type GlobSourceOptions = SourcePackageGlobSourceOptions & SourceRuntimeOptions
 
@@ -14,6 +14,7 @@ export function glob(options: GlobSourceOptions): WorkspaceSource {
   return {
     ...source,
     cache: options.cache,
+    instructions: options.instructions,
     materialize: options.materialize,
     mount: options.mount,
     validate: options.validate,

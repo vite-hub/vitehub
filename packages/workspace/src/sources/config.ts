@@ -18,6 +18,7 @@ export interface ResolvedWorkspaceSource {
   materialize: WorkspaceMaterializeMode
   cache: false | WorkspaceCacheOptions
   validate: WorkspaceValidateMode
+  instructions?: WorkspaceSource["instructions"]
   livePaths?: Record<string, string>
   readonly: true
 }
@@ -58,6 +59,7 @@ export function normalizeWorkspaceSource(key: string, source: WorkspaceSource): 
     materialize: mount.materialize || source.materialize || (cache ? "lazy" : "build"),
     cache,
     validate: mount.validate ?? source.validate ?? false,
+    instructions: source.instructions,
     livePaths: liveSourcePaths.get(source),
     readonly: true,
   }

@@ -41,10 +41,12 @@ export default defineWorkspace({
     vitehubDocs: source.github({
       repo: "vite-hub/vitehub",
       root: "docs/content/docs",
+      instructions: "Use this source for public ViteHub documentation.",
     }),
     guide: source.file({
       workspacePath: "guide.md",
       content: "# Guide\n",
+      instructions: "Use this source for local guide notes.",
     }),
   },
 })

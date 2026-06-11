@@ -24,7 +24,7 @@ export interface FetchSourceStandardSchemaV1<T = unknown> {
   }
 }
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions">
 
 export interface FetchSourceRequestOptions {
   body?: unknown
@@ -60,6 +60,7 @@ export function fetch<TResponse = unknown, TOutput = TResponse>(options: FetchSo
       responseType,
       url: String(options.url),
     },
+    instructions: options.instructions,
     materialize: "lazy",
     mount: mountPath,
     async getKeys() {

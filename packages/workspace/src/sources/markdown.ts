@@ -8,6 +8,7 @@ export function markdown(options: FileSourceOptions): WorkspaceSource {
   return {
     ...source,
     cache: options.cache,
+    instructions: options.instructions,
     materialize: options.materialize,
     mount: options.mount,
     validate: options.validate,

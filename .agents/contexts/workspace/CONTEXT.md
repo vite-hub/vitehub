@@ -23,6 +23,10 @@ _Avoid_: Project root, worktree root, automatic sibling ingestion
 A named origin that exposes read-only addressable files or items through a Workspace.
 _Avoid_: Input, files, context, resource, mount, connector
 
+**Source Instruction**:
+Model-facing guidance attached to a Source that explains what the Source is for and how an Agent should use it.
+_Avoid_: Source description, source metadata, prompt fragment
+
 **Materialized Source**:
 A Source whose items are written into the Workspace Store.
 _Avoid_: Stored connector, synced files
@@ -120,6 +124,16 @@ _Avoid_: Open workspace, sandbox, mount
 - A **Workspace** has zero or more **Sources**.
 - A **Workspace** declares Sources through one **Source Map**.
 - A **Source Namespace** contains local, inline, tree, and provider Source helpers.
+- A **Source** may have **Source Instructions**.
+- **Source Instructions** are static strings or string arrays on a Source declaration.
+- **Source Instructions** are explicit developer-authored Source configuration, not inferred provider metadata.
+- **Source Instructions** guide Agent behavior, but they do not grant access to hidden Sources or change Workspace Scope.
+- An Agent should receive **Source Instructions** only for Sources visible through the **Selected Workspace Scope**.
+- If any visible Source has **Source Instructions**, the Agent should receive them by default at the end of its instructions unless the **Agent Definition** explicitly places the source guidance.
+- If an **Agent Definition** places Source guidance but no visible Source has **Source Instructions**, the placement should render as empty instructions.
+- Explicit Source Instruction placement renders the complete generated Source guidance block, including its heading.
+- The generated Source guidance block should render each Source under a Source Map key heading and should not add generated descriptions or Mount summaries when the Source already has **Source Instructions**.
+- Sources without **Source Instructions** should be omitted from the generated Source guidance block.
 - A **Colocated Workspace Definition** has a **Workspace Source Root**.
 - A **Workspace Source Root** is a `workspace/` directory beside the Colocated Workspace Definition when present, otherwise the definition directory.
 - A **Source Map** key is the canonical identity of its Source.
@@ -173,6 +187,14 @@ _Avoid_: Open workspace, sandbox, mount
 ## Flagged Ambiguities
 
 - "source" can mean source code, provenance, or data connector - resolved: in Workspace, **Source** means a named origin that exposes read-only addressable files or items.
+- "source instructions" were considered source descriptions or generic metadata - resolved: use **Source Instruction** for model-facing guidance about how an Agent should use a Source.
+- Dynamic Source Instructions were considered - resolved: keep **Source Instructions** static; invocation-specific guidance belongs in Agent or Capability instructions.
+- Unplaced Source Instructions were considered explicit-placement-only - resolved: append visible Source Instructions by default at the end of Agent instructions, while allowing explicit placement.
+- Empty Source Instruction placement was considered for an explanatory fallback - resolved: render empty instructions so hidden or scoped-out Sources are not implied.
+- Custom heading ownership for Source Instruction placement was considered - resolved: the generated Source guidance block includes its own heading.
+- Generated Source descriptions and Mount summaries were considered for each Source Instruction entry - resolved: when a Source declares **Source Instructions**, render the Source Map key heading plus the declared instructions only.
+- Inferring **Source Instructions** from provider metadata such as GitHub repository descriptions was considered - resolved: do not infer prompt text from provider metadata in the first version.
+- Rendering every visible Source in the generated Source guidance block was considered - resolved: only Sources with explicit **Source Instructions** appear.
 - Query-only access to external information was considered a Source shape - resolved: a **Source** must expose addressable files or items, even when search or query helps discover them.
 - Non-store-backed external Sources were called "virtual" or "ephemeral" - resolved: use **Live Source** for on-demand read-through Sources and reserve "virtual" for Vite module surfaces.
 - Addressable Sources were assumed to be fully enumerable - resolved: a **Live Source** can support direct reads for known paths without global enumeration.

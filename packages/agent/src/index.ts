@@ -33,6 +33,7 @@ import {
 } from "./trigger-runtime.ts"
 import {
   isWorkspaceAgentOptions,
+  resolveWorkspaceSourceInstructionBlock,
   workspaceDefinitionFromOptions,
   workspaceModeFromOptions,
   workspaceNameFromOptions,
@@ -754,6 +755,7 @@ type AgentInvocationContext<
   hasCapabilityCleanup: boolean
   outputRenderers: Array<(result: unknown) => MaybePromise<unknown>>
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
+  sourceInstructions?: string
   startedAt: number
   workspace?: ReadonlyWorkspaceFacade<WorkspaceName> | WritableWorkspaceFacade<WorkspaceName>
   workspaceDefinition?: WorkspaceDefinition
@@ -815,6 +817,14 @@ async function createAgentInvocationContext<
   const tools = Object.keys(transformedTools || {}).length
     ? withAgentToolStepReporting(applyAgentToolPolicies(transformedTools) || {}, context.devtools?.reportToolStep)
     : undefined
+  const activeWorkspace = capabilities.workspace || workspace
+  const workspaceScope = invocationContext.get<{ all?: boolean }>("access.workspaceScope")
+  const sourceInstructions = resolvedWorkspaceDefinition && activeWorkspace
+    ? await resolveWorkspaceSourceInstructionBlock(
+        resolvedWorkspaceDefinition,
+        workspaceScope && !workspaceScope.all ? activeWorkspace as ReadonlyWorkspaceFacade : undefined,
+      )
+    : undefined
 
   return {
     ...callbackContext,
@@ -832,9 +842,10 @@ async function createAgentInvocationContext<
     providerTools: capabilities.registries.providerTools,
     run: context.run,
     runtimeContext: resolvedContext,
+    sourceInstructions,
     startedAt,
     tools,
-    workspace: capabilities.workspace || workspace,
+    workspace: activeWorkspace,
     workspaceDefinition: resolvedWorkspaceDefinition,
     workspaceMode,
   }

@@ -20,12 +20,14 @@ export default defineWorkspace({
     docs: source.glob({
       cwd: '.',
       include: ['README.md', 'docs/**/*.md'],
+      instructions: 'Use these docs for public product behavior.',
     }),
     handbook: source.github({
       repo: 'acme/handbook',
       ref: 'main',
       root: 'support',
       materialize: 'lazy',
+      instructions: 'Use this handbook for support policy and escalation rules.',
     }),
   },
   rules: {
@@ -36,6 +38,8 @@ export default defineWorkspace({
 ```
 
 Source keys are named origins. A glob, file, fetch, or GitHub source is not automatically editable just because it appears in a Workspace.
+
+`instructions` is optional model-facing guidance for agents that use the Workspace. It does not grant access or change which files are visible.
 
 ## Use a workspace from server code
 

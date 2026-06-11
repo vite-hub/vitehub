@@ -22,6 +22,10 @@ export default defineAgent({
       docs: source.glob({
         cwd: '.',
         include: ['README.md', 'docs/**/*.md'],
+        instructions: [
+          'Use this source for public product documentation.',
+          'Say when these docs do not cover the answer.',
+        ],
       }),
     },
   },
@@ -32,6 +36,14 @@ export default defineAgent({
   model,
 })
 ```
+
+## Source instructions
+
+Sources can include Source Instructions. They are static developer-authored guidance for how the agent should use that source; ViteHub does not infer them from provider metadata.
+
+When at least one visible source has instructions, ViteHub renders a `## Workspace Sources` block into the model instructions. Put `{{ sources }}` where that block belongs, or omit the slot and ViteHub appends it at the end. If the slot is present but no visible source has instructions, the slot is replaced with an empty string.
+
+Only visible sources render. When `access()` selects a Workspace Scope, hidden or scoped-out source instructions are omitted along with the hidden files.
 
 ## Read mode first
 
@@ -104,13 +116,21 @@ const supportProfile = defineInvocationProfile({
 export default defineAgent({
   workspace: {
     sources: {
-      instructions: source.file('AGENTS.md'),
+      supportGuide: source.file({
+        path: 'AGENTS.md',
+        instructions: 'Use this guide for support operating rules.',
+      }),
       ingestion: source.github({
         repo: 'quiverdk/ingestion',
         root: 'dbt',
+        instructions: 'Use this source for customer-specific ingestion models and dbt behavior.',
       }),
       forecastingEngine: source.github({
         repo: 'quiverdk/forecasting-engine',
+        instructions: [
+          'Use this source for forecasting engine behavior.',
+          'Do not use files outside the selected Workspace Scope.',
+        ],
       }),
     },
   },
@@ -137,7 +157,10 @@ export default defineAgent({
     supportChat,
     portalEntry,
   ],
-  instructions: 'Answer from the scoped customer workspace.',
+  instructions: [
+    'Answer from the scoped customer workspace.',
+    '{{ sources }}',
+  ],
   model: gateway('openai/gpt-5.1-mini'),
 })
 ```

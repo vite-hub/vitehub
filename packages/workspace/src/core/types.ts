@@ -283,12 +283,15 @@ export interface WorkspaceSourceItem {
   metadata?: Record<string, unknown>
 }
 
+export type WorkspaceSourceInstructions = string | readonly string[]
+
 export interface WorkspaceSource {
   mount?: WorkspaceSourceMount
   materialize?: WorkspaceMaterializeMode
   cache?: false | WorkspaceCacheOptions
   validate?: WorkspaceValidateMode
   fingerprint?: unknown
+  instructions?: WorkspaceSourceInstructions
   prepare?(ctx: SourceContext): Promise<void>
   getKeys(ctx: SourceContext): Promise<string[]>
   getItem(key: string, ctx: SourceContext): Promise<WorkspaceSourceItem>
