@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("@vite-hub/internal/build/deployment-output", () => ({
+vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
   copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
 }))
 
@@ -98,7 +98,7 @@ describe("hubWorkspace", () => {
 
   it("materializes the workspace runtime package for Vercel build output", async () => {
     const root = await createViteRoot()
-    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/deployment-output")
+    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
     const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>

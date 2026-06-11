@@ -2,7 +2,7 @@ import { existsSync, statSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, join, relative } from "node:path"
 
-import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/deployment-output"
+import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vite-hub/internal/build/vite"
 
 import { chatDevTools } from "./chat/devtools.ts"

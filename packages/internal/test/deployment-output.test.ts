@@ -240,9 +240,9 @@ describe("provider deployment outputs", () => {
   it("copies Vercel function runtime package dependency closures", async () => {
     const rootDir = await createTempProject()
     const {
-      copyVercelFunctionRuntimePackages,
       createDefaultVercelOutputRoot,
     } = await import("../src/build/deployment-output.ts")
+    const { copyVercelFunctionRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
     const outputRoot = createDefaultVercelOutputRoot(rootDir)
     const serverDir = join(outputRoot, "functions", "__server.func")
     const runtimePackageDir = await writePackage(rootDir, "@scope/runtime", {
@@ -283,9 +283,9 @@ describe("provider deployment outputs", () => {
   it("skips optional Vercel function runtime packages when they are not installed", async () => {
     const rootDir = await createTempProject()
     const {
-      copyVercelFunctionRuntimePackages,
       createDefaultVercelOutputRoot,
     } = await import("../src/build/deployment-output.ts")
+    const { copyVercelFunctionRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
     await mkdir(join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func"), { recursive: true })
 
     await expect(copyVercelFunctionRuntimePackages({

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-vi.mock("@vite-hub/internal/build/deployment-output", () => ({
+vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
   copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
 }))
 
@@ -63,7 +63,7 @@ describe("agent Vite plugin", () => {
   })
 
   it("materializes the MCP runtime package for Vercel build output", async () => {
-    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/deployment-output")
+    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ eval: false })
     const configResolved = plugin.configResolved as (config: { agent?: unknown, command: "build", root: string }) => Promise<void>
