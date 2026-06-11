@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
+import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade } from "@vite-hub/workspace"
 
 const readFile = vi.fn()
 const writeFile = vi.fn()
@@ -12,7 +12,7 @@ const tools = vi.fn(() => ({}))
 const inspectTools = vi.fn(() => ({}))
 const createWorkspaceTools = vi.fn(() => ({}))
 const resolveWorkspaceAutoCommit = vi.fn()
-const useWorkspace = vi.fn(() => ({
+const useWorkspace = vi.fn<() => ReadonlyWorkspaceFacade | WritableWorkspaceFacade>(() => ({
   diff,
   fs: { exists, list, readFile, writeFile },
   snapshot,
@@ -21,7 +21,7 @@ const useWorkspace = vi.fn(() => ({
     none: vi.fn(() => ({})),
     readonly: inspectTools,
   }),
-}))
+} as unknown as WritableWorkspaceFacade))
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const generateText = vi.hoisted(() => vi.fn())
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, steps?: unknown[], text: string }>>(async () => ({ finishReason: "stop", text: "ok" })))
@@ -65,7 +65,7 @@ function context(runtimeConfig: Record<string, unknown> = {}) {
   } as never
 }
 
-function readonlyWorkspaceFacade() {
+function readonlyWorkspaceFacade(): ReadonlyWorkspaceFacade {
   return {
     fs: { exists, list, readFile },
     tools: Object.assign(vi.fn(() => ({})), {
@@ -73,7 +73,7 @@ function readonlyWorkspaceFacade() {
       none: vi.fn(() => ({})),
       readonly: inspectTools,
     }),
-  }
+  } as unknown as ReadonlyWorkspaceFacade
 }
 
 describe("defineAgent workspace option", () => {

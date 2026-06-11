@@ -63,18 +63,27 @@ export function normalizeWorkspaceOptions(workspace: WorkspaceAgentWorkspaceConf
   }
 }
 
-export function workspaceNameFromOptions<Name extends WorkspaceName>(
-  options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
+export function workspaceNameFromOptions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   defaults: WorkspaceAgentDefaults<Name> = {},
 ): Name | string {
   if (typeof options.workspace === "string") return options.workspace
   return options.name || defaults.workspace || defaults.name || defaultWorkspaceName
 }
 
-export function workspaceDefinitionFromOptions<Name extends WorkspaceName>(
-  options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
-): WorkspaceAgentWorkspaceOptions {
-  return typeof options.workspace === "string" ? { mode: "read" } : options.workspace
+export function workspaceDefinitionFromOptions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+): WorkspaceDefinition {
+  return {
+    ...(typeof options.workspace === "string" ? {} : options.workspace),
+    name: workspaceNameFromOptions(options),
+  }
 }
 
 export function workspaceModeFromOptions<Name extends WorkspaceName>(
