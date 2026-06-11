@@ -22,6 +22,8 @@ async function createViteRoot() {
     `export default defineWorkspace({})`,
     ``,
   ].join("\n"))
+  await writeFile(join(rootDir, "src", "vitehub-workspace.d.ts"), `stale src generated types\n`)
+  await writeFile(join(rootDir, "vitehub-workspace.d.ts"), `stale root generated types\n`)
   return rootDir
 }
 
@@ -33,6 +35,7 @@ async function createViteRootWithoutSrc() {
     `export default defineWorkspace({})`,
     ``,
   ].join("\n"))
+  await writeFile(join(rootDir, "vitehub-workspace.d.ts"), `stale root generated types\n`)
   return rootDir
 }
 

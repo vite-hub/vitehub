@@ -55,6 +55,22 @@ const workspace = useWorkspace('docs', { mode: 'write' })
 await workspace.fs.writeFile('drafts/summary.md', '# Summary\n')
 ```
 
+## TypeScript names
+
+`hubWorkspace()` writes generated Workspace name types to `.vitehub/types/workspace.d.ts`. Add that generated directory to your `tsconfig.json` when you want `useWorkspace()` and related helpers to narrow to discovered Workspace names.
+
+```json [tsconfig.json]
+{
+  "include": [
+    "server/**/*.ts",
+    "src/**/*.ts",
+    ".vitehub/types/**/*.d.ts"
+  ]
+}
+```
+
+Without that include, runtime behavior is unchanged, but Workspace names fall back to `string` in TypeScript.
+
 ## Rules
 
 Workspace rules are path-scoped write policy.
