@@ -2,6 +2,7 @@ import { existsSync, statSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, join, relative } from "node:path"
 
+import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vite-hub/internal/build/vite"
 
 import { chatDevTools } from "./chat/devtools.ts"
@@ -10,7 +11,7 @@ import { normalizeAgentOptions } from "./config.ts"
 import { discoverAgentDefinitions } from "./discovery.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 
-import type { Plugin } from "vite"
+import type { Plugin, ResolvedConfig } from "vite"
 import type { AgentModuleOptions, DiscoveredAgentDefinition } from "./types.ts"
 
 interface AgentCliContributingPlugin {
@@ -105,6 +106,7 @@ async function writeAgentRouteHandler(root: string): Promise<void> {
 
 export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   let agent: AgentModuleOptions | false | undefined = options
+  let resolved: ResolvedConfig | undefined
   const chatDevtoolsPlugin = chatDevTools()
 
   return {
@@ -153,9 +155,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
     },
     async configResolved(config) {
+      resolved = config
       agent = config.agent ?? agent
-      const resolved = normalizeAgentOptions(agent)
-      if (resolved && resolved.route) {
+      const normalized = normalizeAgentOptions(agent)
+      if (normalized && normalized.route) {
         await writeAgentRouteHandler(config.root)
       }
       if (agent === false || agent?.eval === false) {
@@ -178,6 +181,16 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           noExternal: mergeNoExternal(config.resolve?.noExternal),
         },
       }
+    },
+    closeBundle: {
+      order: "post",
+      async handler() {
+        if (!resolved || resolved.command !== "build") return
+        await copyVercelFunctionRuntimePackages({
+          packages: [{ includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true }],
+          rootDir: resolved.root,
+        })
+      },
     },
   }
 }

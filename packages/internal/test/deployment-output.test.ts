@@ -17,6 +17,18 @@ async function createTempProject() {
   return rootDir
 }
 
+async function writePackage(rootDir: string, name: string, packageJson: Record<string, unknown> = {}) {
+  const packageDir = join(rootDir, "node_modules", ...name.split("/"))
+  await mkdir(packageDir, { recursive: true })
+  await writeFile(join(packageDir, "index.js"), "export default {}\n", "utf8")
+  await writeFile(join(packageDir, "package.json"), `${JSON.stringify({
+    name,
+    version: "1.0.0",
+    ...packageJson,
+  }, null, 2)}\n`, "utf8")
+  return packageDir
+}
+
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
@@ -223,5 +235,62 @@ describe("provider deployment outputs", () => {
     await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
       triggers: { crons: ["0 0 * * *"] },
     })
+  })
+
+  it("copies Vercel function runtime package dependency closures", async () => {
+    const rootDir = await createTempProject()
+    const {
+      copyVercelFunctionRuntimePackages,
+      createDefaultVercelOutputRoot,
+    } = await import("../src/build/deployment-output.ts")
+    const outputRoot = createDefaultVercelOutputRoot(rootDir)
+    const serverDir = join(outputRoot, "functions", "__server.func")
+    const runtimePackageDir = await writePackage(rootDir, "@scope/runtime", {
+      dependencies: { "runtime-dependency": "1.0.0" },
+      exports: { ".": "./index.js" },
+      peerDependencies: {
+        "optional-peer": "1.0.0",
+        "runtime-peer": "1.0.0",
+      },
+      peerDependenciesMeta: {
+        "optional-peer": { optional: true },
+      },
+    })
+    await writePackage(rootDir, "runtime-dependency", {
+      peerDependencies: { "transitive-peer": "1.0.0" },
+    })
+    await writePackage(rootDir, "runtime-peer")
+    await writePackage(rootDir, "transitive-peer")
+    await writePackage(rootDir, "optional-peer")
+    await writePackage(runtimePackageDir, "nested-ignored")
+    await mkdir(serverDir, { recursive: true })
+
+    await copyVercelFunctionRuntimePackages({
+      packages: [{ includePeerDependencies: true, name: "@scope/runtime" }],
+      rootDir,
+    })
+
+    await expect(readFile(join(serverDir, "node_modules", "@scope", "runtime", "package.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
+      name: "@scope/runtime",
+    })
+    expect(existsSync(join(serverDir, "node_modules", "@scope", "runtime", "node_modules", "nested-ignored"))).toBe(false)
+    expect(existsSync(join(serverDir, "node_modules", "runtime-dependency", "package.json"))).toBe(true)
+    expect(existsSync(join(serverDir, "node_modules", "runtime-peer", "package.json"))).toBe(true)
+    expect(existsSync(join(serverDir, "node_modules", "transitive-peer", "package.json"))).toBe(true)
+    expect(existsSync(join(serverDir, "node_modules", "optional-peer", "package.json"))).toBe(false)
+  })
+
+  it("skips optional Vercel function runtime packages when they are not installed", async () => {
+    const rootDir = await createTempProject()
+    const {
+      copyVercelFunctionRuntimePackages,
+      createDefaultVercelOutputRoot,
+    } = await import("../src/build/deployment-output.ts")
+    await mkdir(join(createDefaultVercelOutputRoot(rootDir), "functions", "__server.func"), { recursive: true })
+
+    await expect(copyVercelFunctionRuntimePackages({
+      packages: [{ name: "missing-runtime", optional: true }],
+      rootDir,
+    })).resolves.toBeUndefined()
   })
 })

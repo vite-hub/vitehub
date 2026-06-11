@@ -3,7 +3,11 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+vi.mock("@vite-hub/internal/build/deployment-output", () => ({
+  copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
+}))
 
 const tempDirs: string[] = []
 
@@ -90,6 +94,24 @@ describe("hubWorkspace", () => {
     const registryId = resolveId("#vitehub-workspace-registry")!
     expect(load(registryId)).toContain('"docs": async () => {')
     expect(load(registryId)).toContain("sourceRootDir")
+  })
+
+  it("materializes the workspace runtime package for Vercel build output", async () => {
+    const root = await createViteRoot()
+    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/deployment-output")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+    vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
+
+    await configResolved({ command: "build", root })
+    await closeBundle.handler()
+
+    expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
+      packages: [{ name: "@vite-hub/workspace", resolveFrom: expect.any(String) }],
+      rootDir: root,
+    })
   })
 
   it("emits build-time workspace assets for Vite builds", async () => {

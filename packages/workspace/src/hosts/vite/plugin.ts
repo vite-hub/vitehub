@@ -1,5 +1,6 @@
 import { resolve } from "node:path"
 
+import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vite-hub/internal/build/vite"
 
 import { initializeWorkspaceAssetRegistry, refreshWorkspaceBuildState, syncWorkspaceBuildAssets } from "../../build/integration.ts"
@@ -108,6 +109,16 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
 
       const definitions = discoverViteWorkspaceDefinitions(resolved.root)
       await syncWorkspaceBuildAssets(definitions, resolved.root, resolvedOptions, assetsRegistryFile)
+    },
+    closeBundle: {
+      order: "post",
+      async handler() {
+        if (!resolved || resolved.command !== "build") return
+        await copyVercelFunctionRuntimePackages({
+          packages: [{ name: WORKSPACE_PACKAGE_NAME, resolveFrom: import.meta.url }],
+          rootDir: resolved.root,
+        })
+      },
     },
     configureServer(devServer) {
       server = devServer
