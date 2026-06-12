@@ -50,6 +50,7 @@ export type {
   ChatDevtoolsFileTreeItem,
   ChatDevtoolsInvokerProfile,
   ChatDevtoolsMetadata,
+  ChatDevtoolsMetadataStatus,
   ChatDevtoolsMessage,
   ChatDevtoolsMessageRole,
   ChatDevtoolsSendInput,
