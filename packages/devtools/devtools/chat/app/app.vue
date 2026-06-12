@@ -17,6 +17,7 @@ import {
   type ChatDevtoolsToolDefinition,
 } from "../../../src/chat-shared.js"
 import { resolveChatBridgeRoute } from "./bridge-route"
+import { flattenFiles, syncExpandedFilePaths, type FileRow } from "./file-tree"
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
 type ChatMessage = UIMessage & { chat?: string }
@@ -66,7 +67,6 @@ const integrationTabs = [
   { icon: "i-lucide-scroll-text", label: "Instructions", slot: "instructions" as const },
 ]
 
-type FileRow = ChatDevtoolsFileTreeItem & { depth: number, expanded?: boolean }
 type FileMaterialization = {
   materialize?: string
   materialized?: boolean
@@ -322,31 +322,7 @@ function renderToolOutput(tool: ChatDevtoolsTool) {
 }
 
 function syncExpandedFiles(files: ChatDevtoolsFileTreeItem[]) {
-  const expanded = new Set(expandedFilePaths.value)
-  const isInitialExpansion = expanded.size === 0
-  const visit = (items: ChatDevtoolsFileTreeItem[]) => {
-    for (const file of items) {
-      if (file.kind !== "directory") continue
-      if (file.path === "" || file.path === "/" || isInitialExpansion) {
-        expanded.add(file.path)
-      }
-      if (isInitialExpansion) {
-        visit(file.children || [])
-      }
-    }
-  }
-  visit(files)
-  expandedFilePaths.value = expanded
-}
-
-function flattenFiles(files: ChatDevtoolsFileTreeItem[], expanded: Set<string>, depth = 0): FileRow[] {
-  return files.flatMap((file) => {
-    const isExpanded = file.kind === "directory" && expanded.has(file.path)
-    return [
-      { ...file, depth, expanded: isExpanded },
-      ...(isExpanded ? flattenFiles(file.children || [], expanded, depth + 1) : []),
-    ]
-  })
+  expandedFilePaths.value = syncExpandedFilePaths(files, expandedFilePaths.value)
 }
 
 function fileLabel(file: ChatDevtoolsFileTreeItem) {
@@ -1257,16 +1233,7 @@ onBeforeUnmount(() => {
             >
               <template #files>
                 <UAlert
-                  v-if="fileRows.length && isMetadataLoading"
-                  color="neutral"
-                  variant="soft"
-                  icon="i-lucide-loader-circle"
-                  title="Loading workspace metadata..."
-                  class="mb-2"
-                  :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-70', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
-                />
-                <UAlert
-                  v-else-if="fileRows.length && metadataError"
+                  v-if="fileRows.length && metadataError"
                   color="error"
                   variant="soft"
                   icon="i-lucide-triangle-alert"
@@ -1305,13 +1272,16 @@ onBeforeUnmount(() => {
                     </template>
                   </UButton>
                 </div>
-                <UEmpty
+                <div
                   v-else-if="isMetadataLoading"
-                  icon="i-lucide-loader-circle"
-                  title="Loading workspace files."
-                  description="Inspecting workspace metadata for this chat."
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
-                />
+                  class="flex flex-col items-center gap-2 px-2 py-8 text-center"
+                >
+                  <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
+                  <div>
+                    <p class="text-sm font-medium text-toned">Loading workspace files.</p>
+                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
+                  </div>
+                </div>
                 <UEmpty
                   v-else-if="metadataError"
                   icon="i-lucide-triangle-alert"
@@ -1330,16 +1300,7 @@ onBeforeUnmount(() => {
 
               <template #tools>
                 <UAlert
-                  v-if="visibleTools.length && isMetadataLoading"
-                  color="neutral"
-                  variant="soft"
-                  icon="i-lucide-loader-circle"
-                  title="Loading workspace metadata..."
-                  class="mb-2"
-                  :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-70', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
-                />
-                <UAlert
-                  v-else-if="visibleTools.length && metadataError"
+                  v-if="visibleTools.length && metadataError"
                   color="error"
                   variant="soft"
                   icon="i-lucide-triangle-alert"
@@ -1400,13 +1361,16 @@ onBeforeUnmount(() => {
                     </div>
                   </div>
                 </div>
-                <UEmpty
+                <div
                   v-else-if="isMetadataLoading"
-                  icon="i-lucide-loader-circle"
-                  title="Loading tools."
-                  description="Inspecting workspace metadata for this chat."
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
-                />
+                  class="flex flex-col items-center gap-2 px-2 py-8 text-center"
+                >
+                  <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
+                  <div>
+                    <p class="text-sm font-medium text-toned">Loading tools.</p>
+                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
+                  </div>
+                </div>
                 <UEmpty
                   v-else-if="metadataError"
                   icon="i-lucide-triangle-alert"
@@ -1425,16 +1389,7 @@ onBeforeUnmount(() => {
 
               <template #instructions>
                 <UAlert
-                  v-if="state.instructions?.length && isMetadataLoading"
-                  color="neutral"
-                  variant="soft"
-                  icon="i-lucide-loader-circle"
-                  title="Loading workspace metadata..."
-                  class="mb-2"
-                  :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-70', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
-                />
-                <UAlert
-                  v-else-if="state.instructions?.length && metadataError"
+                  v-if="state.instructions?.length && metadataError"
                   color="error"
                   variant="soft"
                   icon="i-lucide-triangle-alert"
@@ -1461,13 +1416,16 @@ onBeforeUnmount(() => {
                     </Suspense>
                   </div>
                 </div>
-                <UEmpty
+                <div
                   v-else-if="isMetadataLoading"
-                  icon="i-lucide-loader-circle"
-                  title="Loading instructions."
-                  description="Inspecting workspace metadata for this chat."
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
-                />
+                  class="flex flex-col items-center gap-2 px-2 py-8 text-center"
+                >
+                  <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
+                  <div>
+                    <p class="text-sm font-medium text-toned">Loading instructions.</p>
+                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
+                  </div>
+                </div>
                 <UEmpty
                   v-else-if="metadataError"
                   icon="i-lucide-triangle-alert"
