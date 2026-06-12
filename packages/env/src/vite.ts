@@ -7,7 +7,13 @@ import { formatDiagnostics } from "./core/diagnostics.ts"
 import { env } from "./core/declarations.ts"
 import { createRuntimeRegistry, createSourceContext, resolveEnvEntries, validateEnvConfigShape } from "./core/resolve.ts"
 
-import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "./types.ts"
+import type {
+  EnvIntegrationOptions,
+  EnvRuntimeRegistry,
+  EnvRuntimeRegistryValue,
+  EnvViteConfigOptions,
+  EnvViteUserConfig,
+} from "./types.ts"
 import type { Plugin, UserConfig } from "vite"
 
 export const ENV_VITE_PLUGIN_NAME = "@vite-hub/env/vite"
@@ -21,19 +27,21 @@ export { env }
 
 export interface EnvVitePluginAPI {
   getPublicEnv: () => Record<string, unknown>
+  getServerEnvRegistry: () => EnvRuntimeRegistry
 }
 
 export type EnvVitePlugin = Plugin & { api: EnvVitePluginAPI }
 
 export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   let buildPublicConfig: Record<string, unknown> = {}
-  let serverRegistry: Record<string, unknown> = {}
+  let serverRegistry: EnvRuntimeRegistry = {}
   let diagnosticsText: string | undefined
   const getPublicEnv = () => buildPublicConfig
+  const getServerEnvRegistry = () => serverRegistry
 
   return {
     name: ENV_VITE_PLUGIN_NAME,
-    api: { getPublicEnv },
+    api: { getPublicEnv, getServerEnvRegistry },
     async config(config, env) {
       const envConfig = (config as UserConfig & EnvViteUserConfig).env
       validateEnvConfigShape(envConfig, "vite")
@@ -97,8 +105,8 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       if (id === RESOLVED_SERVER_ID) {
         return [
           "import { resolveServerEnv } from '@vite-hub/env/server';",
-          `const serverEnvRegistry = ${JSON.stringify(serverRegistry, null, 2)};`,
-          "export function useServerEnv(event) { return resolveServerEnv(serverEnvRegistry, event); }",
+          `const registry = ${JSON.stringify(serverRegistry, null, 2)};`,
+          "export function useServerEnv(event) { return resolveServerEnv(registry, event); }",
         ].join("\n")
       }
     },
@@ -113,9 +121,8 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   }
 }
 
-function createViteTypes(publicConfig: Record<string, unknown>, serverRegistry: Record<string, unknown>): string {
+function createViteTypes(publicConfig: Record<string, unknown>, serverRegistry: EnvRuntimeRegistry): string {
   const publicFields = Object.entries(publicConfig).map(([key, value]) => `    ${JSON.stringify(key)}: ${typeof value}`)
-  const serverFields = Object.entries(serverRegistry).map(([key, value]) => `    ${JSON.stringify(key)}: ${serverEnvType(value)}`)
   return [
     "declare module \"#vitehub/env/public\" {",
     "  export interface PublicEnv {",
@@ -125,8 +132,9 @@ function createViteTypes(publicConfig: Record<string, unknown>, serverRegistry: 
     "  export function usePublicEnv(): PublicEnv",
     "}",
     "declare module \"#vitehub/env/server\" {",
+    "  import type { SecretEnv } from \"@vite-hub/env/secret\"",
     "  export interface ServerEnv {",
-    ...serverFields,
+    ...createServerTypeFields(serverRegistry, 4),
     "  }",
     "  export function useServerEnv(event?: unknown): ServerEnv",
     "}",
@@ -135,27 +143,56 @@ function createViteTypes(publicConfig: Record<string, unknown>, serverRegistry: 
   ].join("\n")
 }
 
-function serverEnvType(value: unknown): string {
-  if (isRecord(value) && value.kind === "literal") {
-    return literalType(value.value)
-  }
-  if (isRecord(value) && isRecord(value.source) && typeof value.required === "boolean") {
-    const base = value.secret ? "import(\"@vite-hub/env/secret\").SecretEnv<string>" : "string"
-    return value.required || typeof value.default !== "undefined" ? base : `${base} | undefined`
-  }
-  if (isRecord(value)) {
-    const fields = Object.entries(value).map(([key, child]) => `${JSON.stringify(key)}: ${serverEnvType(child)}`)
-    return `{ ${fields.join("; ")} }`
-  }
-  return "unknown"
+function createServerTypeFields(registry: EnvRuntimeRegistry, indent: number): string[] {
+  const prefix = " ".repeat(indent)
+  return Object.entries(registry).map(([key, value]) => {
+    const optional = isOptionalServerValue(value) ? "?" : ""
+    return `${prefix}${JSON.stringify(key)}${optional}: ${serverTypeFor(value, indent)}`
+  })
+}
+
+function serverTypeFor(value: EnvRuntimeRegistryValue, indent: number): string {
+  if (isLiteralEntry(value)) return literalType(value.value)
+  if (isEnvEntry(value)) return value.secret ? "SecretEnv<string>" : "string"
+
+  const fields = createServerTypeFields(value as EnvRuntimeRegistry, indent + 2)
+  if (!fields.length) return "Record<string, never>"
+  const prefix = " ".repeat(indent)
+  return `{\n${fields.join("\n")}\n${prefix}}`
+}
+
+function isOptionalServerValue(value: EnvRuntimeRegistryValue): boolean {
+  return isEnvEntry(value) && !value.required && typeof value.default === "undefined"
 }
 
 function literalType(value: unknown): string {
   if (value === null) return "null"
-  if (typeof value === "string") return JSON.stringify(value)
-  if (typeof value === "number" || typeof value === "boolean") return String(value)
-  if (Array.isArray(value)) return `[${value.map(literalType).join(", ")}]`
-  return "unknown"
+  if (Array.isArray(value)) {
+    const items = value.map(item => literalType(item)).join(", ")
+    return `readonly [${items}]`
+  }
+  switch (typeof value) {
+    case "boolean":
+    case "number":
+    case "string":
+      return JSON.stringify(value)
+    default:
+      return "unknown"
+  }
+}
+
+function isLiteralEntry(value: EnvRuntimeRegistryValue): value is Extract<EnvRuntimeRegistryValue, { kind: "literal" }> {
+  if (!isRecord(value)) return false
+  const record = value as Record<string, unknown>
+  return record.kind === "literal"
+}
+
+function isEnvEntry(value: EnvRuntimeRegistryValue): value is Extract<EnvRuntimeRegistryValue, { source: unknown }> {
+  if (!isRecord(value)) return false
+  const record = value as Record<string, unknown>
+  return isRecord(record.source)
+    && typeof record.required === "boolean"
+    && typeof record.secret === "boolean"
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

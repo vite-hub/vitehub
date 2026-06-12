@@ -22,7 +22,7 @@ import type {
 
 const execFileAsync = promisify(execFile)
 
-export function validateEnvConfigShape(config: EnvViteConfigOptions | undefined, target: "vite"): void {
+export function validateEnvConfigShape(config: EnvViteConfigOptions | undefined, _target: "vite"): void {
   if (!config) {
     return
   }
@@ -143,8 +143,11 @@ export function createRuntimeRegistry(declarations: EnvRuntimeConfigOptions | un
 }
 
 function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: string, prefix?: string): EnvRuntimeRegistry {
-  if (!declarations) {
+  if (typeof declarations === "undefined") {
     return {}
+  }
+  if (!isPlainRecord(declarations)) {
+    throw new EnvError(`Invalid runtime declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
   }
   return Object.fromEntries(Object.entries(declarations).map(([key, value]) => {
     const valuePath = `${path}.${key}`
@@ -152,7 +155,13 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
       if (isRuntimeStaticValue(value)) {
         return [key, { kind: "literal", value }]
       }
+      if (!isPlainRecord(value)) {
+        throw new EnvError(`Invalid runtime declaration at ${valuePath}. Use env(), a serializable static value, or a nested object.`)
+      }
       return [key, buildRegistry(value as EnvRuntimeConfigOptions, valuePath, prefix)]
+    }
+    if (value.mode !== "runtime") {
+      throw new EnvError(`Runtime declaration ${valuePath} must use mode: "runtime".`)
     }
     const source = resolveEnvSource(value, valuePath, prefix)
     if (source.kind !== "env") {

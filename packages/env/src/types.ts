@@ -130,7 +130,7 @@ interface EnvRuntimeLiteralEntry {
   value: EnvRuntimeStaticValue
 }
 
-type EnvRuntimeRegistryValue = EnvRegistryEntry | EnvRuntimeLiteralEntry | EnvRuntimeRegistry
+export type EnvRuntimeRegistryValue = EnvRegistryEntry | EnvRuntimeLiteralEntry | EnvRuntimeRegistry
 
 export interface EnvRuntimeRegistry {
   [key: string]: EnvRuntimeRegistryValue

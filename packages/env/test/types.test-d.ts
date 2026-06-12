@@ -24,6 +24,12 @@ describe("types", () => {
         public: {
           appName: env({ default: "ViteHub", mode: "build" }),
         },
+        server: {
+          airtableToken: env({ secret: true }),
+          nested: {
+            appType: "SingleTenant",
+          },
+        },
       },
     }
 

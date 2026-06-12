@@ -237,6 +237,20 @@ describe("env declarations", () => {
     })).toThrow("runtime values are strings")
   })
 
+  it("rejects build-mode runtime registry declarations", () => {
+    expect(() => createRuntimeRegistry({
+      appName: env({ mode: "build" }),
+    })).toThrow("must use mode: \"runtime\"")
+  })
+
+  it("rejects invalid runtime registry values", () => {
+    expect(() => createRuntimeRegistry({
+      empty: undefined,
+    } as never)).toThrow("Invalid runtime declaration at env.empty")
+
+    expect(() => createRuntimeRegistry(null as never)).toThrow("Invalid runtime declaration at env")
+  })
+
   it("rejects custom runtime registry sources", () => {
     expect(() => createRuntimeRegistry({
       commit: env({
