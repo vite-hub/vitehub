@@ -40,6 +40,12 @@ describe("schedule provider output", () => {
     expect(output).not.toContain("esbuildCommandAndArgs")
   })
 
+  it("keeps the definition entry out of public package exports", async () => {
+    const packageJson = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as { exports: Record<string, unknown> }
+
+    expect(packageJson.exports).not.toHaveProperty("./definition")
+  })
+
   it("emits Cloudflare and Vercel schedule provider wake output", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-")
 
@@ -61,25 +67,6 @@ describe("schedule provider output", () => {
       schedule: "0 0 * * *",
     }])
     expect(await readFile(vercelFunction, "utf8")).toContain("executeStaticSchedule")
-  })
-
-  it("bundles schedule definitions imported from root and definition subpaths", async () => {
-    const rootDir = await createTempProject("vitehub-schedule-definition-subpath-")
-    await writeFile(join(rootDir, "src", "reports.schedule.ts"), [
-      "import { defineSchedule } from '@vite-hub/schedule/definition'",
-      "",
-      "export default defineSchedule({ cron: '0 1 * * *', handler: () => 'reports' })",
-      "",
-    ].join("\n"), "utf8")
-
-    await generateProviderOutputs({
-      clientOutDir: "dist/client",
-      rootDir,
-    })
-
-    const cloudflareWorker = await readFile(join(createDefaultCloudflareOutputRoot(rootDir), "index.js"), "utf8")
-    expect(cloudflareWorker).toContain("\"cleanup\"")
-    expect(cloudflareWorker).toContain("\"reports\"")
   })
 
   it("preserves existing provider output files when adding schedule output", async () => {

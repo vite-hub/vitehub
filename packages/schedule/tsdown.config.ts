@@ -20,6 +20,9 @@ export default defineConfig({
     "src/vite.ts",
   ],
   exports: {
+    customExports(exports) {
+      return Object.fromEntries(Object.entries(exports).filter(([key]) => key !== "./definition"))
+    },
     inlinedDependencies: false,
   },
   format: ["esm"],

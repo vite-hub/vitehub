@@ -489,7 +489,7 @@ function createScheduleDefinitionAliasPlugin(): Plugin {
   return {
     name: "vitehub-schedule-definition-alias",
     setup(build) {
-      build.onResolve({ filter: /^@vite-hub\/schedule(?:\/definition)?$/ }, () => ({
+      build.onResolve({ filter: /^@vite-hub\/schedule$/ }, () => ({
         path: scheduleDefinitionEntry,
       }))
     },
