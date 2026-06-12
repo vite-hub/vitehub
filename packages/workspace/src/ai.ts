@@ -1,5 +1,4 @@
-import { cleanWorkspaceShellPath, createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } from "@vite-hub/shell/workspace"
-
+import { normalizeSafeWorkspacePath } from "./core/path.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
 
 import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./core/types.ts"
@@ -119,6 +118,10 @@ function isWorkspace(input: Workspace | WorkspaceAssets): input is Workspace {
   return "sync" in input
 }
 
+function cleanWorkspaceShellPath(path: string) {
+  return normalizeSafeWorkspacePath(path.replace(/^\/workspace(?:\/|$)/, ""), { allowEmpty: true })
+}
+
 function cleanMutationPath(path: string) {
   const normalized = cleanWorkspaceShellPath(path)
   if (!normalized) throw new Error("[vitehub] Workspace root is not a valid mutation target.")
@@ -200,6 +203,7 @@ async function runShellCommand(
   command: string,
   options: { broadSearchPaths: string[], commands: string[], cwd: string, maxOutputLength: number, timeout?: number },
 ): Promise<WorkspaceShellResult> {
+  const { createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } = await import("@vite-hub/shell/workspace")
   return await runWorkspaceInspectionCommand(input, command, {
     broadSearchPaths: options.broadSearchPaths,
     commands: options.commands,

@@ -136,6 +136,29 @@ describe("hubWorkspace", () => {
     await expect(readFile(join(root, "vitehub-workspace.d.ts"), "utf8")).rejects.toThrow()
   })
 
+  it("discovers documented server workspace config files in the Vite integration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-server-"))
+    tempDirs.push(root)
+    await mkdir(join(root, "server", "workspaces", "tasks"), { recursive: true })
+    await writeFile(join(root, "server", "workspaces", "tasks", "config.ts"), [
+      `import { defineWorkspace } from "@vite-hub/workspace"`,
+      `export default defineWorkspace({ store: { provider: "memory" } })`,
+      ``,
+    ].join("\n"))
+
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const configResolved = plugin.configResolved as (config: { root: string }) => Promise<void>
+    const resolveId = plugin.resolveId as (id: string) => string | undefined
+    const load = plugin.load as (id: string) => string | undefined
+
+    await configResolved({ root } as never)
+
+    await expect(readFile(join(root, ".vitehub", "types", "workspace.d.ts"), "utf8")).resolves.toContain('"tasks": true')
+    expect(load(resolveId("#vitehub-workspace-registry")!)).toContain('"tasks": async () => {')
+    expect(load(resolveId("#vitehub/workspaces")!)).toContain('"tasks"')
+  })
+
   it("materializes the workspace runtime package for Vercel build output", async () => {
     const root = await createViteRoot()
     const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")

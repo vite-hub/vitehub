@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { defineWorkspace } from "../src/index.ts"
+import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
+import { resetWorkspaceStoreCache } from "../src/core/workspace-cache.ts"
+import { setWorkspaceHostedStoreLoader } from "../src/runtime/hosted-store-loader.ts"
+import { setWorkspaceRuntimeConfig } from "../src/runtime/config.ts"
 
 const gitMock = vi.hoisted(() => ({
   add: vi.fn(async () => {}),
@@ -21,6 +26,10 @@ vi.mock("isomorphic-git/http/web", () => ({}))
 
 afterEach(() => {
   clearActiveCloudflareEnv()
+  resetWorkspaceRegistry()
+  resetWorkspaceStoreCache()
+  setWorkspaceHostedStoreLoader(undefined)
+  setWorkspaceRuntimeConfig(false)
   gitMock.add.mockClear()
   gitMock.clone.mockClear()
   gitMock.commit.mockClear()
@@ -68,6 +77,35 @@ describe("Cloudflare Artifacts workspace store", () => {
     expect((await store.diff({ from: snapshot })).entries).toEqual([
       expect.objectContaining({ path: "README.md", type: "modified" }),
     ])
+  })
+
+  it("configures Cloudflare hosted Workspace runtime through public API", async () => {
+    const repo = {
+      createToken: vi.fn(async () => ({ plaintext: "art_v1_secret?expires=999" })),
+      name: "vitehub-workspace-docs",
+      remote: "https://account.artifacts.cloudflare.net/git/vitehub/vitehub-workspace-docs.git",
+    }
+    setActiveCloudflareEnv({
+      WORKSPACE_ARTIFACTS: {
+        create: vi.fn(async () => repo),
+        get: vi.fn(async () => repo),
+      },
+    })
+
+    const { configureCloudflareWorkspaceRuntime } = await import("../src/cloudflare.ts")
+    const { useWorkspace } = await import("../src/runtime.ts")
+    configureCloudflareWorkspaceRuntime({
+      env: {
+        VITEHUB_WORKSPACE_ARTIFACTS_NAMESPACE: "tasks",
+      },
+    })
+    setWorkspaceRegistry({
+      docs: async () => ({ default: defineWorkspace({}) }),
+    })
+
+    const workspace = useWorkspace("docs", { mode: "write" })
+    await workspace.fs.writeFile("README.md", "hello")
+    await expect(workspace.fs.readFile("README.md")).resolves.toBe("hello")
   })
 
   it("rejects traversal and reserved public paths", async () => {

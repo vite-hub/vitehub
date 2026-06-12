@@ -38,8 +38,11 @@
   "exports": {
     ".": "./dist/index.js",
     "./ai": "./dist/ai.js",
+    "./cloudflare": "./dist/cloudflare.js",
     "./loader": "./dist/loader.js",
     "./publish": "./dist/publish.js",
+    "./runtime": "./dist/runtime.js",
+    "./server": "./dist/server.js",
     "./test": "./dist/test.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json",
@@ -58,20 +61,22 @@
   },
   "dependencies": {
     "@vercel/nft": "catalog:vercel",
-    "@vite-hub/shell": "workspace:*",
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
     "exsolve": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",
     "jiti": "catalog:unjs",
-    "minimatch": "catalog:workspace"
+    "minimatch": "catalog:workspace",
+    "mrmime": "catalog:workspace"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
+    "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai",
     "files-sdk": "catalog:storage",
+    "h3": "catalog:unjs",
     "ocache": "catalog:unjs",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",
@@ -82,15 +87,23 @@
   },
   "peerDependencies": {
     "@vite-hub/sandbox": "workspace:*",
+    "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai-compat",
     "files-sdk": "catalog:storage",
+    "h3": "catalog:unjs",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
     "@vite-hub/sandbox": {
       "optional": true
     },
+    "@vite-hub/shell": {
+      "optional": true
+    },
     "files-sdk": {
+      "optional": true
+    },
+    "h3": {
       "optional": true
     },
     "vite": {
