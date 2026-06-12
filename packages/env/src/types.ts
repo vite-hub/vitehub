@@ -76,6 +76,7 @@ export interface EnvVariableOptions {
 export interface EnvViteConfigOptions {
   define?: Record<string, EnvVariableDeclaration>
   public?: Record<string, EnvVariableDeclaration>
+  server?: EnvRuntimeConfigOptions
 }
 
 export type EnvRuntimeStaticValue = null | string | number | boolean | EnvRuntimeStaticValue[]
@@ -111,7 +112,7 @@ export interface ResolvedEnvEntry {
   value: unknown
 }
 
-interface EnvRegistryEntry {
+export interface EnvRegistryEntry {
   default?: unknown
   required: boolean
   schema?: EnvRuntimeSchema
@@ -120,16 +121,16 @@ interface EnvRegistryEntry {
   type?: string
 }
 
-interface EnvRuntimeSchema {
+export interface EnvRuntimeSchema {
   kind: "string"
 }
 
-interface EnvRuntimeLiteralEntry {
+export interface EnvRuntimeLiteralEntry {
   kind: "literal"
   value: EnvRuntimeStaticValue
 }
 
-type EnvRuntimeRegistryValue = EnvRegistryEntry | EnvRuntimeLiteralEntry | EnvRuntimeRegistry
+export type EnvRuntimeRegistryValue = EnvRegistryEntry | EnvRuntimeLiteralEntry | EnvRuntimeRegistry
 
 export interface EnvRuntimeRegistry {
   [key: string]: EnvRuntimeRegistryValue

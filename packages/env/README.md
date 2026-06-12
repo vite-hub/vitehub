@@ -27,6 +27,9 @@ export default defineConfig({
     public: {
       appName: env({ default: "ViteHub App", mode: "build" }),
     },
+    server: {
+      airtableToken: env({ secret: true }),
+    },
   },
 })
 ```
@@ -38,8 +41,20 @@ import { publicEnv } from "#vitehub/env/public"
 export const appName = publicEnv.appName
 ```
 
+```ts
+// server/sync.ts
+import { useServerEnv } from "#vitehub/env/server"
+
+export async function sync() {
+  const { airtableToken } = useServerEnv()
+  await fetch("https://api.airtable.com/v0/app/table", {
+    headers: { Authorization: `Bearer ${airtableToken.unseal()}` },
+  })
+}
+```
+
 ## Vite Integration
 
-Use `hubEnv()` in Vite to resolve public/build env, generate `#vitehub/env/public`, and keep environment declarations close to the app config.
+Use `hubEnv()` in Vite to resolve public/build env, generate `#vitehub/env/public` and `#vitehub/env/server`, and keep environment declarations close to the app config. Runtime secrets are read from the host environment at request time and are wrapped in `SecretEnv` until explicitly unsealed.
 
 Learn more at [vitehub.dev](https://vitehub.dev).
