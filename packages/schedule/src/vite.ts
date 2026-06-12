@@ -220,21 +220,37 @@ function hasServerScheduleDefinitions(definitions: DiscoveredScheduleDefinition[
   return definitions.some(definition => definition.source === "server-schedules")
 }
 
+function hasViteSuffixScheduleDefinitions(definitions: DiscoveredScheduleDefinition[]): boolean {
+  return definitions.some(definition => definition.source === "vite-suffix")
+}
+
+function selectNitroScheduleDefinitions(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): DiscoveredScheduleDefinition[] {
+  if (options.providerOutput === false || options.providerOutput === "standalone") return []
+  if (options.providerOutput === "nitro") return definitions
+  return definitions.filter(definition => definition.source === "server-schedules")
+}
+
+function selectStandaloneProviderSource(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): DiscoveredScheduleDefinition["source"] | undefined {
+  if (options.providerOutput === "auto" || options.providerOutput === undefined) {
+    return hasServerScheduleDefinitions(definitions) ? "vite-suffix" : undefined
+  }
+}
+
 function shouldInstallNitroSchedulePlugin(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): boolean {
-  if (options.providerOutput === false || options.providerOutput === "standalone") return false
-  if (options.providerOutput === "nitro") return definitions.length > 0
-  return hasServerScheduleDefinitions(definitions)
+  return selectNitroScheduleDefinitions(definitions, options).length > 0
 }
 
 function shouldEmitStandaloneProviderOutput(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): boolean {
   if (options.providerOutput === false || options.providerOutput === "nitro") return false
   if (options.providerOutput === "standalone") return true
-  return !hasServerScheduleDefinitions(definitions)
+  if (hasServerScheduleDefinitions(definitions)) return hasViteSuffixScheduleDefinitions(definitions)
+  return definitions.length > 0
 }
 
 export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVitePlugin {
   let resolved: ResolvedConfig | undefined
   let emitStandaloneProviderOutput = true
+  let standaloneProviderSource: DiscoveredScheduleDefinition["source"] | undefined
 
   function discoverViteSchedules() {
     if (!resolved) {
@@ -263,16 +279,18 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       const root = resolve(config.root || process.cwd())
       const definitions = discoverScheduleDefinitions({ rootDir: root })
       emitStandaloneProviderOutput = shouldEmitStandaloneProviderOutput(definitions, options)
+      standaloneProviderSource = selectStandaloneProviderSource(definitions, options)
       if (definitions.length === 0) {
         return null
       }
       if (!shouldInstallNitroSchedulePlugin(definitions, options)) {
         return null
       }
+      const nitroDefinitions = selectNitroScheduleDefinitions(definitions, options)
       const crons = env.command === "build"
-        ? [...new Set((await readDefinitionCrons(definitions)).values())]
+        ? [...new Set((await readDefinitionCrons(nitroDefinitions)).values())]
         : []
-      const plugin = await writeNitroCloudflarePlugin(root, definitions, crons)
+      const plugin = await writeNitroCloudflarePlugin(root, nitroDefinitions, crons)
       const viteConfig: ViteConfigWithNitro = {
         nitro: mergeNitroScheduleConfig((config as { nitro?: unknown }).nitro, { crons, plugin }),
       }
@@ -328,6 +346,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         bundleAlias: resolveStringAliases(resolved),
         clientOutDir: resolved.build.outDir,
         rootDir: resolved.root,
+        source: standaloneProviderSource,
       })
     },
   }

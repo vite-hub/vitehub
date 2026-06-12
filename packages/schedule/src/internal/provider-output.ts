@@ -63,6 +63,7 @@ interface GenerateProviderOutputsOptions {
   bundleAlias?: Record<string, string>
   clientOutDir: string
   rootDir: string
+  source?: DiscoveredScheduleDefinition["source"]
 }
 
 const cronFieldPattern = /^[*,/\-0-9]+$/
@@ -496,12 +497,13 @@ function createScheduleDefinitionAliasPlugin(): Plugin {
   }
 }
 
-async function writeProviderEntries(rootDir: string): Promise<GeneratedScheduleArtifacts> {
+async function writeProviderEntries(rootDir: string, source?: DiscoveredScheduleDefinition["source"]): Promise<GeneratedScheduleArtifacts> {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
 
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
   const definitions = discoverScheduleDefinitions({ rootDir })
+    .filter(definition => !source || definition.source === source)
   await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
 
   const cloudflareWorkerFile = resolve(generatedDir, "cloudflare-worker.mjs")
@@ -624,7 +626,7 @@ async function writeCloudflareScheduleOutput(options: {
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
-  const artifacts = await writeProviderEntries(options.rootDir)
+  const artifacts = await writeProviderEntries(options.rootDir, options.source)
   const crons = await readDefinitionCrons(artifacts.definitions)
   await writeCloudflareScheduleOutput({
     bundleAlias: options.bundleAlias,

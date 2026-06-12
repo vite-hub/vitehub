@@ -49,10 +49,16 @@ describe("workspace public API", () => {
     const distDir = new URL("../dist/", import.meta.url)
     const aiFiles = (await readdir(distDir)).filter(file => file === "ai.js" || /^ai-.*\.js$/.test(file))
     const builtAi = (await Promise.all(aiFiles.map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
+    const runtimeFiles = (await readdir(distDir)).filter(file => file === "runtime.js" || file === "runtime/state.js" || /^use-.*\.js$/.test(file))
+    const builtRuntime = (await Promise.all(runtimeFiles.map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
 
     expect(builtAi).not.toContain("from\"@vite-hub/shell")
     expect(builtAi).not.toContain("from \"@vite-hub/shell")
-    expect(builtAi).toContain("import(\"@vite-hub/shell/workspace\")")
+    expect(builtAi).not.toContain("import(\"@vite-hub/shell")
+    expect(builtAi).not.toContain("import('@vite-hub/shell")
+    expect(builtAi).toContain("@vite-hub/shell/workspace")
+    expect(builtRuntime).not.toContain("import(\"@vite-hub/shell")
+    expect(builtRuntime).not.toContain("import('@vite-hub/shell")
   })
 
   it("uses the writable facade for synced reads and writes", async () => {
