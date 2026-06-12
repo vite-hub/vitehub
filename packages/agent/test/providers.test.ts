@@ -488,6 +488,82 @@ describe("server helpers", () => {
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "ok" })
   })
 
+  it("refreshes chat typing until streamed output starts", async () => {
+    vi.useFakeTimers()
+    try {
+      const { defineAgent } = await import("../src/index.ts")
+      const { chat } = await import("../src/capabilities.ts")
+      const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+      const adapter = createTestChatAdapter()
+      adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
+        let text = ""
+        for await (const chunk of textStream) {
+          if (typeof chunk === "string") text += chunk
+          else if (chunk.type === "markdown_text") text += chunk.text
+        }
+        return { id: "stream-typing", raw: { text }, threadId }
+      })
+      let runStarted!: () => void
+      let finishRun!: () => void
+      const runStartedPromise = new Promise<void>(resolve => {
+        runStarted = resolve
+      })
+      const finishRunPromise = new Promise<void>(resolve => {
+        finishRun = resolve
+      })
+      const agent = defineAgent({
+        capabilities: [
+          chat({
+            adapters: {
+              telegram: () => adapter as never,
+            },
+            webhooks: {
+              telegram: {},
+            },
+          }),
+        ],
+        run: async () => {
+          runStarted()
+          await finishRunPromise
+          return "ok"
+        },
+      })
+      const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+      const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 144,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 144,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      }), "telegram")
+
+      await runStartedPromise
+      expect(adapter.startTyping).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(4000)
+      expect(adapter.startTyping).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(4000)
+      expect(adapter.startTyping).toHaveBeenCalledTimes(3)
+
+      finishRun()
+      const response = await responsePromise
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      const callsAfterFirstOutput = adapter.startTyping.mock.calls.length
+      await vi.advanceTimersByTimeAsync(8000)
+      expect(adapter.startTyping).toHaveBeenCalledTimes(callsAfterFirstOutput)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("posts configured chat fallback while streamed webhook work is still running", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
@@ -918,13 +994,9 @@ describe("server helpers", () => {
     const adapter = createTestChatAdapter()
     const order: string[] = []
     let streamConsumed!: () => void
-    let commitStarted!: () => void
     let commitResponse!: () => void
     const streamConsumedPromise = new Promise<void>(resolve => {
       streamConsumed = resolve
-    })
-    const commitStartedPromise = new Promise<void>(resolve => {
-      commitStarted = resolve
     })
     const commitResponsePromise = new Promise<void>(resolve => {
       commitResponse = resolve
@@ -937,14 +1009,9 @@ describe("server helpers", () => {
       }
       order.push(`stream:${text}`)
       streamConsumed()
-      return { id: "stream-1", raw: { text }, threadId }
-    })
-    adapter.editMessage.mockImplementation(async (threadId: string, messageId: string, message: unknown) => {
-      order.push("commit:start")
-      commitStarted()
       await commitResponsePromise
-      order.push("commit:done")
-      return { id: messageId, raw: { message }, threadId }
+      order.push("stream:committed")
+      return { id: "stream-1", raw: { text }, threadId }
     })
     adapter.postMessage.mockImplementation(async (threadId: string, message: unknown) => {
       order.push("post:follow-up")
@@ -990,10 +1057,10 @@ describe("server helpers", () => {
     try {
       await streamConsumedPromise
       await expect(Promise.race([
-        commitStartedPromise.then(() => "commit-started"),
         responsePromise.then(() => "settled"),
-      ])).resolves.toBe("commit-started")
-      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "stream-1", { markdown: "agent answer" })
+        Promise.resolve("pending"),
+      ])).resolves.toBe("pending")
+      expect(adapter.editMessage).not.toHaveBeenCalled()
       expect(adapter.postMessage).not.toHaveBeenCalled()
       await expect(Promise.race([
         responsePromise.then(() => "settled"),
@@ -1008,11 +1075,78 @@ describe("server helpers", () => {
       expect(adapter.postMessage).toHaveBeenCalledTimes(1)
       expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "usage ok" })
       expect(finish).toHaveBeenCalledOnce()
-      expect(order.indexOf("commit:done")).toBeLessThan(order.indexOf("post:follow-up"))
+      expect(order.indexOf("stream:committed")).toBeLessThan(order.indexOf("post:follow-up"))
       expect(order).toContain("stream:agent answer")
     }
     finally {
       commitResponse()
+    }
+  })
+
+  it("does not fail native streamed chats when the final message is already committed", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
+      let text = ""
+      for await (const chunk of textStream) {
+        if (typeof chunk === "string") text += chunk
+        else if (chunk.type === "markdown_text") text += chunk.text
+      }
+      return { id: "stream-committed", raw: { text }, threadId }
+    })
+    adapter.editMessage.mockRejectedValue(new Error("message is not modified"))
+    adapter.postMessage.mockImplementation(async (threadId: string, message: unknown) => ({ id: "sent-follow-up", raw: { message }, threadId }))
+    const finish = vi.fn(async (event) => {
+      const chat = event.extensions.get("chat") as { sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
+      await chat?.sendMessage?.({ markdown: "usage ok" })
+    })
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+          errorFallbackText: "Sorry, I couldn't process that message.",
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({ text: "agent `answer`" }),
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    try {
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 90,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 90,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      }), "telegram")
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      expect(adapter.editMessage).not.toHaveBeenCalled()
+      expect(adapter.postMessage).toHaveBeenCalledTimes(1)
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "usage ok" })
+      expect(finish).toHaveBeenCalledOnce()
+      expect(consoleError).not.toHaveBeenCalled()
+    }
+    finally {
+      consoleError.mockRestore()
     }
   })
 
