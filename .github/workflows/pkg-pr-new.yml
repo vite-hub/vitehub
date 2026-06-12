@@ -20,8 +20,8 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
-      - run: pnpm typecheck
-      - run: pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run build
+      - run: vp run typecheck
+      - run: vp run build
 
       - name: Publish preview packages
-        run: pnpm dlx pkg-pr-new publish './packages/*' --pnpm --packageManager=pnpm
+        run: vp dlx pkg-pr-new publish './packages/*' --pnpm --packageManager=pnpm

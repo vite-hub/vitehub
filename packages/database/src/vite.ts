@@ -3,9 +3,11 @@ import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment
 import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 
+import { createDbCliContributor } from "./cli.ts"
 import { resolveDBViteConfig } from "./config.ts"
 import { writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { dbPackageName, generateProviderOutputs } from "./internal/vite-build.ts"
+import { createDatabaseProvisionStep } from "./provision.ts"
 
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { Plugin, ResolvedConfig } from "vite"
@@ -111,8 +113,6 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       cli: async () => {
         const db = resolvedOptions()
         if (db === false) return
-        const { createDbCliContributor } = await import(/* @vite-ignore */ "./cli.js")
-        const { createDatabaseProvisionStep } = await import(/* @vite-ignore */ "./provision.js")
         const contributor = createDbCliContributor(db?.cli, refreshRuntimeConfig)
         const provision = [createDatabaseProvisionStep(() => resolved?.root ?? process.cwd(), db)]
         return contributor ? { ...contributor, provision } : { namespaces: [], provision }

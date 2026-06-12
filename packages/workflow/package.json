@@ -2,26 +2,30 @@
   "name": "@vite-hub/workflow",
   "version": "0.0.1",
   "description": "Workflow primitives and Vite integration for ViteHub.",
-  "author": "onmax <maximogarciamtnez@gmail.com>",
-  "license": "Apache-2.0",
+  "keywords": [
+    "cloudflare",
+    "docker",
+    "openworkflow",
+    "vercel",
+    "vite",
+    "vitehub",
+    "workflow"
+  ],
   "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vite-hub/vitehub.git",
     "directory": "packages/workflow"
   },
-  "bugs": "https://github.com/vite-hub/vitehub/issues",
-  "keywords": [
-    "vitehub",
-    "vite",
-    "workflow",
-    "cloudflare",
-    "docker",
-    "openworkflow",
-    "vercel"
+  "files": [
+    "dist",
+    "package.json"
   ],
-  "sideEffects": false,
   "type": "module",
+  "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
@@ -36,16 +40,11 @@
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },
-  "files": [
-    "dist",
-    "package.json"
-  ],
   "scripts": {
-    "build": "tsdown --tsconfig tsconfig.build.json",
-    "dev": "tsdown --watch",
+    "build": "vp pack",
+    "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vite-hub/database build && pnpm --filter @vite-hub/env build && pnpm --filter @vite-hub/workflow build && vitest run",
-    "test:e2e": "node ./test/e2e-live.mjs"
+    "test": "vp run -t @vite-hub/workflow#build && vp test"
   },
   "dependencies": {
     "@vercel/functions": "catalog:vercel",
@@ -54,10 +53,22 @@
     "h3": "catalog:unjs",
     "pathe": "catalog:unjs"
   },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "@vite-hub/database": "workspace:*",
+    "@vite-hub/internal": "workspace:*",
+    "ofetch": "catalog:unjs",
+    "openworkflow": "catalog:workflow",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
+  },
   "peerDependencies": {
     "@vite-hub/database": "workspace:*",
     "openworkflow": "catalog:workflow",
-    "vite": "catalog:vite8-compat",
+    "vite": "catalog:vite-compat",
     "workflow": "catalog:workflow"
   },
   "peerDependenciesMeta": {
@@ -74,17 +85,7 @@
       "optional": true
     }
   },
-  "devDependencies": {
-    "@types/node": "catalog:tooling",
-    "@vite-hub/database": "workspace:*",
-    "@vite-hub/internal": "workspace:*",
-    "ofetch": "catalog:unjs",
-    "openworkflow": "catalog:workflow",
-    "publint": "catalog:tooling",
-    "tsdown": "catalog:tooling",
-    "tsx": "catalog:tooling",
-    "typescript": "catalog:tooling",
-    "vite": "catalog:vite",
-    "vitest": "catalog:tooling"
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

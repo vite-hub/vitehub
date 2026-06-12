@@ -3,6 +3,7 @@ import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment
 import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 
 import { generateProviderOutputs, blobPackageName } from "./internal/vite-build.ts"
+import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
   BLOB_VIRTUAL_CONFIG_ID,
   BLOB_VITE_PLUGIN_NAME,
@@ -52,7 +53,6 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
     api: { getConfig },
     vitehub: {
       cli: async () => {
-        const { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } = await import(/* @vite-ignore */ "./provision.js")
         return {
           namespaces: [],
           provision: [createBlobCloudflareProvisionStep(() => blob), createBlobVercelProvisionStep(() => blob)],

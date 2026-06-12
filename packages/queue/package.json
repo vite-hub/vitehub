@@ -2,29 +2,32 @@
   "name": "@vite-hub/queue",
   "version": "0.0.1",
   "description": "Queue primitives and Vite deployment integration for ViteHub.",
-  "author": "onmax <maximogarciamtnez@gmail.com>",
-  "license": "Apache-2.0",
+  "keywords": [
+    "cloudflare",
+    "h3",
+    "queue",
+    "vercel",
+    "vite",
+    "vitehub"
+  ],
   "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vite-hub/vitehub.git",
     "directory": "packages/queue"
   },
-  "bugs": "https://github.com/vite-hub/vitehub/issues",
-  "keywords": [
-    "vitehub",
-    "vite",
-    "h3",
-    "queue",
-    "cloudflare",
-    "vercel"
+  "files": [
+    "dist",
+    "package.json"
   ],
-  "sideEffects": false,
   "type": "module",
+  "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
-    "./provision": "./dist/provision.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",
     "./runtime/state": "./dist/runtime/state.js",
@@ -32,15 +35,11 @@
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },
-  "files": [
-    "dist",
-    "package.json"
-  ],
   "scripts": {
-    "build": "tsdown --tsconfig tsconfig.build.json",
-    "dev": "tsdown --watch",
+    "build": "vp pack",
+    "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --dir ../blob build && pnpm --dir ../kv build && pnpm --dir ../schedule build && pnpm --dir . build && pnpm --dir ../sandbox build && pnpm --dir ../workflow build && vitest run"
+    "test": "vp run -t @vite-hub/queue#build && vp test"
   },
   "dependencies": {
     "@vercel/functions": "catalog:vercel",
@@ -50,9 +49,18 @@
     "h3": "catalog:unjs",
     "pathe": "catalog:unjs"
   },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
+  },
   "peerDependencies": {
     "@vercel/queue": "catalog:vercel",
-    "vite": "catalog:vite8-compat"
+    "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
     "@vercel/queue": {
@@ -62,13 +70,7 @@
       "optional": true
     }
   },
-  "devDependencies": {
-    "@types/node": "catalog:tooling",
-    "@vite-hub/internal": "workspace:*",
-    "publint": "catalog:tooling",
-    "tsdown": "catalog:tooling",
-    "typescript": "catalog:tooling",
-    "vite": "catalog:vite",
-    "vitest": "catalog:tooling"
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

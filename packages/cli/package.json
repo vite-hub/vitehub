@@ -2,54 +2,57 @@
   "name": "@vite-hub/cli",
   "version": "0.0.1",
   "description": "Command-line workflows for ViteHub projects.",
-  "author": "onmax <maximogarciamtnez@gmail.com>",
-  "license": "Apache-2.0",
+  "keywords": [
+    "agent",
+    "cli",
+    "eval",
+    "vitehub"
+  ],
   "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vite-hub/vitehub.git",
     "directory": "packages/cli"
   },
-  "bugs": "https://github.com/vite-hub/vitehub/issues",
-  "keywords": [
-    "vitehub",
-    "cli",
-    "agent",
-    "eval"
-  ],
   "bin": {
-    "vitehub": "dist/index.js"
-  },
-  "sideEffects": false,
-  "type": "module",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": "./dist/index.js",
-    "./package.json": "./package.json"
+    "vitehub": "./dist/index.js"
   },
   "files": [
     "dist",
     "package.json"
   ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
   "scripts": {
-    "build": "tsdown --tsconfig tsconfig.build.json",
-    "dev": "tsdown --watch",
+    "build": "vp pack",
+    "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vite-hub/internal build && pnpm --filter @vite-hub/agent build && pnpm --dir . build && vitest run"
+    "test": "vp run -t @vite-hub/cli#build && vp test"
   },
   "dependencies": {
     "@vite-hub/internal": "workspace:*",
     "pathe": "catalog:unjs"
   },
-  "peerDependencies": {
-    "vite": "catalog:vite8-plus-compat"
-  },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/agent": "workspace:*",
-    "tsdown": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
+  },
+  "peerDependencies": {
+    "vite": "catalog:vite-compat"
+  },
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

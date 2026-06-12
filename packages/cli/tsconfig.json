@@ -4,9 +4,5 @@
     "rootDir": ".",
     "tsBuildInfoFile": "./node_modules/.cache/tsconfig.tsbuildinfo"
   },
-  "include": [
-    "src",
-    "test",
-    "tsdown.config.ts"
-  ]
+  "include": ["src", "test", "vite.config.ts"]
 }

@@ -144,6 +144,20 @@ export async function runAgentEvalite(options: RunAgentEvaliteOptions): Promise<
   const forceRerunTriggers = options.forceRerunTriggers ?? configDefaults.forceRerunTriggers
 
   process.env.EVALITE_REPORT_TRACES = "true"
+  type VitestOptions = Parameters<typeof createVitest>[1]
+  // Evalite and Vite+ can resolve separate Vitest type instances, but the reporter runtime contract is the same.
+  const reporters = [new EvaliteReporter({
+    hideTable: options.hideTable,
+    isWatching: options.mode === "watch-for-file-changes" || options.mode === "run-once-and-serve",
+    logNewState: newState => server.updateState(newState),
+    mode: options.mode,
+    modifyExitCode: code => {
+      exitCode = code
+    },
+    port: serverPort,
+    scoreThreshold: options.scoreThreshold,
+    storage,
+  })] as unknown as VitestOptions["reporters"]
   const vitest = await createVitest("test", {
     browser: undefined,
     config: false,
@@ -151,20 +165,7 @@ export async function runAgentEvalite(options: RunAgentEvaliteOptions): Promise<
     include: ["**/*.eval.?(m)ts"],
     maxConcurrency: options.maxConcurrency,
     mode: "test",
-    reporters: [
-      new EvaliteReporter({
-        hideTable: options.hideTable,
-        isWatching: options.mode === "watch-for-file-changes" || options.mode === "run-once-and-serve",
-        logNewState: newState => server.updateState(newState),
-        mode: options.mode,
-        modifyExitCode: code => {
-          exitCode = code
-        },
-        port: serverPort,
-        scoreThreshold: options.scoreThreshold,
-        storage,
-      }),
-    ],
+    reporters,
     root: cwd,
     sequence: {
       concurrent: true,

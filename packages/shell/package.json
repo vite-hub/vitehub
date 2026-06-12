@@ -2,23 +2,27 @@
   "name": "@vite-hub/shell",
   "version": "0.0.1",
   "description": "Unified shell runtimes for ViteHub.",
-  "author": "onmax <maximogarciamtnez@gmail.com>",
-  "license": "Apache-2.0",
+  "keywords": [
+    "cloudflare",
+    "just-bash",
+    "shell",
+    "vitehub"
+  ],
   "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vite-hub/vitehub.git",
     "directory": "packages/shell"
   },
-  "bugs": "https://github.com/vite-hub/vitehub/issues",
-  "keywords": [
-    "vitehub",
-    "shell",
-    "just-bash",
-    "cloudflare"
+  "files": [
+    "dist",
+    "package.json"
   ],
-  "sideEffects": false,
   "type": "module",
+  "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
@@ -27,15 +31,11 @@
     "./workspace": "./dist/workspace.js",
     "./package.json": "./package.json"
   },
-  "files": [
-    "dist",
-    "package.json"
-  ],
   "scripts": {
-    "build": "tsdown --tsconfig tsconfig.build.json",
-    "dev": "tsdown --watch",
+    "build": "vp pack",
+    "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vite-hub/shell build && vitest run"
+    "test": "vp run -t @vite-hub/shell#build && vp test"
   },
   "dependencies": {
     "just-bash": "catalog:shell",
@@ -44,8 +44,11 @@
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "publint": "catalog:tooling",
-    "tsdown": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
+  },
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

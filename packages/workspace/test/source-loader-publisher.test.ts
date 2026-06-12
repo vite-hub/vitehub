@@ -21,6 +21,7 @@ import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import type { WorkspaceDefinition, WorkspaceStore } from "../src/core/types.ts"
 
 const tempDirs: string[] = []
+const workspaceSourceImport = pathToFileURL(join(import.meta.dirname, "../src/index.ts")).href
 
 async function createRoot() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-root-"))
@@ -535,7 +536,7 @@ describe("sources, loaders, and publishers", () => {
     await writeFile(join(root, "README.md"), "# Root\n")
     await writeFile(join(directory, "README.md"), "# Directory\n")
     await writeFile(join(directory, "config.mjs"), [
-      "import { source } from '@vite-hub/workspace'",
+      `import { source } from '${workspaceSourceImport}'`,
       "export default {",
       "  sourceRootDir: '',",
       "  sources: { docs: source.glob({ include: ['README.md'] }) },",
@@ -571,7 +572,7 @@ describe("sources, loaders, and publishers", () => {
     await writeFile(join(root, "AGENTS.md"), "# Root\n")
     await writeFile(join(sourceRoot, "AGENTS.md"), "# Support\n")
     await writeFile(join(directory, "config.mjs"), [
-      "import { source } from '@vite-hub/workspace'",
+      `import { source } from '${workspaceSourceImport}'`,
       "export default {",
       "  sources: { instructions: source.file('AGENTS.md') },",
       "}",

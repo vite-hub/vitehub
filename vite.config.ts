@@ -1,0 +1,120 @@
+import { defineConfig } from "vite-plus";
+
+export default defineConfig({
+  run: {
+    tasks: {
+      "blob:e2e": {
+        cache: false,
+        command: "node packages/blob/test/e2e.mjs",
+        dependsOn: ["@vite-hub/blob#build"],
+      },
+      build: {
+        cache: false,
+        command: "node test/run-package-task.mjs build",
+      },
+      "database:e2e": {
+        cache: false,
+        command: "node packages/database/test/e2e.mjs",
+        dependsOn: ["@vite-hub/database#build"],
+      },
+      "docs:build": "vp run --filter vitehub-docs build",
+      "docs:dev": {
+        cache: false,
+        command: "vp run --filter vitehub-docs dev",
+      },
+      "e2e:local": {
+        cache: false,
+        command: "node test/local/local.mjs",
+      },
+      "fallow:dead-code": "vp exec fallow dead-code --summary --format markdown --fail-on-issues",
+      "kv:e2e": {
+        cache: false,
+        command: "node packages/kv/test/e2e.mjs",
+        dependsOn: ["@vite-hub/kv#build"],
+      },
+      lint: "vp exec oxlint . --ignore-path .gitignore",
+      "playground:vite:build": {
+        cache: false,
+        command: "cd playground/vite && vp build",
+        dependsOn: ["build"],
+      },
+      "playground:vite:build:cloudflare": {
+        cache: false,
+        command: "vp run playground:vite:build --mode chat",
+      },
+      "playground:vite:build:local": {
+        cache: false,
+        command: "node test/local/build-playground.mjs",
+        dependsOn: ["build"],
+      },
+      "playground:vite:provision": {
+        cache: false,
+        command: "cd playground/vite && node ../../packages/cli/dist/index.js provision run",
+        dependsOn: ["@vite-hub/cli#build"],
+      },
+      "queue:e2e": {
+        cache: false,
+        command: "node packages/queue/test/e2e-live.mjs",
+        dependsOn: ["@vite-hub/queue#build"],
+      },
+      release:
+        'vp dlx bumpp@11.1.0 package.json packages/*/package.json --commit "chore(release): v%s" --tag "v%s" --push --no-push-all --git-check',
+      "sandbox:e2e": {
+        cache: false,
+        command: "node packages/sandbox/test/e2e.mjs",
+        dependsOn: ["@vite-hub/sandbox#build"],
+      },
+      "schedule:e2e": {
+        cache: false,
+        command: "node packages/schedule/test/e2e-live.mjs",
+        dependsOn: ["@vite-hub/schedule#build"],
+      },
+      test: {
+        cache: false,
+        command: "node test/run-package-task.mjs test",
+      },
+      "test:contracts": "vp test",
+      "test:output": {
+        cache: false,
+        command: "vp test --config test/output/vitest.config.ts",
+      },
+      "test:output:cloudflare": {
+        cache: false,
+        command: "vp test --config test/output/vitest.config.ts test/output/cloudflare.test.ts",
+      },
+      "test:output:vercel": {
+        cache: false,
+        command: "vp test --config test/output/vitest.config.ts test/output/vercel.test.ts",
+      },
+      typecheck: {
+        cache: false,
+        command: [
+          "vp run build",
+          "vp run --filter vitehub-docs --ignore-depends-on typecheck",
+          "node test/run-package-task.mjs typecheck",
+        ],
+      },
+      verify: {
+        cache: false,
+        command: [
+          "vp run fallow:dead-code",
+          "vp run lint",
+          "vp run typecheck",
+          "vp run test:contracts",
+          "vp run test",
+          "vp run build",
+        ],
+      },
+      "workflow:e2e": {
+        cache: false,
+        command: "node packages/workflow/test/e2e-live.mjs",
+        dependsOn: ["@vite-hub/workflow#build"],
+      },
+      "workspace:e2e": {
+        cache: false,
+        command: "node packages/workspace/test/e2e.mjs",
+        dependsOn: ["@vite-hub/workspace#build"],
+      },
+    },
+  },
+});
