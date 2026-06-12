@@ -302,7 +302,7 @@ describe("agent chat capability discovery", () => {
     const state = await waitForMetadataState(handlers[0]!, { action: "get-state", invokerProfileId: "support-technical" })
     expect(state).toMatchObject({
       chats: [{ name: "support", uiMessages: [] }],
-      instructions: ["# Support\n\nAudience resolved for technical."],
+      instructions: ["# Support"],
       metadataStatus: "ready",
       invokerProfileId: "support-technical",
       invokerProfiles: [
@@ -338,7 +338,7 @@ describe("agent chat capability discovery", () => {
     })
     const clearedTechnicalState = JSON.parse(clearedTechnicalResponse.body)
     expect(clearedTechnicalState).toMatchObject({
-      instructions: ["# Support\n\nAudience resolved for technical."],
+      instructions: ["# Support"],
       invokerProfileId: "support-technical",
       selected: "support",
       uiMessages: [],
@@ -363,7 +363,7 @@ describe("agent chat capability discovery", () => {
       invokerFallback: true,
     })
     expect(resolvedFallbackState).toMatchObject({
-      instructions: ["# Support\n\nAudience resolved for undefined."],
+      instructions: ["# Support"],
       invokerFallback: true,
       metadataStatus: "ready",
       selected: "support",
