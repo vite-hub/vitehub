@@ -1,3 +1,5 @@
+import type { ProvisionStep } from "./provision.ts"
+
 export interface ViteHubCliStreams {
   stderr: { write: (chunk: string | Uint8Array) => unknown }
   stdout: { write: (chunk: string | Uint8Array) => unknown }
@@ -43,6 +45,7 @@ export interface ViteHubCliCommandNamespace {
 
 export interface ViteHubCliContributor {
   namespaces: ViteHubCliCommandNamespace[]
+  provision?: ProvisionStep[]
 }
 
 export type ViteHubCliContributorFactory = () => ViteHubCliContributor | undefined | Promise<ViteHubCliContributor | undefined>
@@ -84,4 +87,18 @@ export async function collectViteHubCliNamespaces(plugins: readonly unknown[]): 
   }
 
   return [...namespaces.values()]
+}
+
+export async function collectViteHubProvisionSteps(plugins: readonly unknown[]): Promise<ProvisionStep[]> {
+  const steps = new Map<string, ProvisionStep>()
+
+  for (const plugin of plugins) {
+    if (!plugin || typeof plugin !== "object") continue
+    const contributor = await resolveContributor((plugin as ViteHubCliContributingPlugin).vitehub?.cli)
+    for (const step of contributor?.provision ?? []) {
+      steps.set(step.id, step)
+    }
+  }
+
+  return [...steps.values()]
 }

@@ -1,10 +1,12 @@
-name: manual live e2e
+name: live smoke
 
 on:
+  schedule:
+    - cron: "23 3 * * *"
   workflow_dispatch:
 
 concurrency:
-  group: manual-live-e2e-${{ github.ref }}
+  group: live-smoke-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -15,9 +17,6 @@ jobs:
     name: setup
     runs-on: ubuntu-latest
     environment: Production
-    outputs:
-      d1_analytics_database_id: ${{ steps.ensure_cloudflare.outputs.d1_analytics_database_id }}
-      d1_database_id: ${{ steps.ensure_cloudflare.outputs.d1_database_id }}
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
@@ -34,58 +33,8 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-      - name: Ensure Cloudflare Resources
-        id: ensure_cloudflare
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
-        run: |
-          QUEUES="queue--77656c636f6d65 queue--77656c636f6d652d656d61696c"
-          export QUEUES
-
-          for queue in $QUEUES; do
-            if ! npx wrangler queues list | grep -q "$queue"; then
-              npx wrangler queues create "$queue"
-            fi
-          done
-
-          if [ -n "$CLOUDFLARE_R2_BUCKET_NAME" ] && ! npx wrangler r2 bucket list | grep -q "$CLOUDFLARE_R2_BUCKET_NAME"; then
-            npx wrangler r2 bucket create "$CLOUDFLARE_R2_BUCKET_NAME"
-          fi
-
-          d1_id_for_name() {
-            npx wrangler d1 list --json | node -e '
-              const fs = require("node:fs")
-              const name = process.argv[1]
-              const databases = JSON.parse(fs.readFileSync(0, "utf8"))
-              const match = databases.find((database) => database.name === name)
-              process.stdout.write(match?.uuid || match?.database_id || match?.id || "")
-            ' "$1"
-          }
-
-          ensure_d1() {
-            local name id
-            name="$1"
-            id="$(d1_id_for_name "$name")"
-            if [ -z "$id" ]; then
-              npx wrangler d1 create "$name" >&2
-              id="$(d1_id_for_name "$name")"
-            fi
-            if [ -z "$id" ]; then
-              echo "Failed to resolve Cloudflare D1 database id for $name." >&2
-              exit 1
-            fi
-            printf '%s' "$id"
-          }
-
-          primary_d1_id="$(ensure_d1 vitehub-playground-db)"
-          analytics_d1_id="$(ensure_d1 vitehub-playground-analytics)"
-          echo "d1_database_id=$primary_d1_id" >> "$GITHUB_OUTPUT"
-          echo "d1_analytics_database_id=$analytics_d1_id" >> "$GITHUB_OUTPUT"
-
-  live-e2e:
-    name: live e2e
+  live-smoke:
+    name: live smoke
     needs: setup-cloudflare
     runs-on: ubuntu-latest
     environment: Production
@@ -202,6 +151,15 @@ jobs:
           echo "org_id=$VERCEL_ORG_ID" >> "$GITHUB_OUTPUT"
           echo "project_id=$VERCEL_PROJECT_ID" >> "$GITHUB_OUTPUT"
 
+      - name: Provision Cloudflare resources
+        if: matrix.provider == 'cloudflare'
+        env:
+          BLOB_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+        run: pnpm --dir playground/vite exec vitehub provision run --provider cloudflare
+
       - name: Build playground (cloudflare)
         if: matrix.provider == 'cloudflare'
         env:
@@ -209,45 +167,16 @@ jobs:
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          VITEHUB_D1_ANALYTICS_DATABASE_ID: ${{ needs.setup-cloudflare.outputs.d1_analytics_database_id }}
-          VITEHUB_D1_DATABASE_ID: ${{ needs.setup-cloudflare.outputs.d1_database_id }}
           VITEHUB_CLOUDFLARE_WORKER_NAME: vitehub-playground-vite
           VITEHUB_HOSTING: cloudflare
           VITEHUB_VITE_MODE: e2e
         run: pnpm --dir playground/vite build
 
-      - name: Assert Cloudflare artifact purity
+      - name: Provider Output Contract (cloudflare)
         if: matrix.provider == 'cloudflare'
-        run: |
-          node <<'NODE'
-          const { readFileSync } = require("node:fs")
-          const bundle = readFileSync("playground/vite/dist/vite/index.js", "utf8")
-          if (/from\s+["']@vercel\/functions["']/.test(bundle) || /require\(["']@vercel\/functions["']\)/.test(bundle) || /import\(["']@vercel\/functions["']\)/.test(bundle)) {
-            throw new Error("Cloudflare bundle must not include @vercel/functions imports.")
-          }
-          if (/from\s+["']@vercel\/blob["']/.test(bundle) || /require\(["']@vercel\/blob["']\)/.test(bundle) || /import\(["']@vercel\/blob["']\)/.test(bundle)) {
-            throw new Error("Cloudflare bundle must not include @vercel/blob imports.")
-          }
-          if (/from\s+["']@cloudflare\/sandbox["']/.test(bundle) || /require\(["']@cloudflare\/sandbox["']\)/.test(bundle) || /import\(["']@cloudflare\/sandbox["']\)/.test(bundle)) {
-            throw new Error("Cloudflare bundle must not include bare @cloudflare/sandbox imports.")
-          }
-          if (bundle.includes("@vitejs/devtools") || /import\(["']vite["']\)/.test(bundle)) {
-            throw new Error("Cloudflare bundle must not include Vite or Vite DevTools runtime code.")
-          }
-          if (/createRequire\(\s*import\.meta\.url\s*\)/.test(bundle)) {
-            throw new Error("Cloudflare bundle must not call createRequire(import.meta.url).")
-          }
-          const wrangler = JSON.parse(readFileSync("playground/vite/dist/vite/wrangler.json", "utf8"))
-          if (!Array.isArray(wrangler.triggers?.crons) || !wrangler.triggers.crons.includes("* * * * *")) {
-            throw new Error("Expected Cloudflare wrangler.json to include the daily-marker schedule cron trigger.")
-          }
-          if (!Array.isArray(wrangler.kv_namespaces) || wrangler.kv_namespaces.length === 0) {
-            throw new Error("Expected Cloudflare wrangler.json to include kv_namespaces.")
-          }
-          if (typeof wrangler.artifacts !== "undefined") {
-            throw new Error("Cloudflare wrangler.json must not include Workspace Artifacts bindings.")
-          }
-          NODE
+        env:
+          VITEHUB_OUTPUT_PROVIDER: cloudflare
+        run: pnpm test:output
 
       - name: Dry-run Cloudflare deploy
         if: matrix.provider == 'cloudflare'
@@ -255,6 +184,14 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx wrangler --cwd playground/vite/dist/vite deploy --config wrangler.json --dry-run
+
+      - name: Provision Vercel resources
+        if: matrix.provider == 'vercel'
+        env:
+          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
+          VERCEL_TEAM_ID: ${{ steps.prepare_vercel.outputs.org_id }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: pnpm --dir playground/vite exec vitehub provision run --provider vercel
 
       - name: Build playground (vercel)
         if: matrix.provider == 'vercel'
@@ -272,42 +209,11 @@ jobs:
           VITEHUB_WORKSPACE_BLOB_PREFIX: vitehub/workspace-e2e/vite
         run: pnpm --dir playground/vite build
 
-      - name: Assert Vercel artifact purity
-        if: matrix.provider == 'vercel'
-        run: |
-          node <<'NODE'
-          const { existsSync, readFileSync } = require("node:fs")
-          const bundle = readFileSync("playground/vite/.vercel/output/functions/__server.func/index.mjs", "utf8")
-          if (/createCloudflareArtifactsWorkspaceStore|isomorphic-git/.test(bundle)) {
-            throw new Error("Vercel bundle must not include the Cloudflare Artifacts store implementation.")
-          }
-          if (/cloudflare:workers|@cloudflare\/sandbox/.test(bundle)) {
-            throw new Error("Vercel bundle must not include Cloudflare-only sandbox runtime code.")
-          }
-          if (bundle.includes("@vitejs/devtools") || /import\(["']vite["']\)/.test(bundle)) {
-            throw new Error("Vercel bundle must not include Vite or Vite DevTools runtime code.")
-          }
-          const config = JSON.parse(readFileSync("playground/vite/.vercel/output/config.json", "utf8"))
-          const expected = { path: "/api/vitehub/schedules/vercel/daily-marker", schedule: "* * * * *" }
-          if (!Array.isArray(config.crons) || !config.crons.some(cron => cron.path === expected.path && cron.schedule === expected.schedule)) {
-            throw new Error(`Expected Vercel config.json crons to include ${JSON.stringify(expected)}.`)
-          }
-          const functionFile = "playground/vite/.vercel/output/functions/api/vitehub/schedules/vercel/daily-marker.func/index.mjs"
-          if (!existsSync(functionFile)) {
-            throw new Error(`Expected generated Vercel schedule function at ${functionFile}.`)
-          }
-          if (!readFileSync(functionFile, "utf8").includes("executeStaticSchedule")) {
-            throw new Error("Expected Vercel schedule function to execute the static schedule handler.")
-          }
-          NODE
-
-      - name: Smoke import Vercel function
+      - name: Provider Output Contract (vercel)
         if: matrix.provider == 'vercel'
         env:
-          BLOB_READ_WRITE_TOKEN: ${{ steps.prepare_vercel.outputs.blob_token }}
-          KV_REST_API_TOKEN: ${{ steps.prepare_vercel.outputs.kv_token }}
-          KV_REST_API_URL: ${{ steps.prepare_vercel.outputs.kv_url }}
-        run: node -e "import('./playground/vite/.vercel/output/functions/__server.func/index.mjs')"
+          VITEHUB_OUTPUT_PROVIDER: vercel
+        run: pnpm test:output
 
       - name: Relax Vercel cron cadence for live deploy
         if: matrix.provider == 'vercel'
@@ -400,3 +306,29 @@ jobs:
 
       - name: DB Live E2E
         run: pnpm --dir packages/database test:e2e --url "${{ steps.url.outputs.url }}"
+
+  report-failure:
+    name: report failure
+    needs: [setup-cloudflare, live-smoke]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            const title = "Live Smoke failure"
+            const body = [
+              `Nightly Live Smoke failed: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              "",
+              "Keep this issue open until a green scheduled run; close it then.",
+            ].join("\n")
+            const { data: issues } = await github.rest.issues.listForRepo({
+              ...context.repo, labels: "live-smoke-failure", state: "open",
+            })
+            if (issues.length > 0) {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: issues[0].number, body })
+            } else {
+              await github.rest.issues.create({ ...context.repo, title, body, labels: ["live-smoke-failure"] })
+            }

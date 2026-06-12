@@ -38,6 +38,7 @@
     "test": "pnpm --filter @vite-hub/internal build && pnpm --filter @vite-hub/agent build && pnpm --dir . build && vitest run"
   },
   "dependencies": {
+    "@vite-hub/internal": "workspace:*",
     "pathe": "catalog:unjs"
   },
   "peerDependencies": {

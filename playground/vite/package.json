@@ -29,5 +29,8 @@
     "h3": "catalog:unjs",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite"
+  },
+  "devDependencies": {
+    "@vite-hub/cli": "workspace:*"
   }
 }

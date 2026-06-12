@@ -7,6 +7,7 @@ import { resolveDBViteConfig } from "./config.ts"
 import { writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { dbPackageName, generateProviderOutputs } from "./internal/vite-build.ts"
 
+import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { Plugin, ResolvedConfig } from "vite"
 import type { DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
 
@@ -24,7 +25,7 @@ export interface DBVitePluginAPI {
 
 interface DBCliContributingPlugin {
   vitehub?: {
-    cli?: unknown
+    cli?: () => Promise<ViteHubCliContributor | undefined>
   }
 }
 
@@ -108,9 +109,13 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     },
     vitehub: {
       cli: async () => {
-        const { createDbCliContributor } = await import(/* @vite-ignore */ "./cli.js")
         const db = resolvedOptions()
-        return createDbCliContributor(db === false ? false : db?.cli, refreshRuntimeConfig)
+        if (db === false) return
+        const { createDbCliContributor } = await import(/* @vite-ignore */ "./cli.js")
+        const { createDatabaseProvisionStep } = await import(/* @vite-ignore */ "./provision.js")
+        const contributor = createDbCliContributor(db?.cli, refreshRuntimeConfig)
+        const provision = [createDatabaseProvisionStep(() => resolved?.root ?? process.cwd(), db)]
+        return contributor ? { ...contributor, provision } : { namespaces: [], provision }
       },
     },
     async configResolved(config) {

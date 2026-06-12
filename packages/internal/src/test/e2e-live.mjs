@@ -98,12 +98,14 @@ export async function verifyApp(url) {
 export function createRunConfig(args, namespace) {
   const provider = getRequiredArg(args, "provider")
   const url = getRequiredArg(args, "url")
+  const mode = args.mode === "local" ? "local" : "live"
   const timeoutMs = Number(args.timeout || 120_000)
   const markerPrefix = `vitehub-${namespace}-e2e-${provider}`
 
   return {
     deferMarker: createMarker(markerPrefix, "defer"),
     directMarker: createMarker(markerPrefix, "direct"),
+    mode,
     provider,
     timeoutMs,
     url,

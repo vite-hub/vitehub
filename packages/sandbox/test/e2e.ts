@@ -85,6 +85,7 @@ const mode = values.mode ?? "local"
 const provider = values.provider as Provider | undefined
 
 if (mode !== "live")
+  // Sandbox is the documented Local Provider Run exception: it needs real containers.
   throw new TypeError(liveOnlyMessage)
 assert.ok(values.url, "--url required for live mode")
 assert.ok(provider && providers.includes(provider), "--provider required for live mode")

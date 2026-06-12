@@ -17,6 +17,8 @@
     "./feature-bridge/hosting": "./dist/feature-bridge/hosting.js",
     "./integrations/hex": "./dist/integrations/hex.js",
     "./object": "./dist/object.js",
+    "./provision": "./dist/provision.js",
+    "./provision-state": "./dist/provision-state.js",
     "./source-scanner": "./dist/source-scanner.js",
     "./runtime/app": "./dist/runtime/app.js",
     "./runtime/context": "./dist/runtime/context.js",

@@ -90,9 +90,9 @@ const { values } = parseArgs({
 const mode = values.mode ?? "local"
 const provider = values.provider as Provider | undefined
 
-if (mode !== "live")
+if (mode !== "live" && mode !== "local")
   throw new TypeError(liveOnlyMessage)
-assert.ok(values.url, "--url required for live mode")
+assert.ok(values.url, `--url required for ${mode} mode`)
 assert.ok(provider && providers.includes(provider), "--provider required for live mode")
 
 await runLive(values.url, provider)

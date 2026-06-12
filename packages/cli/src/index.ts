@@ -4,7 +4,10 @@ import { realpathSync } from "node:fs"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 
+import { collectViteHubProvisionSteps } from "@vite-hub/internal/cli"
 import { resolve } from "pathe"
+
+import { runProvision } from "./provision.ts"
 
 import type { InlineConfig, ResolvedConfig } from "vite"
 
@@ -126,6 +129,22 @@ async function collectViteHubCliNamespaces(plugins: readonly unknown[]): Promise
   return [...namespaces.values()]
 }
 
+// Built-in namespace that orchestrates package-contributed Provision Steps.
+function createProvisionNamespace(plugins: readonly unknown[]): ViteHubCliCommandNamespace {
+  const collectSteps = () => collectViteHubProvisionSteps(plugins)
+  const run = (args: string[], context: ViteHubCliContext) => runProvision(args, context, { collectSteps })
+  return {
+    description: "Idempotently create missing provider resources.",
+    features: [{
+      description: "Create missing provider resources for the app's Definitions.",
+      name: "run",
+      run,
+      usage: "vitehub provision run --provider <cloudflare|vercel> [--dry-run]",
+    }],
+    name: "provision",
+  }
+}
+
 function writeRootHelp(namespaces: ViteHubCliCommandNamespace[], stdout: ViteHubCliContext["stdout"]): void {
   stdout.write([
     "Usage: vitehub <namespace> <feature> [args...]",
@@ -160,7 +179,10 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   const stderr = options.stderr || process.stderr
   const config = await (options.loadConfig || loadViteConfig)(cwd)
   const rootDir = resolve(config.root || cwd)
-  const namespaces = await collectViteHubCliNamespaces(config.plugins)
+  const namespaces = [
+    ...await collectViteHubCliNamespaces(config.plugins),
+    createProvisionNamespace(config.plugins),
+  ]
 
   const context: ViteHubCliContext = {
     cwd,

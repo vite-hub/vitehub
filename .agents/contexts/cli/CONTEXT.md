@@ -49,6 +49,18 @@ _Avoid_: Public CLI API, command builder, app config
 A package integration that registers a CLI Command Namespace or CLI Feature through CLI Primitives.
 _Avoid_: CLI plugin, standalone command package
 
+**Provision**:
+The ViteHub CLI workflow that idempotently creates missing provider resources required by an app's Definitions, without ever deleting or mutating existing ones.
+_Avoid_: Ensure (taken by runtime blob validation), setup script, deploy
+
+**Provision Step**:
+A package-contributed unit of provisioning owned by the primitive package whose resource it creates.
+_Avoid_: Workflow bash, central provisioner, provider script
+
+**Provision State**:
+The gitignored local record of non-secret provisioned identifiers that Vite Integrations read as a binding-id source.
+_Avoid_: Secrets file, env file, GitHub output
+
 ## Relationships
 
 - The **ViteHub CLI** may expose workflows owned by multiple ViteHub packages.
@@ -67,6 +79,11 @@ _Avoid_: CLI plugin, standalone command package
 - An **Agent Eval Target** identifies Agent Eval files by path filter.
 - **Agent Eval Output Mode** defaults to concise human output and can be changed to script-friendly structured output.
 - Durable Agent Eval Runner defaults should come from built-in defaults or `agent.eval` on the Agent Package integration surface.
+- `vitehub provision` is the canonical command for **Provision**; it aggregates package-contributed **Provision Steps**.
+- A **Provision Step** talks to provider APIs through shared provider clients, not by shelling out to provider CLIs.
+- **Provision** writes non-secret identifiers to **Provision State** and pushes secrets to the provider's env store; secrets never land on disk.
+- Explicit environment variables override **Provision State** when both name the same binding.
+- Builds never provision: a Vite Integration may read **Provision State** but must not create provider resources.
 
 ## Example dialogue
 

@@ -5,7 +5,17 @@ import { requestJson, runE2E } from "@vite-hub/internal/test/e2e-live"
 
 async function dispatchProviderSchedule(run) {
   if (run.provider !== "vercel") {
-    return undefined
+    if (run.mode !== "local") {
+      return undefined
+    }
+    // wrangler dev --test-scheduled exposes /__scheduled to fire cron triggers on demand.
+    const startedAt = Date.now()
+    const url = new URL("/__scheduled?cron=*+*+*+*+*", run.url)
+    const response = await fetch(url, { method: "POST" })
+    if (!response.ok) {
+      throw new Error(`POST ${url} failed with ${response.status}: ${await response.text()}`)
+    }
+    return { dispatched: true, startedAt }
   }
   const startedAt = Date.now()
   const url = new URL("/api/vitehub/schedules/vercel/daily-marker", run.url)

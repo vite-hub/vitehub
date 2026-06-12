@@ -35,6 +35,7 @@ export default defineConfig({
     "src/drivers/vercel.ts",
     "src/drivers/vercel-bundled.ts",
     "src/index.ts",
+    "src/provision.ts",
     "src/vite.ts",
     "src/runtime/cloudflare-vite.ts",
     "src/runtime/storage.ts",
