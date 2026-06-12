@@ -127,18 +127,21 @@ export interface AgentTriggerInvokeResult<CALL_OPTIONS = unknown> {
   run?: AgentRunMetadata
 }
 
-export interface AgentWebhookRegistrationDefinition {
+export type AgentWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  MaybeResolvable<string | false, AgentCallbackContext<TRuntimeConfig>>
+
+export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   id?: string
   method?: "POST" | (string & {})
   path?: string
   provider: string
   secretHeader?: string
-  secretToken?: string | false
+  secretToken?: AgentWebhookSecretToken<TRuntimeConfig>
   url?: string
 }
 
-export type AgentChatWebhookRegistrationDefinition =
-  Omit<AgentWebhookRegistrationDefinition, "provider"> & { provider?: string }
+export type AgentChatWebhookRegistrationDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  Omit<AgentWebhookRegistrationDefinition<TRuntimeConfig>, "provider"> & { provider?: string }
 
 export interface AgentTriggerContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -162,7 +165,7 @@ export interface AgentTriggerDefinition<
   input?: unknown
   invoke: (context: AgentTriggerContext<TRuntimeConfig, Name>, input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   output?: "events" | "ui-message-stream" | (string & {})
-  webhooks?: AgentWebhookRegistrationDefinition[]
+  webhooks?: AgentWebhookRegistrationDefinition<TRuntimeConfig>[]
 }
 
 export interface ResolvedAgentTriggerDefinition<
@@ -178,7 +181,7 @@ export interface ResolvedAgentTriggerDefinition<
   invoke: (input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   name: string
   output?: "events" | "ui-message-stream" | (string & {})
-  webhooks?: AgentWebhookRegistrationDefinition[]
+  webhooks?: AgentWebhookRegistrationDefinition<TRuntimeConfig>[]
 }
 
 export interface AgentRunCallbackContext<
@@ -724,7 +727,7 @@ export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
   stream?: boolean
   transcripts?: TranscriptsConfig
   userName?: string
-  webhooks?: Record<string, AgentChatWebhookRegistrationDefinition | AgentChatWebhookRegistrationDefinition[]>
+  webhooks?: Record<string, AgentChatWebhookRegistrationDefinition<TRuntimeConfig> | AgentChatWebhookRegistrationDefinition<TRuntimeConfig>[]>
   workflow?: never
   [key: string]: unknown
 }

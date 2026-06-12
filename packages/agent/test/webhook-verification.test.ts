@@ -58,6 +58,40 @@ describe("agent webhook verification", () => {
     expect(invoked).not.toHaveBeenCalled()
   })
 
+  it("resolves chat webhook secret tokens from runtime context", async () => {
+    const invoked = vi.fn(() => "ok")
+    const secretToken = vi.fn(context => String(context.cloudflare?.env?.TELEGRAM_WEBHOOK_SECRET_TOKEN))
+    const agent = defineAgent({
+      capabilities: [chat({
+        webhooks: {
+          telegram: { secretToken },
+        },
+      })],
+      run: invoked,
+    })
+
+    const request = new Request("https://example.com", {
+      headers: { "x-telegram-bot-api-secret-token": "secret-token" },
+    })
+    await expect(runAgentTrigger(agent, {
+      ...runtime(request),
+      cloudflare: {
+        env: {
+          TELEGRAM_WEBHOOK_SECRET_TOKEN: "secret-token",
+        },
+      },
+    }, "chat.message", chatInput())).resolves.toBe("ok")
+
+    expect(secretToken).toHaveBeenCalledWith(expect.objectContaining({
+      cloudflare: {
+        env: {
+          TELEGRAM_WEBHOOK_SECRET_TOKEN: "secret-token",
+        },
+      },
+    }))
+    expect(invoked).toHaveBeenCalledTimes(1)
+  })
+
   it("fails closed when a targeted registration has no configured secret token", async () => {
     const invoked = vi.fn(() => "ok")
     const agent = defineAgent({
