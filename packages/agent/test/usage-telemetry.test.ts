@@ -198,6 +198,72 @@ describe("usage telemetry", () => {
     })
   })
 
+  it("attaches streamed usage telemetry to results with getter-only usage properties", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { streamAgentOutputToEvents } = await import("../src/agent-output.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+
+    class GetterOnlyUsageResult {
+      fullStream = (async function* () {
+        yield { text: "ok", type: "text-delta" }
+        yield {
+          finishReason: "stop",
+          totalUsage: {
+            inputTokens: 2,
+            outputTokens: 3,
+          },
+          type: "finish",
+        }
+      })()
+
+      get usage() {
+        return undefined
+      }
+    }
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry(),
+      ],
+      run: () => new GetterOnlyUsageResult(),
+    })
+
+    const output = await streamAgent(agent, runtime(), {})
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: expect.objectContaining({
+          usage: {
+            inputTokens: 2,
+            outputTokens: 3,
+            totalTokens: 5,
+          },
+        }),
+      },
+      { reason: "stop", type: "finish" },
+    ])
+    expect(output).toMatchObject({
+      usage: {
+        inputTokens: 2,
+        outputTokens: 3,
+        totalTokens: 5,
+      },
+      usageRecord: {
+        usage: {
+          inputTokens: 2,
+          outputTokens: 3,
+          totalTokens: 5,
+        },
+      },
+    })
+  })
+
   it("does not fail the invocation when pricing fails", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { usageTelemetry } = await import("../src/capabilities.ts")
