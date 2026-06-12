@@ -332,6 +332,23 @@ function toReadableAsyncIterableStream<T>(iterable: AsyncIterable<T>): AsyncIter
   }))
 }
 
+function defineUsageTelemetryOutput(output: UnknownRecord, usageRecord: AgentUsageRecord) {
+  Object.defineProperties(output, {
+    usage: {
+      configurable: true,
+      enumerable: true,
+      value: usageRecord.usage,
+      writable: true,
+    },
+    usageRecord: {
+      configurable: true,
+      enumerable: true,
+      value: usageRecord,
+      writable: true,
+    },
+  })
+}
+
 function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
   result: T,
   options: UsageTelemetryOptions,
@@ -344,9 +361,7 @@ function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
   const clone = Object.create(Object.getPrototypeOf(result)) as T
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(result))
   let stream = toReadableAsyncIterableStream(withUsageTelemetryStream(fullStream, options, run, (usageRecord) => {
-    const output = clone as UnknownRecord
-    output.usage = usageRecord.usage
-    output.usageRecord = usageRecord
+    defineUsageTelemetryOutput(clone as UnknownRecord, usageRecord)
   }))
   Object.defineProperty(clone, "fullStream", {
     configurable: true,
