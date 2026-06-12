@@ -30,7 +30,7 @@ import type {
 } from "./types.ts"
 import type { AccessChatIdentity } from "./capabilities/access.ts"
 import type { AudioData, MessagePart } from "./messages.ts"
-import type { Adapter, Attachment, ChatConfig, Lock, Message as ChatSdkMessage, MessageContext, QueueEntry, StateAdapter, Thread, WebhookOptions } from "chat"
+import type { Adapter, Attachment, ChatConfig, Lock, Message as ChatSdkMessage, MessageContext, QueueEntry, SentMessage, StateAdapter, Thread, WebhookOptions } from "chat"
 
 interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
@@ -275,7 +275,12 @@ async function collectAgentOutput(result: unknown): Promise<string> {
   return text.trim()
 }
 
-function streamAgentOutputToChatText(result: Promise<unknown>): AsyncIterable<string> {
+type ChatTextStream = AsyncIterable<string> & {
+  getText: () => string
+}
+
+function streamAgentOutputToChatText(result: Promise<unknown>): ChatTextStream {
+  let collected = ""
   return {
     async *[Symbol.asyncIterator]() {
       const output = await result
@@ -283,16 +288,22 @@ function streamAgentOutputToChatText(result: Promise<unknown>): AsyncIterable<st
         if (output.headers.get("content-type")?.includes("application/json")) {
           const body = await output.clone().json().catch(() => undefined)
           if (isRecord(body)) {
-            if (typeof body.text === "string") yield body.text
+            if (typeof body.text === "string") {
+              collected += body.text
+              yield body.text
+            }
             return
           }
         }
-        yield await output.text()
+        const bodyText = await output.text()
+        collected += bodyText
+        yield bodyText
         return
       }
 
       for await (const event of streamAgentOutputToEvents(output)) {
         if (event.type === "text-delta") {
+          collected += event.text
           yield event.text
         }
         if (event.type === "error") {
@@ -300,6 +311,19 @@ function streamAgentOutputToChatText(result: Promise<unknown>): AsyncIterable<st
         }
       }
     },
+    getText: () => collected,
+  }
+}
+
+async function commitStreamedChatResponse(
+  thread: Thread,
+  message: SentMessage,
+  response: ChatTextStream,
+): Promise<void> {
+  if (!thread.adapter.stream) return
+  const markdown = response.getText()
+  if (markdown.trim()) {
+    await message.edit({ markdown })
   }
 }
 
@@ -818,7 +842,9 @@ async function handleChatSdkMessage(
       const result = streamAgent(agent as never, runContext as never, invocationInput as never, {
         output: "events",
       })
-      await thread.post(streamAgentOutputToChatText(result))
+      const response = streamAgentOutputToChatText(result)
+      const message = await thread.post(response)
+      await commitStreamedChatResponse(thread, message, response)
       await flushChatFinishExtensionMessages(thread, chatFinish)
     }
   }
