@@ -228,7 +228,9 @@ function searchNoMatchFeedback(command: string, result: ShellObservation, broadS
   return ""
 }
 
-function preflightUnsupportedWorkspaceCommand(command: string, commands: string[] = []): ShellObservation | undefined {
+function preflightUnsupportedWorkspaceCommand(command: string, commands?: string[]): ShellObservation | undefined {
+  if (!commands) return undefined
+  if (usesCompoundShellSyntax(command)) return undefined
   const allowed = new Set([...commands, "cd", "false", "true"])
   for (const segment of analyzeWorkspaceInspectionCommand(command)) {
     const executable = workspaceExecutable(segment.words)
@@ -260,9 +262,39 @@ function workspaceExecutable(words: string[]) {
   }
 }
 
+function usesCompoundShellSyntax(command: string) {
+  return analyzeWorkspaceInspectionCommand(command)
+    .some(segment => isCompoundShellSyntaxWord(segment.words[0] || ""))
+}
+
+function isCompoundShellSyntaxWord(word: string) {
+  return word === "{"
+    || word.startsWith("(")
+    || /^[A-Za-z_][A-Za-z0-9_]*\(\)$/.test(word)
+    || shellSyntaxWords.has(word)
+}
+
 function isAssignmentWord(word: string) {
   return /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(word)
 }
+
+const shellSyntaxWords = new Set([
+  "case",
+  "do",
+  "done",
+  "elif",
+  "else",
+  "esac",
+  "fi",
+  "for",
+  "function",
+  "if",
+  "select",
+  "then",
+  "time",
+  "until",
+  "while",
+])
 
 function isConcreteWorkspacePath(path: string) {
   return isWorkspacePathCandidate(path) && cleanWorkspaceShellPath(path) !== ""

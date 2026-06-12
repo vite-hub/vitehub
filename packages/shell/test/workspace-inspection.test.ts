@@ -27,6 +27,23 @@ describe("@vite-hub/shell workspace inspection", () => {
       stdout: "# Docs\n/workspace\n",
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "cat README.md", {
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "# Docs\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "if true; then cat README.md; fi", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "# Docs\n",
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "cat README.md | wc -l", {
       commands: ["cat", "wc"],
       cwd: workspaceMountPoint,

@@ -83,6 +83,9 @@ describe("createWorkspaceTools", () => {
     })
 
     await expect(runShell(tools, "ls .")).resolves.toMatchObject({ exitCode: 0, stdout: "README.md\nmodels\n" })
+    expect(tools.shell.description).toContain("`find ingestion -type f -name '*.sql'`")
+    expect(tools.shell.description).not.toContain("`rg")
+    expect(tools.shell.description).not.toContain("cat forecasting-engine")
     await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({
       event: "policy_denied",
       exitCode: 126,
