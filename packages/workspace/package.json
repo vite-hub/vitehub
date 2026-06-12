@@ -48,6 +48,7 @@
     "./internal/runtime/empty-registry": "./dist/runtime/empty-registry.js",
     "./internal/runtime/state": "./dist/runtime/state.js",
     "./internal/stores/cloudflare-artifacts": "./dist/providers/cloudflare/artifacts-store.js",
+    "./internal/stores/github": "./dist/providers/github/store.js",
     "./internal/stores/vercel-blob": "./dist/providers/vercel/blob-store.js"
   },
   "scripts": {

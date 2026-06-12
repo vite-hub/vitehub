@@ -16,6 +16,7 @@ export {
   isMaskedWorkspaceRuntimeValue,
   normalizeWorkspaceStoreOptions,
   resolveCloudflareArtifactsStore,
+  resolveGitHubWorkspaceStore,
   resolveRuntimeVercelBlobWorkspaceStore,
   resolveVercelBlobWorkspaceStore,
 } from "./storage/provider.ts"

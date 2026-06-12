@@ -570,6 +570,9 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
   if (workspaceProvider === "cloudflare-artifacts") {
     imports.push(`import { createCloudflareArtifactsWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/providers/cloudflare/artifacts-store.ts")))}`)
   }
+  if (workspaceProvider === "github") {
+    imports.push(`import { createGitHubWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/providers/github/store.ts")))}`)
+  }
 
   if (artifacts.queueRegistryFile) {
     imports.push(`import queueRegistry from ${JSON.stringify(createImportPath(file, artifacts.queueRegistryFile))}`)
@@ -628,6 +631,13 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
           "  return createCloudflareArtifactsWorkspaceStore(store, workspaceName)",
           "})",
         ]
+      : workspaceProvider === "github"
+        ? [
+            "setWorkspaceHostedStoreLoader((store, workspaceName) => {",
+            "  if (store.provider !== 'github') throw new Error(`[vitehub] Unsupported workspace store for Cloudflare build: ${store.provider}`)",
+            "  return createGitHubWorkspaceStore(store, workspaceName)",
+            "})",
+          ]
       : ["setWorkspaceHostedStoreLoader(undefined)"]),
     `setWorkspaceRuntimeRegistry(${artifacts.workspaceRegistryFile ? "workspaceRegistry" : "{ }"})`,
     "const defaultHandler = toWebHandler(new H3())",
@@ -715,6 +725,9 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
   if (workspaceProvider === "vercel-blob") {
     imports.push(`import { createVercelBlobWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/providers/vercel/blob-store.ts")))}`)
   }
+  if (workspaceProvider === "github") {
+    imports.push(`import { createGitHubWorkspaceStore } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/providers/github/store.ts")))}`)
+  }
 
   if (artifacts.queueRegistryFile) {
     imports.push(`import queueRegistry from ${JSON.stringify(createImportPath(file, artifacts.queueRegistryFile))}`)
@@ -753,6 +766,13 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
           "  return createVercelBlobWorkspaceStore(store, workspaceName)",
           "})",
         ]
+      : workspaceProvider === "github"
+        ? [
+            "setWorkspaceHostedStoreLoader((store, workspaceName) => {",
+            "  if (store.provider !== 'github') throw new Error(`[vitehub] Unsupported workspace store for Vercel build: ${store.provider}`)",
+            "  return createGitHubWorkspaceStore(store, workspaceName)",
+            "})",
+          ]
       : ["setWorkspaceHostedStoreLoader(undefined)"]),
     `setWorkspaceRuntimeRegistry(${artifacts.workspaceRegistryFile ? "workspaceRegistry" : "{ }"})`,
     "const appInstance = new H3()",
