@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url"
 import { afterAll, describe, expect, it } from "vitest"
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
-import { generateProviderOutputs, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
+import { generateProviderOutputs, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
 
 const tempDirs: string[] = []
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -18,6 +18,8 @@ async function createTempProject(prefix: string) {
   await mkdir(join(rootDir, "src"), { recursive: true })
   await mkdir(join(rootDir, "dist", "client"), { recursive: true })
   await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+    "import { defineSchedule } from '@vite-hub/schedule'",
+    "",
     "export default defineSchedule({ cron: '0 0 * * *', handler: () => 'ok' })",
     "",
   ].join("\n"), "utf8")
@@ -61,6 +63,25 @@ describe("schedule provider output", () => {
     expect(await readFile(vercelFunction, "utf8")).toContain("executeStaticSchedule")
   })
 
+  it("bundles schedule definitions imported from root and definition subpaths", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-definition-subpath-")
+    await writeFile(join(rootDir, "src", "reports.schedule.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule/definition'",
+      "",
+      "export default defineSchedule({ cron: '0 1 * * *', handler: () => 'reports' })",
+      "",
+    ].join("\n"), "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const cloudflareWorker = await readFile(join(createDefaultCloudflareOutputRoot(rootDir), "index.js"), "utf8")
+    expect(cloudflareWorker).toContain("\"cleanup\"")
+    expect(cloudflareWorker).toContain("\"reports\"")
+  })
+
   it("preserves existing provider output files when adding schedule output", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-preserve-")
     const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
@@ -97,6 +118,15 @@ describe("schedule provider output", () => {
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/vite.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/vite.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
     expect(resolveScheduleRuntimeEntry("file:///home/user/src/app/node_modules/@vite-hub/schedule/dist/internal/provider-output.js")).toBe("/home/user/src/app/node_modules/@vite-hub/schedule/dist/runtime/static.js")
+  })
+
+  it("resolves the static schedule definition entry from package source and dist layouts", () => {
+    expect(resolveScheduleDefinitionEntry("file:///repo/packages/schedule/src/internal/provider-output.ts")).toBe("/repo/packages/schedule/src/definition.ts")
+    expect(resolveScheduleDefinitionEntry("file:///C:/repo/packages/schedule/src/internal/provider-output.ts")).toBe("/C:/repo/packages/schedule/src/definition.ts")
+    expect(resolveScheduleDefinitionEntry("file:///repo/packages/schedule/dist/internal/provider-output.js")).toBe("/repo/packages/schedule/dist/definition.js")
+    expect(resolveScheduleDefinitionEntry("file:///repo/packages/schedule/dist/vite.js")).toBe("/repo/packages/schedule/dist/definition.js")
+    expect(resolveScheduleDefinitionEntry("file:///repo/packages/schedule/vite.js")).toBe("/repo/packages/schedule/dist/definition.js")
+    expect(resolveScheduleDefinitionEntry("file:///home/user/src/app/node_modules/@vite-hub/schedule/dist/internal/provider-output.js")).toBe("/home/user/src/app/node_modules/@vite-hub/schedule/dist/definition.js")
   })
 
   it("writes Cloudflare schedule output to an existing Wrangler main", async () => {

@@ -13,6 +13,7 @@ import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-cat
 import { discoverScheduleDefinitions } from "../discovery.ts"
 import { getVercelSchedulePath } from "../integrations/vercel.ts"
 
+import type { Plugin } from "esbuild"
 import type { DiscoveredScheduleDefinition } from "../types.ts"
 
 export const schedulePackageName = "@vite-hub/schedule"
@@ -33,7 +34,22 @@ export function resolveScheduleRuntimeEntry(metaUrl = import.meta.url) {
     : resolve(dirname(file), "dist/runtime/static.js")
 }
 
+export function resolveScheduleDefinitionEntry(metaUrl = import.meta.url) {
+  const file = fileURLToPath(metaUrl)
+  const normalizedFile = file.replace(/\\/g, "/")
+  if (normalizedFile.endsWith("/src/internal/provider-output.ts")) {
+    return resolve(dirname(file), "../definition.ts")
+  }
+  if (normalizedFile.endsWith("/dist/internal/provider-output.js")) {
+    return resolve(dirname(file), "../definition.js")
+  }
+  return normalizedFile.includes("/dist/")
+    ? resolve(dirname(file), "definition.js")
+    : resolve(dirname(file), "dist/definition.js")
+}
+
 const scheduleRuntimeEntry = resolveScheduleRuntimeEntry()
+const scheduleDefinitionEntry = resolveScheduleDefinitionEntry()
 
 interface GeneratedScheduleArtifacts {
   cloudflareWorkerFile: string
@@ -469,6 +485,17 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
   ].join("\n")
 }
 
+function createScheduleDefinitionAliasPlugin(): Plugin {
+  return {
+    name: "vitehub-schedule-definition-alias",
+    setup(build) {
+      build.onResolve({ filter: /^@vite-hub\/schedule(?:\/definition)?$/ }, () => ({
+        path: scheduleDefinitionEntry,
+      }))
+    },
+  }
+}
+
 async function writeProviderEntries(rootDir: string): Promise<GeneratedScheduleArtifacts> {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   await mkdir(generatedDir, { recursive: true })
@@ -521,7 +548,12 @@ export async function writeVercelScheduleFunctions(options: {
     const wrapperFile = resolve(functionDir, "index.source.mjs")
     await mkdir(functionDir, { recursive: true })
     await writeFile(wrapperFile, renderProviderEntry(wrapperFile, options.registryFile, "vercel", definition.name), "utf8")
-    await bundleEsmEntry(wrapperFile, functionFile, { alias: options.bundleAlias, format: "esm", platform: "node" })
+    await bundleEsmEntry(wrapperFile, functionFile, {
+      alias: options.bundleAlias,
+      format: "esm",
+      platform: "node",
+      plugins: [createScheduleDefinitionAliasPlugin()],
+    })
     await rm(wrapperFile, { force: true })
     await writeFile(resolve(functionDir, ".vc-config.json"), `${JSON.stringify(createNodeFunctionConfig(), null, 2)}\n`, "utf8")
   }
@@ -585,6 +617,7 @@ async function writeCloudflareScheduleOutput(options: {
       conditions: ["workerd", "worker", "browser", "default"],
       format: "esm",
       platform: "neutral",
+      plugins: [createScheduleDefinitionAliasPlugin()],
     }),
     writeFile(configFile, `${JSON.stringify(wranglerConfig, null, 2)}\n`, "utf8"),
   ])

@@ -12,6 +12,7 @@ export default defineConfig({
   },
   dts: true,
   entry: [
+    "src/definition.ts",
     "src/index.ts",
     "src/runtime.ts",
     "src/runtime/state.ts",

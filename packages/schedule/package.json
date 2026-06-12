@@ -26,6 +26,7 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./definition": "./dist/definition.js",
     "./runtime": "./dist/runtime.js",
     "./runtime/state": "./dist/runtime/state.js",
     "./runtime/static": "./dist/runtime/static.js",
