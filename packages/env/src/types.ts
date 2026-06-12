@@ -76,6 +76,7 @@ export interface EnvVariableOptions {
 export interface EnvViteConfigOptions {
   define?: Record<string, EnvVariableDeclaration>
   public?: Record<string, EnvVariableDeclaration>
+  server?: EnvRuntimeConfigOptions
 }
 
 export type EnvRuntimeStaticValue = null | string | number | boolean | EnvRuntimeStaticValue[]

@@ -14,6 +14,7 @@ export default defineConfig({
     "src/index.ts",
     "src/presets.ts",
     "src/schema.ts",
+    "src/server.ts",
     "src/secret.ts",
     "src/virtual.ts",
     "src/vite.ts",

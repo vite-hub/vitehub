@@ -29,8 +29,8 @@ export function validateEnvConfigShape(config: EnvViteConfigOptions | undefined,
 
   const viteConfig = config as EnvViteConfigOptions
   for (const key of Object.keys(viteConfig)) {
-    if (key !== "define" && key !== "public") {
-      throw new EnvError(`Invalid declaration at env.${key}. Vite env config only supports env.public and env.define.`)
+    if (key !== "define" && key !== "public" && key !== "server") {
+      throw new EnvError(`Invalid declaration at env.${key}. Vite env config only supports env.public, env.define, and env.server.`)
     }
   }
 
