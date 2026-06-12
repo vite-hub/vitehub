@@ -218,38 +218,11 @@ jobs:
           VITEHUB_VITE_MODE: e2e
         run: pnpm --dir playground/vite build
 
-      - name: Assert Cloudflare artifact purity
+      - name: Provider Output Contract (cloudflare)
         if: matrix.provider == 'cloudflare'
-        run: |
-          node <<'NODE'
-          const { readFileSync } = require("node:fs")
-          const bundle = readFileSync("playground/vite/dist/vite/index.js", "utf8")
-          if (/from\s+["']@vercel\/functions["']/.test(bundle) || /require\(["']@vercel\/functions["']\)/.test(bundle) || /import\(["']@vercel\/functions["']\)/.test(bundle)) {
-            throw new Error("Cloudflare bundle must not include @vercel/functions imports.")
-          }
-          if (/from\s+["']@vercel\/blob["']/.test(bundle) || /require\(["']@vercel\/blob["']\)/.test(bundle) || /import\(["']@vercel\/blob["']\)/.test(bundle)) {
-            throw new Error("Cloudflare bundle must not include @vercel/blob imports.")
-          }
-          if (/from\s+["']@cloudflare\/sandbox["']/.test(bundle) || /require\(["']@cloudflare\/sandbox["']\)/.test(bundle) || /import\(["']@cloudflare\/sandbox["']\)/.test(bundle)) {
-            throw new Error("Cloudflare bundle must not include bare @cloudflare/sandbox imports.")
-          }
-          if (bundle.includes("@vitejs/devtools") || /import\(["']vite["']\)/.test(bundle)) {
-            throw new Error("Cloudflare bundle must not include Vite or Vite DevTools runtime code.")
-          }
-          if (/createRequire\(\s*import\.meta\.url\s*\)/.test(bundle)) {
-            throw new Error("Cloudflare bundle must not call createRequire(import.meta.url).")
-          }
-          const wrangler = JSON.parse(readFileSync("playground/vite/dist/vite/wrangler.json", "utf8"))
-          if (!Array.isArray(wrangler.triggers?.crons) || !wrangler.triggers.crons.includes("* * * * *")) {
-            throw new Error("Expected Cloudflare wrangler.json to include the daily-marker schedule cron trigger.")
-          }
-          if (!Array.isArray(wrangler.kv_namespaces) || wrangler.kv_namespaces.length === 0) {
-            throw new Error("Expected Cloudflare wrangler.json to include kv_namespaces.")
-          }
-          if (typeof wrangler.artifacts !== "undefined") {
-            throw new Error("Cloudflare wrangler.json must not include Workspace Artifacts bindings.")
-          }
-          NODE
+        env:
+          VITEHUB_OUTPUT_PROVIDER: cloudflare
+        run: pnpm test:output
 
       - name: Dry-run Cloudflare deploy
         if: matrix.provider == 'cloudflare'
@@ -274,42 +247,11 @@ jobs:
           VITEHUB_WORKSPACE_BLOB_PREFIX: vitehub/workspace-e2e/vite
         run: pnpm --dir playground/vite build
 
-      - name: Assert Vercel artifact purity
-        if: matrix.provider == 'vercel'
-        run: |
-          node <<'NODE'
-          const { existsSync, readFileSync } = require("node:fs")
-          const bundle = readFileSync("playground/vite/.vercel/output/functions/__server.func/index.mjs", "utf8")
-          if (/createCloudflareArtifactsWorkspaceStore|isomorphic-git/.test(bundle)) {
-            throw new Error("Vercel bundle must not include the Cloudflare Artifacts store implementation.")
-          }
-          if (/cloudflare:workers|@cloudflare\/sandbox/.test(bundle)) {
-            throw new Error("Vercel bundle must not include Cloudflare-only sandbox runtime code.")
-          }
-          if (bundle.includes("@vitejs/devtools") || /import\(["']vite["']\)/.test(bundle)) {
-            throw new Error("Vercel bundle must not include Vite or Vite DevTools runtime code.")
-          }
-          const config = JSON.parse(readFileSync("playground/vite/.vercel/output/config.json", "utf8"))
-          const expected = { path: "/api/vitehub/schedules/vercel/daily-marker", schedule: "* * * * *" }
-          if (!Array.isArray(config.crons) || !config.crons.some(cron => cron.path === expected.path && cron.schedule === expected.schedule)) {
-            throw new Error(`Expected Vercel config.json crons to include ${JSON.stringify(expected)}.`)
-          }
-          const functionFile = "playground/vite/.vercel/output/functions/api/vitehub/schedules/vercel/daily-marker.func/index.mjs"
-          if (!existsSync(functionFile)) {
-            throw new Error(`Expected generated Vercel schedule function at ${functionFile}.`)
-          }
-          if (!readFileSync(functionFile, "utf8").includes("executeStaticSchedule")) {
-            throw new Error("Expected Vercel schedule function to execute the static schedule handler.")
-          }
-          NODE
-
-      - name: Smoke import Vercel function
+      - name: Provider Output Contract (vercel)
         if: matrix.provider == 'vercel'
         env:
-          BLOB_READ_WRITE_TOKEN: ${{ steps.prepare_vercel.outputs.blob_token }}
-          KV_REST_API_TOKEN: ${{ steps.prepare_vercel.outputs.kv_token }}
-          KV_REST_API_URL: ${{ steps.prepare_vercel.outputs.kv_url }}
-        run: node -e "import('./playground/vite/.vercel/output/functions/__server.func/index.mjs')"
+          VITEHUB_OUTPUT_PROVIDER: vercel
+        run: pnpm test:output
 
       - name: Relax Vercel cron cadence for live deploy
         if: matrix.provider == 'vercel'
