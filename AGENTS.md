@@ -18,6 +18,8 @@ This should be a bold project. ViteHub depends on primitives built by others, bu
 
 Use Lakebed's agent guidance as the tone reference: a direct letter to the agent working in the repo, written for collaboration on ambitious agent infrastructure rather than passive project documentation. Keep the distinction clear: "you" means the agent working in this repo; "agents" means the agents ViteHub users will build with ViteHub.
 
+Use the Nuxt.com Nuxi agent definition as the runtime prompt reference. In `nuxt/nuxt.com`, the active source prompt is in `layers/nuxi/server/api/chats/[id].post.ts`, with native UI tools in `layers/nuxi/server/utils/tools/`. When designing Agent Definitions, Capabilities, Sources, or workspace `AGENTS.md` files, preserve that shape: identity first, source boundary next, exact tool routing, efficiency rules, debugging flow, web-search limits, and answer style.
+
 Use Better Auth as the reference for composability. ViteHub should make it natural to add plugins and capabilities around Agent Definitions so users can build their own agent systems without ViteHub owning every feature directly.
 
 Use UnJS as the reference for provider-agnostic server primitives. ViteHub should focus on the server primitives that are missing: host-independent runtime behavior, discovery, storage, scheduling, invocation, inspection, and deployment boundaries that can work across frameworks and providers.

@@ -358,6 +358,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 25.6.0
+      '@vite-hub/env':
+        specifier: workspace:*
+        version: link:../env
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal

@@ -1,3 +1,5 @@
+import { relative } from "node:path"
+
 import { createGeneratedDefinitionPath, writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 
 import type { AgentEvalOptions } from "../types.ts"
@@ -27,6 +29,28 @@ export function createAgentEvaliteConfigPath(rootDir: string): string {
   })
 }
 
+export function createAgentEvalSetupFilePath(rootDir: string): string {
+  return createGeneratedDefinitionPath(rootDir, {
+    fileName: "eval-setup.mjs",
+    productName: "agent",
+  })
+}
+
+function normalizeSetupFilePath(rootDir: string, file: string): string {
+  return relative(rootDir, file).replace(/\\/g, "/")
+}
+
+export function withAgentEvalSetupFile(rootDir: string, options: ResolvedAgentEvalOptions): ResolvedAgentEvalOptions {
+  const setupFile = normalizeSetupFilePath(rootDir, createAgentEvalSetupFilePath(rootDir))
+  return {
+    ...options,
+    setupFiles: [
+      setupFile,
+      ...(options.setupFiles || []).filter(file => file !== setupFile),
+    ],
+  }
+}
+
 function withoutUndefined(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(item => withoutUndefined(item))
@@ -52,8 +76,43 @@ export function renderAgentEvaliteConfig(options: ResolvedAgentEvalOptions): str
   ].join("\n")
 }
 
+export function renderAgentEvalSetupFile(): string {
+  return [
+    `import { existsSync } from "node:fs"`,
+    `import { resolve } from "node:path"`,
+    `import { pathToFileURL } from "node:url"`,
+    "",
+    `const rootDir = process.env.VITEHUB_AGENT_EVAL_ROOT || process.cwd()`,
+    `const envRegistryPath = resolve(rootDir, ".vitehub/nitro-runtime/env/registry.mjs")`,
+    "",
+    `async function optionalImport(id) {`,
+    `  try {`,
+    `    return await import(id)`,
+    `  }`,
+    `  catch (error) {`,
+    `    if (error?.code === "ERR_MODULE_NOT_FOUND" || error?.code === "ERR_PACKAGE_PATH_NOT_EXPORTED") {`,
+    `      return undefined`,
+    `    }`,
+    `    throw error`,
+    `  }`,
+    `}`,
+    "",
+    `if (existsSync(envRegistryPath)) {`,
+    `  const envRuntime = await optionalImport("@vite-hub/env/runtime/server")`,
+    `  if (typeof envRuntime?.setEnvRegistry === "function") {`,
+    `    const registry = await import(pathToFileURL(envRegistryPath).href)`,
+    `    envRuntime.setEnvRegistry(registry.default || {})`,
+    `  }`,
+    `}`,
+    "",
+  ].join("\n")
+}
+
 export async function writeAgentEvaliteConfig(rootDir: string, options: ResolvedAgentEvalOptions): Promise<string> {
   const file = createAgentEvaliteConfigPath(rootDir)
-  await writeFileIfChanged(file, renderAgentEvaliteConfig(options))
+  await Promise.all([
+    writeFileIfChanged(createAgentEvalSetupFilePath(rootDir), renderAgentEvalSetupFile()),
+    writeFileIfChanged(file, renderAgentEvaliteConfig(withAgentEvalSetupFile(rootDir, options))),
+  ])
   return file
 }

@@ -37,6 +37,7 @@ _Avoid_: Direct handler call, queue enqueue
 - A **Workflow Provider** backs Workflow Runs.
 - Workflow Provider selection belongs to Integration Options.
 - Workflow run ids belong to Invocation Options when supplied at start time.
+- An Agent Definition can request Workflow-backed Agent Invocations through `runtime: workflow()`, while the **Workflow Package** still owns Workflow Definitions and Workflow Provider integration.
 
 ## Example Dialogue
 
@@ -47,3 +48,4 @@ _Avoid_: Direct handler call, queue enqueue
 
 - Workflow starts and direct handler calls were considered equivalent - resolved: **Workflow Start** means asking the provider to start or resume a run.
 - Queue jobs and Workflow Runs were considered interchangeable - resolved: Queue is delivery; Workflow is durable long-running execution.
+- Direct Vercel Workflows SDK usage and ViteHub `workflow()` runtime were considered interchangeable for the reference agent app - resolved: the app should use ViteHub `workflow()` and prove ViteHub's Workflow Provider path first.

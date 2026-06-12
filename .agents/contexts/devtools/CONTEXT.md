@@ -40,6 +40,10 @@ _Avoid_: Remove plugin, hide route, disable client
 A deterministic Agent used by a playground to exercise a DevTools Feature without external model providers.
 _Avoid_: Dummy bot, fake chat, mock page
 
+**DevTools Runtime Selector**:
+A package-owned selector control in a DevTools Feature that chooses declared runtime simulation state before an inspected development interaction starts.
+_Avoid_: DevTools configuration, hidden request editor, profile mutator
+
 ## Relationships
 
 - The **ViteHub DevTools Client** contains zero or more **DevTools Features**.
@@ -63,6 +67,8 @@ _Avoid_: Dummy bot, fake chat, mock page
 - Hosted delivery is the default behavior for the **ViteHub DevTools Client**.
 - Embedded DevTools client delivery is not a public integration mode.
 - A **DevTools Demo Agent** may exercise **Chat History**, tool-call visibility, and bridge behavior without being a production **Agent**.
+- A **DevTools Runtime Selector** can be disabled after a Chat Session starts when changing the selected value mid-session would create unsupported runtime state.
+- Disabled **DevTools Runtime Selectors** should explain the disabled state with an inline tooltip instead of silently hiding why the value cannot change.
 
 ## Example Dialogue
 

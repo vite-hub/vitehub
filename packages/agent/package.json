@@ -73,6 +73,7 @@
   },
   "peerDependencies": {
     "@ai-sdk/mcp": "catalog:ai",
+    "@vite-hub/env": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "agents": "catalog:ai",
     "ai": "catalog:ai-compat",
@@ -82,6 +83,9 @@
   },
   "peerDependenciesMeta": {
     "@ai-sdk/mcp": {
+      "optional": true
+    },
+    "@vite-hub/env": {
       "optional": true
     },
     "@vite-hub/workflow": {
@@ -105,6 +109,7 @@
   },
   "devDependencies": {
     "@ai-sdk/mcp": "catalog:ai",
+    "@vite-hub/env": "workspace:*",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/workflow": "workspace:*",

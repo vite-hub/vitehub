@@ -24,6 +24,7 @@ type ChatDevtoolsMetadataInput =
 type ResolvedChatDevtoolsMetadata = Required<Omit<ChatDevtoolsMetadata, "title" | "version">> & Pick<ChatDevtoolsMetadata, "title" | "version">
 
 interface ChatDevtoolsSession {
+  invokerProfileId?: string
   name: string
   thinkingFallback?: string | null
   title?: string
@@ -52,6 +53,7 @@ interface NitroAgentDevtoolsRuntimeContext extends AgentRuntimeContext<NitroAgen
 type ChatDevtoolsBridgeBody = {
   action?: string
   chat?: string
+  invokerProfileId?: string
   stream?: boolean
   text?: string
 }
@@ -107,6 +109,7 @@ function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): 
   return {
     files: metadata?.files ? [...metadata.files] : [],
     instructions: metadata?.instructions ? [...metadata.instructions] : [],
+    invokerProfiles: metadata?.invokerProfiles ? [...metadata.invokerProfiles] : [],
     title: metadata?.title,
     tools: metadata?.tools ? [...metadata.tools] : [],
     version: metadata?.version,
@@ -118,6 +121,7 @@ function isChatDevtoolsMetadata(metadata: unknown): metadata is ChatDevtoolsMeta
     && typeof metadata === "object"
     && (Array.isArray((metadata as ChatDevtoolsMetadata).files)
       || Array.isArray((metadata as ChatDevtoolsMetadata).instructions)
+      || Array.isArray((metadata as ChatDevtoolsMetadata).invokerProfiles)
       || typeof (metadata as ChatDevtoolsMetadata).title === "string"
       || Array.isArray((metadata as ChatDevtoolsMetadata).tools)
       || typeof (metadata as ChatDevtoolsMetadata).version === "string")
@@ -191,6 +195,7 @@ async function serializeState(state: ChatDevtoolsHandlerState, selected?: string
     return {
       messages: [],
       name,
+      ...(session.invokerProfileId ? { invokerProfileId: session.invokerProfileId } : {}),
       ...(title ? { title } : {}),
       uiMessages: [...session.uiMessages],
     }
@@ -210,6 +215,8 @@ async function serializeState(state: ChatDevtoolsHandlerState, selected?: string
     chats,
     files: metadata.files,
     instructions: metadata.instructions,
+    invokerProfiles: metadata.invokerProfiles,
+    ...(selectedSession?.invokerProfileId ? { invokerProfileId: selectedSession.invokerProfileId } : {}),
     selected: nextSelected,
     thinkingFallback: selectedSession?.thinkingFallback ?? null,
     ...(title ? { title } : {}),
@@ -240,7 +247,7 @@ function createUserUIMessage(text: string): UIMessage {
 async function sendDevtoolsUIMessage(
   event: H3Event,
   state: ChatDevtoolsHandlerState,
-  input: { chat?: string, stream?: boolean, text?: string },
+  input: { chat?: string, invokerProfileId?: string, stream?: boolean, text?: string },
   onChange?: (next: ChatDevtoolsStateResult) => void | Promise<void>,
 ): Promise<ChatDevtoolsStateResult> {
   if (!input.stream) {
@@ -277,6 +284,9 @@ async function sendDevtoolsUIMessage(
   const agent = resolveRegistryModule(await loader())
   const session = getSession(state, selected)
   state.selected = selected
+  if (!session.uiMessages.length && input.invokerProfileId) {
+    session.invokerProfileId = input.invokerProfileId
+  }
   const userMessage = createUserUIMessage(text)
   const baseMessages = [...session.uiMessages, userMessage]
   const run = createRunMetadata(session, userMessage.id)
@@ -287,6 +297,7 @@ async function sendDevtoolsUIMessage(
 
   const runtimeContext = { ...createRuntimeContext(event), run }
   const triggerInput: AgentChatMessageTriggerInput = {
+    ...(session.invokerProfileId ? { invokerProfileId: session.invokerProfileId } : {}),
     messages: baseMessages,
     run,
     timeout: 90_000,
@@ -401,6 +412,7 @@ async function clearDevtoolsMessages(state: ChatDevtoolsHandlerState, input: { c
   state.selected = selected
   const session = getSession(state, selected)
   session.uiMessages = []
+  session.invokerProfileId = undefined
   session.thinkingFallback = null
   session.title = undefined
   return await serializeState(state, selected)

@@ -6,6 +6,10 @@ import {
 } from "@vite-hub/runtime"
 import { getChatCapabilityOptions } from "./chat-trigger.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
+import {
+  normalizeAgentInvokerOptions,
+  resolveAgentInvoker,
+} from "./invoker.ts"
 
 import {
   applyCapabilityToolTransforms,
@@ -53,6 +57,10 @@ import type {
   AgentInstructionBlock,
   AgentInvocationHooks,
   AgentInvocationContextStore,
+  AgentInvoker,
+  AgentInvokerOptions,
+  AgentInvokerProfile,
+  AgentInvokerResolveContext,
   AgentModelResolver,
   AgentRegistry,
   AgentRegistryModule,
@@ -125,6 +133,10 @@ export type {
   AgentInvocationExtensions,
   AgentInvocationContextStore,
   AgentInvocationHooks,
+  AgentInvoker,
+  AgentInvokerOptions,
+  AgentInvokerProfile,
+  AgentInvokerResolveContext,
   AgentIntegrationsOptions,
   AgentModelInput,
   AgentModelInstrumentation,
@@ -410,8 +422,9 @@ function defineBaseAgent<
 >(
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
-  const { capabilities, description, hooks, run, runtime, title, version, workspace } = options
+  const { capabilities, description, hooks, invoker, run, runtime, title, version, workspace } = options
   const normalizedCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
+  const normalizedInvoker = normalizeAgentInvokerOptions(invoker)
   const chat = getChatCapabilityOptions<TRuntimeConfig>(normalizedCapabilities)
   validateNonWorkspaceCapabilities(normalizedCapabilities, !!workspace)
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
@@ -433,6 +446,7 @@ function defineBaseAgent<
     chat,
     description,
     hooks,
+    invoker: normalizedInvoker,
     runtime,
     run,
     title,
@@ -488,13 +502,16 @@ export interface AgentDevtoolsToolDefinition {
 export interface AgentDevtoolsMetadata {
   files?: AgentDevtoolsFileTreeItem[]
   instructions?: string[]
+  invokerProfiles?: AgentInvokerProfile[]
   title?: string
   tools?: AgentDevtoolsToolDefinition[]
   version?: string
 }
 
-function agentDevtoolsMetadata(definition: Pick<AgentDefinition, "title" | "version">): Pick<AgentDevtoolsMetadata, "title" | "version"> {
+function agentDevtoolsMetadata(definition: Pick<AgentDefinition, "invoker" | "title" | "version">): Pick<AgentDevtoolsMetadata, "invokerProfiles" | "title" | "version"> {
+  const invokerProfiles = normalizeAgentInvokerOptions(definition.invoker as AgentInvokerOptions | undefined)?.profiles
   return {
+    ...(invokerProfiles?.length ? { invokerProfiles: [...invokerProfiles] } : {}),
     ...(definition.title ? { title: definition.title } : {}),
     ...(definition.version ? { version: definition.version } : {}),
   }
@@ -1186,6 +1203,7 @@ async function createAgentInvocationContext<
   const resolvedContext = createResolvedRuntimeContext(context)
   const callbackContext = createAgentCallbackContext(context)
   const invocationContext = createAgentInvocationContextStore(input.context)
+  const invoker = await resolveAgentInvoker(definition?.invoker, callbackContext, invocationContext, input, context.run)
   const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
   const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
   const workspaceName = workspaceOptions
@@ -1208,6 +1226,7 @@ async function createAgentInvocationContext<
   const agentModel = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
   const capabilities = await resolveAgentCapabilities(capabilityOptions, resolvedContext, input, workspace as never, workspaceMode, {
     context: invocationContext,
+    invoker,
     model: agentModel as never,
     workspaceDefinition: resolvedWorkspaceDefinition,
   })
@@ -1226,6 +1245,7 @@ async function createAgentInvocationContext<
     finishHook: definition?.hooks?.["agent:finish"] as never,
     hasCapabilityCleanup: capabilities.hasCloseCallbacks,
     input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
+    invoker,
     messages: capabilities.messages,
     outputRenderers: capabilities.registries.outputRenderers,
     prompt: typeof capabilities.input.prompt === "string" ? capabilities.input.prompt : undefined,
@@ -1248,6 +1268,7 @@ type InvocationRunContext<
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finishHook?: (event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void>
   input: AgentRunInput<CALL_OPTIONS>
+  invoker: AgentInvoker
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
   run?: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>["run"]
   startedAt: number
@@ -1310,6 +1331,7 @@ async function finishAgentInvocation<
   const eventBase = {
     ...(error !== undefined ? { error } : {}),
     input: context.input,
+    invoker: context.invoker,
     invocation: {
       durationMs: Date.now() - context.startedAt,
       ...(context.run ? { run: context.run } : {}),

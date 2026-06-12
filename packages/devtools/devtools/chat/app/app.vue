@@ -9,6 +9,7 @@ import {
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
   type ChatDevtoolsFileTreeItem,
+  type ChatDevtoolsInvokerProfile,
   type ChatDevtoolsSendResult,
   type ChatDevtoolsStateResult,
   type ChatDevtoolsStreamEvent,
@@ -30,10 +31,12 @@ const state = ref<ChatDevtoolsStateResult>({
   chats: [],
   files: [],
   instructions: [],
+  invokerProfiles: [],
   selected: "",
   tools: [],
 })
 const messages = ref<ChatMessage[]>([])
+const selectedInvokerProfileId = ref<string | undefined>()
 const defaultChatTitle = "ViteHub Chat"
 const loadingAssistantMessageId = "vitehub-devtools-loading-assistant"
 const chatMessages = computed(() => {
@@ -99,6 +102,18 @@ const visibleTools = computed<ChatDevtoolsToolDefinition[]>(() => {
     status: tool.status === "error" ? "disabled" : "available",
   }))
 })
+const invokerProfiles = computed<ChatDevtoolsInvokerProfile[]>(() => state.value.invokerProfiles || [])
+const hasInvokerProfiles = computed(() => invokerProfiles.value.length > 0)
+const invokerProfileItems = computed(() => invokerProfiles.value.map(profile => ({
+  label: profile.label || profile.id,
+  value: profile.id,
+})))
+const invokerSelectorLocked = computed(() => {
+  if (!hasInvokerProfiles.value) return false
+  const chat = selectedChat()
+  return Boolean(messages.value.length || chat?.uiMessages?.length)
+})
+const invokerSelectorTooltip = computed(() => invokerSelectorLocked.value ? "Clear the conversation to change invoker." : "Invoker")
 
 function clearPendingMessages() {
   const pendingId = pendingUserMessage.value?.id
@@ -114,13 +129,30 @@ function normalizeChatTitle(value: string | undefined) {
   return value?.replace(/\s+/g, " ").trim() || defaultChatTitle
 }
 
+function syncSelectedInvokerProfile(next: ChatDevtoolsStateResult) {
+  const profiles = next.invokerProfiles || []
+  if (!profiles.length) {
+    selectedInvokerProfileId.value = undefined
+    return
+  }
+
+  const ids = new Set(profiles.map(profile => profile.id))
+  const chat = selectedChat(next)
+  const nextProfileId = chat?.invokerProfileId || next.invokerProfileId || selectedInvokerProfileId.value
+  selectedInvokerProfileId.value = nextProfileId && ids.has(nextProfileId)
+    ? nextProfileId
+    : profiles[0]?.id
+}
+
 function applyState(next: ChatDevtoolsStateResult) {
   state.value = {
     files: next.files || [],
     instructions: next.instructions || [],
+    invokerProfiles: next.invokerProfiles || [],
     tools: next.tools || [],
     ...next,
   }
+  syncSelectedInvokerProfile(state.value)
   const chat = selectedChat(next)
   const serverMessages = chat?.uiMessages || next.uiMessages || []
   const nextMessages = [...serverMessages]
@@ -802,7 +834,8 @@ async function send() {
     await waitForFrame()
     status.value = "streaming"
 
-    const bridgeInput = { ...(chat ? { chat } : {}), text }
+    const invokerProfileId = hasInvokerProfiles.value ? selectedInvokerProfileId.value : undefined
+    const bridgeInput = { ...(chat ? { chat } : {}), ...(invokerProfileId ? { invokerProfileId } : {}), text }
     if (!shouldPreferRpcBridge()) {
       if (await readDirectBridgeStream(bridgeInput)) {
         if (error.value) {
@@ -816,6 +849,7 @@ async function send() {
 
     const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
       ...(chat ? { chat } : {}),
+      ...(invokerProfileId ? { invokerProfileId } : {}),
       stream: true,
       text,
     })
@@ -875,6 +909,7 @@ async function clear() {
       chats: [{ name: state.value.selected || "dev", messages: [] }],
       files: state.value.files || [],
       instructions: state.value.instructions || [],
+      invokerProfiles: state.value.invokerProfiles || [],
       selected: state.value.selected || "dev",
       tools: state.value.tools || [],
     }
@@ -917,15 +952,30 @@ onBeforeUnmount(() => {
             v{{ agentVersion }}
           </UBadge>
         </h1>
-        <UButton
-          icon="i-lucide-trash-2"
-          label="Clear"
-          color="neutral"
-          variant="outline"
-          size="sm"
-          class="shrink-0"
-          @click="clear"
-        />
+        <div class="flex shrink-0 items-center gap-2">
+          <UTooltip
+            v-if="hasInvokerProfiles"
+            :text="invokerSelectorTooltip"
+          >
+            <USelect
+              v-model="selectedInvokerProfileId"
+              :items="invokerProfileItems"
+              :disabled="invokerSelectorLocked"
+              aria-label="Invoker"
+              size="sm"
+              class="w-44"
+            />
+          </UTooltip>
+          <UButton
+            icon="i-lucide-trash-2"
+            label="Clear"
+            color="neutral"
+            variant="outline"
+            size="sm"
+            class="shrink-0"
+            @click="clear"
+          />
+        </div>
       </header>
 
       <div class="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1fr)_1px_minmax(280px,var(--chat-devtools-sidebar-width))]" :style="splitterStyle">

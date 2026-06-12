@@ -12,6 +12,10 @@ _Avoid_: Bot, chat definition, workflow
 The code declaration that names an Agent and configures its model, model adapter, workspace, instructions, and Capabilities.
 _Avoid_: Chat definition, server route
 
+**Reference Agent App**:
+An application repository that demonstrates one or more ViteHub Agent Definitions in a real host without being the reusable library surface itself.
+_Avoid_: Package, starter template, framework module
+
 **Agent Model Adapter**:
 The selected integration layer that turns an Agent Definition's model configuration into model execution.
 _Avoid_: LLM provider, provider
@@ -51,6 +55,18 @@ _Avoid_: Chat state, workflow state
 **Agent Run Origin**:
 Host-provided metadata naming where an Agent Invocation came from, such as `http`, `devtools`, or a Chat Platform Adapter name.
 _Avoid_: Platform, Agent Trigger, runtime
+
+**Agent Invoker**:
+The trusted actor on whose behalf an Agent Invocation runs, used for policy, scope, limits, audit, and other invocation-time authority decisions.
+_Avoid_: Persona, profile, invocation profile, user identity, model-facing identity
+
+**Agent Invoker Profile**:
+A server-declared selectable Agent Invoker record that trusted host surfaces can use to simulate or choose an Agent Invoker.
+_Avoid_: DevTools profile, persona, request profile, schema
+
+**Agent Invoker Metadata**:
+Structured app-owned or trigger-owned details attached to an Agent Invoker without becoming part of the required Agent Invoker identity shape.
+_Avoid_: Chat user, profile fields, arbitrary invocation context
 
 **Chat History**:
 Ordered conversational messages for one chat interaction with an Agent.
@@ -103,6 +119,9 @@ _Avoid_: Fake agent, dummy model, test bot
 ## Relationships
 
 - An **Agent Definition** declares one **Agent**.
+- A **Reference Agent App** proves Agent Definition composition in a deployable application while reusable API belongs in ViteHub packages.
+- A **Reference Agent App** can prove durable Agent Invocation behavior by setting the Agent Definition runtime to `workflow()`.
+- A **Reference Agent App** should prioritize validating the intended primitive composition over fitting a fixed demo date.
 - An **Agent Definition** uses the AI SDK model execution path when it uses a model.
 - **Agent Adapter Options** are legacy multi-adapter language and should be removed with the adapter selector.
 - An **Agent** receives zero or more **Agent Invocations**.
@@ -122,6 +141,30 @@ _Avoid_: Fake agent, dummy model, test bot
 - Workspace Tools are derived from an Agent's Colocated Workspace Definition.
 - An **Agent Invocation** can create or update **Agent Run State**.
 - An **Agent Run Origin** is observability metadata for an **Agent Invocation**; it is not the **Agent Trigger** that prepared the invocation.
+- An **Agent Invoker** identifies the trusted actor for an **Agent Invocation**; it is not the **Agent Run Origin**.
+- An **Agent Definition** can declare Agent Invoker resolution as a root Agent behavior instead of routing trusted actor policy through a Capability or Invocation Profile helper.
+- Agent Definition options use `invoker: { profiles }` for selectable Agent Invoker Profiles rather than a top-level plural invokers option.
+- An **Agent Invoker** must have a stable id so access policy, rate limits, audit, memory scope, and DevTools selector options do not invent separate fallback identities.
+- Agent Invoker shape stays small; app-specific and trigger-specific fields belong in **Agent Invoker Metadata** rather than parallel public identity objects.
+- Agent Invoker label is optional human-facing display metadata for host selectors; identity and branching should not depend on it.
+- App-specific axes such as customer, tenant, audience, or support role belong in **Agent Invoker Metadata**, not top-level Agent Invoker fields.
+- Agent and Capability callbacks receive the resolved **Agent Invoker** as first-class invocation context, such as `context.invoker`.
+- ViteHub always provides a fallback **Agent Invoker** so callbacks can rely on an invoker id being present; applications may still reject fallback invokers in their own policy.
+- Fallback Agent Invoker ids should include Agent Run Origin when available so unrelated unauthenticated surfaces do not collapse into one identity.
+- An **Agent Invoker** is not model-facing by default.
+- An **Agent Invoker Profile** is a selectable Agent Invoker option declared by the Agent Definition, not arbitrary request data.
+- Agent Invoker Profiles are static Agent Definition data in the first version.
+- Agent Invoker Profile ids are unique per Agent Definition.
+- Duplicate Agent Invoker Profile ids fail early even when other profile fields differ.
+- Agent Invoker Profiles do not require custom Agent Invoker resolution; selected profiles can resolve directly as Agent Invokers by default.
+- Agent Invoker Profiles can include Agent Invoker Metadata so host selectors can simulate app-specific caller axes without accepting arbitrary metadata edits.
+- The Chat Capability can contribute a default **Agent Invoker** when it has a trusted chat actor, but root Agent Invoker resolution can override or enrich that default.
+- Host surfaces such as DevTools can render Agent Invoker selector options, but those options belong to Agent Invoker configuration rather than host-specific configuration.
+- Host surfaces can use a synthetic fallback **Agent Invoker** for simple development runs, but should only show an invoker selector when declared Agent Invoker Profiles provide meaningful choices.
+- When declared Agent Invoker Profiles exist, host surfaces should select the first profile by default while keeping the synthetic fallback available for default-caller testing.
+- When shown beside declared Agent Invoker Profiles, the synthetic fallback **Agent Invoker** should appear last.
+- A Chat Session keeps one selected Agent Invoker; ViteHub does not support changing the Agent Invoker in the middle of a Chat Session.
+- Agent Invoker resolution does not provide authentication in the first version; applications that need auth implement it in their own resolver until a ViteHub auth primitive exists.
 - **Chat History** is conversation-scoped and is not **Agent Memory**.
 - A **Chat Session** is part of Chat History behavior and is not **Agent Memory**.
 - The Chat Capability resolves the active **Chat Session** before applying the **Chat History Window**.
@@ -130,6 +173,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - The Chat Capability can produce **Chat Identity** before later Capabilities resolve.
 - The default **Chat Identity** for Chat Platform Adapter messages is platform-scoped as `adapter:userId`; applications can override it when they own a stronger cross-platform identity.
 - **Chat Identity** is available through Agent Invocation Context Values and is not model-facing by default.
+- Chat actor details should map into the **Agent Invoker** and **Agent Invoker Metadata** instead of becoming a second documented policy identity surface.
 - Chat History is explicit application behavior and is not enabled by default.
 - **Agent Invocation Context Values** can be produced by Pre-Invocation Decisions and read by later Agent or Capability callbacks.
 - **Agent Invocation Context Values** do not grant Capabilities dynamically.
@@ -172,6 +216,11 @@ _Avoid_: Fake agent, dummy model, test bot
 - Route and gate results were considered for ad hoc input context or metadata - resolved: expose them as typed **Agent Invocation Context Values**.
 - Chat state was considered separate from Agent State Provider - resolved: Chat History state is satisfied through the Agent State Provider when available.
 - Chat actor identity was considered a chat-history-only detail - resolved: expose **Chat Identity** as a trusted Agent Invocation Context Value so other Capabilities can consume it.
+- Profile, persona, user identity, and invoker were considered for policy-scoping identity - resolved: use **Agent Invoker** for the trusted actor and reserve profile/persona language for model-facing or durable preference behavior.
+- DevTools-specific Agent Invoker options were considered - resolved: selector options belong to Agent Invoker configuration and DevTools only renders them.
+- Agent Invoker schemas were considered for the first version - resolved: start with Agent Invoker Profiles plus Agent Invoker resolution, and defer a schema boundary until auth or arbitrary app-owned invoker payloads require it.
+- Dynamic Agent Invoker Profile listing was considered for the first version - resolved: keep profiles static until auth, organization directories, or user-directory integrations prove the dynamic boundary.
+- Keeping `chat.user` as a parallel documented policy surface was considered - resolved: expose extra chat actor details through **Agent Invoker Metadata** so Capabilities consume one identity concept.
 - Chat History was considered an implicit Chat Capability default - resolved: keep Chat History opt-in, aligned with Chat SDK-style application control.
 - Local and hosted state providers were considered equivalent - resolved: hosted production runtimes require a durable provider and a **Concurrent Invocation Guard**.
 - Model-free playground behavior was described as a dummy Agent - resolved: use **Mock Agent Adapter** for deterministic, cost-free Agent Invocations.

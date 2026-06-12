@@ -220,6 +220,55 @@ describe("agent eval", () => {
     expect(score.score).toBe(1)
   })
 
+  it("uses Server Env as the default eval runtime config when available", async () => {
+    const { setEnvRegistry } = await import("@vite-hub/env/runtime/server")
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineEval } = await import("../src/eval.ts")
+
+    process.env.VITEHUB_TEST_AGENT_EVAL_TOKEN = "from-server-env"
+    setEnvRegistry({
+      service: {
+        token: {
+          required: true,
+          schema: { kind: "string" },
+          secret: false,
+          source: {
+            kind: "env",
+            label: "env:VITEHUB_TEST_AGENT_EVAL_TOKEN",
+            name: "VITEHUB_TEST_AGENT_EVAL_TOKEN",
+            serializable: true,
+          },
+        },
+      },
+    } as never)
+
+    try {
+      let receivedToken: string | undefined
+      defineEval<{ service: { token: string } }>({
+        agent: defineAgent<{ service: { token: string } }>({
+          hooks: {
+            "agent:finish"(event) {
+              receivedToken = event.runtime.runtimeConfig.service.token
+            },
+          },
+          run: () => "ok",
+          workspace: {},
+        }),
+        name: "server-env",
+        scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
+      })
+
+      await expect(evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input))
+        .resolves
+        .toMatchObject({ text: "ok" })
+      expect(receivedToken).toBe("from-server-env")
+    }
+    finally {
+      delete process.env.VITEHUB_TEST_AGENT_EVAL_TOKEN
+      setEnvRegistry({})
+    }
+  })
+
   it("coerces non-finite scorer output before aggregation", async () => {
     const { defineEval } = await import("../src/eval.ts")
 

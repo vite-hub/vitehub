@@ -224,6 +224,36 @@ function normalizeVariants(variants: AgentEvalVariant[] | undefined): AgentEvalV
   return variants?.length ? variants : [baselineVariant]
 }
 
+function isOptionalServerEnvMissing(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false
+  const candidate = error as { code?: unknown }
+  return candidate.code === "ERR_MODULE_NOT_FOUND" || candidate.code === "ERR_PACKAGE_PATH_NOT_EXPORTED"
+}
+
+async function resolveDefaultRuntimeConfig<TRuntimeConfig extends AgentRuntimeConfig>(): Promise<TRuntimeConfig> {
+  try {
+    const env = await import("@vite-hub/env/runtime/server") as { useServerEnv?: () => unknown }
+    if (typeof env.useServerEnv === "function") {
+      return env.useServerEnv() as TRuntimeConfig
+    }
+  }
+  catch (error) {
+    if (!isOptionalServerEnvMissing(error)) throw error
+  }
+  return {} as TRuntimeConfig
+}
+
+async function resolveEvalRuntimeConfig<TRuntimeConfig extends AgentRuntimeConfig>(
+  runtimeConfig: AgentEvalDefinition<TRuntimeConfig>["runtimeConfig"],
+): Promise<TRuntimeConfig> {
+  if (runtimeConfig === undefined) {
+    return await resolveDefaultRuntimeConfig<TRuntimeConfig>()
+  }
+  return typeof runtimeConfig === "function"
+    ? await runtimeConfig()
+    : runtimeConfig
+}
+
 function normalizeScore(score: AgentScore): AgentScore {
   const normalizedScore = Number.isFinite(score.score) ? score.score : 0
   return {
@@ -270,7 +300,7 @@ async function runScenario<
   const agent = applyVariant(await resolveEvalAgent(definition.agent, caller), input.variant)
   const runner = createAgentTestRunner<TRuntimeConfig, CALL_OPTIONS>(agent, {
     name: input.variant.name,
-    runtimeConfig: definition.runtimeConfig || ({} as TRuntimeConfig),
+    runtimeConfig: async () => await resolveEvalRuntimeConfig(definition.runtimeConfig),
     workspace: definition.workspace,
   })
   const result = await runner.run(input.scenario.input)

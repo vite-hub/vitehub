@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
 import { createAgentCliContributor, runAgentEvalCli } from "../src/cli.ts"
-import { createAgentEvaliteConfigPath, writeAgentEvaliteConfig } from "../src/internal/evalite-config.ts"
+import { createAgentEvalSetupFilePath, createAgentEvaliteConfigPath, writeAgentEvaliteConfig } from "../src/internal/evalite-config.ts"
 
 function stream() {
   let value = ""
@@ -57,7 +57,7 @@ describe("agent CLI", () => {
       path: "server/agents/support.eval.ts",
       scoreThreshold: undefined,
       server: undefined,
-      setupFiles: undefined,
+      setupFiles: [".vitehub/agent/eval-setup.mjs"],
       testTimeout: undefined,
       trialCount: undefined,
     })
@@ -100,7 +100,7 @@ describe("agent CLI", () => {
       path: "server/agents/support.eval.ts",
       scoreThreshold: 85,
       server: undefined,
-      setupFiles: undefined,
+      setupFiles: [".vitehub/agent/eval-setup.mjs"],
       testTimeout: 300000,
       trialCount: undefined,
     })
@@ -167,6 +167,8 @@ describe("agent CLI", () => {
       await expect(readFile(createAgentEvaliteConfigPath(rootDir), "utf8")).resolves.toContain(`"maxConcurrency": 1`)
       await expect(readFile(createAgentEvaliteConfigPath(rootDir), "utf8")).resolves.toContain(`"testTimeout": 300000`)
       await expect(readFile(createAgentEvaliteConfigPath(rootDir), "utf8")).resolves.toContain(`"server/agents/support/**"`)
+      await expect(readFile(createAgentEvaliteConfigPath(rootDir), "utf8")).resolves.toContain(`".vitehub/agent/eval-setup.mjs"`)
+      await expect(readFile(createAgentEvalSetupFilePath(rootDir), "utf8")).resolves.toContain(`@vite-hub/env/runtime/server`)
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })

@@ -27,6 +27,7 @@ import type {
   AgentAdapterMetadataContext,
   AgentAdapterRunContext,
   AgentAdapterResult,
+  AgentCallSettingsInstrumentation,
   AgentModelInstrumentation,
   AgentRuntimeConfig,
   AgentToolSet,
@@ -44,6 +45,7 @@ export interface AiSdkAdapterOptions<
 > {
   adapterOptions?: AiSdkAdapterExecutionOptions<TCallOptions, TTools>
   instructions?: AgentAdapterInstructions<TRuntimeConfig, Name>
+  instrumentCallSettings?: AgentCallSettingsInstrumentation<TRuntimeConfig, TCallOptions>
   instrumentModel?: AgentModelInstrumentation<TRuntimeConfig>
   model: ToolLoopAgentSettings<TCallOptions, TTools>["model"] | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<ToolLoopAgentSettings<TCallOptions, TTools>["model"]>)
   tools?: AgentToolResolverWithWorkspace<TRuntimeConfig, Name>
@@ -474,6 +476,7 @@ function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapt
     ...context.runtime,
     context: context.context,
     input: context.input,
+    invoker: context.invoker,
     run: context.runtime.run,
   }
 
@@ -513,11 +516,12 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
     ...runtime,
     context: context.context,
     fs: context.workspace?.fs,
+    invoker: context.invoker,
     workspace: context.workspace,
   } as AgentAdapterMetadataContext
   const model = await resolveValue(options.model as never, metadataContext)
   const instrumentedModel = options.instrumentModel
-    ? await options.instrumentModel({ ...runtime, context: context.context, model, run: context.runtime.run })
+    ? await options.instrumentModel({ ...runtime, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
   const instructions = context.instructions
     ?? applyCapabilityInstructionSlots(await resolveInstructions(options, metadataContext), context.capabilityInstructions)
@@ -536,6 +540,7 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   const {
     adapterOptions: _adapterOptions,
     instructions: _instructions,
+    instrumentCallSettings: _instrumentCallSettings,
     instrumentModel: _instrumentModel,
     model: _model,
     tools: _tools,
@@ -543,8 +548,19 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   const {
     fallback: _fallback,
     stepLimit,
-    ...settings
+    ...baseSettings
   } = options.adapterOptions || {}
+  const instrumentedSettings = await options.instrumentCallSettings?.({
+    ...runtime,
+    context: context.context,
+    input: context.input,
+    invoker: context.invoker,
+    model: instrumentedModel,
+    run: context.runtime.run,
+    settings: baseSettings,
+    ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
+  })
+  const settings = instrumentedSettings ? { ...baseSettings, ...instrumentedSettings } : baseSettings
 
   return {
     agent: new ToolLoopAgent({

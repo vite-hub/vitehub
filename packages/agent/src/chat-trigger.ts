@@ -82,6 +82,7 @@ export type UIMessageLike = {
 
 export interface AgentChatMessageTriggerInput {
   history?: AgentChatOptions["history"]
+  invokerProfileId?: string
   messages: UIMessageLike[]
   run?: AgentRunMetadata
   session?: {
@@ -399,6 +400,7 @@ function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
       const hookArgs = createChatTriggerHookArgs(selectedMessages, triggerInput.run, triggerInput.session)
       const input = {
         context: {
+          ...(triggerInput.invokerProfileId ? { invokerProfileId: triggerInput.invokerProfileId } : {}),
           chat: {
             message: hookArgs.message,
             run: triggerInput.run,

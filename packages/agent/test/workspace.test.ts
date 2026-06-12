@@ -581,6 +581,55 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)).not.toHaveProperty("instrumentModel")
   })
 
+  it("lets workspace agents instrument AI SDK call settings per run", async () => {
+    const execute = vi.fn(async () => "workspace result")
+    const instrumentCallSettings = vi.fn(({ settings }) => ({
+      experimental_telemetry: { isEnabled: true, runScoped: true },
+      temperature: settings.temperature,
+    }))
+    inspectTools.mockReturnValueOnce({
+      shell: { execute },
+    })
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const model = { id: "base" }
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      adapterOptions: {
+        stepLimit: 7,
+        temperature: 0.2,
+      },
+      instrumentCallSettings,
+      model: model as never,
+      capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
+    }), { workspace: "docs" })
+
+    await agent.run!({
+      ...(context() as Record<string, unknown>),
+      input: { messages: [] },
+      run: {
+        origin: "teams",
+        runId: "run_123",
+        threadId: "thread_1",
+      },
+    } as never)
+
+    expect(instrumentCallSettings).toHaveBeenCalledWith(expect.objectContaining({
+      input: { messages: [] },
+      model,
+      run: expect.objectContaining({ origin: "teams", runId: "run_123" }),
+      settings: expect.objectContaining({ temperature: 0.2 }),
+      tools: expect.objectContaining({ shell: expect.any(Object) }),
+    }))
+    expect(instrumentCallSettings.mock.calls[0]?.[0].settings).not.toHaveProperty("stepLimit")
+    expect(agentSettings.at(-1)).toMatchObject({
+      experimental_telemetry: { isEnabled: true, runScoped: true },
+      stopWhen: { count: 7 },
+      temperature: 0.2,
+    })
+    expect(agentSettings.at(-1)).not.toHaveProperty("instrumentCallSettings")
+  })
+
   it("passes runtime context to run-aware step and tool callbacks", async () => {
     const onStepFinish = vi.fn()
     const onRunStepFinish = vi.fn()

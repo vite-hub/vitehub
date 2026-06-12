@@ -2,6 +2,11 @@ import { resolveRuntimeValue } from "@vite-hub/runtime"
 
 import { workspaceOverrideSymbol } from "./access-runtime.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
+import {
+  createFallbackAgentInvoker,
+  ensureAgentInvokerContext,
+  resolveInputAgentInvoker,
+} from "./invoker.ts"
 import type {
   AgentAdapterInstructionsValue,
   AgentCallbackContext,
@@ -16,6 +21,7 @@ import type {
   AgentFinishExtensionProvider,
   AgentInstructionBlock,
   AgentInvocationContextStore,
+  AgentInvoker,
   AgentModelResolver,
   AgentOutputRenderer,
   AgentProviderToolContribution,
@@ -59,6 +65,7 @@ export interface AgentCapabilityInvocationOptions<
   Name extends WorkspaceName = WorkspaceName,
 > {
   context?: AgentInvocationContextStore
+  invoker?: AgentInvoker
   model?: AgentModelResolver<TRuntimeConfig, Name>
   workspaceDefinition?: WorkspaceDefinition
 }
@@ -217,6 +224,8 @@ export async function resolveAgentCapabilities<
 ): Promise<ResolvedAgentCapabilities> {
   const runtimeContext = toAgentCallbackContext(runtime)
   const invocationContext = invocationOptions.context || createAgentInvocationContextStore(input.context)
+  const invoker = invocationOptions.invoker || resolveInputAgentInvoker(input.context) || createFallbackAgentInvoker(runtime.run)
+  ensureAgentInvokerContext(invocationContext, invoker)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   validateAccessCapabilityOrder(capabilities)
   let currentInput = input
@@ -255,6 +264,7 @@ export async function resolveAgentCapabilities<
         ...runtimeContext,
         context: invocationContext,
         fs: currentWorkspace?.fs,
+        invoker,
         workspace: currentWorkspace,
         workspaceDefinition: invocationOptions.workspaceDefinition,
       }
@@ -414,6 +424,8 @@ export async function resolveStaticCapabilityTools<
 ): Promise<AgentToolSet | undefined> {
   const runtimeContext = toAgentCallbackContext(runtime)
   const invocationContext = createAgentInvocationContextStore()
+  const invoker = createFallbackAgentInvoker(runtime.run)
+  ensureAgentInvokerContext(invocationContext, invoker)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   let tools: AgentToolSet | undefined
 
@@ -425,6 +437,7 @@ export async function resolveStaticCapabilityTools<
       ...runtimeContext,
       context: invocationContext,
       fs: workspace?.fs,
+      invoker,
       mode: capability.mode,
       workspace,
     } as unknown as AgentCapabilityContext<TRuntimeConfig, Name>

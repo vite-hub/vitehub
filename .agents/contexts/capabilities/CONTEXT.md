@@ -36,6 +36,10 @@ _Avoid_: Dynamic prompt, hardcoded prompt, prompt callback
 A named value available when rendering a Prompt Template.
 _Avoid_: Placeholder, interpolation value, prompt arg
 
+**MCP Prompt Template**:
+A prompt template exposed by an MCP Server and consumed through Capability prompt or input behavior.
+_Avoid_: MCP Resource Source, Workspace file, model tool
+
 **Storage Capability Tool Surface**:
 The two-tool read/edit shape used by official storage Capabilities to expose scoped storage operations to a model.
 _Avoid_: Primitive method proxy, storage method fanout
@@ -150,7 +154,7 @@ _Avoid_: Bash, sandbox, raw workspace tools
 
 **MCP Capability**:
 A Capability that connects an Agent to external MCP servers and exposes their model-facing tools.
-_Avoid_: MCP server implementation, MCP Source
+_Avoid_: MCP server implementation, MCP Resource Source
 
 **MCP Server**:
 An external Model Context Protocol server consumed by an Agent through the MCP Capability.
@@ -176,10 +180,18 @@ _Avoid_: Routing Capability, callback routing, model router
 A Capability that asks an LLM to classify a request against developer-defined allow and reject categories and may reject before the main Agent Invocation proceeds.
 _Avoid_: Gate, auth gate, security gate, deterministic guard
 
+**Rate Limit Capability**:
+A Capability created by `rateLimit()` that consumes a trusted invocation budget and may reject before the main Agent Invocation proceeds.
+_Avoid_: App middleware, model-facing counter tool, KV wrapper
+
+**Rate Limit Store**:
+A runtime enforcement contract used by a Rate Limit Capability to check and consume invocation budgets.
+_Avoid_: KV Store, hubKv, model-facing storage
+
 ## Relationships
 
 - An Agent attaches zero or more **Capabilities**.
-- Official helpers such as `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `access()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, and `llmGate()` create **Capability Definitions**.
+- Official helpers such as `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `access()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, `llmGate()`, and `rateLimit()` create **Capability Definitions**.
 - Official Capability factories and Capability-owned helper functions are imported from `@vite-hub/agent/capabilities`, not from the root `@vite-hub/agent` Agent Package entry.
 - Official helpers should map to product abilities rather than implementation mechanisms.
 - An official **Capability Definition** may carry a narrow **Capability Type Contract** when it directly consumes typed Agent Definition inputs such as Source keys, trusted Chat Capability origins, or schema-validated invocation context.
@@ -189,6 +201,9 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - A **Capability Trigger Contribution** belongs directly to the Capability shape unless a broader grouping earns its name later.
 - A **Capability Trigger Contribution** maps product event input into Agent Invocation input and run metadata; Agent execution remains owned by the Agent Package.
 - A **Prompt Template** belongs to the Capability that renders it and should expose only the **Prompt Template Variables** that are stable for that Capability.
+- An **MCP Prompt Template** is Capability behavior, not Workspace content by default.
+- An **MCP Prompt Template** can be exposed as an **Input Command** when the host should let users invoke a named prompt before the Agent runs.
+- If an **MCP Prompt Template** references read-only MCP resources, those resources can be exposed separately through an **MCP Resource Source**.
 - Standard Schema validation is the preferred runtime boundary for app-owned invocation metadata that an official **Capability** directly consumes.
 - An **Input Command** is a **Capability** concern resolved before model-facing Agent behavior.
 - A **Host Command** is not an **Input Command** and is outside the Capability Lifecycle.
@@ -199,6 +214,12 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - An **LLM Route Capability** chooses one developer-defined option through an LLM and records the route decision. It does not apply route effects directly.
 - An **LLM Gate Capability** chooses one developer-defined allow or reject category through an LLM and may reject before the main Agent Invocation.
 - Deterministic or callback-based routing is not an official Capability in V1; users can define inline Capabilities or hooks that set named invocation context values.
+- A **Rate Limit Capability** records a typed **Agent Invocation Context Value** with the consumed budget result when an invocation is allowed or rejected.
+- A **Rate Limit Capability** consumes `context.invoker.id` by default so access policy, audit, memory, and budget enforcement use the same trusted actor identity.
+- A **Rate Limit Capability** can explicitly use stable Agent Run metadata, trusted IP request headers, or a developer callback when those are the intended budget axes.
+- A **Rate Limit Capability** uses an explicit **Rate Limit Store** contract; model-facing storage Capabilities are not the runtime enforcement mechanism, and hosted runtimes require an explicit store choice.
+- A **Rate Limit Store** owns persistence and coordination semantics for a Rate Limit Capability; model-facing storage tool surfaces do not become runtime enforcement APIs.
+- A **Rate Limit Capability** consumes one budget unit per Agent Invocation in the first version; token, cost, or weighted usage budgets need a separate future design.
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
 - A **Chat Capability** owns Chat History behavior for the current stack.
 - A **Chat Capability** may declare **Chat Platform Adapters** through a **Chat Adapter Callback**.
@@ -223,6 +244,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - In the first version, an **Access Capability** applies **Workspace Scope** only.
 - An **Access Capability** can record the active Workspace Scope as an Agent Invocation Context Value for later callbacks and instructions.
 - An **Access Capability** owns both Workspace Scope selection and application, but keeps resolver logic separate from grants.
+- An **Access Capability** uses the resolved Agent Invoker for trusted actor policy instead of a separate profile abstraction.
 - An **Access Capability** may reference a **Chat Capability** for typed origin context instead of asking users to repeat Chat Capability origins in Access configuration.
 - An **Access Capability** can use static named Workspace Scopes or an inline Workspace Scope definition returned by its resolver.
 - An **Access Capability** must be ordered before other Workspace-reading Capabilities so Workspace Scope is applied before they resolve tools or requirements.
@@ -231,6 +253,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - The default `admin` **Access Role** can select the explicit all-scopes mode when the developer configured that mode.
 - A **Workspace Shell Capability** contributes shell-shaped Workspace tools without implying Sandbox execution.
 - An **MCP Capability** consumes one or more external **MCP Servers**.
+- An **MCP Capability** exposes executable MCP tools; read-only MCP resources belong to Source design.
 - A **Web Search Capability** hides its underlying search library from users and model-facing labels.
 - A **Web Search Capability** requires an explicit **Web Search Mode** in the first version.
 - A tool-based **Web Search Mode** exposes web search and URL reading as ordinary ViteHub tools.
@@ -250,6 +273,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - Chat History is not a standalone **Capability** in the current stack.
 - Agent Memory is a separate Capability concern from the **Chat Capability**.
 - User-defined Capabilities use the same **Capability Definition** shape as official helpers.
+- Audience or answer-posture instructions can be local user-defined Capabilities that read Agent Invoker Metadata; they are not an official Capability in the first version.
 - A **Capability Definition** can contribute instructions, tools, policy, and metadata.
 - A **Capability Definition** uses `id` as its only capability-level identity and display label.
 - A **Capability** can declare **Capability Requirements**.
@@ -320,6 +344,7 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - Workspace Scope was considered as Workspace Definition mutation by a Capability - resolved: use an **Access Capability** to narrow an already-declared Workspace at invocation time instead of changing Sources or Workspace Rules.
 - `workspaceScope()` was considered as the public helper name - resolved: use `access()` for the Capability while preserving **Workspace Scope** for the Workspace-specific boundary.
 - `organization()` was considered as the public helper name - resolved: reject it because access decisions may come from organizations, customer domains, local config, or other trusted invocation context.
+- Profile-based Access Capability resolvers were considered - resolved: access policy consumes the resolved Agent Invoker directly.
 - Pre-registering every customer Workspace Scope was considered necessary - resolved: an Access Capability resolver may return an inline Workspace Scope definition for invocation-specific grants.
 - "audio input", "voice input", and "voice transcription" were considered as names for spoken user messages - resolved: use **Transcription** for the capability.
 - `transcribe({ workspace })` was considered for persisted transcript and audio artifacts - resolved: use **Transcription Artifacts** so the option does not masquerade as a Workspace Definition.
@@ -335,10 +360,17 @@ _Avoid_: Gate, auth gate, security gate, deterministic guard
 - Multiple route or gate decisions writing the same context key were considered for priority or merging - resolved: **Pre-Invocation Decision** ids are unique per Agent, with duplicate ids failing early.
 - Dynamic Capability activation through route decisions was considered - resolved: Pre-Invocation Decisions can influence conditional contributions but must not attach, remove, or grant **Capabilities** at runtime.
 - A generic `decisionPolicy()` helper and request-refinement Capability were considered - resolved: defer them until **LLM Route Capability**, **LLM Gate Capability**, and Chat Sessions prove the internal primitive.
+- App-level rate-limit middleware was considered for agent chat routes - resolved: use a **Rate Limit Capability** so invocation budgets compose through Agent Definitions and can run before model execution on every Agent Invocation path.
+- Plain KV `get`/`set` counters were considered for **Rate Limit Capability** storage - resolved: rate limiting needs an explicit consume contract because distributed enforcement depends on atomic store behavior.
+- Client-provided chat user fields were considered for **Rate Limit Capability** defaults - resolved: default budget identity consumes the resolved **Agent Invoker** instead of chat-specific request fields.
+- Forwarded request headers were considered for default IP identity - resolved: require explicit trusted header names because proxy trust is deployment-specific.
+- Exposing `hubKv` as a **Rate Limit Capability** option was considered - resolved: keep `store` as the Rate Limit Store boundary and let provider-specific KV handles live inside adapters or future helpers.
+- Weighted rate-limit costs were considered for the first version - resolved: use one Agent Invocation as the budget unit and defer token, cost, and usage quotas until Agent Usage requirements prove the shape.
 - Typed capability preparation was considered as a runtime lifecycle phase - resolved: use narrow **Capability Type Contracts** for type-only Agent Definition checks on official Capabilities, and keep runtime validation inside the **Capability Lifecycle**.
 - A generic custom-Capability contract framework was considered - resolved: defer it until user-defined Capabilities prove a stable story; the current contract exists for official Capabilities that directly consume Agent Definition inputs.
 - Input Command display metadata was considered capability-level - resolved: Capability id owns identity, while command descriptions are the user-facing metadata hosts may render.
 - Requiring users to attach one Capability per internal mechanism was considered - resolved: users attach one Capability per product ability, and official Capabilities can own their natural Input Command surface when that command is part of the expected user experience.
+- A generic audience or answer-posture Capability was considered - resolved: keep audience behavior local until multiple applications prove a reusable official Capability shape.
 - Storage Capability options were described as access levels in an older PR - resolved: official primitive Capabilities use `mode` for read/write exposure, while `access` is older proposal language.
 - Storage helpers were considered examples around raw tools - resolved: KV, Blob, and DB helpers are first-class official **Capabilities**.
 - Root Agent Package exports were considered convenient for official Capability factories - resolved: keep official Capability factories and their companion helpers on `@vite-hub/agent/capabilities` so the root entry stays focused on Agent Definition and invocation primitives.

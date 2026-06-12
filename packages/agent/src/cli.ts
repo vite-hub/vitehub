@@ -1,4 +1,4 @@
-import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
+import { resolveAgentEvalOptions, withAgentEvalSetupFile, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 
 import type { AgentEvalOptions } from "./types.ts"
 
@@ -176,22 +176,23 @@ export async function runAgentEvalCli(
   }
 
   const run = runner || await loadEvaliteRunner()
-  await writeConfig(context.rootDir, resolvedOptions)
+  const runOptions = withAgentEvalSetupFile(context.rootDir, resolvedOptions)
+  await writeConfig(context.rootDir, runOptions)
   const result = await run({
-    cache: resolvedOptions.cache,
+    cache: runOptions.cache,
     cacheEnabled: parsed.noCache ? false : undefined,
     cwd: context.rootDir,
-    forceRerunTriggers: resolvedOptions.forceRerunTriggers,
-    hideTable: parsed.hideTable ?? resolvedOptions.hideTable,
-    maxConcurrency: resolvedOptions.maxConcurrency,
+    forceRerunTriggers: runOptions.forceRerunTriggers,
+    hideTable: parsed.hideTable ?? runOptions.hideTable,
+    maxConcurrency: runOptions.maxConcurrency,
     mode: parsed.watch ? "watch-for-file-changes" : "run-once-and-exit",
     outputPath: parsed.outputPath,
     path: parsed.path,
-    scoreThreshold: parsed.threshold ?? resolvedOptions.scoreThreshold,
-    server: resolvedOptions.server,
-    setupFiles: resolvedOptions.setupFiles,
-    testTimeout: resolvedOptions.testTimeout,
-    trialCount: resolvedOptions.trialCount,
+    scoreThreshold: parsed.threshold ?? runOptions.scoreThreshold,
+    server: runOptions.server,
+    setupFiles: runOptions.setupFiles,
+    testTimeout: runOptions.testTimeout,
+    trialCount: runOptions.trialCount,
   })
 
   return result?.exitCode ?? 0

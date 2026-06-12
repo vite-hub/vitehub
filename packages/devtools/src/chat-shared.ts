@@ -46,9 +46,17 @@ export interface ChatDevtoolsToolDefinition {
   status?: "available" | "disabled"
 }
 
+export interface ChatDevtoolsInvokerProfile {
+  id: string
+  kind?: string
+  label?: string
+  meta?: Record<string, unknown>
+}
+
 export interface ChatDevtoolsMetadata {
   files?: ChatDevtoolsFileTreeItem[]
   instructions?: string[]
+  invokerProfiles?: ChatDevtoolsInvokerProfile[]
   title?: string
   tools?: ChatDevtoolsToolDefinition[]
   version?: string
@@ -64,6 +72,7 @@ export interface ChatDevtoolsMessage {
 }
 
 export interface ChatDevtoolsConversation {
+  invokerProfileId?: string
   messages: ChatDevtoolsMessage[]
   name: string
   title?: string
@@ -74,6 +83,8 @@ export interface ChatDevtoolsStateResult {
   chats: ChatDevtoolsConversation[]
   files?: ChatDevtoolsFileTreeItem[]
   instructions?: string[]
+  invokerProfiles?: ChatDevtoolsInvokerProfile[]
+  invokerProfileId?: string
   selected: string
   thinkingFallback?: string | null
   title?: string
@@ -84,6 +95,7 @@ export interface ChatDevtoolsStateResult {
 
 export interface ChatDevtoolsSendInput {
   chat?: string
+  invokerProfileId?: string
   text: string
 }
 
