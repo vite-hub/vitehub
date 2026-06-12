@@ -668,6 +668,10 @@ export interface AgentChatAgentHookArgs<TRuntimeConfig extends AgentRuntimeConfi
   thread: { post: (message: unknown) => MaybePromise<unknown> }
 }
 
+export interface AgentChatErrorHookArgs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends AgentChatAgentHookArgs<TRuntimeConfig> {
+  error: unknown
+}
+
 export interface AgentChatEventHookArgs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> extends Record<string, unknown> {
 }
 
@@ -709,6 +713,7 @@ export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
   agent?: never
   event?: AgentChatAgentBindingOptions["event"]
   execution?: never
+  errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   fallbackStreamingPlaceholderText?: string | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   history?: AgentChatAgentBindingOptions["history"]
   hooks?: AgentChatEventHooks<TRuntimeConfig>

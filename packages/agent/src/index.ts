@@ -120,6 +120,7 @@ export type {
   AgentCapabilityPhase,
   AgentCapabilityRuntimeContext,
   AgentChatAgentHookArgs,
+  AgentChatErrorHookArgs,
   AgentChatEventHookArgs,
   AgentChatEventHooks,
   AgentChatFinishExtension,

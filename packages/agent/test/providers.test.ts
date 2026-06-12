@@ -561,6 +561,109 @@ describe("server helpers", () => {
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "done" })
   })
 
+  it("activates Cloudflare env while webhook work runs", async () => {
+    const { getActiveCloudflareEnv } = await import("@vite-hub/internal/runtime/cloudflare-env")
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      run: () => String(getActiveCloudflareEnv()?.OPENAI_API_KEY),
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 1046,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1046,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram", {
+      cloudflare: {
+        env: {
+          OPENAI_API_KEY: "runtime-openai-key",
+        },
+      },
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "runtime-openai-key" })
+  })
+
+  it("posts chat error fallback when deferred webhook work fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter({ deferMessageProcessing: true })
+    const waitUntilTasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+          errorFallbackText: "No pude procesar ese mensaje.",
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      run: () => {
+        throw new Error("transcription failed")
+      },
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    try {
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 1047,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 1047,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      }), "telegram", {
+        waitUntil: task => waitUntilTasks.push(task),
+      })
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      await Promise.all(waitUntilTasks)
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "No pude procesar ese mensaje.")
+      expect(consoleError).toHaveBeenCalledWith(expect.objectContaining({
+        component: "@vite-hub/agent",
+        event: "chat.message.error",
+        thread_id: "telegram:456",
+      }))
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+  })
+
   it("lets chat webhooks opt out of streaming model execution", async () => {
     const { chat } = await import("../src/capabilities.ts")
     const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
