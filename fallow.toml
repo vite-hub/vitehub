@@ -2,6 +2,7 @@ ignorePatterns = []
 
 dynamicallyLoaded = [
   ".github/scripts/*.mjs",
+  "test/local/vercel-bridge-server.mjs",
   "docs/content.config.ts",
   "docs/app/assets/main.css",
   "packages/devtools/devtools/chat/app/app.vue",

@@ -2,10 +2,9 @@ import { existsSync, readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 export const repoRoot = resolve(import.meta.dirname, "..", "..")
-export const playgroundDir = resolve(repoRoot, "playground/vite")
 
 const PROVIDERS = ["cloudflare", "vercel"] as const
-export type OutputProvider = typeof PROVIDERS[number]
+type OutputProvider = typeof PROVIDERS[number]
 
 // VITEHUB_OUTPUT_PROVIDER narrows the run to one provider's suite (CI sets it per job).
 // Unset means both providers' outputs are required - missing output fails, never skips.

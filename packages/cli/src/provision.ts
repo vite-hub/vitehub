@@ -17,7 +17,7 @@ interface ProvisionFeatureContext {
   stdout: { write: (chunk: string | Uint8Array) => unknown }
 }
 
-export interface ProvisionFeatureOptions {
+interface ProvisionFeatureOptions {
   collectSteps: () => Promise<ProvisionStep[]>
 }
 
