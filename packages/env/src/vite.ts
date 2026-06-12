@@ -5,15 +5,17 @@ import { loadEnv } from "vite"
 
 import { formatDiagnostics } from "./core/diagnostics.ts"
 import { env } from "./core/declarations.ts"
-import { createSourceContext, resolveEnvEntries, validateEnvConfigShape } from "./core/resolve.ts"
+import { createRuntimeRegistry, createSourceContext, resolveEnvEntries, validateEnvConfigShape } from "./core/resolve.ts"
 
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "./types.ts"
 import type { Plugin, UserConfig } from "vite"
 
 export const ENV_VITE_PLUGIN_NAME = "@vite-hub/env/vite"
 export const ENV_PUBLIC_ID = "#vitehub/env/public"
+export const ENV_SERVER_ID = "#vitehub/env/server"
 
 const RESOLVED_PUBLIC_ID = `\0${ENV_PUBLIC_ID}`
+const RESOLVED_SERVER_ID = `\0${ENV_SERVER_ID}`
 
 export { env }
 
@@ -25,6 +27,7 @@ export type EnvVitePlugin = Plugin & { api: EnvVitePluginAPI }
 
 export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   let buildPublicConfig: Record<string, unknown> = {}
+  let serverRegistry: Record<string, unknown> = {}
   let diagnosticsText: string | undefined
   const getPublicEnv = () => buildPublicConfig
 
@@ -62,6 +65,9 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       })
 
       buildPublicConfig = Object.fromEntries(publicResult.entries.map(entry => [entry.key, entry.value]))
+      serverRegistry = createRuntimeRegistry(envConfig.server, {
+        prefix: options.prefix,
+      })
       diagnosticsText = formatDiagnostics([...publicResult.diagnostics, ...defineResult.diagnostics], options.diagnostics)
 
       return {
@@ -77,7 +83,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       }
       await writeFileIfChanged(
         resolve(config.root, ".vitehub/env/vite.d.ts"),
-        createViteTypes(buildPublicConfig),
+        createViteTypes(buildPublicConfig, serverRegistry),
       )
     },
     load(id) {
@@ -88,28 +94,72 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
           "export { publicEnv };",
         ].join("\n")
       }
+      if (id === RESOLVED_SERVER_ID) {
+        return [
+          "import { resolveServerEnv } from '@vite-hub/env/server';",
+          `const serverEnvRegistry = ${JSON.stringify(serverRegistry, null, 2)};`,
+          "export function useServerEnv(event) { return resolveServerEnv(serverEnvRegistry, event); }",
+        ].join("\n")
+      }
     },
     resolveId(id) {
       if (id === ENV_PUBLIC_ID) {
         return RESOLVED_PUBLIC_ID
       }
+      if (id === ENV_SERVER_ID) {
+        return RESOLVED_SERVER_ID
+      }
     },
   }
 }
 
-function createViteTypes(config: Record<string, unknown>): string {
-  const fields = Object.entries(config).map(([key, value]) => `    ${JSON.stringify(key)}: ${typeof value}`)
+function createViteTypes(publicConfig: Record<string, unknown>, serverRegistry: Record<string, unknown>): string {
+  const publicFields = Object.entries(publicConfig).map(([key, value]) => `    ${JSON.stringify(key)}: ${typeof value}`)
+  const serverFields = Object.entries(serverRegistry).map(([key, value]) => `    ${JSON.stringify(key)}: ${serverEnvType(value)}`)
   return [
     "declare module \"#vitehub/env/public\" {",
     "  export interface PublicEnv {",
-    ...fields,
+    ...publicFields,
     "  }",
     "  export const publicEnv: PublicEnv",
     "  export function usePublicEnv(): PublicEnv",
     "}",
+    "declare module \"#vitehub/env/server\" {",
+    "  export interface ServerEnv {",
+    ...serverFields,
+    "  }",
+    "  export function useServerEnv(event?: unknown): ServerEnv",
+    "}",
     "export {}",
     "",
   ].join("\n")
+}
+
+function serverEnvType(value: unknown): string {
+  if (isRecord(value) && value.kind === "literal") {
+    return literalType(value.value)
+  }
+  if (isRecord(value) && isRecord(value.source) && typeof value.required === "boolean") {
+    const base = value.secret ? "import(\"@vite-hub/env/secret\").SecretEnv<string>" : "string"
+    return value.required || typeof value.default !== "undefined" ? base : `${base} | undefined`
+  }
+  if (isRecord(value)) {
+    const fields = Object.entries(value).map(([key, child]) => `${JSON.stringify(key)}: ${serverEnvType(child)}`)
+    return `{ ${fields.join("; ")} }`
+  }
+  return "unknown"
+}
+
+function literalType(value: unknown): string {
+  if (value === null) return "null"
+  if (typeof value === "string") return JSON.stringify(value)
+  if (typeof value === "number" || typeof value === "boolean") return String(value)
+  if (Array.isArray(value)) return `[${value.map(literalType).join(", ")}]`
+  return "unknown"
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 declare module "vite" {

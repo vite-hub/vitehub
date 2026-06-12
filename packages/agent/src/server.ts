@@ -1,3 +1,4 @@
+import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import { Chat } from "chat"
 
@@ -6,6 +7,7 @@ import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { getAccessCapabilityOptions } from "./capabilities/access.ts"
 import { formatUsageTelemetryChatMessage, getUsageTelemetryChatOptions } from "./capabilities/usage-telemetry.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "./chat-trigger.ts"
+import { uiMessagesToAgentMessages } from "./chat-message-input.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
 import { toHttpErrorResponse } from "./http-error.ts"
 
@@ -13,6 +15,7 @@ import type { AgentChatMessageTriggerInput } from "./chat-trigger.ts"
 import type {
   AgentChatStateResolver,
   AgentCapabilityDefinition,
+  AgentChatErrorHookArgs,
   AgentChatFinishExtension,
   AgentChatMessage,
   AgentChatOptions,
@@ -47,11 +50,13 @@ type AgentChatRouteBody = AgentChatMessageTriggerInput & {
 }
 
 export interface AgentChatFetchOptions {
+  cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"]
   waitUntil?: AgentWaitUntil
 }
 
 export interface AgentChatWebhookFetchOptions extends AgentChatFetchOptions {
   agentName?: string
+  state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
 }
 
 type AgentDefinitionWithCapabilities = {
@@ -61,6 +66,8 @@ type AgentDefinitionWithCapabilities = {
   capabilities?: AgentCapabilityDefinition[]
   chat?: AgentChatOptions
 }
+
+const defaultChatErrorFallbackText = "Sorry, I couldn't process that message."
 
 async function readJsonBody(request: Request): Promise<AgentChatRouteBody> {
   const body = await request.json().catch(() => undefined)
@@ -95,6 +102,29 @@ function createBadRequest(message: string): Response {
   return createJsonErrorResponse(400, message)
 }
 
+function serializeErrorForLog(error: unknown, seen = new WeakSet<object>()): unknown {
+  if (!(error instanceof Error)) {
+    return error
+  }
+  if (seen.has(error)) {
+    return { message: "[Circular Error]", name: error.name }
+  }
+  seen.add(error)
+
+  const output: Record<string, unknown> = {
+    message: error.message,
+    name: error.name,
+  }
+  if (error.stack) output.stack = error.stack
+  for (const key of Object.keys(error)) {
+    output[key] = serializeErrorForLog((error as unknown as Record<string, unknown>)[key], seen)
+  }
+  if ("cause" in error && typeof error.cause !== "undefined") {
+    output.cause = serializeErrorForLog(error.cause, seen)
+  }
+  return output
+}
+
 function detectRuntime(): AgentRuntimeName {
   const env = typeof process === "object" && process ? process.env : undefined
   if (env?.VERCEL) return "vercel"
@@ -105,17 +135,30 @@ function createRuntimeContext(
   request: Request,
   run: AgentRunMetadata | undefined,
   waitUntil?: AgentWaitUntil,
+  cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"],
 ): ViteAgentRouteRuntimeContext {
   const waitUntilController = createRuntimeWaitUntilController({ forward: waitUntil })
+  const runtime = cloudflare ? "cloudflare-agents" : detectRuntime()
   return createAgentRuntimeContext({
+    ...(cloudflare ? { cloudflare } : {}),
     flushWaitUntil: waitUntilController.flushWaitUntil,
     request,
     ...(run ? { run } : {}),
-    runtime: detectRuntime(),
+    runtime,
     runtimeConfig: {},
-    ...(waitUntil ? { vercel: { waitUntil } } : {}),
+    ...(runtime === "vercel" && waitUntil ? { vercel: { waitUntil } } : {}),
     waitUntil: waitUntilController.waitUntil,
   }) as ViteAgentRouteRuntimeContext
+}
+
+async function runWithRuntimeCloudflareEnv<T>(
+  context: ViteAgentRouteRuntimeContext,
+  callback: () => Promise<T>,
+): Promise<T> {
+  if (!context.cloudflare?.env) {
+    return callback()
+  }
+  return await runWithActiveCloudflareEnv(context.cloudflare.env, callback)
 }
 
 async function resolveRuntimeWaitUntil(waitUntil: AgentWaitUntil | undefined): Promise<AgentWaitUntil | undefined> {
@@ -445,7 +488,7 @@ async function resolveChatState(
 ): Promise<StateAdapter> {
   const agentName = handlerOptions.agentName || "agent"
   const state = await resolveMaybe(
-    options?.state as AgentChatStateResolver<ViteAgentRouteRuntimeConfig> | undefined,
+    (options?.state ?? handlerOptions.state) as AgentChatStateResolver<ViteAgentRouteRuntimeConfig> | undefined,
     {
       ...context,
       chat: {
@@ -622,6 +665,32 @@ function accessChatInput(thread: Thread, message: ChatSdkMessage, messageContext
   }
 }
 
+function chatErrorHookArgs(
+  thread: Thread,
+  message: ChatSdkMessage,
+  input: AgentChatMessageTriggerInput | undefined,
+  run: AgentRunMetadata | undefined,
+  error: unknown,
+): AgentChatErrorHookArgs<ViteAgentRouteRuntimeConfig> {
+  const inputMessage = input?.messages.at(-1)
+  const metadata = inputMessage?.metadata && typeof inputMessage.metadata === "object"
+    ? inputMessage.metadata as Record<string, unknown>
+    : undefined
+  return {
+    error,
+    history: input ? uiMessagesToAgentMessages(input.messages) : [],
+    message: {
+      id: inputMessage?.id || message.id,
+      ...(metadata ? { metadata } : {}),
+      text: message.text,
+    },
+    run,
+    thread: {
+      post: async postedMessage => postChatMessage(thread, postedMessage as AgentChatMessage),
+    },
+  }
+}
+
 function isTextChatMessage(message: AgentChatMessage): message is { text: string } {
   return typeof message === "object"
     && message !== null
@@ -631,6 +700,41 @@ function isTextChatMessage(message: AgentChatMessage): message is { text: string
 
 async function postChatMessage(thread: Thread, message: AgentChatMessage): Promise<void> {
   await thread.post(isTextChatMessage(message) ? message.text : message)
+}
+
+async function resolveChatErrorFallbackText(
+  options: AgentChatOptions | undefined,
+  args: AgentChatErrorHookArgs<ViteAgentRouteRuntimeConfig>,
+): Promise<string | undefined> {
+  const fallback = options?.errorFallbackText
+  if (fallback === null) return undefined
+  if (typeof fallback === "function") {
+    const resolved = await fallback(args)
+    return resolved || undefined
+  }
+  if (typeof fallback === "string") return fallback
+  return defaultChatErrorFallbackText
+}
+
+async function postChatErrorFallback(
+  error: unknown,
+  thread: Thread,
+  message: ChatSdkMessage,
+  options: AgentChatOptions | undefined,
+  input: AgentChatMessageTriggerInput | undefined,
+  run: AgentRunMetadata | undefined,
+): Promise<void> {
+  console.error({
+    component: "@vite-hub/agent",
+    error: serializeErrorForLog(error),
+    event: "chat.message.error",
+    message_id: message.id,
+    thread_id: message.threadId,
+  })
+  const fallback = await resolveChatErrorFallbackText(options, chatErrorHookArgs(thread, message, input, run, error))
+  if (fallback) {
+    await thread.post(fallback).catch(() => undefined)
+  }
 }
 
 function createChatFinishExtension(
@@ -721,42 +825,51 @@ async function handleChatSdkMessage(
   options: AgentChatOptions | undefined,
   messageContext?: MessageContext,
 ): Promise<void> {
-  const input = createChatTriggerInput(registration.provider, thread, message, messageContext)
-  const firstMessage = input.messages[0]
-  if (!firstMessage || !Array.isArray(firstMessage.parts) || firstMessage.parts.length === 0) return
-  if (!await isChatMessageAuthorized(agent, context, registration, thread, message, messageContext)) return
+  let input: AgentChatMessageTriggerInput | undefined
+  let run: AgentRunMetadata | undefined
+  try {
+    input = createChatTriggerInput(registration.provider, thread, message, messageContext)
+    const firstMessage = input.messages[0]
+    if (!firstMessage || !Array.isArray(firstMessage.parts) || firstMessage.parts.length === 0) return
+    if (!await isChatMessageAuthorized(agent, context, registration, thread, message, messageContext)) return
 
-  const startedAt = Date.now()
-  if (options?.stream !== false) {
-    context.waitUntil(thread.startTyping().catch(() => undefined))
-  }
-  const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
-  const runContext = {
-    ...context,
-    ...(invocation.run ? { run: invocation.run } : {}),
-  }
-  const invocationInput = withChatFinishExtension(
-    invocation.input as AgentRunInput,
-    createChatFinishExtension(input, registration, thread),
-  )
-  let usageRecord: AgentUsageRecord | undefined
-  if (options?.stream === false) {
-    const result = await runAgentInline(agent as never, runContext as never, invocationInput as never)
-    const collected = await collectAgentOutput(result)
-    usageRecord = collected.usageRecord
-    if (collected.text) {
-      await thread.post({ markdown: collected.text })
+    const startedAt = Date.now()
+    if (options?.stream !== false) {
+      context.waitUntil(thread.startTyping().catch(() => undefined))
     }
+    const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
+    run = invocation.run
+    const runContext = {
+      ...context,
+      ...(invocation.run ? { run: invocation.run } : {}),
+    }
+    const invocationInput = withChatFinishExtension(
+      invocation.input as AgentRunInput,
+      createChatFinishExtension(input, registration, thread),
+    )
+    let usageRecord: AgentUsageRecord | undefined
+    if (options?.stream === false) {
+      const result = await runAgentInline(agent as never, runContext as never, invocationInput as never)
+      const collected = await collectAgentOutput(result)
+      usageRecord = collected.usageRecord
+      if (collected.text) {
+        await thread.post({ markdown: collected.text })
+      }
+    }
+    else {
+      const result = streamAgent(agent as never, runContext as never, invocationInput as never, {
+        output: "events",
+      })
+      await thread.post(streamAgentOutputToChatText(result, record => {
+        usageRecord = record
+      }))
+    }
+    await postUsageTelemetry(agent, Date.now() - startedAt, input, registration, thread, usageRecord)
   }
-  else {
-    const result = streamAgent(agent as never, runContext as never, invocationInput as never, {
-      output: "events",
-    })
-    await thread.post(streamAgentOutputToChatText(result, record => {
-      usageRecord = record
-    }))
+  catch (error) {
+    await postChatErrorFallback(error, thread, message, options, input, run)
+    throw error
   }
-  await postUsageTelemetry(agent, Date.now() - startedAt, input, registration, thread, usageRecord)
 }
 
 async function createChatWebhookHandler(
@@ -797,18 +910,25 @@ export function defineAgentChatFetchHandler(
       return createBadRequest("Agent chat route requires messages.")
     }
 
-    try {
-      const context = createRuntimeContext(request, undefined, await resolveRuntimeWaitUntil(handlerOptions.waitUntil))
-      const result = await streamAgentTrigger(agent as never, context, "chat.message", chatAppRouteTriggerInput(body), {
-        output: "ui-message-stream",
-      })
-      return await toUiMessageStreamResponse(readableStreamFromResult(result))
-    }
-    catch (error) {
-      const response = toHttpErrorResponse(error)
-      if (response) return response
-      throw error
-    }
+    const context = createRuntimeContext(
+      request,
+      undefined,
+      await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+      handlerOptions.cloudflare,
+    )
+    return await runWithRuntimeCloudflareEnv(context, async () => {
+      try {
+        const result = await streamAgentTrigger(agent as never, context, "chat.message", chatAppRouteTriggerInput(body), {
+          output: "ui-message-stream",
+        })
+        return await toUiMessageStreamResponse(readableStreamFromResult(result))
+      }
+      catch (error) {
+        const response = toHttpErrorResponse(error)
+        if (response) return response
+        throw error
+      }
+    })
   }
 }
 
@@ -825,32 +945,39 @@ export function defineAgentChatWebhookFetchHandler(
       return createBadRequest("Agent chat webhook route requires a webhook id.")
     }
 
-    const context = createRuntimeContext(request, undefined, await resolveRuntimeWaitUntil(handlerOptions.waitUntil))
-    const registration = await findChatWebhookRegistration(agent, context, webhookId)
-    if (!registration) {
-      return createJsonErrorResponse(404, "Unknown ViteHub agent chat webhook.")
-    }
-
-    const chatOptions = getAgentChatOptions(agent)
-    const adapters = await resolveChatAdapters(chatOptions, context)
-    const adapterName = resolveChatAdapterName(adapters, registration)
-    const adapter = adapterName ? adapters[adapterName] : undefined
-    if (!adapter) {
-      return createJsonErrorResponse(500, `Agent chat webhook "${webhookId}" does not have a matching chat adapter.`)
-    }
-
-    try {
-      const handler = await createChatWebhookHandler(agent, context, registration, adapterName!, adapter, chatOptions, handlerOptions)
-      const response = await handler(request, { waitUntil: context.waitUntil })
-      if (chatOptions?.stream === false) {
-        await context.flushWaitUntil?.()
+    const context = createRuntimeContext(
+      request,
+      undefined,
+      await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+      handlerOptions.cloudflare,
+    )
+    return await runWithRuntimeCloudflareEnv(context, async () => {
+      const registration = await findChatWebhookRegistration(agent, context, webhookId)
+      if (!registration) {
+        return createJsonErrorResponse(404, "Unknown ViteHub agent chat webhook.")
       }
-      return response
-    }
-    catch (error) {
-      const response = toHttpErrorResponse(error)
-      if (response) return response
-      throw error
-    }
+
+      const chatOptions = getAgentChatOptions(agent)
+      const adapters = await resolveChatAdapters(chatOptions, context)
+      const adapterName = resolveChatAdapterName(adapters, registration)
+      const adapter = adapterName ? adapters[adapterName] : undefined
+      if (!adapter) {
+        return createJsonErrorResponse(500, `Agent chat webhook "${webhookId}" does not have a matching chat adapter.`)
+      }
+
+      try {
+        const handler = await createChatWebhookHandler(agent, context, registration, adapterName!, adapter, chatOptions, handlerOptions)
+        const response = await handler(request, { waitUntil: context.waitUntil })
+        if (chatOptions?.stream === false) {
+          await context.flushWaitUntil?.()
+        }
+        return response
+      }
+      catch (error) {
+        const response = toHttpErrorResponse(error)
+        if (response) return response
+        throw error
+      }
+    })
   }
 }

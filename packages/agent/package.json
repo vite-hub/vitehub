@@ -28,6 +28,7 @@
     "./capabilities": "./dist/capabilities.js",
     "./cli": "./dist/cli.js",
     "./cloudflare": "./dist/cloudflare.js",
+    "./cloudflare/state": "./dist/cloudflare/state.js",
     "./eval": "./dist/eval.js",
     "./mcp": "./dist/mcp.js",
     "./mcp/stdio": "./dist/mcp/stdio.js",

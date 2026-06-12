@@ -38,6 +38,10 @@
       "types": "./dist/secret.d.ts",
       "import": "./dist/secret.js"
     },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
     "./virtual": {
       "types": "./dist/virtual.d.ts",
       "import": "./dist/virtual.js"

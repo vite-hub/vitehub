@@ -7,12 +7,18 @@ import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatch
 
 import { chatDevTools } from "./chat/devtools.ts"
 import { registerChatDevtoolsBridge } from "./chat/vite/devtools-bridge.ts"
+import {
+  configureCloudflareAgentState,
+  defaultCloudflareAgentStateBinding,
+  installCloudflareAgentStateEntrypoint,
+} from "./cloudflare.ts"
 import { normalizeAgentOptions } from "./config.ts"
 import { discoverAgentDefinitions } from "./discovery.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 
 import type { Plugin, ResolvedConfig } from "vite"
-import type { AgentModuleOptions, DiscoveredAgentDefinition } from "./types.ts"
+import type { CloudflareAgentStateMigration, CloudflareAgentStateRollupTarget, CloudflareAgentStateTarget } from "./cloudflare.ts"
+import type { AgentModuleOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "./types.ts"
 
 interface AgentCliContributingPlugin {
   vitehub?: {
@@ -26,6 +32,102 @@ const agentPackageName = "@vite-hub/agent"
 const mergeNoExternal = createNoExternalMerger(agentPackageName)
 const generatedAgentRouteHandler = ".vitehub/agent/chat-route.ts"
 const generatedAgentWebhookRouteHandler = ".vitehub/agent/chat-webhook-route.ts"
+
+type NitroConfig = Record<string, unknown> & CloudflareAgentStateRollupTarget & CloudflareAgentStateTarget
+type RollupExternalFunction = (source: string, importer?: string, isResolved?: boolean) => boolean | null | undefined | void
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function shouldInstallCloudflareAgentState(options: false | ResolvedAgentModuleOptions): options is ResolvedAgentModuleOptions {
+  if (!options || !options.webhooks) return false
+  const provider = options.providers.state.provider
+  return provider === "auto" || provider === "cloudflare" || provider === "cloudflare-agents"
+}
+
+function cloneStringArray(value: unknown): string[] | undefined {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : undefined
+}
+
+function cloneCloudflareAgentStateMigrations(value: unknown): CloudflareAgentStateMigration[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  return value.flatMap((item): CloudflareAgentStateMigration[] => {
+    if (!isRecord(item) || typeof item.tag !== "string") return []
+    return [{
+      ...item,
+      ...(cloneStringArray(item.deleted_classes) ? { deleted_classes: cloneStringArray(item.deleted_classes) } : {}),
+      ...(cloneStringArray(item.new_sqlite_classes) ? { new_sqlite_classes: cloneStringArray(item.new_sqlite_classes) } : {}),
+      tag: item.tag,
+    }]
+  })
+}
+
+function mergeCloudflareWorkersExternal(external: unknown): unknown {
+  if (external === undefined) return ["cloudflare:workers"]
+  if (typeof external === "string") return external === "cloudflare:workers" ? external : [external, "cloudflare:workers"]
+  if (external instanceof RegExp) return [external, "cloudflare:workers"]
+  if (Array.isArray(external)) {
+    return external.includes("cloudflare:workers") ? external : [...external, "cloudflare:workers"]
+  }
+  if (typeof external === "function") {
+    const externalFunction = external as RollupExternalFunction
+    return (source: string, importer?: string, isResolved?: boolean) =>
+      source === "cloudflare:workers" || Boolean(externalFunction(source, importer, isResolved))
+  }
+  return external
+}
+
+function cloneNitroConfig(value: unknown): NitroConfig {
+  const nitro = isRecord(value) ? { ...value } : {}
+  if (isRecord(nitro.rollupConfig)) {
+    const rollupConfig = { ...nitro.rollupConfig }
+    if (Array.isArray(rollupConfig.plugins)) {
+      rollupConfig.plugins = [...rollupConfig.plugins]
+    }
+    nitro.rollupConfig = rollupConfig
+  }
+
+  if (isRecord(nitro.cloudflare)) {
+    const cloudflare = { ...nitro.cloudflare }
+    if (isRecord(cloudflare.wrangler)) {
+      const wrangler = { ...cloudflare.wrangler }
+      if (isRecord(wrangler.durable_objects)) {
+        const durableObjects = { ...wrangler.durable_objects }
+        if (Array.isArray(durableObjects.bindings)) {
+          durableObjects.bindings = [...durableObjects.bindings]
+        }
+        wrangler.durable_objects = durableObjects
+      }
+      const migrations = cloneCloudflareAgentStateMigrations(wrangler.migrations)
+      if (migrations) {
+        wrangler.migrations = migrations
+      }
+      cloudflare.wrangler = wrangler
+    }
+    nitro.cloudflare = cloudflare
+  }
+
+  return nitro as NitroConfig
+}
+
+function mergeCloudflareAgentStateNitroConfig(value: unknown): NitroConfig {
+  const nitro = cloneNitroConfig(value)
+  configureCloudflareAgentState(nitro)
+  installCloudflareAgentStateEntrypoint(nitro)
+  nitro.rollupConfig ||= {}
+  nitro.rollupConfig.external = mergeCloudflareWorkersExternal(nitro.rollupConfig.external)
+  return nitro
+}
+
+function mergeNitroHandlers(nitro: NitroConfig, handlers: Array<{ handler: string, route: string }>): NitroConfig {
+  if (handlers.length === 0) return nitro
+  const existingHandlers = Array.isArray(nitro.handlers) ? nitro.handlers : []
+  return {
+    ...nitro,
+    handlers: [...existingHandlers, ...handlers],
+  }
+}
 
 function agentDevtoolsEnabled(agent: AgentModuleOptions | false | undefined): boolean {
   return agent !== false && agent?.devtools !== false
@@ -46,6 +148,38 @@ function resolveWorkspaceSourceRoot(file: string): string {
 function moduleImportSpecifier(fromFile: string, targetFile: string): string {
   const specifier = relative(dirname(fromFile), targetFile).replace(/\\/g, "/")
   return specifier.startsWith(".") ? specifier : `./${specifier}`
+}
+
+function generatedRuntimeHelpers(): string[] {
+  return [
+    "function waitUntilFromValue(value) {",
+    "  return value && typeof value === 'object' && typeof value.waitUntil === 'function' ? value.waitUntil.bind(value) : undefined",
+    "}",
+    "",
+    "function waitUntilFromEvent(event) {",
+    "  return waitUntilFromValue(event)",
+    "    || waitUntilFromValue(event.context)",
+    "    || waitUntilFromValue(event.context?.cloudflare?.context)",
+    "    || waitUntilFromValue(event.context?._platform?.cloudflare?.context)",
+    "    || waitUntilFromValue(event.node?.req?.runtime?.cloudflare?.context)",
+    "}",
+    "",
+    "function cloudflareFromEvent(event) {",
+    "  const env = event.env || event.context?.cloudflare?.env || event.context?._platform?.cloudflare?.env || event.node?.req?.runtime?.cloudflare?.env",
+    "  const context = event.context?.cloudflare?.context || event.context?._platform?.cloudflare?.context || event.node?.req?.runtime?.cloudflare?.context",
+    "  return env && typeof env === 'object' ? { env, ...(context ? { context } : {}) } : undefined",
+    "}",
+  ]
+}
+
+function generatedCloudflareChatStateHelper(): string[] {
+  return [
+    "",
+    "function chatStateFromCloudflare(cloudflare) {",
+    `  const namespace = cloudflare?.env?.${defaultCloudflareAgentStateBinding}`,
+    "  return namespace ? createCloudflareAgentState({ namespace }) : undefined",
+    "}",
+  ]
 }
 
 function generateAgentRouteHandler(definitions: DiscoveredAgentDefinition[], handlerPath: string): string {
@@ -90,9 +224,7 @@ function generateAgentRouteHandler(definitions: DiscoveredAgentDefinition[], han
     "  })",
     "}",
     "",
-    "function waitUntilFromEvent(event) {",
-    "  return typeof event.waitUntil === 'function' ? event.waitUntil.bind(event) : undefined",
-    "}",
+    ...generatedRuntimeHelpers(),
     "",
     `setWorkspaceRuntimeRegistry({${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}})`,
     "",
@@ -105,13 +237,14 @@ function generateAgentRouteHandler(definitions: DiscoveredAgentDefinition[], han
     "  if (!handler) {",
     "    throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
     "  }",
-    "  return await handler(await toRequest(event), { waitUntil: waitUntilFromEvent(event) })",
+    "  const cloudflare = cloudflareFromEvent(event)",
+    "  return await handler(await toRequest(event), { cloudflare, waitUntil: waitUntilFromEvent(event) })",
     "})",
     "",
   ].join("\n")
 }
 
-function generateAgentWebhookRouteHandler(definitions: DiscoveredAgentDefinition[], handlerPath: string): string {
+function generateAgentWebhookRouteHandler(definitions: DiscoveredAgentDefinition[], handlerPath: string, options: { cloudflareState?: boolean } = {}): string {
   const imports = definitions
     .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
     .join("\n")
@@ -132,6 +265,7 @@ function generateAgentWebhookRouteHandler(definitions: DiscoveredAgentDefinition
 
   return [
     "import { withWorkspaceAgentDefaults } from '@vite-hub/agent'",
+    ...(options.cloudflareState ? ["import { createCloudflareAgentState } from '@vite-hub/agent/cloudflare'"] : []),
     "import { defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server'",
     "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/internal/runtime/state'",
     "import { createError, defineEventHandler, getRequestHeaders, getRequestURL, getRouterParam, readRawBody } from 'h3'",
@@ -153,9 +287,8 @@ function generateAgentWebhookRouteHandler(definitions: DiscoveredAgentDefinition
     "  })",
     "}",
     "",
-    "function waitUntilFromEvent(event) {",
-    "  return typeof event.waitUntil === 'function' ? event.waitUntil.bind(event) : undefined",
-    "}",
+    ...generatedRuntimeHelpers(),
+    ...(options.cloudflareState ? generatedCloudflareChatStateHelper() : []),
     "",
     `setWorkspaceRuntimeRegistry({${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}})`,
     "",
@@ -169,7 +302,10 @@ function generateAgentWebhookRouteHandler(definitions: DiscoveredAgentDefinition
     "  if (!handler) {",
     "    throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
     "  }",
-    "  return await handler(await toRequest(event), webhook, { agentName: agent, waitUntil: waitUntilFromEvent(event) })",
+    "  const cloudflare = cloudflareFromEvent(event)",
+    options.cloudflareState
+      ? "  return await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, state: chatStateFromCloudflare(cloudflare), waitUntil: waitUntilFromEvent(event) })"
+      : "  return await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) })",
     "})",
     "",
   ].join("\n")
@@ -185,14 +321,14 @@ async function writeAgentRouteHandler(root: string): Promise<void> {
   await writeFile(handlerPath, generateAgentRouteHandler(definitions, handlerPath), "utf8")
 }
 
-async function writeAgentWebhookRouteHandler(root: string): Promise<void> {
+async function writeAgentWebhookRouteHandler(root: string, options: { cloudflareState?: boolean } = {}): Promise<void> {
   const handlerPath = join(root, generatedAgentWebhookRouteHandler)
   const definitions = discoverAgentDefinitions({
     mode: "server-agents",
     scanDirs: [join(root, "server")],
   })
   await mkdir(dirname(handlerPath), { recursive: true })
-  await writeFile(handlerPath, generateAgentWebhookRouteHandler(definitions, handlerPath), "utf8")
+  await writeFile(handlerPath, generateAgentWebhookRouteHandler(definitions, handlerPath, options), "utf8")
 }
 
 export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
@@ -224,6 +360,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     config(config) {
       agent = config.agent ?? agent
       const resolved = normalizeAgentOptions(agent)
+      const installCloudflareState = shouldInstallCloudflareAgentState(resolved)
       const nitroHandlers = [
         ...(resolved && resolved.route
           ? [{
@@ -238,13 +375,15 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             }]
           : []),
       ]
+      const nitro = installCloudflareState
+        ? mergeCloudflareAgentStateNitroConfig((config as { nitro?: unknown }).nitro)
+        : cloneNitroConfig((config as { nitro?: unknown }).nitro)
+      const mergedNitro = mergeNitroHandlers(nitro, nitroHandlers)
       return {
         ...(typeof agent !== "undefined" ? { agent } : {}),
-        ...(nitroHandlers.length
+        ...(nitroHandlers.length || installCloudflareState
           ? {
-              nitro: {
-                handlers: nitroHandlers,
-              },
+              nitro: mergedNitro,
             }
           : {}),
         server: {
@@ -262,7 +401,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         await writeAgentRouteHandler(config.root)
       }
       if (normalized && normalized.webhooks) {
-        await writeAgentWebhookRouteHandler(config.root)
+        await writeAgentWebhookRouteHandler(config.root, { cloudflareState: shouldInstallCloudflareAgentState(normalized) })
       }
       if (agent === false || agent?.eval === false) {
         return
