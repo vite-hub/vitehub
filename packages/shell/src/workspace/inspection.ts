@@ -8,7 +8,7 @@ import { cleanWorkspaceShellPath } from "./path.ts"
 
 import type { ShellObservation } from "../runtime/types.ts"
 import type { WorkspaceShellFileSystem } from "./filesystem.ts"
-import type { SearchableShellWorkspace, ShellEntry, ShellStat } from "./types.ts"
+import type { SearchableShellWorkspace } from "./types.ts"
 
 interface WorkspaceInspectionCommandOptions {
   broadSearchPaths?: string[]
@@ -20,7 +20,7 @@ interface WorkspaceInspectionCommandOptions {
 }
 
 export async function runWorkspaceInspectionCommand(
-  input: SearchableShellWorkspace,
+  _input: SearchableShellWorkspace,
   command: string,
   options: WorkspaceInspectionCommandOptions,
 ): Promise<ShellObservation> {
@@ -32,11 +32,6 @@ export async function runWorkspaceInspectionCommand(
   if (missingPath) return missingPath
   const unsupported = preflightUnsupportedWorkspaceCommand(command, options.commands)
   if (unsupported) return unsupported
-  const direct = await runDirectWorkspaceInspectionCommand(input, command, {
-    cwd: options.cwd || workspaceMountPoint,
-    maxOutputLength,
-  })
-  if (direct) return direct
   const runtime = createShellRuntime({
     policy: {
       maxOutputLength,
@@ -52,267 +47,6 @@ export async function runWorkspaceInspectionCommand(
   const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths, options.cwd)
 
   return noMatchFeedback ? { ...result, stdout: noMatchFeedback, workspaceGuardrail: { kind: "no_match" } } : result
-}
-
-async function runDirectWorkspaceInspectionCommand(
-  input: SearchableShellWorkspace,
-  command: string,
-  options: { cwd: string, maxOutputLength: number },
-): Promise<ShellObservation | undefined> {
-  const segments = analyzeWorkspaceInspectionCommand(command)
-  if (segments.length !== 1 || segments[0]?.separatorAfter) return undefined
-  if (hasRedirect(wordsOf(segments[0]))) return undefined
-
-  const started = Date.now()
-  const words = wordsOf(segments[0])
-  const executable = workspaceExecutable(words)
-  if (!executable) return undefined
-
-  if (executable.name === "ls") {
-    const output = await directLs(input, words.slice(executable.index + 1), options.cwd)
-    return finalizeDirectObservation({
-      command,
-      cwd: options.cwd,
-      durationMs: Date.now() - started,
-      maxOutputLength: options.maxOutputLength,
-      stdout: output,
-    })
-  }
-
-  if (executable.name === "find") {
-    const output = await directFind(input, words.slice(executable.index + 1), options.cwd)
-    if (typeof output !== "string") return undefined
-    return finalizeDirectObservation({
-      command,
-      cwd: options.cwd,
-      durationMs: Date.now() - started,
-      maxOutputLength: options.maxOutputLength,
-      stdout: output,
-    })
-  }
-}
-
-function finalizeDirectObservation(input: {
-  command: string
-  cwd: string
-  durationMs: number
-  maxOutputLength: number
-  stderr?: string
-  stdout: string
-}): ShellObservation {
-  return applyOutputLimit({
-    command: input.command,
-    cwd: input.cwd,
-    durationMs: input.durationMs,
-    event: "command_finished",
-    exitCode: 0,
-    stderr: input.stderr || "",
-    stdout: input.stdout,
-  }, input.maxOutputLength)
-}
-
-function applyOutputLimit(result: ShellObservation, maxLength: number): ShellObservation {
-  const next: ShellObservation = { ...result, maxOutputLength: maxLength }
-  let truncated = false
-  if (next.stdout.length > maxLength) {
-    next.stdout = `${next.stdout.slice(0, maxLength)}\n[output truncated to ${maxLength} characters]\n`
-    truncated = true
-  }
-  if (next.stderr.length > maxLength) {
-    next.stderr = `${next.stderr.slice(0, maxLength)}\n[output truncated to ${maxLength} characters]\n`
-    truncated = true
-  }
-  return truncated ? { ...next, outputTruncated: true } : next
-}
-
-async function directLs(input: SearchableShellWorkspace, args: string[], cwd: string) {
-  const parsed = parseLsArgs(args)
-  const chunks: string[] = []
-
-  for (const [index, path] of parsed.paths.entries()) {
-    const resolved = resolveWorkspaceShellPath(cwd, path)
-    const stat = await input.stat(resolved)
-    if (parsed.paths.length > 1) {
-      if (index > 0) chunks.push("\n")
-      chunks.push(`${path}:\n`)
-    }
-    if (stat.type === "file") {
-      chunks.push(formatLsEntries([stat], {
-        all: false,
-        basePath: parentPath(stat.path),
-        long: parsed.long,
-      }))
-      continue
-    }
-    const entries = await input.list(resolved, { recursive: false })
-    chunks.push(formatLsEntries(entries, {
-      all: parsed.all,
-      basePath: resolved,
-      long: parsed.long,
-    }))
-  }
-
-  return chunks.join("")
-}
-
-function parseLsArgs(args: string[]) {
-  const paths: string[] = []
-  let all = false
-  let long = false
-
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index]!
-    if (arg === "--") {
-      paths.push(...args.slice(index + 1))
-      break
-    }
-    if (arg === "-I" || arg === "--ignore") {
-      index += 1
-      continue
-    }
-    if (arg.startsWith("--ignore=")) continue
-    if (arg.startsWith("-") && arg !== "-") {
-      all ||= arg.includes("a") || arg.includes("A")
-      long ||= arg.includes("l")
-      continue
-    }
-    paths.push(arg)
-  }
-
-  return {
-    all,
-    long,
-    paths: paths.length ? paths : ["."],
-  }
-}
-
-function formatLsEntries(entries: ShellEntry[], options: { all: boolean, basePath: string, long: boolean }) {
-  const sorted = [...entries].sort((left, right) =>
-    Number(left.type === "directory") - Number(right.type === "directory")
-    || left.path.localeCompare(right.path),
-  )
-  if (!options.long) {
-    return sorted.map(entry => lsEntryName(options.basePath, entry)).join("\n") + (sorted.length ? "\n" : "")
-  }
-
-  const rows: string[] = [`total ${sorted.length}`]
-  if (options.all) {
-    rows.push(formatLsLongEntry(".", { path: options.basePath, type: "directory" }))
-    rows.push(formatLsLongEntry("..", { path: parentPath(options.basePath), type: "directory" }))
-  }
-  rows.push(...sorted.map(entry => formatLsLongEntry(lsEntryName(options.basePath, entry), entry)))
-  return `${rows.join("\n")}\n`
-}
-
-function formatLsLongEntry(name: string, entry: ShellEntry | ShellStat) {
-  const directory = entry.type === "directory"
-  const mode = directory ? "drwxr-xr-x" : "-rw-r--r--"
-  const size = String(directory ? 0 : entry.size || 0).padStart(5)
-  return `${mode} 1 user user ${size} Jan  1  1970 ${name}${directory && name !== "." && name !== ".." ? "/" : ""}`
-}
-
-function lsEntryName(basePath: string, entry: ShellEntry | ShellStat) {
-  return basePath ? entry.path.slice(basePath.length + 1) : entry.path
-}
-
-async function directFind(input: SearchableShellWorkspace, args: string[], cwd: string): Promise<string | undefined> {
-  const parsed = parseFindArgs(args)
-  if (!parsed) return undefined
-
-  const matches: string[] = []
-  for (const path of parsed.paths) {
-    const rootPath = resolveWorkspaceShellPath(cwd, path)
-    const root = await input.stat(rootPath)
-    const entries = [root, ...await input.list(rootPath, { recursive: true })]
-    for (const entry of entries) {
-      if (!findEntryWithinDepth(rootPath, entry.path, parsed.maxDepth)) continue
-      if (parsed.type && entry.type !== parsed.type) continue
-      if (parsed.name && !globNameMatches(parsed.name, basename(entry.path))) continue
-      matches.push(entry.path || ".")
-    }
-  }
-
-  return matches.join("\n") + (matches.length ? "\n" : "")
-}
-
-function parseFindArgs(args: string[]) {
-  if (args.some(arg => arg === "-exec" || arg === "-ok" || arg === "-delete" || arg === "-print0")) return undefined
-  if (args[0] === "-H" || args[0] === "-L" || args[0] === "-P") return undefined
-
-  const paths: string[] = []
-  let index = 0
-  if (args[index] === "--") index += 1
-  while (index < args.length) {
-    const arg = args[index]!
-    if (arg.startsWith("-")) break
-    paths.push(arg)
-    index += 1
-  }
-  if (!paths.length) paths.push(".")
-
-  let maxDepth: number | undefined
-  let name: string | undefined
-  let type: "directory" | "file" | undefined
-
-  while (index < args.length) {
-    const arg = args[index]!
-    if (arg === "-name") {
-      name = args[index + 1]
-      index += 2
-      continue
-    }
-    if (arg === "-type") {
-      const value = args[index + 1]
-      if (value === "f") type = "file"
-      else if (value === "d") type = "directory"
-      else return undefined
-      index += 2
-      continue
-    }
-    if (arg === "-maxdepth") {
-      const value = Number(args[index + 1])
-      if (!Number.isInteger(value) || value < 0) return undefined
-      maxDepth = value
-      index += 2
-      continue
-    }
-    if (arg.startsWith("-maxdepth=")) {
-      const value = Number(arg.slice("-maxdepth=".length))
-      if (!Number.isInteger(value) || value < 0) return undefined
-      maxDepth = value
-      index += 1
-      continue
-    }
-    if (arg === "-print") {
-      index += 1
-      continue
-    }
-    return undefined
-  }
-
-  return { maxDepth, name, paths, type }
-}
-
-function findEntryWithinDepth(rootPath: string, entryPath: string, maxDepth: number | undefined) {
-  if (maxDepth === undefined) return true
-  if (entryPath === rootPath) return maxDepth >= 0
-  const relative = rootPath ? entryPath.slice(rootPath.length + 1) : entryPath
-  const depth = relative ? relative.split("/").length : 0
-  return depth <= maxDepth
-}
-
-function globNameMatches(pattern: string, name: string) {
-  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")
-  return new RegExp(`^${escaped}$`).test(name)
-}
-
-function basename(path: string) {
-  return path.split("/").filter(Boolean).at(-1) || "."
-}
-
-function parentPath(path: string) {
-  const parent = posix.dirname(path)
-  return parent === "." ? "" : parent
 }
 
 async function preflightWorkspaceInspectionCommand(command: string, fs: WorkspaceShellFileSystem, broadSearchPaths: string[] = [], cwd = workspaceMountPoint): Promise<ShellObservation | undefined> {
@@ -528,14 +262,6 @@ function workspaceExecutable(words: string[]) {
 
 function isAssignmentWord(word: string) {
   return /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(word)
-}
-
-function wordsOf(segment: ReturnType<typeof analyzeWorkspaceInspectionCommand>[number]) {
-  return segment.words
-}
-
-function hasRedirect(words: string[]) {
-  return words.some(word => /^(?:\d*)[<>]/.test(word))
 }
 
 function isConcreteWorkspacePath(path: string) {

@@ -11,6 +11,7 @@ import { MemoryWorkspace } from "./workspace-test-utils.ts"
 describe("@vite-hub/shell workspace inspection", () => {
   it("runs workspace inspection through the real shell runtime", async () => {
     const workspace = new MemoryWorkspace({
+      ".secret": "hidden\n",
       "README.md": "# Docs\n",
       "models/customers.sql": "select * from customers\n",
       "models/orders.sql": "select * from orders\n",
@@ -44,21 +45,56 @@ describe("@vite-hub/shell workspace inspection", () => {
       stdout: expect.stringContaining("customers.sql"),
     })
 
-    {
-      const runtimeFs = createReadonlyWorkspaceFs(workspace)
-      runtimeFs.readdirWithFileTypes = async () => {
-        throw new Error("shell runtime should not list simple workspace paths")
-      }
+    await expect(runWorkspaceInspectionCommand(workspace, "ls .", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "README.md\nmodels\n",
+    })
 
-      await expect(runWorkspaceInspectionCommand(workspace, "ls -la models", {
-        commands: ["ls"],
-        cwd: workspaceMountPoint,
-        fs: runtimeFs,
-      })).resolves.toMatchObject({
-        exitCode: 0,
-        stdout: expect.stringContaining("customers.sql"),
-      })
-    }
+    await expect(runWorkspaceInspectionCommand(workspace, "ls -a .", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: ".\n..\n.secret\nREADME.md\nmodels\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "ls -d models", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "ls *.md", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "README.md\n",
+    })
+
+    const slowFs = createReadonlyWorkspaceFs(workspace)
+    slowFs.readdirWithFileTypes = async () => await new Promise(() => {})
+
+    await expect(runWorkspaceInspectionCommand(workspace, "ls models", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs: slowFs,
+      timeout: 20,
+    })).resolves.toMatchObject({
+      event: "command_timed_out",
+      exitCode: null,
+      stderr: expect.stringContaining("Workspace shell command timed out after 20ms"),
+      timedOut: true,
+    })
 
     await expect(runWorkspaceInspectionCommand(workspace, "cat", {
       commands: ["cat"],
@@ -410,21 +446,41 @@ describe("@vite-hub/shell workspace inspection", () => {
       stdout: expect.not.stringContaining("Workspace search is too broad"),
     })
 
-    {
-      const runtimeFs = createReadonlyWorkspaceFs(workspace)
-      runtimeFs.readdirWithFileTypes = async () => {
-        throw new Error("shell runtime should not find simple workspace paths")
-      }
+    await expect(runWorkspaceInspectionCommand(workspace, "find -name '*.sql'", {
+      commands: ["find"],
+      cwd: `${workspaceMountPoint}/models`,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "./customers.sql\n./orders.sql\n",
+    })
 
-      await expect(runWorkspaceInspectionCommand(workspace, "find models -type f -name '*.sql'", {
-        commands: ["find"],
-        cwd: workspaceMountPoint,
-        fs: runtimeFs,
-      })).resolves.toMatchObject({
-        exitCode: 0,
-        stdout: "models/customers.sql\nmodels/orders.sql\n",
-      })
-    }
+    await expect(runWorkspaceInspectionCommand(workspace, "find /workspace/models -name '*.sql'", {
+      commands: ["find"],
+      cwd: `${workspaceMountPoint}/models`,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "/workspace/models/customers.sql\n/workspace/models/orders.sql\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "find *.md -name README.md", {
+      commands: ["find"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "README.md\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "find models -name", {
+      commands: ["find"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 1,
+      stderr: expect.stringContaining("unknown predicate '-name'"),
+    })
 
     await expect(runWorkspaceInspectionCommand(workspace, "rg customers models && wc -l models/customers.sql", {
       commands: ["rg", "wc"],
