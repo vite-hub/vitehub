@@ -9,7 +9,6 @@ import { resolve } from "node:path"
 import { setTimeout as sleep } from "node:timers/promises"
 
 import { buildPlayground } from "./build-playground.mjs"
-import { createVercelBridge } from "./vercel-bridge.mjs"
 
 const repoRoot = resolve(import.meta.dirname, "..", "..")
 const log = message => console.log(`[e2e:local] ${message}`)
@@ -88,33 +87,53 @@ async function runVercel() {
   if (!existsSync(resolve(outputDir, "config.json"))) {
     throw new Error("[e2e:local] Missing Vercel Provider Output. Run with --build or build the playground first.")
   }
+  // The hosted DB runtime rejects file: URLs by design; a remote-shaped URL
+  // (e.g. a local sqld container) is required for the database suite.
   const databaseUrl = process.env.TURSO_DATABASE_URL || `file:${resolve(repoRoot, ".vitehub/local-e2e.db")}`
+  const hasRemoteDatabase = !databaseUrl.startsWith("file:")
   const bridgeEnv = {
-    TURSO_DATABASE_URL: databaseUrl,
+    // Emulate the documented Vercel runtime env so provider detection works.
+    VERCEL: "1",
+    VERCEL_ENV: "development",
+    // Placeholders satisfy import-time env checks for primitives whose suites
+    // are excepted locally (blob) or env-gated (kv); real env always wins.
+    BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN || "vercel_blob_rw_local_placeholder",
+    KV_REST_API_TOKEN: process.env.KV_REST_API_TOKEN || "local-placeholder",
+    KV_REST_API_URL: process.env.KV_REST_API_URL || "https://localhost.invalid",
     TURSO_AUTH_TOKEN: process.env.TURSO_AUTH_TOKEN || "local-placeholder",
+    TURSO_DATABASE_URL: databaseUrl,
   }
   const hasUpstash = Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN)
   const url = `http://127.0.0.1:${VERCEL_PORT}`
   log(`starting vercel function bridge on ${url}`)
-  const bridge = await createVercelBridge({ outputDir, port: VERCEL_PORT, env: bridgeEnv })
+  const bridge = spawn("node", [resolve(import.meta.dirname, "vercel-bridge-server.mjs"), "--output-dir", outputDir, "--port", String(VERCEL_PORT)], {
+    env: { ...process.env, ...bridgeEnv },
+    stdio: ["ignore", "inherit", "inherit"],
+  })
   try {
     await waitForProbe(url)
     const run = suiteRunner("vercel", url)
     if (hasUpstash) {
       run.pkg("kv")
+      run.script("schedule", ["--timeout", "90000"])
     }
     else {
-      log("EXCEPTION (env): kv on vercel-local needs an Upstash-compatible endpoint (KV_REST_API_URL/TOKEN, e.g. serverless-redis-http). Suite NOT run.")
+      log("EXCEPTION (env): kv and schedule on vercel-local need an Upstash-compatible endpoint (KV_REST_API_URL/TOKEN, e.g. serverless-redis-http). Suites NOT run - CI provides SRH services.")
     }
-    run.script("queue")
-    run.script("schedule", ["--timeout", "90000"])
     run.script("workflow")
-    run.database()
-    log("EXCEPTION (documented): blob and workspace are live-only on vercel - @vercel/blob has no offline endpoint. Covered locally via cloudflare. See .agents/contexts/verification/CONTEXT.md")
+    if (hasRemoteDatabase) {
+      run.database()
+    }
+    else {
+      log("EXCEPTION (env): database on vercel-local needs a remote-shaped libSQL URL (TURSO_DATABASE_URL, e.g. a local sqld container). Suite NOT run - CI provides an sqld service.")
+    }
+    log("EXCEPTION (documented): blob, queue, and workspace are live-only on vercel - @vercel/blob and Vercel Queue have no offline endpoint. Covered locally via cloudflare. See .agents/contexts/verification/CONTEXT.md")
     log("EXCEPTION (documented): sandbox is live-only - it needs real containers.")
   }
   finally {
-    await bridge.close()
+    bridge.kill("SIGTERM")
+    await sleep(500)
+    if (!bridge.killed) bridge.kill("SIGKILL")
   }
 }
 
