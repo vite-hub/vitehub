@@ -520,9 +520,6 @@ importers:
 
   packages/cli:
     dependencies:
-      '@vite-hub/internal':
-        specifier: workspace:*
-        version: link:../internal
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
@@ -536,6 +533,9 @@ importers:
       '@vite-hub/agent':
         specifier: workspace:*
         version: link:../agent
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
       typescript:
         specifier: catalog:tooling
         version: 6.0.2
