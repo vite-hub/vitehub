@@ -14,6 +14,8 @@
     "lint": "pnpm exec oxlint . --ignore-path .gitignore",
     "typecheck": "pnpm --dir docs typecheck && pnpm -r --filter './packages/*' --if-present run typecheck",
     "test:contracts": "vitest run",
+    "test:output": "vitest run --config test/output/vitest.config.ts",
+    "e2e:local": "node test/local/local.mjs",
     "test": "pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run test",
     "build": "pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run build",
     "release": "pnpm dlx bumpp@11.1.0 package.json packages/*/package.json --commit \"chore(release): v%s\" --tag \"v%s\" --push --no-push-all --git-check",
