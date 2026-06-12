@@ -1,6 +1,6 @@
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { createRuntimeWaitUntilController } from "@vite-hub/runtime"
-import { Chat } from "chat"
+import { Chat, markdownToPlainText, parseMarkdown, stringifyMarkdown } from "chat"
 
 import { resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent, streamAgentTrigger } from "./index.ts"
 import { streamAgentOutputToEvents } from "./agent-output.ts"
@@ -66,9 +66,14 @@ type AgentDefinitionWithCapabilities = {
 
 const defaultChatErrorFallbackText = "Sorry, I couldn't process that message."
 const chatFinishMessagesKey = Symbol("vitehub.chat.finish.messages")
+const chatTypingRefreshIntervalMs = 4000
 
 type AgentChatQueuedFinishExtension = AgentChatFinishExtension & {
   [chatFinishMessagesKey]: AgentChatMessage[]
+}
+
+interface ChatTypingRefresh {
+  stop: () => void
 }
 
 async function readJsonBody(request: Request): Promise<AgentChatRouteBody> {
@@ -279,8 +284,16 @@ type ChatTextStream = AsyncIterable<string> & {
   getText: () => string
 }
 
-function streamAgentOutputToChatText(result: Promise<unknown>): ChatTextStream {
+function streamAgentOutputToChatText(result: Promise<unknown>, options: { onFirstText?: () => void } = {}): ChatTextStream {
   let collected = ""
+  let firstText = false
+  const appendText = (text: string) => {
+    collected += text
+    if (!firstText && text) {
+      firstText = true
+      options.onFirstText?.()
+    }
+  }
   return {
     async *[Symbol.asyncIterator]() {
       const output = await result
@@ -289,21 +302,21 @@ function streamAgentOutputToChatText(result: Promise<unknown>): ChatTextStream {
           const body = await output.clone().json().catch(() => undefined)
           if (isRecord(body)) {
             if (typeof body.text === "string") {
-              collected += body.text
+              appendText(body.text)
               yield body.text
             }
             return
           }
         }
         const bodyText = await output.text()
-        collected += bodyText
+        appendText(bodyText)
         yield bodyText
         return
       }
 
       for await (const event of streamAgentOutputToEvents(output)) {
         if (event.type === "text-delta") {
-          collected += event.text
+          appendText(event.text)
           yield event.text
         }
         if (event.type === "error") {
@@ -315,6 +328,15 @@ function streamAgentOutputToChatText(result: Promise<unknown>): ChatTextStream {
   }
 }
 
+function normalizeMarkdown(markdown: string): string {
+  return stringifyMarkdown(parseMarkdown(markdown)).trim()
+}
+
+function isCommittedChatMessage(message: SentMessage, markdown: string): boolean {
+  return message.text === markdownToPlainText(markdown)
+    && stringifyMarkdown(message.formatted).trim() === normalizeMarkdown(markdown)
+}
+
 async function commitStreamedChatResponse(
   thread: Thread,
   message: SentMessage,
@@ -323,7 +345,34 @@ async function commitStreamedChatResponse(
   if (!thread.adapter.stream) return
   const markdown = response.getText()
   if (markdown.trim()) {
+    if (isCommittedChatMessage(message, markdown)) return
     await message.edit({ markdown })
+  }
+}
+
+function startChatTypingRefresh(context: ViteAgentRouteRuntimeContext, thread: Thread): ChatTypingRefresh {
+  let stopped = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const startTyping = () => {
+    context.waitUntil(thread.startTyping().catch(() => undefined))
+  }
+  const schedule = () => {
+    timer = setTimeout(() => {
+      if (stopped) return
+      startTyping()
+      schedule()
+    }, chatTypingRefreshIntervalMs)
+    if (typeof timer === "object" && "unref" in timer) {
+      timer.unref()
+    }
+  }
+  startTyping()
+  schedule()
+  return {
+    stop() {
+      stopped = true
+      if (timer) clearTimeout(timer)
+    },
   }
 }
 
@@ -813,6 +862,7 @@ async function handleChatSdkMessage(
 ): Promise<void> {
   let input: AgentChatMessageTriggerInput | undefined
   let run: AgentRunMetadata | undefined
+  let typing: ChatTypingRefresh | undefined
   try {
     input = createChatTriggerInput(registration.provider, thread, message, messageContext)
     const firstMessage = input.messages[0]
@@ -820,7 +870,7 @@ async function handleChatSdkMessage(
     if (!await isChatMessageAuthorized(agent, context, registration, thread, message, messageContext)) return
 
     if (options?.stream !== false) {
-      context.waitUntil(thread.startTyping().catch(() => undefined))
+      typing = startChatTypingRefresh(context, thread)
     }
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
     run = invocation.run
@@ -842,15 +892,22 @@ async function handleChatSdkMessage(
       const result = streamAgent(agent as never, runContext as never, invocationInput as never, {
         output: "events",
       })
-      const response = streamAgentOutputToChatText(result)
+      const response = streamAgentOutputToChatText(result, {
+        onFirstText: () => typing?.stop(),
+      })
       const message = await thread.post(response)
+      typing?.stop()
       await commitStreamedChatResponse(thread, message, response)
       await flushChatFinishExtensionMessages(thread, chatFinish)
     }
   }
   catch (error) {
+    typing?.stop()
     await postChatErrorFallback(error, thread, message, options, input, run)
     throw error
+  }
+  finally {
+    typing?.stop()
   }
 }
 
