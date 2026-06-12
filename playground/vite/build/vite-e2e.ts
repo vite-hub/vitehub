@@ -309,7 +309,7 @@ function renderWorkflowRuntimeModule(file: string) {
 function renderWorkspaceRuntimeModule(file: string) {
   return [
     `export { defineWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/define.ts")))}`,
-    `export const source = { custom: source => source, fetch: options => createHostedSourceStub("fetch", options), file: input => createHostedSourceStub("file", input), github: options => createHostedSourceStub("github", options), glob: options => createHostedSourceStub("glob", options), markdown: options => createHostedSourceStub("markdown", options) }`,
+    `export const source = { custom: source => source, fetch: options => createHostedSourceStub("fetch", options), file: input => createHostedSourceStub("file", input), github: options => createHostedSourceStub("github", options), glob: options => createHostedSourceStub("glob", options), markdown: options => createHostedSourceStub("markdown", options), mcpResources: options => createHostedSourceStub("mcpResources", options) }`,
     `export { useWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/use.ts")))}`,
     `function createHostedSourceStub(kind, input) {`,
     `  return {`,
