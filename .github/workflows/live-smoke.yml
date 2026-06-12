@@ -1,10 +1,12 @@
-name: manual live e2e
+name: live smoke
 
 on:
+  schedule:
+    - cron: "23 3 * * *"
   workflow_dispatch:
 
 concurrency:
-  group: manual-live-e2e-${{ github.ref }}
+  group: live-smoke-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -84,8 +86,8 @@ jobs:
           echo "d1_database_id=$primary_d1_id" >> "$GITHUB_OUTPUT"
           echo "d1_analytics_database_id=$analytics_d1_id" >> "$GITHUB_OUTPUT"
 
-  live-e2e:
-    name: live e2e
+  live-smoke:
+    name: live smoke
     needs: setup-cloudflare
     runs-on: ubuntu-latest
     environment: Production
@@ -400,3 +402,29 @@ jobs:
 
       - name: DB Live E2E
         run: pnpm --dir packages/database test:e2e --url "${{ steps.url.outputs.url }}"
+
+  report-failure:
+    name: report failure
+    needs: [setup-cloudflare, live-smoke]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            const title = "Live Smoke failure"
+            const body = [
+              `Nightly Live Smoke failed: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              "",
+              "Keep this issue open until a green scheduled run; close it then.",
+            ].join("\n")
+            const { data: issues } = await github.rest.issues.listForRepo({
+              ...context.repo, labels: "live-smoke-failure", state: "open",
+            })
+            if (issues.length > 0) {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: issues[0].number, body })
+            } else {
+              await github.rest.issues.create({ ...context.repo, title, body, labels: ["live-smoke-failure"] })
+            }
