@@ -66,8 +66,6 @@ export {
   mcp,
 } from "./mcp.ts"
 export {
-  formatUsageTelemetryChatMessage,
-  getUsageTelemetryChatOptions,
   normalizeAgentUsage,
   staticModelPricing,
   usageTelemetry,
@@ -245,13 +243,6 @@ export type {
   AgentUsagePricingContext,
   StaticModelPrice,
   UsageTelemetryCallback,
-  UsageTelemetryChatCallback,
-  UsageTelemetryChatCallbackContext,
-  UsageTelemetryChatFormatter,
-  UsageTelemetryChatMessage,
-  UsageTelemetryChatMessageContext,
-  UsageTelemetryChatOptions,
-  UsageTelemetryChatSendMessage,
   UsageTelemetryContext,
   UsageTelemetryOptions,
   VercelAiGatewayPricingOptions,

@@ -366,7 +366,6 @@ describe("server helpers", () => {
           },
         }),
         usageTelemetry({
-          chat: true,
           pricing: staticModelPricing({
             "openai/gpt-test": {
               input: "0.00000010",
@@ -398,19 +397,8 @@ describe("server helpers", () => {
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
+    expect(adapter.postMessage).toHaveBeenCalledTimes(1)
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "echo: hello" })
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
-      markdown: expect.stringContaining("**Usage**"),
-    })
-    expect(adapter.postMessage.mock.calls[1]![1]).toEqual({
-      markdown: expect.stringContaining("`15` total (10 in, 5 out)"),
-    })
-    expect(adapter.postMessage.mock.calls[1]![1]).toEqual({
-      markdown: expect.stringContaining("`1.20s`"),
-    })
-    expect(adapter.postMessage.mock.calls[1]![1]).toEqual({
-      markdown: expect.stringContaining("`~0.000002 USD`"),
-    })
     expect(admitChat).toHaveBeenCalledWith(expect.objectContaining({
       identity: expect.objectContaining({
         id: "123",
@@ -768,14 +756,18 @@ describe("server helpers", () => {
     }
   })
 
-  it("posts usage telemetry callbacks for non-streaming model chat webhooks", async () => {
+  it("lets agent finish hooks post usage telemetry for non-streaming model chat webhooks", async () => {
     const { chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
     const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
     const adapter = createTestChatAdapter()
-    const onUsage = vi.fn(async (record, context) => {
-      await context.sendMessage({
-        markdown: `Custom usage: \`${record.usage.totalTokens}\` tokens via ${context.provider}`,
-      })
+    const finish = vi.fn(async (event) => {
+      const chat = event.extensions.get("chat") as { provider?: string, sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
+      const usage = event.extensions.get("usage-telemetry") as { usage?: { totalTokens?: number } } | undefined
+      if (chat && usage) {
+        await chat.sendMessage?.({
+          markdown: `Custom usage: \`${usage.usage?.totalTokens}\` tokens via ${chat.provider}`,
+        })
+      }
     })
     const model = {
       generate: vi.fn(async () => ({
@@ -808,7 +800,6 @@ describe("server helpers", () => {
           },
         }),
         usageTelemetry({
-          chat: { onUsage },
           pricing: staticModelPricing({
             "openai/gpt-test": {
               input: "0.00000010",
@@ -817,6 +808,9 @@ describe("server helpers", () => {
           }),
         }),
       ],
+      hooks: {
+        "agent:finish": finish,
+      },
       resolve: vi.fn(async () => model),
     }
     const handler = defineAgentChatWebhookFetchHandler(agent as never)
@@ -841,7 +835,8 @@ describe("server helpers", () => {
     expect(model.stream).not.toHaveBeenCalled()
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "generated ok" })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Custom usage: `15` tokens via telegram" })
-    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(expect.objectContaining({
       cost: expect.objectContaining({
         amount: "0.0000018",
         currency: "USD",
@@ -857,8 +852,8 @@ describe("server helpers", () => {
         outputTokens: 3,
         totalTokens: 15,
       },
-    }), expect.objectContaining({
-      durationMs: expect.any(Number),
+    }))
+    expect(finish.mock.calls[0]![0].extensions.get("chat")).toEqual(expect.objectContaining({
       provider: "telegram",
       sendMessage: expect.any(Function),
     }))
@@ -909,8 +904,8 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(finish).toHaveBeenCalledOnce()
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:888", { markdown: "side message via telegram" })
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:888", { markdown: "agent answer" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:888", { markdown: "agent answer" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:888", { markdown: "side message via telegram" })
   })
 
   it("flushes deferred non-streaming chat webhook work before returning", async () => {
@@ -938,8 +933,12 @@ describe("server helpers", () => {
         },
       }
     })
-    const onUsage = vi.fn(async (_record, context) => {
-      await context.sendMessage({ markdown: "usage ok" })
+    const finish = vi.fn(async (event) => {
+      const chat = event.extensions.get("chat") as { sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
+      const usage = event.extensions.get("usage-telemetry")
+      if (chat && usage) {
+        await chat.sendMessage?.({ markdown: "usage ok" })
+      }
     })
     const agent = defineAgent({
       capabilities: [
@@ -952,10 +951,11 @@ describe("server helpers", () => {
             telegram: {},
           },
         }),
-        usageTelemetry({
-          chat: { onUsage },
-        }),
+        usageTelemetry(),
       ],
+      hooks: {
+        "agent:finish": finish,
+      },
       run,
     })
     const handler = defineAgentChatWebhookFetchHandler(agent as never)
@@ -989,17 +989,22 @@ describe("server helpers", () => {
     expect(adapter.startTyping).not.toHaveBeenCalled()
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "ok" })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "usage ok" })
+    expect(finish).toHaveBeenCalledOnce()
   })
 
-  it("lets usageTelemetry chat callbacks post custom follow-up messages", async () => {
+  it("lets agent finish hooks compose usage telemetry and chat follow-up messages", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { access, chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
     const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
     const adapter = createTestChatAdapter()
-    const onUsage = vi.fn(async (record, context) => {
-      await context.sendMessage({
-        markdown: `Custom usage: \`${record.usage.totalTokens}\` tokens via ${context.provider}`,
-      })
+    const finish = vi.fn(async (event) => {
+      const chat = event.extensions.get("chat") as { provider?: string, sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
+      const usage = event.extensions.get("usage-telemetry") as { usage?: { totalTokens?: number } } | undefined
+      if (chat && usage) {
+        await chat.sendMessage?.({
+          markdown: `Custom usage: \`${usage.usage?.totalTokens}\` tokens via ${chat.provider}`,
+        })
+      }
     })
     const agent = defineAgent({
       capabilities: [
@@ -1017,7 +1022,6 @@ describe("server helpers", () => {
           },
         }),
         usageTelemetry({
-          chat: { onUsage },
           pricing: staticModelPricing({
             "openai/gpt-test": {
               input: "0.00000010",
@@ -1026,6 +1030,9 @@ describe("server helpers", () => {
           }),
         }),
       ],
+      hooks: {
+        "agent:finish": finish,
+      },
       run: () => ({
         response: {
           modelId: "openai/gpt-test",
@@ -1058,13 +1065,15 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:789", "...")
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:789", "sent-1", { markdown: "ok" })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:789", { markdown: "Custom usage: `15` tokens via telegram" })
-    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(expect.objectContaining({
       usage: {
         inputTokens: 10,
         outputTokens: 5,
         totalTokens: 15,
       },
-    }), expect.objectContaining({
+    }))
+    expect(finish.mock.calls[0]![0].extensions.get("chat")).toEqual(expect.objectContaining({
       provider: "telegram",
       sendMessage: expect.any(Function),
     }))
