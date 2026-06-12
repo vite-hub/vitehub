@@ -24,6 +24,7 @@ export default defineConfig({
       "src/runtime/assets.ts",
       "src/runtime/state.ts",
       "src/providers/cloudflare/artifacts-store.ts",
+      "src/providers/github/store.ts",
       "src/providers/vercel/blob-store.ts",
       "src/test.ts",
       "src/vite.ts",
@@ -35,6 +36,7 @@ export default defineConfig({
         "runtime/empty-registry",
         "runtime/state",
         "providers/cloudflare/artifacts-store",
+        "providers/github/store",
         "providers/vercel/blob-store",
       ],
       customExports(exports) {
@@ -45,6 +47,7 @@ export default defineConfig({
         exports["./internal/runtime/state"] = "./dist/runtime/state.js";
         exports["./internal/stores/cloudflare-artifacts"] =
           "./dist/providers/cloudflare/artifacts-store.js";
+        exports["./internal/stores/github"] = "./dist/providers/github/store.js";
         exports["./internal/stores/vercel-blob"] = "./dist/providers/vercel/blob-store.js";
 
         return exports;

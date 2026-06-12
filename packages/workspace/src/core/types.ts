@@ -409,11 +409,21 @@ export interface VercelBlobWorkspaceStoreOptions {
   access?: "private" | "public"
 }
 
+export interface GitHubWorkspaceStoreOptions {
+  provider: "github"
+  branch?: string
+  repo?: string
+  repository?: string
+  root?: string
+  token?: string
+}
+
 export type WorkspaceStoreOptions =
   | LocalWorkspaceStoreOptions
   | MemoryWorkspaceStoreOptions
   | CloudflareArtifactsWorkspaceStoreOptions
   | VercelBlobWorkspaceStoreOptions
+  | GitHubWorkspaceStoreOptions
   | WorkspaceStore
 
 export interface WorkspaceDefinition {

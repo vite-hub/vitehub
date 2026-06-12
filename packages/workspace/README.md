@@ -87,6 +87,23 @@ Need the workspace to run generated code instead of only reading and writing fil
 
 Use `hubWorkspace()` in Vite to discover workspace definitions, emit the workspace manifest for local development, and make the runtime store available to server code.
 
+## GitHub-backed persistence
+
+Use the GitHub Workspace Store when a hosted runtime needs durable Workspace file-tree state without a provider-specific artifact store:
+
+```ts
+export default defineWorkspace({
+  store: {
+    provider: "github",
+    repository: "owner/repo",
+    branch: "main",
+    root: ".vitehub/workspaces/<workspace>",
+  },
+})
+```
+
+Set `WORKSPACE_GITHUB_TOKEN`, `VITEHUB_WORKSPACE_GITHUB_TOKEN`, `GITHUB_TOKEN`, or a `GITHUB_TOKEN` runtime binding with permission to read and write the repository contents. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as a GitHub commit. If the target branch moves after the Workspace Store loaded local changes, snapshot fails with a conflict so the caller can retry from a fresh Workspace Store.
+
 Built on [`@vite-hub/source`](../source/README.md), [`@vite-hub/shell`](../shell/README.md), [files-sdk](https://files-sdk.dev/), and [isomorphic-git](https://isomorphic-git.org/).
 
 Learn more at [vitehub.dev](https://vitehub.dev).
