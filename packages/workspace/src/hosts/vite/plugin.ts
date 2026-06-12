@@ -1,4 +1,5 @@
-import { resolve } from "node:path"
+import { mkdir, writeFile } from "node:fs/promises"
+import { dirname, resolve } from "node:path"
 
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vite-hub/internal/build/vite"
@@ -8,9 +9,9 @@ import { normalizeWorkspaceOptions } from "../../config.ts"
 import { discoverViteWorkspaceDefinitions } from "../../build/discovery.ts"
 import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
 
-import type { HmrContext, Plugin, ResolvedConfig, ViteDevServer } from "vite"
+import type { HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
-import type { WorkspaceModuleOptions } from "../../core/types.ts"
+import type { ResolvedWorkspaceModuleOptions, WorkspaceModuleOptions } from "../../core/types.ts"
 
 const WORKSPACE_PACKAGE_NAME = "@vite-hub/workspace"
 const WORKSPACES_ID = "#vitehub/workspaces"
@@ -20,8 +21,17 @@ const WORKSPACE_REGISTRY_ID = "#vitehub-workspace-registry"
 const RESOLVED_WORKSPACES_ID = `\0${WORKSPACES_ID}`
 const RESOLVED_WORKSPACE_PREFIX = `\0${WORKSPACE_PREFIX}`
 const RESOLVED_WORKSPACE_REGISTRY_ID = `\0${WORKSPACE_REGISTRY_ID}`
+const generatedNitroWorkspacePlugin = ".vitehub/nitro/workspace/plugin.ts"
 const mergeNoExternal = createNoExternalMerger(WORKSPACE_PACKAGE_NAME)
 const workspacesDirSegment = /[\\/](?:server[\\/])?workspaces(?:[\\/]|$)/
+
+type NitroConfig = {
+  plugins?: unknown[]
+} & Record<string, unknown>
+
+type ViteConfigWithWorkspaceNitro = Omit<UserConfig, "plugins"> & {
+  nitro?: NitroConfig
+}
 
 function mergeDedupe(current: string[] | undefined): string[] {
   if (!current) return [WORKSPACE_PACKAGE_NAME]
@@ -30,6 +40,39 @@ function mergeDedupe(current: string[] | undefined): string[] {
 
 function isWorkspaceFile(file: string) {
   return workspaceSuffixPattern.test(file) || workspacesDirSegment.test(file)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]): boolean {
+  return store.provider === "cloudflare-artifacts" || store.provider === "github"
+}
+
+function mergeNitroWorkspaceConfig(value: unknown): NitroConfig {
+  const nitro: NitroConfig = isRecord(value) ? { ...value } : {}
+  const plugins = Array.isArray(nitro.plugins) ? [...nitro.plugins] : []
+  if (!plugins.includes(generatedNitroWorkspacePlugin)) plugins.push(generatedNitroWorkspacePlugin)
+  return { ...nitro, plugins }
+}
+
+function renderNitroWorkspacePlugin(config: ResolvedWorkspaceModuleOptions): string {
+  return [
+    "import { configureCloudflareWorkspaceRuntime } from '@vite-hub/workspace/cloudflare'",
+    "import { definePlugin } from 'nitro'",
+    "",
+    "export default definePlugin(() => {",
+    `  configureCloudflareWorkspaceRuntime(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`,
+    "})",
+    "",
+  ].join("\n")
+}
+
+async function writeNitroWorkspacePlugin(root: string, config: ResolvedWorkspaceModuleOptions): Promise<void> {
+  const pluginFile = resolve(root, generatedNitroWorkspacePlugin)
+  await mkdir(dirname(pluginFile), { recursive: true })
+  await writeFile(pluginFile, renderNitroWorkspacePlugin(config), "utf8")
 }
 
 export interface WorkspaceVitePluginAPI {
@@ -71,17 +114,30 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
 
   return {
     name: "@vite-hub/workspace/vite",
+    enforce: "pre",
     api: {
       getWorkspaces: () => manifest.workspaces,
     },
-    config(config) {
-      return {
+    async config(config, env) {
+      const root = resolve(config.root || process.cwd())
+      const normalized = normalizeWorkspaceOptions((config as UserConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? options, {
+        dev: env?.command !== "build",
+        env: process.env,
+        hosting: process.env.VITEHUB_HOSTING,
+        rootDir: root,
+      })
+      const viteConfig: ViteConfigWithWorkspaceNitro = {
         server: {
           watch: {
             ignored: mergeGeneratedViteHubWatchIgnored(config.server?.watch?.ignored),
           },
         },
       }
+      if (normalized && isHostedWorkspaceStore(normalized.store)) {
+        await writeNitroWorkspacePlugin(root, normalized)
+        viteConfig.nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
+      }
+      return viteConfig
     },
     async configResolved(config) {
       resolved = config

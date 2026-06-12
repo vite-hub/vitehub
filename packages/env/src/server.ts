@@ -90,3 +90,35 @@ export function resolveServerEnv<TServerEnv extends Record<string, unknown> = Re
 ): TServerEnv {
   return resolveRegistryValue(registry, runtimeEnv(event)) as TServerEnv
 }
+
+export function runWithServerEnv<T>(event: unknown, callback: () => T): T {
+  const globals = globalThis as { __env__?: RuntimeEnv }
+  const hadGlobalEnv = Object.prototype.hasOwnProperty.call(globals, "__env__")
+  const previousGlobalEnv = globals.__env__
+  const env = getCloudflareEnv(event)
+  if (env) globals.__env__ = env
+
+  try {
+    const result = callback()
+    if (isPromiseLike(result)) {
+      return result.finally(() => restoreGlobalEnv(globals, hadGlobalEnv, previousGlobalEnv)) as T
+    }
+    restoreGlobalEnv(globals, hadGlobalEnv, previousGlobalEnv)
+    return result
+  }
+  catch (error) {
+    restoreGlobalEnv(globals, hadGlobalEnv, previousGlobalEnv)
+    throw error
+  }
+}
+
+function restoreGlobalEnv(globals: { __env__?: RuntimeEnv }, hadGlobalEnv: boolean, previousGlobalEnv: RuntimeEnv | undefined): void {
+  if (hadGlobalEnv) globals.__env__ = previousGlobalEnv
+  else delete globals.__env__
+}
+
+function isPromiseLike(value: unknown): value is Promise<unknown> {
+  return typeof value === "object"
+    && value !== null
+    && typeof (value as { finally?: unknown }).finally === "function"
+}
