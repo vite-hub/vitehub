@@ -47,11 +47,13 @@ type AgentChatRouteBody = AgentChatMessageTriggerInput & {
 }
 
 export interface AgentChatFetchOptions {
+  cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"]
   waitUntil?: AgentWaitUntil
 }
 
 export interface AgentChatWebhookFetchOptions extends AgentChatFetchOptions {
   agentName?: string
+  state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
 }
 
 type AgentDefinitionWithCapabilities = {
@@ -105,15 +107,18 @@ function createRuntimeContext(
   request: Request,
   run: AgentRunMetadata | undefined,
   waitUntil?: AgentWaitUntil,
+  cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"],
 ): ViteAgentRouteRuntimeContext {
   const waitUntilController = createRuntimeWaitUntilController({ forward: waitUntil })
+  const runtime = cloudflare ? "cloudflare-agents" : detectRuntime()
   return createAgentRuntimeContext({
+    ...(cloudflare ? { cloudflare } : {}),
     flushWaitUntil: waitUntilController.flushWaitUntil,
     request,
     ...(run ? { run } : {}),
-    runtime: detectRuntime(),
+    runtime,
     runtimeConfig: {},
-    ...(waitUntil ? { vercel: { waitUntil } } : {}),
+    ...(runtime === "vercel" && waitUntil ? { vercel: { waitUntil } } : {}),
     waitUntil: waitUntilController.waitUntil,
   }) as ViteAgentRouteRuntimeContext
 }
@@ -445,7 +450,7 @@ async function resolveChatState(
 ): Promise<StateAdapter> {
   const agentName = handlerOptions.agentName || "agent"
   const state = await resolveMaybe(
-    options?.state as AgentChatStateResolver<ViteAgentRouteRuntimeConfig> | undefined,
+    (options?.state ?? handlerOptions.state) as AgentChatStateResolver<ViteAgentRouteRuntimeConfig> | undefined,
     {
       ...context,
       chat: {
@@ -798,7 +803,12 @@ export function defineAgentChatFetchHandler(
     }
 
     try {
-      const context = createRuntimeContext(request, undefined, await resolveRuntimeWaitUntil(handlerOptions.waitUntil))
+      const context = createRuntimeContext(
+        request,
+        undefined,
+        await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+        handlerOptions.cloudflare,
+      )
       const result = await streamAgentTrigger(agent as never, context, "chat.message", chatAppRouteTriggerInput(body), {
         output: "ui-message-stream",
       })
@@ -825,7 +835,12 @@ export function defineAgentChatWebhookFetchHandler(
       return createBadRequest("Agent chat webhook route requires a webhook id.")
     }
 
-    const context = createRuntimeContext(request, undefined, await resolveRuntimeWaitUntil(handlerOptions.waitUntil))
+    const context = createRuntimeContext(
+      request,
+      undefined,
+      await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+      handlerOptions.cloudflare,
+    )
     const registration = await findChatWebhookRegistration(agent, context, webhookId)
     if (!registration) {
       return createJsonErrorResponse(404, "Unknown ViteHub agent chat webhook.")

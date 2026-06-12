@@ -19,6 +19,7 @@ export default defineConfig({
     "src/cli.ts",
     "src/eval.ts",
     "src/state/sqlite.ts",
+    "src/cloudflare/state.ts",
     "src/runtime/empty-registry.ts",
     "src/runtime/workflow.ts",
     "src/server.ts",

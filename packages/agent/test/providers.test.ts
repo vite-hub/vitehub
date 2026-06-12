@@ -170,6 +170,84 @@ describe("agent Vite plugin", () => {
     })
   })
 
+  it("installs Cloudflare chat state bindings for generated webhook routes", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ webhooks: true })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {
+          build: {
+            rolldownOptions: {
+              external: ["existing"],
+            },
+          },
+          nitro: {
+            cloudflare: {
+              wrangler: {
+                migrations: [{
+                  deleted_classes: ["ViteHubAgentStateDO"],
+                  tag: "delete-vitehub-agent-state-do-2026-06-11",
+                }],
+              },
+            },
+          },
+        } as never, { command: "build", mode: "production" })
+      : undefined
+    const output = result as {
+      build?: unknown
+      nitro?: {
+        cloudflare?: {
+          wrangler?: {
+            durable_objects?: { bindings?: unknown[] }
+            migrations?: unknown[]
+          }
+        }
+        rollupConfig?: {
+          external?: unknown
+          plugins?: Array<{ name?: string }>
+        }
+      }
+    }
+
+    expect(output.nitro?.cloudflare?.wrangler?.durable_objects?.bindings).toContainEqual({
+      class_name: "ViteHubAgentStateDO",
+      name: "CHAT_STATE",
+    })
+    expect(output.nitro?.cloudflare?.wrangler?.migrations).toContainEqual({
+      new_sqlite_classes: ["ViteHubAgentStateDO"],
+      tag: "vitehub-agent-state-v1",
+    })
+    expect(output.nitro?.cloudflare?.wrangler?.migrations).not.toContainEqual(expect.objectContaining({
+      deleted_classes: ["ViteHubAgentStateDO"],
+    }))
+    expect(output.nitro?.rollupConfig?.external).toEqual(["cloudflare:workers"])
+    expect(output.nitro?.rollupConfig?.plugins?.some(plugin => plugin.name === "vitehub-agent-cloudflare-state-exports:ViteHubAgentStateDO")).toBe(true)
+    expect(output.build).toBeUndefined()
+  })
+
+  it("keeps Cloudflare chat state opt-out when the state provider is memory", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ providers: { state: { provider: "memory" } }, webhooks: true })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
+      : undefined
+    const output = result as {
+      build?: unknown
+      nitro?: {
+        cloudflare?: unknown
+        handlers?: unknown[]
+        rollupConfig?: unknown
+      }
+    }
+
+    expect(output.nitro?.handlers).toContainEqual({
+      handler: ".vitehub/agent/chat-webhook-route.ts",
+      route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
+    })
+    expect(output.nitro?.cloudflare).toBeUndefined()
+    expect(output.nitro?.rollupConfig).toBeUndefined()
+    expect(output.build).toBeUndefined()
+  })
+
   it("keeps chat routes and webhook routes independent", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({
@@ -210,15 +288,27 @@ describe("agent Vite plugin", () => {
 
       expect(chatRoute).toContain("async function toRequest(event)")
       expect(chatRoute).toContain("function waitUntilFromEvent(event)")
-      expect(chatRoute).toContain("return await handler(await toRequest(event), { waitUntil: waitUntilFromEvent(event) })")
+      expect(chatRoute).toContain("function cloudflareFromEvent(event)")
+      expect(chatRoute).toContain("return await handler(await toRequest(event), { cloudflare, waitUntil: waitUntilFromEvent(event) })")
+      expect(webhookRoute).toContain("import { createCloudflareAgentState } from '@vite-hub/agent/cloudflare'")
       expect(webhookRoute).toContain("async function toRequest(event)")
       expect(webhookRoute).toContain("function waitUntilFromEvent(event)")
+      expect(webhookRoute).toContain("function chatStateFromCloudflare(cloudflare)")
       expect(webhookRoute).toContain("waitUntil: waitUntilFromEvent(event)")
+      expect(webhookRoute).toContain("state: chatStateFromCloudflare(cloudflare)")
       expect(webhookRoute).toContain("return await handler(await toRequest(event), webhook")
     }
     finally {
       await rm(root, { force: true, recursive: true })
     }
+  })
+
+  it("publishes the Cloudflare state Durable Object subpath", async () => {
+    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
+      exports?: Record<string, string>
+    }
+
+    expect(pkg.exports?.["./cloudflare/state"]).toBe("./dist/cloudflare/state.js")
   })
 })
 
