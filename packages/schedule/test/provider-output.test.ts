@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url"
 import { afterAll, describe, expect, it } from "vitest"
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
-import { generateProviderOutputs, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
+import { generateProviderOutputs, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
 
 const tempDirs: string[] = []
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -18,6 +18,8 @@ async function createTempProject(prefix: string) {
   await mkdir(join(rootDir, "src"), { recursive: true })
   await mkdir(join(rootDir, "dist", "client"), { recursive: true })
   await writeFile(join(rootDir, "src", "cleanup.schedule.ts"), [
+    "import { defineSchedule } from '@vite-hub/schedule'",
+    "",
     "export default defineSchedule({ cron: '0 0 * * *', handler: () => 'ok' })",
     "",
   ].join("\n"), "utf8")
@@ -36,6 +38,12 @@ describe("schedule provider output", () => {
 
     expect(output).not.toContain("The esbuild JavaScript API cannot be bundled")
     expect(output).not.toContain("esbuildCommandAndArgs")
+  })
+
+  it("keeps the definition entry out of public package exports", async () => {
+    const packageJson = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as { exports: Record<string, unknown> }
+
+    expect(packageJson.exports).not.toHaveProperty("./definition")
   })
 
   it("emits Cloudflare and Vercel schedule provider wake output", async () => {
@@ -97,6 +105,15 @@ describe("schedule provider output", () => {
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/dist/vite.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
     expect(resolveScheduleRuntimeEntry("file:///repo/packages/schedule/vite.js")).toBe("/repo/packages/schedule/dist/runtime/static.js")
     expect(resolveScheduleRuntimeEntry("file:///home/user/src/app/node_modules/@vite-hub/schedule/dist/internal/provider-output.js")).toBe("/home/user/src/app/node_modules/@vite-hub/schedule/dist/runtime/static.js")
+  })
+
+  it("resolves the static schedule definition entry from package source and dist layouts", () => {
+    expect(resolveScheduleDefinitionEntry("file:///repo/packages/schedule/src/internal/provider-output.ts")).toBe("/repo/packages/schedule/src/definition.ts")
+    expect(resolveScheduleDefinitionEntry("file:///C:/repo/packages/schedule/src/internal/provider-output.ts")).toBe("/C:/repo/packages/schedule/src/definition.ts")
+    expect(resolveScheduleDefinitionEntry("file:///repo/packages/schedule/dist/internal/provider-output.js")).toBe("/repo/packages/schedule/dist/definition.js")
+    expect(resolveScheduleDefinitionEntry("file:///repo/packages/schedule/dist/vite.js")).toBe("/repo/packages/schedule/dist/definition.js")
+    expect(resolveScheduleDefinitionEntry("file:///repo/packages/schedule/vite.js")).toBe("/repo/packages/schedule/dist/definition.js")
+    expect(resolveScheduleDefinitionEntry("file:///home/user/src/app/node_modules/@vite-hub/schedule/dist/internal/provider-output.js")).toBe("/home/user/src/app/node_modules/@vite-hub/schedule/dist/definition.js")
   })
 
   it("writes Cloudflare schedule output to an existing Wrangler main", async () => {
