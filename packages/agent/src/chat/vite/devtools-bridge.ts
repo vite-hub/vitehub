@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url"
 import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/internal/runtime/state"
 
 import {
+  createAgentDevtoolsMetadata,
   resolveAgentDevtoolsMetadata,
   resolveAgentTriggers,
   streamAgentTrigger,
@@ -13,6 +14,7 @@ import {
 import {
   type ChatDevtoolsConversation,
   type ChatDevtoolsMetadata,
+  type ChatDevtoolsMetadataStatus,
   type ChatDevtoolsStateResult,
   type ChatDevtoolsStreamEvent,
   chatDevtoolsBridgeRoute,
@@ -74,7 +76,13 @@ interface ChatDevtoolsSession {
 
 interface ChatDevtoolsAgentEntry {
   agent: AgentInput<ViteAgentDevtoolsRuntimeContext>
+  defaults?: WorkspaceAgentDefaults
   metadata: ChatDevtoolsMetadata
+  metadataError?: string
+  metadataSelectionKey?: string
+  metadataStaticKey: string
+  metadataStatus: ChatDevtoolsMetadataStatus
+  metadataTask?: Promise<void>
   name: string
 }
 
@@ -209,7 +217,96 @@ function metadataSelectionForAgent(
     : {}
 }
 
-async function discoverChatAgents(server: ViteDevServer, selection: ChatDevtoolsInvokerSelection = {}): Promise<Map<string, ChatDevtoolsAgentEntry>> {
+function metadataSelectionKey(selection: ChatDevtoolsInvokerSelection = {}): string {
+  if (selection.invokerFallback) return "fallback"
+  return selection.invokerProfileId ? `profile:${selection.invokerProfileId}` : "default"
+}
+
+function canResolveWorkspaceMetadata(agent: AgentInput<ViteAgentDevtoolsRuntimeContext>): boolean {
+  return Boolean((agent as { __vitehubWorkspaceAgent?: unknown }).__vitehubWorkspaceAgent)
+}
+
+function createStaticDevtoolsMetadata(agent: AgentInput<ViteAgentDevtoolsRuntimeContext>): ChatDevtoolsMetadata {
+  return createAgentDevtoolsMetadata(agent as never)
+}
+
+function metadataStaticKey(metadata: ChatDevtoolsMetadata): string {
+  return JSON.stringify(metadata)
+}
+
+function createChatDevtoolsAgentEntry(
+  name: string,
+  agent: AgentInput<ViteAgentDevtoolsRuntimeContext>,
+  defaults: WorkspaceAgentDefaults | undefined,
+  previous: ChatDevtoolsAgentEntry | undefined,
+): ChatDevtoolsAgentEntry {
+  const metadata = createStaticDevtoolsMetadata(agent)
+  const staticKey = metadataStaticKey(metadata)
+  if (previous?.metadataStaticKey === staticKey) {
+    previous.agent = agent
+    previous.defaults = defaults
+    previous.name = name
+    return previous
+  }
+  return {
+    agent,
+    defaults,
+    metadata,
+    metadataStaticKey: staticKey,
+    metadataStatus: canResolveWorkspaceMetadata(agent) ? "loading" : "ready",
+    name,
+  }
+}
+
+function metadataErrorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : "Chat DevTools metadata inspection failed."
+}
+
+function startMetadataResolution(
+  entry: ChatDevtoolsAgentEntry,
+  selection: ChatDevtoolsInvokerSelection = {},
+): void {
+  if (!canResolveWorkspaceMetadata(entry.agent)) {
+    entry.metadataError = undefined
+    entry.metadataSelectionKey = "static"
+    entry.metadataStatus = "ready"
+    entry.metadataTask = undefined
+    return
+  }
+
+  const metadataSelection = metadataSelectionForAgent(entry.agent, selection)
+  const selectionKey = metadataSelectionKey(metadataSelection)
+  if (entry.metadataSelectionKey === selectionKey) {
+    return
+  }
+
+  entry.metadata = createStaticDevtoolsMetadata(entry.agent)
+  entry.metadataStaticKey = metadataStaticKey(entry.metadata)
+  entry.metadataError = undefined
+  entry.metadataSelectionKey = selectionKey
+  entry.metadataStatus = "loading"
+
+  const task = resolveAgentDevtoolsMetadata(entry.agent as never, {
+    ...entry.defaults,
+    input: createDevtoolsMetadataInput(metadataSelection),
+  } as never)
+    .then((metadata) => {
+      if (entry.metadataTask !== task || entry.metadataSelectionKey !== selectionKey) return
+      entry.metadata = metadata
+      entry.metadataError = undefined
+      entry.metadataStatus = "ready"
+      entry.metadataTask = undefined
+    })
+    .catch((cause) => {
+      if (entry.metadataTask !== task || entry.metadataSelectionKey !== selectionKey) return
+      entry.metadataError = metadataErrorMessage(cause)
+      entry.metadataStatus = "error"
+      entry.metadataTask = undefined
+    })
+  entry.metadataTask = task
+}
+
+async function discoverChatAgents(server: ViteDevServer, state: ChatDevtoolsBridgeState): Promise<void> {
   const context = createDevtoolsDiscoveryContext()
   const entries = new Map<string, ChatDevtoolsAgentEntry>()
   const definitions = discoverAgentDefinitions({
@@ -225,16 +322,14 @@ async function discoverChatAgents(server: ViteDevServer, selection: ChatDevtools
     const trigger = triggers["chat.message"]
     if (!trigger || trigger.devtools === false) continue
 
-    entries.set(definition.name, {
+    entries.set(definition.name, createChatDevtoolsAgentEntry(
+      definition.name,
       agent,
-      metadata: await resolveAgentDevtoolsMetadata(agent as never, {
-        ...workspaceDefaults(definition),
-        input: createDevtoolsMetadataInput(metadataSelectionForAgent(agent, selection)),
-      } as never),
-      name: definition.name,
-    })
+      workspaceDefaults(definition),
+      state.entries.get(definition.name),
+    ))
   }
-  return entries
+  state.entries = entries
 }
 
 function getSession(state: ChatDevtoolsBridgeState, name: string): ChatDevtoolsSession {
@@ -326,7 +421,8 @@ async function serializeState(
 
   const nextSelected = getSelectedName(state, selected)
   const selectedSession = nextSelected ? getSession(state, nextSelected) : undefined
-  const metadata = nextSelected ? state.entries.get(nextSelected)?.metadata : undefined
+  const entry = nextSelected ? state.entries.get(nextSelected) : undefined
+  const metadata = entry?.metadata
   const title = selectedSession ? sessionTitle(selectedSession) || metadata?.title : metadata?.title
   const invokerProfileId = selectedSession?.invokerProfileId || (!requestedSelection.invokerFallback ? validMetadataInvokerProfileId(metadata, requestedSelection.invokerProfileId) : undefined)
   const invokerFallback = selectedSession?.invokerFallback || (!invokerProfileId && requestedSelection.invokerFallback === true)
@@ -338,6 +434,8 @@ async function serializeState(
     ...(invokerFallback ? { invokerFallback: true } : {}),
     ...(invokerProfileId ? { invokerProfileId } : {}),
     invokerProfiles: metadata?.invokerProfiles || [],
+    ...(entry?.metadataError ? { metadataError: entry.metadataError } : {}),
+    ...(entry?.metadataStatus ? { metadataStatus: entry.metadataStatus } : {}),
     selected: nextSelected,
     thinkingFallback: selectedSession?.thinkingFallback ?? null,
     ...(title ? { title } : {}),
@@ -602,9 +700,14 @@ async function handleChatDevtoolsRequest(
   }
 
   const invokerSelection = normalizeInvokerSelection(body)
-  state.entries = await discoverChatAgents(server, invokerSelection)
+  await discoverChatAgents(server, state)
   if (body.chat && state.entries.has(body.chat)) {
     state.selected = body.chat
+  }
+  const selected = getSelectedName(state, body.chat)
+  const entry = selected ? state.entries.get(selected) : undefined
+  if (entry) {
+    startMetadataResolution(entry, invokerSelection)
   }
 
   const action = normalizeChatDevtoolsAction(body.action)
@@ -631,6 +734,18 @@ async function handleChatDevtoolsRequest(
 
 function routeMatches(req: IncomingMessage): boolean {
   return new URL(req.url || "/", "http://localhost").pathname === chatDevtoolsBridgeRoute
+}
+
+function installChatDevtoolsInvalidation(server: ViteDevServer, state: ChatDevtoolsBridgeState): void {
+  const serverRoot = join(server.config.root, "server")
+  const invalidate = (file: string) => {
+    if (file.startsWith(serverRoot)) {
+      state.entries = new Map()
+    }
+  }
+  server.watcher?.on("add", invalidate)
+  server.watcher?.on("change", invalidate)
+  server.watcher?.on("unlink", invalidate)
 }
 
 async function writeResponse(res: ServerResponse, response: Response): Promise<void> {
@@ -669,6 +784,7 @@ export function registerChatDevtoolsBridge(server: ViteDevServer): void {
     entries: new Map(),
     sessions: new Map(),
   }
+  installChatDevtoolsInvalidation(server, state)
 
   server.middlewares.use((req, res, next) => {
     if (!routeMatches(req)) {

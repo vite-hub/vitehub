@@ -99,6 +99,24 @@ async function invokeMiddleware(
   return result
 }
 
+async function invokeState(handler: Connect.NextHandleFunction, body: Record<string, unknown>) {
+  return JSON.parse((await invokeMiddleware(handler, body)).body) as Record<string, unknown>
+}
+
+async function waitForMetadataState(
+  handler: Connect.NextHandleFunction,
+  body: Record<string, unknown>,
+  status: "error" | "loading" | "ready" = "ready",
+) {
+  let latest: Record<string, unknown> | undefined
+  for (let attempt = 0; attempt < 50; attempt++) {
+    latest = await invokeState(handler, body)
+    if (latest.metadataStatus === status) return latest
+    await new Promise(resolve => setTimeout(resolve, 0))
+  }
+  throw new Error(`Expected chat devtools metadata status ${status}, received ${String(latest?.metadataStatus)}`)
+}
+
 describe("agent discovery", () => {
   it("discovers Vite suffix agents without scanning server files", async () => {
     const root = await createTempRoot("vitehub-agent-vite-")
@@ -281,11 +299,11 @@ describe("agent chat capability discovery", () => {
     await configurePluginServer(plugin, server)
     expect(server.middlewares.use).toHaveBeenCalledTimes(1)
 
-    const stateResponse = await invokeMiddleware(handlers[0]!, { action: "get-state", invokerProfileId: "support-technical" })
-    const state = JSON.parse(stateResponse.body)
+    const state = await waitForMetadataState(handlers[0]!, { action: "get-state", invokerProfileId: "support-technical" })
     expect(state).toMatchObject({
       chats: [{ name: "support", uiMessages: [] }],
       instructions: ["# Support\n\nAudience resolved for technical."],
+      metadataStatus: "ready",
       invokerProfileId: "support-technical",
       invokerProfiles: [
         { id: "support-customer", kind: "customer", label: "Customer" },
@@ -333,12 +351,24 @@ describe("agent chat capability discovery", () => {
     })
     const clearedFallbackState = JSON.parse(clearedFallbackResponse.body)
     expect(clearedFallbackState).toMatchObject({
-      instructions: ["# Support\n\nAudience resolved for undefined."],
       invokerFallback: true,
+      metadataStatus: "loading",
       selected: "support",
       uiMessages: [],
     })
     expect(clearedFallbackState.invokerProfileId).toBeUndefined()
+    const resolvedFallbackState = await waitForMetadataState(handlers[0]!, {
+      action: "get-state",
+      chat: "support",
+      invokerFallback: true,
+    })
+    expect(resolvedFallbackState).toMatchObject({
+      instructions: ["# Support\n\nAudience resolved for undefined."],
+      invokerFallback: true,
+      metadataStatus: "ready",
+      selected: "support",
+    })
+    expect(resolvedFallbackState.invokerProfileId).toBeUndefined()
 
     const fallbackSendResponse = await invokeMiddleware(handlers[0]!, {
       action: "send",
@@ -357,6 +387,54 @@ describe("agent chat capability discovery", () => {
     expect(fallbackFinalState.invokerFallback).toBe(true)
     expect(fallbackFinalState.invokerProfileId).toBeUndefined()
     expect(textFromUiMessage(fallbackFinalState.uiMessages[1])).toBe("answered as devtools with workspace")
+  })
+
+  it("serves initial chat devtools state while workspace metadata resolves", async () => {
+    const root = await createTempRoot("vitehub-agent-devtools-metadata-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    let resolveInstructions!: (value: string) => void
+    const instructionsReady = new Promise<string>((resolve) => {
+      resolveInstructions = resolve
+    })
+    const readInstructions = vi.fn(async () => await instructionsReady)
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      capabilities: [chat()],
+      instructions: readInstructions,
+      model: {} as never,
+      workspace: {
+        sources: {
+          docs: { name: "docs" } as never,
+        },
+      },
+      run: () => "ok",
+    }), { workspace: "support" })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
+
+    await configurePluginServer(plugin, server)
+
+    const firstState = await invokeState(handlers[0]!, { action: "get-state" })
+    expect(firstState).toMatchObject({
+      files: [expect.objectContaining({ path: "docs" })],
+      instructions: ["Dynamic system instructions resolver configured."],
+      metadataStatus: "loading",
+      selected: "support",
+    })
+
+    resolveInstructions("Resolved workspace instructions")
+    const resolvedState = await waitForMetadataState(handlers[0]!, { action: "get-state" })
+    expect(resolvedState).toMatchObject({
+      instructions: ["Resolved workspace instructions"],
+      metadataStatus: "ready",
+      selected: "support",
+    })
+
+    await invokeState(handlers[0]!, { action: "get-state" })
+    expect(readInstructions).toHaveBeenCalledTimes(1)
   })
 
   it("omits unfinished tool-call assistant messages from devtools prompt history", async () => {

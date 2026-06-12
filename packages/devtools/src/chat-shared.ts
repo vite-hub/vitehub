@@ -62,6 +62,8 @@ export interface ChatDevtoolsMetadata {
   version?: string
 }
 
+export type ChatDevtoolsMetadataStatus = "error" | "loading" | "ready"
+
 export interface ChatDevtoolsMessage {
   createdAt: string
   id: string
@@ -87,6 +89,8 @@ export interface ChatDevtoolsStateResult {
   invokerFallback?: boolean
   invokerProfileId?: string
   invokerProfiles?: ChatDevtoolsInvokerProfile[]
+  metadataError?: string
+  metadataStatus?: ChatDevtoolsMetadataStatus
   selected: string
   thinkingFallback?: string | null
   title?: string

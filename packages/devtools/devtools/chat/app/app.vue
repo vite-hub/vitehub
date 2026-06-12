@@ -56,6 +56,7 @@ const selectedFilePath = ref<string | undefined>()
 const sidebarWidth = ref(340)
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
+let metadataRefreshTimeout: ReturnType<typeof setTimeout> | undefined
 let stopSidebarResize: (() => void) | undefined
 
 const disconnectedStatusMessage = "Connect through Vite DevTools to inspect a real chat runtime."
@@ -115,6 +116,9 @@ const visibleTools = computed<ChatDevtoolsToolDefinition[]>(() => {
     status: tool.status === "error" ? "disabled" : "available",
   }))
 })
+const metadataStatus = computed(() => state.value.metadataStatus || "ready")
+const isMetadataLoading = computed(() => metadataStatus.value === "loading")
+const metadataError = computed(() => state.value.metadataError)
 
 function clearPendingMessages() {
   const pendingId = pendingUserMessage.value?.id
@@ -156,7 +160,12 @@ function applyState(next: ChatDevtoolsStateResult) {
 
   messages.value = nextMessages
   syncExpandedFiles(state.value.files || [])
-
+  if (isMetadataLoading.value) {
+    scheduleMetadataRefresh()
+  }
+  else {
+    stopMetadataRefresh()
+  }
 }
 
 function syncInvokerSelection(next: ChatDevtoolsStateResult) {
@@ -526,6 +535,22 @@ function appendPendingUserMessage(text: string, chat: string | undefined) {
 
 function waitForFrame() {
   return new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+}
+
+function stopMetadataRefresh() {
+  if (!metadataRefreshTimeout) return
+  clearTimeout(metadataRefreshTimeout)
+  metadataRefreshTimeout = undefined
+}
+
+function scheduleMetadataRefresh() {
+  if (metadataRefreshTimeout || metadataStatus.value !== "loading") return
+  metadataRefreshTimeout = setTimeout(async () => {
+    metadataRefreshTimeout = undefined
+    if (metadataStatus.value === "loading") {
+      await refreshFromBridge(state.value.selected)
+    }
+  }, 700)
 }
 
 function localBridgeRoute() {
@@ -981,6 +1006,7 @@ watch(selectedInvokerProfileId, async (next, previous) => {
   await refreshFromBridge(state.value.selected)
 })
 onBeforeUnmount(() => {
+  stopMetadataRefresh()
   stopSidebarResize?.()
 })
 </script>
@@ -1230,6 +1256,24 @@ onBeforeUnmount(() => {
               }"
             >
               <template #files>
+                <UAlert
+                  v-if="fileRows.length && isMetadataLoading"
+                  color="neutral"
+                  variant="soft"
+                  icon="i-lucide-loader-circle"
+                  title="Loading workspace metadata..."
+                  class="mb-2"
+                  :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-70', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
+                />
+                <UAlert
+                  v-else-if="fileRows.length && metadataError"
+                  color="error"
+                  variant="soft"
+                  icon="i-lucide-triangle-alert"
+                  :title="metadataError"
+                  class="mb-2"
+                  :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
+                />
                 <div v-if="fileRows.length" class="space-y-1">
                   <UButton
                     v-for="file in fileRows"
@@ -1262,6 +1306,20 @@ onBeforeUnmount(() => {
                   </UButton>
                 </div>
                 <UEmpty
+                  v-else-if="isMetadataLoading"
+                  icon="i-lucide-loader-circle"
+                  title="Loading workspace files."
+                  description="Inspecting workspace metadata for this chat."
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                />
+                <UEmpty
+                  v-else-if="metadataError"
+                  icon="i-lucide-triangle-alert"
+                  title="Workspace metadata failed."
+                  :description="metadataError"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                />
+                <UEmpty
                   v-else
                   icon="i-lucide-folder-search"
                   title="No files exposed."
@@ -1271,6 +1329,24 @@ onBeforeUnmount(() => {
               </template>
 
               <template #tools>
+                <UAlert
+                  v-if="visibleTools.length && isMetadataLoading"
+                  color="neutral"
+                  variant="soft"
+                  icon="i-lucide-loader-circle"
+                  title="Loading workspace metadata..."
+                  class="mb-2"
+                  :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-70', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
+                />
+                <UAlert
+                  v-else-if="visibleTools.length && metadataError"
+                  color="error"
+                  variant="soft"
+                  icon="i-lucide-triangle-alert"
+                  :title="metadataError"
+                  class="mb-2"
+                  :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
+                />
                 <div v-if="visibleTools.length" class="space-y-2">
                   <div
                     v-for="tool in visibleTools"
@@ -1325,6 +1401,20 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
                 <UEmpty
+                  v-else-if="isMetadataLoading"
+                  icon="i-lucide-loader-circle"
+                  title="Loading tools."
+                  description="Inspecting workspace metadata for this chat."
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                />
+                <UEmpty
+                  v-else-if="metadataError"
+                  icon="i-lucide-triangle-alert"
+                  title="Workspace metadata failed."
+                  :description="metadataError"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                />
+                <UEmpty
                   v-else
                   icon="i-lucide-wrench"
                   title="No tools exposed."
@@ -1334,6 +1424,24 @@ onBeforeUnmount(() => {
               </template>
 
               <template #instructions>
+                <UAlert
+                  v-if="state.instructions?.length && isMetadataLoading"
+                  color="neutral"
+                  variant="soft"
+                  icon="i-lucide-loader-circle"
+                  title="Loading workspace metadata..."
+                  class="mb-2"
+                  :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-70', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
+                />
+                <UAlert
+                  v-else-if="state.instructions?.length && metadataError"
+                  color="error"
+                  variant="soft"
+                  icon="i-lucide-triangle-alert"
+                  :title="metadataError"
+                  class="mb-2"
+                  :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
+                />
                 <div v-if="state.instructions?.length" class="min-w-0 space-y-4 px-1">
                   <div
                     v-for="(instruction, index) in state.instructions"
@@ -1353,6 +1461,20 @@ onBeforeUnmount(() => {
                     </Suspense>
                   </div>
                 </div>
+                <UEmpty
+                  v-else-if="isMetadataLoading"
+                  icon="i-lucide-loader-circle"
+                  title="Loading instructions."
+                  description="Inspecting workspace metadata for this chat."
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                />
+                <UEmpty
+                  v-else-if="metadataError"
+                  icon="i-lucide-triangle-alert"
+                  title="Workspace metadata failed."
+                  :description="metadataError"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                />
                 <UEmpty
                   v-else
                   icon="i-lucide-scroll-text"
