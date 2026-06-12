@@ -65,10 +65,10 @@ const mode = values.mode ?? "local"
 const provider = values.provider as Provider | undefined
 if (provider) assert.ok(PROVIDERS.includes(provider), `invalid --provider: ${provider}`)
 
-if (mode !== "live") {
+if (mode !== "live" && mode !== "local") {
   throw new TypeError(liveOnlyMessage)
 }
 
-assert.ok(values.url, "--url required for live mode")
-assert.ok(provider, "--provider required for live mode")
+assert.ok(values.url, `--url required for ${mode} mode`)
+assert.ok(provider, `--provider required for ${mode} mode`)
 await runLive(values.url, provider)

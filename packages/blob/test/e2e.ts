@@ -79,9 +79,9 @@ const { values } = parseArgs({
 
 const mode = values.mode ?? "local"
 
-if (mode !== "live") {
+if (mode !== "live" && mode !== "local") {
   throw new TypeError(liveOnlyMessage)
 }
 
-assert.ok(values.url, "--url required for live mode")
+assert.ok(values.url, `--url required for ${mode} mode`)
 await runLive(String(values.url))
