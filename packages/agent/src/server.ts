@@ -572,9 +572,9 @@ function createChatSdkConfig(
   state: StateAdapter,
   options: AgentChatOptions | undefined,
 ): ChatConfig {
-  const fallbackStreamingPlaceholderText = typeof options?.fallbackStreamingPlaceholderText === "function"
-    ? undefined
-    : options?.fallbackStreamingPlaceholderText
+  const fallbackStreamingPlaceholderText = typeof options?.fallbackStreamingPlaceholderText === "string"
+    ? options.fallbackStreamingPlaceholderText
+    : null
   return objectWithoutUndefined({
     adapters,
     concurrency: chatSdkOption<ChatConfig["concurrency"]>(options, "concurrency"),

@@ -92,7 +92,7 @@ async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeCo
     return resolved || undefined
   }
   if (typeof fallback === "string") return fallback
-  return "Thinking..."
+  return undefined
 }
 
 function isResolvableObject(value: unknown): value is { resolve: (...args: never[]) => unknown } {

@@ -399,9 +399,9 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "echo: hello" })
     expect(adapter.postMessage).toHaveBeenCalledTimes(1)
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "echo: hello" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
     expect(admitChat).toHaveBeenCalledWith(expect.objectContaining({
       identity: expect.objectContaining({
         id: "123",
@@ -484,8 +484,8 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
-    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "...")
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "ok" })
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "ok" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
   it("continues refreshing typing status after a hung typing request", async () => {
@@ -764,7 +764,8 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "runtime-openai-key" })
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "runtime-openai-key" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
   it("posts chat error fallback when deferred webhook work fails", async () => {
@@ -1343,8 +1344,8 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:789", "...")
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:789", "sent-1", { markdown: "ok" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:789", { markdown: "ok" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:789", { markdown: "Custom usage: `15` tokens via telegram" })
     expect(finish).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(expect.objectContaining({
