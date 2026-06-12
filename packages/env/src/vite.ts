@@ -124,7 +124,6 @@ function createViteTypes(config: Record<string, unknown>, serverRegistry: EnvRun
     "  export interface ServerEnv {",
     ...createServerTypeFields(serverRegistry, 4),
     "  }",
-    "  export const serverEnv: ServerEnv",
     "  export function useServerEnv(event?: unknown): ServerEnv",
     "}",
     "export {}",
@@ -232,12 +231,6 @@ function createServerModule(registry: EnvRuntimeRegistry): string {
     "export function useServerEnv(event) {",
     "  return resolveEntry(registry, event, '')",
     "}",
-    "",
-    "export const serverEnv = new Proxy({}, {",
-    "  get(_target, key) {",
-    "    return typeof key === 'string' ? useServerEnv()[key] : undefined",
-    "  },",
-    "})",
     "",
   ].join("\n")
 }

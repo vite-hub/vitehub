@@ -92,6 +92,7 @@ describe("Vite plugin", () => {
     expect(types).toContain("\"appType\": \"SingleTenant\"")
     expect(types).toContain("usePublicEnv(): PublicEnv")
     expect(types).toContain("useServerEnv(event?: unknown): ServerEnv")
+    expect(types).not.toContain("serverEnv")
     expect(types).not.toContain("buildConfig")
     expect(types).not.toContain("useSafeBuildConfig")
     expect(types).not.toContain("virtual:@vite-hub/env/build")
@@ -106,6 +107,7 @@ describe("Vite plugin", () => {
     const serverModule = loadHook("\0#vitehub/env/server")
     expect(serverModule).toContain("useServerEnv")
     expect(serverModule).toContain("SecretEnv")
+    expect(serverModule).not.toContain("serverEnv")
   })
 
   it("applies prefixes to inferred Vite env names", async () => {
@@ -161,7 +163,6 @@ describe("Vite plugin", () => {
     )
 
     const mod = await import(`${pathToFileURL(modulePath).href}?t=${Date.now()}`) as {
-      serverEnv: { airtableToken: unknown }
       useServerEnv: (event?: unknown) => {
         airtableToken: { unseal(): string }
         nested: { staticValue: "ok" }
@@ -170,24 +171,24 @@ describe("Vite plugin", () => {
       }
     }
 
-    const serverEnv = mod.useServerEnv({
+    const resolvedEnv = mod.useServerEnv({
       env: {
         VITEHUB_AIRTABLE_TOKEN: "airtable-secret",
         WEBHOOK_URL: "https://example.test/hook",
       },
     })
-    expect(String(serverEnv.airtableToken)).toBe("<redacted>")
-    expect(JSON.stringify(serverEnv.airtableToken)).toBe("\"<redacted>\"")
-    expect(serverEnv.airtableToken.unseal()).toBe("airtable-secret")
-    expect(serverEnv.optionalToken).toBeUndefined()
-    expect(serverEnv.publicWebhook).toBe("https://example.test/hook")
-    expect(serverEnv.nested.staticValue).toBe("ok")
+    expect(String(resolvedEnv.airtableToken)).toBe("<redacted>")
+    expect(JSON.stringify(resolvedEnv.airtableToken)).toBe("\"<redacted>\"")
+    expect(resolvedEnv.airtableToken.unseal()).toBe("airtable-secret")
+    expect(resolvedEnv.optionalToken).toBeUndefined()
+    expect(resolvedEnv.publicWebhook).toBe("https://example.test/hook")
+    expect(resolvedEnv.nested.staticValue).toBe("ok")
 
     ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = {
       VITEHUB_AIRTABLE_TOKEN: "global-secret",
       WEBHOOK_URL: "https://example.test/global",
     }
-    expect((mod.serverEnv.airtableToken as { unseal(): string }).unseal()).toBe("global-secret")
+    expect(mod.useServerEnv().airtableToken.unseal()).toBe("global-secret")
     delete (globalThis as { __env__?: Record<string, unknown> }).__env__
 
     expect(() => mod.useServerEnv({ env: { WEBHOOK_URL: "https://example.test/hook" } })).toThrow("Missing Server Env airtableToken")
