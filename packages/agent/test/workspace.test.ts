@@ -1346,6 +1346,54 @@ describe("defineAgent workspace option", () => {
     expect(paths).not.toContain("portal")
   })
 
+  it("renders resolved Source Instructions in resolved DevTools metadata", async () => {
+    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const metadataWorkspace = readonlyWorkspaceFacade()
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    exists.mockImplementation(async path => path === "ingestion/acme")
+    createWorkspaceSourceResolutionFacade.mockResolvedValueOnce({
+      workspace: metadataWorkspace,
+      definition: {
+        name: "support",
+        sources: {
+          ingestion: {
+            instructions: "Use this source for acme ingestion models only.",
+            mount: "ingestion/acme",
+            name: "ingestion",
+          },
+        },
+      },
+    })
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        sources: {
+          ingestion: { name: "ingestion" } as never,
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "acme",
+            scopes: {
+              acme: { path: "ingestion/acme" },
+            },
+          },
+        }),
+      ],
+      instructions: "Answer from the workspace.",
+      model: {} as never,
+    }), { workspace: "support" })
+
+    await expect(resolveAgentDevtoolsMetadata(agent)).resolves.toMatchObject({
+      instructions: [[
+        "Answer from the workspace.",
+        "## Workspace Sources",
+        "### ingestion\n\nUse this source for acme ingestion models only.",
+      ].join("\n\n")],
+    })
+  })
+
   it("flattens virtual workspace AGENTS.md while keeping sibling instruction files", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     list.mockResolvedValue([

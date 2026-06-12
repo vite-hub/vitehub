@@ -43,6 +43,9 @@ const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
 type NormalizedWorkspaceOptions = WorkspaceAgentWorkspaceOptions & { mode: AgentCapabilityMode }
 type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapabilityMode }
 type WorkspaceSourceMap = NonNullable<WorkspaceDefinition["sources"]>
+type ResolvedWorkspaceMetadataCapabilities = ResolvedAgentCapabilities & {
+  workspaceDefinition?: WorkspaceDefinition
+}
 
 export type WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -393,7 +396,7 @@ async function resolveWorkspaceMetadataInstructions<
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   workspace: ReadonlyWorkspaceFacade<Name>,
   resolution: AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name> = {},
-  resolvedCapabilities?: ResolvedAgentCapabilities,
+  resolvedCapabilities?: ResolvedWorkspaceMetadataCapabilities,
 ) {
   const metadataWorkspace = (resolvedCapabilities?.workspace || workspace) as ReadonlyWorkspaceFacade<Name>
   const instructionContext = {
@@ -416,7 +419,10 @@ async function resolveWorkspaceMetadataInstructions<
     : baseInstructions.join("\n\n")
   return applyWorkspaceSourceInstructionsToParts(
     renderedInstructions ? [renderedInstructions] : [],
-    await resolveWorkspaceSourceInstructionBlock(workspaceDefinitionWithNameFromOptions(options, resolution), metadataWorkspace),
+    await resolveWorkspaceSourceInstructionBlock(
+      resolvedCapabilities?.workspaceDefinition || workspaceDefinitionWithNameFromOptions(options, resolution),
+      metadataWorkspace,
+    ),
   )
 }
 
@@ -566,7 +572,7 @@ async function resolveWorkspaceMetadataCapabilities<
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   workspace: ReadonlyWorkspaceFacade<Name>,
   resolution: AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name>,
-): Promise<ResolvedAgentCapabilities | undefined> {
+): Promise<ResolvedWorkspaceMetadataCapabilities | undefined> {
   const capabilities = normalizeCapabilities(options.capabilities as AgentCapabilityDefinition[] | undefined)
   if (!capabilities.length) return undefined
 
@@ -576,14 +582,18 @@ async function resolveWorkspaceMetadataCapabilities<
   const { runtimeConfig: _runtimeConfig, ...callbackContext } = runtime
   const invocationContext = createAgentInvocationContextStore(input.context)
   const invoker = await resolveAgentInvoker(options.invoker, callbackContext, invocationContext, input, runtime.run)
-  return await resolveAgentCapabilities({
+  const workspaceDefinition = workspaceDefinitionWithNameFromOptions(options, { workspace: workspaceName })
+  const resolved = await resolveAgentCapabilities({
     capabilities: options.capabilities as AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined,
     hooks: options.hooks as never,
   }, runtime, input, workspace, workspaceModeFromOptions(options), {
     context: invocationContext,
     invoker,
     model: "model" in options ? options.model as never : undefined,
-    workspaceDefinition: workspaceDefinitionWithNameFromOptions(options, { workspace: workspaceName }),
+    workspaceDefinition,
+  })
+  return Object.assign(resolved, {
+    workspaceDefinition: invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition") || workspaceDefinition,
   })
 }
 
