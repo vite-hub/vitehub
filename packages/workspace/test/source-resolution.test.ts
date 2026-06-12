@@ -117,6 +117,29 @@ describe("Workspace Source Resolution", () => {
     })
   })
 
+  it("defaults resolved GitHub sources to lazy materialization", async () => {
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        ingestion: source.github(() => ({
+          repo: "acme/ingestion",
+          root: "dbt/acme",
+          mount: "ingestion/acme",
+          instructions: "Use this source for acme ingestion models only.",
+        })),
+      },
+    }
+
+    const resolved = await resolveWorkspaceSources(definition, scope("acme", ["ingestion/acme"]))
+    const [ingestion] = normalizeWorkspaceSources(resolved.sources)
+
+    expect(ingestion).toMatchObject({
+      instructions: "Use this source for acme ingestion models only.",
+      materialize: "lazy",
+      mountPath: "ingestion/acme",
+    })
+  })
+
   it("fails closed when a resolved source mount is outside the Selected Workspace Scope", async () => {
     const definition: WorkspaceDefinition = {
       name: "support",

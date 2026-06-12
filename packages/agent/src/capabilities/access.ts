@@ -167,6 +167,7 @@ export type AccessWorkspaceOptionsFor<
 
 interface ResolvedWorkspaceScope {
   all: boolean
+  definition: AccessWorkspaceScopeDefinition
   paths: string[]
   role: AccessRoleName
   scope: string
@@ -266,14 +267,15 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
             },
           })
         : { definition: context.workspaceDefinition, workspace: context.workspace }
-      const scopedWorkspace = scope.all
+      const finalScope = finalizeResolvedWorkspaceScope(scope, sourceResolution.definition)
+      const scopedWorkspace = finalScope.all
         ? sourceResolution.workspace
-        : createScopedWorkspaceFacade(sourceResolution.workspace, scope)
+        : createScopedWorkspaceFacade(sourceResolution.workspace, finalScope)
       context.context.set("access.workspaceScope", {
-        all: scope.all,
-        paths: scope.paths,
-        role: scope.role,
-        scope: scope.scope,
+        all: finalScope.all,
+        paths: finalScope.paths,
+        role: finalScope.role,
+        scope: finalScope.scope,
       })
       if (sourceResolution.definition && sourceResolution.definition !== context.workspaceDefinition) {
         context.context.set("workspace.sourceResolution.definition", sourceResolution.definition)
@@ -314,9 +316,18 @@ async function resolveWorkspaceScope<
 
   return {
     all,
+    definition,
     paths: all ? [""] : scopePaths(definition, context.workspaceDefinition),
     role,
     scope: selection.scope,
+  }
+}
+
+function finalizeResolvedWorkspaceScope(scope: ResolvedWorkspaceScope, workspaceDefinition: WorkspaceDefinition | undefined): ResolvedWorkspaceScope {
+  if (scope.all) return scope
+  return {
+    ...scope,
+    paths: scopePaths(scope.definition, workspaceDefinition),
   }
 }
 

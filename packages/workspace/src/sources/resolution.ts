@@ -156,13 +156,14 @@ async function resolveWorkspaceSource(
   const resolved = await source.resolve(context)
   if (!resolved) return undefined
 
-  const normalized = normalizeWorkspaceSource(key, resolved)
+  const resolvedSource = withResolvedSourceRuntimeDefaults(resolved)
+  const normalized = normalizeWorkspaceSource(key, resolvedSource)
   if (!selectedScopeIntersectsMount(options.selectedWorkspaceScope, normalized.mountPath)) return undefined
 
   return {
-    ...resolved,
+    ...resolvedSource,
     fingerprint: {
-      source: resolved.fingerprint,
+      source: resolvedSource.fingerprint,
       sourceResolution: {
         selectedWorkspaceScope: options.selectedWorkspaceScope
           ? {
@@ -175,6 +176,13 @@ async function resolveWorkspaceSource(
       },
     },
   }
+}
+
+function withResolvedSourceRuntimeDefaults(source: WorkspaceSource): WorkspaceSource {
+  if (source.materialize || source.mount && typeof source.mount === "object" && source.mount.materialize) {
+    return source
+  }
+  return { ...source, materialize: "lazy" }
 }
 
 function isSourcePath(definition: WorkspaceDefinition, path: string): boolean {

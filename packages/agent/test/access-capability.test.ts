@@ -82,6 +82,60 @@ function createWorkspace(): ReadonlyWorkspaceFacade {
   }
 }
 
+function createWorkspaceWithStaleIngestion(): ReadonlyWorkspaceFacade {
+  const base = createWorkspace()
+  const staleFiles = new Map<string, string>([
+    ["ingestion/globex/models/orders.sql", "select * from globex_orders\n"],
+  ])
+  const staleEntries: WorkspaceEntry[] = [
+    { path: "ingestion", type: "directory" },
+    { path: "ingestion/globex", type: "directory" },
+    { path: "ingestion/globex/models", type: "directory" },
+    { path: "ingestion/globex/models/orders.sql", size: 28, type: "file" },
+  ]
+
+  return {
+    fs: {
+      async readFile(path, options) {
+        const content = staleFiles.get(path)
+        if (content !== undefined) return (options?.encoding === "binary" ? new TextEncoder().encode(content) : content) as never
+        return await base.fs.readFile(path, options as never)
+      },
+      async stat(path) {
+        const entry = staleEntries.find(entry => entry.path === path)
+        if (entry) return entry as WorkspaceStat
+        return await base.fs.stat(path)
+      },
+      async exists(path) {
+        return staleEntries.some(entry => entry.path === path) || await base.fs.exists(path)
+      },
+      async list(path = "", options = {}) {
+        return [
+          ...await base.fs.list(path, options),
+          ...staleEntries.filter(entry => options.recursive ? containsPath(path, entry.path) && entry.path !== path : directChildOf(path, entry.path)),
+        ]
+      },
+      async glob(pattern, options) {
+        return [...await base.fs.glob(pattern as never, options), ...staleEntries]
+      },
+      async search(query) {
+        const hits = await base.fs.search(query)
+        const paths = query.paths?.length ? query.paths : [query.cwd || ""]
+        for (const [path, content] of staleFiles) {
+          if (paths.some(prefix => containsPath(prefix, path)) && content.includes(query.pattern)) {
+            hits.push({ column: 1, line: 1, path, text: content })
+          }
+        }
+        return hits
+      },
+      async materializeSources(options = {}) {
+        return await base.fs.materializeSources!(options)
+      },
+    },
+    tools: base.tools,
+  }
+}
+
 describe("access capability", () => {
   it("accepts chat admission without requiring a workspace", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
@@ -422,6 +476,58 @@ describe("access capability", () => {
       "### ingestion\n\nUse this source for acme ingestion models only.",
     ].join("\n\n"))
     expect(resolved.tools!.materialize_sources).toBeUndefined()
+  })
+
+  it("narrows source grants to resolved Source mounts after Source Resolution", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const invocationContext = createAgentInvocationContextStore()
+    const workspaceDefinition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        ingestion: source.custom({
+          async resolve() {
+            return source.custom({
+              mount: "ingestion/acme",
+              async getKeys() {
+                return ["models/orders.sql"]
+              },
+              async getItem(key) {
+                return { key, path: key, content: "select * from acme_orders\n" }
+              },
+            })
+          },
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            return { key, path: key, content: "" }
+          },
+        }),
+      },
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: {
+              grants: [{ source: "ingestion" }],
+              scope: "acme",
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspaceWithStaleIngestion(), "read", {
+      context: invocationContext,
+      workspaceDefinition,
+    })
+
+    await expect(resolved.workspace!.fs.readFile("ingestion/acme/models/orders.sql")).resolves.toBe("select * from acme_orders\n")
+    await expect(resolved.workspace!.fs.exists("ingestion/globex/models/orders.sql")).resolves.toBe(false)
+    await expect(resolved.workspace!.fs.readFile("ingestion/globex/models/orders.sql")).rejects.toThrow("Workspace path does not exist")
+    expect(invocationContext.get<{ paths: string[] }>("access.workspaceScope")?.paths).toEqual(["ingestion/acme"])
   })
 
   it("omits resolved Source Instructions when the resolved source is outside access scope", async () => {
