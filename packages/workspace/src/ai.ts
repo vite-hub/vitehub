@@ -180,8 +180,10 @@ function describeShellCommands(commands: string[]) {
   return [
     "Run a real Bash-compatible workspace shell command over files mounted at `/workspace`.",
     `Available workspace commands include: ${available.join(", ")}.`,
-    "Pipes, redirects, chaining, quoted patterns, and multiline shell scripts are supported by the shell runtime.",
+    "Only the listed commands are available; other executables are rejected before they run.",
+    "Pipes, redirects, chaining, quoted patterns, and multiline shell scripts are supported when they use available commands.",
     "The workspace filesystem controls whether writes are allowed; read-only tools reject mutation commands at execution time.",
+    "Do not use unsupported helpers such as `xargs`, `awk`, `sed`, `sort`, `cut`, or `python`.",
     "Do not use shell commands such as `echo` to compose assistant replies; answer conversational messages directly.",
     "Examples: `rg 'siff|PLC' ingestion forecasting-engine | head -n 20`; `find ingestion -type f -name '*.sql'`; `cat forecasting-engine/README.md | head -n 40`.",
   ].join(" ")

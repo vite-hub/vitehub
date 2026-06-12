@@ -67,6 +67,8 @@ describe("createWorkspaceTools", () => {
       exitCode: 0,
       stdout: "/workspace\ncustomers.sql\norders.sql\n",
     })
+    expect(tools.shell.description).toContain("Only the listed commands are available")
+    expect(tools.shell.description).toContain("Do not use unsupported helpers such as `xargs`")
   })
 
   it("limits shell commands to the enabled read capabilities", async () => {
@@ -82,12 +84,16 @@ describe("createWorkspaceTools", () => {
 
     await expect(runShell(tools, "ls .")).resolves.toMatchObject({ exitCode: 0, stdout: "README.md\nmodels\n" })
     await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({
-      exitCode: 127,
-      stderr: "bash: cat: command not found\n",
+      event: "policy_denied",
+      exitCode: 126,
+      stderr: expect.stringContaining("Unsupported workspace shell command: cat"),
+      stdout: expect.stringContaining("Use only the available workspace commands"),
     })
     await expect(runShell(tools, "rg orders models")).resolves.toMatchObject({
-      exitCode: 127,
-      stderr: "bash: rg: command not found\n",
+      event: "policy_denied",
+      exitCode: 126,
+      stderr: expect.stringContaining("Unsupported workspace shell command: rg"),
+      stdout: expect.stringContaining("Use only the available workspace commands"),
     })
   })
 
@@ -97,8 +103,10 @@ describe("createWorkspaceTools", () => {
     }))
 
     await expect(runShell(tools, "rm README.md")).resolves.toMatchObject({
-      exitCode: 127,
-      stderr: "bash: rm: command not found\n",
+      event: "policy_denied",
+      exitCode: 126,
+      stderr: expect.stringContaining("Unsupported workspace shell command: rm"),
+      stdout: expect.stringContaining("Use only the available workspace commands"),
     })
     await expect(runShell(tools, "cat README.md | wc -l")).resolves.toMatchObject({
       exitCode: 0,

@@ -44,6 +44,22 @@ describe("@vite-hub/shell workspace inspection", () => {
       stdout: expect.stringContaining("customers.sql"),
     })
 
+    {
+      const runtimeFs = createReadonlyWorkspaceFs(workspace)
+      runtimeFs.readdirWithFileTypes = async () => {
+        throw new Error("shell runtime should not list simple workspace paths")
+      }
+
+      await expect(runWorkspaceInspectionCommand(workspace, "ls -la models", {
+        commands: ["ls"],
+        cwd: workspaceMountPoint,
+        fs: runtimeFs,
+      })).resolves.toMatchObject({
+        exitCode: 0,
+        stdout: expect.stringContaining("customers.sql"),
+      })
+    }
+
     await expect(runWorkspaceInspectionCommand(workspace, "cat", {
       commands: ["cat"],
       cwd: workspaceMountPoint,
@@ -394,6 +410,22 @@ describe("@vite-hub/shell workspace inspection", () => {
       stdout: expect.not.stringContaining("Workspace search is too broad"),
     })
 
+    {
+      const runtimeFs = createReadonlyWorkspaceFs(workspace)
+      runtimeFs.readdirWithFileTypes = async () => {
+        throw new Error("shell runtime should not find simple workspace paths")
+      }
+
+      await expect(runWorkspaceInspectionCommand(workspace, "find models -type f -name '*.sql'", {
+        commands: ["find"],
+        cwd: workspaceMountPoint,
+        fs: runtimeFs,
+      })).resolves.toMatchObject({
+        exitCode: 0,
+        stdout: "models/customers.sql\nmodels/orders.sql\n",
+      })
+    }
+
     await expect(runWorkspaceInspectionCommand(workspace, "rg customers models && wc -l models/customers.sql", {
       commands: ["rg", "wc"],
       cwd: workspaceMountPoint,
@@ -529,6 +561,17 @@ describe("@vite-hub/shell workspace inspection", () => {
     })).resolves.toMatchObject({
       stderr: expect.not.stringContaining("Workspace path is not mounted"),
       stdout: expect.not.stringContaining("Workspace path is not mounted"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "find models -type d -name \"forecast*\" | xargs -I {} rg -i \"class.*Forecast\" {} || true", {
+      commands: ["find", "rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stderr: expect.stringContaining("Unsupported workspace shell command: xargs"),
+      stdout: expect.stringContaining("Use only the available workspace commands"),
     })
   })
 
