@@ -399,9 +399,9 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "echo: hello" })
     expect(adapter.postMessage).toHaveBeenCalledTimes(1)
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "echo: hello" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
     expect(admitChat).toHaveBeenCalledWith(expect.objectContaining({
       identity: expect.objectContaining({
         id: "123",
@@ -484,52 +484,131 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
-    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "...")
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "ok" })
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "ok" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
-  it("refreshes chat typing until streamed output starts", async () => {
+  it("continues refreshing typing status after a hung typing request", async () => {
     vi.useFakeTimers()
-    try {
-      const { defineAgent } = await import("../src/index.ts")
-      const { chat } = await import("../src/capabilities.ts")
-      const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
-      const adapter = createTestChatAdapter()
-      adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
-        let text = ""
-        for await (const chunk of textStream) {
-          if (typeof chunk === "string") text += chunk
-          else if (chunk.type === "markdown_text") text += chunk.text
-        }
-        return { id: "stream-typing", raw: { text }, threadId }
-      })
-      let runStarted!: () => void
-      let finishRun!: () => void
-      const runStartedPromise = new Promise<void>(resolve => {
-        runStarted = resolve
-      })
-      const finishRunPromise = new Promise<void>(resolve => {
-        finishRun = resolve
-      })
-      const agent = defineAgent({
-        capabilities: [
-          chat({
-            adapters: {
-              telegram: () => adapter as never,
-            },
-            webhooks: {
-              telegram: {},
-            },
-          }),
-        ],
-        run: async () => {
-          runStarted()
-          await finishRunPromise
-          return "ok"
-        },
-      })
-      const handler = defineAgentChatWebhookFetchHandler(agent as never)
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    let runStarted!: () => void
+    let finishRun: () => void = () => {}
+    const runStartedPromise = new Promise<void>(resolve => {
+      runStarted = resolve
+    })
+    const finishRunPromise = new Promise<void>(resolve => {
+      finishRun = resolve
+    })
+    adapter.startTyping.mockImplementation(() => new Promise(() => {}))
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      run: async () => {
+        runStarted()
+        await finishRunPromise
+        return "ok"
+      },
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
 
+    try {
+      const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 244,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 244,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      }), "telegram")
+
+      await runStartedPromise
+      await Promise.resolve()
+      expect(adapter.startTyping).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(6000)
+      expect(adapter.startTyping).toHaveBeenCalledTimes(2)
+
+      finishRun()
+      const response = await responsePromise
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      await vi.advanceTimersByTimeAsync(2000)
+    }
+    finally {
+      finishRun()
+      vi.useRealTimers()
+    }
+  })
+
+  it("refreshes typing status until the streamed chat response is committed", async () => {
+    vi.useFakeTimers()
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    let runStarted!: () => void
+    let finishRun: () => void = () => {}
+    let commitStarted!: () => void
+    let commitResponse: () => void = () => {}
+    const runStartedPromise = new Promise<void>(resolve => {
+      runStarted = resolve
+    })
+    const finishRunPromise = new Promise<void>(resolve => {
+      finishRun = resolve
+    })
+    const commitStartedPromise = new Promise<void>(resolve => {
+      commitStarted = resolve
+    })
+    const commitResponsePromise = new Promise<void>(resolve => {
+      commitResponse = resolve
+    })
+    adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>, options?: { updateIntervalMs?: number }) => {
+      let text = ""
+      for await (const chunk of textStream) {
+        if (typeof chunk === "string") text += chunk
+        else if (chunk.type === "markdown_text") text += chunk.text
+      }
+      commitStarted()
+      await commitResponsePromise
+      return { id: "stream-1", raw: { text }, threadId }
+    })
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      run: async () => {
+        runStarted()
+        await finishRunPromise
+        return "ok"
+      },
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    try {
       const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
           update_id: 144,
@@ -545,21 +624,37 @@ describe("server helpers", () => {
       }), "telegram")
 
       await runStartedPromise
+      await Promise.resolve()
       expect(adapter.startTyping).toHaveBeenCalledTimes(1)
+
       await vi.advanceTimersByTimeAsync(4000)
       expect(adapter.startTyping).toHaveBeenCalledTimes(2)
+
       await vi.advanceTimersByTimeAsync(4000)
       expect(adapter.startTyping).toHaveBeenCalledTimes(3)
 
       finishRun()
+      await commitStartedPromise
+      expect(adapter.stream).toHaveBeenCalledWith("telegram:456", expect.any(Object), expect.objectContaining({
+        updateIntervalMs: 1,
+      }))
+      await vi.advanceTimersByTimeAsync(4000)
+      expect(adapter.startTyping).toHaveBeenCalledTimes(4)
+
+      commitResponse()
       const response = await responsePromise
+      const callsAfterCommit = adapter.startTyping.mock.calls.length
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toEqual({ ok: true })
-      const callsAfterFirstOutput = adapter.startTyping.mock.calls.length
-      await vi.advanceTimersByTimeAsync(8000)
-      expect(adapter.startTyping).toHaveBeenCalledTimes(callsAfterFirstOutput)
+      expect(adapter.editMessage).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(4000)
+      expect(adapter.startTyping).toHaveBeenCalledTimes(callsAfterCommit)
+      await vi.runOnlyPendingTimersAsync()
     }
     finally {
+      finishRun()
+      commitResponse()
       vi.useRealTimers()
     }
   })
@@ -671,7 +766,8 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "runtime-openai-key" })
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "runtime-openai-key" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
   })
 
   it("posts chat error fallback when deferred webhook work fails", async () => {
@@ -1001,7 +1097,7 @@ describe("server helpers", () => {
     const commitResponsePromise = new Promise<void>(resolve => {
       commitResponse = resolve
     })
-    adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
+    adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>, options?: { updateIntervalMs?: number }) => {
       let text = ""
       for await (const chunk of textStream) {
         if (typeof chunk === "string") text += chunk
@@ -1012,6 +1108,9 @@ describe("server helpers", () => {
       await commitResponsePromise
       order.push("stream:committed")
       return { id: "stream-1", raw: { text }, threadId }
+    })
+    adapter.editMessage.mockImplementation(async () => {
+      throw new Error("Bad Request: message is not modified")
     })
     adapter.postMessage.mockImplementation(async (threadId: string, message: unknown) => {
       order.push("post:follow-up")
@@ -1060,6 +1159,9 @@ describe("server helpers", () => {
         responsePromise.then(() => "settled"),
         Promise.resolve("pending"),
       ])).resolves.toBe("pending")
+      expect(adapter.stream).toHaveBeenCalledWith("telegram:456", expect.any(Object), expect.objectContaining({
+        updateIntervalMs: 1,
+      }))
       expect(adapter.editMessage).not.toHaveBeenCalled()
       expect(adapter.postMessage).not.toHaveBeenCalled()
       await expect(Promise.race([
@@ -1072,6 +1174,7 @@ describe("server helpers", () => {
 
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toEqual({ ok: true })
+      expect(adapter.editMessage).not.toHaveBeenCalled()
       expect(adapter.postMessage).toHaveBeenCalledTimes(1)
       expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "usage ok" })
       expect(finish).toHaveBeenCalledOnce()
@@ -1304,8 +1407,8 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:789", "...")
-    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:789", "sent-1", { markdown: "ok" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:789", { markdown: "ok" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:789", { markdown: "Custom usage: `15` tokens via telegram" })
     expect(finish).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(expect.objectContaining({
