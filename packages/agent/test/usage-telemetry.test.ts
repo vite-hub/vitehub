@@ -13,27 +13,6 @@ const runtime = () => ({
 })
 
 describe("usage telemetry", () => {
-  it("exposes opt-in chat telemetry options and formats a chat summary", async () => {
-    const { formatUsageTelemetryChatMessage, getUsageTelemetryChatOptions, usageTelemetry } = await import("../src/capabilities.ts")
-    const capability = usageTelemetry({ chat: true })
-
-    expect(getUsageTelemetryChatOptions([capability])).toEqual([{}])
-    expect(formatUsageTelemetryChatMessage({
-      cost: {
-        amount: "0.000002",
-        currency: "USD",
-        estimated: true,
-        source: "vercel-ai-gateway",
-      },
-      model: { id: "openai/gpt-test" },
-      usage: {
-        inputTokens: 10,
-        outputTokens: 5,
-        totalTokens: 15,
-      },
-    }, { durationMs: 1234 })).toContain("`15` total (10 in, 5 out)")
-  })
-
   it("normalizes usage and attaches a priced usage record", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")

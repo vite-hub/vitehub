@@ -2,11 +2,8 @@ import { defineCapability } from "../capability-runtime.ts"
 
 import type {
   AgentCapabilityDefinition,
-  AgentChatMessage,
-  AgentChatSendMessage,
   AgentFinishEvent,
   AgentRunMetadata,
-  AgentRuntimeConfig,
   AgentUsage,
   AgentUsageCost,
   AgentUsageRecord,
@@ -22,47 +19,16 @@ export interface AgentUsagePricingContext {
 
 export type AgentUsagePricing = (context: AgentUsagePricingContext) => MaybePromise<AgentUsageCost | undefined>
 
-export interface UsageTelemetryChatMessageContext {
-  durationMs?: number
-  provider?: string
-  run?: Partial<AgentRunMetadata>
-}
-
 export interface UsageTelemetryContext {
   run?: Partial<AgentRunMetadata>
 }
-
-export type UsageTelemetryChatMessage = AgentChatMessage
-
-export type UsageTelemetryChatSendMessage = AgentChatSendMessage
-
-export interface UsageTelemetryChatCallbackContext extends UsageTelemetryChatMessageContext {
-  sendMessage: UsageTelemetryChatSendMessage
-}
-
-export type UsageTelemetryChatFormatter = (
-  record: AgentUsageRecord,
-  context: UsageTelemetryChatMessageContext,
-) => MaybePromise<string | undefined>
 
 export type UsageTelemetryCallback = (
   record: AgentUsageRecord,
   context: UsageTelemetryContext,
 ) => MaybePromise<void>
 
-export type UsageTelemetryChatCallback = (
-  record: AgentUsageRecord,
-  context: UsageTelemetryChatCallbackContext,
-) => MaybePromise<void>
-
-export interface UsageTelemetryChatOptions {
-  enabled?: boolean
-  format?: UsageTelemetryChatFormatter
-  onUsage?: UsageTelemetryChatCallback
-}
-
 export interface UsageTelemetryOptions {
-  chat?: boolean | UsageTelemetryChatOptions
   includeRaw?: boolean
   onUsage?: UsageTelemetryCallback
   pricing?: AgentUsagePricing
@@ -99,29 +65,6 @@ function isRecord(value: unknown): value is UnknownRecord {
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
   return !!value && typeof value === "object" && Symbol.asyncIterator in value
-}
-
-function isUsageTelemetryMetadata(value: unknown): value is UsageTelemetryCapabilityMetadata {
-  return isRecord(value)
-    && value.kind === "usage-telemetry"
-    && isRecord(value.usageTelemetry)
-}
-
-function normalizeChatOptions(value: UsageTelemetryOptions["chat"]): UsageTelemetryChatOptions | undefined {
-  if (value === true) return {}
-  if (!value) return
-  return value.enabled === false ? undefined : value
-}
-
-export function getUsageTelemetryChatOptions<TRuntimeConfig extends AgentRuntimeConfig>(
-  capabilities: AgentCapabilityDefinition<TRuntimeConfig>[],
-): UsageTelemetryChatOptions[] {
-  return capabilities
-    .map((capability) => {
-      if (capability.id !== "usage-telemetry" || !isUsageTelemetryMetadata(capability.metadata)) return undefined
-      return normalizeChatOptions(capability.metadata.usageTelemetry.chat)
-    })
-    .filter((options): options is UsageTelemetryChatOptions => !!options)
 }
 
 function readNumber(record: UnknownRecord, ...keys: string[]): number | undefined {
@@ -403,56 +346,6 @@ export function usageTelemetry(options: UsageTelemetryOptions = {}): AgentCapabi
       })
     },
   })
-}
-
-function formatNumber(value: number | undefined): string | undefined {
-  return typeof value === "number" && Number.isFinite(value)
-    ? new Intl.NumberFormat("en-US").format(value)
-    : undefined
-}
-
-function formatSeconds(value: number | undefined): string | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value)) return
-  return `${(value / 1000).toFixed(value < 10_000 ? 2 : 1)}s`
-}
-
-function formatTokenSummary(usage: AgentUsage | undefined): string {
-  if (!usage) return "`n/a`"
-  const input = formatNumber(usage.inputTokens)
-  const output = formatNumber(usage.outputTokens)
-  const total = formatNumber(usage.totalTokens ?? (usage.inputTokens !== undefined && usage.outputTokens !== undefined ? usage.inputTokens + usage.outputTokens : undefined))
-  const details = [
-    input ? `${input} in` : undefined,
-    output ? `${output} out` : undefined,
-  ].filter(Boolean).join(", ")
-  return `${total ? `\`${total}\`` : "`n/a`"} total${details ? ` (${details})` : ""}`
-}
-
-function formatCost(cost: AgentUsageCost | undefined): string {
-  if (!cost) return "`n/a`"
-  const prefix = cost.estimated ? "~" : ""
-  const suffix = cost.source ? ` ${cost.source}` : ""
-  return `\`${prefix}${cost.amount} ${cost.currency}\`${suffix}`
-}
-
-export function formatUsageTelemetryChatMessage(
-  record: AgentUsageRecord,
-  context: UsageTelemetryChatMessageContext = {},
-): string {
-  const durationMs = record.latency?.durationMs ?? context.durationMs
-  const lines = [
-    "**Usage**",
-    `- Tokens: ${formatTokenSummary(record.usage)}`,
-    `- Time: \`${formatSeconds(durationMs) || "n/a"}\``,
-    `- Price: ${formatCost(record.cost)}`,
-  ]
-  if (record.latency?.tokensPerSecond !== undefined) {
-    lines.push(`- Speed: \`${record.latency.tokensPerSecond.toFixed(1)} tok/s\``)
-  }
-  if (record.model?.id) {
-    lines.push(`- Model: \`${record.model.id}\``)
-  }
-  return lines.join("\n")
 }
 
 function decimalToParts(value: string): { scale: bigint, units: bigint } {

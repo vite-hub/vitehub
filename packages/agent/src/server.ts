@@ -5,7 +5,6 @@ import { Chat } from "chat"
 import { resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent, streamAgentTrigger } from "./index.ts"
 import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { getAccessCapabilityOptions } from "./capabilities/access.ts"
-import { formatUsageTelemetryChatMessage, getUsageTelemetryChatOptions } from "./capabilities/usage-telemetry.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "./chat-trigger.ts"
 import { uiMessagesToAgentMessages } from "./chat-message-input.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
@@ -27,13 +26,11 @@ import type {
   AgentRuntimeName,
   AgentWaitUntil,
   AgentWebhookRegistrationDefinition,
-  AgentUsageRecord,
   MaybeResolvable,
 } from "./types.ts"
 import type { AccessChatIdentity } from "./capabilities/access.ts"
-import type { UsageTelemetryChatCallbackContext, UsageTelemetryChatMessage } from "./capabilities/usage-telemetry.ts"
 import type { AudioData, MessagePart } from "./messages.ts"
-import type { Adapter, Attachment, ChatConfig, Lock, Message as ChatSdkMessage, MessageContext, QueueEntry, StateAdapter, Thread, WebhookOptions } from "chat"
+import type { Adapter, Attachment, ChatConfig, Lock, Message as ChatSdkMessage, MessageContext, QueueEntry, SentMessage, StateAdapter, Thread, WebhookOptions } from "chat"
 
 interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
@@ -68,6 +65,11 @@ type AgentDefinitionWithCapabilities = {
 }
 
 const defaultChatErrorFallbackText = "Sorry, I couldn't process that message."
+const chatFinishMessagesKey = Symbol("vitehub.chat.finish.messages")
+
+type AgentChatQueuedFinishExtension = AgentChatFinishExtension & {
+  [chatFinishMessagesKey]: AgentChatMessage[]
+}
 
 async function readJsonBody(request: Request): Promise<AgentChatRouteBody> {
   const body = await request.json().catch(() => undefined)
@@ -250,48 +252,35 @@ function fallbackWebhookFromRequest(request: Request): string | undefined {
   return new URL(request.url).pathname.split("/").filter(Boolean).at(-1) || undefined
 }
 
-interface CollectedAgentOutput {
-  text: string
-  usageRecord?: AgentUsageRecord
-}
-
-async function collectAgentOutput(result: unknown): Promise<CollectedAgentOutput> {
+async function collectAgentOutput(result: unknown): Promise<string> {
   if (result instanceof Response) {
     if (result.headers.get("content-type")?.includes("application/json")) {
       const body = await result.clone().json().catch(() => undefined)
       if (isRecord(body) && typeof body.text === "string") {
-        return {
-          text: body.text,
-          ...(isRecord(body.usageRecord) ? { usageRecord: body.usageRecord as AgentUsageRecord } : {}),
-        }
+        return body.text
       }
     }
-    return { text: await result.text() }
+    return await result.text()
   }
 
   let text = ""
-  let usageRecord: AgentUsageRecord | undefined
   for await (const event of streamAgentOutputToEvents(result)) {
     if (event.type === "text-delta") {
       text += event.text
-    }
-    if (event.type === "usage") {
-      usageRecord = event.usageRecord
     }
     if (event.type === "error") {
       throw new Error(event.error)
     }
   }
-  return {
-    ...(usageRecord ? { usageRecord } : {}),
-    text: text.trim(),
-  }
+  return text.trim()
 }
 
-function streamAgentOutputToChatText(
-  result: Promise<unknown>,
-  onUsageRecord: (usageRecord: AgentUsageRecord) => void,
-): AsyncIterable<string> {
+type ChatTextStream = AsyncIterable<string> & {
+  getText: () => string
+}
+
+function streamAgentOutputToChatText(result: Promise<unknown>): ChatTextStream {
+  let collected = ""
   return {
     async *[Symbol.asyncIterator]() {
       const output = await result
@@ -299,27 +288,42 @@ function streamAgentOutputToChatText(
         if (output.headers.get("content-type")?.includes("application/json")) {
           const body = await output.clone().json().catch(() => undefined)
           if (isRecord(body)) {
-            if (isRecord(body.usageRecord)) onUsageRecord(body.usageRecord as AgentUsageRecord)
-            if (typeof body.text === "string") yield body.text
+            if (typeof body.text === "string") {
+              collected += body.text
+              yield body.text
+            }
             return
           }
         }
-        yield await output.text()
+        const bodyText = await output.text()
+        collected += bodyText
+        yield bodyText
         return
       }
 
       for await (const event of streamAgentOutputToEvents(output)) {
         if (event.type === "text-delta") {
+          collected += event.text
           yield event.text
-        }
-        if (event.type === "usage") {
-          onUsageRecord(event.usageRecord)
         }
         if (event.type === "error") {
           throw new Error(event.error)
         }
       }
     },
+    getText: () => collected,
+  }
+}
+
+async function commitStreamedChatResponse(
+  thread: Thread,
+  message: SentMessage,
+  response: ChatTextStream,
+): Promise<void> {
+  if (!thread.adapter.stream) return
+  const markdown = response.getText()
+  if (markdown.trim()) {
+    await message.edit({ markdown })
   }
 }
 
@@ -740,14 +744,25 @@ async function postChatErrorFallback(
 function createChatFinishExtension(
   input: AgentChatMessageTriggerInput,
   registration: AgentWebhookRegistrationDefinition,
-  thread: Thread,
-): AgentChatFinishExtension {
+): AgentChatQueuedFinishExtension {
+  const messages: AgentChatMessage[] = []
   return {
+    [chatFinishMessagesKey]: messages,
     provider: registration.provider,
     ...(input.run ? { run: input.run } : {}),
     sendMessage: async (message) => {
-      await postChatMessage(thread, message)
+      messages.push(message)
     },
+  }
+}
+
+async function flushChatFinishExtensionMessages(
+  thread: Thread,
+  chat: AgentChatQueuedFinishExtension,
+): Promise<void> {
+  const messages = chat[chatFinishMessagesKey].splice(0)
+  for (const message of messages) {
+    await postChatMessage(thread, message)
   }
 }
 
@@ -787,35 +802,6 @@ async function isChatMessageAuthorized(
   return true
 }
 
-async function postUsageTelemetry(
-  agent: AgentInput<ViteAgentRouteRuntimeContext>,
-  durationMs: number,
-  input: AgentChatMessageTriggerInput,
-  registration: AgentWebhookRegistrationDefinition,
-  thread: Thread,
-  usageRecord: AgentUsageRecord | undefined,
-): Promise<void> {
-  if (!usageRecord) return
-  for (const options of getUsageTelemetryChatOptions(getAgentCapabilities(agent))) {
-    const context: UsageTelemetryChatCallbackContext = {
-      durationMs,
-      provider: registration.provider,
-      ...(input.run ? { run: input.run } : {}),
-      sendMessage: async (message: UsageTelemetryChatMessage) => {
-        await postChatMessage(thread, message)
-      },
-    }
-    if (options.onUsage) {
-      await options.onUsage(usageRecord, context)
-      continue
-    }
-    const markdown = options.format
-      ? await options.format(usageRecord, context)
-      : formatUsageTelemetryChatMessage(usageRecord, context)
-    if (markdown) await thread.post({ markdown })
-  }
-}
-
 async function handleChatSdkMessage(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   context: ViteAgentRouteRuntimeContext,
@@ -833,7 +819,6 @@ async function handleChatSdkMessage(
     if (!firstMessage || !Array.isArray(firstMessage.parts) || firstMessage.parts.length === 0) return
     if (!await isChatMessageAuthorized(agent, context, registration, thread, message, messageContext)) return
 
-    const startedAt = Date.now()
     if (options?.stream !== false) {
       context.waitUntil(thread.startTyping().catch(() => undefined))
     }
@@ -843,28 +828,25 @@ async function handleChatSdkMessage(
       ...context,
       ...(invocation.run ? { run: invocation.run } : {}),
     }
-    const invocationInput = withChatFinishExtension(
-      invocation.input as AgentRunInput,
-      createChatFinishExtension(input, registration, thread),
-    )
-    let usageRecord: AgentUsageRecord | undefined
+    const chatFinish = createChatFinishExtension(input, registration)
+    const invocationInput = withChatFinishExtension(invocation.input as AgentRunInput, chatFinish)
     if (options?.stream === false) {
       const result = await runAgentInline(agent as never, runContext as never, invocationInput as never)
-      const collected = await collectAgentOutput(result)
-      usageRecord = collected.usageRecord
-      if (collected.text) {
-        await thread.post({ markdown: collected.text })
+      const text = await collectAgentOutput(result)
+      if (text) {
+        await thread.post({ markdown: text })
       }
+      await flushChatFinishExtensionMessages(thread, chatFinish)
     }
     else {
       const result = streamAgent(agent as never, runContext as never, invocationInput as never, {
         output: "events",
       })
-      await thread.post(streamAgentOutputToChatText(result, record => {
-        usageRecord = record
-      }))
+      const response = streamAgentOutputToChatText(result)
+      const message = await thread.post(response)
+      await commitStreamedChatResponse(thread, message, response)
+      await flushChatFinishExtensionMessages(thread, chatFinish)
     }
-    await postUsageTelemetry(agent, Date.now() - startedAt, input, registration, thread, usageRecord)
   }
   catch (error) {
     await postChatErrorFallback(error, thread, message, options, input, run)
