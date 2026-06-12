@@ -4,10 +4,12 @@ import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deploym
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
+import { readProvisionedId, readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { resolve } from "pathe"
 
 import { resolveConfigValue } from "../config-value.ts"
 
+import type { ProvisionState } from "@vite-hub/internal/provision"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
@@ -166,14 +168,23 @@ async function writeProviderEntries(rootDir: string, runtimeConfig: ResolvedDBVi
   }
 }
 
-function createCloudflareD1Bindings(runtimeConfig: ResolvedDBViteConfig) {
+// Explicit env-resolved id wins; otherwise fall back to a provisioned id from Provision State.
+function resolveDatabaseId(runtimeConfig: ResolvedDBViteConfig, name: string, provisionState: ProvisionState): string | undefined {
+  return resolveConfigValue(runtimeConfig.databases[name]?.cloudflare?.databaseId)
+    ?? readProvisionedId(provisionState, "cloudflare", "d1", name)
+}
+
+function createCloudflareD1Bindings(runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
   return runtimeConfig.databaseNames
-    .map(name => runtimeConfig.databases[name]?.cloudflare)
-    .filter((database): database is NonNullable<ResolvedDBViteConfig["databases"][string]["cloudflare"]> => Boolean(resolveConfigValue(database?.databaseId)))
-    .map(database => ({
+    .flatMap((name) => {
+      const database = runtimeConfig.databases[name]?.cloudflare
+      const databaseId = resolveDatabaseId(runtimeConfig, name, provisionState)
+      return database && databaseId ? [{ database, databaseId }] : []
+    })
+    .map(({ database, databaseId }) => ({
       binding: database.binding,
       database_name: resolveConfigValue(database.databaseName)!,
-      database_id: resolveConfigValue(database.databaseId)!,
+      database_id: databaseId,
       ...(database.migrationsDir ? { migrations_dir: database.migrationsDir } : {}),
       ...(database.migrationsTable ? { migrations_table: database.migrationsTable } : {}),
       ...(resolveConfigValue(database.previewDatabaseId) ? { preview_database_id: resolveConfigValue(database.previewDatabaseId) } : {}),
@@ -184,18 +195,18 @@ function isRemoteLibsqlConnectionUrl(url: string | undefined) {
   return typeof url === "string" && /^(?:libsql:|https?:\/\/)/i.test(url)
 }
 
-function getCloudflareUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
+function getCloudflareUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
   return runtimeConfig.databaseNames.filter((name) => {
     const database = runtimeConfig.databases[name]
-    const hasD1Binding = Boolean(resolveConfigValue(database?.cloudflare?.databaseId))
+    const hasD1Binding = Boolean(resolveDatabaseId(runtimeConfig, name, provisionState))
     return !hasD1Binding && !isRemoteLibsqlConnectionUrl(resolveConfigValue(database?.connection?.url))
   })
 }
 
-function getCloudflareDatabasesMissingNames(runtimeConfig: ResolvedDBViteConfig) {
+function getCloudflareDatabasesMissingNames(runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
   return runtimeConfig.databaseNames.filter((name) => {
     const cloudflare = runtimeConfig.databases[name]?.cloudflare
-    return Boolean(resolveConfigValue(cloudflare?.databaseId)) && !resolveConfigValue(cloudflare?.databaseName)
+    return Boolean(resolveDatabaseId(runtimeConfig, name, provisionState)) && !resolveConfigValue(cloudflare?.databaseName)
   })
 }
 
@@ -209,22 +220,23 @@ function getVercelUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
 interface ProviderWriteOptions {
   artifacts: GeneratedDBArtifacts
   clientOutDir: string
+  provisionState: ProvisionState
   rootDir: string
   runtimeConfig: ResolvedDBViteConfig
 }
 
-function createCloudflareOutput({ artifacts, runtimeConfig }: ProviderWriteOptions): CloudflareProviderDeploymentOutput {
-  const databasesMissingNames = getCloudflareDatabasesMissingNames(runtimeConfig)
+function createCloudflareOutput({ artifacts, provisionState, runtimeConfig }: ProviderWriteOptions): CloudflareProviderDeploymentOutput {
+  const databasesMissingNames = getCloudflareDatabasesMissingNames(runtimeConfig, provisionState)
   if (databasesMissingNames.length) {
     throw new Error(`[vitehub] Cloudflare output requires \`db.cloudflare.databaseName\` when \`db.cloudflare.databaseId\` is set for databases: ${databasesMissingNames.join(", ")}.`)
   }
 
-  const unsupportedDatabases = getCloudflareUnsupportedDatabases(runtimeConfig)
+  const unsupportedDatabases = getCloudflareUnsupportedDatabases(runtimeConfig, provisionState)
   if (unsupportedDatabases.length) {
     throw new Error(`[vitehub] Cloudflare output requires \`db.cloudflare.databaseId\` or a remote libSQL \`db.connection.url\` for databases: ${unsupportedDatabases.join(", ")}.`)
   }
 
-  const d1Databases = createCloudflareD1Bindings(runtimeConfig)
+  const d1Databases = createCloudflareD1Bindings(runtimeConfig, provisionState)
 
   const wranglerConfig: CloudflareDBConfig = {
     compatibility_date: defaultCloudflareCompatibilityDate,
@@ -268,16 +280,17 @@ function shouldCreateVercelOutput(runtimeConfig: ResolvedDBViteConfig) {
   return getVercelUnsupportedDatabases(runtimeConfig).length === 0
 }
 
-function shouldCreateCloudflareOutput(runtimeConfig: ResolvedDBViteConfig) {
-  return getCloudflareUnsupportedDatabases(runtimeConfig).length === 0
+function shouldCreateCloudflareOutput(runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
+  return getCloudflareUnsupportedDatabases(runtimeConfig, provisionState).length === 0
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedDBArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.runtimeConfig)
-  const writeOptions: ProviderWriteOptions = { artifacts, ...options }
+  const provisionState = readProvisionStateSync(options.rootDir)
+  const writeOptions: ProviderWriteOptions = { artifacts, provisionState, ...options }
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
-    cloudflare: shouldCreateCloudflareOutput(options.runtimeConfig) ? createCloudflareOutput(writeOptions) : undefined,
+    cloudflare: shouldCreateCloudflareOutput(options.runtimeConfig, provisionState) ? createCloudflareOutput(writeOptions) : undefined,
     cleanup: {
       cloudflare: { wranglerConfigKeys: ["d1_databases"] },
     },

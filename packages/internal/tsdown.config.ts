@@ -11,6 +11,8 @@ export default defineConfig({
     "src/env.ts",
     "src/http-request.ts",
     "src/object.ts",
+    "src/provision.ts",
+    "src/provision-state.ts",
     "src/source-scanner.ts",
     "src/workspace-inventory.ts",
     "src/build/client-output.ts",

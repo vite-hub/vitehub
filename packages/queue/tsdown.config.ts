@@ -13,6 +13,7 @@ export default defineConfig({
   dts: true,
   entry: [
     "src/index.ts",
+    "src/provision.ts",
     "src/vite.ts",
     "src/runtime/cloudflare-vite.ts",
     "src/runtime/hosted.ts",

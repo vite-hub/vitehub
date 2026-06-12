@@ -141,7 +141,7 @@ describe("hubDb", () => {
     await expect(resolveCliContributor(plugin)).resolves.toBeUndefined()
   })
 
-  it("does not contribute the DB CLI namespace when resolved config disables database CLI", async () => {
+  it("contributes provisioning but no CLI namespaces when resolved config disables database CLI", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts")
 
@@ -149,7 +149,9 @@ describe("hubDb", () => {
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
     await configResolved({ db: { cli: false }, root: rootDir } as never)
 
-    await expect(resolveCliContributor(plugin)).resolves.toBeUndefined()
+    const contributor = await resolveCliContributor(plugin)
+    expect(contributor?.namespaces).toEqual([])
+    expect(contributor?.provision?.map(step => step.id)).toEqual(["database:cloudflare-d1"])
   })
 
   it("exposes default schema and database registry through stable ViteHub import paths", async () => {
