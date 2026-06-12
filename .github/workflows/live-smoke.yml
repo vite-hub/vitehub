@@ -17,9 +17,6 @@ jobs:
     name: setup
     runs-on: ubuntu-latest
     environment: Production
-    outputs:
-      d1_analytics_database_id: ${{ steps.ensure_cloudflare.outputs.d1_analytics_database_id }}
-      d1_database_id: ${{ steps.ensure_cloudflare.outputs.d1_database_id }}
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
@@ -35,56 +32,6 @@ jobs:
             packages/*/dist
           retention-days: 1
           if-no-files-found: error
-
-      - name: Ensure Cloudflare Resources
-        id: ensure_cloudflare
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
-        run: |
-          QUEUES="queue--77656c636f6d65 queue--77656c636f6d652d656d61696c"
-          export QUEUES
-
-          for queue in $QUEUES; do
-            if ! npx wrangler queues list | grep -q "$queue"; then
-              npx wrangler queues create "$queue"
-            fi
-          done
-
-          if [ -n "$CLOUDFLARE_R2_BUCKET_NAME" ] && ! npx wrangler r2 bucket list | grep -q "$CLOUDFLARE_R2_BUCKET_NAME"; then
-            npx wrangler r2 bucket create "$CLOUDFLARE_R2_BUCKET_NAME"
-          fi
-
-          d1_id_for_name() {
-            npx wrangler d1 list --json | node -e '
-              const fs = require("node:fs")
-              const name = process.argv[1]
-              const databases = JSON.parse(fs.readFileSync(0, "utf8"))
-              const match = databases.find((database) => database.name === name)
-              process.stdout.write(match?.uuid || match?.database_id || match?.id || "")
-            ' "$1"
-          }
-
-          ensure_d1() {
-            local name id
-            name="$1"
-            id="$(d1_id_for_name "$name")"
-            if [ -z "$id" ]; then
-              npx wrangler d1 create "$name" >&2
-              id="$(d1_id_for_name "$name")"
-            fi
-            if [ -z "$id" ]; then
-              echo "Failed to resolve Cloudflare D1 database id for $name." >&2
-              exit 1
-            fi
-            printf '%s' "$id"
-          }
-
-          primary_d1_id="$(ensure_d1 vitehub-playground-db)"
-          analytics_d1_id="$(ensure_d1 vitehub-playground-analytics)"
-          echo "d1_database_id=$primary_d1_id" >> "$GITHUB_OUTPUT"
-          echo "d1_analytics_database_id=$analytics_d1_id" >> "$GITHUB_OUTPUT"
 
   live-smoke:
     name: live smoke
@@ -204,6 +151,15 @@ jobs:
           echo "org_id=$VERCEL_ORG_ID" >> "$GITHUB_OUTPUT"
           echo "project_id=$VERCEL_PROJECT_ID" >> "$GITHUB_OUTPUT"
 
+      - name: Provision Cloudflare resources
+        if: matrix.provider == 'cloudflare'
+        env:
+          BLOB_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+        run: pnpm --dir playground/vite exec vitehub provision run --provider cloudflare
+
       - name: Build playground (cloudflare)
         if: matrix.provider == 'cloudflare'
         env:
@@ -211,8 +167,6 @@ jobs:
           KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
-          VITEHUB_D1_ANALYTICS_DATABASE_ID: ${{ needs.setup-cloudflare.outputs.d1_analytics_database_id }}
-          VITEHUB_D1_DATABASE_ID: ${{ needs.setup-cloudflare.outputs.d1_database_id }}
           VITEHUB_CLOUDFLARE_WORKER_NAME: vitehub-playground-vite
           VITEHUB_HOSTING: cloudflare
           VITEHUB_VITE_MODE: e2e
@@ -230,6 +184,14 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx wrangler --cwd playground/vite/dist/vite deploy --config wrangler.json --dry-run
+
+      - name: Provision Vercel resources
+        if: matrix.provider == 'vercel'
+        env:
+          VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
+          VERCEL_TEAM_ID: ${{ steps.prepare_vercel.outputs.org_id }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: pnpm --dir playground/vite exec vitehub provision run --provider vercel
 
       - name: Build playground (vercel)
         if: matrix.provider == 'vercel'

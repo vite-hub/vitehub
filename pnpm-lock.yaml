@@ -1225,6 +1225,10 @@ importers:
       vite:
         specifier: catalog:vite
         version: 8.0.8(@types/node@25.6.0)(@vitejs/devtools@0.2.0)(esbuild@0.28.0)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
+    devDependencies:
+      '@vite-hub/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
 
 packages:
 
