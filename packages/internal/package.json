@@ -1,12 +1,12 @@
 {
   "name": "@vite-hub/internal",
   "version": "0.0.1",
-  "description": "Private shared internals for @vite-hub/* packages. Not published.",
-  "author": "onmax <maximogarciamtnez@gmail.com>",
-  "license": "Apache-2.0",
   "private": true,
-  "sideEffects": false,
+  "description": "Private shared internals for @vite-hub/* packages. Not published.",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
   "type": "module",
+  "sideEffects": false,
   "exports": {
     "./cli": "./dist/cli.js",
     "./env": "./dist/env.js",
@@ -43,9 +43,8 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "tsdown --tsconfig tsconfig.json",
-    "prepare": "pnpm build",
-    "test": "pnpm --filter @vite-hub/runtime build && pnpm build && vitest run",
+    "build": "vp pack",
+    "test": "vp run -t @vite-hub/internal#build && vp test",
     "typecheck": "tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
@@ -59,8 +58,11 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
-    "tsdown": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
+  },
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

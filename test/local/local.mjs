@@ -42,12 +42,13 @@ function runSuite(name, command, args, env = {}) {
 }
 
 function suiteRunner(provider, url) {
+  const runTask = (name, task, args, env) => runSuite(name, "vp", ["run", task, ...args], env)
   return {
     // blob and database take no --provider flag (parseArgs strict), matching the live workflow.
-    blob: () => runSuite("blob", "pnpm", ["--dir", "packages/blob", "test:e2e", "--mode", "local", "--url", url]),
-    database: () => runSuite("database", "pnpm", ["--dir", "packages/database", "test:e2e", "--url", url]),
-    pkg: (name, extra = []) => runSuite(name, "pnpm", ["--dir", `packages/${name}`, "test:e2e", "--mode", "local", "--provider", provider, "--url", url, ...extra]),
-    script: (name, extra = []) => runSuite(name, "node", [`packages/${name}/test/e2e-live.mjs`, "--mode", "local", "--provider", provider, "--url", url, ...extra]),
+    blob: () => runTask("blob", "blob:e2e", ["--mode", "local", "--url", url]),
+    database: () => runTask("database", "database:e2e", ["--url", url]),
+    pkg: (name, extra = []) => runTask(name, `${name}:e2e`, ["--mode", "local", "--provider", provider, "--url", url, ...extra]),
+    script: (name, extra = []) => runTask(name, `${name}:e2e`, ["--mode", "local", "--provider", provider, "--url", url, ...extra]),
   }
 }
 
@@ -58,7 +59,7 @@ async function runCloudflare() {
   }
   const url = `http://127.0.0.1:${CLOUDFLARE_PORT}`
   log(`starting wrangler dev on ${url}`)
-  const dev = spawn("npx", ["wrangler", "dev", "--config", "wrangler.json", "--port", String(CLOUDFLARE_PORT), "--test-scheduled"], {
+  const dev = spawn("vp", ["dlx", "wrangler", "dev", "--config", "wrangler.json", "--port", String(CLOUDFLARE_PORT), "--test-scheduled"], {
     cwd: distDir,
     env: { ...process.env, CI: "1", WRANGLER_SEND_METRICS: "false" },
     stdio: ["ignore", "inherit", "inherit"],

@@ -16,7 +16,6 @@ concurrency:
 
 env:
   NODE_VERSION: 24
-  PNPM_VERSION: 10.33.0
 
 jobs:
   release:
@@ -27,15 +26,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: pnpm/action-setup@v5
+      - uses: voidzero-dev/setup-vp@v1
         with:
-          version: ${{ env.PNPM_VERSION }}
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          registry-url: "https://registry.npmjs.org"
-          package-manager-cache: false
+          node-version: "24"
+          cache: true
 
       - name: Validate npm trusted publishing support
         run: |
@@ -50,11 +44,11 @@ jobs:
             }
           '
 
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
+      - run: vp install --frozen-lockfile
+      - run: vp run lint
+      - run: vp run typecheck
+      - run: vp run test
+      - run: vp run build
 
       - name: Resolve release metadata
         id: release
@@ -112,7 +106,7 @@ jobs:
 
             (
               cd "$package_dir"
-              pnpm publish --dry-run --access public --tag "$NPM_TAG" --no-git-checks
+              vp pm publish --dry-run --access public --tag "$NPM_TAG" --no-git-checks
             )
           done
 
@@ -140,7 +134,7 @@ jobs:
 
             (
               cd "$package_dir"
-              pnpm publish --access public --tag "$NPM_TAG" --no-git-checks
+              vp pm publish --access public --tag "$NPM_TAG" --no-git-checks
             )
           done
 

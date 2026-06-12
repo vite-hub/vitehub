@@ -2,24 +2,28 @@
   "name": "@vite-hub/source",
   "version": "0.0.1",
   "description": "Typed source retrieval primitives for ViteHub.",
-  "author": "onmax <maximogarciamtnez@gmail.com>",
-  "license": "Apache-2.0",
+  "keywords": [
+    "content",
+    "files",
+    "github",
+    "source",
+    "vitehub"
+  ],
   "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vite-hub/vitehub.git",
     "directory": "packages/source"
   },
-  "bugs": "https://github.com/vite-hub/vitehub/issues",
-  "keywords": [
-    "vitehub",
-    "source",
-    "content",
-    "github",
-    "files"
+  "files": [
+    "dist",
+    "package.json"
   ],
-  "sideEffects": false,
   "type": "module",
+  "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
@@ -32,15 +36,11 @@
     "./sources/mcp-resources": "./dist/sources/mcp-resources.js",
     "./package.json": "./package.json"
   },
-  "files": [
-    "dist",
-    "package.json"
-  ],
   "scripts": {
-    "build": "tsdown --tsconfig tsconfig.build.json",
-    "dev": "tsdown --watch",
+    "build": "vp pack",
+    "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vite-hub/source build && vitest run"
+    "test": "vp run -t @vite-hub/source#build && vp test"
   },
   "dependencies": {
     "mrmime": "catalog:workspace",
@@ -48,6 +48,15 @@
     "pathe": "catalog:unjs",
     "picomatch": "catalog:workspace",
     "tinyglobby": "catalog:workspace"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "catalog:ai",
+    "@types/node": "catalog:tooling",
+    "@types/picomatch": "catalog:tooling",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": "catalog:ai"
@@ -57,13 +66,7 @@
       "optional": true
     }
   },
-  "devDependencies": {
-    "@modelcontextprotocol/sdk": "catalog:ai",
-    "@types/node": "catalog:tooling",
-    "@types/picomatch": "catalog:tooling",
-    "publint": "catalog:tooling",
-    "tsdown": "catalog:tooling",
-    "typescript": "catalog:tooling",
-    "vitest": "catalog:tooling"
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

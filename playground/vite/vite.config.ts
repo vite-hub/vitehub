@@ -80,14 +80,14 @@ export default defineConfig(async () => {
 
   if (buildMode === VITEHUB_MODES.e2e) {
     const [{ hubBlob }, { hubDb }, { hubKv }, { hubQueue }, { hubSchedule }, { hubSandbox }, { hubWorkspace }, { hubWorkflow }] = await Promise.all([
-      import("@vite-hub/blob/vite"),
-      import("@vite-hub/database/vite"),
-      import("@vite-hub/kv/vite"),
-      import("@vite-hub/queue/vite"),
-      import("@vite-hub/schedule/vite"),
-      import("@vite-hub/sandbox/vite"),
-      import("@vite-hub/workspace/vite"),
-      import("@vite-hub/workflow/vite"),
+      import("../../packages/blob/src/vite.ts"),
+      import("../../packages/database/src/vite.ts"),
+      import("../../packages/kv/src/vite.ts"),
+      import("../../packages/queue/src/vite.ts"),
+      import("../../packages/schedule/src/vite.ts"),
+      import("../../packages/sandbox/src/vite.ts"),
+      import("../../packages/workspace/src/vite.ts"),
+      import("../../packages/workflow/src/vite.ts"),
     ])
     const { createViteE2EComposer, resolveViteE2EOptions } = await import("./build/vite-e2e")
     const composerOptions = resolveViteE2EOptions(import.meta.dirname, hosting)
@@ -137,7 +137,7 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.blob) {
-    const { hubBlob } = await import("@vite-hub/blob/vite")
+    const { hubBlob } = await import("../../packages/blob/src/vite.ts")
     return {
       ...baseConfig,
       blob: {},
@@ -147,8 +147,8 @@ export default defineConfig(async () => {
 
   if (buildMode === VITEHUB_MODES.chat) {
     const { DevTools } = await import("@vitejs/devtools")
-    const { hubAgent } = await import("@vite-hub/agent/vite")
-    const { hubDevtools } = await import("@vite-hub/devtools")
+    const { hubAgent } = await import("../../packages/agent/src/vite.ts")
+    const { hubDevtools } = await import("../../packages/devtools/src/index.ts")
     return {
       ...baseConfig,
       agent: {},
@@ -157,7 +157,7 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.env) {
-    const { env, hubEnv } = await import("@vite-hub/env/vite")
+    const { env, hubEnv } = await import("../../packages/env/src/vite.ts")
     return {
       ...baseConfig,
       env: {
@@ -173,7 +173,7 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.workflow) {
-    const { hubWorkflow } = await import("@vite-hub/workflow/vite")
+    const { hubWorkflow } = await import("../../packages/workflow/src/vite.ts")
     return {
       ...baseConfig,
       plugins: [hubWorkflow()],
@@ -183,8 +183,8 @@ export default defineConfig(async () => {
 
   if (buildMode === VITEHUB_MODES.schedule) {
     const [{ hubKv }, { hubSchedule }] = await Promise.all([
-      import("@vite-hub/kv/vite"),
-      import("@vite-hub/schedule/vite"),
+      import("../../packages/kv/src/vite.ts"),
+      import("../../packages/schedule/src/vite.ts"),
     ])
     return {
       ...baseConfig,
@@ -198,7 +198,7 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.workspace) {
-    const { hubWorkspace } = await import("@vite-hub/workspace/vite")
+    const { hubWorkspace } = await import("../../packages/workspace/src/vite.ts")
     return {
       ...baseConfig,
       plugins: [hubWorkspace()],
@@ -207,7 +207,7 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.db) {
-    const { hubDb } = await import("@vite-hub/database/vite")
+    const { hubDb } = await import("../../packages/database/src/vite.ts")
     return {
       ...baseConfig,
       plugins: [hubDb()],
@@ -215,8 +215,8 @@ export default defineConfig(async () => {
   }
 
   const [{ hubKv }, { hubQueue }] = await Promise.all([
-    import("@vite-hub/kv/vite"),
-    import("@vite-hub/queue/vite"),
+    import("../../packages/kv/src/vite.ts"),
+    import("../../packages/queue/src/vite.ts"),
   ])
 
   return {

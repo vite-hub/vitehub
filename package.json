@@ -1,35 +1,50 @@
 {
   "name": "vitehub-workspace",
-  "private": true,
   "version": "0.0.1",
+  "private": true,
   "description": "ViteHub monorepo workspace.",
   "license": "Apache-2.0",
   "type": "module",
-  "packageManager": "pnpm@10.33.0",
-  "engines": {
-    "node": "^20.19.0 || >=22.12.0"
-  },
-  "scripts": {
-    "fallow:dead-code": "pnpm exec fallow dead-code --summary --format markdown --fail-on-issues",
-    "lint": "pnpm exec oxlint . --ignore-path .gitignore",
-    "typecheck": "pnpm --dir docs typecheck && pnpm -r --filter './packages/*' --if-present run typecheck",
-    "test:contracts": "vitest run",
-    "test:output": "vitest run --config test/output/vitest.config.ts",
-    "e2e:local": "node test/local/local.mjs",
-    "test": "pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run test",
-    "build": "pnpm -r --workspace-concurrency=1 --filter './packages/*' --if-present run build",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test:contracts && pnpm test && pnpm build",
-    "release": "pnpm dlx bumpp@11.1.0 package.json packages/*/package.json --commit \"chore(release): v%s\" --tag \"v%s\" --push --no-push-all --git-check",
-    "playground:vite:build": "pnpm --dir playground/vite build",
-    "playground:vite:build:cloudflare": "pnpm build && pnpm playground:vite:build --mode chat",
-    "docs:dev": "pnpm --dir docs dev",
-    "docs:build": "pnpm --dir docs build"
-  },
   "devDependencies": {
+    "@cloudflare/sandbox": "catalog:sandbox",
     "@types/node": "catalog:tooling",
+    "@vercel/blob": "catalog:storage",
+    "@vercel/queue": "catalog:vercel",
+    "@vercel/sandbox": "catalog:sandbox",
+    "@vite-hub/agent": "workspace:*",
+    "@vite-hub/blob": "workspace:*",
+    "@vite-hub/database": "workspace:*",
+    "@vite-hub/devtools": "workspace:*",
+    "@vite-hub/env": "workspace:*",
+    "@vite-hub/internal": "workspace:*",
+    "@vite-hub/kv": "workspace:*",
+    "@vite-hub/queue": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*",
+    "@vite-hub/schedule": "workspace:*",
+    "@vite-hub/workflow": "workspace:*",
+    "@vite-hub/workspace": "workspace:*",
+    "@vitejs/devtools": "catalog:vite",
+    "chat": "catalog:chat",
+    "chat-state-cloudflare-do": "catalog:chat",
+    "drizzle-orm": "catalog:database",
     "fallow": "catalog:tooling",
+    "h3": "catalog:unjs",
     "oxlint": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "valibot": "catalog:runtime",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
-  }
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "24.x",
+      "onFail": "error"
+    }
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "packageManager": "pnpm@10.33.0"
 }

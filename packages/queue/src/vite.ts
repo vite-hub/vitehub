@@ -3,6 +3,7 @@ import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment
 import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 
 import { generateProviderOutputs, queuePackageName } from "./internal/vite-build.ts"
+import { createQueueProvisionStep } from "./provision.ts"
 
 import type { QueueModuleOptions } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
@@ -26,7 +27,6 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
     name: "@vite-hub/queue/vite",
     vitehub: {
       cli: async () => {
-        const { createQueueProvisionStep } = await import(/* @vite-ignore */ "./provision.js")
         return { namespaces: [], provision: [createQueueProvisionStep(() => resolved?.root ?? process.cwd())] }
       },
     },

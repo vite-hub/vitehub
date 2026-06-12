@@ -23,6 +23,8 @@ ViteHub uses feature packages. Install the package that owns the primitive or ag
 
 ## Prerequisites
 
+- Node 24.
+- Vite 8 or newer.
 - A server app with a `vite.config.ts` file.
 - A package manager such as `pnpm`, `npm`, `yarn`, or `bun`.
 - A local `.env` file or deployment environment variable system for host credentials.
@@ -38,12 +40,12 @@ pnpm add @vite-hub/kv
 Register the integration in `vite.config.ts`.
 
 ```ts [vite.config.ts]
-import { hubKv } from '@vite-hub/kv/vite'
-import { defineConfig } from 'vite'
+import { hubKv } from "@vite-hub/kv/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [hubKv()],
-})
+});
 ```
 
 Add more primitives only when your app needs them.
@@ -55,16 +57,16 @@ pnpm add @vite-hub/env @vite-hub/database @vite-hub/blob @vite-hub/queue @vite-h
 Each package exports its own Vite Integration.
 
 ```ts [vite.config.ts]
-import { hubBlob } from '@vite-hub/blob/vite'
-import { hubDb } from '@vite-hub/database/vite'
-import { hubEnv } from '@vite-hub/env/vite'
-import { hubKv } from '@vite-hub/kv/vite'
-import { hubQueue } from '@vite-hub/queue/vite'
-import { hubSandbox } from '@vite-hub/sandbox/vite'
-import { hubSchedule } from '@vite-hub/schedule/vite'
-import { hubWorkflow } from '@vite-hub/workflow/vite'
-import { hubWorkspace } from '@vite-hub/workspace/vite'
-import { defineConfig } from 'vite'
+import { hubBlob } from "@vite-hub/blob/vite";
+import { hubDb } from "@vite-hub/database/vite";
+import { hubEnv } from "@vite-hub/env/vite";
+import { hubKv } from "@vite-hub/kv/vite";
+import { hubQueue } from "@vite-hub/queue/vite";
+import { hubSandbox } from "@vite-hub/sandbox/vite";
+import { hubSchedule } from "@vite-hub/schedule/vite";
+import { hubWorkflow } from "@vite-hub/workflow/vite";
+import { hubWorkspace } from "@vite-hub/workspace/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [
@@ -78,7 +80,7 @@ export default defineConfig({
     hubSandbox(),
     hubWorkspace(),
   ],
-})
+});
 ```
 
 ::tip
@@ -96,12 +98,12 @@ pnpm add @vite-hub/agent @ai-sdk/gateway
 Register the Agent integration.
 
 ```ts [vite.config.ts]
-import { hubAgent } from '@vite-hub/agent/vite'
-import { defineConfig } from 'vite'
+import { hubAgent } from "@vite-hub/agent/vite";
+import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [hubAgent()],
-})
+});
 ```
 
 Agents can use server primitives through capabilities, but the agent package does not automatically expose every primitive to a model. Attach capabilities explicitly in the Agent Definition.

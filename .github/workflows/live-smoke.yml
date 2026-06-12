@@ -22,7 +22,7 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: Build vitehub packages
-        run: pnpm -r --filter './packages/*' --if-present build
+        run: vp run build
 
       - name: Upload package builds
         uses: actions/upload-artifact@v6
@@ -85,7 +85,7 @@ jobs:
           APP_DIR="playground/vite"
           PROJECT_NAME="vitehub-playground-vite"
 
-          npx --yes "vercel@$VERCEL_CLI_VERSION" link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
+          vp dlx "vercel@$VERCEL_CLI_VERSION" link --yes --cwd "$APP_DIR" --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
 
           readarray -t VERCEL_CONFIG < <(node -e 'const { readFileSync } = require("node:fs"); const { join } = require("node:path"); const config = JSON.parse(readFileSync(join(process.argv[1], ".vercel", "project.json"), "utf8")); console.log(config.orgId); console.log(config.projectId);' "$APP_DIR")
           VERCEL_ORG_ID="${VERCEL_CONFIG[0]}"
@@ -99,7 +99,7 @@ jobs:
           PULLED_ENV_FILE="$(mktemp)"
           trap 'rm -f "$PULLED_ENV_FILE"' EXIT
           VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" \
-            npx --yes "vercel@$VERCEL_CLI_VERSION" env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
+            vp dlx "vercel@$VERCEL_CLI_VERSION" env pull "$PULLED_ENV_FILE" --environment=production --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
 
           declare -A REQUIRED_ENV_KEYS=(
             [blob_token]=BLOB_READ_WRITE_TOKEN
@@ -115,7 +115,7 @@ jobs:
             fallback_value="${!env_name:-}"
             if [ -z "$value" ] && [ -n "$fallback_value" ]; then
               echo "::add-mask::$fallback_value"
-              npx --yes "vercel@$VERCEL_CLI_VERSION" env add "$env_name" production --value "$fallback_value" --force --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
+              vp dlx "vercel@$VERCEL_CLI_VERSION" env add "$env_name" production --value "$fallback_value" --force --yes --cwd "$APP_DIR" --token "$VERCEL_TOKEN" >/dev/null
               value="$fallback_value"
             fi
 
@@ -158,7 +158,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
-        run: pnpm --dir playground/vite exec vitehub provision run --provider cloudflare
+        run: vp run playground:vite:provision --provider cloudflare
 
       - name: Build playground (cloudflare)
         if: matrix.provider == 'cloudflare'
@@ -170,20 +170,18 @@ jobs:
           VITEHUB_CLOUDFLARE_WORKER_NAME: vitehub-playground-vite
           VITEHUB_HOSTING: cloudflare
           VITEHUB_VITE_MODE: e2e
-        run: pnpm --dir playground/vite build
+        run: vp run playground:vite:build
 
       - name: Provider Output Contract (cloudflare)
         if: matrix.provider == 'cloudflare'
-        env:
-          VITEHUB_OUTPUT_PROVIDER: cloudflare
-        run: pnpm test:output
+        run: vp run test:output:cloudflare
 
       - name: Dry-run Cloudflare deploy
         if: matrix.provider == 'cloudflare'
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: npx wrangler --cwd playground/vite/dist/vite deploy --config wrangler.json --dry-run
+        run: vp dlx wrangler --cwd playground/vite/dist/vite deploy --config wrangler.json --dry-run
 
       - name: Provision Vercel resources
         if: matrix.provider == 'vercel'
@@ -191,7 +189,7 @@ jobs:
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
           VERCEL_TEAM_ID: ${{ steps.prepare_vercel.outputs.org_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        run: pnpm --dir playground/vite exec vitehub provision run --provider vercel
+        run: vp run playground:vite:provision --provider vercel
 
       - name: Build playground (vercel)
         if: matrix.provider == 'vercel'
@@ -207,13 +205,11 @@ jobs:
           VITEHUB_HOSTING: vercel
           VITEHUB_VITE_MODE: e2e
           VITEHUB_WORKSPACE_BLOB_PREFIX: vitehub/workspace-e2e/vite
-        run: pnpm --dir playground/vite build
+        run: vp run playground:vite:build
 
       - name: Provider Output Contract (vercel)
         if: matrix.provider == 'vercel'
-        env:
-          VITEHUB_OUTPUT_PROVIDER: vercel
-        run: pnpm test:output
+        run: vp run test:output:vercel
 
       - name: Relax Vercel cron cadence for live deploy
         if: matrix.provider == 'vercel'
@@ -240,7 +236,7 @@ jobs:
           WORKER_NAME="vitehub-playground-vite"
           DEPLOY_DIR="playground/vite/dist/vite"
 
-          npx wrangler --cwd "$DEPLOY_DIR" deploy --config wrangler.json --name "$WORKER_NAME"
+          vp dlx wrangler --cwd "$DEPLOY_DIR" deploy --config wrangler.json --name "$WORKER_NAME"
           echo "url=https://${WORKER_NAME}.${CLOUDFLARE_WORKERS_SUBDOMAIN}.workers.dev" >> "$GITHUB_OUTPUT"
           echo "worker=$WORKER_NAME" >> "$GITHUB_OUTPUT"
 
@@ -254,7 +250,7 @@ jobs:
         run: |
           APP_DIR="${{ steps.prepare_vercel.outputs.app_dir }}"
           set +e
-          DEPLOYMENT_OUTPUT=$(VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" npx --yes "vercel@$VERCEL_CLI_VERSION" deploy --cwd "$APP_DIR" --prebuilt --prod --yes --token "$VERCEL_TOKEN" 2>&1)
+          DEPLOYMENT_OUTPUT=$(VERCEL_ORG_ID="$VERCEL_ORG_ID" VERCEL_PROJECT_ID="$VERCEL_PROJECT_ID" vp dlx "vercel@$VERCEL_CLI_VERSION" deploy --cwd "$APP_DIR" --prebuilt --prod --yes --token "$VERCEL_TOKEN" 2>&1)
           DEPLOYMENT_STATUS=$?
           set -e
           printf '%s\n' "$DEPLOYMENT_OUTPUT"
@@ -279,33 +275,33 @@ jobs:
           fi
 
       - name: KV Live E2E (${{ matrix.provider }})
-        run: pnpm --dir packages/kv test:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
+        run: vp run kv:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
 
       - name: Queue Live E2E (${{ matrix.provider }})
         timeout-minutes: 5
-        run: node packages/queue/test/e2e-live.mjs --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
+        run: vp run queue:e2e --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
 
       - name: Schedule Live E2E (${{ matrix.provider }})
         timeout-minutes: 7
-        run: node packages/schedule/test/e2e-live.mjs --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}" --timeout 270000
+        run: vp run schedule:e2e --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}" --timeout 270000
 
       - name: Sandbox Live E2E (${{ matrix.provider }})
-        run: pnpm --dir packages/sandbox test:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
+        run: vp run sandbox:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
 
       - name: Workflow Live E2E (${{ matrix.provider }})
         timeout-minutes: 5
-        run: node packages/workflow/test/e2e-live.mjs --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
+        run: vp run workflow:e2e --provider "${{ matrix.provider }}" --url "${{ steps.url.outputs.url }}"
 
       - name: Workspace Live E2E (${{ matrix.provider }})
-        run: pnpm --dir packages/workspace test:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
+        run: vp run workspace:e2e --mode live --provider ${{ matrix.provider }} --url "${{ steps.url.outputs.url }}"
 
       - name: Blob Live E2E
         env:
           VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
-        run: pnpm --dir packages/blob test:e2e --mode live --url "${{ steps.url.outputs.url }}"
+        run: vp run blob:e2e --mode live --url "${{ steps.url.outputs.url }}"
 
       - name: DB Live E2E
-        run: pnpm --dir packages/database test:e2e --url "${{ steps.url.outputs.url }}"
+        run: vp run database:e2e --url "${{ steps.url.outputs.url }}"
 
   report-failure:
     name: report failure

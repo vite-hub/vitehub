@@ -1,3 +1,5 @@
+import type { Readable } from 'node:stream'
+
 export interface VercelSandboxRunCommandParams {
   cmd: string
   args?: string[]
@@ -32,7 +34,7 @@ export interface VercelSandboxInstance {
   }
   writeFiles: (files: Array<{ path: string, content: ArrayBufferView<ArrayBufferLike> }>, opts?: { signal?: AbortSignal }) => Promise<void>
   readFileToBuffer: (opts: { path: string, cwd?: string }, opts2?: { signal?: AbortSignal }) => Promise<Uint8Array | null>
-  readFile: (opts: { path: string, cwd?: string }, opts2?: { signal?: AbortSignal }) => Promise<NodeJS.ReadableStream | null>
+  readFile: (opts: { path: string, cwd?: string }, opts2?: { signal?: AbortSignal }) => Promise<Readable | null>
   mkDir: (path: string, opts?: { signal?: AbortSignal }) => Promise<void>
   domain: (port: number) => string
   stop?: (opts?: { signal?: AbortSignal, blocking?: boolean }) => Promise<unknown>
