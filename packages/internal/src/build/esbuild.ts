@@ -1,4 +1,4 @@
-import { build as bundle } from "esbuild"
+import { build as bundle, type Plugin } from "esbuild"
 
 interface BundleEsmEntryOptions {
   alias?: Record<string, string>
@@ -6,6 +6,7 @@ interface BundleEsmEntryOptions {
   external?: string[]
   format?: "esm" | "cjs"
   platform?: "browser" | "node" | "neutral"
+  plugins?: Plugin[]
 }
 
 export async function bundleEsmEntry(
@@ -31,6 +32,7 @@ export async function bundleEsmEntry(
     logLevel: "silent",
     outfile,
     platform,
+    plugins: options.plugins,
     sourcemap: false,
     target: "es2022",
     write: true,

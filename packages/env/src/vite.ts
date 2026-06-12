@@ -7,7 +7,13 @@ import { formatDiagnostics } from "./core/diagnostics.ts"
 import { env } from "./core/declarations.ts"
 import { createRuntimeRegistry, createSourceContext, resolveEnvEntries, validateEnvConfigShape } from "./core/resolve.ts"
 
-import type { EnvIntegrationOptions, EnvRuntimeRegistry, EnvRuntimeRegistryValue, EnvViteConfigOptions, EnvViteUserConfig } from "./types.ts"
+import type {
+  EnvIntegrationOptions,
+  EnvRuntimeRegistry,
+  EnvRuntimeRegistryValue,
+  EnvViteConfigOptions,
+  EnvViteUserConfig,
+} from "./types.ts"
 import type { Plugin, UserConfig } from "vite"
 
 export const ENV_VITE_PLUGIN_NAME = "@vite-hub/env/vite"
@@ -67,7 +73,9 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       })
 
       buildPublicConfig = Object.fromEntries(publicResult.entries.map(entry => [entry.key, entry.value]))
-      serverRegistry = createRuntimeRegistry(envConfig.server, { prefix: options.prefix })
+      serverRegistry = createRuntimeRegistry(envConfig.server, {
+        prefix: options.prefix,
+      })
       diagnosticsText = formatDiagnostics([...publicResult.diagnostics, ...defineResult.diagnostics], options.diagnostics)
 
       return {
@@ -95,7 +103,11 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         ].join("\n")
       }
       if (id === RESOLVED_SERVER_ID) {
-        return createServerModule(serverRegistry)
+        return [
+          "import { resolveServerEnv } from '@vite-hub/env/server';",
+          `const registry = ${JSON.stringify(serverRegistry, null, 2)};`,
+          "export function useServerEnv(event) { return resolveServerEnv(registry, event); }",
+        ].join("\n")
       }
     },
     resolveId(id) {
@@ -109,12 +121,12 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   }
 }
 
-function createViteTypes(config: Record<string, unknown>, serverRegistry: EnvRuntimeRegistry): string {
-  const fields = Object.entries(config).map(([key, value]) => `    ${JSON.stringify(key)}: ${typeof value}`)
+function createViteTypes(publicConfig: Record<string, unknown>, serverRegistry: EnvRuntimeRegistry): string {
+  const publicFields = Object.entries(publicConfig).map(([key, value]) => `    ${JSON.stringify(key)}: ${typeof value}`)
   return [
     "declare module \"#vitehub/env/public\" {",
     "  export interface PublicEnv {",
-    ...fields,
+    ...publicFields,
     "  }",
     "  export const publicEnv: PublicEnv",
     "  export function usePublicEnv(): PublicEnv",
@@ -143,7 +155,7 @@ function serverTypeFor(value: EnvRuntimeRegistryValue, indent: number): string {
   if (isLiteralEntry(value)) return literalType(value.value)
   if (isEnvEntry(value)) return value.secret ? "SecretEnv<string>" : "string"
 
-  const fields = createServerTypeFields(value, indent + 2)
+  const fields = createServerTypeFields(value as EnvRuntimeRegistry, indent + 2)
   if (!fields.length) return "Record<string, never>"
   const prefix = " ".repeat(indent)
   return `{\n${fields.join("\n")}\n${prefix}}`
@@ -170,69 +182,21 @@ function literalType(value: unknown): string {
 }
 
 function isLiteralEntry(value: EnvRuntimeRegistryValue): value is Extract<EnvRuntimeRegistryValue, { kind: "literal" }> {
-  return Boolean(value && typeof value === "object" && "kind" in value && value.kind === "literal")
+  if (!isRecord(value)) return false
+  const record = value as Record<string, unknown>
+  return record.kind === "literal"
 }
 
 function isEnvEntry(value: EnvRuntimeRegistryValue): value is Extract<EnvRuntimeRegistryValue, { source: unknown }> {
-  return Boolean(value && typeof value === "object" && "source" in value)
+  if (!isRecord(value)) return false
+  const record = value as Record<string, unknown>
+  return isRecord(record.source)
+    && typeof record.required === "boolean"
+    && typeof record.secret === "boolean"
 }
 
-function createServerModule(registry: EnvRuntimeRegistry): string {
-  return [
-    "import { SecretEnv } from \"@vite-hub/env/secret\"",
-    "",
-    `const registry = ${JSON.stringify(registry, null, 2)};`,
-    "",
-    "function isRecord(value) {",
-    "  return value !== null && typeof value === 'object'",
-    "}",
-    "",
-    "function readCarrierEnv(event) {",
-    "  if (!isRecord(event)) return undefined",
-    "  if (isRecord(event.env)) return event.env",
-    "  if (isRecord(event.context?.cloudflare?.env)) return event.context.cloudflare.env",
-    "  if (isRecord(event.context?._platform?.cloudflare?.env)) return event.context._platform.cloudflare.env",
-    "  if (isRecord(event.req?.runtime?.cloudflare?.env)) return event.req.runtime.cloudflare.env",
-    "  return event",
-    "}",
-    "",
-    "function readRuntimeEnv(name, event) {",
-    "  const carrier = readCarrierEnv(event)",
-    "  const globalEnv = isRecord(globalThis.__env__) ? globalThis.__env__ : undefined",
-    "  const processEnv = typeof process !== 'undefined' && isRecord(process.env) ? process.env : undefined",
-    "  return carrier?.[name] ?? globalEnv?.[name] ?? processEnv?.[name]",
-    "}",
-    "",
-    "function readSource(source, event) {",
-    "  for (const name of source.names || [source.name]) {",
-    "    const value = readRuntimeEnv(name, event)",
-    "    if (typeof value !== 'undefined') return { name, value }",
-    "  }",
-    "  return { name: source.name, value: undefined }",
-    "}",
-    "",
-    "function resolveEntry(entry, event, path) {",
-    "  if (entry?.kind === 'literal') return entry.value",
-    "  if (isRecord(entry) && isRecord(entry.source)) {",
-    "    const resolved = readSource(entry.source, event)",
-    "    let value = typeof resolved.value === 'undefined' ? entry.default : resolved.value",
-    "    if (typeof value === 'undefined') {",
-    "      if (entry.required) throw new Error(`[vitehub] Missing Server Env ${path} from ${entry.source.label}.`)",
-    "      return undefined",
-    "    }",
-    "    if (typeof value !== 'string') throw new Error(`[vitehub] Server Env ${path} from env:${resolved.name} must be a string.`)",
-    "    return entry.secret ? new SecretEnv(value) : value",
-    "  }",
-    "  const output = {}",
-    "  for (const [key, value] of Object.entries(entry || {})) output[key] = resolveEntry(value, event, path ? `${path}.${key}` : key)",
-    "  return output",
-    "}",
-    "",
-    "export function useServerEnv(event) {",
-    "  return resolveEntry(registry, event, '')",
-    "}",
-    "",
-  ].join("\n")
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 declare module "vite" {

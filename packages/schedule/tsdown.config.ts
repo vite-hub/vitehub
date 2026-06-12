@@ -12,6 +12,7 @@ export default defineConfig({
   },
   dts: true,
   entry: [
+    "src/definition.ts",
     "src/index.ts",
     "src/runtime.ts",
     "src/runtime/state.ts",
@@ -19,6 +20,9 @@ export default defineConfig({
     "src/vite.ts",
   ],
   exports: {
+    customExports(exports) {
+      return Object.fromEntries(Object.entries(exports).filter(([key]) => key !== "./definition"))
+    },
     inlinedDependencies: false,
   },
   format: ["esm"],

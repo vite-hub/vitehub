@@ -1,6 +1,7 @@
 import { normalizeCapabilities } from "./capability-runtime.ts"
 
 import type {
+  AgentCallbackContext,
   AgentCapabilityDefinition,
   AgentInput,
   AgentRunInput,
@@ -10,6 +11,7 @@ import type {
   AgentRuntimeContext,
   AgentWebhookRegistrationDefinition,
   MaybePromise,
+  MaybeResolvable,
   ResolvedAgentRuntimeContext,
   ResolvedAgentTriggerDefinition,
 } from "./types.ts"
@@ -106,6 +108,30 @@ export interface AgentWebhookVerificationResult {
   verified: boolean
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function isResolvableObject<T, TContext extends AgentCallbackContext>(
+  value: unknown,
+): value is { resolve: (context: TContext) => T | Promise<T> } {
+  return isRecord(value) && typeof value.resolve === "function"
+}
+
+async function resolveMaybe<T, TContext extends AgentCallbackContext>(
+  value: MaybeResolvable<T, TContext> | undefined,
+  context: TContext,
+): Promise<T | undefined> {
+  if (value === undefined) return undefined
+  if (typeof value === "function") {
+    return await (value as (context: TContext) => T | Promise<T>)(context)
+  }
+  if (isResolvableObject<T, TContext>(value)) {
+    return await value.resolve(context)
+  }
+  return value as T
+}
+
 async function sha256(value: string): Promise<Uint8Array> {
   const bytes = new TextEncoder().encode(value)
   return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes))
@@ -124,10 +150,12 @@ function webhookVerificationError(message: string): Error & { statusCode: number
   return Object.assign(new Error(message), { statusCode: 401 })
 }
 
-export async function verifyAgentWebhookRequest(
-  registrations: AgentWebhookRegistrationDefinition[],
+export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
+  registrations: AgentWebhookRegistrationDefinition<TRuntimeConfig>[],
   request: Request,
+  context?: AgentCallbackContext<TRuntimeConfig>,
 ): Promise<AgentWebhookVerificationResult> {
+  const verificationContext = context ?? ({ runtime: "unknown" } as AgentCallbackContext<TRuntimeConfig>)
   const targeted = registrations
     .map(registration => ({
       headerValue: registration.secretHeader ? request.headers.get(registration.secretHeader) : null,
@@ -138,13 +166,14 @@ export async function verifyAgentWebhookRequest(
   if (!targeted.length) return { verified: true }
 
   for (const { headerValue, registration } of targeted) {
-    if (registration.secretToken === false) {
+    const secretToken = await resolveMaybe(registration.secretToken, verificationContext)
+    if (secretToken === false) {
       return { registration, verified: true }
     }
-    if (!registration.secretToken) {
+    if (!secretToken) {
       throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Set secretToken (from Server Env) or secretToken: false to explicitly disable verification.`)
     }
-    if (await constantTimeEqual(registration.secretToken, headerValue)) {
+    if (await constantTimeEqual(secretToken, headerValue)) {
       return { registration, verified: true }
     }
   }
@@ -204,7 +233,7 @@ export async function resolveAgentTriggerInvocation<
     throw new Error(`[vitehub] Agent trigger "${triggerId}" is not defined by this agent.`)
   }
   if (trigger.webhooks?.length && context.request) {
-    await verifyAgentWebhookRequest(trigger.webhooks, context.request)
+    await verifyAgentWebhookRequest(trigger.webhooks, context.request, createAgentCallbackContext(context))
   }
   const invocation = await trigger.invoke(input)
   return {

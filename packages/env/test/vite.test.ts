@@ -1,10 +1,11 @@
 import { mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { pathToFileURL } from "node:url"
 
 import { describe, expect, it, vi } from "vitest"
 
+import { createRuntimeRegistry } from "../src/core/resolve.ts"
+import { resolveServerEnv } from "../src/server.ts"
 import { env, hubEnv } from "../src/vite.ts"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
@@ -42,8 +43,15 @@ describe("Vite plugin", () => {
           }),
         },
         server: {
+          app: {
+            name: "Telegram Audio",
+          },
           airtableToken: env({ secret: true, source: env.source("AIRTABLE_TOKEN") }),
           optionalSecret: env({ optional: true, secret: true, source: env.source("OPTIONAL_SECRET") }),
+          optionalToken: env({
+            optional: true,
+            secret: true,
+          }),
           teams: {
             appType: "SingleTenant",
           },
@@ -63,9 +71,18 @@ describe("Vite plugin", () => {
       appName: "Quiver",
     })
     expect(plugin.api.getServerEnvRegistry()).toMatchObject({
+      app: {
+        name: {
+          kind: "literal",
+          value: "Telegram Audio",
+        },
+      },
       airtableToken: {
         secret: true,
         source: { name: "AIRTABLE_TOKEN" },
+      },
+      optionalToken: {
+        source: { name: "OPTIONAL_TOKEN" },
       },
       teams: {
         appType: {
@@ -84,14 +101,19 @@ describe("Vite plugin", () => {
     const types = await readFile(join(root, ".vitehub/env/vite.d.ts"), "utf8")
     expect(types).toContain("declare module \"#vitehub/env/public\"")
     expect(types).toContain("declare module \"#vitehub/env/server\"")
+    expect(types).toContain("import type { SecretEnv } from \"@vite-hub/env/secret\"")
     expect(types).toContain("export interface PublicEnv")
     expect(types).toContain("export interface ServerEnv")
     expect(types).toContain("\"appName\": string")
+    expect(types).toContain("\"app\": {")
+    expect(types).toContain("\"name\": \"Telegram Audio\"")
     expect(types).toContain("\"airtableToken\": SecretEnv<string>")
     expect(types).toContain("\"optionalSecret\"?: SecretEnv<string>")
+    expect(types).toContain("\"optionalToken\"?: SecretEnv<string>")
     expect(types).toContain("\"appType\": \"SingleTenant\"")
     expect(types).toContain("usePublicEnv(): PublicEnv")
     expect(types).toContain("useServerEnv(event?: unknown): ServerEnv")
+    expect(types).not.toContain("import(\"@vite-hub/env/secret\")")
     expect(types).not.toContain("serverEnv")
     expect(types).not.toContain("buildConfig")
     expect(types).not.toContain("useSafeBuildConfig")
@@ -104,10 +126,14 @@ describe("Vite plugin", () => {
     expect(loaded).not.toContain("buildConfig")
     expect(loaded).not.toContain("useSafeBuildConfig")
 
-    const serverModule = loadHook("\0#vitehub/env/server")
-    expect(serverModule).toContain("useServerEnv")
-    expect(serverModule).toContain("SecretEnv")
-    expect(serverModule).not.toContain("serverEnv")
+    const serverLoaded = loadHook("\0#vitehub/env/server")
+    expect(serverLoaded).toContain("resolveServerEnv")
+    expect(serverLoaded).toContain("AIRTABLE_TOKEN")
+    expect(serverLoaded).toContain("OPTIONAL_SECRET")
+    expect(serverLoaded).toContain("OPTIONAL_TOKEN")
+    expect(serverLoaded).not.toContain("SERVER_OPTIONAL_TOKEN")
+    expect(serverLoaded).not.toContain("serverEnv")
+    expect(serverLoaded).toContain("useServerEnv")
   })
 
   it("applies prefixes to inferred Vite env names", async () => {
@@ -133,64 +159,50 @@ describe("Vite plugin", () => {
     })
   })
 
-  it("serves Server Env from runtime carriers and redacts secrets", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-env-server-"))
-    const plugin = hubEnv({ prefix: "VITEHUB_" })
-    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
-    await configHook({
-      env: {
-        server: {
-          airtableToken: env({ secret: true }),
-          optionalToken: env({ optional: true, secret: true }),
-          publicWebhook: env({ source: env.source("WEBHOOK_URL") }),
-          nested: {
-            staticValue: "ok",
-          },
-        },
+  it("resolves Server Env from runtime carriers and active Cloudflare env", () => {
+    const registry = createRuntimeRegistry({
+      airtableToken: env({ secret: true }),
+      optionalToken: env({ optional: true, secret: true }),
+      publicWebhook: env({ source: env.source("WEBHOOK_URL") }),
+      nested: {
+        staticValue: "ok",
       },
-      root,
-    }, { command: "build", mode: "production" })
+    }, { prefix: "VITEHUB_" })
 
-    const loadHook = plugin.load as (id: string) => string | undefined
-    const modulePath = join(root, "server-env.mjs")
-    await writeFile(
-      modulePath,
-      loadHook("\0#vitehub/env/server")!.replace(
-        "\"@vite-hub/env/secret\"",
-        JSON.stringify(pathToFileURL(join(import.meta.dirname, "..", "src", "secret.ts")).href),
-      ),
-      "utf8",
-    )
-
-    const mod = await import(`${pathToFileURL(modulePath).href}?t=${Date.now()}`) as {
-      useServerEnv: (event?: unknown) => {
-        airtableToken: { unseal(): string }
-        nested: { staticValue: "ok" }
-        optionalToken?: { unseal(): string }
-        publicWebhook: string
-      }
-    }
-
-    const resolvedEnv = mod.useServerEnv({
+    const serverEnv = resolveServerEnv<{
+      airtableToken: { unseal(): string }
+      nested: { staticValue: "ok" }
+      optionalToken?: { unseal(): string }
+      publicWebhook: string
+    }>(registry, {
       env: {
         VITEHUB_AIRTABLE_TOKEN: "airtable-secret",
         WEBHOOK_URL: "https://example.test/hook",
       },
     })
-    expect(String(resolvedEnv.airtableToken)).toBe("<redacted>")
-    expect(JSON.stringify(resolvedEnv.airtableToken)).toBe("\"<redacted>\"")
-    expect(resolvedEnv.airtableToken.unseal()).toBe("airtable-secret")
-    expect(resolvedEnv.optionalToken).toBeUndefined()
-    expect(resolvedEnv.publicWebhook).toBe("https://example.test/hook")
-    expect(resolvedEnv.nested.staticValue).toBe("ok")
+
+    expect(String(serverEnv.airtableToken)).toBe("<redacted>")
+    expect(JSON.stringify(serverEnv.airtableToken)).toBe("\"<redacted>\"")
+    expect(serverEnv.airtableToken.unseal()).toBe("airtable-secret")
+    expect(serverEnv.optionalToken).toBeUndefined()
+    expect(serverEnv.publicWebhook).toBe("https://example.test/hook")
+    expect(serverEnv.nested.staticValue).toBe("ok")
 
     ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = {
       VITEHUB_AIRTABLE_TOKEN: "global-secret",
       WEBHOOK_URL: "https://example.test/global",
     }
-    expect(mod.useServerEnv().airtableToken.unseal()).toBe("global-secret")
-    delete (globalThis as { __env__?: Record<string, unknown> }).__env__
+    try {
+      expect(resolveServerEnv<{ airtableToken: { unseal(): string } }>(registry).airtableToken.unseal()).toBe("global-secret")
+    }
+    finally {
+      delete (globalThis as { __env__?: Record<string, unknown> }).__env__
+    }
 
-    expect(() => mod.useServerEnv({ env: { WEBHOOK_URL: "https://example.test/hook" } })).toThrow("Missing Server Env airtableToken")
+    expect(() => resolveServerEnv(registry, {
+      env: {
+        WEBHOOK_URL: "https://example.test/hook",
+      },
+    })).toThrow("Missing Runtime Env from env:VITEHUB_AIRTABLE_TOKEN.")
   })
 })

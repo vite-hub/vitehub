@@ -170,6 +170,84 @@ describe("agent Vite plugin", () => {
     })
   })
 
+  it("installs Cloudflare chat state bindings for generated webhook routes", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ webhooks: true })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {
+          build: {
+            rolldownOptions: {
+              external: ["existing"],
+            },
+          },
+          nitro: {
+            cloudflare: {
+              wrangler: {
+                migrations: [{
+                  deleted_classes: ["ViteHubAgentStateDO"],
+                  tag: "delete-vitehub-agent-state-do-2026-06-11",
+                }],
+              },
+            },
+          },
+        } as never, { command: "build", mode: "production" })
+      : undefined
+    const output = result as {
+      build?: unknown
+      nitro?: {
+        cloudflare?: {
+          wrangler?: {
+            durable_objects?: { bindings?: unknown[] }
+            migrations?: unknown[]
+          }
+        }
+        rollupConfig?: {
+          external?: unknown
+          plugins?: Array<{ name?: string }>
+        }
+      }
+    }
+
+    expect(output.nitro?.cloudflare?.wrangler?.durable_objects?.bindings).toContainEqual({
+      class_name: "ViteHubAgentStateDO",
+      name: "CHAT_STATE",
+    })
+    expect(output.nitro?.cloudflare?.wrangler?.migrations).toContainEqual({
+      new_sqlite_classes: ["ViteHubAgentStateDO"],
+      tag: "vitehub-agent-state-v1",
+    })
+    expect(output.nitro?.cloudflare?.wrangler?.migrations).not.toContainEqual(expect.objectContaining({
+      deleted_classes: ["ViteHubAgentStateDO"],
+    }))
+    expect(output.nitro?.rollupConfig?.external).toEqual(["cloudflare:workers"])
+    expect(output.nitro?.rollupConfig?.plugins?.some(plugin => plugin.name === "vitehub-agent-cloudflare-state-exports:ViteHubAgentStateDO")).toBe(true)
+    expect(output.build).toBeUndefined()
+  })
+
+  it("keeps Cloudflare chat state opt-out when the state provider is memory", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ providers: { state: { provider: "memory" } }, webhooks: true })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
+      : undefined
+    const output = result as {
+      build?: unknown
+      nitro?: {
+        cloudflare?: unknown
+        handlers?: unknown[]
+        rollupConfig?: unknown
+      }
+    }
+
+    expect(output.nitro?.handlers).toContainEqual({
+      handler: ".vitehub/agent/chat-webhook-route.ts",
+      route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
+    })
+    expect(output.nitro?.cloudflare).toBeUndefined()
+    expect(output.nitro?.rollupConfig).toBeUndefined()
+    expect(output.build).toBeUndefined()
+  })
+
   it("keeps chat routes and webhook routes independent", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({
@@ -210,15 +288,27 @@ describe("agent Vite plugin", () => {
 
       expect(chatRoute).toContain("async function toRequest(event)")
       expect(chatRoute).toContain("function waitUntilFromEvent(event)")
-      expect(chatRoute).toContain("return await handler(await toRequest(event), { waitUntil: waitUntilFromEvent(event) })")
+      expect(chatRoute).toContain("function cloudflareFromEvent(event)")
+      expect(chatRoute).toContain("return await handler(await toRequest(event), { cloudflare, waitUntil: waitUntilFromEvent(event) })")
+      expect(webhookRoute).toContain("import { createCloudflareAgentState } from '@vite-hub/agent/cloudflare'")
       expect(webhookRoute).toContain("async function toRequest(event)")
       expect(webhookRoute).toContain("function waitUntilFromEvent(event)")
+      expect(webhookRoute).toContain("function chatStateFromCloudflare(cloudflare)")
       expect(webhookRoute).toContain("waitUntil: waitUntilFromEvent(event)")
+      expect(webhookRoute).toContain("state: chatStateFromCloudflare(cloudflare)")
       expect(webhookRoute).toContain("return await handler(await toRequest(event), webhook")
     }
     finally {
       await rm(root, { force: true, recursive: true })
     }
+  })
+
+  it("publishes the Cloudflare state Durable Object subpath", async () => {
+    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
+      exports?: Record<string, string>
+    }
+
+    expect(pkg.exports?.["./cloudflare/state"]).toBe("./dist/cloudflare/state.js")
   })
 })
 
@@ -469,6 +559,109 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "done" })
+  })
+
+  it("activates Cloudflare env while webhook work runs", async () => {
+    const { getActiveCloudflareEnv } = await import("@vite-hub/internal/runtime/cloudflare-env")
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      run: () => String(getActiveCloudflareEnv()?.OPENAI_API_KEY),
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 1046,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1046,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram", {
+      cloudflare: {
+        env: {
+          OPENAI_API_KEY: "runtime-openai-key",
+        },
+      },
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "runtime-openai-key" })
+  })
+
+  it("posts chat error fallback when deferred webhook work fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter({ deferMessageProcessing: true })
+    const waitUntilTasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+          errorFallbackText: "No pude procesar ese mensaje.",
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      run: () => {
+        throw new Error("transcription failed")
+      },
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    try {
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 1047,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 1047,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      }), "telegram", {
+        waitUntil: task => waitUntilTasks.push(task),
+      })
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      await Promise.all(waitUntilTasks)
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "No pude procesar ese mensaje.")
+      expect(consoleError).toHaveBeenCalledWith(expect.objectContaining({
+        component: "@vite-hub/agent",
+        event: "chat.message.error",
+        thread_id: "telegram:456",
+      }))
+    }
+    finally {
+      consoleError.mockRestore()
+    }
   })
 
   it("lets chat webhooks opt out of streaming model execution", async () => {

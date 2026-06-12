@@ -113,6 +113,7 @@ export type {
   AgentChatAdaptersResolver,
   AgentChatAgentBindingOptions,
   AgentChatAgentHookArgs,
+  AgentChatErrorHookArgs,
   AgentChatEventHookArgs,
   AgentChatEventHooks,
   AgentChatFinishExtension,

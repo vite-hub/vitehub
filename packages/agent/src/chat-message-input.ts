@@ -140,7 +140,7 @@ function uiMessagePartsToAgentParts(message: UIMessageLike): Array<MessagePart |
   })
 }
 
-function uiMessagesToAgentMessages(messages: UIMessageLike[]): Message[] {
+export function uiMessagesToAgentMessages(messages: UIMessageLike[]): Message[] {
   return messages.map((message, index) => {
     const role = message.role === "assistant" || message.role === "system" || message.role === "tool" || message.role === "user"
       ? message.role
