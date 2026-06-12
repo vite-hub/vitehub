@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { defineWorkspace } from "../src/index.ts"
+import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
+import { resetWorkspaceStoreCache } from "../src/core/workspace-cache.ts"
+import { setWorkspaceHostedStoreLoader } from "../src/runtime/hosted-store-loader.ts"
+import { setWorkspaceRuntimeConfig } from "../src/runtime/config.ts"
 
 const gitMock = vi.hoisted(() => ({
   add: vi.fn(async () => {}),
@@ -21,6 +26,11 @@ vi.mock("isomorphic-git/http/web", () => ({}))
 
 afterEach(() => {
   clearActiveCloudflareEnv()
+  vi.unstubAllGlobals()
+  resetWorkspaceRegistry()
+  resetWorkspaceStoreCache()
+  setWorkspaceHostedStoreLoader(undefined)
+  setWorkspaceRuntimeConfig(false)
   gitMock.add.mockClear()
   gitMock.clone.mockClear()
   gitMock.commit.mockClear()
@@ -68,6 +78,93 @@ describe("Cloudflare Artifacts workspace store", () => {
     expect((await store.diff({ from: snapshot })).entries).toEqual([
       expect.objectContaining({ path: "README.md", type: "modified" }),
     ])
+  })
+
+  it("configures Cloudflare hosted Workspace runtime through public API", async () => {
+    const repo = {
+      createToken: vi.fn(async () => ({ plaintext: "art_v1_secret?expires=999" })),
+      name: "vitehub-workspace-docs",
+      remote: "https://account.artifacts.cloudflare.net/git/vitehub/vitehub-workspace-docs.git",
+    }
+    setActiveCloudflareEnv({
+      WORKSPACE_ARTIFACTS: {
+        create: vi.fn(async () => repo),
+        get: vi.fn(async () => repo),
+      },
+    })
+
+    const { configureCloudflareWorkspaceRuntime } = await import("../src/cloudflare.ts")
+    const { useWorkspace } = await import("../src/runtime.ts")
+    configureCloudflareWorkspaceRuntime({
+      env: {
+        VITEHUB_WORKSPACE_ARTIFACTS_NAMESPACE: "tasks",
+      },
+    })
+    setWorkspaceRegistry({
+      docs: async () => ({ default: defineWorkspace({}) }),
+    })
+
+    const workspace = useWorkspace("docs", { mode: "write" })
+    await workspace.fs.writeFile("README.md", "hello")
+    await expect(workspace.fs.readFile("README.md")).resolves.toBe("hello")
+  })
+
+  it("configures GitHub Workspace Stores through the Cloudflare runtime", async () => {
+    const requests: Array<{ headers: Headers; method: string; path: string }> = []
+    setActiveCloudflareEnv({ GITHUB_TOKEN: "github-token" })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
+        const url = new URL(input instanceof Request ? input.url : String(input))
+        const method = init.method || "GET"
+        requests.push({ headers: new Headers(init.headers), method, path: url.pathname })
+
+        if (url.pathname === "/repos/onmax/repo/git/ref/heads/main") {
+          return new Response(JSON.stringify({ object: { sha: "base-sha" } }), {
+            headers: { "content-type": "application/json" },
+          })
+        }
+        if (url.pathname === "/repos/onmax/repo/git/commits/base-sha") {
+          return new Response(JSON.stringify({ tree: { sha: "tree-sha" } }), {
+            headers: { "content-type": "application/json" },
+          })
+        }
+        if (url.pathname === "/repos/onmax/repo/git/trees/tree-sha") {
+          return new Response(JSON.stringify({
+            tree: [{ path: "mirror/tasks/todo.md", sha: "blob-sha", size: 6, type: "blob" }],
+          }), {
+            headers: { "content-type": "application/json" },
+          })
+        }
+        if (url.pathname === "/repos/onmax/repo/git/blobs/blob-sha") {
+          return new Response(JSON.stringify({
+            content: Buffer.from("hello\n").toString("base64"),
+            encoding: "base64",
+          }), {
+            headers: { "content-type": "application/json" },
+          })
+        }
+        return new Response("not found", { status: 404 })
+      }),
+    )
+
+    const { configureCloudflareWorkspaceRuntime } = await import("../src/cloudflare.ts")
+    const { useWorkspace } = await import("../src/runtime.ts")
+    configureCloudflareWorkspaceRuntime({
+      store: {
+        branch: "main",
+        provider: "github",
+        repository: "onmax/repo",
+        root: "mirror",
+      },
+    })
+    setWorkspaceRegistry({
+      mirror: async () => ({ default: defineWorkspace({}) }),
+    })
+
+    const workspace = useWorkspace("mirror")
+    await expect(workspace.fs.readFile("tasks/todo.md")).resolves.toBe("hello\n")
+    expect(requests[0]?.headers.get("authorization")).toBe("Bearer github-token")
   })
 
   it("rejects traversal and reserved public paths", async () => {

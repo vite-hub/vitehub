@@ -1015,9 +1015,6 @@ importers:
       '@vercel/nft':
         specifier: catalog:vercel
         version: 1.5.0(rollup@4.60.4)
-      '@vite-hub/shell':
-        specifier: workspace:*
-        version: link:../shell
       '@vite-hub/source':
         specifier: workspace:*
         version: link:../source
@@ -1036,6 +1033,9 @@ importers:
       minimatch:
         specifier: catalog:workspace
         version: 10.2.5
+      mrmime:
+        specifier: catalog:workspace
+        version: 2.0.1
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
         version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@24.13.2)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.7.0)(publint@0.3.21)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(unrun@0.2.36)(yaml@2.9.0)'
@@ -1049,12 +1049,18 @@ importers:
       '@vite-hub/sandbox':
         specifier: workspace:*
         version: link:../sandbox
+      '@vite-hub/shell':
+        specifier: workspace:*
+        version: link:../shell
       ai:
         specifier: catalog:ai
         version: 6.0.174(zod@4.4.3)
       files-sdk:
         specifier: catalog:storage
-        version: 1.2.0(@types/node-fetch@2.6.13)(ai@6.0.174(zod@4.4.3))(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.0)(zod@4.4.3)
+        version: 1.2.0(@types/node-fetch@2.6.13)(ai@6.0.174(zod@4.4.3))(express@5.2.1)(h3@2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15)))(tailwindcss@4.3.0)(zod@4.4.3)
+      h3:
+        specifier: catalog:unjs
+        version: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
       ocache:
         specifier: catalog:unjs
         version: 0.1.4
@@ -21347,40 +21353,6 @@ snapshots:
     dependencies:
       filename-reserved-regex: 4.0.0
 
-  files-sdk@1.2.0(@types/node-fetch@2.6.13)(ai@6.0.174(zod@4.4.3))(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.0)(zod@4.4.3):
-    dependencies:
-      '@aws-sdk/client-s3': 3.1045.0
-      '@aws-sdk/s3-presigned-post': 3.1045.0
-      '@aws-sdk/s3-request-presigner': 3.1045.0
-      '@azure/identity': 4.13.1
-      '@azure/storage-blob': 12.31.0
-      '@google-cloud/storage': 7.19.0
-      '@googleapis/drive': 14.2.0
-      '@microsoft/microsoft-graph-client': 3.0.7(@azure/identity@4.13.1)
-      '@netlify/blobs': 10.7.5
-      '@supabase/storage-js': 2.105.4
-      '@vercel/blob': 2.3.3
-      box-typescript-sdk-gen: 1.19.1
-      dropbox: 10.34.0(@types/node-fetch@2.6.13)
-      google-auth-library: 9.15.1
-      uploadthing: 7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.0)
-    optionalDependencies:
-      ai: 6.0.174(zod@4.4.3)
-      zod: 4.4.3
-    transitivePeerDependencies:
-      - '@azure/msal-browser'
-      - '@types/node-fetch'
-      - aws-crt
-      - buffer
-      - encoding
-      - express
-      - fastify
-      - h3
-      - next
-      - stream-browserify
-      - supports-color
-      - tailwindcss
-
   files-sdk@1.2.0(@types/node-fetch@2.6.13)(ai@6.0.174(zod@4.4.3))(express@5.2.1)(h3@2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15)))(tailwindcss@4.3.0)(zod@4.4.3):
     dependencies:
       '@aws-sdk/client-s3': 3.1045.0
@@ -26510,6 +26482,7 @@ snapshots:
       express: 5.2.1
       h3: 1.15.11
       tailwindcss: 4.3.0
+    optional: true
 
   uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15)))(tailwindcss@4.3.0):
     dependencies:

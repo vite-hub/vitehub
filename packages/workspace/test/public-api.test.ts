@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -45,6 +45,22 @@ describe("workspace public API", () => {
     expect(await workspace.fs.readFile("data.json")).toBe("{}")
   })
 
+  it("keeps shell as a lazy workspace tools dependency", async () => {
+    const distDir = new URL("../dist/", import.meta.url)
+    const aiFiles = (await readdir(distDir)).filter(file => file === "ai.js" || /^ai-.*\.js$/.test(file))
+    const builtAi = (await Promise.all(aiFiles.map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
+    const runtimeFiles = (await readdir(distDir)).filter(file => file === "runtime.js" || file === "runtime/state.js" || /^use-.*\.js$/.test(file))
+    const builtRuntime = (await Promise.all(runtimeFiles.map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
+
+    expect(builtAi).not.toContain("from\"@vite-hub/shell")
+    expect(builtAi).not.toContain("from \"@vite-hub/shell")
+    expect(builtAi).not.toContain("import(\"@vite-hub/shell")
+    expect(builtAi).not.toContain("import('@vite-hub/shell")
+    expect(builtAi).toContain("@vite-hub/shell/workspace")
+    expect(builtRuntime).not.toContain("import(\"@vite-hub/shell")
+    expect(builtRuntime).not.toContain("import('@vite-hub/shell")
+  })
+
   it("uses the writable facade for synced reads and writes", async () => {
     registerWorkspace("api", defineWorkspace({
       store: { provider: "memory" },
@@ -68,6 +84,32 @@ describe("workspace public API", () => {
     await expect(workspace.fs.stat("AGENTS.md")).resolves.toMatchObject({ mediaType: "text/markdown" })
     expect(await workspace.fs.exists("generated/summary.md")).toBe(true)
     expect(await workspace.fs.glob("**/*.md")).toHaveLength(3)
+  })
+
+  it("serves allowlisted workspace files as H3-compatible responses", async () => {
+    registerWorkspace("files", defineWorkspace({
+      store: { provider: "memory" },
+    }))
+    const workspace = useWorkspace("files", { mode: "write" })
+    await workspace.fs.writeFile("tasks/open.json", "{\"ok\":true}", { mediaType: "application/json" })
+
+    const { readWorkspaceFileResponse } = await import("../src/server.ts")
+    const response = await readWorkspaceFileResponse({
+      allow: ["tasks/**/*.json"],
+      path: "open.json",
+      root: "tasks",
+      workspace: "files",
+    })
+
+    expect(response.headers.get("content-type")).toBe("application/json")
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff")
+    await expect(response.text()).resolves.toBe("{\"ok\":true}")
+    await expect(readWorkspaceFileResponse({
+      allow: ["tasks/**/*.json"],
+      path: "secret.txt",
+      root: "tasks",
+      workspace: "files",
+    })).rejects.toMatchObject({ statusCode: 404 })
   })
 
   it("mounts inline files at the workspace root", async () => {

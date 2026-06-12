@@ -69,6 +69,20 @@ export default defineEventHandler(async () => {
 })
 ```
 
+Serve a constrained Workspace subtree without custom route plumbing:
+
+```ts
+// server/api/data/[...path].get.ts
+import { defineWorkspaceFileHandler } from "@vite-hub/workspace/server"
+
+export default defineWorkspaceFileHandler({
+  workspace: "docs",
+  root: "data",
+  allow: ["data/**/*.json", "data/**/*.md"],
+  cacheControl: "public, max-age=60",
+})
+```
+
 ```ts
 // vite.config.ts
 import { hubWorkspace } from "@vite-hub/workspace/vite"
@@ -87,6 +101,18 @@ Need the workspace to run generated code instead of only reading and writing fil
 
 Use `hubWorkspace()` in Vite to discover workspace definitions, emit the workspace manifest for local development, and make the runtime store available to server code.
 
+## Hosted Cloudflare runtime
+
+Cloudflare-hosted apps can install the public runtime setup instead of importing internal runtime state or store adapters:
+
+```ts
+import { configureCloudflareWorkspaceRuntime } from "@vite-hub/workspace/cloudflare"
+
+configureCloudflareWorkspaceRuntime()
+```
+
+`useWorkspace()` will then resolve `cloudflare-artifacts` Workspace Stores from the configured runtime store or the Workspace Definition's `store` option.
+
 ## GitHub-backed persistence
 
 Use the GitHub Workspace Store when a hosted runtime needs durable Workspace file-tree state without a provider-specific artifact store:
@@ -104,6 +130,6 @@ export default defineWorkspace({
 
 Set `WORKSPACE_GITHUB_TOKEN`, `VITEHUB_WORKSPACE_GITHUB_TOKEN`, `GITHUB_TOKEN`, or a `GITHUB_TOKEN` runtime binding with permission to read and write the repository contents. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as a GitHub commit. If the target branch moves after the Workspace Store loaded local changes, snapshot fails with a conflict so the caller can retry from a fresh Workspace Store.
 
-Built on [`@vite-hub/source`](../source/README.md), [`@vite-hub/shell`](../shell/README.md), [files-sdk](https://files-sdk.dev/), and [isomorphic-git](https://isomorphic-git.org/).
+Built on [`@vite-hub/source`](../source/README.md), [files-sdk](https://files-sdk.dev/), and [isomorphic-git](https://isomorphic-git.org/). Shell-backed Workspace tools load `@vite-hub/shell` only when the shell tool executes.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

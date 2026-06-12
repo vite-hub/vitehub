@@ -1,8 +1,10 @@
 # Vite-Only Framework Integration
 
+Updated by [ADR 0051: Schedule Provider Wake Allows Nitro Cloudflare Wiring](./0051-schedule-provider-wake-allows-nitro-cloudflare-wiring.md): ViteHub remains Vite-only for public framework integrations, but Schedule may generate package-owned Nitro Cloudflare hook/config wiring as a narrow Provider Wake exception.
+
 ViteHub's framework integration surface is Vite-only. Packages expose Vite Integrations, Stable ViteHub Import Paths, Runtime Registries, Runtime Helpers, and Provider Output. Nitro is not a ViteHub-owned Framework Integration, Server Host Adapter, internal compatibility adapter, example target, or test target.
 
-Package-specific `@vite-hub/*/nitro` modules, generated Nitro plugins, Vite plugin `.nitro` adapters, and Nitro-specific discovery modes are removed. Server directory discovery belongs to ViteHub's Vite Integration, not to Nitro.
+Package-specific `@vite-hub/*/nitro` modules, generated Nitro plugins, Vite plugin `.nitro` adapters, and Nitro-specific discovery modes are removed except for ADR 0051's Schedule Provider Wake exception. Server directory discovery belongs to ViteHub's Vite Integration, not to Nitro.
 
 ## Considered Options
 
@@ -14,6 +16,6 @@ Package-specific `@vite-hub/*/nitro` modules, generated Nitro plugins, Vite plug
 
 Docs, examples, playgrounds, manual actions, package exports, and package tests should teach and validate Vite Integrations only.
 
-Package-specific public `./nitro` exports, internal Nitro adapter paths, generated Nitro runtime plugins, and Vite plugin `.nitro` properties should stay removed. If a downstream app uses Nitro, that app can compose ViteHub runtime helpers explicitly; ViteHub packages do not own Nitro wiring.
+Package-specific public `./nitro` exports, internal Nitro adapter paths, generated Nitro runtime plugins, and Vite plugin `.nitro` properties should stay removed except for ADR 0051's Schedule Provider Wake exception. If a downstream app uses Nitro outside that exception, that app can compose ViteHub runtime helpers explicitly; ViteHub packages do not own general Nitro wiring.
 
 ADR 0025 remains correct about location-derived Discovery Identity, but server discovery should be read as ViteHub-owned Vite discovery rather than Nitro discovery.
