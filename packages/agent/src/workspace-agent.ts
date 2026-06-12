@@ -2,13 +2,9 @@ import {
   applyCapabilityInstructionSlots,
   normalizeCapabilities,
   normalizeMode,
-  type ResolvedAgentCapabilities,
-  resolveAgentCapabilities,
 } from "./capability-runtime.ts"
-import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import {
   normalizeAgentInvokerProfiles,
-  resolveAgentInvoker,
 } from "./invoker.ts"
 
 import type {
@@ -19,6 +15,7 @@ import type {
   AgentDevtoolsMetadata,
   AgentDevtoolsToolDefinition,
   AgentInput,
+  AgentInstructionBlock,
   AgentRunInput,
   AgentRuntimeConfig,
   AgentRuntimeContext,
@@ -43,9 +40,6 @@ const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
 type NormalizedWorkspaceOptions = WorkspaceAgentWorkspaceOptions & { mode: AgentCapabilityMode }
 type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapabilityMode }
 type WorkspaceSourceMap = NonNullable<WorkspaceDefinition["sources"]>
-type ResolvedWorkspaceMetadataCapabilities = ResolvedAgentCapabilities & {
-  workspaceDefinition?: WorkspaceDefinition
-}
 
 export type WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -359,6 +353,33 @@ function workspaceMetadataTools<Name extends WorkspaceName>(
     .sort((left, right) => left.name.localeCompare(right.name))
 }
 
+function staticCapabilityInstructionBlocks<Name extends WorkspaceName>(
+  options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
+): AgentInstructionBlock[] {
+  return normalizeCapabilities(options.capabilities)
+    .flatMap((capability) => {
+      if (capability.instructions === undefined || capability.instructions === false) return []
+      const parts = Array.isArray(capability.instructions) ? capability.instructions : [capability.instructions]
+      const instructions = parts
+        .flatMap(part => Array.isArray(part) ? part : [part])
+        .map(part => typeof part === "string" ? part.trim() : "")
+        .filter(Boolean)
+        .join("\n\n")
+      return instructions
+        ? [{ id: `capabilities.${capability.id}`, instructions }]
+        : []
+    })
+}
+
+const capabilityInstructionSlotPattern = /\{\{\s*capabilities(?:\.[a-zA-Z][\w.-]*)?\s*\}\}/g
+
+function applyPassiveCapabilityInstructionSlots(instructions: string, blocks: AgentInstructionBlock[] = []): string {
+  const rendered = blocks.length
+    ? applyCapabilityInstructionSlots(instructions, blocks)
+    : instructions
+  return rendered.replace(capabilityInstructionSlotPattern, "").trim().replace(/\n{3,}/g, "\n\n")
+}
+
 function workspaceMetadataInstructions<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
 ): string[] {
@@ -372,7 +393,14 @@ function workspaceMetadataInstructions<Name extends WorkspaceName>(
     }
     return []
   })
-  return applyWorkspaceSourceInstructionsToParts(instructions, renderWorkspaceSourceInstructionBlock(workspaceDefinitionFromOptions(options).sources))
+  const renderedInstructions = applyPassiveCapabilityInstructionSlots(
+    instructions.join("\n\n"),
+    staticCapabilityInstructionBlocks(options),
+  )
+  return applyWorkspaceSourceInstructionsToParts(
+    renderedInstructions ? [renderedInstructions] : [],
+    renderWorkspaceSourceInstructionBlock(workspaceDefinitionFromOptions(options).sources),
+  )
 }
 
 function readLocalWorkspaceInstructions(options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>): string | undefined {
@@ -396,12 +424,10 @@ async function resolveWorkspaceMetadataInstructions<
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   workspace: ReadonlyWorkspaceFacade<Name>,
   resolution: AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name> = {},
-  resolvedCapabilities?: ResolvedWorkspaceMetadataCapabilities,
 ) {
-  const metadataWorkspace = (resolvedCapabilities?.workspace || workspace) as ReadonlyWorkspaceFacade<Name>
   const instructionContext = {
-    fs: metadataWorkspace.fs,
-    workspace: metadataWorkspace,
+    fs: workspace.fs,
+    workspace,
   }
   const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
   const instructions = await Promise.all(parts.map(part => typeof part === "function"
@@ -411,17 +437,15 @@ async function resolveWorkspaceMetadataInstructions<
     .flatMap(part => Array.isArray(part) ? part : [part])
     .map(part => part?.trim())
     .filter((part): part is string => Boolean(part))
-  const capabilityInstructions = resolvedCapabilities
-    ? [...resolvedCapabilities.capabilityInstructions]
-    : await resolveWorkspaceMetadataCapabilityInstructions(options, metadataWorkspace, resolution)
-  const renderedInstructions = capabilityInstructions.length
-    ? applyCapabilityInstructionSlots(baseInstructions.join("\n\n"), capabilityInstructions).trim()
-    : baseInstructions.join("\n\n")
+  const renderedInstructions = applyPassiveCapabilityInstructionSlots(
+    baseInstructions.join("\n\n"),
+    staticCapabilityInstructionBlocks(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>),
+  )
   return applyWorkspaceSourceInstructionsToParts(
     renderedInstructions ? [renderedInstructions] : [],
     await resolveWorkspaceSourceInstructionBlock(
-      resolvedCapabilities?.workspaceDefinition || workspaceDefinitionWithNameFromOptions(options, resolution),
-      metadataWorkspace,
+      workspaceDefinitionWithNameFromOptions(options, resolution),
+      workspace,
     ),
   )
 }
@@ -547,74 +571,6 @@ function applyWorkspaceSourceInstructionsToParts(parts: string[], sourceInstruct
   return instructions ? [instructions] : []
 }
 
-function createDevtoolsMetadataRuntime<
-  TRuntimeConfig extends AgentRuntimeConfig,
->(
-  runtime: Partial<ResolvedAgentRuntimeContext<TRuntimeConfig>> = {},
-): ResolvedAgentRuntimeContext<TRuntimeConfig> {
-  const memoValues = new Map<string, unknown>()
-  return {
-    memo(key, create) {
-      if (!memoValues.has(key)) memoValues.set(key, create())
-      return memoValues.get(key) as never
-    },
-    runtime: "vite",
-    runtimeConfig: {} as TRuntimeConfig,
-    waitUntil: () => {},
-    ...runtime,
-  }
-}
-
-async function resolveWorkspaceMetadataCapabilities<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(
-  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
-  workspace: ReadonlyWorkspaceFacade<Name>,
-  resolution: AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name>,
-): Promise<ResolvedWorkspaceMetadataCapabilities | undefined> {
-  const capabilities = normalizeCapabilities(options.capabilities as AgentCapabilityDefinition[] | undefined)
-  if (!capabilities.length) return undefined
-
-  const runtime = createDevtoolsMetadataRuntime(resolution.runtime)
-  const workspaceName = resolution.workspace || resolution.name || workspaceNameFromOptions(options)
-  const input = resolution.input || {}
-  const { runtimeConfig: _runtimeConfig, ...callbackContext } = runtime
-  const invocationContext = createAgentInvocationContextStore(input.context)
-  const invoker = await resolveAgentInvoker(options.invoker, callbackContext, invocationContext, input, runtime.run)
-  const workspaceDefinition = workspaceDefinitionWithNameFromOptions(options, { workspace: workspaceName })
-  const resolved = await resolveAgentCapabilities({
-    capabilities: options.capabilities as AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined,
-    hooks: options.hooks as never,
-  }, runtime, input, workspace, workspaceModeFromOptions(options), {
-    context: invocationContext,
-    invoker,
-    model: "model" in options ? options.model as never : undefined,
-    workspaceDefinition,
-  })
-  return Object.assign(resolved, {
-    workspaceDefinition: invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition") || workspaceDefinition,
-  })
-}
-
-async function resolveWorkspaceMetadataCapabilityInstructions<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(
-  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
-  workspace: ReadonlyWorkspaceFacade<Name>,
-  resolution: AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name>,
-) {
-  const resolved = await resolveWorkspaceMetadataCapabilities(options, workspace, resolution)
-  if (!resolved) return []
-  try {
-    return [...resolved.capabilityInstructions]
-  }
-  finally {
-    await resolved.close()
-  }
-}
-
 export function createAgentDevtoolsMetadata<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -659,17 +615,10 @@ export async function resolveAgentDevtoolsMetadata<
   const { useWorkspace } = await import("@vite-hub/workspace")
   const workspace = useWorkspace(workspaceName)
   const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>
-  const resolved = await resolveWorkspaceMetadataCapabilities(options, workspace, defaultsOverride)
-  try {
-    const metadataWorkspace = (resolved?.workspace || workspace) as ReadonlyWorkspaceFacade<Name>
-    return {
-      files: await resolveWorkspaceMetadataFiles(options, defaults, metadataWorkspace),
-      instructions: await resolveWorkspaceMetadataInstructions(options, metadataWorkspace, defaultsOverride, resolved),
-      ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition),
-      tools: workspaceMetadataTools(options),
-    }
-  }
-  finally {
-    await resolved?.close()
+  return {
+    files: await resolveWorkspaceMetadataFiles(options, defaults, workspace),
+    instructions: await resolveWorkspaceMetadataInstructions(options, workspace, defaultsOverride),
+    ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition),
+    tools: workspaceMetadataTools(options),
   }
 }

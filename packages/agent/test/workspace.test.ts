@@ -1218,7 +1218,7 @@ describe("defineAgent workspace option", () => {
     expect(readInstructions).toHaveBeenCalledOnce()
   })
 
-  it("renders capability instruction slots in resolved DevTools metadata", async () => {
+  it("renders static capability instruction slots in resolved DevTools metadata", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const readInstructions = vi.fn(async ({ fs }) => await fs.readFile("AGENTS.md"))
     readFile.mockResolvedValue("# Workspace instructions\n\n{{ capabilities.audience }}\n")
@@ -1229,25 +1229,70 @@ describe("defineAgent workspace option", () => {
       model: {} as never,
       capabilities: [{
         id: "audience",
-        prepare({ input, instructions }) {
-          const origin = (input.get().context as { chat?: { run?: { origin?: string } } } | undefined)?.chat?.run?.origin
-          instructions.add(`Audience resolved for ${origin}.`)
+        instructions: "Static audience instructions.",
+      }],
+    }), { workspace: "support" })
+
+    expect(await resolveAgentDevtoolsMetadata(agent)).toMatchObject({
+      instructions: ["# Workspace instructions\n\nStatic audience instructions."],
+    })
+    expect(readInstructions).toHaveBeenCalledOnce()
+  })
+
+  it("does not run invocation-scoped capability work while resolving DevTools metadata", async () => {
+    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const phase = vi.fn()
+    const toolResolver = vi.fn(() => ({}))
+    const invokerResolve = vi.fn(() => ({ id: "resolved" }))
+    exists.mockResolvedValue(true)
+    list.mockResolvedValue([{ path: "docs/guide.md", type: "file" }])
+    readFile.mockResolvedValue("# Workspace instructions\n\n{{ capabilities.tracked }}")
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      invoker: {
+        profiles: [{ id: "support", kind: "support", label: "Support" }],
+        resolve: invokerResolve,
+      },
+      workspace: {
+        sources: {
+          docs: { instructions: "Use docs for support evidence.", name: "docs" } as never,
         },
+      },
+      instructions: async ({ fs }) => await fs.readFile("AGENTS.md"),
+      hooks: {
+        "capability:prepare": () => phase("hook:prepare"),
+      },
+      model: {} as never,
+      capabilities: [{
+        bind: () => phase("bind"),
+        close: () => phase("close"),
+        configure: () => phase("configure"),
+        id: "tracked",
+        input: () => phase("input"),
+        instructions: () => {
+          phase("instructions")
+          return "Dynamic capability instructions."
+        },
+        output: () => phase("output"),
+        prepare: () => phase("prepare"),
+        resolve: () => phase("resolve"),
+        tools: toolResolver,
       }],
     }), { workspace: "support" })
 
     expect(await resolveAgentDevtoolsMetadata(agent, {
-      input: {
-        context: {
-          chat: {
-            run: { origin: "devtools" },
-          },
-        },
-      },
+      input: { context: { invokerProfileId: "support" } },
     })).toMatchObject({
-      instructions: ["# Workspace instructions\n\nAudience resolved for devtools."],
+      files: [expect.objectContaining({ path: "docs" })],
+      instructions: [[
+        "# Workspace instructions",
+        "## Workspace Sources",
+        "### docs\n\nUse docs for support evidence.",
+      ].join("\n\n")],
+      tools: [expect.objectContaining({ name: "tracked" })],
     })
-    expect(readInstructions).toHaveBeenCalledOnce()
+    expect(phase).not.toHaveBeenCalled()
+    expect(toolResolver).not.toHaveBeenCalled()
+    expect(invokerResolve).not.toHaveBeenCalled()
   })
 
   it("resolves recursive DevTools file metadata for lazy source entries", async () => {
@@ -1292,9 +1337,14 @@ describe("defineAgent workspace option", () => {
     })
   })
 
-  it("filters resolved DevTools file metadata through Access-scoped workspace visibility", async () => {
+  it("does not apply Access-scoped workspace visibility during passive DevTools metadata resolution", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const { access } = await import("../src/capabilities.ts")
+    const resolveScope = vi.fn(({ invoker }) => {
+      return invoker.meta?.scope === "support"
+        ? { role: "admin", scope: "support" }
+        : { role: "viewer", scope: "customer" }
+    })
     useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
     list.mockResolvedValue([
       { path: "customers", type: "directory" },
@@ -1320,11 +1370,7 @@ describe("defineAgent workspace option", () => {
       capabilities: [
         access({
           workspace: {
-            resolve({ invoker }) {
-              return invoker.meta?.scope === "support"
-                ? { role: "admin", scope: "support" }
-                : { role: "viewer", scope: "customer" }
-            },
+            resolve: resolveScope,
             scopes: {
               customer: { paths: ["customers/acme"] },
               support: { all: true },
@@ -1342,33 +1388,25 @@ describe("defineAgent workspace option", () => {
     const paths = JSON.stringify(metadata.files)
 
     expect(paths).toContain("customers/acme/orders.sql")
-    expect(paths).not.toContain("customers/globex")
-    expect(paths).not.toContain("portal")
+    expect(paths).toContain("customers/globex")
+    expect(paths).toContain("portal")
+    expect(resolveScope).not.toHaveBeenCalled()
+    expect(createWorkspaceSourceResolutionFacade).not.toHaveBeenCalled()
   })
 
-  it("renders resolved Source Instructions in resolved DevTools metadata", async () => {
+  it("renders static Source Instructions without running Access source resolution for DevTools metadata", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const { access } = await import("../src/capabilities.ts")
-    const metadataWorkspace = readonlyWorkspaceFacade()
     useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
     exists.mockImplementation(async path => path === "ingestion/acme")
-    createWorkspaceSourceResolutionFacade.mockResolvedValueOnce({
-      workspace: metadataWorkspace,
-      definition: {
-        name: "support",
-        sources: {
-          ingestion: {
-            instructions: "Use this source for acme ingestion models only.",
-            mount: "ingestion/acme",
-            name: "ingestion",
-          },
-        },
-      },
-    })
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {
         sources: {
-          ingestion: { name: "ingestion" } as never,
+          ingestion: {
+            instructions: "Use this source for ingestion models.",
+            mount: "ingestion/acme",
+            name: "ingestion",
+          } as never,
         },
       },
       capabilities: [
@@ -1389,9 +1427,10 @@ describe("defineAgent workspace option", () => {
       instructions: [[
         "Answer from the workspace.",
         "## Workspace Sources",
-        "### ingestion\n\nUse this source for acme ingestion models only.",
+        "### ingestion\n\nUse this source for ingestion models.",
       ].join("\n\n")],
     })
+    expect(createWorkspaceSourceResolutionFacade).not.toHaveBeenCalled()
   })
 
   it("flattens virtual workspace AGENTS.md while keeping sibling instruction files", async () => {
