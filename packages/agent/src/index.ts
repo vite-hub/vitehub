@@ -813,10 +813,12 @@ async function createAgentInvocationContext<
     ? withAgentToolStepReporting(applyAgentToolPolicies(transformedTools) || {}, context.devtools?.reportToolStep)
     : undefined
   const activeWorkspace = capabilities.workspace || workspace
+  const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
+  const activeWorkspaceDefinition = sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
   const workspaceScope = invocationContext.get<{ all?: boolean }>("access.workspaceScope")
-  const sourceInstructions = resolvedWorkspaceDefinition && activeWorkspace
+  const sourceInstructions = activeWorkspaceDefinition && activeWorkspace
     ? await resolveWorkspaceSourceInstructionBlock(
-        resolvedWorkspaceDefinition,
+        activeWorkspaceDefinition,
         workspaceScope && !workspaceScope.all ? activeWorkspace as ReadonlyWorkspaceFacade : undefined,
       )
     : undefined
@@ -842,7 +844,7 @@ async function createAgentInvocationContext<
     startedAt,
     tools,
     workspace: activeWorkspace,
-    workspaceDefinition: resolvedWorkspaceDefinition,
+    workspaceDefinition: activeWorkspaceDefinition,
     workspaceMode,
   }
 }

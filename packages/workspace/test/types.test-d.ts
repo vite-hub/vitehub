@@ -64,6 +64,20 @@ describe("workspace types", () => {
       exclude: "docs/drafts/**",
       instructions: "Use for hosted docs.",
     })
+    source.github(({ invocation, selectedWorkspaceScope, source: sourceContext, workspace }) => {
+      expectTypeOf(invocation.context.get<{ customers: string[] }>("support.customerScope")?.customers).toEqualTypeOf<string[] | undefined>()
+      expectTypeOf(selectedWorkspaceScope?.scope).toEqualTypeOf<string | undefined>()
+      expectTypeOf(sourceContext.key).toEqualTypeOf<string>()
+      expectTypeOf(workspace.name).toEqualTypeOf<string>()
+      const customer = invocation.context.get<{ customers: string[] }>("support.customerScope")?.customers[0]
+      if (!customer) return false
+      return {
+        repo: "acme/app",
+        root: `dbt/${customer}`,
+        mount: `ingestion/${customer}`,
+        instructions: [`Use for ${customer} ingestion models.`],
+      }
+    })
     source.glob({
       cwd: "docs",
       dot: true,

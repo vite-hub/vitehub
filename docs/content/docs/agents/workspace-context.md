@@ -39,7 +39,7 @@ export default defineAgent({
 
 ## Source instructions
 
-Sources can include Source Instructions. They are static developer-authored guidance for how the agent should use that source; ViteHub does not infer them from provider metadata.
+Sources can include Source Instructions. They are developer-authored guidance for how the agent should use that source; ViteHub does not infer them from provider metadata. A Source can declare them statically, or Source Resolution can return instructions for the resolved source.
 
 When at least one visible source has instructions, ViteHub renders a `## Workspace Sources` block into the model instructions. Put `{{ workspace.sources }}` where that block belongs, or omit the slot and ViteHub appends it at the end. If the slot is present but no visible source has instructions, the slot is replaced with an empty string.
 
@@ -81,6 +81,14 @@ const portalEntry = entry({
 
 export default defineAgent({
   invoker: {
+    resolve({ context, defaultInvoker }) {
+      const rawCustomer = typeof defaultInvoker.meta?.customer === 'string'
+        ? defaultInvoker.meta.customer
+        : ''
+      const customers = rawCustomer.split(',').map(customer => customer.trim()).filter(Boolean)
+      context.set('support.customerScope', { customers }, { overwrite: true })
+      return defaultInvoker
+    },
     profiles: [
       {
         id: 'portal-acme',
@@ -102,10 +110,23 @@ export default defineAgent({
         path: 'AGENTS.md',
         instructions: 'Use this guide for support operating rules.',
       }),
-      ingestion: source.github({
-        repo: 'quiverdk/ingestion',
-        root: 'dbt',
-        instructions: 'Use this source for customer-specific ingestion models and dbt behavior.',
+      ingestion: source.github(({ invocation }) => {
+        const scope = invocation.context.get<{ customers: string[] }>('support.customerScope')
+        const customer = scope?.customers[0]
+        if (!customer) {
+          return {
+            repo: 'quiverdk/ingestion',
+            root: 'dbt',
+            instructions: 'Use this source for ingestion models and dbt behavior.',
+          }
+        }
+
+        return {
+          repo: 'quiverdk/ingestion',
+          root: `dbt/${customer}`,
+          mount: `ingestion/${customer}`,
+          instructions: `Use this source only for ${customer} ingestion models and dbt behavior.`,
+        }
       }),
       forecastingEngine: source.github({
         repo: 'quiverdk/forecasting-engine',
@@ -119,13 +140,12 @@ export default defineAgent({
   capabilities: [
     access({
       workspace: {
-        resolve({ invoker }) {
+        resolve({ context, invoker }) {
           if (invoker.meta?.scope === 'all')
             return { all: true, role: 'admin', scope: 'support' }
 
-          const customer = typeof invoker.meta?.customer === 'string'
-            ? invoker.meta.customer
-            : undefined
+          const scope = context.get<{ customers: string[] }>('support.customerScope')
+          const customer = scope?.customers[0]
 
           if (!customer) {
             return {
@@ -157,8 +177,10 @@ export default defineAgent({
 })
 ```
 
-Agent Invoker metadata drives the access decision. In this example, a customer invoker can see the shared support guide, the forecasting engine source, and only that customer's ingestion path. A support invoker with `scope: 'all'` receives the explicit all-files Workspace Scope.
+Agent Invoker metadata drives the access decision. The invoker resolver normalizes comma-separated customer metadata into a `support.customerScope` Agent Invocation Context Value before Access and Source Resolution run. In this example, a customer invoker can see the shared support guide, the forecasting engine source, and only that customer's ingestion path. A support invoker with `scope: 'all'` receives the explicit all-files Workspace Scope.
 
 Configured Agent Invoker Profiles give DevTools and trusted app routing stable identities to select. Server-owned routes can also pass `context.invoker` after authenticating the request, and Chat Platform Adapters can provide a chat invoker from trusted platform identity. V1 trusts request-provided invoker context and profile ids, so validate requests before they reach a Chat App Route or other Agent Trigger Consumer when identity affects access.
 
 Order matters. Access should run before Workspace-reading Capabilities so the scope is applied before tools are exposed.
+
+Source Resolution is source shaping, not authorization. It can narrow a GitHub root, Mount, and Source Instructions from trusted invocation context such as Agent Invocation Context Values or the Selected Workspace Scope, but Access remains the boundary that decides which Workspace paths are visible. Scope-affecting source options are part of the resolved source fingerprint so cached source data does not cross scopes.

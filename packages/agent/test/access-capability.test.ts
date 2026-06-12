@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import type { AgentRuntimeContext, AgentToolSet } from "../src/types.ts"
-import type { ReadonlyWorkspaceFacade, WorkspaceEntry, WorkspaceSearchHit, WorkspaceStat } from "@vite-hub/workspace"
+import { source, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceStat } from "@vite-hub/workspace"
 
 function runtime(): AgentRuntimeContext {
   return {
@@ -349,6 +349,132 @@ describe("access capability", () => {
     expect(resolved.tools!.materialize_sources).toBeUndefined()
     expect(result.stdout).toContain("acme")
     expect(result.stdout).not.toContain("globex")
+  })
+
+  it("applies Invocation-Scoped Source Resolution after selecting Workspace Scope", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access, workspaceShell } = await import("../src/capabilities.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const { resolveWorkspaceSourceInstructionBlock } = await import("../src/workspace-agent.ts")
+    const resolverScopes: unknown[] = []
+    const invocationContext = createAgentInvocationContextStore({
+      "support.customerScope": { customers: ["acme", "globex"] },
+    })
+    const workspaceDefinition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        ingestion: source.custom({
+          async resolve({ invocation }) {
+            const scope = invocation.context.get<{ customers: string[] }>("support.customerScope")
+            resolverScopes.push(scope)
+            const customer = scope?.customers[0]
+            if (!customer) return false
+            return source.custom({
+              instructions: `Use this source for ${customer} ingestion models only.`,
+              materialize: "lazy",
+              mount: `ingestion/${customer}`,
+              async getKeys() {
+                return ["models/orders.sql"]
+              },
+              async getItem(key) {
+                return { key, path: key, content: `select * from ${customer}_orders\n` }
+              },
+            })
+          },
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            return { key, path: key, content: "" }
+          },
+        }),
+      },
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve({ context }) {
+              const scope = context.get<{ customers: string[] }>("support.customerScope")
+              const customer = scope?.customers[0]
+              if (!customer) throw new Error("missing customer")
+              return {
+                grants: [{ path: `ingestion/${customer}` }],
+                scope: customer,
+              }
+            },
+          },
+        }),
+        workspaceShell(),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace(), "read", {
+      context: invocationContext,
+      workspaceDefinition,
+    })
+
+    await expect(resolved.workspace!.fs.readFile("ingestion/acme/models/orders.sql")).resolves.toBe("select * from acme_orders\n")
+    await expect(resolved.workspace!.fs.exists("ingestion/globex/models/orders.sql")).resolves.toBe(false)
+    expect(resolverScopes).toEqual([{ customers: ["acme", "globex"] }])
+    const resolvedDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
+    await expect(resolveWorkspaceSourceInstructionBlock(resolvedDefinition, resolved.workspace)).resolves.toBe([
+      "## Workspace Sources",
+      "### ingestion\n\nUse this source for acme ingestion models only.",
+    ].join("\n\n"))
+    expect(resolved.tools!.materialize_sources).toBeUndefined()
+  })
+
+  it("omits resolved Source Instructions when the resolved source is outside access scope", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const { resolveWorkspaceSourceInstructionBlock } = await import("../src/workspace-agent.ts")
+    const invocationContext = createAgentInvocationContextStore()
+    const workspaceDefinition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        ingestion: source.custom({
+          async resolve() {
+            return source.custom({
+              instructions: "Use this source for globex ingestion models only.",
+              mount: "ingestion/globex",
+              async getKeys() {
+                return ["models/orders.sql"]
+              },
+              async getItem(key) {
+                return { key, path: key, content: "select * from globex_orders\n" }
+              },
+            })
+          },
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            return { key, path: key, content: "" }
+          },
+        }),
+      },
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: {
+              grants: [{ path: "ingestion/acme" }],
+              scope: "acme",
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace(), "read", {
+      context: invocationContext,
+      workspaceDefinition,
+    })
+
+    await expect(resolved.workspace!.fs.exists("ingestion/globex/models/orders.sql")).resolves.toBe(false)
+    const resolvedDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
+    await expect(resolveWorkspaceSourceInstructionBlock(resolvedDefinition, resolved.workspace)).resolves.toBeUndefined()
   })
 
   it("fails closed when access is ordered after another capability", async () => {

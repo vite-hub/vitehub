@@ -41,6 +41,28 @@ Source keys are named origins. A glob, file, fetch, or GitHub source is not auto
 
 `instructions` is optional model-facing guidance for agents that use the Workspace. It does not grant access or change which files are visible.
 
+## Invocation-scoped source resolution
+
+Sources can resolve their concrete origin, Mount, and Source Instructions for one invocation from trusted runtime context. Use this when the same Source key should point at a narrowed origin after Access has selected a Workspace Scope.
+
+```ts
+source.github(({ invocation }) => {
+  const scope = invocation.context.get<{ customers: string[] }>('support.customerScope')
+  const customer = scope?.customers[0]
+  if (!customer)
+    return false
+
+  return {
+    repo: 'quiverdk/ingestion',
+    root: `dbt/${customer}`,
+    mount: `ingestion/${customer}`,
+    instructions: `Use this source only for ${customer} ingestion models.`,
+  }
+})
+```
+
+The resolver reads Agent Invocation Context Values and the Selected Workspace Scope, not model output. Access still enforces visibility, and scope-affecting resolved options are fingerprinted so source caches do not reuse data across scopes.
+
 ## Use a workspace from server code
 
 ```ts [server/api/docs.get.ts]

@@ -27,6 +27,14 @@ _Avoid_: Input, files, context, resource, mount, connector
 Model-facing guidance attached to a Source that explains what the Source is for and how an Agent should use it.
 _Avoid_: Source description, source metadata, prompt fragment
 
+**Source Resolution**:
+The trusted step that turns a Source declaration into the concrete Source origin, Mount, and Source Instructions for one Workspace runtime surface.
+_Avoid_: Source callback, dynamic source, provider options
+
+**Invocation-Scoped Source Resolution**:
+Source Resolution that narrows a Source for one Agent Invocation from trusted invocation context, usually the Selected Workspace Scope.
+_Avoid_: Invoker-aware source, prompt filter, per-user source
+
 **Materialized Source**:
 A Source whose items are written into the Workspace Store.
 _Avoid_: Stored connector, synced files
@@ -126,7 +134,7 @@ _Avoid_: Open workspace, sandbox, mount
 - A **Source Namespace** contains local, inline, tree, and provider Source helpers.
 - A **Source Map** key is ordinary Source identity; a key such as `instructions` does not make Source content into Agent instructions.
 - A **Source** may have **Source Instructions**.
-- **Source Instructions** are static strings or string arrays on a Source declaration.
+- **Source Instructions** may be declared statically or produced by **Source Resolution**.
 - **Source Instructions** are explicit developer-authored Source configuration, not inferred provider metadata.
 - **Source Instructions** guide Agent behavior, but they do not grant access to hidden Sources or change Workspace Scope.
 - An Agent should receive **Source Instructions** only for Sources visible through the **Selected Workspace Scope**.
@@ -139,6 +147,10 @@ _Avoid_: Open workspace, sandbox, mount
 - A **Workspace Source Root** is a `workspace/` directory beside the Colocated Workspace Definition when present, otherwise the definition directory.
 - A **Source Map** key is the canonical identity of its Source.
 - A **Source** has zero or one **Mount**.
+- A **Source** may use **Source Resolution** to derive its origin, **Mount**, and **Source Instructions** before it is exposed through the **Workspace File Tree**.
+- **Invocation-Scoped Source Resolution** depends on trusted Agent Invocation inputs, not model output.
+- **Invocation-Scoped Source Resolution** may narrow a Source to the **Selected Workspace Scope**, but it does not replace Workspace Scope enforcement.
+- **Invocation-Scoped Source Resolution** cannot broaden visibility beyond the Sources and paths allowed by the **Selected Workspace Scope**.
 - A **Source** can expose local or external read-only information when that information has addressable files or items.
 - A **Source** must expose addressable files or items; query-only read tools belong outside the Source concept.
 - An **MCP Resource Source** is appropriate when an MCP Server mostly exposes read-only resources that can be addressed as files or items.
@@ -189,7 +201,7 @@ _Avoid_: Open workspace, sandbox, mount
 
 - "source" can mean source code, provenance, or data connector - resolved: in Workspace, **Source** means a named origin that exposes read-only addressable files or items.
 - "source instructions" were considered source descriptions or generic metadata - resolved: use **Source Instruction** for model-facing guidance about how an Agent should use a Source.
-- Dynamic Source Instructions were considered - resolved: keep **Source Instructions** static; invocation-specific guidance belongs in Agent or Capability instructions.
+- Dynamic Source Instructions were considered - resolved: **Source Instructions** may be produced by **Invocation-Scoped Source Resolution** when the guidance describes the resolved Source itself; invocation-specific audience or behavior guidance still belongs in Agent or Capability instructions.
 - Unplaced Source Instructions were considered explicit-placement-only - resolved: append visible Source Instructions by default at the end of Agent instructions, while allowing explicit placement.
 - Empty Source Instruction placement was considered for an explanatory fallback - resolved: render empty instructions so hidden or scoped-out Sources are not implied.
 - Custom heading ownership for Source Instruction placement was considered - resolved: the generated Source guidance block includes its own heading.
@@ -221,5 +233,6 @@ _Avoid_: Open workspace, sandbox, mount
 - Ambient `workspaceScope` invocation context was considered as authority - resolved: require an explicit **Workspace Scope Resolver** or **Default Workspace Scope**.
 - Static pre-registration for every customer scope was considered necessary - resolved: use inline Workspace Scope definitions from the **Workspace Scope Resolver** when grants are derived from trusted invocation context.
 - Source materialization under scoped access was considered for the first version - resolved: disable materialization for scoped V1 to avoid source metadata leakage.
+- Source-level narrowing was considered as direct invoker access - resolved: use **Invocation-Scoped Source Resolution** from trusted invocation context and the **Selected Workspace Scope**, not raw model-facing metadata or duplicate authorization logic inside a Source.
 - Build-time Workspace assets were considered a second user-facing read surface - resolved: users read one **Workspace File Tree** while asset provenance remains internal by default.
 - `open()` was considered as the Workspace execution-session method - resolved: use `startSession()` because it names the **Workspace Session** lifecycle.

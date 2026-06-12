@@ -11,6 +11,7 @@ const snapshot = vi.fn()
 const tools = vi.fn(() => ({}))
 const inspectTools = vi.fn(() => ({}))
 const createWorkspaceTools = vi.fn(() => ({}))
+const createWorkspaceSourceResolutionFacade = vi.fn(async (workspace: ReadonlyWorkspaceFacade | WritableWorkspaceFacade, definition: unknown) => ({ definition, workspace }))
 const resolveWorkspaceAutoCommit = vi.fn()
 const useWorkspace = vi.fn<() => ReadonlyWorkspaceFacade | WritableWorkspaceFacade>(() => ({
   diff,
@@ -50,6 +51,7 @@ vi.mock("ai", () => ({
 }))
 
 vi.mock("@vite-hub/workspace", () => ({
+  createWorkspaceSourceResolutionFacade,
   createWorkspaceTools,
   resolveWorkspaceAutoCommit,
   useWorkspace,
@@ -105,6 +107,8 @@ describe("defineAgent workspace option", () => {
     inspectTools.mockReturnValue({})
     createWorkspaceTools.mockReset()
     createWorkspaceTools.mockReturnValue({})
+    createWorkspaceSourceResolutionFacade.mockClear()
+    createWorkspaceSourceResolutionFacade.mockImplementation(async (workspace, definition) => ({ definition, workspace }))
     useWorkspace.mockClear()
   })
 

@@ -2,7 +2,7 @@ import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflar
 import { github as createGitHubSource, type GitHubSourceOptions as SourcePackageGitHubSourceOptions } from "@vite-hub/source"
 
 import { resolveWorkspaceEnv } from "../env.ts"
-import type { WorkspaceSource } from "../core/types.ts"
+import type { MaybePromise, WorkspaceSource, WorkspaceSourceResolutionContext } from "../core/types.ts"
 
 type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "mount" | "validate">
 type GitHubAuth = NonNullable<SourcePackageGitHubSourceOptions["auth"]>
@@ -11,7 +11,18 @@ export interface GitHubSourceOptions extends Omit<SourcePackageGitHubSourceOptio
   auth?: GitHubAuth
 }
 
-export function github(options: GitHubSourceOptions): WorkspaceSource {
+export type GitHubSourceResolver = (
+  context: WorkspaceSourceResolutionContext,
+) => MaybePromise<GitHubSourceOptions | false | null | undefined>
+
+export type GitHubSourceInput = GitHubSourceOptions | GitHubSourceResolver
+
+export function github(options: GitHubSourceOptions): WorkspaceSource
+export function github(resolve: GitHubSourceResolver): WorkspaceSource
+export function github(input: GitHubSourceInput): WorkspaceSource {
+  if (typeof input === "function") return resolvableGitHubSource(input)
+
+  const options = input
   const resolvedOptions = {
     ...options,
     mount: options.mount ?? inferRepositoryMount(options.repo),
@@ -72,6 +83,31 @@ export function github(options: GitHubSourceOptions): WorkspaceSource {
     async search(query, ctx) {
       const source = await getSourceForRoot(ctx.rootDir)
       return await source.search?.(query, ctx) ?? []
+    },
+  }
+}
+
+function resolvableGitHubSource(resolve: GitHubSourceResolver): WorkspaceSource {
+  return {
+    fingerprint: {
+      sourceResolution: "github",
+    },
+    materialize: "lazy",
+    async getKeys() {
+      return []
+    },
+    async getItem(key) {
+      throw new Error(`[vitehub] source.github() resolver did not resolve before reading ${JSON.stringify(key)}.`)
+    },
+    async getItems() {
+      return []
+    },
+    async search() {
+      return []
+    },
+    async resolve(ctx) {
+      const options = await resolve(ctx)
+      return options ? github(options) : false
     },
   }
 }

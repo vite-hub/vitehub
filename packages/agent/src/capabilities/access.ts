@@ -1,6 +1,6 @@
 import { workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
-import { createWorkspaceTools } from "@vite-hub/workspace"
+import { createWorkspaceSourceResolutionFacade, createWorkspaceTools } from "@vite-hub/workspace"
 
 import type {
   AgentCallbackContext,
@@ -252,14 +252,32 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
         throw new Error("[vitehub] access({ workspace }) is read-only in the first version and requires workspace.mode: \"read\".")
       }
       const scope = await resolveWorkspaceScope(options.workspace, context)
+      const sourceResolution = context.workspaceDefinition
+        ? await createWorkspaceSourceResolutionFacade(context.workspace, context.workspaceDefinition, {
+            invocation: {
+              context: context.context,
+              run: context.run,
+            },
+            selectedWorkspaceScope: {
+              all: scope.all,
+              paths: scope.paths,
+              role: scope.role,
+              scope: scope.scope,
+            },
+          })
+        : { definition: context.workspaceDefinition, workspace: context.workspace }
       const scopedWorkspace = scope.all
-        ? context.workspace
-        : createScopedWorkspaceFacade(context.workspace, scope)
+        ? sourceResolution.workspace
+        : createScopedWorkspaceFacade(sourceResolution.workspace, scope)
       context.context.set("access.workspaceScope", {
         all: scope.all,
+        paths: scope.paths,
         role: scope.role,
         scope: scope.scope,
       })
+      if (sourceResolution.definition && sourceResolution.definition !== context.workspaceDefinition) {
+        context.context.set("workspace.sourceResolution.definition", sourceResolution.definition)
+      }
       setWorkspaceOverride(context, scopedWorkspace)
     },
   })

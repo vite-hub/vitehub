@@ -257,6 +257,46 @@ export interface SourceContext {
   workspace: string
 }
 
+export type MaybePromise<T> = T | Promise<T>
+
+export interface WorkspaceSourceResolutionContextValueReader {
+  entries(): IterableIterator<[string, unknown]>
+  get<T = unknown>(id: string): T | undefined
+  has(id: string): boolean
+  toJSON?(): Record<string, unknown>
+}
+
+export interface WorkspaceSelectedScope {
+  all: boolean
+  paths?: readonly string[]
+  role?: string
+  scope: string
+}
+
+export interface WorkspaceSourceResolutionInvocation {
+  context: WorkspaceSourceResolutionContextValueReader
+  run?: {
+    channelId?: string
+    messageId?: string
+    origin?: string
+    runId?: string
+    threadId?: string
+  }
+}
+
+export interface WorkspaceSourceResolutionContext {
+  invocation: WorkspaceSourceResolutionInvocation
+  selectedWorkspaceScope?: WorkspaceSelectedScope
+  source: {
+    key: string
+    mountPath: string
+  }
+  workspace: Pick<WorkspaceDefinition, "name" | "rootDir" | "sourceRootDir">
+}
+
+export type WorkspaceSourceResolutionResult = WorkspaceSource | false | null | undefined
+export type WorkspaceSourceResolver = (context: WorkspaceSourceResolutionContext) => MaybePromise<WorkspaceSourceResolutionResult>
+
 export type WorkspaceMaterializeMode = "build" | "lazy"
 
 export type WorkspaceValidateMode = false | "request"
@@ -292,6 +332,7 @@ export interface WorkspaceSource {
   validate?: WorkspaceValidateMode
   fingerprint?: unknown
   instructions?: WorkspaceSourceInstructions
+  resolve?: WorkspaceSourceResolver
   prepare?(ctx: SourceContext): Promise<void>
   getKeys(ctx: SourceContext): Promise<string[]>
   getItem(key: string, ctx: SourceContext): Promise<WorkspaceSourceItem>
