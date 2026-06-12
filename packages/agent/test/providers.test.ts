@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { Message } from "chat"
 import { describe, expect, it, vi } from "vitest"
 
-import type { Adapter, ChatInstance, WebhookOptions } from "chat"
+import type { Adapter, ChatInstance, StreamChunk, WebhookOptions } from "chat"
 
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
   copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
@@ -57,6 +57,9 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, secr
       const task = chatInstance.processMessage(adapter as unknown as Adapter, message.threadId, message, webhookOptions)
       if (!options.deferMessageProcessing) {
         await task
+      }
+      else {
+        task.catch(() => undefined)
       }
       return Response.json({ ok: true })
     }),
@@ -906,6 +909,111 @@ describe("server helpers", () => {
     expect(finish).toHaveBeenCalledOnce()
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:888", { markdown: "agent answer" })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:888", { markdown: "side message via telegram" })
+  })
+
+  it("commits native streamed chat responses before flushing finish hook messages", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const order: string[] = []
+    let streamConsumed!: () => void
+    let commitStarted!: () => void
+    let commitResponse!: () => void
+    const streamConsumedPromise = new Promise<void>(resolve => {
+      streamConsumed = resolve
+    })
+    const commitStartedPromise = new Promise<void>(resolve => {
+      commitStarted = resolve
+    })
+    const commitResponsePromise = new Promise<void>(resolve => {
+      commitResponse = resolve
+    })
+    adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
+      let text = ""
+      for await (const chunk of textStream) {
+        if (typeof chunk === "string") text += chunk
+        else if (chunk.type === "markdown_text") text += chunk.text
+      }
+      order.push(`stream:${text}`)
+      streamConsumed()
+      return { id: "stream-1", raw: { text }, threadId }
+    })
+    adapter.editMessage.mockImplementation(async (threadId: string, messageId: string, message: unknown) => {
+      order.push("commit:start")
+      commitStarted()
+      await commitResponsePromise
+      order.push("commit:done")
+      return { id: messageId, raw: { message }, threadId }
+    })
+    adapter.postMessage.mockImplementation(async (threadId: string, message: unknown) => {
+      order.push("post:follow-up")
+      return { id: "sent-follow-up", raw: { message }, threadId }
+    })
+    const finish = vi.fn(async (event) => {
+      const chat = event.extensions.get("chat") as { sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
+      await chat?.sendMessage?.({ markdown: "usage ok" })
+      order.push("finish:queued")
+    })
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          adapters: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({ text: "agent answer" }),
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 89,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 89,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    try {
+      await streamConsumedPromise
+      await expect(Promise.race([
+        commitStartedPromise.then(() => "commit-started"),
+        responsePromise.then(() => "settled"),
+      ])).resolves.toBe("commit-started")
+      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "stream-1", { markdown: "agent answer" })
+      expect(adapter.postMessage).not.toHaveBeenCalled()
+      await expect(Promise.race([
+        responsePromise.then(() => "settled"),
+        Promise.resolve("pending"),
+      ])).resolves.toBe("pending")
+
+      commitResponse()
+      const response = await responsePromise
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      expect(adapter.postMessage).toHaveBeenCalledTimes(1)
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "usage ok" })
+      expect(finish).toHaveBeenCalledOnce()
+      expect(order.indexOf("commit:done")).toBeLessThan(order.indexOf("post:follow-up"))
+      expect(order).toContain("stream:agent answer")
+    }
+    finally {
+      commitResponse()
+    }
   })
 
   it("flushes deferred non-streaming chat webhook work before returning", async () => {
