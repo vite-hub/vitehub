@@ -9,7 +9,7 @@ import { defineWorkspace, source, useWorkspace } from "../src/index.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
-import { setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig } from "../src/runtime/state.ts"
+import { setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, useWorkspace as useRuntimeWorkspace } from "../src/runtime/state.ts"
 
 const tempDirs: string[] = []
 
@@ -29,6 +29,20 @@ afterEach(async () => {
 describe("workspace public API", () => {
   it("rejects authored workspace names", () => {
     expect(() => defineWorkspace({ name: "api" } as never)).toThrow("Workspace names are inferred")
+  })
+
+  it("exports runtime useWorkspace without the source authoring entry", async () => {
+    const builtRuntimeState = await readFile(new URL("../dist/runtime/state.js", import.meta.url), "utf8")
+    expect(builtRuntimeState).not.toContain("@vite-hub/source")
+
+    registerWorkspace("runtime-api", defineWorkspace({
+      store: { provider: "memory" },
+    }))
+
+    const workspace = useRuntimeWorkspace("runtime-api", { mode: "write" })
+    await workspace.fs.writeFile("data.json", "{}")
+
+    expect(await workspace.fs.readFile("data.json")).toBe("{}")
   })
 
   it("uses the writable facade for synced reads and writes", async () => {
