@@ -6,12 +6,25 @@ function isSyntheticRoot(file: ChatDevtoolsFileTreeItem) {
   return file.kind === "directory" && (file.path === "" || file.path === "/")
 }
 
+function hasMaterializedChildren(file: ChatDevtoolsFileTreeItem): boolean {
+  return file.kind === "directory" && Boolean(file.children?.length) && Boolean(file.source)
+}
+
 export function syncExpandedFilePaths(files: ChatDevtoolsFileTreeItem[], current: ReadonlySet<string>) {
   const expanded = new Set(current)
   const roots = files.filter(isSyntheticRoot)
 
   if (roots.length === 1) {
     expanded.add(roots[0]!.path)
+  }
+
+  const pending = [...files]
+  while (pending.length) {
+    const file = pending.shift()!
+    if (hasMaterializedChildren(file)) {
+      expanded.add(file.path)
+    }
+    pending.push(...(file.children || []))
   }
 
   return expanded

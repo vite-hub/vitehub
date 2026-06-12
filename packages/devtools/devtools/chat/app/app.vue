@@ -346,6 +346,7 @@ function toggleFile(file: ChatDevtoolsFileTreeItem) {
 
 function fileMaterialization(file: ChatDevtoolsFileTreeItem): "lazy" | "materialized" | undefined {
   const meta = file as ChatDevtoolsFileTreeItem & FileMaterialization
+  if (meta.source && meta.kind === "directory" && meta.children?.length) return "materialized"
   if (meta.status === "ready" || meta.materialized || meta.materializedAt) return "materialized"
   if (meta.status === "lazy" || (meta.materialized === false && meta.materialize === "lazy")) return "lazy"
   return undefined
@@ -1050,14 +1051,14 @@ onBeforeUnmount(() => {
               class="min-h-full px-3 py-2"
             >
               <template #content="{ content, message, parts }">
-                <div class="flex min-w-0 flex-col gap-2 text-sm/5">
+                <div class="flex w-full min-w-0 flex-col gap-2 text-sm/5">
                   <UCollapsible
                     v-if="isLoadingMessage(message) || hasToolParts(parts)"
                     :default-open="isLoadingMessage(message) || hasRunningTool(parts)"
                     :unmount-on-hide="false"
                     :ui="{
-                      root: 'min-w-0',
-                      content: 'overflow-visible',
+                      root: 'w-full min-w-0',
+                      content: 'w-full overflow-visible',
                     }"
                   >
                     <button
@@ -1080,7 +1081,7 @@ onBeforeUnmount(() => {
                     </button>
 
                     <template #content>
-                      <div class="flex min-w-0 flex-col gap-2 px-px pb-px pt-2 text-xs/5">
+                      <div class="flex w-full min-w-0 flex-col gap-2 px-px pb-px pt-2 text-xs/5">
                         <UChatTool
                           v-for="part in chatToolParts(parts)"
                           :key="part.tool.id"
@@ -1090,8 +1091,8 @@ onBeforeUnmount(() => {
                           variant="card"
                           :default-open="false"
                           :ui="{
-                            root: 'min-w-0 rounded-md',
-                            trigger: 'min-h-7 px-2 py-1 text-xs focus-visible:ring-1 focus-visible:ring-muted focus-visible:outline-none',
+                            root: 'w-full min-w-0 self-stretch rounded-md',
+                            trigger: 'min-h-7 w-full px-2 py-1 text-xs focus-visible:ring-1 focus-visible:ring-muted focus-visible:outline-none',
                             leading: 'size-3.5',
                             leadingIcon: 'size-3.5 opacity-70',
                             label: 'min-w-0 truncate',

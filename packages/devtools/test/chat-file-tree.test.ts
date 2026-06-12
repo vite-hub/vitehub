@@ -29,6 +29,25 @@ describe("chat file tree", () => {
     ])
   })
 
+  it("opens materialized source folders when children arrive", () => {
+    const files = [
+      { ...directory("forecasting-engine", [file("forecasting-engine/README.md")]), source: "forecasting-engine" },
+      { ...directory("ingestion", [file("ingestion/README.md")]), source: "ingestion" },
+      directory("instructions", [file("instructions/AGENTS.md")]),
+    ]
+
+    const expanded = syncExpandedFilePaths(files, new Set())
+
+    expect([...expanded]).toEqual(["forecasting-engine", "ingestion"])
+    expect(flattenFiles(files, expanded).map(row => row.path)).toEqual([
+      "forecasting-engine",
+      "forecasting-engine/README.md",
+      "ingestion",
+      "ingestion/README.md",
+      "instructions",
+    ])
+  })
+
   it("opens a single synthetic root without recursively expanding workspace folders", () => {
     const files = [
       directory("", [

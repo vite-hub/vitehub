@@ -262,10 +262,11 @@ function metadataErrorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : "Chat DevTools metadata inspection failed."
 }
 
-function startMetadataResolution(
+async function startMetadataResolution(
   entry: ChatDevtoolsAgentEntry,
   selection: ChatDevtoolsInvokerSelection = {},
-): void {
+  options: { force?: boolean } = {},
+): Promise<void> {
   if (!canResolveWorkspaceMetadata(entry.agent)) {
     entry.metadataError = undefined
     entry.metadataSelectionKey = "static"
@@ -276,7 +277,7 @@ function startMetadataResolution(
 
   const metadataSelection = metadataSelectionForAgent(entry.agent, selection)
   const selectionKey = metadataSelectionKey(metadataSelection)
-  if (entry.metadataSelectionKey === selectionKey) {
+  if (!options.force && entry.metadataSelectionKey === selectionKey) {
     return
   }
 
@@ -304,6 +305,7 @@ function startMetadataResolution(
       entry.metadataTask = undefined
     })
   entry.metadataTask = task
+  if (options.force) await task
 }
 
 async function discoverChatAgents(server: ViteDevServer, state: ChatDevtoolsBridgeState): Promise<void> {
@@ -604,6 +606,7 @@ async function sendDevtoolsUIMessage(
     session.uiMessages = [...baseMessages, latestAssistant]
     await onChange?.(await serializeState(state, selected))
   }
+  await startMetadataResolution(entry, requestedSelection, { force: true })
   return await serializeState(state, selected)
 }
 
@@ -707,7 +710,7 @@ async function handleChatDevtoolsRequest(
   const selected = getSelectedName(state, body.chat)
   const entry = selected ? state.entries.get(selected) : undefined
   if (entry) {
-    startMetadataResolution(entry, invokerSelection)
+    await startMetadataResolution(entry, invokerSelection)
   }
 
   const action = normalizeChatDevtoolsAction(body.action)
