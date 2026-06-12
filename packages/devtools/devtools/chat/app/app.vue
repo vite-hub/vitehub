@@ -17,7 +17,7 @@ import {
   type ChatDevtoolsToolDefinition,
 } from "../../../src/chat-shared.js"
 import { resolveChatBridgeRoute } from "./bridge-route"
-import { flattenFiles, syncExpandedFilePaths, type FileRow } from "./file-tree"
+import { flattenFiles, sourceRootStates, syncExpandedFilePaths, type FileRow, type SourceRootState } from "./file-tree"
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
 type ChatMessage = UIMessage & { chat?: string }
@@ -53,6 +53,7 @@ const chatMessages = computed(() => {
 })
 const pendingUserMessage = ref<ChatMessage | undefined>()
 const expandedFilePaths = ref(new Set<string>())
+const previousSourceRootStates = ref(new Map<string, SourceRootState>())
 const selectedFilePath = ref<string | undefined>()
 const sidebarWidth = ref(340)
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
@@ -322,7 +323,8 @@ function renderToolOutput(tool: ChatDevtoolsTool) {
 }
 
 function syncExpandedFiles(files: ChatDevtoolsFileTreeItem[]) {
-  expandedFilePaths.value = syncExpandedFilePaths(files, expandedFilePaths.value)
+  expandedFilePaths.value = syncExpandedFilePaths(files, expandedFilePaths.value, previousSourceRootStates.value)
+  previousSourceRootStates.value = sourceRootStates(files)
 }
 
 function fileLabel(file: ChatDevtoolsFileTreeItem) {
@@ -346,7 +348,6 @@ function toggleFile(file: ChatDevtoolsFileTreeItem) {
 
 function fileMaterialization(file: ChatDevtoolsFileTreeItem): "lazy" | "materialized" | undefined {
   const meta = file as ChatDevtoolsFileTreeItem & FileMaterialization
-  if (meta.source && meta.kind === "directory" && meta.children?.length) return "materialized"
   if (meta.status === "ready" || meta.materialized || meta.materializedAt) return "materialized"
   if (meta.status === "lazy" || (meta.materialized === false && meta.materialize === "lazy")) return "lazy"
   return undefined

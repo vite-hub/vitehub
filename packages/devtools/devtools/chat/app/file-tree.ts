@@ -1,16 +1,36 @@
 import type { ChatDevtoolsFileTreeItem } from "../../../src/chat-shared.js"
 
 export type FileRow = ChatDevtoolsFileTreeItem & { depth: number, expanded?: boolean }
+export type SourceRootState = NonNullable<ChatDevtoolsFileTreeItem["status"]>
 
 function isSyntheticRoot(file: ChatDevtoolsFileTreeItem) {
   return file.kind === "directory" && (file.path === "" || file.path === "/")
 }
 
-function hasMaterializedChildren(file: ChatDevtoolsFileTreeItem): boolean {
-  return file.kind === "directory" && Boolean(file.children?.length) && Boolean(file.source)
+function sourceRootState(file: ChatDevtoolsFileTreeItem): SourceRootState | undefined {
+  if (file.kind !== "directory" || !file.source) return undefined
+  return file.status
 }
 
-export function syncExpandedFilePaths(files: ChatDevtoolsFileTreeItem[], current: ReadonlySet<string>) {
+export function sourceRootStates(files: ChatDevtoolsFileTreeItem[]): Map<string, SourceRootState> {
+  const states = new Map<string, SourceRootState>()
+  const pending = [...files]
+  while (pending.length) {
+    const file = pending.shift()!
+    const state = sourceRootState(file)
+    if (state) {
+      states.set(file.path, state)
+    }
+    pending.push(...(file.children || []))
+  }
+  return states
+}
+
+export function syncExpandedFilePaths(
+  files: ChatDevtoolsFileTreeItem[],
+  current: ReadonlySet<string>,
+  previousSourceRootStates: ReadonlyMap<string, SourceRootState> = new Map(),
+) {
   const expanded = new Set(current)
   const roots = files.filter(isSyntheticRoot)
 
@@ -18,13 +38,11 @@ export function syncExpandedFilePaths(files: ChatDevtoolsFileTreeItem[], current
     expanded.add(roots[0]!.path)
   }
 
-  const pending = [...files]
-  while (pending.length) {
-    const file = pending.shift()!
-    if (hasMaterializedChildren(file)) {
-      expanded.add(file.path)
+  for (const [path, state] of sourceRootStates(files)) {
+    const previousState = previousSourceRootStates.get(path)
+    if (state === "ready" && previousState !== undefined && previousState !== "ready") {
+      expanded.add(path)
     }
-    pending.push(...(file.children || []))
   }
 
   return expanded

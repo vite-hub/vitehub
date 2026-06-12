@@ -33,6 +33,7 @@ export interface ChatDevtoolsFileTreeItem {
   materializedAt?: string
   path: string
   source?: string
+  status?: "lazy" | "updating" | "ready" | "error"
   updatedAt?: string
 }
 
