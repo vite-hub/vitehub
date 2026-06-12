@@ -1,6 +1,6 @@
 import { workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
-import { createWorkspaceTools } from "@vite-hub/workspace"
+import { createWorkspaceSourceResolutionFacade, createWorkspaceTools } from "@vite-hub/workspace"
 
 import type {
   AgentCallbackContext,
@@ -167,6 +167,7 @@ export type AccessWorkspaceOptionsFor<
 
 interface ResolvedWorkspaceScope {
   all: boolean
+  definition: AccessWorkspaceScopeDefinition
   paths: string[]
   role: AccessRoleName
   scope: string
@@ -252,14 +253,33 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
         throw new Error("[vitehub] access({ workspace }) is read-only in the first version and requires workspace.mode: \"read\".")
       }
       const scope = await resolveWorkspaceScope(options.workspace, context)
-      const scopedWorkspace = scope.all
-        ? context.workspace
-        : createScopedWorkspaceFacade(context.workspace, scope)
+      const sourceResolution = context.workspaceDefinition
+        ? await createWorkspaceSourceResolutionFacade(context.workspace, context.workspaceDefinition, {
+            invocation: {
+              context: context.context,
+              run: context.run,
+            },
+            selectedWorkspaceScope: {
+              all: scope.all,
+              paths: scope.paths,
+              role: scope.role,
+              scope: scope.scope,
+            },
+          })
+        : { definition: context.workspaceDefinition, workspace: context.workspace }
+      const finalScope = finalizeResolvedWorkspaceScope(scope, sourceResolution.definition)
+      const scopedWorkspace = finalScope.all
+        ? sourceResolution.workspace
+        : createScopedWorkspaceFacade(sourceResolution.workspace, finalScope)
       context.context.set("access.workspaceScope", {
-        all: scope.all,
-        role: scope.role,
-        scope: scope.scope,
+        all: finalScope.all,
+        paths: finalScope.paths,
+        role: finalScope.role,
+        scope: finalScope.scope,
       })
+      if (sourceResolution.definition && sourceResolution.definition !== context.workspaceDefinition) {
+        context.context.set("workspace.sourceResolution.definition", sourceResolution.definition)
+      }
       setWorkspaceOverride(context, scopedWorkspace)
     },
   })
@@ -296,9 +316,18 @@ async function resolveWorkspaceScope<
 
   return {
     all,
+    definition,
     paths: all ? [""] : scopePaths(definition, context.workspaceDefinition),
     role,
     scope: selection.scope,
+  }
+}
+
+function finalizeResolvedWorkspaceScope(scope: ResolvedWorkspaceScope, workspaceDefinition: WorkspaceDefinition | undefined): ResolvedWorkspaceScope {
+  if (scope.all) return scope
+  return {
+    ...scope,
+    paths: scopePaths(scope.definition, workspaceDefinition),
   }
 }
 
