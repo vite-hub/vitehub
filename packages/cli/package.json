@@ -38,12 +38,12 @@
     "test": "vp run -t @vite-hub/cli#build && vp test"
   },
   "dependencies": {
-    "@vite-hub/internal": "workspace:*",
     "pathe": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/agent": "workspace:*",
+    "@vite-hub/internal": "workspace:*",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
