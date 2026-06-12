@@ -33,10 +33,14 @@ export default defineConfig({
         dependsOn: ["@vite-hub/kv#build"],
       },
       lint: "vp exec oxlint . --ignore-path .gitignore",
-      "playground:vite:build": "cd playground/vite && vp build",
-      "playground:vite:build:cloudflare": {
-        command: "vp run playground:vite:build --mode chat",
+      "playground:vite:build": {
+        cache: false,
+        command: "cd playground/vite && vp build",
         dependsOn: ["build"],
+      },
+      "playground:vite:build:cloudflare": {
+        cache: false,
+        command: "vp run playground:vite:build --mode chat",
       },
       "playground:vite:build:local": {
         cache: false,
@@ -70,9 +74,18 @@ export default defineConfig({
         command: "node test/run-package-task.mjs test",
       },
       "test:contracts": "vp test",
-      "test:output": "vp test --config test/output/vitest.config.ts",
-      "test:output:cloudflare": "vp test --config test/output/vitest.config.ts test/output/cloudflare.test.ts",
-      "test:output:vercel": "vp test --config test/output/vitest.config.ts test/output/vercel.test.ts",
+      "test:output": {
+        cache: false,
+        command: "vp test --config test/output/vitest.config.ts",
+      },
+      "test:output:cloudflare": {
+        cache: false,
+        command: "vp test --config test/output/vitest.config.ts test/output/cloudflare.test.ts",
+      },
+      "test:output:vercel": {
+        cache: false,
+        command: "vp test --config test/output/vitest.config.ts test/output/vercel.test.ts",
+      },
       typecheck: {
         cache: false,
         command: [
