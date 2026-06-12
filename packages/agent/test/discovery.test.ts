@@ -437,6 +437,93 @@ describe("agent chat capability discovery", () => {
     expect(readInstructions).toHaveBeenCalledTimes(1)
   })
 
+  it("refreshes chat devtools workspace metadata after source materialization", async () => {
+    const root = await createTempRoot("vitehub-agent-devtools-materialized-source-")
+    await mkdir(join(root, "server", "agents", "support"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default {}", "utf8")
+
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { source } = await import("@vite-hub/workspace")
+    const { registerWorkspace } = await import("@vite-hub/workspace/test")
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      capabilities: [chat()],
+      instructions: "Answer from the workspace.",
+      model: {} as never,
+      workspace: {
+        store: { provider: "memory" },
+        sources: {
+          ingestion: source.custom({
+            cache: { maxAge: 60 },
+            materialize: "lazy",
+            mount: "ingestion",
+            async getKeys() {
+              return ["customers/acme.csv"]
+            },
+            async getItem(key) {
+              return { content: "sku,demand\nA,4\n", key }
+            },
+          }),
+        },
+      },
+      async run({ workspace }) {
+        const fs = workspace?.fs as { materializeSources?: (options: { sources: string[] }) => Promise<unknown> } | undefined
+        await fs?.materializeSources?.({ sources: ["ingestion"] })
+        return "materialized ingestion"
+      },
+    }), { workspace: "support" })
+    registerWorkspace("support", agent as never)
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
+
+    await configurePluginServer(plugin, server)
+    const initialState = await waitForMetadataState(handlers[0]!, { action: "get-state", chat: "support" })
+    expect(initialState.files).toEqual([
+      expect.objectContaining({
+        materialized: false,
+        path: "ingestion",
+        source: "ingestion",
+        status: "lazy",
+      }),
+    ])
+
+    const sendResponse = await invokeMiddleware(handlers[0]!, {
+      action: "send",
+      chat: "support",
+      stream: true,
+      text: "load ingestion",
+    })
+    const events = sendResponse.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+    const finalState = events.filter(event => event.type === "state").at(-1)?.state
+
+    expect(finalState.files).toEqual([
+      expect.objectContaining({
+        children: [
+          expect.objectContaining({
+            children: [
+              expect.objectContaining({
+                kind: "file",
+                path: "ingestion/customers/acme.csv",
+                source: "ingestion",
+              }),
+            ],
+            kind: "directory",
+            path: "ingestion/customers",
+            source: "ingestion",
+          }),
+        ],
+        materialized: true,
+        path: "ingestion",
+        source: "ingestion",
+        status: "ready",
+      }),
+    ])
+    expect(textFromUiMessage(finalState.uiMessages[1])).toBe("materialized ingestion")
+  })
+
   it("omits unfinished tool-call assistant messages from devtools prompt history", async () => {
     const { createChatDevtoolsPromptHistory } = await import("../src/chat/vite/devtools-bridge.ts")
     const history = createChatDevtoolsPromptHistory([

@@ -262,10 +262,11 @@ function metadataErrorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : "Chat DevTools metadata inspection failed."
 }
 
-function startMetadataResolution(
+async function startMetadataResolution(
   entry: ChatDevtoolsAgentEntry,
   selection: ChatDevtoolsInvokerSelection = {},
-): void {
+  options: { force?: boolean } = {},
+): Promise<void> {
   if (!canResolveWorkspaceMetadata(entry.agent)) {
     entry.metadataError = undefined
     entry.metadataSelectionKey = "static"
@@ -276,7 +277,7 @@ function startMetadataResolution(
 
   const metadataSelection = metadataSelectionForAgent(entry.agent, selection)
   const selectionKey = metadataSelectionKey(metadataSelection)
-  if (entry.metadataSelectionKey === selectionKey) {
+  if (!options.force && entry.metadataSelectionKey === selectionKey) {
     return
   }
 
@@ -304,6 +305,7 @@ function startMetadataResolution(
       entry.metadataTask = undefined
     })
   entry.metadataTask = task
+  if (options.force) await task
 }
 
 async function discoverChatAgents(server: ViteDevServer, state: ChatDevtoolsBridgeState): Promise<void> {
@@ -483,11 +485,35 @@ function isToolUIMessagePart(part: unknown): part is Record<string, unknown> {
     || (typeof part.type === "string" && part.type.startsWith("tool-"))
 }
 
+function uiToolPartName(part: Record<string, unknown>): string | undefined {
+  if (part.type === "dynamic-tool") {
+    return typeof part.toolName === "string" && part.toolName ? part.toolName : undefined
+  }
+  if (typeof part.type === "string" && part.type.startsWith("tool-")) {
+    const name = part.type.slice("tool-".length)
+    return name || undefined
+  }
+}
+
+function uiToolPartId(part: Record<string, unknown>, name: string, index: number): string {
+  if (typeof part.toolCallId === "string" && part.toolCallId) return part.toolCallId
+  if (typeof part.id === "string" && part.id) return part.id
+  return `${name}-${index}`
+}
+
 function toolPartHasOutput(part: Record<string, unknown>): boolean {
   return part.state === "output-available"
     || part.state === "output-denied"
     || Object.prototype.hasOwnProperty.call(part, "output")
     || typeof part.errorText === "string"
+}
+
+function completedMaterializeSourceToolIds(message: UIMessage): string[] {
+  return (message.parts || []).flatMap((part, index) => {
+    if (!isToolUIMessagePart(part) || !toolPartHasOutput(part)) return []
+    const name = uiToolPartName(part)
+    return name === "materialize_sources" ? [uiToolPartId(part, name, index)] : []
+  })
 }
 
 function hasIncompleteToolParts(message: UIMessage): boolean {
@@ -533,12 +559,13 @@ async function sendDevtoolsUIMessage(
   if (!entry) {
     throw new Response(`Unknown chat: ${selected}`, { status: 404 })
   }
+  const selectedEntry: ChatDevtoolsAgentEntry = entry
 
   const session = getSession(state, selected)
   state.selected = selected
   const requestedSelection = normalizeInvokerSelection(input)
   const requestedProfileId = requestedSelection.invokerProfileId
-  assertKnownInvokerProfile(entry.metadata, requestedProfileId)
+  assertKnownInvokerProfile(selectedEntry.metadata, requestedProfileId)
   if (
     session.uiMessages.length > 0
     && ((requestedSelection.invokerFallback && !session.invokerFallback)
@@ -550,7 +577,7 @@ async function sendDevtoolsUIMessage(
     session.invokerFallback = requestedSelection.invokerFallback === true
     session.invokerProfileId = session.invokerFallback
       ? undefined
-      : requestedProfileId || entry.metadata.invokerProfiles?.[0]?.id
+      : requestedProfileId || selectedEntry.metadata.invokerProfiles?.[0]?.id
   }
   const userMessage = createUserUIMessage(text)
   const baseMessages = [...createChatDevtoolsPromptHistory(session.uiMessages), userMessage]
@@ -567,7 +594,7 @@ async function sendDevtoolsUIMessage(
     run,
     timeout: 90_000,
   }
-  const stream = readableStreamFromResult(await streamAgentTrigger(entry.agent as never, runtimeContext as never, "chat.message", triggerInput, {
+  const stream = readableStreamFromResult(await streamAgentTrigger(selectedEntry.agent as never, runtimeContext as never, "chat.message", triggerInput, {
     output: "ui-message-stream",
     async onInvocation(invocation) {
       session.thinkingFallback = typeof invocation.metadata?.thinkingFallback === "string"
@@ -578,6 +605,16 @@ async function sendDevtoolsUIMessage(
   }))
   const { readUIMessageStream } = await import("ai") as { readUIMessageStream: ReadUIMessageStream }
   let latestAssistant: UIMessage | undefined
+  const refreshedMaterializationToolIds = new Set<string>()
+  async function refreshCompletedMaterializations(message: UIMessage): Promise<void> {
+    const completedIds = completedMaterializeSourceToolIds(message)
+      .filter(id => !refreshedMaterializationToolIds.has(id))
+    if (!completedIds.length) return
+
+    for (const id of completedIds) refreshedMaterializationToolIds.add(id)
+    await startMetadataResolution(selectedEntry, requestedSelection, { force: true })
+  }
+
   for await (const assistantMessage of readUIMessageStream({ stream })) {
     const now = new Date().toISOString()
     latestAssistant = {
@@ -590,6 +627,7 @@ async function sendDevtoolsUIMessage(
     }
     session.title = titleFromUIMessage(latestAssistant) || session.title
     session.uiMessages = [...baseMessages, latestAssistant]
+    await refreshCompletedMaterializations(latestAssistant)
     await onChange?.(await serializeState(state, selected))
   }
   if (latestAssistant) {
@@ -604,6 +642,7 @@ async function sendDevtoolsUIMessage(
     session.uiMessages = [...baseMessages, latestAssistant]
     await onChange?.(await serializeState(state, selected))
   }
+  await startMetadataResolution(selectedEntry, requestedSelection, { force: true })
   return await serializeState(state, selected)
 }
 
@@ -707,7 +746,7 @@ async function handleChatDevtoolsRequest(
   const selected = getSelectedName(state, body.chat)
   const entry = selected ? state.entries.get(selected) : undefined
   if (entry) {
-    startMetadataResolution(entry, invokerSelection)
+    await startMetadataResolution(entry, invokerSelection)
   }
 
   const action = normalizeChatDevtoolsAction(body.action)
