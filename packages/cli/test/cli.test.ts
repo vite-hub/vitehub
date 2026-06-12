@@ -165,6 +165,25 @@ describe("ViteHub CLI", () => {
     expect(stdout.output()).toContain("create\ttest-resource\tdemo")
   })
 
+  it("fails closed when provision credentials are missing", async () => {
+    const rootDir = await createTempDir()
+    const apply = vi.fn(async () => ({}))
+    const stderr = stream()
+
+    const exitCode = await runViteHubCli({
+      args: ["provision", "run", "--provider", "cloudflare"],
+      cwd: rootDir,
+      env: {},
+      loadConfig: async () => ({ plugins: [provisionPlugin(apply)], root: rootDir }) as never,
+      stderr,
+      stdout: stream(),
+    })
+
+    expect(exitCode).toBe(1)
+    expect(apply).not.toHaveBeenCalled()
+    expect(stderr.output()).toContain("CLOUDFLARE_ACCOUNT_ID")
+  })
+
   it("applies provision steps and writes ids to provision state", async () => {
     const rootDir = await createTempDir()
     const apply = vi.fn(async () => ({ ids: { cloudflare: { test: { demo: "id-1" } } } }))
@@ -172,6 +191,7 @@ describe("ViteHub CLI", () => {
     const exitCode = await runViteHubCli({
       args: ["provision", "run", "--provider", "cloudflare"],
       cwd: rootDir,
+      env: { CLOUDFLARE_ACCOUNT_ID: "test-account", CLOUDFLARE_API_TOKEN: "test-token" },
       loadConfig: async () => ({ plugins: [provisionPlugin(apply)], root: rootDir }) as never,
       stdout: stream(),
     })

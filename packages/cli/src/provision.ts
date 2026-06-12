@@ -1,4 +1,5 @@
 import { mergeProvisionState, writeProvisionState } from "@vite-hub/internal/provision-state"
+import { resolveCloudflareProvisionConfig, resolveVercelProvisionConfig } from "@vite-hub/internal/provision"
 
 import type {
   ProvisionAction,
@@ -66,6 +67,18 @@ export async function runProvision(args: string[], context: ProvisionFeatureCont
   }
 
   const provider = parsed.provider
+  // Fail closed outside --dry-run: a credential-less run silently creating
+  // nothing would mask missing CI secrets behind a green step.
+  if (!parsed.dryRun) {
+    const config = provider === "cloudflare"
+      ? resolveCloudflareProvisionConfig(context.env)
+      : resolveVercelProvisionConfig(context.env)
+    if (!config) {
+      const required = provider === "cloudflare" ? "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN" : "VERCEL_TOKEN"
+      context.stderr.write(`Provision requires ${required} to be set. Use --dry-run to preview without credentials.\n`)
+      return 1
+    }
+  }
   const steps = (await options.collectSteps()).filter(step => step.provider === provider)
   const provisionContext: ProvisionContext = {
     env: context.env,
