@@ -145,9 +145,11 @@ describe("workspace types", () => {
     expectTypeOf(writable.tools.write().writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
     expectTypeOf(writable.startSession).toBeFunction()
     const workspaceOptions: WorkspaceModuleOptions = { assets: ["typed"], store: { provider: "memory" } }
+    const githubWorkspaceOptions: WorkspaceModuleOptions = { store: { branch: "main", provider: "github", repository: "acme/app", root: ".vitehub/workspaces/<workspace>" } }
     // @ts-expect-error syncOnBuild was removed in favor of assets
     const removedOptions: WorkspaceModuleOptions = { syncOnBuild: true }
     expectTypeOf(workspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()
+    expectTypeOf(githubWorkspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()
     expectTypeOf(removedOptions).toMatchTypeOf<WorkspaceModuleOptions>()
     const session = null as unknown as Awaited<ReturnType<typeof writable.startSession>>
     // @ts-expect-error runtime selection belongs in workspace config, not open options
