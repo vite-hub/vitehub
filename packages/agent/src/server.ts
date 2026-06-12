@@ -915,6 +915,9 @@ async function handleChatSdkMessage(
     await postChatErrorFallback(error, thread, message, options, input, run)
     throw error
   }
+  finally {
+    typing?.stop()
+  }
 }
 
 async function createChatWebhookHandler(

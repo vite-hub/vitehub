@@ -156,6 +156,7 @@ _Avoid_: Per-user timezone, local server time
 - A **Schedule Runtime Helper** can create or manage **Recurring Runtime Schedules**.
 - One-time future execution is not part of Scheduling vocabulary in the first version.
 - A **Provider Wake** can drive Runtime Schedule execution without being the Runtime Schedule itself.
+- Schedule Provider Wake may require host-specific Worker entrypoint wiring when a host owns the deployed Worker export. ADR 0051 allows `@vite-hub/schedule` to generate Nitro Cloudflare hook/config wiring as a narrow exception to the Vite-only Framework Integration rule.
 - A due **Schedule Definition** or **Runtime Schedule** creates a **Schedule Run**.
 - A **Schedule Run** can have one or more **Schedule Run Attempts**.
 - A **Schedule Run** can start an Agent Invocation without becoming an Agent Invocation.
