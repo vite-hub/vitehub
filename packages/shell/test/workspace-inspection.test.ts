@@ -11,6 +11,7 @@ import { MemoryWorkspace } from "./workspace-test-utils.ts"
 describe("@vite-hub/shell workspace inspection", () => {
   it("runs workspace inspection through the real shell runtime", async () => {
     const workspace = new MemoryWorkspace({
+      ".secret": "hidden\n",
       "README.md": "# Docs\n",
       "models/customers.sql": "select * from customers\n",
       "models/orders.sql": "select * from orders\n",
@@ -24,6 +25,23 @@ describe("@vite-hub/shell workspace inspection", () => {
     })).resolves.toMatchObject({
       exitCode: 0,
       stdout: "# Docs\n/workspace\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "cat README.md", {
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "# Docs\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "if true; then cat README.md; fi", {
+      commands: ["cat"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "# Docs\n",
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "cat README.md | wc -l", {
@@ -42,6 +60,57 @@ describe("@vite-hub/shell workspace inspection", () => {
     })).resolves.toMatchObject({
       exitCode: 0,
       stdout: expect.stringContaining("customers.sql"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "ls .", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "README.md\nmodels\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "ls -a .", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: ".\n..\n.secret\nREADME.md\nmodels\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "ls -d models", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "models\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "ls *.md", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "README.md\n",
+    })
+
+    const slowFs = createReadonlyWorkspaceFs(workspace)
+    slowFs.readdirWithFileTypes = async () => await new Promise(() => {})
+
+    await expect(runWorkspaceInspectionCommand(workspace, "ls models", {
+      commands: ["ls"],
+      cwd: workspaceMountPoint,
+      fs: slowFs,
+      timeout: 20,
+    })).resolves.toMatchObject({
+      event: "command_timed_out",
+      exitCode: null,
+      stderr: expect.stringContaining("Workspace shell command timed out after 20ms"),
+      timedOut: true,
     })
 
     await expect(runWorkspaceInspectionCommand(workspace, "cat", {
@@ -394,6 +463,42 @@ describe("@vite-hub/shell workspace inspection", () => {
       stdout: expect.not.stringContaining("Workspace search is too broad"),
     })
 
+    await expect(runWorkspaceInspectionCommand(workspace, "find -name '*.sql'", {
+      commands: ["find"],
+      cwd: `${workspaceMountPoint}/models`,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "./customers.sql\n./orders.sql\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "find /workspace/models -name '*.sql'", {
+      commands: ["find"],
+      cwd: `${workspaceMountPoint}/models`,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "/workspace/models/customers.sql\n/workspace/models/orders.sql\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "find *.md -name README.md", {
+      commands: ["find"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "README.md\n",
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "find models -name", {
+      commands: ["find"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      exitCode: 1,
+      stderr: expect.stringContaining("unknown predicate '-name'"),
+    })
+
     await expect(runWorkspaceInspectionCommand(workspace, "rg customers models && wc -l models/customers.sql", {
       commands: ["rg", "wc"],
       cwd: workspaceMountPoint,
@@ -529,6 +634,17 @@ describe("@vite-hub/shell workspace inspection", () => {
     })).resolves.toMatchObject({
       stderr: expect.not.stringContaining("Workspace path is not mounted"),
       stdout: expect.not.stringContaining("Workspace path is not mounted"),
+    })
+
+    await expect(runWorkspaceInspectionCommand(workspace, "find models -type d -name \"forecast*\" | xargs -I {} rg -i \"class.*Forecast\" {} || true", {
+      commands: ["find", "rg"],
+      cwd: workspaceMountPoint,
+      fs,
+    })).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stderr: expect.stringContaining("Unsupported workspace shell command: xargs"),
+      stdout: expect.stringContaining("Use only the available workspace commands"),
     })
   })
 

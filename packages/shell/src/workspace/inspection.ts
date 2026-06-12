@@ -30,6 +30,8 @@ export async function runWorkspaceInspectionCommand(
   if (preflight) return preflight
   const missingPath = await preflightMissingWorkspacePath(command, options.fs, options.cwd)
   if (missingPath) return missingPath
+  const unsupported = preflightUnsupportedWorkspaceCommand(command, options.commands)
+  if (unsupported) return unsupported
   const runtime = createShellRuntime({
     policy: {
       maxOutputLength,
@@ -225,6 +227,74 @@ function searchNoMatchFeedback(command: string, result: ShellObservation, broadS
   }
   return ""
 }
+
+function preflightUnsupportedWorkspaceCommand(command: string, commands?: string[]): ShellObservation | undefined {
+  if (!commands) return undefined
+  if (usesCompoundShellSyntax(command)) return undefined
+  const allowed = new Set([...commands, "cd", "false", "true"])
+  for (const segment of analyzeWorkspaceInspectionCommand(command)) {
+    const executable = workspaceExecutable(segment.words)
+    if (!executable || allowed.has(executable.name)) continue
+    return unsupportedWorkspaceCommandFeedback(command, executable.name, commands)
+  }
+}
+
+function unsupportedWorkspaceCommandFeedback(command: string, name: string, commands: string[]): ShellObservation {
+  const available = [...new Set(commands)].sort()
+  const formatted = available.length ? available.map(command => `\`${command}\``).join(", ") : "none"
+  return {
+    command,
+    event: "policy_denied",
+    exitCode: 126,
+    stderr: `[vitehub] Unsupported workspace shell command: ${name}. Available commands: ${available.join(", ") || "none"}.\n`,
+    stdout: [
+      `[vitehub] Workspace shell command is not available: ${name}`,
+      `Use only the available workspace commands: ${formatted}.`,
+      "Rewrite the command with supported workspace commands, or answer from the evidence already collected.",
+    ].join("\n") + "\n",
+  }
+}
+
+function workspaceExecutable(words: string[]) {
+  for (const [index, word] of words.entries()) {
+    if (isAssignmentWord(word)) continue
+    return { index, name: word }
+  }
+}
+
+function usesCompoundShellSyntax(command: string) {
+  return analyzeWorkspaceInspectionCommand(command)
+    .some(segment => isCompoundShellSyntaxWord(segment.words[0] || ""))
+}
+
+function isCompoundShellSyntaxWord(word: string) {
+  return word === "{"
+    || word.startsWith("(")
+    || /^[A-Za-z_][A-Za-z0-9_]*\(\)$/.test(word)
+    || shellSyntaxWords.has(word)
+}
+
+function isAssignmentWord(word: string) {
+  return /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(word)
+}
+
+const shellSyntaxWords = new Set([
+  "case",
+  "do",
+  "done",
+  "elif",
+  "else",
+  "esac",
+  "fi",
+  "for",
+  "function",
+  "if",
+  "select",
+  "then",
+  "time",
+  "until",
+  "while",
+])
 
 function isConcreteWorkspacePath(path: string) {
   return isWorkspacePathCandidate(path) && cleanWorkspaceShellPath(path) !== ""
