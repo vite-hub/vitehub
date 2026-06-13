@@ -1,7 +1,7 @@
 import type {
   AgentHarnessCredentialSource,
   AgentUsageCredentialSource,
-} from "./types.ts"
+} from "../types.ts"
 
 interface AgentUsageMetadata {
   credentialSource?: AgentUsageCredentialSource
@@ -13,7 +13,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
-export function harnessCredentialSourceMetadata(credentials: AgentHarnessCredentialSource | undefined): AgentUsageMetadata | undefined {
+export function createHarnessUsageMetadata(credentials: AgentHarnessCredentialSource | undefined): AgentUsageMetadata | undefined {
   if (!credentials) return undefined
   const source = typeof credentials.source === "string" ? credentials.source : undefined
   const label = typeof credentials.label === "string" ? credentials.label : undefined

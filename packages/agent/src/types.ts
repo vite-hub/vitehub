@@ -516,7 +516,6 @@ export interface AgentModelDriver<
 export interface AgentHarnessDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  Name extends WorkspaceName = WorkspaceName,
 > {
   credentials?: AgentHarnessCredentialSource
   execution?: never
@@ -549,10 +548,9 @@ export interface AgentRunDriver<
 export type AgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  Name extends WorkspaceName = WorkspaceName,
 > =
   | AgentModelDriver<TRuntimeConfig, CALL_OPTIONS>
-  | AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS, Name>
+  | AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS>
   | AgentRunDriver<TRuntimeConfig, CALL_OPTIONS>
 
 type AgentSharedSettings<

@@ -1,9 +1,9 @@
 import {
+  createHarnessUsageMetadata,
   defineAgentUsageMetadata,
-  harnessCredentialSourceMetadata,
-} from "./agent-usage-metadata.ts"
+} from "./internal/agent-usage-metadata.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
-import { isAsyncIterable } from "./stream-result.ts"
+import { isAsyncIterable } from "./internal/stream-result.ts"
 
 import type {
   AgentAdapter,
@@ -240,7 +240,7 @@ export function createHarnessAgentAdapter<
   options: HarnessAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>,
 ): AgentAdapter<CALL_OPTIONS, TRuntimeConfig> {
   const resumeStates = getResumeStates(options)
-  const usageMetadata = harnessCredentialSourceMetadata(options.credentials)
+  const usageMetadata = createHarnessUsageMetadata(options.credentials)
 
   async function createSession(agent: HarnessAgentLike, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) {
     const sessionId = await resolveHarnessSessionKey(options.sessionKey, context)

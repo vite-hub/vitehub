@@ -1,10 +1,10 @@
-import { readAgentUsageMetadata } from "../agent-usage-metadata.ts"
+import { readAgentUsageMetadata } from "../internal/agent-usage-metadata.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import {
   cloneWithPropertyDescriptors,
   isAsyncIterable,
   teeingAsyncIterableStreamDescriptor,
-} from "../stream-result.ts"
+} from "../internal/stream-result.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -284,9 +284,12 @@ function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
     teeingAsyncIterableStreamDescriptor(withUsageTelemetryStream(stream, options, run, (usageRecord) => {
       defineUsageTelemetryOutput(clone as UnknownRecord, usageRecord)
     }, result))
+  const fullStreamDescriptor = isAsyncIterable(result.fullStream) ? withTelemetry(result.fullStream) : undefined
   const descriptors: PropertyDescriptorMap = {
-    ...(isAsyncIterable(result.fullStream) ? { fullStream: withTelemetry(result.fullStream) } : {}),
-    ...(isAsyncIterable(result.stream) ? { stream: withTelemetry(result.stream) } : {}),
+    ...(fullStreamDescriptor ? { fullStream: fullStreamDescriptor } : {}),
+    ...(isAsyncIterable(result.stream)
+      ? { stream: result.stream === result.fullStream && fullStreamDescriptor ? fullStreamDescriptor : withTelemetry(result.stream) }
+      : {}),
   }
   const toUIMessageStream = result.toUIMessageStream
   if (typeof toUIMessageStream === "function") {

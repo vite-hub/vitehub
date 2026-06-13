@@ -1,4 +1,4 @@
-import { isAsyncIterable } from "./stream-result.ts"
+import { isAsyncIterable } from "./internal/stream-result.ts"
 
 import type { MaybePromise } from "./types.ts"
 

@@ -2,7 +2,7 @@ import { getMessageText } from "./messages.ts"
 import {
   cloneWithPropertyDescriptors,
   teeingAsyncIterableStreamDescriptor,
-} from "./stream-result.ts"
+} from "./internal/stream-result.ts"
 import {
   applyCapabilityInstructionSlots,
   applyCapabilityToolTransforms,

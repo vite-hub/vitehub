@@ -11,9 +11,9 @@ import type {
   AgentRunHandler,
   AgentRuntimeConfig,
   AgentSettings,
-} from "./types.ts"
+} from "../types.ts"
 
-export type NormalizedAgentDriver<
+type NormalizedAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > =

@@ -1,5 +1,5 @@
 import agentRegistry from "#vitehub/agent/registry"
-import { normalizeAgentDriver } from "./agent-driver.ts"
+import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { getMessageText } from "./messages.ts"
 import { resolveRuntimeContext } from "@vite-hub/runtime"
 import { isAsyncIterable, streamAgentOutputToEvents, toAgentRunResult } from "./agent-output.ts"

@@ -1,10 +1,10 @@
 import { ApprovalRequiredError } from "@vite-hub/runtime"
-import { isAsyncIterable } from "./stream-result.ts"
+import { isAsyncIterable } from "./internal/stream-result.ts"
 
 import type { StreamEvent } from "./messages.ts"
 import type { AgentRunResult, AgentUsageRecord } from "./types.ts"
 
-export { isAsyncIterable } from "./stream-result.ts"
+export { isAsyncIterable } from "./internal/stream-result.ts"
 
 function textFromResult(result: Record<string, unknown>): string | undefined {
   if (typeof result.text === "string") return result.text

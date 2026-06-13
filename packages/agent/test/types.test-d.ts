@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, type AgentDriver, type AgentRunInput, type AgentRuntimeContext } from "../src/index.ts"
+import { defineAgent, type AgentDriver, type AgentRunInput, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
 import { access, blob, chat, chatTitle, db, entry, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -324,6 +324,9 @@ describe("agent public types", () => {
 
     // @ts-expect-error raw harness credential material is not accepted by the generic driver boundary
     const _rawCredentialDriver: AgentDriver = { credentials: { value: "secret" }, harness: { provider: "codex" } }
+
+    // @ts-expect-error Agent Driver is not parameterized by Workspace Name
+    type _agentDriverNoWorkspaceNameGeneric = AgentDriver<AgentRuntimeConfig, unknown, "docs">
 
     // @ts-expect-error root model options cannot be combined with driver
     defineAgent({ driver: { model: "model" }, model: "model" })
