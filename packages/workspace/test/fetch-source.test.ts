@@ -49,7 +49,6 @@ describe("fetch sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("fetch-json")
-    await workspace.sync()
 
     await expect(workspace.stat("api/summary.json")).resolves.toMatchObject({ path: "api/summary.json", type: "file" })
     await expect(workspace.list("api")).resolves.toEqual([
@@ -165,7 +164,6 @@ describe("fetch sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("fetch-materialize")
-    await workspace.sync()
 
     await expect(workspace.diff()).resolves.toMatchObject({ entries: [] })
     await workspace.materializeSources?.({ sources: ["status"] })

@@ -146,7 +146,6 @@ describe("sandbox workspace runtime", () => {
       }),
       name: "docs",
     })
-    await workspace.sync()
     await workspace.writeFile("README.md", "# Docs\n")
 
     const session = await workspace.startSession()
@@ -184,7 +183,6 @@ describe("sandbox workspace runtime", () => {
       }),
       name: "docs",
     })
-    await workspace.sync()
     await workspace.mkdir("empty", { recursive: true })
     await workspace.writeFile("README.md", "# Docs\n")
 
@@ -222,7 +220,6 @@ describe("sandbox workspace runtime", () => {
       }),
       name: "docs",
     })
-    await workspace.sync()
 
     const session = await workspace.startSession()
 
@@ -252,7 +249,6 @@ describe("sandbox workspace runtime", () => {
     })
     const input = new Uint8Array([0, 159, 255, 64])
     const output = new Uint8Array([1, 2, 3, 254])
-    await workspace.sync()
     await workspace.writeFile("asset.bin", input)
 
     const session = await workspace.startSession()
@@ -278,7 +274,6 @@ describe("sandbox workspace runtime", () => {
       }),
       name: "docs",
     })
-    await workspace.sync()
     await workspace.writeFile("asset.json", "{\"ok\":false}\n", { mediaType: "application/json" })
 
     const session = await workspace.startSession()
@@ -302,7 +297,6 @@ describe("sandbox workspace runtime", () => {
       }),
       name: "docs",
     })
-    await workspace.sync()
 
     const session = await workspace.startSession()
     await session.writeFile("generated/asset.svg", "<svg />\n", { mediaType: "image/svg+xml" })
@@ -325,7 +319,6 @@ describe("sandbox workspace runtime", () => {
       }),
       name: "docs",
     })
-    await workspace.sync()
     await workspace.writeFile("docs/a.md", "target\n")
     await workspace.writeFile("notes/b.md", "target\n")
 
@@ -367,7 +360,6 @@ describe("sandbox workspace runtime", () => {
       }),
       name: "docs",
     })
-    await workspace.sync()
 
     const session = await workspace.startSession()
     await session.writeFile("docs/README.md", "# Edited\n")
@@ -391,7 +383,6 @@ describe("sandbox workspace runtime", () => {
       }),
       name: "docs",
     })
-    await workspace.sync()
     await workspace.writeFile("target", "file\n")
 
     const session = await workspace.startSession()

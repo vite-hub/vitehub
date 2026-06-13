@@ -15,6 +15,7 @@ import type {
   WorkspaceSearchQuery,
   WorkspaceSelectedScope,
   WorkspaceSource,
+  WorkspaceSourceInput,
   WorkspaceSourceResolutionInvocation,
 } from "../core/types.ts"
 
@@ -29,7 +30,7 @@ export interface WorkspaceSourceResolutionFacade<Name extends WorkspaceName = Wo
 }
 
 export function hasWorkspaceSourceResolvers(definition: Pick<WorkspaceDefinition, "sources"> | undefined): boolean {
-  return Object.values(definition?.sources || {}).some(source => typeof source.resolve === "function")
+  return normalizeWorkspaceSources(definition?.sources).some(source => typeof source.source.resolve === "function")
 }
 
 export async function resolveWorkspaceSources(
@@ -134,12 +135,13 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
 async function resolveWorkspaceSource(
   definition: WorkspaceDefinition,
   key: string,
-  source: WorkspaceSource,
+  input: WorkspaceSourceInput,
   options: WorkspaceSourceResolutionOptions,
 ): Promise<WorkspaceSource | undefined> {
+  const declared = normalizeWorkspaceSource(key, input)
+  const source = declared.source
   if (!source.resolve) return source
 
-  const declared = normalizeWorkspaceSource(key, source)
   const context = {
     invocation: options.invocation,
     selectedWorkspaceScope: options.selectedWorkspaceScope,
@@ -200,7 +202,9 @@ async function sourceViewHasPath(definition: WorkspaceDefinition, sourceView: Re
 }
 
 function sourcePathIntersects(definition: WorkspaceDefinition, path: string): boolean {
-  return normalizeWorkspaceSources(definition.sources).some(source => pathIntersects(source.mountPath, path))
+  return normalizeWorkspaceSources(definition.sources)
+    .filter(source => source.materialize !== "none")
+    .some(source => pathIntersects(source.mountPath, path))
 }
 
 function searchQueryTargetsSource(definition: WorkspaceDefinition, query: WorkspaceSearchQuery): boolean {

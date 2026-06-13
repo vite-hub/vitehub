@@ -51,9 +51,17 @@ _Avoid_: MCP Capability, MCP tool bridge, query-only MCP wrapper
 The keyed object that declares a Workspace's Sources.
 _Avoid_: Source list, source array
 
+**Workspace Source Binding**:
+A Workspace-owned declaration that places a Source Definition into a Workspace and attaches Workspace-owned source metadata and policy.
+_Avoid_: Source Definition, Source Loader, provider adapter
+
+**Workspace Source Binding Input**:
+The author-facing plain object form that ViteHub normalizes into a Workspace Source Binding.
+_Avoid_: Raw Source Definition, provider options only, Source Loader namespace
+
 **Source Namespace**:
-The public authoring namespace that contains all Workspace Source helpers.
-_Avoid_: Common sources, runtime sources, provider source namespace
+A convenience namespace that groups Source Loader helpers when grouped source imports are useful.
+_Avoid_: Primary source authoring surface, Workspace-owned provider namespace
 
 **Mount**:
 The placement of a Source inside a Workspace file tree.
@@ -68,8 +76,24 @@ A Source that contributes exactly one build-time materialized file from the Work
 _Avoid_: Workspace file, inline file, source path
 
 **Source Sync**:
-An explicit future mechanism that reconciles Source-Backed Paths with their Sources.
+An explicit Workspace lifecycle operation that reconciles selected Source-Backed Paths with their Sources through the Workspace Store.
 _Avoid_: Implicit write-back, normal workspace write
+
+**Source Sync Policy**:
+A Source declaration policy, orthogonal to materialization mode, that makes a Source eligible for Source Sync and controls Source Sync behavior such as stale Source-Backed Path handling.
+_Avoid_: Source kind, materialization mode, schedule
+
+**Source Sync Inventory**:
+The Source-provided complete set of Workspace-facing items for one Source Sync run.
+_Avoid_: Live Source listing, Workspace list, raw upstream list
+
+**Source Sync State**:
+Workspace-owned metadata that records the latest compact Source Sync state for a Source.
+_Avoid_: Schedule Run history, Git history, full run log
+
+**Source Sync Result**:
+The structured result returned by one Source Sync operation.
+_Avoid_: Source Sync State, Schedule Run, Workspace Snapshot
 
 **Workspace Rule**:
 A path-scoped policy that controls reads, writes, write size, media type, and write validation.
@@ -170,11 +194,64 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - A **Live Source** can provide search, but search results must resolve to readable Source-Backed Paths.
 - A **Live Source** exposes which Workspace operations it supports for inspection surfaces such as DevTools.
 - A **Source-Backed Path** belongs to exactly one Source.
+- A **Source Map** contains **Workspace Source Bindings**.
+- A **Source Map** may accept **Workspace Source Binding Inputs** that normalize into Workspace Source Bindings.
+- A **Workspace Source Binding** can reference a Source Package **Source Definition**.
+- A **Workspace Source Binding** owns Mount, Source Instructions, materialization mode, validation, and Source Sync Policy for that Source inside one Workspace.
+- A **Workspace Source Binding Input** may infer a Source Loader from unambiguous Source Loader options.
+- A **Workspace Source Binding Input** should use TypeScript types to prevent ambiguous Source Loader option combinations.
+- Runtime normalization of a **Workspace Source Binding Input** should reject ambiguous Source Loader option combinations.
+- A **Workspace Source Binding Input** may reference a reusable Source Definition.
+- A **Workspace Source Binding Input** may declare inline custom Source retrieval behavior.
+- Named Source Loader imports from the Source Package are the preferred Source authoring shape.
+- A **Source Namespace** can remain a convenience, but it is not the preferred authoring shape.
 - A **Single-File Source** path is relative to the Workspace Source Root.
 - A **Single-File Source** can default its Mount to the Workspace root and its Source-Backed Path to the source file basename.
 - Current workspace writes target normal Workspace paths, not Source-Backed Paths.
 - Capability-persisted artifacts, such as Transcription Artifacts, target normal Workspace paths and remain subject to Workspace Rules.
 - **Source Sync** is distinct from normal workspace writes.
+- **Source Sync** is a lifecycle operation over existing Sources, not a separate Source kind.
+- **Source Sync** requires explicit Source selection.
+- Source selection for Source Sync may target specific Source Map keys or all eligible Sources.
+- The Workspace sync lifecycle requires explicit selection.
+- The Workspace sync lifecycle runs **Source Sync** when the explicit selection targets Sources.
+- **Source Sync** is not triggered by build, dev, or normal Workspace reads.
+- Build-time Sources feed the **Workspace Asset Surface** rather than **Source Sync** or the Workspace sync lifecycle.
+- Build and dev integrations own build-time Source materialization.
+- Downstream consumption of durable Workspace files is project-specific composition outside Source Sync.
+- **Live Sources** may still resolve Source-Backed Paths on read without running **Source Sync**.
+- **Source Sync** may materialize Source items, update Workspace-owned source state, and remove stale Source-owned paths when source capabilities and policy allow.
+- **Source Sync** does not imply that provider-specific Source adapters are official Workspace Source helpers.
+- Downstream apps may implement provider-specific Sources through the generic Source contract.
+- A Source may declare a **Source Sync Policy** without becoming a separate Source kind.
+- A **Source Sync Policy** is orthogonal to a Source materialization mode.
+- A Source may support both read-triggered materialization and **Source Sync** when both are declared.
+- The common Source Sync case is a Source with **Source Sync Policy** and no build-time or read-triggered materialization.
+- A **Source Sync Policy** does not declare a Schedule.
+- **Source Sync** keeps stale Source-Backed Paths by default.
+- A **Source Sync Policy** may opt into stale Source-Backed Path removal.
+- Stale Source-Backed Path removal requires Source-owned path proof and either complete source enumeration or authoritative source delete events.
+- A **Source Sync Inventory** is the complete source enumeration contract for Source Sync.
+- A **Source Sync Inventory** returns Workspace-facing items, not raw upstream item identities.
+- A Source list or read method does not imply **Source Sync Inventory** support.
+- A sync-eligible **Workspace Source Binding** can use `getKeys` and `getItem` as its Source Sync Inventory contract.
+- When stale Source-Backed Path removal is enabled, `getKeys` must be complete for the selected Source.
+- A Source that cannot enumerate completely can still use **Source Sync** when stale Source-Backed Path removal is disabled.
+- **Source Sync State** stores compact latest state, not unbounded Source Sync run history.
+- **Source Sync State** can record previous Source-Backed Path manifests, source item digests or versions, cursors, refs, generations, config hashes, last successful sync metadata, and last attempted error summaries.
+- A **Source Sync Result** returns per-source counts by default.
+- A **Source Sync Result** may include path-level details only when explicitly requested.
+- Source Sync Result detail defaults to summary-level output.
+- Path-level Source Sync Result detail is an explicit opt-in.
+- Schedule-owned run history remains **Schedule Run** and **Schedule Run Attempt** behavior.
+- Publication history remains Workspace Store snapshot or provider history.
+- **Source Sync** does not own Workspace Store snapshot, publish, no-op persistence, provider conflict, or Git semantics.
+- A Workspace lifecycle may compose **Source Sync** with Workspace Store snapshot or publish, but those Store side effects must be explicit at the lifecycle boundary.
+- A composed Source Sync snapshot option can be a boolean or snapshot options.
+- A composed Source Sync publish option is a boolean v1 lifecycle option.
+- A Schedule handler can call **Source Sync** directly; a separate Source Sync target registry is not part of the first design.
+- **Source Sync** can return a partial result when one selected Source fails.
+- Workspace Store snapshot or publish should not run after partial Source Sync failure unless the caller explicitly opts into partial publication.
 - A **Workspace Rule** is path-scoped.
 - A **Workspace Plugin** can contribute Workspace Rules.
 - An Agent with a **Colocated Workspace Definition** receives read-only **Workspace Tools** by default.
@@ -251,3 +328,27 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - Source-level narrowing was considered as direct invoker access - resolved: use **Invocation-Scoped Source Resolution** from trusted invocation context and the **Selected Workspace Scope**, not raw model-facing metadata or duplicate authorization logic inside a Source.
 - Build-time Workspace assets were considered a second user-facing read surface - resolved: users read one **Workspace File Tree** while asset provenance remains internal by default.
 - `open()` was considered as the Workspace execution-session method - resolved: use `startSession()` because it names the **Workspace Session** lifecycle.
+- "explicit sync source" was considered as a Source kind - resolved: keep **Source Sync** as a Workspace lifecycle operation over existing Sources.
+- Source Sync snapshot and publish defaults were considered part of Source reconciliation - resolved: keep low-level **Source Sync** focused on Source reconciliation, with Store snapshot and publish as explicit composed lifecycle behavior.
+- Source Sync eligibility was considered as a new `materialize` mode - resolved: use **Source Sync Policy** so `materialize` can remain focused on build-time or read-triggered materialization, while the policy remains orthogonal for Sources that support both.
+- Treating the common Source Sync case as a Source kind was considered - resolved: describe it as a Source with **Source Sync Policy** and no build-time or read-triggered materialization.
+- Stale Source-Backed Path removal was considered a default Source Sync behavior - resolved: keep stale paths by default and require **Source Sync Policy** opt-in plus source-owned path proof and complete enumeration or authoritative delete events.
+- Reusing normal Source listing for deletion-safe Source Sync enumeration was considered - resolved: use **Source Sync Inventory** so Live Source listing and Source Sync enumeration can remain separate contracts.
+- Adding a separate `getSyncInventory` method for custom Sources was considered for v1 - resolved: let sync-eligible Workspace Source Bindings use `getKeys` and `getItem` as the default Source Sync Inventory contract, with complete enumeration required only when stale removal is enabled.
+- Returning raw upstream identities from Source Sync Inventory was considered - resolved: **Source Sync Inventory** returns Workspace-facing items so Source Sync can reconcile the Workspace file tree directly.
+- Persisting every Source Sync run in Workspace was considered - resolved: persist compact **Source Sync State** per Source, while callers receive full run results and Schedule or Store keep their own histories.
+- A separate Source Sync target registry was considered for Schedule integration - resolved: v1 Schedule handlers can call **Source Sync** directly.
+- Publishing partial Source Sync results was considered as a default - resolved: do not snapshot or publish after partial Source Sync failure unless the caller explicitly opts into partial publication.
+- Path-level Source Sync results were considered as the default - resolved: **Source Sync Result** returns per-source counts by default and includes path-level details only when explicitly requested.
+- `include` was considered for Source Sync Result detail selection - resolved: use a single result detail axis with summary output by default and path-level detail as opt-in.
+- Separate snapshot and publish lifecycle methods were considered mandatory for Source Sync - resolved: a composed Source Sync lifecycle may use explicit snapshot options and a boolean publish option.
+- Implicitly syncing every eligible Source when no Source selection is provided was considered - resolved: require explicit Source selection, with an explicit all-eligible selection for broad Source Sync.
+- A separate Source Sync lifecycle verb was considered - resolved: run **Source Sync** through the Workspace sync lifecycle with explicit Source selection instead of introducing a second sync verb.
+- No-argument Workspace sync was considered for compatibility with existing build-source synchronization - resolved: the target Workspace sync lifecycle requires explicit selection and does not keep no-argument sync semantics.
+- Build-time Source materialization through Workspace sync was considered - resolved: build and dev integrations own build-time materialization through the **Workspace Asset Surface**, while Workspace sync owns explicit **Source Sync**.
+- Treating Airtable as an official Workspace Source helper was considered - resolved: Airtable remains a downstream/custom Source example unless the Workspace Package explicitly adds an official adapter.
+- Treating Workspace Source declarations as raw Source Definitions was considered - resolved: use **Workspace Source Binding** for Workspace-owned placement, instructions, materialization, validation, and Source Sync Policy around Source Package retrieval.
+- Treating `source.<helper>` as the preferred Source authoring style was considered - resolved: prefer named Source Loader imports from the Source Package, with **Source Namespace** as a convenience only.
+- Requiring every Workspace Source declaration to wrap a `source` field was considered - resolved: use **Workspace Source Binding Input** so unambiguous plain objects can infer a Source Loader while reusable or custom Source Definitions remain explicit.
+- Permissive plain-object Source inference was considered - resolved: use strong TypeScript input types and runtime normalization errors so ambiguous Source Loader option combinations fail clearly.
+- Adding project-specific file consumers to Source Sync was considered - resolved: Source Sync owns durable Workspace file-tree reconciliation, while downstream file consumption remains project composition.

@@ -1,12 +1,12 @@
 import { mcpResources as createMcpResourcesSource } from "@vite-hub/source"
 
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
-import { markLiveWorkspaceSource } from "./config.ts"
+import { markLiveWorkspaceSource } from "./live.ts"
 
 import type { WorkspaceSource } from "../core/types.ts"
 import type { McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions } from "@vite-hub/source"
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "mount" | "validate">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "mount" | "sync" | "validate">
 
 export interface McpResourcesSourceOptions<TKey extends string = string>
   extends Omit<SourcePackageMcpResourcesSourceOptions<TKey>, "cache">, SourceRuntimeOptions {}
@@ -22,7 +22,7 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
     ...baseSource,
     cache: options.cache,
     instructions: options.instructions,
-    materialize: options.materialize || "lazy",
+    materialize: options.materialize || (options.sync ? "none" : "lazy"),
     mount: options.mount,
     async prepare(ctx) {
       await baseSource.prepare?.(ctx)
@@ -30,6 +30,7 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
       const keys = await baseSource.getKeys(ctx)
       resetLivePaths(livePaths, mountPath, keys)
     },
+    sync: options.sync,
     validate: options.validate,
   }, livePaths)
 }

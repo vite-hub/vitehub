@@ -145,7 +145,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-docs")
-    await workspace.sync()
 
     await expect(workspace.diff()).resolves.toMatchObject({ entries: [] })
     expect(getItem).not.toHaveBeenCalled()
@@ -195,7 +194,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-glob-live")
-    await workspace.sync()
 
     await expect(workspace.list("docs")).resolves.toEqual([
       expect.objectContaining({ path: "docs/README.md", type: "file" }),
@@ -225,7 +223,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-writes")
-    await workspace.sync()
 
     await expect(workspace.writeFile("docs/foo.md", "nope")).rejects.toThrow("read-only")
     await expect(workspace.writeFile("artifacts/result.md", "ok")).resolves.toBeUndefined()
@@ -250,7 +247,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-root-files")
-    await workspace.sync()
 
     await expect(workspace.readFile("AGENTS.md")).resolves.toBe("# Instructions\n")
     await expect(workspace.writeFile("AGENTS.md", "nope")).rejects.toThrow("read-only")
@@ -278,7 +274,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-root-prewrite")
-    await workspace.sync()
 
     await expect(workspace.writeFile("AGENTS.md", "shadow")).rejects.toThrow("read-only")
     await expect(workspace.rm("docs")).rejects.toThrow("read-only")
@@ -327,7 +322,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-root-refresh")
-    await workspace.sync()
     await workspace.mkdir("generated")
     await workspace.materializeSources?.()
     await expect(workspace.readFile("nested/stale.md")).resolves.toBe("# nested/stale.md\n")
@@ -358,7 +352,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-root-scoped")
-    await workspace.sync()
 
     await expect(workspace.list("docs")).resolves.toEqual([
       expect.objectContaining({ path: "docs/guide.md", type: "file" }),
@@ -390,7 +383,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-search")
-    await workspace.sync()
 
     await expect(workspace.search({ pattern: "hello", paths: ["docs"] })).resolves.toEqual([
       { path: "docs/foo.md", line: 1, column: 1, text: "hello" },
@@ -423,7 +415,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-fallback-search")
-    await workspace.sync()
 
     await expect(workspace.search({ pattern: "hello", paths: ["docs"] })).resolves.toEqual([
       { path: "docs/foo.md", line: 1, column: 1, text: "hello world" },
@@ -458,7 +449,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-cache")
-    await workspace.sync()
 
     await expect(workspace.readFile("docs/foo.md")).resolves.toBe("version 1\n")
     vi.setSystemTime(new Date("2026-05-05T12:30:00Z"))

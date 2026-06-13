@@ -1,3 +1,11 @@
+import type {
+  FileSourceOptions as SourcePackageFileSourceOptions,
+  GitHubSourceOptions as SourcePackageGitHubSourceOptions,
+  GlobSourceOptions as SourcePackageGlobSourceOptions,
+  McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions,
+  Source as SourcePackageSource,
+} from "@vite-hub/source"
+
 export type WorkspaceContent = string | Uint8Array
 
 export interface ReadFileOptions {
@@ -106,8 +114,20 @@ export interface DiffOptions {
   from?: WorkspaceSnapshot
 }
 
+export type WorkspaceSourceSelection = "all" | readonly string[]
+
+export type WorkspaceSyncResultDetails = "counts" | "paths"
+
+export interface WorkspaceSyncSnapshotOptions extends SnapshotOptions {
+  message?: string
+}
+
 export interface WorkspaceSyncOptions {
-  force?: boolean
+  details?: WorkspaceSyncResultDetails
+  publish?: boolean
+  publishPartial?: boolean
+  snapshot?: boolean | WorkspaceSyncSnapshotOptions
+  sources: WorkspaceSourceSelection
 }
 
 export interface WorkspaceSessionOptions {
@@ -297,7 +317,7 @@ export interface WorkspaceSourceResolutionContext {
 export type WorkspaceSourceResolutionResult = WorkspaceSource | false | null | undefined
 export type WorkspaceSourceResolver = (context: WorkspaceSourceResolutionContext) => MaybePromise<WorkspaceSourceResolutionResult>
 
-export type WorkspaceMaterializeMode = "build" | "lazy"
+export type WorkspaceMaterializeMode = "build" | "lazy" | "none"
 
 export type WorkspaceValidateMode = false | "request"
 
@@ -330,6 +350,7 @@ export interface WorkspaceSource {
   materialize?: WorkspaceMaterializeMode
   cache?: false | WorkspaceCacheOptions
   validate?: WorkspaceValidateMode
+  sync?: WorkspaceSourceSyncConfig
   fingerprint?: unknown
   instructions?: WorkspaceSourceInstructions
   resolve?: WorkspaceSourceResolver
@@ -341,6 +362,64 @@ export interface WorkspaceSource {
   search?(query: WorkspaceSearchQuery, ctx: SourceContext): Promise<WorkspaceSearchHit[]>
   watch?: unknown[]
 }
+
+export interface WorkspaceSourceSyncPolicy {
+  concurrency?: "skip" | "queue"
+  stale?: "keep" | "remove"
+}
+
+export type WorkspaceSourceSyncConfig = boolean | WorkspaceSourceSyncPolicy
+
+export type WorkspaceSourceDefinition = WorkspaceSource | SourcePackageSource
+
+type WorkspaceSourceBindingOptions = Pick<
+  WorkspaceSource,
+  "cache" | "instructions" | "materialize" | "mount" | "sync" | "validate"
+>
+
+export interface WorkspaceSourceBindingInput extends WorkspaceSourceBindingOptions {
+  source: WorkspaceSourceInput
+}
+
+export type WorkspaceCustomSourceInput = WorkspaceSourceDefinition & WorkspaceSourceBindingOptions
+
+export type WorkspaceFileSourceInput<TKey extends string = string> =
+  | TKey
+  | (SourcePackageFileSourceOptions<TKey> & WorkspaceSourceBindingOptions)
+
+export interface WorkspaceFetchSourceRequestOptions {
+  body?: unknown
+  headers?: Record<string, string>
+  method?: "GET" | "HEAD" | "POST"
+  query?: Record<string, unknown>
+  timeout?: number
+}
+
+export interface WorkspaceFetchSourceInput<TResponse = unknown, TOutput = TResponse> extends WorkspaceSourceBindingOptions {
+  method?: "GET" | "HEAD" | "POST"
+  path?: string
+  request?: WorkspaceFetchSourceRequestOptions | (() => WorkspaceFetchSourceRequestOptions | Promise<WorkspaceFetchSourceRequestOptions>)
+  responseType?: "json" | "text"
+  schema?: unknown
+  transform?: (data: TResponse) => TOutput | Promise<TOutput>
+  url: string | URL
+}
+
+export type WorkspaceGlobSourceInput = SourcePackageGlobSourceOptions & WorkspaceSourceBindingOptions
+
+export type WorkspaceGitHubSourceInput = SourcePackageGitHubSourceOptions & WorkspaceSourceBindingOptions
+
+export type WorkspaceMcpResourcesSourceInput<TKey extends string = string> =
+  Omit<SourcePackageMcpResourcesSourceOptions<TKey>, "cache"> & WorkspaceSourceBindingOptions
+
+export type WorkspaceSourceInput =
+  | WorkspaceSourceBindingInput
+  | WorkspaceCustomSourceInput
+  | WorkspaceFileSourceInput
+  | WorkspaceFetchSourceInput
+  | WorkspaceGlobSourceInput
+  | WorkspaceGitHubSourceInput
+  | WorkspaceMcpResourcesSourceInput
 
 export interface WorkspaceLoaderSource extends WorkspaceSource {
   key: string
@@ -432,7 +511,7 @@ export interface WorkspaceDefinition {
   sourceRootDir?: string
   runtime?: "sandbox"
   store?: WorkspaceStoreOptions
-  sources?: Record<string, WorkspaceSource>
+  sources?: Record<string, WorkspaceSourceInput>
   loaders?: WorkspaceLoader[]
   publish?: WorkspacePublisher[]
   plugins?: WorkspacePlugin[]
@@ -458,7 +537,7 @@ export interface ResolvedWorkspaceModuleOptions {
 
 export interface Workspace {
   name: string
-  sync(options?: WorkspaceSyncOptions): Promise<void>
+  sync(options: WorkspaceSyncOptions): Promise<WorkspaceSourceSyncResult>
   materializeSources?(options?: WorkspaceMaterializeSourcesOptions): Promise<WorkspaceMaterializeSourcesResult>
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
   writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
@@ -473,6 +552,36 @@ export interface Workspace {
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
   mount(options?: WorkspaceMountOptions): WorkspaceMount
+}
+
+export interface WorkspaceSourceSyncCounts {
+  added: number
+  removed: number
+  unchanged: number
+  updated: number
+}
+
+export interface WorkspaceSourceSyncPathResult {
+  path: string
+  sourcePath: string
+  status: "added" | "removed" | "unchanged" | "updated"
+}
+
+export interface WorkspaceSourceSyncStatus {
+  counts: WorkspaceSourceSyncCounts
+  error?: string
+  mountPath: string
+  paths?: WorkspaceSourceSyncPathResult[]
+  source: string
+  status: "error" | "ready" | "skipped"
+}
+
+export interface WorkspaceSourceSyncResult {
+  durationMs: number
+  published: boolean
+  snapshot?: WorkspaceSnapshot
+  sources: WorkspaceSourceSyncStatus[]
+  status: "error" | "partial" | "ready" | "skipped"
 }
 
 export interface WorkspaceSourceMaterializationStatus {
