@@ -1,12 +1,7 @@
 import { defu } from "defu"
 
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
-import { fetch } from "./fetch.ts"
-import { file } from "./file.ts"
-import { github } from "./github.ts"
-import { glob } from "./glob.ts"
-import { getLiveWorkspaceSourcePaths } from "./live.ts"
-import { mcpResources } from "./mcp-resources.ts"
+import { getLiveWorkspaceSourcePaths, markLiveWorkspaceSource } from "./live.ts"
 
 import type {
   SourceContext,
@@ -18,6 +13,8 @@ import type {
   WorkspaceSourceSyncPolicy,
   WorkspaceValidateMode,
 } from "../core/types.ts"
+
+type WorkspaceSourceFamily = "fetch" | "file" | "github" | "glob" | "mcpResources"
 
 export interface ResolvedWorkspaceSource {
   key: string
@@ -100,7 +97,7 @@ function normalizeSourceSync(sync: WorkspaceSource["sync"]): false | WorkspaceSo
 }
 
 function toWorkspaceSource(input: WorkspaceSourceInput): WorkspaceSource {
-  if (typeof input === "string") return file(input)
+  if (typeof input === "string") return createInferredWorkspaceSource("file", input)
   if (isExplicitSourceBinding(input)) {
     return applyWorkspaceBinding(toWorkspaceSource(input.source), input)
   }
@@ -114,25 +111,184 @@ function inferWorkspaceSource(input: WorkspaceSourceInput): WorkspaceSourceInput
   if (!isPlainRecord(input)) return input
   if (hasSourceMethods(input)) return input
 
-  const families: string[] = []
-  if (hasOwn(input, "repo")) families.push("github")
-  if (hasOwn(input, "url")) families.push("fetch")
-  if (hasOwn(input, "server")) families.push("mcpResources")
-  if (!families.length && hasOwn(input, "include")) families.push("glob")
-  if (!families.length && (hasOwn(input, "path") || hasOwn(input, "workspacePath") || hasOwn(input, "content"))) families.push("file")
+  const providerFamilies: WorkspaceSourceFamily[] = []
+  if (hasOwn(input, "repo")) providerFamilies.push("github")
+  if (hasOwn(input, "url")) providerFamilies.push("fetch")
+  if (hasOwn(input, "server")) providerFamilies.push("mcpResources")
 
-  if (families.length === 0) return input
-  if (families.length > 1) {
-    throw new TypeError(`[vitehub] Workspace source configuration is ambiguous. Matched ${families.join(", ")}. Use { source: ... } or source.custom(...) to make the source kind explicit.`)
+  if (providerFamilies.length > 1) {
+    throw ambiguousSourceConfiguration(providerFamilies)
   }
 
-  const family = families[0]
-  if (family === "github") return github(input as never)
-  if (family === "fetch") return fetch(input as never)
-  if (family === "glob") return glob(input as never)
-  if (family === "mcpResources") return mcpResources(input as never)
-  if (family === "file") return file(input as never)
+  if (providerFamilies[0]) {
+    if (providerFamilies[0] === "github" && (hasOwn(input, "path") || hasOwn(input, "workspacePath") || hasOwn(input, "content"))) {
+      throw ambiguousSourceConfiguration(["github", "file"])
+    }
+    return createInferredWorkspaceSource(providerFamilies[0], input)
+  }
+
+  const localFamilies: WorkspaceSourceFamily[] = []
+  if (hasOwn(input, "include")) localFamilies.push("glob")
+  if (hasOwn(input, "path") || hasOwn(input, "workspacePath") || hasOwn(input, "content")) localFamilies.push("file")
+
+  if (localFamilies.length === 0) return input
+  if (localFamilies.length > 1) {
+    throw ambiguousSourceConfiguration(localFamilies)
+  }
+
+  const family = localFamilies[0]
+  if (family) return createInferredWorkspaceSource(family, input)
   return input
+}
+
+function ambiguousSourceConfiguration(families: WorkspaceSourceFamily[]): TypeError {
+  return new TypeError(`[vitehub] Workspace source configuration is ambiguous. Matched ${families.join(", ")}. Use { source: ... } or source.custom(...) to make the source kind explicit.`)
+}
+
+function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): WorkspaceSource {
+  let sourcePromise: Promise<WorkspaceSource> | undefined
+  const livePaths = inferredLivePaths(family, input)
+
+  async function loadSource() {
+    sourcePromise ||= loadInferredWorkspaceSource(family, input)
+    return await sourcePromise
+  }
+
+  const source: WorkspaceSource = {
+    ...inferredSourceDefaults(family, input),
+    fingerprint: {
+      inferredSource: family,
+      options: input,
+    },
+    async prepare(ctx) {
+      const loaded = await loadSource()
+      await loaded.prepare?.(ctx)
+      copyLivePaths(livePaths, getLiveWorkspaceSourcePaths(loaded))
+    },
+    async getKeys(ctx) {
+      return await (await loadSource()).getKeys(ctx)
+    },
+    async getItem(key, ctx) {
+      return await (await loadSource()).getItem(key, ctx)
+    },
+    async getItems(ctx) {
+      const source = await loadSource()
+      return await source.getItems?.(ctx) ?? await Promise.all((await source.getKeys(ctx)).map(async key => await source.getItem(key, ctx)))
+    },
+    async getMeta(key, ctx) {
+      return await (await loadSource()).getMeta?.(key, ctx)
+    },
+    async search(query, ctx) {
+      return await (await loadSource()).search?.(query, ctx) ?? []
+    },
+  }
+
+  return livePaths ? markLiveWorkspaceSource(source, livePaths) : source
+}
+
+async function loadInferredWorkspaceSource(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): Promise<WorkspaceSource> {
+  if (family === "fetch") return (await import("./fetch.ts")).fetch(input as never)
+  if (family === "file") return (await import("./file.ts")).file(input as never)
+  if (family === "github") return (await import("./github.ts")).github(input as never)
+  if (family === "glob") return (await import("./glob.ts")).glob(input as never)
+  return (await import("./mcp-resources.ts")).mcpResources(input as never)
+}
+
+function inferredSourceDefaults(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): Partial<WorkspaceSource> {
+  if (!isPlainRecord(input)) {
+    return family === "file" ? { mount: "" } : {}
+  }
+
+  if (family === "file") {
+    const mount = typeof input.mount === "object" && input.mount && !("path" in input.mount)
+      ? { ...input.mount, path: "" }
+      : input.mount ?? ""
+    return copySourceRuntimeOptions(input, { mount })
+  }
+
+  if (family === "fetch") {
+    const workspacePath = inferFetchWorkspacePath(input)
+    const mountPath = dirname(workspacePath)
+    return copySourceRuntimeOptions(input, {
+      cache: input.cache ?? false,
+      materialize: input.materialize || (input.sync ? "none" : "lazy"),
+      mount: mountPath,
+    })
+  }
+
+  if (family === "github") {
+    const record = input as Record<string, unknown>
+    return copySourceRuntimeOptions(input, {
+      mount: input.mount ?? inferRepositoryMount(record.repo),
+    })
+  }
+
+  if (family === "mcpResources") {
+    return copySourceRuntimeOptions(input, {
+      materialize: input.materialize || (input.sync ? "none" : "lazy"),
+    })
+  }
+
+  return copySourceRuntimeOptions(input)
+}
+
+function copySourceRuntimeOptions(input: Record<string, unknown>, defaults: Partial<WorkspaceSource> = {}): Partial<WorkspaceSource> {
+  return {
+    ...defaults,
+    cache: input.cache as WorkspaceSource["cache"] ?? defaults.cache,
+    instructions: input.instructions as WorkspaceSource["instructions"] ?? defaults.instructions,
+    materialize: input.materialize as WorkspaceSource["materialize"] ?? defaults.materialize,
+    mount: input.mount as WorkspaceSource["mount"] ?? defaults.mount,
+    sync: input.sync as WorkspaceSource["sync"] ?? defaults.sync,
+    validate: input.validate as WorkspaceSource["validate"] ?? defaults.validate,
+  }
+}
+
+function inferredLivePaths(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): Record<string, string> | undefined {
+  if (family === "mcpResources") return {}
+  if (family !== "fetch" || !isPlainRecord(input)) return undefined
+
+  const workspacePath = inferFetchWorkspacePath(input)
+  const mountPath = dirname(workspacePath)
+  const key = mountPath ? workspacePath.slice(mountPath.length + 1) : workspacePath
+  return { [workspacePath]: key }
+}
+
+function copyLivePaths(target: Record<string, string> | undefined, source: Record<string, string> | undefined) {
+  if (!target || !source) return
+  for (const key of Object.keys(target)) delete target[key]
+  for (const [key, value] of Object.entries(source)) target[key] = value
+}
+
+function inferFetchWorkspacePath(input: Record<string, unknown>) {
+  const responseType = input.responseType === "text" ? "text" : "json"
+  const explicitPath = typeof input.path === "string" ? input.path : undefined
+  if (explicitPath) return normalizeSafeWorkspacePath(explicitPath, { allowEmpty: false })
+
+  const url = input.url instanceof URL ? input.url : new URL(String(input.url))
+  if (url.search) {
+    throw new Error("[vitehub] source.fetch() requires an explicit path when the URL includes query parameters.")
+  }
+
+  let path = normalizeSafeWorkspacePath(decodeURI(url.pathname).replace(/^\/+/, ""), { allowEmpty: false })
+  if (!basename(path).includes(".")) {
+    path = `${path}.${responseType === "json" ? "json" : "txt"}`
+  }
+  return path
+}
+
+function inferRepositoryMount(repo: unknown) {
+  return typeof repo === "string" ? repo.split("/").filter(Boolean).at(-1) : undefined
+}
+
+function dirname(path: string) {
+  const parts = path.split("/").filter(Boolean)
+  parts.pop()
+  return parts.join("/")
+}
+
+function basename(path: string) {
+  return path.split("/").filter(Boolean).at(-1) || ""
 }
 
 function applyWorkspaceBinding(source: WorkspaceSource, input: WorkspaceSourceInput): WorkspaceSource {

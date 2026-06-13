@@ -140,6 +140,47 @@ describe("Workspace Source Resolution", () => {
     })
   })
 
+  it("preserves explicit source binding options after source resolution", async () => {
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        ingestion: {
+          source: source.custom({
+            async resolve() {
+              return source.custom({
+                async getKeys() {
+                  return ["models/orders.sql"]
+                },
+                async getItem(key) {
+                  return { key, path: key, content: "select 1\n" }
+                },
+              })
+            },
+            async getKeys() {
+              return []
+            },
+            async getItem(key) {
+              return { key, path: key, content: "" }
+            },
+          }),
+          instructions: "Use this source for synced ingestion models only.",
+          mount: "ingestion/acme",
+          sync: { stale: "remove" },
+        },
+      },
+    }
+
+    const resolved = await resolveWorkspaceSources(definition, scope("acme", ["ingestion/acme"]))
+    const [ingestion] = normalizeWorkspaceSources(resolved.sources)
+
+    expect(ingestion).toMatchObject({
+      instructions: "Use this source for synced ingestion models only.",
+      materialize: "none",
+      mountPath: "ingestion/acme",
+      sync: { stale: "remove" },
+    })
+  })
+
   it("fails closed when a resolved source mount is outside the Selected Workspace Scope", async () => {
     const definition: WorkspaceDefinition = {
       name: "support",

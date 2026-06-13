@@ -35,6 +35,8 @@ import type {
   WorkspaceStat,
   WorkspaceDiff,
   WorkspaceSnapshot,
+  WorkspaceSourceSyncResult,
+  WorkspaceSyncOptions,
   WriteFileOptions,
   SnapshotOptions,
 } from "./types.ts"
@@ -111,6 +113,7 @@ export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceN
   fs: WritableWorkspaceFs<Name>
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
   startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
+  sync(options: WorkspaceSyncOptions): Promise<WorkspaceSourceSyncResult>
   tools: WorkspaceWriteToolSet
 }
 
@@ -435,6 +438,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       fs: createWritableFs<Name>(workspace),
       snapshot: async options => await workspace.snapshot(options),
       startSession: async options => await workspace.startSession(options),
+      sync: async options => await workspace.sync(options),
       tools,
     }
   }

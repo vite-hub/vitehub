@@ -158,7 +158,7 @@ async function resolveWorkspaceSource(
   const resolved = await source.resolve(context)
   if (!resolved) return undefined
 
-  const resolvedSource = withResolvedSourceRuntimeDefaults(resolved)
+  const resolvedSource = withResolvedSourceRuntimeDefaults(applyResolvedWorkspaceSourceBinding(input, resolved))
   const normalized = normalizeWorkspaceSource(key, resolvedSource)
   if (!selectedScopeIntersectsMount(options.selectedWorkspaceScope, normalized.mountPath)) return undefined
 
@@ -180,11 +180,38 @@ async function resolveWorkspaceSource(
   }
 }
 
+function applyResolvedWorkspaceSourceBinding(input: WorkspaceSourceInput, source: WorkspaceSource): WorkspaceSource {
+  if (!isPlainRecord(input) || !("source" in input)) return source
+  const next: WorkspaceSource = { ...source }
+  copyDefinedWorkspaceBindingOption(next, input, "cache")
+  copyDefinedWorkspaceBindingOption(next, input, "instructions")
+  copyDefinedWorkspaceBindingOption(next, input, "materialize")
+  copyDefinedWorkspaceBindingOption(next, input, "mount")
+  copyDefinedWorkspaceBindingOption(next, input, "sync")
+  copyDefinedWorkspaceBindingOption(next, input, "validate")
+  return next
+}
+
+function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "instructions" | "materialize" | "mount" | "sync" | "validate">(
+  target: WorkspaceSource,
+  input: Record<string, unknown>,
+  key: TKey,
+) {
+  if (input[key] !== undefined) {
+    target[key] = input[key] as never
+  }
+}
+
 function withResolvedSourceRuntimeDefaults(source: WorkspaceSource): WorkspaceSource {
   if (source.materialize || source.mount && typeof source.mount === "object" && source.mount.materialize) {
     return source
   }
+  if (source.sync) return source
   return { ...source, materialize: "lazy" }
+}
+
+function isPlainRecord(input: unknown): input is Record<string, unknown> {
+  return !!input && typeof input === "object" && !Array.isArray(input)
 }
 
 function isSourcePath(definition: WorkspaceDefinition, path: string): boolean {
