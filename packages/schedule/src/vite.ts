@@ -4,7 +4,7 @@ import { dirname, relative, resolve, normalize } from "node:path"
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 
 import { discoverScheduleDefinitions } from "./discovery.ts"
 import { generateProviderOutputs, readDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
@@ -24,6 +24,7 @@ const mergeNoExternal = createNoExternalMerger(schedulePackageName)
 
 export interface ScheduleVitePluginOptions {
   providerOutput?: "auto" | "standalone" | "nitro" | false
+  projectRoot?: string
 }
 
 export interface ScheduleVitePlugin {
@@ -214,32 +215,44 @@ function shouldEmitStandaloneProviderOutput(definitions: DiscoveredScheduleDefin
 export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVitePlugin {
   let resolved: ResolvedConfig | undefined
   let emitStandaloneProviderOutput = true
+  let projectRoot: string | undefined
   let standaloneProviderSource: DiscoveredScheduleDefinition["source"] | undefined
+  let viteRoot: string | undefined
+
+  function resolveSchedulePluginRoots(root: string) {
+    const resolvedViteRoot = resolve(root)
+    const resolvedProjectRoot = resolveViteHubProjectRoot(resolvedViteRoot, {
+      projectRoot: options.projectRoot,
+    })
+    return { projectRoot: resolvedProjectRoot, viteRoot: resolvedViteRoot }
+  }
 
   function discoverViteSchedules() {
-    if (!resolved) {
+    if (!projectRoot || !viteRoot) {
       return []
     }
 
     return discoverScheduleDefinitions({
       mode: "vite-suffix",
-      rootDir: resolved.root,
+      rootDir: viteRoot,
+      serverRootDir: projectRoot,
     })
   }
 
   function discoverRegistrySchedules() {
-    if (!resolved) {
+    if (!projectRoot || !viteRoot) {
       return []
     }
 
     return discoverScheduleDefinitions({
-      rootDir: resolved.root,
+      rootDir: viteRoot,
+      serverRootDir: projectRoot,
     })
   }
 
   function createRegistryContents() {
     const definitions = discoverRegistrySchedules()
-    const registryImport = resolved ? resolve(resolved.root, registryImportAnchor) : registryImportAnchor
+    const registryImport = projectRoot ? resolve(projectRoot, registryImportAnchor) : registryImportAnchor
     return createRuntimeRegistryContents(registryImport, definitions)
   }
 
@@ -251,8 +264,11 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     name: SCHEDULE_VITE_PLUGIN_NAME,
     enforce: "pre",
     async config(config, env) {
-      const root = resolve(config.root || process.cwd())
-      const definitions = discoverScheduleDefinitions({ rootDir: root })
+      const roots = resolveSchedulePluginRoots(config.root || process.cwd())
+      const definitions = discoverScheduleDefinitions({
+        rootDir: roots.viteRoot,
+        serverRootDir: roots.projectRoot,
+      })
       emitStandaloneProviderOutput = shouldEmitStandaloneProviderOutput(definitions, options)
       standaloneProviderSource = selectStandaloneProviderSource(definitions, options)
       if (definitions.length === 0) {
@@ -265,12 +281,15 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       const crons = env.command === "build"
         ? [...new Set((await readDefinitionCrons(nitroDefinitions)).values())]
         : []
-      const plugin = await writeNitroCloudflarePlugin(root, nitroDefinitions, crons)
+      const plugin = await writeNitroCloudflarePlugin(roots.projectRoot, nitroDefinitions, crons)
       ;(config as ViteConfigWithNitro).nitro = mergeNitroScheduleConfig((config as { nitro?: unknown }).nitro, { crons, plugin })
       return null
     },
     configResolved(config) {
       resolved = config
+      const roots = resolveSchedulePluginRoots(config.root)
+      projectRoot = roots.projectRoot
+      viteRoot = roots.viteRoot
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {

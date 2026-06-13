@@ -80,6 +80,52 @@ describe("Vite schedule integration", () => {
     await expect(readFile(join(root, ".vitehub", "schedule", "registry.d.ts"), "utf8")).resolves.toContain("ScheduleDefinition")
   })
 
+  it("discovers project server schedules when the Vite root is nested", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nested-root-"))
+    const appRoot = join(root, "app")
+    await mkdir(join(appRoot, "src"), { recursive: true })
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await writeFile(join(appRoot, "src", "cleanup.schedule.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 0 * * *', handler: () => {} })",
+      "",
+    ].join("\n"), "utf8")
+    await writeFile(join(root, "server", "schedules", "sync.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '0 4 * * *', handler: () => {} })",
+      "",
+    ].join("\n"), "utf8")
+
+    const userConfig: Record<string, unknown> = { root: appRoot }
+    const plugin = hubSchedule()
+    await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+      userConfig,
+      { command: "build", mode: "production" },
+    )
+    resolvePluginConfig(plugin, appRoot)
+    const registry = await loadScheduleRegistry(plugin)
+
+    expect(userConfig).toMatchObject({
+      nitro: {
+        cloudflare: {
+          wrangler: {
+            triggers: { crons: ["0 4 * * *"] },
+          },
+        },
+        modules: ["./.vitehub/nitro/schedule/module.ts"],
+        plugins: [".vitehub/nitro/schedule/plugin.ts"],
+      },
+    })
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("cloudflare:scheduled")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.ts"), "utf8")).resolves.toContain("\"0 4 * * *\"")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.ts"), "utf8")).resolves.not.toContain("\"0 0 * * *\"")
+    await expect(readFile(join(appRoot, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).rejects.toThrow()
+    expect(registry).toContain("\"cleanup\": async () => import(")
+    expect(registry).toContain("\"sync\": async () => import(")
+    expect(registry).toContain("../../app/src/cleanup.schedule.ts")
+    expect(registry).toContain("../../server/schedules/sync.ts")
+  })
+
   it("does not install Nitro plugin output for suffix-only standalone schedules by default", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-standalone-"))
     await mkdir(join(root, "src"), { recursive: true })
