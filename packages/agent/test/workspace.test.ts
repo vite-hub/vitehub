@@ -50,12 +50,16 @@ vi.mock("ai", () => ({
   },
 }))
 
-vi.mock("@vite-hub/workspace", () => ({
-  createWorkspaceSourceResolutionFacade,
-  createWorkspaceTools,
-  resolveWorkspaceAutoCommit,
-  useWorkspace,
-}))
+vi.mock("@vite-hub/workspace", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@vite-hub/workspace")>()
+  return {
+    ...actual,
+    createWorkspaceSourceResolutionFacade,
+    createWorkspaceTools,
+    resolveWorkspaceAutoCommit,
+    useWorkspace,
+  }
+})
 
 function context(runtimeConfig: Record<string, unknown> = {}) {
   return {
