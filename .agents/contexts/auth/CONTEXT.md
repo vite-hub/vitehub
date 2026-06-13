@@ -28,6 +28,10 @@ _Avoid_: Agent Invoker, customer, account
 The authenticated request state that connects an Auth User to a current session.
 _Avoid_: Agent Invocation, Chat Session, browser state
 
+**Auth Agent Invoker Bridge**:
+The Auth integration that maps a verified Auth Session and Auth User into an Agent Invoker for one Agent Invocation.
+_Avoid_: Auth User, access role, login role
+
 ## Relationships
 
 - An **Auth Definition** declares **Auth** behavior.
@@ -37,6 +41,8 @@ _Avoid_: Agent Invocation, Chat Session, browser state
 - An **Auth Session** can identify one **Auth User**.
 - **Auth User** is not **Agent Invoker**.
 - **Auth Session** is not **Chat Session**.
+- An **Auth Agent Invoker Bridge** can produce an Agent Invoker without making Auth User and Agent Invoker the same concept.
+- An **Auth Agent Invoker Bridge** applies only where an Agent or Entry Surface opts into it; merely defining Auth does not make every Agent Invocation require Auth.
 - Client factory metadata can belong to an **Auth Definition** without becoming a separate discovered Definition.
 
 ## Example Dialogue
@@ -49,6 +55,9 @@ _Avoid_: Agent Invocation, Chat Session, browser state
 >
 > **Dev:** "Can Auth use suffix-style discovery?"
 > **Domain expert:** "Yes. Prefer `server/auth.ts`, but support `server.auth.ts` as an equal **Auth Definition Location** alias."
+>
+> **Dev:** "Do I need to write a mapper just to make an authenticated user invoke an Agent?"
+> **Domain expert:** "No. The **Auth Agent Invoker Bridge** should make a default Agent Invoker from the Auth User, while app-specific metadata can be added only when needed."
 
 ## Flagged Ambiguities
 
@@ -56,3 +65,5 @@ _Avoid_: Agent Invocation, Chat Session, browser state
 - Multiple Auth Definitions were considered - resolved: support one **Primary Auth Definition** per app for now.
 - `server.auth.ts` was considered as a named auth identity source - resolved: it is only an alias for the singleton **Primary Auth Definition**.
 - Auth identity was considered as Agent identity - resolved: **Auth User** and **Agent Invoker** are separate concepts, with a future bridge able to map one into the other.
+- Requiring every app to write a custom Auth-to-Agent mapper was considered - resolved: the **Auth Agent Invoker Bridge** should provide a useful default mapping from Auth User to Agent Invoker, with custom mapping only for app-specific caller axes.
+- "Auth is installed" was considered equivalent to "all Agents require Auth" - resolved: Auth only affects Agent Invocations through an opted-in **Auth Agent Invoker Bridge** or another explicit Entry Surface gate.

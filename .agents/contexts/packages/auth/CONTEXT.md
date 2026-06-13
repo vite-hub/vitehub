@@ -60,6 +60,10 @@ _Avoid_: storage config, Vite plugin database option, Better Auth database passt
 The Auth Definition choice to use a KV Store for Better Auth secondary storage concerns such as sessions, verification records, rate-limit counters, and plugin data.
 _Avoid_: default cache, raw KV handle, Better Auth storage passthrough
 
+**Authenticated Agent Helper**:
+The Auth Package helper that lets an Agent opt into deriving its Agent Invoker from an authenticated Auth Session, exposed with user-facing language such as `authenticated()`.
+_Avoid_: authAgentInvoker, auth role, login gate
+
 ## Relationships
 
 - The **Auth Package** owns **Auth Definition** shape.
@@ -93,6 +97,8 @@ _Avoid_: default cache, raw KV handle, Better Auth storage passthrough
 - **Auth Secondary Storage** is opt-in even when the KV Package is installed.
 - **Auth Secondary Storage** uses the **Default KV Store** only when KV configuration has an implicit default; named KV configuration requires explicit KV Store Selection.
 - Future Agent integration should bridge Auth Session and Auth User into Agent Invoker rather than moving Auth ownership into the Agent Package.
+- The **Authenticated Agent Helper** is the user-facing Auth Package API for the Auth-to-Agent bridge; the architecture can still describe the broader bridge as an Auth Agent Invoker Bridge.
+- The **Authenticated Agent Helper** should consume standard Better Auth credential surfaces such as same-app sessions, cross-subdomain sessions, JWTs, bearer tokens, or OAuth/OIDC provider output rather than adding Agent-specific consumer configuration to the Auth Definition.
 
 ## Example Dialogue
 
@@ -143,6 +149,12 @@ _Avoid_: default cache, raw KV handle, Better Auth storage passthrough
 >
 > **Dev:** "Is `basePath` the same as `baseURL`?"
 > **Domain expert:** "No. **Auth Base Path** is route metadata declared by the **Auth Definition**; `baseURL` belongs to **Auth Runtime Resolution**."
+>
+> **Dev:** "Should the Auth-to-Agent helper be named after Agent Invokers?"
+> **Domain expert:** "No. Use **Authenticated Agent Helper** language for the public API so users can opt into authenticated Agent invocation without learning the internal bridge term first."
+>
+> **Dev:** "Should cross-service Agent auth require an `agentConsumers` field in `defineAuth()`?"
+> **Domain expert:** "No. Configure Auth with Better Auth's standard session, JWT, bearer, or OAuth/OIDC surfaces, then let the **Authenticated Agent Helper** verify and map those credentials for an Agent."
 
 ## Flagged Ambiguities
 
@@ -162,3 +174,5 @@ _Avoid_: default cache, raw KV handle, Better Auth storage passthrough
 - Raw Better Auth passthrough was considered for ViteHub-owned fields - resolved: **Auth Reserved Fields** have no raw passthrough escape hatch.
 - Multiple Auth Definitions were considered for V1 - resolved: the **Auth Package** supports one Primary Auth Definition per app for now.
 - Suffix-style auth files were considered named Auth Definition identities - resolved: `server.auth.ts` is an alias for the singleton Primary Auth Definition, with duplicate locations rejected.
+- `authAgentInvoker()` was considered as the public helper name - resolved: prefer `authenticated()`-style **Authenticated Agent Helper** naming because users should not need the Agent Invoker glossary term for the default path.
+- Agent-specific consumer configuration inside `defineAuth()` was considered for cross-service Agent calls - resolved: keep Auth Definition focused on Better Auth behavior and have the **Authenticated Agent Helper** consume Better Auth-standard credentials.
