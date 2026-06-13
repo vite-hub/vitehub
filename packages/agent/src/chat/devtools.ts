@@ -8,6 +8,7 @@ import {
   chatDevtoolsClearRpc,
   chatDevtoolsFeatureId,
   chatDevtoolsGetStateRpc,
+  chatDevtoolsMaterializeSourceRpc,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
   chatDevtoolsTitle,
@@ -21,6 +22,7 @@ import type {
   ChatDevtoolsConversation,
   ChatDevtoolsFileTreeItem,
   ChatDevtoolsMetadata,
+  ChatDevtoolsMaterializeSourceInput,
   ChatDevtoolsMessage,
   ChatDevtoolsMessageRole,
   ChatDevtoolsSendInput,
@@ -38,6 +40,7 @@ export {
   chatDevtoolsClearRpc,
   chatDevtoolsFeatureId,
   chatDevtoolsGetStateRpc,
+  chatDevtoolsMaterializeSourceRpc,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
   chatDevtoolsTitle,
@@ -49,6 +52,7 @@ export type {
   ChatDevtoolsFileKind,
   ChatDevtoolsFileTreeItem,
   ChatDevtoolsInvokerProfile,
+  ChatDevtoolsMaterializeSourceInput,
   ChatDevtoolsMetadata,
   ChatDevtoolsMetadataStatus,
   ChatDevtoolsMessage,
@@ -64,6 +68,7 @@ export type {
 
 export const chatDevtoolsRpcClear: string = chatDevtoolsClearRpc
 export const chatDevtoolsRpcGetState: string = chatDevtoolsGetStateRpc
+export const chatDevtoolsRpcMaterializeSource: string = chatDevtoolsMaterializeSourceRpc
 export const chatDevtoolsRpcSend: string = chatDevtoolsSendRpc
 
 export interface ChatDevtoolsTranscriptMessage {

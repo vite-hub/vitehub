@@ -6,6 +6,7 @@ import type { UIMessage, UIMessagePart } from "ai"
 import {
   chatDevtoolsClearRpc,
   chatDevtoolsGetStateRpc,
+  chatDevtoolsMaterializeSourceRpc,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
   type ChatDevtoolsFileTreeItem,
@@ -332,6 +333,10 @@ function fileLabel(file: ChatDevtoolsFileTreeItem) {
 }
 
 function toggleFile(file: ChatDevtoolsFileTreeItem) {
+  if (isLazyFile(file)) {
+    void materializeFile(file)
+    return
+  }
   if (file.kind === "file") {
     selectedFilePath.value = file.path
     return
@@ -346,8 +351,9 @@ function toggleFile(file: ChatDevtoolsFileTreeItem) {
   expandedFilePaths.value = expanded
 }
 
-function fileMaterialization(file: ChatDevtoolsFileTreeItem): "lazy" | "materialized" | undefined {
+function fileMaterialization(file: ChatDevtoolsFileTreeItem): "lazy" | "materialized" | "updating" | undefined {
   const meta = file as ChatDevtoolsFileTreeItem & FileMaterialization
+  if (meta.status === "updating") return "updating"
   if (meta.status === "ready" || meta.materialized || meta.materializedAt) return "materialized"
   if (meta.status === "lazy" || (meta.materialized === false && meta.materialize === "lazy")) return "lazy"
   return undefined
@@ -355,6 +361,65 @@ function fileMaterialization(file: ChatDevtoolsFileTreeItem): "lazy" | "material
 
 function isLazyFile(file: ChatDevtoolsFileTreeItem) {
   return fileMaterialization(file) === "lazy" && Boolean((file as ChatDevtoolsFileTreeItem & FileMaterialization).source)
+}
+
+function fileMaterializationBadge(file: ChatDevtoolsFileTreeItem) {
+  const materialization = fileMaterialization(file)
+  if (materialization === "updating") return "Updating"
+  if (materialization === "lazy") return "Lazy"
+}
+
+function fileMaterializationColor(file: ChatDevtoolsFileTreeItem) {
+  return fileMaterialization(file) === "updating" ? "primary" : "warning"
+}
+
+function mapFileTree(
+  files: ChatDevtoolsFileTreeItem[],
+  path: string,
+  update: (file: ChatDevtoolsFileTreeItem) => ChatDevtoolsFileTreeItem,
+): ChatDevtoolsFileTreeItem[] {
+  return files.map((file) => {
+    const children = file.children ? mapFileTree(file.children, path, update) : undefined
+    const next = children ? { ...file, children } : file
+    return file.path === path ? update(next) : next
+  })
+}
+
+function setFileStatus(path: string, status: FileMaterialization["status"]) {
+  state.value = {
+    ...state.value,
+    files: mapFileTree(state.value.files || [], path, file => ({ ...file, status })),
+  }
+}
+
+async function materializeFile(file: ChatDevtoolsFileTreeItem) {
+  const source = (file as ChatDevtoolsFileTreeItem & FileMaterialization).source
+  if (!source) {
+    toggleFile(file)
+    return
+  }
+
+  setFileStatus(file.path, "updating")
+  try {
+    const bridgeState = await callBridgeState({
+      action: chatDevtoolsMaterializeSourceRpc,
+      chat: state.value.selected,
+      path: file.path,
+      source,
+      ...selectedInvokerRequest(),
+    })
+    if (bridgeState) {
+      applyState(bridgeState)
+      expandedFilePaths.value = new Set([...expandedFilePaths.value, file.path])
+      error.value = undefined
+      return
+    }
+    await refreshFromBridge(state.value.selected)
+  }
+  catch (cause) {
+    setFileStatus(file.path, "error")
+    error.value = cause instanceof Error ? cause.message : "Workspace source materialization failed."
+  }
 }
 
 function hasToolOutput(tool: ChatDevtoolsTool) {
@@ -1263,13 +1328,13 @@ onBeforeUnmount(() => {
                   >
                     <template #trailing>
                       <UBadge
-                        v-if="isLazyFile(file)"
-                        color="warning"
+                        v-if="fileMaterializationBadge(file)"
+                        :color="fileMaterializationColor(file)"
                         variant="soft"
                         size="sm"
                         class="ml-auto shrink-0"
                       >
-                        Lazy
+                        {{ fileMaterializationBadge(file) }}
                       </UBadge>
                     </template>
                   </UButton>

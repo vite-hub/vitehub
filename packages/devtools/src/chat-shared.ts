@@ -6,6 +6,7 @@ export const chatDevtoolsBridgeRoute = "/__vitehub/agent/chat/devtools"
 export const chatDevtoolsGetStateRpc = "@vite-hub/agent/chat:get-state"
 export const chatDevtoolsSendRpc = "@vite-hub/agent/chat:send"
 export const chatDevtoolsClearRpc = "@vite-hub/agent/chat:clear"
+export const chatDevtoolsMaterializeSourceRpc = "@vite-hub/agent/chat:materialize-source"
 export const chatDevtoolsStreamChannel = "@vite-hub/agent/chat:stream"
 export const chatDevtoolsAdapterName = "devtools"
 
@@ -112,6 +113,14 @@ export interface ChatDevtoolsClearInput {
   chat?: string
   invokerFallback?: boolean
   invokerProfileId?: string
+}
+
+export interface ChatDevtoolsMaterializeSourceInput {
+  chat?: string
+  invokerFallback?: boolean
+  invokerProfileId?: string
+  path?: string
+  source?: string
 }
 
 export interface ChatDevtoolsSendResult extends ChatDevtoolsStateResult {
