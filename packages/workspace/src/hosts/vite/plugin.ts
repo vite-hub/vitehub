@@ -50,15 +50,6 @@ function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]):
   return store.provider === "cloudflare-artifacts" || store.provider === "github"
 }
 
-function shouldInstallRuntimeWorkspacePlugin(
-  options: false | WorkspaceModuleOptions | undefined,
-  normalized: false | ResolvedWorkspaceModuleOptions,
-): normalized is ResolvedWorkspaceModuleOptions {
-  if (!normalized) return false
-  if (isHostedWorkspaceStore(normalized.store)) return true
-  return Boolean(options && (options.root || options.store))
-}
-
 function mergeNitroWorkspaceConfig(value: unknown): NitroConfig {
   const nitro: NitroConfig = isRecord(value) ? { ...value } : {}
   const plugins = Array.isArray(nitro.plugins) ? [...nitro.plugins] : []
@@ -67,20 +58,6 @@ function mergeNitroWorkspaceConfig(value: unknown): NitroConfig {
 }
 
 function renderNitroWorkspacePlugin(config: ResolvedWorkspaceModuleOptions): string {
-  if (!isHostedWorkspaceStore(config.store)) {
-    return [
-      "import { setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
-      "import { definePlugin } from 'nitro'",
-      "import registry from './registry.js'",
-      "",
-      "export default definePlugin(() => {",
-      "  setWorkspaceRuntimeRegistry(registry)",
-      `  setWorkspaceRuntimeConfig(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`,
-      "})",
-      "",
-    ].join("\n")
-  }
-
   return [
     "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
     "import { configureCloudflareWorkspaceRuntime } from '@vite-hub/workspace/cloudflare'",
@@ -170,7 +147,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
           },
         },
       }
-      if (shouldInstallRuntimeWorkspacePlugin(workspaceOptions, normalized)) {
+      if (normalized && isHostedWorkspaceStore(normalized.store)) {
         await writeNitroWorkspacePlugin(roots.projectRoot, normalized)
         const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
         ;(config as ViteConfigWithWorkspaceNitro).nitro = nitro
