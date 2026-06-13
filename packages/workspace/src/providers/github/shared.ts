@@ -35,7 +35,7 @@ export interface GitHubBranchState {
 }
 
 export interface GitHubFileUpdate {
-  bytes: Uint8Array;
+  bytes?: Uint8Array;
   fullPath: string;
   gitSha: string;
 }
@@ -299,15 +299,14 @@ export async function commitGitHubChanges(input: {
   const { owner, repo } = splitGitHubRepository(input.repository, kind);
   const blobs = await Promise.all(
     input.files.map((file) =>
-      requestGitHubJson<{ sha: string }>(
-        input.repository,
-        input.token,
-        `/repos/${owner}/${repo}/git/blobs`,
-        {
-          body: JSON.stringify({ content: toBase64(file.bytes), encoding: "base64" }),
-          method: "POST",
-        },
-      ),
+      file.bytes
+        ? createGitHubBlob({
+            bytes: file.bytes,
+            kind,
+            repository: input.repository,
+            token: input.token,
+          })
+        : { sha: file.gitSha },
     ),
   );
   const tree = await requestGitHubJson<{ sha: string }>(
@@ -355,11 +354,30 @@ export async function commitGitHubChanges(input: {
   return { commitSha: commit.sha, treeSha: tree.sha };
 }
 
+export async function createGitHubBlob(input: {
+  bytes: Uint8Array;
+  kind?: "publisher" | "store";
+  repository: string;
+  token: string;
+}): Promise<{ sha: string }> {
+  const kind = input.kind || "store";
+  const { owner, repo } = splitGitHubRepository(input.repository, kind);
+  return await requestGitHubJson<{ sha: string }>(
+    input.repository,
+    input.token,
+    `/repos/${owner}/${repo}/git/blobs`,
+    {
+      body: JSON.stringify({ content: toBase64(input.bytes), encoding: "base64" }),
+      method: "POST",
+    },
+  );
+}
+
 export async function createGitHubFileUpdate(
   path: string,
   root: string,
   content: string | Uint8Array,
-): Promise<GitHubFileUpdate> {
+): Promise<GitHubFileUpdate & { bytes: Uint8Array }> {
   const bytes = contentToBytes(content);
   return {
     bytes,

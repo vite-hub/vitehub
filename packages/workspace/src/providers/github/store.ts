@@ -1,5 +1,6 @@
 import { WorkspaceError } from "../../core/errors.ts";
 import {
+  contentStreamToBytes,
   matchesAny,
   normalizeSafeWorkspacePath,
   normalizeSafeWorkspacePattern,
@@ -8,6 +9,7 @@ import {
 import { createSnapshotFromEntries, diffSnapshots } from "../../storage/utils.ts";
 import {
   commitGitHubChanges,
+  createGitHubBlob,
   createGitHubFileUpdate,
   gitBlobSha,
   joinGitPath,
@@ -34,6 +36,7 @@ import type {
   WorkspaceFile,
   WorkspaceSnapshot,
   WorkspaceStat,
+  WorkspaceStreamFile,
   WorkspaceStore,
 } from "../../core/types.ts";
 
@@ -112,8 +115,13 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       });
       return;
     }
-    this.#files.set(normalized, {
+    await createGitHubBlob({
       bytes: update.bytes,
+      kind: "store",
+      repository: this.#repository,
+      token: this.#token,
+    });
+    this.#files.set(normalized, {
       gitSha: update.gitSha,
       mediaType: file.mediaType,
       metadata: file.metadata,
@@ -121,6 +129,23 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       size: contentLength(file.content),
     });
     this.#dirty = true;
+  }
+
+  async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat> {
+    const content = await contentStreamToBytes(file.content);
+    await this.writeFile(path, {
+      path: file.path,
+      content,
+      mediaType: file.mediaType,
+      metadata: file.metadata,
+    });
+    return {
+      digest: await gitBlobSha(content),
+      mediaType: file.mediaType,
+      path: normalizeSafeWorkspacePath(path),
+      size: content.byteLength,
+      type: "file",
+    };
   }
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
@@ -215,11 +240,6 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     }
 
     const files = changedFiles.map((file) => {
-      if (!file.bytes) {
-        throw new WorkspaceError(
-          `[vitehub] GitHub Workspace Store cannot commit ${file.path} because its content was not loaded.`,
-        );
-      }
       return {
         bytes: file.bytes,
         fullPath: joinGitPath(this.#root, file.path),

@@ -252,6 +252,93 @@ describe("GitHub workspace store", () => {
     expect(requests.filter((request) => request.method !== "GET")).toEqual([]);
   });
 
+  it("uploads changed blobs during writes and snapshots by sha", async () => {
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await store.writeFile("tasks/todo.md", {
+      path: "tasks/todo.md",
+      content: "ship it\n",
+      mediaType: "text/markdown",
+    });
+
+    expect(
+      requests.filter((request) => request.path.endsWith("/git/blobs") && request.method === "POST"),
+    ).toHaveLength(1);
+    requests.length = 0;
+
+    await store.snapshot({ name: "sync workspace" });
+
+    expect(
+      requests.filter((request) => request.path.endsWith("/git/blobs") && request.method === "POST"),
+    ).toEqual([]);
+    expect(
+      requests.find((request) => request.path.endsWith("/git/trees") && request.method === "POST")
+        ?.body,
+    ).toMatchObject({
+      tree: expect.arrayContaining([
+        {
+          mode: "100644",
+          path: ".vitehub/workspaces/docs/tasks/todo.md",
+          sha: textSha("ship it\n"),
+          type: "blob",
+        },
+      ]),
+    });
+  });
+
+  it("supports streaming writes in the GitHub workspace store", async () => {
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await expect(store.writeFileStream!("assets/blob.txt", {
+      path: "assets/blob.txt",
+      content: new ReadableStream({
+        start(controller) {
+          controller.enqueue(textBytes("hello "));
+          controller.enqueue(textBytes("stream\n"));
+          controller.close();
+        },
+      }),
+      mediaType: "text/plain",
+    })).resolves.toMatchObject({
+      digest: textSha("hello stream\n"),
+      path: "assets/blob.txt",
+      size: textBytes("hello stream\n").byteLength,
+    });
+    await store.snapshot({ name: "sync workspace" });
+
+    expect(
+      requests.find((request) => request.path.endsWith("/git/trees") && request.method === "POST")
+        ?.body,
+    ).toMatchObject({
+      tree: expect.arrayContaining([
+        {
+          mode: "100644",
+          path: ".vitehub/workspaces/docs/assets/blob.txt",
+          sha: textSha("hello stream\n"),
+          type: "blob",
+        },
+      ]),
+    });
+  });
+
   it("keeps unchanged remote file content lazy after no-op writes", async () => {
     seedRemote(".vitehub/workspaces/docs/README.md", "# Docs\n");
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
@@ -300,7 +387,11 @@ describe("GitHub workspace store", () => {
       "GitHub Workspace Store conflict",
     );
     expect(
-      requests.filter((request) => request.method === "POST" || request.method === "PATCH"),
+      requests.filter((request) =>
+        (request.path.endsWith("/git/trees") && request.method === "POST")
+        || request.path.endsWith("/git/commits")
+        || request.method === "PATCH"
+      ),
     ).toEqual([]);
   });
 
