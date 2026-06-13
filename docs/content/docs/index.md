@@ -7,7 +7,7 @@ icon: i-lucide-book-open
 
 ViteHub has two documentation paths.
 
-Use **Server primitives** when you want storage, background work, schedules, sandboxes, or environment handling in ordinary server code.
+Use **Server primitives** when you want authentication, storage, background work, schedules, sandboxes, or environment handling in ordinary server code.
 
 Use **Agents** when you want to define model-backed actors with instructions, workspaces, triggers, evaluations, and model-facing capabilities.
 
@@ -23,7 +23,7 @@ Use **Agents** when you want to define model-backed actors with instructions, wo
   :::u-page-card
   ---
   title: Server primitives
-  description: Use KV, Database, Blob, Workspace, Queue, Workflow, Schedule, Sandbox, and Env without creating an agent.
+  description: Use Auth, KV, Database, Blob, Workspace, Queue, Workflow, Schedule, Sandbox, and Env without creating an agent.
   icon: i-lucide-server-cog
   to: /docs/server-primitives
   ---
@@ -42,6 +42,7 @@ Use **Agents** when you want to define model-backed actors with instructions, wo
 
 | You are building | Start with |
 | --- | --- |
+| Application user identity, sessions, and a Better Auth-backed server route | [Auth](/docs/server-primitives/auth) |
 | App settings, flags, cache entries, or small lookup state | [KV](/docs/server-primitives/kv) |
 | Relational application data, joins, migrations, or history | [Database](/docs/server-primitives/database) |
 | Uploads, generated assets, PDFs, images, or binary objects | [Blob](/docs/server-primitives/blob) |
