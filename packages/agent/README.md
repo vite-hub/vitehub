@@ -32,11 +32,13 @@ import { chat, workspaceShell } from "@vite-hub/agent/capabilities"
 import { source } from "@vite-hub/workspace"
 
 export default defineAgent({
-  model: gateway("openai/gpt-5.1-mini"),
-  instructions: [
-    "Answer support questions from the workspace.",
-    "{{ workspace.sources }}",
-  ],
+  driver: {
+    model: gateway("openai/gpt-5.1-mini"),
+    instructions: [
+      "Answer support questions from the workspace.",
+      "{{ workspace.sources }}",
+    ],
+  },
   capabilities: [chat(), workspaceShell()],
   workspace: {
     sources: {

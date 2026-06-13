@@ -4,6 +4,47 @@ import { createMessage, getMessageText } from "@vite-hub/agent"
 import { chat, chatTitle, schedule } from "../src/capabilities.ts"
 
 describe("agent message protocol", () => {
+  it("runs custom Agent Drivers through the invocation lifecycle", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const run = vi.fn(context => `received ${context.prompt}`)
+    const agent = defineAgent({
+      driver: { run },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toBe("received hello")
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: "hello",
+    }))
+  })
+
+  it("runs harness Agent Drivers through the adapter context", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const generate = vi.fn(() => ({ text: "ok" }))
+    const agent = defineAgent({
+      driver: {
+        harness: { generate },
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: "hello",
+      runtime: expect.objectContaining({ runtime: "unknown" }),
+    }))
+  })
+
+  it("rejects mixed or permission-shaped Agent Drivers", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    expect(() => defineAgent({
+      driver: { model: {} as never, run: () => "ok" },
+    } as never)).toThrow("requires exactly one")
+
+    expect(() => defineAgent({
+      driver: { harness: { generate: () => ({ text: "ok" }) }, permissions: "bypass" },
+    } as never)).toThrow("does not expose harness permission options")
+  })
+
   it("creates inline schedule capabilities without requiring chat history", async () => {
     const { defineAgent } = await import("../src/index.ts")
 

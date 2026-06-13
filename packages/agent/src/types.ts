@@ -474,17 +474,102 @@ export interface AgentModelExecutionOptions<
   }
 }
 
-type AgentSettingsBase<
+export interface AgentHarnessCredentialSource {
+  label?: string
+  source?: "ambient" | "explicit" | "none" | "unknown" | (string & {})
+  value?: unknown
+}
+
+export type AgentHarnessSessionKey<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> =
+  | string
+  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<string | undefined>)
+
+export interface AgentHarnessAdapterLike<
+  TOptions = unknown,
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> {
+  generate(context: AgentAdapterRunContext<TOptions, TRuntimeConfig, Name>): MaybePromise<AgentAdapterResult | Response | AsyncIterable<StreamEvent> | unknown>
+  metadata?(context: AgentAdapterMetadataContext<TRuntimeConfig, Name>): MaybePromise<AgentDevtoolsMetadata | undefined>
+  name?: string
+  stream?(context: AgentAdapterRunContext<TOptions, TRuntimeConfig, Name>): MaybePromise<Response | AsyncIterable<StreamEvent> | AgentAdapterResult | unknown>
+  tools?: unknown
+}
+
+export type AgentHarnessDriverInput<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  Name extends WorkspaceName = WorkspaceName,
+> =
+  | AgentHarnessAdapterLike<CALL_OPTIONS, TRuntimeConfig, Name>
+  | AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS, Name>
+
+export interface AgentModelDriver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> {
+  credentials?: never
+  execution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
+  harness?: never
+  instructions?: AgentAdapterInstructions<TRuntimeConfig>
+  model: AgentModelResolver<TRuntimeConfig>
+  permissionMode?: never
+  permissions?: never
+  run?: never
+  sessionKey?: never
+}
+
+export interface AgentHarnessDriver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  Name extends WorkspaceName = WorkspaceName,
+> {
+  credentials?: AgentHarnessCredentialSource
+  execution?: never
+  harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS, Name>
+  instructions?: never
+  model?: never
+  permissionMode?: never
+  permissions?: never
+  run?: never
+  sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
+}
+
+export interface AgentRunDriver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> {
+  credentials?: never
+  execution?: never
+  harness?: never
+  instructions?: never
+  model?: never
+  permissionMode?: never
+  permissions?: never
+  run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
+  sessionKey?: never
+}
+
+export type AgentDriver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  Name extends WorkspaceName = WorkspaceName,
+> =
+  | AgentModelDriver<TRuntimeConfig, CALL_OPTIONS>
+  | AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS, Name>
+  | AgentRunDriver<TRuntimeConfig, CALL_OPTIONS>
+
+type AgentSharedSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > = {
+  capabilities?: AgentCapabilitiesList<TRuntimeConfig>
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig>
-  instructions?: AgentAdapterInstructions<TRuntimeConfig>
-  capabilities?: AgentCapabilitiesList<TRuntimeConfig>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS>
-  modelExecution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
-  model?: AgentModelResolver<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
   title?: string
   version?: string
@@ -494,12 +579,26 @@ type AgentSettingsBase<
 export type AgentSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> = AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS> & (
+> = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS> & (
   | {
+    driver: AgentDriver<TRuntimeConfig, CALL_OPTIONS>
+    instructions?: never
+    model?: never
+    modelExecution?: never
+    run?: never
+  }
+  | {
+    driver?: never
+    instructions?: AgentAdapterInstructions<TRuntimeConfig>
+    model?: never
+    modelExecution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
     run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
   | {
-    model: NonNullable<AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS>["model"]>
+    driver?: never
+    instructions?: AgentAdapterInstructions<TRuntimeConfig>
+    model: AgentModelResolver<TRuntimeConfig>
+    modelExecution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
     run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
 )

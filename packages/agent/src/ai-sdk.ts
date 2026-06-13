@@ -43,6 +43,7 @@ export interface AiSdkAdapterOptions<
   TTools extends ToolSet = ToolSet,
   Name extends WorkspaceName = WorkspaceName,
 > {
+  execution?: AiSdkModelExecutionOptions<TRuntimeConfig, TCallOptions, TTools>
   instructions?: AgentAdapterInstructions<TRuntimeConfig, Name>
   modelExecution?: AiSdkModelExecutionOptions<TRuntimeConfig, TCallOptions, TTools>
   model: ToolLoopAgentSettings<TCallOptions, TTools>["model"] | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<ToolLoopAgentSettings<TCallOptions, TTools>["model"]>)
@@ -515,6 +516,7 @@ function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapt
 
 async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRunContext) {
   const { ToolLoopAgent, stepCountIs } = await import("ai")
+  const execution = options.execution ?? options.modelExecution
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   const metadataContext = {
     ...runtime,
@@ -524,7 +526,7 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
     workspace: context.workspace,
   } as AgentAdapterMetadataContext
   const model = await resolveValue(options.model as never, metadataContext)
-  const modelInstrumentation = options.modelExecution?.instrumentation?.model
+  const modelInstrumentation = execution?.instrumentation?.model
   const instrumentedModel = modelInstrumentation
     ? await modelInstrumentation({ ...runtime, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
@@ -547,13 +549,14 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   const toolSet = { ...resolvedTools, ...providerTools }
   const {
     instructions: _instructions,
+    execution: _execution,
     modelExecution: _modelExecution,
     model: _model,
     tools: _tools,
   } = options
-  const stepLimit = options.modelExecution?.stepLimit
-  const baseCallSettings = { ...(options.modelExecution?.callSettings || {}) }
-  const instrumentedCallSettings = await options.modelExecution?.instrumentation?.callSettings?.({
+  const stepLimit = execution?.stepLimit
+  const baseCallSettings = { ...(execution?.callSettings || {}) }
+  const instrumentedCallSettings = await execution?.instrumentation?.callSettings?.({
     ...runtime,
     callSettings: { ...baseCallSettings },
     context: context.context,
@@ -592,7 +595,8 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const text = result.text.trim()
       if (text) return result as unknown as AgentAdapterResult
 
-      const fallback = getFallbackOptions(options.modelExecution?.workspaceFallback)
+      const execution = options.execution ?? options.modelExecution
+      const fallback = getFallbackOptions(execution?.workspaceFallback)
       if (fallback.enabled && (result.finishReason === "tool-calls" || hasToolResults(result))) {
         const synthesized = await synthesizeWorkspaceFallback(model as never, context, result, fallback.maxToolResults)
         if (synthesized) return { raw: result, text: synthesized }
@@ -621,7 +625,8 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     async stream(context) {
       const { agent, model } = await createAgent(options, context)
       const result = await agent.stream(getCallInput(context) as never) as StreamTextResult<ToolSet, never>
-      return withWorkspaceFallbackStreamResult(result, model as never, context, getFallbackOptions(options.modelExecution?.workspaceFallback))
+      const execution = options.execution ?? options.modelExecution
+      return withWorkspaceFallbackStreamResult(result, model as never, context, getFallbackOptions(execution?.workspaceFallback))
     },
   }
 }

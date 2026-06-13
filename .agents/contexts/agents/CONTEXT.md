@@ -1,20 +1,40 @@
 # Agents
 
-Agents names definitions, invocations, and runtime state for model-backed server actors.
+Agents names definitions, invocations, and runtime state for server actors driven by Agent Drivers.
 
 ## Language
 
 **Agent**:
-A named server-side actor that receives inputs, runs model-backed behavior, and may attach Capabilities.
+A named server-side actor that receives inputs, is driven by an Agent Driver, and may attach Capabilities.
 _Avoid_: Bot, chat definition, workflow
 
 **Agent Definition**:
-The code declaration that names an Agent and configures its model, model execution, workspace, instructions, and Capabilities.
+The code declaration that names an Agent and configures its Workspace, Capabilities, Agent Invoker, and Agent Driver.
 _Avoid_: Chat definition, server route
 
+**Agent Driver**:
+The Agent Definition boundary that selects and configures how an Agent Invocation is driven, such as a model-backed loop or harness-backed execution.
+_Avoid_: Adapter, runtime, top-level model selector, top-level harness selector, driver factory wrapper, root run callback
+
+**Model Driver Instructions**:
+Model-facing instruction text or callbacks configured on a model-backed Agent Driver and composed before the model call.
+_Avoid_: Root Agent Definition instructions, harness instructions, workspace `AGENTS.md`
+
 **Agent Model Execution**:
-The Agent Definition boundary for model call settings, step limits, workspace fallback behavior, and model execution instrumentation.
+The model-backed Agent Driver boundary for `execution` settings such as model call settings, step limits, workspace fallback behavior, and model execution instrumentation.
 _Avoid_: Adapter options, provider options, passthrough
+
+**Agent Harness Driver Contract**:
+The ViteHub-owned contract implemented by harness-backed Agent Drivers, including how a harness receives invocation input, workspace access, lifecycle events, streams, approvals, and telemetry.
+_Avoid_: AI SDK HarnessAgent as public boundary, raw harness adapter, provider-owned Agent Driver
+
+**Harness Permission Policy**:
+The ViteHub-owned policy for whether a harness-backed Agent Driver uses adapter-level approval prompts or bypasses them.
+_Avoid_: Provider permission stack, hidden adapter approvals, two-layer approval policy
+
+**Harness Credential Source**:
+The resolved credential and billing identity source for a harness-backed Agent Driver, such as explicit driver credentials, adapter-default ambient auth, or a no-credentials-required harness.
+_Avoid_: Required credential object, hidden cost owner, provider-specific env helper
 
 **Agent Model Execution Instrumentation**:
 Invocation-scoped hooks that wrap the resolved model or adjust model call settings before an Agent Invocation calls the model.
@@ -89,15 +109,15 @@ An in-memory or local provider used only for single-process Agent development.
 _Avoid_: Production state provider, durable coordination
 
 **Agent Usage**:
-Normalized model usage information produced by an Agent Invocation, including token counts and provider-reported usage details.
+Normalized driver usage information produced by an Agent Invocation, including token counts when available and provider- or harness-reported usage details.
 _Avoid_: Metadata, metrics
 
 **Agent Usage Telemetry**:
-Runtime measurement of an Agent Invocation's model usage, latency, throughput, and cost.
+Runtime measurement of an Agent Invocation's driver usage, latency, throughput, and cost context.
 _Avoid_: Metadata, chat analytics, generic observability
 
 **Agent Usage Record**:
-The final completed accounting record captured after one Agent Invocation finishes, combining Agent Usage with model, response, latency, and optional cost information.
+The final completed accounting record captured after one Agent Invocation finishes, combining Agent Usage with selected Agent Driver, response, latency, and optional cost information.
 _Avoid_: Live stream event, token log
 
 **Mock Agent Adapter**:
@@ -107,9 +127,40 @@ _Avoid_: Fake agent, dummy model, test bot
 ## Relationships
 
 - An **Agent Definition** declares one **Agent**.
-- An **Agent Definition** uses the AI SDK model execution path when it uses a model.
-- **Agent Model Execution** belongs to the Agent Definition and is not an adapter boundary.
+- An **Agent Definition** has one **Agent Driver**.
+- An **Agent Driver** is configured as one object on the Agent Definition, with exactly one concrete driver key such as `model`, `harness`, or `run`.
+- The concrete **Agent Driver** key holds the implementation value directly; driver-specific options are sibling fields on the same driver object.
+- **Agent Driver** variants are mutually exclusive; one driver object cannot combine `model`, `harness`, or `run`.
+- An **Agent Driver** may be model-backed, harness-backed, or custom-run-backed.
+- A model-backed **Agent Driver** uses the AI SDK model execution path when it uses a model.
+- A model-backed **Agent Driver** may configure **Model Driver Instructions**.
+- A model-backed **Agent Driver** uses `execution` for **Agent Model Execution** settings.
+- A harness-backed **Agent Driver** does not receive **Model Driver Instructions** as a system prompt by default.
+- Harness-backed instruction behavior should rely on explicit harness or Workspace instruction surfaces, such as workspace `AGENTS.md`, unless a future harness-specific option is introduced.
+- A harness-backed **Agent Driver** implements the **Agent Harness Driver Contract**.
+- V1 harness-backed **Agent Drivers** use a single active permission layer: ViteHub-owned Workspace and runtime boundaries.
+- V1 **Harness Permission Policy** bypasses adapter-level approval prompts by configuring the harness adapter to its most permissive no-approval mode when the adapter supports one.
+- V1 does not expose a public permission option; bypass is implicit for supported harness-backed **Agent Drivers** until a second policy is intentionally designed.
+- For the current AI SDK Codex adapter, V1 should use `permissionMode: "allow-all"` behind the ViteHub harness adapter boundary.
+- A harness adapter that cannot bypass its own approval layer should be unsupported for V1 rather than introducing a second hidden permission layer.
+- V1 should not enable host-executed HarnessAgent approval flows for harness-backed Agent Drivers; approval-based policy is a future design.
+- A harness-backed **Agent Driver** receives Workspace state through a scoped **Workspace Session** or equivalent materialized filesystem, not model-facing Workspace Tools by default.
+- A harness-backed **Agent Driver** uses an invocation-scoped Harness Workspace Session by default and requires an explicit Harness Session Key for durable reuse.
+- A harness-backed **Agent Driver** may omit `credentials`; omitted credentials let the harness adapter use its default credential behavior, such as ambient CLI auth or no credentials when the harness does not require them.
+- Explicit **Harness Credential Source** configuration is a sibling option on the harness-backed **Agent Driver**, not hidden inside the harness adapter constructor.
+- Explicit deployable **Harness Credential Sources** should read secret material through Env Package **Server Env** and **Secret Env** instead of provider-specific env helper namespaces.
+- A harness-backed **Agent Driver** should classify the resolved **Harness Credential Source** for diagnostics and telemetry when the adapter can report it.
+- Development diagnostics should warn when omitted harness credentials resolve to an unknown or local-only **Harness Credential Source**.
+- Hosted production should fail when omitted harness credentials resolve to an unknown or known local-only **Harness Credential Source**.
+- Hosted production may proceed when omitted harness credentials resolve to an adapter-classified deployable source or a no-credentials-required harness.
+- AI SDK `HarnessAgent` support is an implementation adapter behind the **Agent Harness Driver Contract**, not the public ViteHub Agent Driver boundary.
+- A custom-run-backed **Agent Driver** invokes developer code directly through `run`.
+- A custom-run-backed **Agent Driver** may call a model or harness internally, but ViteHub treats the public Agent Driver as custom-run-backed unless a future explicit composition primitive says otherwise.
+- **Agent Model Execution** belongs to a model-backed Agent Driver and is not an adapter boundary.
 - **Agent Model Execution Instrumentation** is lower-level Agent execution behavior and should not become root Agent Definition fields.
+- **Agent Driver** is not a Capability, Agent Trigger, Chat Platform Adapter, or host runtime.
+- Workspace plus Capability composition without an **Agent Driver** is not an **Agent Definition**.
+- Capabilities attach above the **Agent Driver** and may expose driver-specific **Capability Driver Contributions**.
 - An **Agent** receives zero or more **Agent Invocations**.
 - An **Agent Trigger** starts one or more **Agent Invocations**.
 - An **Agent Trigger** prepares **Agent Run State** and **Chat History** when the product event needs them.
@@ -124,6 +175,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - An **Agent Eval** runs an **Agent Definition** to create scored **Agent Invocations**.
 - An **Agent** can attach zero or more Capabilities.
 - Tools are contributed by Capabilities, not by top-level Agent Definition fields.
+- Model-facing tools and instructions are **Capability Driver Contributions** consumed only by compatible Agent Drivers.
 - Workspace Tools are derived from an Agent's Colocated Workspace Definition.
 - An **Agent Invocation** can create or update **Agent Run State**.
 - An **Agent Run Origin** is observability metadata for an **Agent Invocation**; it is not the **Agent Trigger** that prepared the invocation.
@@ -146,6 +198,13 @@ _Avoid_: Fake agent, dummy model, test bot
 - A **Concurrent Invocation Guard** protects **Agent Run State**.
 - A **Development State Provider** is not acceptable for hosted production runtimes.
 - **Agent Usage** belongs to one **Agent Invocation**.
+- **Agent Usage Records** are the shared accounting surface for model-backed, harness-backed, and custom-run-backed Agent Drivers when they report usage.
+- A model-backed **Agent Driver** may report token-shaped **Agent Usage**.
+- A harness-backed **Agent Driver** should emit **Agent Usage Records** even when the provider reports sessions, actions, wall time, quota events, or other non-token usage units.
+- **Agent Usage** token fields are present only when a provider reports or ViteHub can safely derive token counts.
+- Non-token harness usage should be preserved as provider- or harness-reported raw usage details instead of translated into invented token counts.
+- **Agent Usage Records** may include the resolved **Harness Credential Source** label or billing identity metadata when available without exposing the underlying secret.
+- **Agent Usage Records** record cost only when a provider reports it or explicit pricing logic estimates it; ViteHub must not invent exact cost for subscription-backed harness runs.
 - **Agent Usage Telemetry** observes **Agent Usage Records**.
 - **Agent Usage Telemetry** can expose an **Agent Usage Record** as an **Agent Invocation Extension**.
 - A **Mock Agent Adapter** can support playgrounds and end-to-end tests without creating provider cost.
@@ -174,8 +233,26 @@ _Avoid_: Fake agent, dummy model, test bot
 ## Flagged Ambiguities
 
 - Raw tools were considered as top-level Agent Definition fields - resolved: tools are contributed by Capabilities.
-- Multi-adapter support was considered part of Agent Definition shape - resolved: remove the adapter selector and make AI SDK the only model execution path for now.
-- Adapter-owned options were considered the home for model execution settings - resolved: use **Agent Model Execution** and do not reintroduce public adapter-boundary language.
+- Multi-adapter support was considered part of Agent Definition shape - resolved: use one **Agent Driver** boundary rather than public adapter selectors.
+- Top-level `model` and `harness` selectors were considered part of Agent Definition shape - resolved: select model-backed or harness-backed execution through **Agent Driver**.
+- Driver factory wrappers such as `modelDriver()` and `harnessDriver()` were considered for explicitness - resolved: configure the **Agent Driver** as a single object variant and distinguish variants by exclusive keys.
+- Nested driver implementation objects such as `driver: { model: { use } }` were considered - resolved: the driver variant key holds the implementation value directly, with variant options as sibling fields.
+- Deterministic `run` callbacks were considered separate from **Agent Driver** - resolved: `run` is the custom-run-backed Agent Driver variant and root `run` should migrate to `driver: { run }`.
+- Combining model-backed execution with custom `run` was considered for fallback or post-processing - resolved: **Agent Driver** variants are mutually exclusive; custom code that wants to call a model belongs in `driver: { run }`.
+- Root `modelExecution` was considered for preservation inside model-backed drivers - resolved: the model-backed Agent Driver uses `execution` because `model` is already implied by the driver variant.
+- Root Agent Definition `instructions` were considered shared by model-backed and harness-backed execution - resolved: use **Model Driver Instructions** for model-backed drivers, and do not pass them to harness-backed drivers by default.
+- AI SDK `HarnessAgent` was considered as the public harness boundary - resolved: use the ViteHub-owned **Agent Harness Driver Contract** and adapt AI SDK harnesses behind it.
+- Adapter-level harness approvals were considered for V1 - resolved: use **Harness Permission Policy** to bypass adapter approvals and rely on ViteHub-owned Workspace and runtime boundaries, avoiding two active permission layers.
+- A public permission option was considered for V1 - resolved: avoid it because bypass is the only supported **Harness Permission Policy** for now.
+- A full approval policy matrix was considered for V1 - resolved: defer it; if a harness adapter cannot bypass its own approval layer, mark it unsupported for V1.
+- Model-facing Workspace Tools were considered the default Workspace surface for harness-backed drivers - resolved: harness-backed drivers use a scoped **Workspace Session** or equivalent materialized filesystem by default.
+- Durable harness sessions were considered as an implicit chat or thread default - resolved: harness-backed Agent Drivers use invocation-scoped Harness Workspace Sessions by default and require an explicit Harness Session Key for reuse.
+- Requiring a `credentials` option for every harness-backed Agent Driver was considered - resolved: credentials are optional; omission means the harness adapter may use its default auth behavior, and ViteHub classifies the resolved **Harness Credential Source** when possible.
+- Treating omitted harness credentials the same in development and hosted production was considered - resolved: warn in development for unknown or local-only sources, but fail hosted production for unknown or known local-only sources.
+- Hiding credential configuration inside harness adapter constructors such as `codex()` was considered - resolved: configure **Harness Credential Source** as a sibling harness-backed Agent Driver option so ViteHub can validate, redact, and report it before adapter execution.
+- Provider-specific env helper namespaces were considered for harness credentials - resolved: use Env Package **Server Env** and **Secret Env** for deployable secret material, and keep harness credential options focused on driver auth metadata.
+- Harness usage accounting was considered a separate telemetry concept from model usage - resolved: use **Agent Usage Records** for every Agent Driver that reports usage, preserve non-token harness details, and do not invent exact subscription cost.
+- Adapter-owned options were considered the home for model execution settings - resolved: use **Agent Model Execution** inside the model-backed Agent Driver and do not reintroduce public adapter-boundary language.
 - Evalite-backed checks were considered generic tests - resolved: use **Agent Eval** when the check runs an Agent Definition and scores Agent Invocation output.
 - Chat runtime state was considered a public Chat option - resolved: use **Agent Run State** for Agent-owned runtime state.
 - Chat History and Agent Memory were considered interchangeable - resolved: Chat History is conversation-scoped message history; Agent Memory is durable knowledge or preferences across invocations.

@@ -360,6 +360,42 @@ describe("defineAgent workspace option", () => {
     ].join("\n\n"))
   })
 
+  it("applies model Agent Driver instructions and execution settings", async () => {
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const model = { id: "driver-model" }
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      driver: {
+        execution: {
+          callSettings: {
+            temperature: 0.3,
+          },
+          stepLimit: 4,
+        },
+        instructions: "Answer from the driver.",
+        model: model as never,
+      },
+      workspace: {
+        sources: {
+          docs: { instructions: "Use docs for product behavior.", name: "docs" } as never,
+        },
+      },
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(agentSettings.at(-1)).toMatchObject({
+      instructions: [
+        "Answer from the driver.",
+        "## Workspace Sources",
+        "### docs\n\nUse docs for product behavior.",
+      ].join("\n\n"),
+      model,
+      stopWhen: { count: 4 },
+      temperature: 0.3,
+    })
+  })
+
   it("places source instructions in the workspace sources slot", async () => {
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
 
