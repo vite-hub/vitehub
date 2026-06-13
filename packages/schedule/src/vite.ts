@@ -18,8 +18,8 @@ const SCHEDULE_REGISTRY_ID = "#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_REGISTRY_ID = "\0#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_TARGETS_ID = `\0${SCHEDULE_TARGETS_ID}`
 const registryImportAnchor = ".vitehub/schedule/registry.js"
-const generatedNitroCloudflarePlugin = "server/plugins/vitehub-schedule.ts"
-const generatedNitroCloudflareModule = "server/modules/vitehub-schedule.ts"
+const generatedNitroCloudflarePlugin = ".vitehub/nitro/schedule/plugin.ts"
+const generatedNitroCloudflareModule = "./.vitehub/nitro/schedule/module.ts"
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
 
 export interface ScheduleVitePluginOptions {
@@ -39,6 +39,7 @@ type NitroConfig = Record<string, unknown> & {
       } & Record<string, unknown>
     } & Record<string, unknown>
   } & Record<string, unknown>
+  modules?: unknown[]
   plugins?: unknown[]
 }
 
@@ -93,6 +94,9 @@ function mergeNitroScheduleConfig(value: unknown, options: { crons: string[], pl
   nitro.plugins = Array.isArray(nitro.plugins) && nitro.plugins.includes(options.plugin)
     ? nitro.plugins
     : [...(Array.isArray(nitro.plugins) ? nitro.plugins : []), options.plugin]
+  nitro.modules = Array.isArray(nitro.modules) && nitro.modules.includes(generatedNitroCloudflareModule)
+    ? nitro.modules
+    : [...(Array.isArray(nitro.modules) ? nitro.modules : []), generatedNitroCloudflareModule]
   nitro.cloudflare ||= {}
   nitro.cloudflare.wrangler ||= {}
   const wrangler = nitro.cloudflare.wrangler
@@ -112,45 +116,12 @@ function renderNitroCloudflarePlugin(definitions: DiscoveredScheduleDefinition[]
   const scheduleRuntimeImport = "@vite-hub/schedule/runtime/static"
   return [
     "import { definePlugin } from 'nitro'",
-    "import type { ScheduleDefinition } from '@vite-hub/schedule'",
     `import scheduleRegistry from ${JSON.stringify(registryImport)}`,
-    `import { executeStaticSchedule } from ${JSON.stringify(scheduleRuntimeImport)}`,
-    "",
-    "interface NitroCloudflareScheduledEvent {",
-    "  controller: {",
-    "    cron: string",
-    "    scheduledTime: number | string | Date",
-    "  }",
-    "}",
-    "",
-    "type LoadedScheduleModule = ScheduleDefinition | { default?: ScheduleDefinition }",
-    "",
-    "function unwrapScheduleDefinition(loaded: LoadedScheduleModule): ScheduleDefinition | undefined {",
-    "  if (typeof loaded === 'object' && loaded !== null && 'default' in loaded) return loaded.default",
-    "  return loaded as ScheduleDefinition",
-    "}",
-    "",
-    "async function loadScheduleDefinition(name: string): Promise<ScheduleDefinition | undefined> {",
-    "  const loader = scheduleRegistry[name]",
-    "  if (!loader) return undefined",
-    "  const loaded = await loader() as LoadedScheduleModule",
-    "  return unwrapScheduleDefinition(loaded)",
-    "}",
-    "",
-    "async function runMatchingSchedules(event: NitroCloudflareScheduledEvent): Promise<void> {",
-    "  const cron = event.controller.cron",
-    "  const scheduledAt = new Date(event.controller.scheduledTime)",
-    "  const tasks = Object.entries(scheduleRegistry).map(async ([name]) => {",
-    "    const definition = await loadScheduleDefinition(name)",
-    "    if (!definition || definition.cron !== cron) return",
-    "    await executeStaticSchedule({ cron, definition, name, scheduledAt })",
-    "  })",
-    "  await Promise.all(tasks)",
-    "}",
+    `import { executeCloudflareStaticSchedules } from ${JSON.stringify(scheduleRuntimeImport)}`,
     "",
     "export default definePlugin((nitroApp) => {",
     "  nitroApp.hooks.hook('cloudflare:scheduled', async (event) => {",
-    "    await runMatchingSchedules(event)",
+    "    await executeCloudflareStaticSchedules(event, { registry: scheduleRegistry })",
     "  })",
     "})",
     "",
@@ -165,26 +136,19 @@ function renderNitroCloudflareModule(crons: string[]): string {
     "",
     `const crons = ${JSON.stringify(crons)}`,
     "",
-    "interface WranglerScheduleConfig {",
-    "  triggers?: {",
-    "    crons?: string[]",
-    "    [key: string]: unknown",
-    "  }",
-    "  [key: string]: unknown",
-    "}",
-    "",
-    "function getWranglerConfig(nitro: Nitro): WranglerScheduleConfig {",
-    "  nitro.options.cloudflare ??= {}",
-    "  const cloudflare = nitro.options.cloudflare as { wrangler?: WranglerScheduleConfig }",
-    "  cloudflare.wrangler ??= {}",
-    "  return cloudflare.wrangler",
+    "function dedupeCloudflareCrons(nitro: Nitro): void {",
+    "  const wrangler = nitro.options.cloudflare?.wrangler",
+    "  if (!wrangler?.triggers || !Array.isArray(wrangler.triggers.crons)) return",
+    "  wrangler.triggers.crons = [...new Set(wrangler.triggers.crons.filter((cron): cron is string => typeof cron === 'string'))]",
     "}",
     "",
     "export default function vitehubScheduleModule(nitro: Nitro): void {",
-    "  const wrangler = getWranglerConfig(nitro)",
-    "  wrangler.triggers ??= {}",
-    "  const existingCrons = Array.isArray(wrangler.triggers.crons) ? wrangler.triggers.crons : []",
-    "  wrangler.triggers.crons = [...new Set([...existingCrons, ...crons])]",
+    "  nitro.options.cloudflare ??= {}",
+    "  nitro.options.cloudflare.wrangler ??= {}",
+    "  nitro.options.cloudflare.wrangler.triggers ??= {}",
+    "  const existingCrons = Array.isArray(nitro.options.cloudflare.wrangler.triggers.crons) ? nitro.options.cloudflare.wrangler.triggers.crons : []",
+    "  nitro.options.cloudflare.wrangler.triggers.crons = [...new Set([...existingCrons, ...crons])]",
+    "  nitro.hooks.hook('build:before', dedupeCloudflareCrons)",
     "}",
     "",
   ].join("\n")
@@ -263,8 +227,18 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     })
   }
 
+  function discoverRegistrySchedules() {
+    if (!resolved) {
+      return []
+    }
+
+    return discoverScheduleDefinitions({
+      rootDir: resolved.root,
+    })
+  }
+
   function createRegistryContents() {
-    const definitions = discoverViteSchedules()
+    const definitions = discoverRegistrySchedules()
     const registryImport = resolved ? resolve(resolved.root, registryImportAnchor) : registryImportAnchor
     return createRuntimeRegistryContents(registryImport, definitions)
   }
@@ -275,6 +249,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
 
   const plugin: Plugin = {
     name: SCHEDULE_VITE_PLUGIN_NAME,
+    enforce: "pre",
     async config(config, env) {
       const root = resolve(config.root || process.cwd())
       const definitions = discoverScheduleDefinitions({ rootDir: root })
@@ -291,10 +266,8 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         ? [...new Set((await readDefinitionCrons(nitroDefinitions)).values())]
         : []
       const plugin = await writeNitroCloudflarePlugin(root, nitroDefinitions, crons)
-      const viteConfig: ViteConfigWithNitro = {
-        nitro: mergeNitroScheduleConfig((config as { nitro?: unknown }).nitro, { crons, plugin }),
-      }
-      return viteConfig
+      ;(config as ViteConfigWithNitro).nitro = mergeNitroScheduleConfig((config as { nitro?: unknown }).nitro, { crons, plugin })
+      return null
     },
     configResolved(config) {
       resolved = config
