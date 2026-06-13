@@ -26,6 +26,9 @@
       "#vitehub-sandbox-registry": [
         "packages/sandbox/src/runtime/empty-registry.ts"
       ],
+      "@vite-hub/env/vite": [
+        "packages/env/src/vite.ts"
+      ],
       "@vite-hub/internal/*": [
         "packages/internal/src/*.ts"
       ],

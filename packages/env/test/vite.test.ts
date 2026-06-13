@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createRuntimeRegistry } from "../src/core/resolve.ts"
 import { resolveServerEnv, runWithServerEnv } from "../src/server.ts"
-import { env, hubEnv } from "../src/vite.ts"
+import { createEnvImportAliases, createEnvTypeScriptPaths, env, hubEnv } from "../src/vite.ts"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
 
@@ -68,12 +68,18 @@ describe("Vite plugin", () => {
         __GIT_COMMIT__: JSON.stringify("abc123"),
         __SENTRY_DEBUG__: JSON.stringify(true),
       },
-      nitro: {
-        alias: {
-          "#vitehub/env/public": join(root, ".vitehub", "env", "public.mjs"),
-          "#vitehub/env/server": join(root, ".vitehub", "env", "server.mjs"),
-        },
-      },
+    })
+    expect(createEnvImportAliases({ projectRoot: root })).toEqual({
+      "#vitehub/env/public": join(root, ".vitehub", "env", "public.mjs"),
+      "#vitehub/env/server": join(root, ".vitehub", "env", "server.mjs"),
+    })
+    expect(createEnvTypeScriptPaths({ projectRoot: root })).toEqual({
+      "#vitehub/env/public": [join(root, ".vitehub", "env", "public")],
+      "#vitehub/env/server": [join(root, ".vitehub", "env", "server")],
+    })
+    expect(createEnvTypeScriptPaths({ projectRoot: root, relativeTo: join(root, ".nuxt") })).toEqual({
+      "#vitehub/env/public": ["../.vitehub/env/public"],
+      "#vitehub/env/server": ["../.vitehub/env/server"],
     })
     expect(plugin.api.getPublicEnv()).toEqual({
       appName: "Quiver",
@@ -227,6 +233,57 @@ describe("Vite plugin", () => {
 
     await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": SecretEnv<string>")
     await expect(readFile(join(root, "frontend", ".vitehub", "types", "env.d.ts"), "utf8")).rejects.toThrow()
+  })
+
+  it("uses the nearest package root for env-only nested Vite roots", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-package-root-"))
+    await mkdir(join(root, "app"), { recursive: true })
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "env-only" }), "utf8")
+
+    const plugin = hubEnv()
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+    await configHook({
+      env: {
+        server: {
+          airtableToken: env({ secret: true }),
+        },
+      },
+      root: join(root, "app"),
+    }, { command: "build", mode: "production" })
+
+    const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
+    await configResolvedHook({
+      logger: { info: vi.fn() },
+      root: join(root, "app"),
+    } as never)
+
+    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": SecretEnv<string>")
+    await expect(readFile(join(root, "app", ".vitehub", "types", "env.d.ts"), "utf8")).rejects.toThrow()
+  })
+
+  it("uses explicit projectRoot when env-only nested apps have no package marker", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-explicit-root-"))
+    await mkdir(join(root, "app"), { recursive: true })
+
+    const plugin = hubEnv({ projectRoot: ".." })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+    await configHook({
+      env: {
+        server: {
+          airtableToken: env({ secret: true }),
+        },
+      },
+      root: join(root, "app"),
+    }, { command: "build", mode: "production" })
+
+    const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
+    await configResolvedHook({
+      logger: { info: vi.fn() },
+      root: join(root, "app"),
+    } as never)
+
+    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": SecretEnv<string>")
+    await expect(readFile(join(root, "app", ".vitehub", "types", "env.d.ts"), "utf8")).rejects.toThrow()
   })
 
   it("resolves Server Env from runtime carriers and active Cloudflare env", () => {

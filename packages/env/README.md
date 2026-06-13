@@ -61,4 +61,26 @@ Use `hubEnv()` in Vite to resolve public/build env, generate `#vitehub/env/publi
 
 `hubEnv()` writes generated env runtime modules to `.vitehub/env/` and generated env types to `.vitehub/types/env.d.ts`. Add `.vitehub/types/**/*.d.ts` to your `tsconfig.json` include list when TypeScript should see app-specific Public Env and Server Env fields.
 
+For hosts that do not consume Vite plugin aliases directly, compose the generated modules explicitly:
+
+```ts
+import { createEnvImportAliases, createEnvTypeScriptPaths, hubEnv } from "@vite-hub/env/vite"
+
+export default {
+  nitro: {
+    alias: createEnvImportAliases(),
+  },
+  typescript: {
+    tsConfig: {
+      compilerOptions: {
+        paths: createEnvTypeScriptPaths({ relativeTo: ".nuxt" }),
+      },
+    },
+  },
+  vite: {
+    plugins: [hubEnv()],
+  },
+}
+```
+
 Learn more at [vitehub.dev](https://vitehub.dev).

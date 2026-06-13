@@ -1,8 +1,18 @@
 import { rm } from "node:fs/promises"
-import { resolve } from "node:path"
+import { relative, resolve } from "node:path"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
-import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import {
+  createViteHubEnvImportAliases,
+  resolveViteHubProjectRoot,
+  VITEHUB_ENV_PUBLIC_ID,
+  VITEHUB_ENV_SERVER_ID,
+  viteHubEnvAmbientTypesPath,
+  viteHubEnvPublicModulePath,
+  viteHubEnvPublicModuleTypesPath,
+  viteHubEnvServerModulePath,
+  viteHubEnvServerModuleTypesPath,
+} from "@vite-hub/internal/build/vite"
 import { loadEnv } from "vite"
 
 import { formatDiagnostics } from "./core/diagnostics.ts"
@@ -19,8 +29,8 @@ import type {
 import type { Plugin, UserConfig } from "vite"
 
 export const ENV_VITE_PLUGIN_NAME = "@vite-hub/env/vite"
-export const ENV_PUBLIC_ID = "#vitehub/env/public"
-export const ENV_SERVER_ID = "#vitehub/env/server"
+export const ENV_PUBLIC_ID: typeof VITEHUB_ENV_PUBLIC_ID = VITEHUB_ENV_PUBLIC_ID
+export const ENV_SERVER_ID: typeof VITEHUB_ENV_SERVER_ID = VITEHUB_ENV_SERVER_ID
 
 const RESOLVED_PUBLIC_ID = `\0${ENV_PUBLIC_ID}`
 const RESOLVED_SERVER_ID = `\0${ENV_SERVER_ID}`
@@ -32,15 +42,25 @@ export interface EnvVitePluginAPI {
   getServerEnvRegistry: () => EnvRuntimeRegistry
 }
 
-type NitroConfig = {
-  alias?: Record<string, string>
-} & Record<string, unknown>
+export type EnvVitePlugin = Plugin & { api: EnvVitePluginAPI }
 
-type ViteConfigWithEnvNitro = UserConfig & {
-  nitro?: NitroConfig
+export interface EnvGeneratedPathOptions {
+  projectRoot?: string
+  relativeTo?: string
 }
 
-export type EnvVitePlugin = Plugin & { api: EnvVitePluginAPI }
+export function createEnvImportAliases(options: EnvGeneratedPathOptions = {}): Record<string, string> {
+  return createViteHubEnvImportAliases(resolveEnvProjectRoot(options))
+}
+
+export function createEnvTypeScriptPaths(options: EnvGeneratedPathOptions = {}): Record<string, string[]> {
+  const root = resolveEnvProjectRoot(options)
+  const toTypeScriptPath = (path: string) => stripModuleExtension(options.relativeTo ? relative(resolve(options.relativeTo), path) : path)
+  return {
+    [ENV_PUBLIC_ID]: [toTypeScriptPath(viteHubEnvPublicModulePath(root))],
+    [ENV_SERVER_ID]: [toTypeScriptPath(viteHubEnvServerModulePath(root))],
+  }
+}
 
 export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   let buildPublicConfig: Record<string, unknown> = {}
@@ -59,7 +79,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         return
       }
 
-      const root = resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
+      const root = resolveViteHubProjectRoot(resolve(config.root || process.cwd()), { projectRoot: options.projectRoot })
       const loadedEnv = loadEnv(env.mode, root, "")
       const context = createSourceContext({
         env: { ...loadedEnv, ...process.env },
@@ -93,14 +113,13 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
           ...Object.fromEntries(defineResult.entries.map(entry => [entry.key, JSON.stringify(entry.value)])),
           ...config.define,
         },
-        nitro: mergeNitroEnvConfig((config as ViteConfigWithEnvNitro).nitro, createGeneratedEnvImportAliases(root)),
       }
     },
     async configResolved(config) {
       if (diagnosticsText) {
         config.logger.info(diagnosticsText)
       }
-      await refreshEnvGeneratedFiles(resolveViteHubProjectRoot(config.root), buildPublicConfig, serverRegistry)
+      await refreshEnvGeneratedFiles(resolveViteHubProjectRoot(config.root, { projectRoot: options.projectRoot }), buildPublicConfig, serverRegistry)
     },
     load(id) {
       if (id === RESOLVED_PUBLIC_ID) {
@@ -121,42 +140,12 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   }
 }
 
-function envAmbientTypesPath(root: string) {
-  return resolve(root, ".vitehub", "types", "env.d.ts")
+function resolveEnvProjectRoot(options: EnvGeneratedPathOptions): string {
+  return resolveViteHubProjectRoot(process.cwd(), { projectRoot: options.projectRoot })
 }
 
-function envPublicModulePath(root: string) {
-  return resolve(root, ".vitehub", "env", "public.mjs")
-}
-
-function envPublicModuleTypesPath(root: string) {
-  return resolve(root, ".vitehub", "env", "public.d.ts")
-}
-
-function envServerModulePath(root: string) {
-  return resolve(root, ".vitehub", "env", "server.mjs")
-}
-
-function envServerModuleTypesPath(root: string) {
-  return resolve(root, ".vitehub", "env", "server.d.ts")
-}
-
-function createGeneratedEnvImportAliases(root: string): Record<string, string> {
-  return {
-    [ENV_PUBLIC_ID]: envPublicModulePath(root),
-    [ENV_SERVER_ID]: envServerModulePath(root),
-  }
-}
-
-function mergeNitroEnvConfig(value: unknown, aliases: Record<string, string>): NitroConfig {
-  const nitro: NitroConfig = isRecord(value) ? { ...value } : {}
-  return {
-    ...nitro,
-    alias: {
-      ...(isRecord(nitro.alias) ? nitro.alias : {}),
-      ...aliases,
-    },
-  }
+function stripModuleExtension(path: string): string {
+  return path.replace(/\.mjs$/, "")
 }
 
 function legacyEnvAmbientTypesPaths(root: string) {
@@ -167,11 +156,11 @@ function legacyEnvAmbientTypesPaths(root: string) {
 
 async function refreshEnvGeneratedFiles(root: string, publicConfig: Record<string, unknown>, serverRegistry: EnvRuntimeRegistry): Promise<void> {
   await Promise.all([
-    writeFileIfChanged(envAmbientTypesPath(root), createViteTypes(publicConfig, serverRegistry)),
-    writeFileIfChanged(envPublicModulePath(root), createPublicEnvModule(publicConfig)),
-    writeFileIfChanged(envPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicConfig)),
-    writeFileIfChanged(envServerModulePath(root), createServerEnvModule(serverRegistry)),
-    writeFileIfChanged(envServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry)),
+    writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicConfig, serverRegistry)),
+    writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),
+    writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicConfig)),
+    writeFileIfChanged(viteHubEnvServerModulePath(root), createServerEnvModule(serverRegistry)),
+    writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry)),
     ...legacyEnvAmbientTypesPaths(root).map(path => rm(path, { force: true })),
   ])
 }

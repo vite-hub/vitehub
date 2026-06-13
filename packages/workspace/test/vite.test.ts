@@ -65,7 +65,6 @@ async function createViteAssetRoot() {
 }
 
 afterEach(async () => {
-  delete process.env.VITEHUB_WORKSPACE_DEV
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
 
@@ -101,7 +100,6 @@ describe("hubWorkspace", () => {
 
     await configResolved({ root } as never)
 
-    expect(process.env.VITEHUB_WORKSPACE_DEV).toBe("true")
     expect(configEnvironment("ssr", { consumer: "server" })).toEqual({
       resolve: { dedupe: ["@vite-hub/workspace"], noExternal: ["@vite-hub/workspace"] },
     })
@@ -167,21 +165,32 @@ describe("hubWorkspace", () => {
   })
 
   it("loads server workspace configs that import generated Env modules during build asset sync", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-env-"))
+    const testRoot = join(process.cwd(), ".vitest-tmp")
+    await mkdir(testRoot, { recursive: true })
+    const root = await mkdtemp(join(testRoot, "vitehub-workspace-vite-env-"))
     tempDirs.push(root)
     await mkdir(join(root, "server", "workspaces", "tasks"), { recursive: true })
-    await mkdir(join(root, ".vitehub", "env"), { recursive: true })
-    await writeFile(join(root, ".vitehub", "env", "server.mjs"), [
-      "export function useServerEnv() { return {} }",
-      "export function runWithServerEnv(_event, callback) { return callback() }",
-      "",
-    ].join("\n"), "utf8")
     await writeFile(join(root, "server", "workspaces", "tasks", "config.ts"), [
       `import { useServerEnv } from "#vitehub/env/server"`,
       `void useServerEnv`,
       `export default { store: { provider: "memory" }, sources: {} }`,
       ``,
     ].join("\n"))
+
+    const { env, hubEnv } = await import("@vite-hub/env/vite")
+    const envPlugin = hubEnv()
+    const envConfig = envPlugin.config as (config: { env?: unknown, root: string }, env: { command: "build", mode: string }) => Promise<unknown>
+    const envConfigResolved = envPlugin.configResolved as unknown as (config: { logger: { info: () => void }, root: string }) => Promise<void>
+
+    await envConfig({
+      env: {
+        server: {
+          airtableToken: env({ secret: true }),
+        },
+      },
+      root,
+    }, { command: "build", mode: "production" })
+    await envConfigResolved({ logger: { info: vi.fn() }, root })
 
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
@@ -192,6 +201,35 @@ describe("hubWorkspace", () => {
     await buildStart()
 
     await expect(readFile(join(root, ".vitehub", "vite-runtime", "workspace", "assets", "registry.mjs"), "utf8")).resolves.toContain('"tasks"')
+  })
+
+  it("keeps Vite workspace names relative to nested Vite roots while writing project state", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-suffix-root-"))
+    tempDirs.push(root)
+    await mkdir(join(root, "frontend", "src"), { recursive: true })
+    await mkdir(join(root, "server", "workspaces", "mirror"), { recursive: true })
+    await writeFile(join(root, "frontend", "src", "docs.workspace.ts"), [
+      `import { defineWorkspace } from "@vite-hub/workspace"`,
+      `export default defineWorkspace({ store: { provider: "memory" } })`,
+      ``,
+    ].join("\n"))
+    await writeFile(join(root, "server", "workspaces", "mirror", "config.ts"), [
+      `export default { store: { provider: "memory" } }`,
+      ``,
+    ].join("\n"))
+
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+
+    await configResolved({ command: "build", root: join(root, "frontend") })
+
+    const types = await readFile(join(root, ".vitehub", "types", "workspace.d.ts"), "utf8")
+    expect(types).toContain('"docs": true')
+    expect(types).toContain('"mirror": true')
+    expect(types).not.toContain('"frontend/src/docs": true')
+    expect(plugin.api.getWorkspaces().map((workspace: { name: string }) => workspace.name).sort()).toEqual(["docs", "mirror"])
+    await expect(readFile(join(root, "frontend", ".vitehub", "types", "workspace.d.ts"), "utf8")).rejects.toThrow()
   })
 
   it("emits Nitro runtime setup for hosted workspace stores outside server plugins", async () => {

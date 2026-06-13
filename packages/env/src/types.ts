@@ -4,6 +4,7 @@ export type EnvMode = "build" | "runtime"
 export interface EnvIntegrationOptions {
   diagnostics?: EnvDiagnostics
   prefix?: string
+  projectRoot?: string
 }
 
 export interface EnvSourceContext {

@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto"
 import { existsSync } from "node:fs"
 import { mkdir, rm, writeFile } from "node:fs/promises"
-import { dirname, join, resolve } from "node:path"
+import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { createViteHubEnvImportAliases } from "@vite-hub/internal/build/vite"
 import { createImportPath } from "@vite-hub/internal/build/paths"
 import { resolveModulePath } from "exsolve"
 import { createJiti } from "jiti"
@@ -42,10 +43,9 @@ function serializeContent(content: WorkspaceContent) {
 
 function generatedViteHubImportAliases(rootDir: string) {
   const aliases: Record<string, string> = {}
-  const envPublicModule = resolve(rootDir, ".vitehub", "env", "public.mjs")
-  const envServerModule = resolve(rootDir, ".vitehub", "env", "server.mjs")
-  if (existsSync(envPublicModule)) aliases["#vitehub/env/public"] = envPublicModule
-  if (existsSync(envServerModule)) aliases["#vitehub/env/server"] = envServerModule
+  for (const [id, path] of Object.entries(createViteHubEnvImportAliases(rootDir))) {
+    if (existsSync(path)) aliases[id] = path
+  }
   return aliases
 }
 

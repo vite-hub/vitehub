@@ -446,6 +446,7 @@ export type WorkspaceDefinitionInput = Omit<WorkspaceDefinition, "name"> & {
 
 export interface WorkspaceModuleOptions {
   root?: string
+  projectRoot?: string
   assets?: boolean | string[]
   store?: WorkspaceStoreOptions
 }

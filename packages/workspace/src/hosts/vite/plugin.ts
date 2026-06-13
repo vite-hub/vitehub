@@ -84,15 +84,24 @@ export type WorkspaceVitePlugin = Plugin & { api: WorkspaceVitePluginAPI }
 export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlugin {
   let resolved: ResolvedConfig | undefined
   let resolvedOptions: ReturnType<typeof normalizeWorkspaceOptions> = false
-  let workspaceRoot: string | undefined
+  let projectRoot: string | undefined
+  let viteRoot: string | undefined
   let assetsRegistryFile: string | undefined
   let manifest: WorkspaceBuildState["manifest"] = { workspaces: [] }
   let registryContents = "export default {}\n"
   let server: ViteDevServer | undefined
 
-  async function refreshManifest(root: string) {
-    const definitions = discoverViteWorkspaceDefinitions(root)
-    const state = await refreshWorkspaceBuildState(root, definitions)
+  function resolveWorkspacePluginRoots(root: string, workspaceOptions: false | WorkspaceModuleOptions | undefined) {
+    const resolvedViteRoot = resolve(root)
+    const resolvedProjectRoot = resolveViteHubProjectRoot(resolvedViteRoot, {
+      projectRoot: workspaceOptions ? workspaceOptions.projectRoot : undefined,
+    })
+    return { projectRoot: resolvedProjectRoot, viteRoot: resolvedViteRoot }
+  }
+
+  async function refreshManifest(roots: { projectRoot: string, viteRoot: string }) {
+    const definitions = discoverViteWorkspaceDefinitions(roots.viteRoot, { serverRootDir: roots.projectRoot })
+    const state = await refreshWorkspaceBuildState(roots.projectRoot, definitions)
     manifest = state.manifest
     registryContents = state.registryContents
   }
@@ -107,9 +116,9 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     }
   }
 
-  async function maybeRefreshTypesForFile(root: string, file: string) {
+  async function maybeRefreshTypesForFile(roots: { projectRoot: string, viteRoot: string }, file: string) {
     if (!isWorkspaceFile(file)) return
-    await refreshManifest(root)
+    await refreshManifest(roots)
     invalidateVirtualWorkspaceModules()
   }
 
@@ -120,12 +129,13 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       getWorkspaces: () => manifest.workspaces,
     },
     async config(config, env) {
-      const root = resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
-      const normalized = normalizeWorkspaceOptions((config as UserConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? options, {
+      const workspaceOptions = (config as UserConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? options
+      const roots = resolveWorkspacePluginRoots(config.root || process.cwd(), workspaceOptions)
+      const normalized = normalizeWorkspaceOptions(workspaceOptions, {
         dev: env?.command !== "build",
         env: process.env,
         hosting: process.env.VITEHUB_HOSTING,
-        rootDir: root,
+        rootDir: roots.projectRoot,
       })
       const viteConfig: ViteConfigWithWorkspaceNitro = {
         server: {
@@ -135,27 +145,26 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         },
       }
       if (normalized && isHostedWorkspaceStore(normalized.store)) {
-        await writeNitroWorkspacePlugin(root, normalized)
+        await writeNitroWorkspacePlugin(roots.projectRoot, normalized)
         viteConfig.nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
       }
       return viteConfig
     },
     async configResolved(config) {
       resolved = config
-      workspaceRoot = resolveViteHubProjectRoot(config.root)
-      if (config.command !== "build")
-        process.env.VITEHUB_WORKSPACE_DEV = "true"
-      else
-        delete process.env.VITEHUB_WORKSPACE_DEV
-      resolvedOptions = normalizeWorkspaceOptions((config as ResolvedConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? options, {
+      const workspaceOptions = (config as ResolvedConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? options
+      const roots = resolveWorkspacePluginRoots(config.root, workspaceOptions)
+      projectRoot = roots.projectRoot
+      viteRoot = roots.viteRoot
+      resolvedOptions = normalizeWorkspaceOptions(workspaceOptions, {
         dev: config.command !== "build",
         env: process.env,
         hosting: process.env.VITEHUB_HOSTING,
-        rootDir: workspaceRoot,
+        rootDir: roots.projectRoot,
       })
-      assetsRegistryFile = resolve(workspaceRoot, ".vitehub/vite-runtime/workspace/assets/registry.mjs")
+      assetsRegistryFile = resolve(roots.projectRoot, ".vitehub/vite-runtime/workspace/assets/registry.mjs")
       await initializeWorkspaceAssetRegistry(assetsRegistryFile)
-      await refreshManifest(workspaceRoot)
+      await refreshManifest(roots)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) return
@@ -168,12 +177,15 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     },
     async buildStart() {
       if (!resolved) return
-      const root = workspaceRoot || resolveViteHubProjectRoot(resolved.root)
-      await refreshManifest(root)
+      const roots = {
+        projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
+        viteRoot: viteRoot || resolve(resolved.root),
+      }
+      await refreshManifest(roots)
       if (resolved.command !== "build" || !assetsRegistryFile) return
 
-      const definitions = discoverViteWorkspaceDefinitions(root)
-      await syncWorkspaceBuildAssets(definitions, root, resolvedOptions, assetsRegistryFile)
+      const definitions = discoverViteWorkspaceDefinitions(roots.viteRoot, { serverRootDir: roots.projectRoot })
+      await syncWorkspaceBuildAssets(definitions, roots.projectRoot, resolvedOptions, assetsRegistryFile)
     },
     closeBundle: {
       order: "post",
@@ -181,20 +193,26 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         if (!resolved || resolved.command !== "build") return
         await copyVercelFunctionRuntimePackages({
           packages: [{ name: WORKSPACE_PACKAGE_NAME, resolveFrom: import.meta.url }],
-          rootDir: workspaceRoot || resolveViteHubProjectRoot(resolved.root),
+          rootDir: projectRoot || resolveViteHubProjectRoot(resolved.root),
         })
       },
     },
     configureServer(devServer) {
       server = devServer
-      const root = workspaceRoot || resolveViteHubProjectRoot(devServer.config.root)
-      const refresh = async (file: string) => await maybeRefreshTypesForFile(root, file)
+      const roots = {
+        projectRoot: projectRoot || resolveViteHubProjectRoot(devServer.config.root),
+        viteRoot: viteRoot || resolve(devServer.config.root),
+      }
+      const refresh = async (file: string) => await maybeRefreshTypesForFile(roots, file)
       devServer.watcher.on("add", refresh)
       devServer.watcher.on("unlink", refresh)
     },
     async handleHotUpdate(ctx: HmrContext) {
       if (!resolved) return
-      await maybeRefreshTypesForFile(workspaceRoot || resolveViteHubProjectRoot(resolved.root), ctx.file)
+      await maybeRefreshTypesForFile({
+        projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
+        viteRoot: viteRoot || resolve(resolved.root),
+      }, ctx.file)
     },
     resolveId(id) {
       if (id === WORKSPACE_ASSETS_REGISTRY_ID) return assetsRegistryFile
