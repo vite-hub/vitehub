@@ -106,6 +106,23 @@ describe("local workspace store", () => {
     })
   })
 
+  it("replaces metadata atomically through a temporary file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const store = createLocalWorkspaceStore(root)
+    const metadata = { status: "updating", files: 1 }
+    const metaPath = `${root}.meta.json`
+
+    vi.mocked(writeFile).mockClear()
+    await store.setMeta?.("source:airtable:snapshot", metadata)
+
+    const writePath = String(vi.mocked(writeFile).mock.calls[0]?.[0])
+    expect(writePath).not.toBe(metaPath)
+    expect(writePath).toMatch(/\.meta\.json\.[^.]+\.tmp$/)
+    await expect(readFile(metaPath, "utf8")).resolves.toContain("source:airtable:snapshot")
+    await expect(store.getMeta?.("source:airtable:snapshot")).resolves.toEqual(metadata)
+  })
+
   it("writes streamed files without buffering through fs.writeFile", async () => {
     const store = await createStore()
     const content = new Uint8Array([0, 1, 2, 3, 254, 255])

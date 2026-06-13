@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { createReadStream, createWriteStream } from "node:fs"
 import { Readable, Transform } from "node:stream"
 import { pipeline } from "node:stream/promises"
@@ -310,9 +310,17 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #writeMeta() {
     const { dirname } = await import("node:path")
-    const { mkdir, writeFile } = await import("node:fs/promises")
+    const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
+    const temp = `${this.#metaPath}.${randomUUID()}.tmp`
     await mkdir(dirname(this.#metaPath), { recursive: true })
-    await writeFile(this.#metaPath, JSON.stringify(Object.fromEntries(this.#meta), null, 2))
+    try {
+      await writeFile(temp, JSON.stringify(Object.fromEntries(this.#meta), null, 2))
+      await rename(temp, this.#metaPath)
+    }
+    catch (error) {
+      await rm(temp, { force: true }).catch(() => undefined)
+      throw error
+    }
   }
 }
 
