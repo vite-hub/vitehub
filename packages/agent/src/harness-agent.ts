@@ -1,5 +1,9 @@
-import { isAsyncIterable } from "./agent-output.ts"
+import {
+  defineAgentUsageMetadata,
+  harnessCredentialSourceMetadata,
+} from "./agent-usage-metadata.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
+import { isAsyncIterable } from "./stream-result.ts"
 
 import type {
   AgentAdapter,
@@ -12,8 +16,6 @@ import type {
   AgentRuntimeConfig,
   MaybePromise,
 } from "./types.ts"
-
-const vitehubUsageMetadataKey = "__vitehubUsageMetadata"
 
 type HarnessAgentLike = {
   createSession: (options?: Record<string, unknown>) => MaybePromise<HarnessAgentSessionLike>
@@ -42,30 +44,6 @@ interface HarnessAgentAdapterOptions<
 
 function hasEntries(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && Object.keys(value).length > 0
-}
-
-function toHarnessCredentialSourceMetadata(credentials: AgentHarnessCredentialSource | undefined) {
-  if (!credentials) return undefined
-  const source = typeof credentials.source === "string" ? credentials.source : undefined
-  const label = typeof credentials.label === "string" ? credentials.label : undefined
-  if (!source && !label) return undefined
-  return {
-    credentialSource: {
-      ...(label ? { label } : {}),
-      ...(source ? { source } : {}),
-    },
-  }
-}
-
-function defineHarnessUsageMetadata(result: unknown, credentials: AgentHarnessCredentialSource | undefined): unknown {
-  if (!result || typeof result !== "object") return result
-  const metadata = toHarnessCredentialSourceMetadata(credentials)
-  if (!metadata) return result
-  Object.defineProperty(result, vitehubUsageMetadataKey, {
-    configurable: true,
-    value: metadata,
-  })
-  return result
 }
 
 function assertSupportedHarnessDriverContributions(context: AgentAdapterRunContext) {
@@ -262,6 +240,7 @@ export function createHarnessAgentAdapter<
   options: HarnessAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>,
 ): AgentAdapter<CALL_OPTIONS, TRuntimeConfig> {
   const resumeStates = getResumeStates(options)
+  const usageMetadata = harnessCredentialSourceMetadata(options.credentials)
 
   async function createSession(agent: HarnessAgentLike, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) {
     const sessionId = await resolveHarnessSessionKey(options.sessionKey, context)
@@ -293,10 +272,10 @@ export function createHarnessAgentAdapter<
       const agent = await createHarnessAgent(options, context)
       const { cleanup, session } = await createSession(agent, context)
       try {
-        const result = defineHarnessUsageMetadata(await agent.generate({
+        const result = defineAgentUsageMetadata(await agent.generate({
           ...toHarnessCallInput(context),
           session,
-        }), options.credentials)
+        }), usageMetadata)
         await cleanup()
         return result
       }
@@ -310,10 +289,10 @@ export function createHarnessAgentAdapter<
       const agent = await createHarnessAgent(options, context)
       const { cleanup, session } = await createSession(agent, context)
       try {
-        const result = defineHarnessUsageMetadata(await agent.stream({
+        const result = defineAgentUsageMetadata(await agent.stream({
           ...toHarnessCallInput(context),
           session,
-        }), options.credentials)
+        }), usageMetadata)
         return await withSessionCleanup(result, cleanup)
       }
       catch (error) {

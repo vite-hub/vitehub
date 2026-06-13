@@ -1,4 +1,10 @@
+import { readAgentUsageMetadata } from "../agent-usage-metadata.ts"
 import { defineCapability } from "../capability-runtime.ts"
+import {
+  cloneWithPropertyDescriptors,
+  isAsyncIterable,
+  teeingAsyncIterableStreamDescriptor,
+} from "../stream-result.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -56,16 +62,11 @@ interface UsageTelemetryCapabilityMetadata {
 }
 
 const usageTelemetryWrapped = Symbol("vitehub.usageTelemetryWrapped")
-const vitehubUsageMetadataKey = "__vitehubUsageMetadata"
 
 const vercelAiGatewayModelsUrl = "https://ai-gateway.vercel.sh/v1/models"
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === "object" && value !== null
-}
-
-function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return !!value && typeof value === "object" && Symbol.asyncIterator in value
 }
 
 function readNumber(record: UnknownRecord, ...keys: string[]): number | undefined {
@@ -137,14 +138,6 @@ function credentialSourceFromMetadata(metadata: unknown): AgentUsageRecord["cred
   }
 }
 
-function usageMetadataFromResult(result: UnknownRecord, fallback?: unknown) {
-  return isRecord(result[vitehubUsageMetadataKey])
-    ? result[vitehubUsageMetadataKey]
-    : isRecord(fallback) && isRecord(fallback[vitehubUsageMetadataKey])
-      ? fallback[vitehubUsageMetadataKey]
-      : undefined
-}
-
 function responseFromResult(result: UnknownRecord): AgentUsageRecord["response"] | undefined {
   const response = isRecord(result.response) ? result.response : undefined
   const id = response ? readString(response, "id") : undefined
@@ -193,7 +186,7 @@ export async function createAgentUsageRecord(
   if (!usage) return
   const model = modelFromResult(result)
   const response = responseFromResult(result)
-  const credentialSource = credentialSourceFromMetadata(usageMetadataFromResult(result, metadataSource))
+  const credentialSource = credentialSourceFromMetadata(readAgentUsageMetadata(result, metadataSource))
 
   const record: AgentUsageRecord = {
     ...(credentialSource ? { credentialSource } : {}),
@@ -257,57 +250,6 @@ async function* withUsageTelemetryStream(
   }
 }
 
-function withAsyncIterator<T>(stream: ReadableStream<T>): AsyncIterable<T> & ReadableStream<T> {
-  if (typeof (stream as AsyncIterable<T>)[Symbol.asyncIterator] === "function") {
-    return stream as AsyncIterable<T> & ReadableStream<T>
-  }
-
-  Object.defineProperty(stream, Symbol.asyncIterator, {
-    configurable: true,
-    value: async function* () {
-      const reader = stream.getReader()
-      try {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) return
-          yield value
-        }
-      }
-      finally {
-        reader.releaseLock()
-      }
-    },
-  })
-  return stream as AsyncIterable<T> & ReadableStream<T>
-}
-
-function toReadableAsyncIterableStream<T>(iterable: AsyncIterable<T>): AsyncIterable<T> & ReadableStream<T> {
-  if (typeof (iterable as ReadableStream<T>).pipeThrough === "function") {
-    return withAsyncIterator(iterable as ReadableStream<T>)
-  }
-
-  const iterator = iterable[Symbol.asyncIterator]()
-  return withAsyncIterator(new ReadableStream<T>({
-    async cancel() {
-      await iterator.return?.()
-    },
-    async pull(controller) {
-      try {
-        const { done, value } = await iterator.next()
-        if (done) {
-          controller.close()
-        }
-        else {
-          controller.enqueue(value)
-        }
-      }
-      catch (error) {
-        controller.error(error)
-      }
-    },
-  }))
-}
-
 function defineUsageTelemetryOutput(output: UnknownRecord, usageRecord: AgentUsageRecord) {
   Object.defineProperties(output, {
     usage: {
@@ -325,29 +267,36 @@ function defineUsageTelemetryOutput(output: UnknownRecord, usageRecord: AgentUsa
   })
 }
 
+function hasUsageTelemetryStream(result: UnknownRecord): boolean {
+  return isAsyncIterable(result.fullStream) || isAsyncIterable(result.stream)
+}
+
 function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
   result: T,
   options: UsageTelemetryOptions,
   run?: Partial<AgentRunMetadata>,
 ): T {
   if ((result as UnknownRecord & { [usageTelemetryWrapped]?: boolean })[usageTelemetryWrapped]) return result
-  const fullStream = result.fullStream
-  if (!isAsyncIterable(fullStream)) return result
+  if (!hasUsageTelemetryStream(result)) return result
 
-  const clone = Object.create(Object.getPrototypeOf(result)) as T
-  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(result))
-  let stream = toReadableAsyncIterableStream(withUsageTelemetryStream(fullStream, options, run, (usageRecord) => {
-    defineUsageTelemetryOutput(clone as UnknownRecord, usageRecord)
-  }, result))
-  Object.defineProperty(clone, "fullStream", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const [next, branch] = stream.tee()
-      stream = withAsyncIterator(next)
-      return withAsyncIterator(branch)
-    },
-  })
+  let clone = undefined as unknown as T
+  const withTelemetry = (stream: AsyncIterable<unknown>) =>
+    teeingAsyncIterableStreamDescriptor(withUsageTelemetryStream(stream, options, run, (usageRecord) => {
+      defineUsageTelemetryOutput(clone as UnknownRecord, usageRecord)
+    }, result))
+  const descriptors: PropertyDescriptorMap = {
+    ...(isAsyncIterable(result.fullStream) ? { fullStream: withTelemetry(result.fullStream) } : {}),
+    ...(isAsyncIterable(result.stream) ? { stream: withTelemetry(result.stream) } : {}),
+  }
+  const toUIMessageStream = result.toUIMessageStream
+  if (typeof toUIMessageStream === "function") {
+    descriptors.toUIMessageStream = {
+      configurable: true,
+      enumerable: true,
+      value: (...args: unknown[]) => toUIMessageStream.apply(clone, args),
+    }
+  }
+  clone = cloneWithPropertyDescriptors(result, descriptors)
   Object.defineProperty(clone, usageTelemetryWrapped, {
     value: true,
   })
@@ -368,7 +317,7 @@ export function usageTelemetry(options: UsageTelemetryOptions = {}): AgentCapabi
       context.output.render(async (result) => {
         if (isAsyncIterable(result)) return withUsageTelemetryStream(result, options, context.run)
         if (!isRecord(result)) return result
-        if (isAsyncIterable(result.fullStream)) return cloneWithUsageTelemetryStream(result, options, context.run)
+        if (hasUsageTelemetryStream(result)) return cloneWithUsageTelemetryStream(result, options, context.run)
         const usageRecord = await recordUsage(result, options, context.run)
         if (!usageRecord) return result
         return {

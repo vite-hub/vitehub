@@ -1,7 +1,10 @@
 import { ApprovalRequiredError } from "@vite-hub/runtime"
+import { isAsyncIterable } from "./stream-result.ts"
 
 import type { StreamEvent } from "./messages.ts"
 import type { AgentRunResult, AgentUsageRecord } from "./types.ts"
+
+export { isAsyncIterable } from "./stream-result.ts"
 
 function textFromResult(result: Record<string, unknown>): string | undefined {
   if (typeof result.text === "string") return result.text
@@ -32,10 +35,6 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
     usageRecord: result.usageRecord as AgentUsageRecord | undefined,
     warnings: result.warnings,
   }
-}
-
-export function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return !!value && typeof value === "object" && Symbol.asyncIterator in value
 }
 
 function isUsageRecord(value: unknown): value is AgentUsageRecord {

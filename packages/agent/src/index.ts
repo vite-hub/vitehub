@@ -1,4 +1,5 @@
 import agentRegistry from "#vitehub/agent/registry"
+import { normalizeAgentDriver } from "./agent-driver.ts"
 import { getMessageText } from "./messages.ts"
 import { resolveRuntimeContext } from "@vite-hub/runtime"
 import { isAsyncIterable, streamAgentOutputToEvents, toAgentRunResult } from "./agent-output.ts"
@@ -46,7 +47,6 @@ import {
 import type {
   AgentAdapter,
   AgentAdapterFactory,
-  AgentAdapterInstructions,
   AgentAdapterMetadataContext,
   AgentAdapterRunContext,
   AgentAdapterResult,
@@ -58,11 +58,6 @@ import type {
   AgentCapabilityMode,
   AgentCapabilityTypeContract,
   AgentDefinition,
-  AgentDriver,
-  AgentHarnessCredentialSource,
-  AgentHarnessDriverInput,
-  AgentHarnessSandboxInput,
-  AgentHarnessSessionKey,
   AgentFinishEvent,
   AgentChatOptions,
   AgentInput,
@@ -70,7 +65,6 @@ import type {
   AgentInvocationHooks,
   AgentInvocationContextStore,
   AgentInvoker,
-  AgentModelExecutionOptions,
   AgentModelResolver,
   AgentRegistry,
   AgentRegistryModule,
@@ -292,27 +286,6 @@ type ValidateWorkspaceAgentOptions<TOptions> =
   TOptions extends { capabilities?: infer TCapabilities, workspace: infer TWorkspace }
     ? { capabilities?: ValidateAgentCapabilities<TCapabilities, TWorkspace> }
     : unknown
-type NormalizedAgentDriver<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-> =
-  | {
-    execution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
-    instructions?: AgentAdapterInstructions<TRuntimeConfig>
-    kind: "model"
-    model: AgentModelResolver<TRuntimeConfig>
-  }
-  | {
-    credentials?: AgentHarnessCredentialSource
-    harness: AgentHarnessDriverInput
-    kind: "harness"
-    sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS>
-    sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
-  }
-  | {
-    kind: "run"
-    run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
-  }
 type BaseAgentResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown> =
   (context: AgentRuntimeContext<TRuntimeConfig>) => Promise<AgentAdapter<CALL_OPTIONS>>
 type AgentDefinitionWithBaseResolve<
@@ -526,125 +499,6 @@ function validateNonWorkspaceCapabilities(capabilities: NormalizedCapability[], 
       throw new Error(`[vitehub] ${name}() requires an explicit workspace.`)
     }
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
-}
-
-function hasOwnDefined(value: Record<string, unknown>, key: string): boolean {
-  return Object.hasOwn(value, key) && value[key] !== undefined
-}
-
-function validateNoHarnessPermissionOption(driver: Record<string, unknown>): void {
-  if (hasOwnDefined(driver, "permissions") || hasOwnDefined(driver, "permissionMode")) {
-    throw new Error("[vitehub] defineAgent({ driver }) does not expose harness permission options in V1.")
-  }
-}
-
-function normalizeHarnessCredentialSource(value: unknown): AgentHarnessCredentialSource | undefined {
-  if (value === undefined) return undefined
-  if (!isRecord(value)) {
-    throw new TypeError("[vitehub] defineAgent({ driver.credentials }) must be a credential source object.")
-  }
-  if (hasOwnDefined(value, "value")) {
-    throw new Error("[vitehub] defineAgent({ driver.credentials.value }) is not supported by the generic harness adapter yet. Pass provider credentials to the harness adapter constructor or omit credentials for ambient adapter auth.")
-  }
-
-  const label = value.label
-  const source = value.source
-  if (label !== undefined && typeof label !== "string") {
-    throw new TypeError("[vitehub] defineAgent({ driver.credentials.label }) must be a string.")
-  }
-  if (source !== undefined && typeof source !== "string") {
-    throw new TypeError("[vitehub] defineAgent({ driver.credentials.source }) must be a string.")
-  }
-
-  return {
-    ...(label ? { label } : {}),
-    ...(source ? { source: source as AgentHarnessCredentialSource["source"] } : {}),
-  }
-}
-
-function normalizeExplicitAgentDriver<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
-  driver: unknown,
-): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
-  if (!isRecord(driver)) {
-    throw new TypeError("[vitehub] defineAgent({ driver }) must be an object.")
-  }
-
-  validateNoHarnessPermissionOption(driver)
-  const keys = (["model", "harness", "run"] as const).filter(key => hasOwnDefined(driver, key))
-  if (keys.length !== 1) {
-    throw new Error("[vitehub] defineAgent({ driver }) requires exactly one of driver.model, driver.harness, or driver.run.")
-  }
-
-  if (keys[0] === "model") {
-    return {
-      execution: driver.execution as AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS> | undefined,
-      instructions: driver.instructions as AgentAdapterInstructions<TRuntimeConfig> | undefined,
-      kind: "model",
-      model: driver.model as AgentModelResolver<TRuntimeConfig>,
-    }
-  }
-  if (keys[0] === "harness") {
-    if (!driver.harness || (typeof driver.harness !== "object" && typeof driver.harness !== "function")) {
-      throw new TypeError("[vitehub] defineAgent({ driver.harness }) must be an AI SDK harness adapter.")
-    }
-    if (hasOwnDefined(driver, "sandbox") && (!driver.sandbox || (typeof driver.sandbox !== "object" && typeof driver.sandbox !== "function"))) {
-      throw new TypeError("[vitehub] defineAgent({ driver.sandbox }) must be an AI SDK harness sandbox provider or resolver.")
-    }
-    return {
-      credentials: normalizeHarnessCredentialSource(driver.credentials),
-      harness: driver.harness as AgentHarnessDriverInput,
-      kind: "harness",
-      sandbox: driver.sandbox as AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS> | undefined,
-      sessionKey: driver.sessionKey as AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS> | undefined,
-    }
-  }
-  if (typeof driver.run !== "function") {
-    throw new TypeError("[vitehub] defineAgent({ driver.run }) must be a function.")
-  }
-  return {
-    kind: "run",
-    run: driver.run as AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>,
-  }
-}
-
-function normalizeAgentDriver<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
-  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
-): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
-  const record = options as Record<string, unknown>
-  if (hasOwnDefined(record, "driver")) {
-    if (hasOwnDefined(record, "model") || hasOwnDefined(record, "modelExecution") || hasOwnDefined(record, "instructions") || hasOwnDefined(record, "run")) {
-      throw new Error("[vitehub] defineAgent({ driver }) cannot be combined with root model, modelExecution, instructions, or run options.")
-    }
-    return normalizeExplicitAgentDriver<TRuntimeConfig, CALL_OPTIONS>(record.driver)
-  }
-
-  if (hasOwnDefined(record, "model")) {
-    return {
-      execution: record.modelExecution as AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS> | undefined,
-      instructions: record.instructions as AgentAdapterInstructions<TRuntimeConfig> | undefined,
-      kind: "model",
-      model: record.model as AgentModelResolver<TRuntimeConfig>,
-    }
-  }
-
-  if (hasOwnDefined(record, "run")) {
-    return {
-      kind: "run",
-      run: record.run as AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>,
-    }
-  }
-
-  throw new Error("[vitehub] Agent Driver is required. Use defineAgent({ driver: { model } }) or defineAgent({ driver: { run } }).")
 }
 
 function defineBaseAgent<

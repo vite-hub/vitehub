@@ -156,6 +156,18 @@ describe("agent message protocol", () => {
     expect(() => defineAgent({
       driver: { credentials: { value: "secret" }, harness: { provider: "codex" } },
     } as never)).toThrow("driver.credentials.value")
+
+    expect(() => defineAgent({
+      driver: { harness: { provider: "codex" }, instructions: "ignored" },
+    } as never)).toThrow("does not support option: instructions")
+
+    expect(() => defineAgent({
+      driver: { model: {} as never, sandbox: { provider: "sandbox" } },
+    } as never)).toThrow("does not support option: sandbox")
+
+    expect(() => defineAgent({
+      driver: { execution: {}, run: () => "ok" },
+    } as never)).toThrow("does not support option: execution")
   })
 
   it("creates inline schedule capabilities without requiring chat history", async () => {

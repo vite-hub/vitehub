@@ -1,3 +1,5 @@
+import { isAsyncIterable } from "./stream-result.ts"
+
 import type { MaybePromise } from "./types.ts"
 
 interface FinalizedStreamOutput<T> {
@@ -10,12 +12,6 @@ export function isUIMessageStreamResult(value: unknown): value is { toUIMessageS
   return typeof value === "object"
     && value !== null
     && typeof (value as { toUIMessageStream?: unknown }).toUIMessageStream === "function"
-}
-
-function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return typeof value === "object"
-    && value !== null
-    && Symbol.asyncIterator in value
 }
 
 export function withReadableStreamCleanup<T>(stream: ReadableStream<T>, cleanup: (error?: unknown) => Promise<void>): ReadableStream<T> {

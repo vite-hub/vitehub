@@ -177,6 +177,112 @@ describe("usage telemetry", () => {
     })
   })
 
+  it("records streamed usage when ui-message-stream consumes result.stream", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const finish = vi.fn()
+    const onUsage = vi.fn()
+
+    class StreamResult {
+      fullStream = (async function* () {
+        yield { text: "wrong", type: "text-delta" }
+        yield {
+          finishReason: "stop",
+          totalUsage: {
+            inputTokens: 1,
+            outputTokens: 2,
+          },
+          type: "finish",
+        }
+      })()
+
+      stream = (async function* () {
+        yield { text: "ok", type: "text-delta" }
+        yield {
+          finishReason: "stop",
+          totalUsage: {
+            inputTokens: 4,
+            outputTokens: 6,
+          },
+          type: "finish",
+        }
+      })()
+
+      toUIMessageStream() {
+        const stream = this.stream
+        return new ReadableStream({
+          async start(controller) {
+            for await (const chunk of stream) {
+              controller.enqueue(chunk)
+            }
+            controller.close()
+          },
+        })
+      }
+    }
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry({ onUsage }),
+      ],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => new StreamResult(),
+    })
+
+    const stream = await streamAgent(agent, runtime(), {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const reader = stream.getReader()
+    const chunks: unknown[] = []
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value)
+    }
+
+    expect(chunks).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: expect.objectContaining({
+          usage: {
+            inputTokens: 4,
+            outputTokens: 6,
+            totalTokens: 10,
+          },
+        }),
+      },
+      {
+        finishReason: "stop",
+        totalUsage: {
+          inputTokens: 4,
+          outputTokens: 6,
+        },
+        type: "finish",
+      },
+    ])
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
+      usage: {
+        inputTokens: 4,
+        outputTokens: 6,
+        totalTokens: 10,
+      },
+    }), {
+      run: {
+        messageId: "message-1",
+        runId: "run-1",
+        threadId: "thread-1",
+      },
+    })
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(expect.objectContaining({
+      usage: {
+        inputTokens: 4,
+        outputTokens: 6,
+        totalTokens: 10,
+      },
+    }))
+  })
+
   it("attaches streamed usage telemetry to results with getter-only usage properties", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const { streamAgentOutputToEvents } = await import("../src/agent-output.ts")
