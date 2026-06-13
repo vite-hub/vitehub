@@ -129,6 +129,12 @@ describe("Vite plugin", () => {
     await expect(readFile(join(root, ".vitehub", "env", "vite.d.ts"), "utf8")).rejects.toThrow()
     await expect(readFile(join(root, ".vitehub", "env", "public.mjs"), "utf8")).resolves.toContain("usePublicEnv")
     await expect(readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")).resolves.toContain("useServerEnv")
+    await expect(readFile(join(root, ".vitehub", "env", "public.d.ts"), "utf8")).resolves.toContain("export function usePublicEnv(): PublicEnv")
+    const serverModuleTypes = await readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")
+    expect(serverModuleTypes).toContain("import type { SecretEnv } from \"@vite-hub/env/secret\"")
+    expect(serverModuleTypes).toContain("export interface ServerEnv")
+    expect(serverModuleTypes).toContain("\"airtableToken\": SecretEnv<string>")
+    expect(serverModuleTypes).toContain("export function useServerEnv(event?: unknown): ServerEnv")
 
     const loadHook = plugin.load as (id: string) => string | undefined
     const loaded = loadHook("\0#vitehub/env/public")

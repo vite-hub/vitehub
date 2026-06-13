@@ -129,8 +129,16 @@ function envPublicModulePath(root: string) {
   return resolve(root, ".vitehub", "env", "public.mjs")
 }
 
+function envPublicModuleTypesPath(root: string) {
+  return resolve(root, ".vitehub", "env", "public.d.ts")
+}
+
 function envServerModulePath(root: string) {
   return resolve(root, ".vitehub", "env", "server.mjs")
+}
+
+function envServerModuleTypesPath(root: string) {
+  return resolve(root, ".vitehub", "env", "server.d.ts")
 }
 
 function createGeneratedEnvImportAliases(root: string): Record<string, string> {
@@ -161,7 +169,9 @@ async function refreshEnvGeneratedFiles(root: string, publicConfig: Record<strin
   await Promise.all([
     writeFileIfChanged(envAmbientTypesPath(root), createViteTypes(publicConfig, serverRegistry)),
     writeFileIfChanged(envPublicModulePath(root), createPublicEnvModule(publicConfig)),
+    writeFileIfChanged(envPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicConfig)),
     writeFileIfChanged(envServerModulePath(root), createServerEnvModule(serverRegistry)),
+    writeFileIfChanged(envServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry)),
     ...legacyEnvAmbientTypesPaths(root).map(path => rm(path, { force: true })),
   ])
 }
@@ -171,6 +181,17 @@ function createPublicEnvModule(publicConfig: Record<string, unknown>): string {
     `const publicEnv = ${JSON.stringify(publicConfig, null, 2)};`,
     "export function usePublicEnv() { return publicEnv; }",
     "export { publicEnv };",
+    "",
+  ].join("\n")
+}
+
+function createPublicEnvModuleTypes(publicConfig: Record<string, unknown>): string {
+  return [
+    "export interface PublicEnv {",
+    ...createPublicTypeFields(publicConfig, 2),
+    "}",
+    "export const publicEnv: PublicEnv",
+    "export function usePublicEnv(): PublicEnv",
     "",
   ].join("\n")
 }
@@ -185,12 +206,24 @@ function createServerEnvModule(serverRegistry: EnvRuntimeRegistry): string {
   ].join("\n")
 }
 
+function createServerEnvModuleTypes(serverRegistry: EnvRuntimeRegistry): string {
+  return [
+    "import type { SecretEnv } from \"@vite-hub/env/secret\"",
+    "",
+    "export interface ServerEnv {",
+    ...createServerTypeFields(serverRegistry, 2),
+    "}",
+    "export function useServerEnv(event?: unknown): ServerEnv",
+    "export function runWithServerEnv<T>(event: unknown, callback: () => T): T",
+    "",
+  ].join("\n")
+}
+
 function createViteTypes(publicConfig: Record<string, unknown>, serverRegistry: EnvRuntimeRegistry): string {
-  const publicFields = Object.entries(publicConfig).map(([key, value]) => `    ${JSON.stringify(key)}: ${typeof value}`)
   return [
     "declare module \"#vitehub/env/public\" {",
     "  export interface PublicEnv {",
-    ...publicFields,
+    ...createPublicTypeFields(publicConfig, 4),
     "  }",
     "  export const publicEnv: PublicEnv",
     "  export function usePublicEnv(): PublicEnv",
@@ -206,6 +239,11 @@ function createViteTypes(publicConfig: Record<string, unknown>, serverRegistry: 
     "export {}",
     "",
   ].join("\n")
+}
+
+function createPublicTypeFields(publicConfig: Record<string, unknown>, indent: number): string[] {
+  const prefix = " ".repeat(indent)
+  return Object.entries(publicConfig).map(([key, value]) => `${prefix}${JSON.stringify(key)}: ${typeof value}`)
 }
 
 function createServerTypeFields(registry: EnvRuntimeRegistry, indent: number): string[] {
