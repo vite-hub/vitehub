@@ -285,6 +285,41 @@ describe("lazy sources", () => {
     await expect(view.readFile("docs/a.md")).resolves.toBe("# two\n")
   })
 
+  it("resumes keyed source materialization after an interrupted refresh", async () => {
+    let failSecond = true
+    const getItem = vi.fn(async (key: string) => {
+      if (key === "b.md" && failSecond) throw new Error("temporary source failure")
+      return { key, path: key, content: `# ${key}\n` }
+    })
+    const view = createWorkspaceSourceView({
+      name: "lazy-keyed-resume",
+      sources: {
+        docs: source.custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md", "b.md"]
+          },
+          getItem,
+          async getMeta(key) {
+            return { ref: key }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ status: "error" })],
+    })
+    failSecond = false
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ status: "ready" })],
+    })
+
+    expect(getItem.mock.calls.map(call => call[0])).toEqual(["a.md", "b.md", "b.md"])
+    await expect(view.readFile("docs/a.md")).resolves.toBe("# a.md\n")
+    await expect(view.readFile("docs/b.md")).resolves.toBe("# b.md\n")
+  })
+
   it("checks stale root source files sequentially while refreshing", async () => {
     let keys = ["a.bin", "b.bin", "c.bin"]
     let activeReads = 0

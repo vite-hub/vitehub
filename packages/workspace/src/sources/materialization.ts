@@ -91,8 +91,13 @@ function materializedItemMeta(
   configHash: string,
   path: string,
 ) {
-  if (snapshot?.status !== "ready" || snapshot.configHash !== configHash) return undefined
+  if (!snapshot || snapshot.configHash !== configHash) return undefined
+  if (snapshot.status !== "ready" && snapshot.status !== "updating" && snapshot.status !== "error") return undefined
   return snapshot.items?.[path]
+}
+
+function checkpointItems(items: Record<string, LazyMaterializedMetadata>) {
+  return Object.keys(items).length ? items : undefined
 }
 
 function contentSize(content: string | Uint8Array) {
@@ -250,14 +255,20 @@ export async function materializeWorkspaceSources(
       continue
     }
 
+    const itemMetadata: Record<string, LazyMaterializedMetadata> = existing?.configHash === configHash
+      ? { ...(existing.items || {}) }
+      : {}
     await writeSourceSnapshotMetadata(store, {
       configHash,
       source: source.key,
       mountPath: source.mountPath,
       status: "updating",
+      items: checkpointItems(itemMetadata),
       cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
     })
 
+    let sourceFiles = 0
+    let sourceBytes = 0
     try {
       const ctx = createSourceContext(definition, source)
       await source.source.prepare?.(ctx)
@@ -265,12 +276,9 @@ export async function materializeWorkspaceSources(
         await store.mkdir(source.mountPath, { recursive: true })
       }
 
-      let sourceFiles = 0
-      let sourceBytes = 0
       let commit: string | undefined
       const directorySet = new Set<string>(source.mountPath ? [source.mountPath] : [])
       const nextPaths = new Set<string>()
-      const itemMetadata: Record<string, LazyMaterializedMetadata> = {}
       for await (const entry of iterateMaterializationEntries(source, ctx, store, existing, configHash)) {
         const path = entry.path
         nextPaths.add(path)
@@ -281,6 +289,17 @@ export async function materializeWorkspaceSources(
           commit ||= entry.metadata.ref || entry.metadata.sha
           sourceFiles++
           sourceBytes += entry.reused.size || 0
+          await writeSourceSnapshotMetadata(store, {
+            configHash,
+            source: source.key,
+            mountPath: source.mountPath,
+            status: "updating",
+            commit,
+            files: sourceFiles,
+            bytes: sourceBytes,
+            items: checkpointItems(itemMetadata),
+            cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
+          })
           continue
         }
         const item = entry.item!
@@ -299,8 +318,23 @@ export async function materializeWorkspaceSources(
         })
         sourceFiles++
         sourceBytes += written.size || 0
+        await writeSourceSnapshotMetadata(store, {
+          configHash,
+          source: source.key,
+          mountPath: source.mountPath,
+          status: "updating",
+          commit,
+          files: sourceFiles,
+          bytes: sourceBytes,
+          items: checkpointItems(itemMetadata),
+          cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
+        })
       }
       await removeStaleMaterializedSourceFiles(store, source, nextPaths, { removeUntracked: Boolean(source.mountPath) })
+      const readyItems = Object.fromEntries([...nextPaths].flatMap((path) => {
+        const metadata = itemMetadata[path]
+        return metadata ? [[path, metadata] as const] : []
+      }))
 
       const ready: SourceSnapshotMetadata = {
         configHash,
@@ -311,7 +345,7 @@ export async function materializeWorkspaceSources(
         materializedAt: new Date().toISOString(),
         files: sourceFiles,
         bytes: sourceBytes,
-        items: itemMetadata,
+        items: readyItems,
         cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
       }
       await writeSourceSnapshotMetadata(store, ready)
@@ -327,6 +361,9 @@ export async function materializeWorkspaceSources(
         mountPath: source.mountPath,
         status: "error",
         error: error instanceof Error ? error.message : String(error),
+        files: sourceFiles,
+        bytes: sourceBytes,
+        items: checkpointItems(itemMetadata),
         cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
       }
       await writeSourceSnapshotMetadata(store, failed)
