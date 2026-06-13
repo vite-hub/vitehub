@@ -28,6 +28,10 @@ _Avoid_: Drizzle config, migration config, provider binding
 The Drizzle table primitives declared inside a Database Definition as the database source of truth.
 _Avoid_: Validation schema, migration file
 
+**Package Database Contribution**:
+A package-owned table contribution to a selected Database Definition.
+_Avoid_: Hidden database schema, mixed database mode, migration sidecar
+
 **Database Provider Binding**:
 Database-scoped provider wiring stored with a Database Definition.
 _Avoid_: Provider selection, database identity, runtime secret
@@ -54,6 +58,7 @@ _Avoid_: Raw client, ORM config
 - **Database Definition Mode** is either one **Default Database** or one or more **Named Databases**, never both.
 - A **Database Definition** configures exactly one **Default Database** or **Named Database**.
 - A **Database Definition** owns its **Database Table Schema**.
+- A **Package Database Contribution** can add package-owned tables to a selected **Database Definition** without changing **Database Definition Mode**.
 - A **Database Definition** can own a **Database Provider Binding** when the binding attaches provider output to that discovered database identity.
 - **Generated Drizzle Schema** is derived from **Database Table Schema**.
 - **Generated Validation Schema** is derived from **Database Table Schema**.
@@ -66,6 +71,9 @@ _Avoid_: Raw client, ORM config
 
 > **Dev:** "Is a Cloudflare D1 binding the database name?"
 > **Domain expert:** "No. The binding is provider wiring. The **Named Database** is the ViteHub name used by the **Drizzle Runtime Surface**."
+>
+> **Dev:** "Does Auth need a separate Named Database to own its tables?"
+> **Domain expert:** "No. Auth can use a **Package Database Contribution** when its tables should live in the selected application database."
 
 ## Flagged Ambiguities
 
@@ -79,3 +87,4 @@ _Avoid_: Raw client, ORM config
 - Standard Schema was considered the authored **Database Table Schema** - resolved: users author **Database Table Schema** with Drizzle primitives, and ViteHub derives **Generated Validation Schema** from it.
 - Provider bindings were considered only Integration Options - resolved: **Database Provider Binding** may live in a **Database Definition** to avoid duplicating discovered database names, while global provider selection remains an Integration Option.
 - Drizzle Kit was considered against an in-memory generated schema - resolved: use **Generated Drizzle Schema** as an inspectable artifact.
+- Package-owned tables were considered to require a separate **Named Database** - resolved: use **Package Database Contribution** when package-owned tables should live in an existing **Database Definition**.

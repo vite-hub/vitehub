@@ -11,6 +11,7 @@ export function markdown(options: FileSourceOptions): WorkspaceSource {
     instructions: options.instructions,
     materialize: options.materialize,
     mount: options.mount,
+    sync: options.sync,
     validate: options.validate,
   }
 }

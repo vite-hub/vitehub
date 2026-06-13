@@ -11,6 +11,7 @@ import {
   statVirtualSourcePath,
 } from "./materialization.ts"
 import { resolveWorkspacePath } from "./resolver.ts"
+import { readWorkspaceSourceSyncState, sourceSyncMetaKey } from "./sync-state.ts"
 
 import type {
   GlobOptions,
@@ -45,7 +46,9 @@ export interface WorkspaceSourceView {
 
 export function createWorkspaceSourceView(definition: WorkspaceDefinition, store: WorkspaceStore): WorkspaceSourceView {
   const sourceContext = createSourceContext(definition)
-  const sources = normalizeWorkspaceSources(definition.sources).filter(source => source.materialize === "lazy")
+  const allSources = normalizeWorkspaceSources(definition.sources)
+  const sources = allSources.filter(source => source.materialize === "lazy")
+  const syncSources = allSources.filter(source => source.sync)
   const writePolicy = createWorkspaceWritePolicy(definition)
   const prepareBySource = new Map<string, Promise<void>>()
   const materializeBySource = new Map<string, Promise<void>>()
@@ -56,6 +59,10 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   function isLazySourcePath(path: string) {
     return sources.some(source => sourceMountContainsPath(source, path))
+  }
+
+  function isSyncSourceMountPath(path: string) {
+    return syncSources.some(source => source.mountPath && sourceMountContainsPath(source, path))
   }
 
   function isLiveSource(sourceKey: string) {
@@ -214,14 +221,25 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   async function isSourceBackedStorePath(path: string) {
     const file = await store.readFile(path)
-    if (typeof file?.metadata?.source === "string" && sources.some(source => source.key === file.metadata?.source)) return true
+    if (typeof file?.metadata?.source === "string" && allSources.some(source => source.key === file.metadata?.source)) return true
     const stat = await store.stat(path)
     if (stat?.type !== "directory") return false
     const entries = await store.list(path, { recursive: true })
     for (const entry of entries) {
       if (entry.type !== "file") continue
       const child = await store.readFile(entry.path)
-      if (typeof child?.metadata?.source === "string" && sources.some(source => source.key === child.metadata?.source)) return true
+      if (typeof child?.metadata?.source === "string" && allSources.some(source => source.key === child.metadata?.source)) return true
+    }
+    return false
+  }
+
+  async function isSyncedStatePath(path: string) {
+    if (!store.getMeta) return false
+    for (const source of syncSources) {
+      const state = readWorkspaceSourceSyncState(await store.getMeta(sourceSyncMetaKey(source.key)))
+      if (!state) continue
+      if (state.paths[path]) return true
+      if (Object.keys(state.paths).some(item => item.startsWith(`${path}/`))) return true
     }
     return false
   }
@@ -229,7 +247,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function assertWritableResolvedStorePath(path: string, workspacePath: string, type: "source" | "store") {
     assertWritableStorePath(path, workspacePath, type)
     await materializeRootSourceForPath(workspacePath)
-    if (await isSourceBackedStorePath(workspacePath)) {
+    if (isSyncSourceMountPath(workspacePath) || await isSyncedStatePath(workspacePath) || await isSourceBackedStorePath(workspacePath)) {
       throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
     }
   }

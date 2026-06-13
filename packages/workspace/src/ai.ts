@@ -87,7 +87,6 @@ export type WorkspaceTools<Operations = undefined> = ((ShellEnabled<Operations> 
 const defaultMaxOutputLength = 30_000
 const workspaceMountPoint = "/workspace"
 const aiSchemaSymbol = Symbol.for("vercel.ai.schema")
-const shellWorkspaceSpecifier = "@vite-hub/shell/workspace"
 
 type ValidationResult<T> =
   | { success: true, value: T }
@@ -204,7 +203,7 @@ async function runShellCommand(
   command: string,
   options: { broadSearchPaths: string[], commands: string[], cwd: string, maxOutputLength: number, timeout?: number },
 ): Promise<WorkspaceShellResult> {
-  const { createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } = await import(/* @vite-ignore */ shellWorkspaceSpecifier) as typeof import("@vite-hub/shell/workspace")
+  const { createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } = await import("@vite-hub/shell/workspace")
   return await runWorkspaceInspectionCommand(input, command, {
     broadSearchPaths: options.broadSearchPaths,
     commands: options.commands,

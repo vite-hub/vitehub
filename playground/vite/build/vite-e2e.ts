@@ -306,11 +306,264 @@ function renderWorkflowRuntimeModule(file: string) {
   ].join("\n")
 }
 
-function renderWorkspaceRuntimeModule(file: string) {
+function renderWorkspaceAssetsRuntimeModule() {
   return [
-    `export { defineWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/define.ts")))}`,
+    "function normalizePath(path = '', allowEmpty = true) {",
+    "  const raw = String(path).replace(/\\\\/g, '/')",
+    "  const normalized = raw.replace(/^\\/+/, '').replace(/\\/+$/, '').replace(/\\/+/g, '/')",
+    "  const parts = normalized.split('/').filter(Boolean)",
+    "  if (raw.startsWith('/') || parts.some(part => part === '.' || part === '..')) throw new Error(`[vitehub] Workspace path must stay inside the workspace: ${path}.`)",
+    "  if (!allowEmpty && !normalized) throw new Error('[vitehub] Workspace path must not be empty.')",
+    "  return normalized",
+    "}",
+    "function contentSize(content) { return typeof content === 'string' ? new TextEncoder().encode(content).byteLength : content.byteLength }",
+    "function decodeFile(content, options = {}) { return options.encoding === null ? content : typeof content === 'string' ? content : new TextDecoder().decode(content) }",
+    "function parentDirs(path) {",
+    "  const parts = path.split('/').filter(Boolean)",
+    "  const dirs = []",
+    "  for (let index = 1; index < parts.length; index++) dirs.push(parts.slice(0, index).join('/'))",
+    "  return dirs",
+    "}",
+    "function entryVisible(path, prefix, recursive) {",
+    "  if (!prefix) return recursive || !path.includes('/')",
+    "  if (path === prefix) return true",
+    "  if (!path.startsWith(`${prefix}/`)) return false",
+    "  return recursive || !path.slice(prefix.length + 1).includes('/')",
+    "}",
+    "function escapeRegExp(value) { return value.replace(/[.+^${}()|[\\]\\\\]/g, '\\\\$&') }",
+    "function globToRegExp(pattern) {",
+    "  const normalized = normalizePath(pattern)",
+    "  const source = escapeRegExp(normalized).replace(/\\*\\*\\//g, '(?:.*/)?').replace(/\\*\\*/g, '.*').replace(/\\*/g, '[^/]*')",
+    "  return new RegExp(`^${source}$`)",
+    "}",
+    "function matchesGlob(path, pattern) {",
+    "  const patterns = Array.isArray(pattern) ? pattern : [pattern]",
+    "  return patterns.some(item => globToRegExp(item).test(path))",
+    "}",
+    "async function sha256(content) {",
+    "  const bytes = typeof content === 'string' ? new TextEncoder().encode(content) : content",
+    "  const digest = await crypto.subtle.digest('SHA-256', bytes)",
+    "  return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')",
+    "}",
+    "export function createWorkspaceAssets(files) {",
+    "  const pathMap = new Map(Object.entries(files).map(([path, file]) => [normalizePath(path, false), file]))",
+    "  const paths = [...pathMap.keys()].sort()",
+    "  const dirs = new Set(paths.flatMap(path => parentDirs(path)))",
+    "  const contentCache = new Map()",
+    "  const statCache = new Map()",
+    "  async function readContent(path) {",
+    "    const file = pathMap.get(path)",
+    "    if (!file) throw new Error(`[vitehub] Workspace file does not exist: ${path}.`)",
+    "    const cached = contentCache.get(path)",
+    "    if (cached) return await cached",
+    "    const next = file.load()",
+    "    contentCache.set(path, next)",
+    "    return await next",
+    "  }",
+    "  async function statFile(path) {",
+    "    const cached = statCache.get(path)",
+    "    if (cached) return await cached",
+    "    const file = pathMap.get(path)",
+    "    if (!file) throw new Error(`[vitehub] Workspace file does not exist: ${path}.`)",
+    "    const next = (async () => {",
+    "      const content = await readContent(path)",
+    "      return { digest: await sha256(content), mediaType: file.mediaType, path, size: contentSize(content), type: 'file' }",
+    "    })()",
+    "    statCache.set(path, next)",
+    "    return await next",
+    "  }",
+    "  async function statPath(path) {",
+    "    if (pathMap.has(path)) return await statFile(path)",
+    "    if (!path || dirs.has(path)) return { path, type: 'directory' }",
+    "    throw new Error(`[vitehub] Workspace path does not exist: ${path}.`)",
+    "  }",
+    "  async function listEntries(path = '', options = {}) {",
+    "    const prefix = normalizePath(path)",
+    "    const result = new Map()",
+    "    for (const dir of dirs) if (dir && dir !== prefix && entryVisible(dir, prefix, options.recursive)) result.set(dir, { path: dir, type: 'directory' })",
+    "    for (const filePath of paths) if (filePath !== prefix && entryVisible(filePath, prefix, options.recursive)) result.set(filePath, await statFile(filePath))",
+    "    return [...result.values()].sort((left, right) => left.path.localeCompare(right.path))",
+    "  }",
+    "  return {",
+    "    async readFile(path, options) { return decodeFile(await readContent(normalizePath(path, false)), options) },",
+    "    async stat(path) { return await statPath(normalizePath(path)) },",
+    "    async exists(path) { try { await statPath(normalizePath(path)); return true } catch { return false } },",
+    "    async list(path = '', options = {}) { return await listEntries(path, options) },",
+    "    async glob(pattern) { return (await listEntries('', { recursive: true })).filter(entry => entry.type === 'file' && matchesGlob(entry.path, pattern)) },",
+    "    async search(query = {}) {",
+    "      const entries = await listEntries('', { recursive: true })",
+    "      const term = String(query.text || query.query || '')",
+    "      if (!term) return []",
+    "      const hits = []",
+    "      for (const entry of entries.filter(entry => entry.type === 'file')) {",
+    "        if (query.paths?.length && !query.paths.some(path => entry.path === path || entry.path.startsWith(`${path}/`))) continue",
+    "        const content = await readContent(entry.path)",
+    "        const text = typeof content === 'string' ? content : new TextDecoder().decode(content)",
+    "        const index = text.indexOf(term)",
+    "        if (index >= 0) hits.push({ path: entry.path, line: 1, column: index + 1, text })",
+    "        if (hits.length >= (query.limit || 100)) break",
+    "      }",
+    "      return hits.slice(0, query.limit || 100)",
+    "    },",
+    "  }",
+    "}",
+    "",
+  ].join("\n")
+}
+
+function renderWorkspaceRuntimeModule(file: string, assetsRegistryFile: string) {
+  return [
+    `import assetsRegistry from ${JSON.stringify(createImportPath(file, assetsRegistryFile))}`,
+    "",
+    `export const defineWorkspace = definition => definition`,
     `export const source = { custom: source => source, fetch: options => createHostedSourceStub("fetch", options), file: input => createHostedSourceStub("file", input), github: options => createHostedSourceStub("github", options), glob: options => createHostedSourceStub("glob", options), markdown: options => createHostedSourceStub("markdown", options), mcpResources: options => createHostedSourceStub("mcpResources", options) }`,
-    `export { useWorkspace } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/core/use.ts")))}`,
+    "const stores = new Map()",
+    "function normalizePath(path = '', allowEmpty = true) {",
+    "  const raw = String(path).replace(/\\\\/g, '/')",
+    "  const normalized = raw.replace(/^\\/+/, '').replace(/\\/+$/, '').replace(/\\/+/g, '/')",
+    "  const parts = normalized.split('/').filter(Boolean)",
+    "  if (raw.startsWith('/') || parts.some(part => part === '.' || part === '..')) throw new Error(`[vitehub] Workspace path must stay inside the workspace: ${path}.`)",
+    "  if (!allowEmpty && !normalized) throw new Error('[vitehub] Workspace path must not be empty.')",
+    "  return normalized",
+    "}",
+    "function getStore(name) {",
+    "  let store = stores.get(name)",
+    "  if (!store) {",
+    "    store = { files: new Map(), dirs: new Set() }",
+    "    stores.set(name, store)",
+    "  }",
+    "  return store",
+    "}",
+    "function contentSize(content) { return typeof content === 'string' ? new TextEncoder().encode(content).byteLength : content.byteLength }",
+    "function parentDirs(path) {",
+    "  const parts = path.split('/').filter(Boolean)",
+    "  const dirs = []",
+    "  for (let index = 1; index < parts.length; index++) dirs.push(parts.slice(0, index).join('/'))",
+    "  return dirs",
+    "}",
+    "function entryVisible(path, prefix, recursive) {",
+    "  if (!prefix) return recursive || !path.includes('/')",
+    "  if (path === prefix) return true",
+    "  if (!path.startsWith(`${prefix}/`)) return false",
+    "  return recursive || !path.slice(prefix.length + 1).includes('/')",
+    "}",
+    "function storedEntries(store, path = '', options = {}) {",
+    "  const prefix = normalizePath(path)",
+    "  const result = new Map()",
+    "  const dirs = new Set(store.dirs)",
+    "  for (const filePath of store.files.keys()) for (const dir of parentDirs(filePath)) dirs.add(dir)",
+    "  for (const dir of dirs) if (dir && dir !== prefix && entryVisible(dir, prefix, options.recursive)) result.set(dir, { path: dir, type: 'directory' })",
+    "  for (const [filePath, file] of store.files) {",
+    "    if (!entryVisible(filePath, prefix, options.recursive)) continue",
+    "    result.set(filePath, { path: filePath, type: 'file', mediaType: file.mediaType, size: contentSize(file.content) })",
+    "  }",
+    "  return [...result.values()].sort((left, right) => left.path.localeCompare(right.path))",
+    "}",
+    "function escapeRegExp(value) { return value.replace(/[.+^${}()|[\\]\\\\]/g, '\\\\$&') }",
+    "function globToRegExp(pattern) {",
+    "  const normalized = normalizePath(pattern)",
+    "  const source = escapeRegExp(normalized).replace(/\\*\\*\\//g, '(?:.*/)?').replace(/\\*\\*/g, '.*').replace(/\\*/g, '[^/]*')",
+    "  return new RegExp(`^${source}$`)",
+    "}",
+    "function matchesGlob(path, pattern) {",
+    "  const patterns = Array.isArray(pattern) ? pattern : [pattern]",
+    "  return patterns.some(item => globToRegExp(item).test(path))",
+    "}",
+    "async function readWorkspaceFile(name, store, path, options) {",
+    "  const normalized = normalizePath(path, false)",
+    "  const stored = store.files.get(normalized)",
+    "  if (stored) return stored.content",
+    "  const assets = assetsRegistry[name]",
+    "  if (assets) return await assets.readFile(normalized, options)",
+    "  throw new Error(`[vitehub] Workspace file does not exist: ${normalized}.`)",
+    "}",
+    "async function statWorkspacePath(name, store, path) {",
+    "  const normalized = normalizePath(path)",
+    "  const stored = store.files.get(normalized)",
+    "  if (stored) return { path: normalized, type: 'file', mediaType: stored.mediaType, size: contentSize(stored.content) }",
+    "  const entries = storedEntries(store, normalized, { recursive: false })",
+    "  if (!normalized || entries.length || store.dirs.has(normalized)) return { path: normalized, type: 'directory' }",
+    "  const assets = assetsRegistry[name]",
+    "  if (assets) return await assets.stat(normalized)",
+    "  throw new Error(`[vitehub] Workspace path does not exist: ${normalized}.`)",
+    "}",
+    "async function listWorkspaceEntries(name, store, path = '', options = {}) {",
+    "  const normalized = normalizePath(path)",
+    "  const assets = assetsRegistry[name]",
+    "  const result = new Map()",
+    "  if (assets) {",
+    "    try {",
+    "      for (const entry of await assets.list(normalized, options)) result.set(entry.path, entry)",
+    "    } catch {}",
+    "  }",
+    "  for (const entry of storedEntries(store, normalized, options)) result.set(entry.path, entry)",
+    "  return [...result.values()].sort((left, right) => left.path.localeCompare(right.path))",
+    "}",
+    "function createTools() { return {} }",
+    "createTools.inspect = () => ({})",
+    "createTools.none = () => ({})",
+    "createTools.write = () => ({})",
+    `export const useWorkspace = (name, options = {}) => {`,
+    "  const store = getStore(name)",
+    "  const fs = {",
+    "    async readFile(path, readOptions) { return await readWorkspaceFile(name, store, path, readOptions) },",
+    "    async writeFile(path, content, writeOptions = {}) {",
+    "      const normalized = normalizePath(path, false)",
+    "      store.files.set(normalized, { content, mediaType: writeOptions.mediaType })",
+    "      for (const dir of parentDirs(normalized)) store.dirs.add(dir)",
+    "    },",
+    "    async appendFile(path, content) {",
+    "      const existing = await this.exists(path) ? await this.readFile(path) : ''",
+    "      await this.writeFile(path, `${existing}${content}`)",
+    "    },",
+    "    async stat(path) { return await statWorkspacePath(name, store, path) },",
+    "    async exists(path) {",
+    "      try { await statWorkspacePath(name, store, path); return true } catch { return false }",
+    "    },",
+    "    async list(path = '', listOptions = {}) { return await listWorkspaceEntries(name, store, path, listOptions) },",
+    "    async glob(pattern, globOptions = {}) {",
+    "      return (await listWorkspaceEntries(name, store, '', { recursive: true })).filter(entry => entry.type === 'file' && matchesGlob(entry.path, pattern))",
+    "    },",
+    "    async search(query = {}) {",
+    "      const entries = await listWorkspaceEntries(name, store, query.cwd || '', { recursive: true })",
+    "      const term = String(query.text || query.query || '')",
+    "      if (!term) return []",
+    "      const hits = []",
+    "      for (const entry of entries.filter(entry => entry.type === 'file')) {",
+    "        const content = await readWorkspaceFile(name, store, entry.path)",
+    "        const text = typeof content === 'string' ? content : new TextDecoder().decode(content)",
+    "        const index = text.indexOf(term)",
+    "        if (index >= 0) hits.push({ path: entry.path, line: 1, column: index + 1, text })",
+    "      }",
+    "      return hits.slice(0, query.limit || 100)",
+    "    },",
+    "    async mkdir(path) { store.dirs.add(normalizePath(path, false)) },",
+    "    async rm(path, rmOptions = {}) {",
+    "      const normalized = normalizePath(path)",
+    "      store.files.delete(normalized)",
+    "      store.dirs.delete(normalized)",
+    "      if (rmOptions.recursive) {",
+    "        for (const filePath of [...store.files.keys()]) if (filePath.startsWith(`${normalized}/`)) store.files.delete(filePath)",
+    "        for (const dir of [...store.dirs]) if (dir.startsWith(`${normalized}/`)) store.dirs.delete(dir)",
+    "      }",
+    "    },",
+    "    async movePath(from, to) {",
+    "      const content = await this.readFile(from)",
+    "      await this.writeFile(to, content)",
+    "      await this.rm(from)",
+    "    },",
+    "    async copyPath(from, to) { await this.writeFile(to, await this.readFile(from)) },",
+    "    async materializeSources(materializeOptions = {}) { return { bytes: 0, directories: 0, durationMs: 0, files: 0, path: materializeOptions.path || '', sources: [] } },",
+    "  }",
+    "  const facade = { fs, tools: createTools }",
+    "  if (options.mode === 'write') {",
+    "    facade.diff = async () => ({ files: [] })",
+    "    facade.snapshot = async snapshotOptions => ({ id: `hosted-${Date.now()}`, name: snapshotOptions?.name || 'snapshot' })",
+    "    facade.startSession = async () => { throw new Error('[vitehub] Workspace sessions are not available in the hosted Vite e2e runtime.') }",
+    "    facade.sync = async () => ({ counts: { added: 0, removed: 0, unchanged: 0, updated: 0 }, durationMs: 0, sources: [], status: 'ready' })",
+    "  }",
+    "  return facade",
+    "}",
     `function createHostedSourceStub(kind, input) {`,
     `  return {`,
     `    fingerprint: { input, kind },`,
@@ -318,6 +571,36 @@ function renderWorkspaceRuntimeModule(file: string) {
     `    async getItem() { throw new Error("[vitehub] workspace source." + kind + "() is not available in the hosted Vite e2e runtime.") },`,
     `  }`,
     `}`,
+    "",
+  ].join("\n")
+}
+
+async function rewriteWorkspaceAssetsRegistryForHostedRuntime(registryFile: string, assetsRuntimeFile: string) {
+  let contents: string
+  try {
+    contents = await readFile(registryFile, "utf8")
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+    throw error
+  }
+
+  const hostedImport = `import { createWorkspaceAssets } from ${JSON.stringify(createImportPath(registryFile, assetsRuntimeFile))}`
+  const updated = contents.replace(/^import \{ createWorkspaceAssets \} from .+$/m, hostedImport)
+  if (updated !== contents) await writeFile(registryFile, updated, "utf8")
+}
+
+function renderWorkspaceStateRuntimeModule() {
+  return [
+    "let workspaceRuntimeConfig = false",
+    "let workspaceHostedStoreLoader",
+    "export function getWorkspaceRuntimeConfig() { return workspaceRuntimeConfig }",
+    "export function setWorkspaceRuntimeConfig(config) { workspaceRuntimeConfig = config }",
+    "export function getWorkspaceHostedStoreLoader() { return workspaceHostedStoreLoader }",
+    "export function setWorkspaceHostedStoreLoader(loader) { workspaceHostedStoreLoader = loader }",
+    "export function setWorkspaceRuntimeRegistry() {}",
+    "export function setWorkspaceRuntimeAssetsRegistry() {}",
+    "export function resetWorkspaceStoreCache() {}",
     "",
   ].join("\n")
 }
@@ -377,6 +660,8 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
   await mkdir(generatedDir, { recursive: true })
 
   const alias: Record<string, string> = {}
+  let workspaceAssetsRegistryFile: string | undefined
+  let workspaceAssetsRuntimeFile: string | undefined
   const queueDefinitions = options.queue
     ? discoverQueueDefinitions({ mode: "server-queues", scanDirs: [resolve(options.rootDir, "server")] })
     : []
@@ -458,8 +743,13 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
 
   if (typeof options.workspace !== "undefined") {
     const workspaceRuntimeFile = resolve(generatedDir, "workspace-runtime.mjs")
+    const workspaceStateRuntimeFile = resolve(generatedDir, "workspace-state-runtime.mjs")
     const workspaceShellRuntimeFile = resolve(generatedDir, "workspace-shell-runtime.mjs")
-    alias["@vite-hub/workspace/internal/runtime/state"] = resolve(workspacePackageDir, "src/runtime/state.ts")
+    workspaceAssetsRuntimeFile = resolve(generatedDir, "workspace-assets-runtime.mjs")
+    workspaceAssetsRegistryFile = resolve(options.rootDir, ".vitehub/vite-runtime/workspace/assets/registry.mjs")
+    alias["#vitehub-workspace-assets-registry"] = workspaceAssetsRegistryFile
+    alias["@vite-hub/workspace/internal/runtime/assets"] = workspaceAssetsRuntimeFile
+    alias["@vite-hub/workspace/internal/runtime/state"] = workspaceStateRuntimeFile
     alias["@vite-hub/workspace/loader"] = resolve(workspacePackageDir, "src/loader.ts")
     alias["@vite-hub/workspace/publish"] = resolve(workspacePackageDir, "src/publish.ts")
     alias["@vite-hub/workspace/test"] = resolve(workspacePackageDir, "src/test.ts")
@@ -472,12 +762,17 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
       alias[dependency] = resolvePackageDependency(workspacePackageDir, dependency)
     }
     runtimeWrites.push(
-      writeFile(workspaceRuntimeFile, renderWorkspaceRuntimeModule(workspaceRuntimeFile), "utf8"),
+      writeFile(workspaceAssetsRuntimeFile, renderWorkspaceAssetsRuntimeModule(), "utf8"),
+      writeFile(workspaceRuntimeFile, renderWorkspaceRuntimeModule(workspaceRuntimeFile, workspaceAssetsRegistryFile), "utf8"),
+      writeFile(workspaceStateRuntimeFile, renderWorkspaceStateRuntimeModule(), "utf8"),
       writeFile(workspaceShellRuntimeFile, renderWorkspaceShellRuntimeModule(), "utf8"),
     )
   }
 
   await Promise.all(runtimeWrites)
+  if (workspaceAssetsRegistryFile && workspaceAssetsRuntimeFile) {
+    await rewriteWorkspaceAssetsRegistryForHostedRuntime(workspaceAssetsRegistryFile, workspaceAssetsRuntimeFile)
+  }
   const scheduleCrons = await readDefinitionCrons(scheduleDefinitions)
 
   let sandboxConfig: false | AgentSandboxConfig | undefined
@@ -549,6 +844,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
   const resolveApp = resolve(packagesDir, "internal/src/runtime/app.ts")
   const cloudflareEnv = resolve(packagesDir, "internal/src/runtime/cloudflare-env.ts")
   const workspaceProvider = options.workspace && options.workspace.store.provider
+  const workspaceRuntimeState = artifacts.alias["@vite-hub/workspace/internal/runtime/state"] || resolve(workspacePackageDir, "src/runtime/state.ts")
 
   const imports = [
     `import { H3, toWebHandler } from "h3"`,
@@ -564,7 +860,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
     `import { runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/state.ts")))}`,
     `import { setBlobRuntimeConfig } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/runtime/state.ts")))}`,
     `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(sandboxPackageDir, "src/runtime/state.ts")))}`,
-    `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/runtime/state.ts")))}`,
+    `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, workspaceRuntimeState))}`,
   ]
 
   if (workspaceProvider === "cloudflare-artifacts") {
@@ -585,9 +881,6 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
   }
   if (artifacts.alias["#vitehub-sandbox-registry"]) {
     imports.push(`import sandboxRegistry from ${JSON.stringify(createImportPath(file, artifacts.alias["#vitehub-sandbox-registry"]))}`)
-  }
-  if (artifacts.workspaceRegistryFile) {
-    imports.push(`import workspaceRegistry from ${JSON.stringify(createImportPath(file, artifacts.workspaceRegistryFile))}`)
   }
   if (artifacts.workflowBindings.length) {
     imports.push(`import { WorkflowEntrypoint } from "cloudflare:workers"`)
@@ -639,7 +932,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
             "})",
           ]
       : ["setWorkspaceHostedStoreLoader(undefined)"]),
-    `setWorkspaceRuntimeRegistry(${artifacts.workspaceRegistryFile ? "workspaceRegistry" : "{ }"})`,
+    "setWorkspaceRuntimeRegistry({})",
     "const defaultHandler = toWebHandler(new H3())",
     "const appHandler = resolveAppFetch('vitehub', app)",
     "",
@@ -705,6 +998,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
   const resolveApp = resolve(packagesDir, "internal/src/runtime/app.ts")
   const workspaceProvider = options.workspace && options.workspace.store.provider
   const preloadVercelQueue = options.queue && options.queue.provider === "vercel"
+  const workspaceRuntimeState = artifacts.alias["@vite-hub/workspace/internal/runtime/state"] || resolve(workspacePackageDir, "src/runtime/state.ts")
 
   const imports = [
     `import { waitUntil as vercelWaitUntil } from ${JSON.stringify(createImportPath(file, resolvePackageDependency(queuePackageDir, "@vercel/functions")))}`,
@@ -715,7 +1009,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, runWithWorkflowRuntimeEvent } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/state.ts")))}`,
     `import { setBlobRuntimeConfig } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/runtime/state.ts")))}`,
     `import { setSandboxRuntimeConfig, setSandboxRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(sandboxPackageDir, "src/runtime/state.ts")))}`,
-    `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(workspacePackageDir, "src/runtime/state.ts")))}`,
+    `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, workspaceRuntimeState))}`,
     `import app from ${JSON.stringify(createImportPath(file, appEntry))}`,
   ]
   if (preloadVercelQueue) {
@@ -738,10 +1032,6 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
   if (artifacts.alias["#vitehub-sandbox-registry"]) {
     imports.push(`import sandboxRegistry from ${JSON.stringify(createImportPath(file, artifacts.alias["#vitehub-sandbox-registry"]))}`)
   }
-  if (artifacts.workspaceRegistryFile) {
-    imports.push(`import workspaceRegistry from ${JSON.stringify(createImportPath(file, artifacts.workspaceRegistryFile))}`)
-  }
-
   return [
     ...imports,
     "",
@@ -774,7 +1064,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
             "})",
           ]
       : ["setWorkspaceHostedStoreLoader(undefined)"]),
-    `setWorkspaceRuntimeRegistry(${artifacts.workspaceRegistryFile ? "workspaceRegistry" : "{ }"})`,
+    "setWorkspaceRuntimeRegistry({})",
     "const appInstance = new H3()",
     "const fetchHandler = resolveAppFetch('vitehub', app)",
     "if (fetchHandler) {",

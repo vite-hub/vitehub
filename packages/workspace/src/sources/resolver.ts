@@ -25,7 +25,7 @@ export type ResolvedWorkspacePath = ResolvedStorePath | ResolvedSourcePath
 
 export function resolveWorkspacePath(definition: WorkspaceDefinition, path: string): ResolvedWorkspacePath {
   const workspacePath = normalizeSafeWorkspacePath(path, { allowEmpty: true })
-  const sources = normalizeWorkspaceSources(definition.sources)
+  const sources = normalizeWorkspaceSources(definition.sources).filter(source => source.materialize !== "none")
 
   for (const source of sources) {
     const liveSourcePath = source.livePaths?.[workspacePath]

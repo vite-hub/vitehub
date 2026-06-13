@@ -1,5 +1,5 @@
 import { statSync } from "node:fs"
-import { dirname, resolve } from "node:path"
+import { basename, dirname, resolve } from "node:path"
 
 type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
 type WatchIgnoredMatcher = string | RegExp | ((testString: string, ...args: unknown[]) => boolean)
@@ -47,6 +47,11 @@ export function resolveViteHubProjectRoot(root: string, options: { projectRoot?:
   const resolvedRoot = resolve(root)
   if (options.projectRoot) return resolve(resolvedRoot, options.projectRoot)
 
+  if (basename(resolvedRoot) === "app") {
+    const parent = dirname(resolvedRoot)
+    if (hasProjectRootDirectoryMarker(parent)) return parent
+  }
+
   let current = resolvedRoot
   while (true) {
     if (hasProjectRootMarker(current)) return current
@@ -57,7 +62,7 @@ export function resolveViteHubProjectRoot(root: string, options: { projectRoot?:
   }
 }
 
-function hasProjectRootMarker(root: string): boolean {
+function hasProjectRootDirectoryMarker(root: string): boolean {
   for (const marker of projectRootDirectoryMarkers) {
     try {
       if (statSync(resolve(root, ...marker)).isDirectory()) return true
@@ -66,6 +71,11 @@ function hasProjectRootMarker(root: string): boolean {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
   }
+  return false
+}
+
+function hasProjectRootMarker(root: string): boolean {
+  if (hasProjectRootDirectoryMarker(root)) return true
   for (const marker of projectRootFileMarkers) {
     try {
       if (statSync(resolve(root, ...marker)).isFile()) return true

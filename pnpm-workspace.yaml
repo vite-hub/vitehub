@@ -16,6 +16,8 @@ catalogs:
     evalite: 1.0.0-beta.16
   ai-compat:
     ai: ^6.0.0 || ^7.0.0-0
+  auth:
+    better-auth: ^1.6.18
   chat:
     chat: ^4.29.0
     chat-state-cloudflare-do: ^0.2.0

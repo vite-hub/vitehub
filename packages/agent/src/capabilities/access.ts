@@ -1,5 +1,6 @@
 import { workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
+import { normalizeAgentWorkspaceSource } from "../workspace-source-metadata.ts"
 import { createWorkspaceSourceResolutionFacade, createWorkspaceTools } from "@vite-hub/workspace"
 
 import type {
@@ -18,10 +19,11 @@ import type {
   WorkspaceDefinition,
   WorkspaceEntry,
   WorkspaceFacadeToolOptions,
+  WorkspaceMaterializeSourcesResult,
   WorkspaceName,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
-  WorkspaceSource,
+  WorkspaceSourceInput,
 } from "@vite-hub/workspace"
 import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
 
@@ -155,11 +157,11 @@ export interface AccessCapabilityOptions<
   workspace?: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext>
 }
 
-export type AccessWorkspaceSourceName<TWorkspace extends { sources?: Record<string, WorkspaceSource> }> =
+export type AccessWorkspaceSourceName<TWorkspace extends { sources?: Record<string, WorkspaceSourceInput> }> =
   Extract<keyof NonNullable<TWorkspace["sources"]>, string>
 
 export type AccessWorkspaceOptionsFor<
-  TWorkspace extends { sources?: Record<string, WorkspaceSource> },
+  TWorkspace extends { sources?: Record<string, WorkspaceSourceInput> },
   TInputContext extends object = Record<string, unknown>,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -420,10 +422,7 @@ function sourceMountPath(source: string, workspaceDefinition?: WorkspaceDefiniti
   if (!definition) {
     throw new Error(`[vitehub] Workspace Scope source grant references unknown source "${source}".`)
   }
-  const mount = definition?.mount
-  const mountPath = typeof mount === "string"
-    ? mount
-    : mount && typeof mount === "object" && typeof mount.path === "string" ? mount.path : source
+  const mountPath = normalizeAgentWorkspaceSource(source, definition).mountPath
   if (normalizeScopePath(mountPath) === "") {
     throw new Error(`[vitehub] Workspace Scope source grant "${source}" is root-mounted; grant explicit paths instead.`)
   }
@@ -466,6 +465,26 @@ function filterEntries(scope: ResolvedWorkspaceScope, entries: WorkspaceEntry[])
 
 function filterHits(scope: ResolvedWorkspaceScope, hits: WorkspaceSearchHit[]): WorkspaceSearchHit[] {
   return scope.all ? hits : hits.filter(hit => isReadablePath(scope, hit.path))
+}
+
+function filterMaterializedSources(scope: ResolvedWorkspaceScope, result: WorkspaceMaterializeSourcesResult): WorkspaceMaterializeSourcesResult {
+  return scope.all
+    ? result
+    : {
+        ...result,
+        sources: result.sources.filter(source => isVisiblePath(scope, normalizeScopePath(source.mountPath))),
+      }
+}
+
+function emptyMaterializedSources(path = ""): WorkspaceMaterializeSourcesResult {
+  return {
+    bytes: 0,
+    directories: 0,
+    durationMs: 0,
+    files: 0,
+    path,
+    sources: [],
+  }
 }
 
 function scopedSearchQuery(scope: ResolvedWorkspaceScope, query: WorkspaceSearchQuery): WorkspaceSearchQuery | undefined {
@@ -520,6 +539,13 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
       const scopedQuery = scopedSearchQuery(scope, query)
       if (!scopedQuery) return []
       return filterHits(scope, await workspace.fs.search(scopedQuery))
+    },
+    async materializeSources(options = {}) {
+      const normalized = normalizeScopePath(options.path || "")
+      if (options.path && !isVisiblePath(scope, normalized)) throw notFound(normalized)
+      const result = await workspace.fs.materializeSources?.(options)
+        ?? emptyMaterializedSources(options.path)
+      return filterMaterializedSources(scope, result)
     },
   }
 

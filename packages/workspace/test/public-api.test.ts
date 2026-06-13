@@ -54,8 +54,9 @@ describe("workspace public API", () => {
 
     expect(builtAi).not.toContain("from\"@vite-hub/shell")
     expect(builtAi).not.toContain("from \"@vite-hub/shell")
-    expect(builtAi).not.toContain("import(\"@vite-hub/shell")
-    expect(builtAi).not.toContain("import('@vite-hub/shell")
+    expect(builtAi).not.toContain("import(\"@vite-hub/shell\")")
+    expect(builtAi).not.toContain("import('@vite-hub/shell')")
+    expect(builtAi).toContain("import(\"@vite-hub/shell/workspace\")")
     expect(builtAi).toContain("@vite-hub/shell/workspace")
     expect(builtRuntime).not.toContain("import(\"@vite-hub/shell")
     expect(builtRuntime).not.toContain("import('@vite-hub/shell")

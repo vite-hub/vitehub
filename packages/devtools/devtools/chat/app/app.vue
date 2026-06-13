@@ -6,6 +6,7 @@ import type { UIMessage, UIMessagePart } from "ai"
 import {
   chatDevtoolsClearRpc,
   chatDevtoolsGetStateRpc,
+  chatDevtoolsMaterializeSourceRpc,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
   type ChatDevtoolsFileTreeItem,
@@ -21,6 +22,7 @@ import { flattenFiles, sourceRootStates, syncExpandedFilePaths, type FileRow, ty
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
 type ChatMessage = UIMessage & { chat?: string }
+type IntegrationSectionId = "files" | "tools" | "instructions"
 
 const input = ref("")
 const promptInput = ref<HTMLTextAreaElement>()
@@ -55,19 +57,15 @@ const pendingUserMessage = ref<ChatMessage | undefined>()
 const expandedFilePaths = ref(new Set<string>())
 const previousSourceRootStates = ref(new Map<string, SourceRootState>())
 const selectedFilePath = ref<string | undefined>()
-const sidebarWidth = ref(340)
+const activeIntegrationSection = ref<IntegrationSectionId>("files")
+const sidebarWidth = ref(300)
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
 let metadataRefreshTimeout: ReturnType<typeof setTimeout> | undefined
+let metadataRefreshEpoch = 0
 let stopSidebarResize: (() => void) | undefined
 
 const disconnectedStatusMessage = "Connect through Vite DevTools to inspect a real chat runtime."
-const integrationTabs = [
-  { icon: "i-lucide-files", label: "Files", slot: "files" as const },
-  { icon: "i-lucide-wrench", label: "Tools", slot: "tools" as const },
-  { icon: "i-lucide-scroll-text", label: "Instructions", slot: "instructions" as const },
-]
-
 type FileMaterialization = {
   materialize?: string
   materialized?: boolean
@@ -117,6 +115,11 @@ const visibleTools = computed<ChatDevtoolsToolDefinition[]>(() => {
     status: tool.status === "error" ? "disabled" : "available",
   }))
 })
+const integrationSections = computed<Array<{ count: number, icon: string, id: IntegrationSectionId, label: string }>>(() => [
+  { count: fileRows.value.length, icon: "i-lucide-files", id: "files", label: "Files" },
+  { count: visibleTools.value.length, icon: "i-lucide-wrench", id: "tools", label: "Tools" },
+  { count: state.value.instructions?.length || 0, icon: "i-lucide-scroll-text", id: "instructions", label: "Instructions" },
+])
 const metadataStatus = computed(() => state.value.metadataStatus || "ready")
 const isMetadataLoading = computed(() => metadataStatus.value === "loading")
 const metadataError = computed(() => state.value.metadataError)
@@ -332,6 +335,10 @@ function fileLabel(file: ChatDevtoolsFileTreeItem) {
 }
 
 function toggleFile(file: ChatDevtoolsFileTreeItem) {
+  if (isLazyFile(file)) {
+    void materializeFile(file)
+    return
+  }
   if (file.kind === "file") {
     selectedFilePath.value = file.path
     return
@@ -346,8 +353,9 @@ function toggleFile(file: ChatDevtoolsFileTreeItem) {
   expandedFilePaths.value = expanded
 }
 
-function fileMaterialization(file: ChatDevtoolsFileTreeItem): "lazy" | "materialized" | undefined {
+function fileMaterialization(file: ChatDevtoolsFileTreeItem): "lazy" | "materialized" | "updating" | undefined {
   const meta = file as ChatDevtoolsFileTreeItem & FileMaterialization
+  if (meta.status === "updating") return "updating"
   if (meta.status === "ready" || meta.materialized || meta.materializedAt) return "materialized"
   if (meta.status === "lazy" || (meta.materialized === false && meta.materialize === "lazy")) return "lazy"
   return undefined
@@ -355,6 +363,67 @@ function fileMaterialization(file: ChatDevtoolsFileTreeItem): "lazy" | "material
 
 function isLazyFile(file: ChatDevtoolsFileTreeItem) {
   return fileMaterialization(file) === "lazy" && Boolean((file as ChatDevtoolsFileTreeItem & FileMaterialization).source)
+}
+
+function fileMaterializationBadge(file: ChatDevtoolsFileTreeItem) {
+  const materialization = fileMaterialization(file)
+  if (materialization === "updating") return "Updating"
+  if (materialization === "lazy") return "Lazy"
+}
+
+function fileMaterializationColor(file: ChatDevtoolsFileTreeItem) {
+  return fileMaterialization(file) === "updating" ? "primary" : "warning"
+}
+
+function mapFileTree(
+  files: ChatDevtoolsFileTreeItem[],
+  path: string,
+  update: (file: ChatDevtoolsFileTreeItem) => ChatDevtoolsFileTreeItem,
+): ChatDevtoolsFileTreeItem[] {
+  return files.map((file) => {
+    const children = file.children ? mapFileTree(file.children, path, update) : undefined
+    const next = children ? { ...file, children } : file
+    return file.path === path ? update(next) : next
+  })
+}
+
+function setFileStatus(path: string, status: FileMaterialization["status"]) {
+  state.value = {
+    ...state.value,
+    files: mapFileTree(state.value.files || [], path, file => ({ ...file, status })),
+  }
+}
+
+async function materializeFile(file: ChatDevtoolsFileTreeItem) {
+  const source = (file as ChatDevtoolsFileTreeItem & FileMaterialization).source
+  if (!source) {
+    toggleFile(file)
+    return
+  }
+
+  metadataRefreshEpoch += 1
+  stopMetadataRefresh()
+  setFileStatus(file.path, "updating")
+  try {
+    const bridgeState = await callBridgeState({
+      action: chatDevtoolsMaterializeSourceRpc,
+      chat: state.value.selected,
+      path: file.path,
+      source,
+      ...selectedInvokerRequest(),
+    })
+    if (bridgeState) {
+      applyState(bridgeState)
+      expandedFilePaths.value = new Set([...expandedFilePaths.value, file.path])
+      error.value = undefined
+      return
+    }
+    await refreshFromBridge(state.value.selected)
+  }
+  catch (cause) {
+    setFileStatus(file.path, "error")
+    error.value = cause instanceof Error ? cause.message : "Workspace source materialization failed."
+  }
 }
 
 function hasToolOutput(tool: ChatDevtoolsTool) {
@@ -367,7 +436,7 @@ function startSidebarResize(event: PointerEvent) {
   if (event.pointerType === "mouse" && event.button !== 0) return
   event.preventDefault()
   const onMove = (moveEvent: PointerEvent) => {
-    sidebarWidth.value = Math.min(560, Math.max(280, window.innerWidth - moveEvent.clientX))
+    sidebarWidth.value = Math.min(480, Math.max(260, window.innerWidth - moveEvent.clientX))
   }
   const onUp = () => {
     document.body.style.cursor = ""
@@ -576,10 +645,15 @@ async function callBridgeState(body: Record<string, unknown>, signal?: AbortSign
   }
 }
 
-async function refresh() {
+function canApplyMetadataRefresh(epoch: number | undefined) {
+  return epoch === undefined || epoch === metadataRefreshEpoch
+}
+
+async function refresh(options: { metadataRefreshEpoch?: number } = {}) {
   if (!shouldPreferRpcBridge()) {
     const bridgeState = await callBridgeState({ action: "get-state", ...selectedInvokerRequest() })
     if (bridgeState) {
+      if (!canApplyMetadataRefresh(options.metadataRefreshEpoch)) return
       applyState(bridgeState)
       error.value = undefined
       return
@@ -587,10 +661,12 @@ async function refresh() {
   }
 
   try {
-    applyState(await callRpc<ChatDevtoolsStateResult>(
+    const next = await callRpc<ChatDevtoolsStateResult>(
       chatDevtoolsGetStateRpc,
       selectedInvokerRequest(),
-    ))
+    )
+    if (!canApplyMetadataRefresh(options.metadataRefreshEpoch)) return
+    applyState(next)
     error.value = undefined
   }
   catch (cause) {
@@ -600,8 +676,9 @@ async function refresh() {
 }
 
 async function refreshFromBridge(chat?: string) {
+  const refreshEpoch = metadataRefreshEpoch
   if (shouldPreferRpcBridge()) {
-    await refresh()
+    await refresh({ metadataRefreshEpoch: refreshEpoch })
     return
   }
 
@@ -611,11 +688,12 @@ async function refreshFromBridge(chat?: string) {
     ...selectedInvokerRequest(),
   })
   if (bridgeState) {
+    if (!canApplyMetadataRefresh(refreshEpoch)) return
     applyState(bridgeState)
     error.value = undefined
     return
   }
-  await refresh()
+  await refresh({ metadataRefreshEpoch: refreshEpoch })
 }
 
 async function pollFinalBridgeState(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, text: string }, signal: AbortSignal) {
@@ -981,6 +1059,16 @@ onMounted(() => {
 })
 watch(selectedInvokerProfileId, async (next, previous) => {
   if (!next || next === previous || isInvokerLocked.value) return
+  metadataRefreshEpoch += 1
+  stopMetadataRefresh()
+  state.value = {
+    ...state.value,
+    files: [],
+    instructions: [],
+    metadataError: undefined,
+    metadataStatus: "loading",
+    tools: [],
+  }
   await refreshFromBridge(state.value.selected)
 })
 onBeforeUnmount(() => {
@@ -993,9 +1081,9 @@ onBeforeUnmount(() => {
   <UApp>
     <main class="fixed inset-0 isolate flex min-h-0 flex-col overflow-hidden bg-default text-default antialiased">
       <UIcon name="i-lucide-terminal" class="hidden" />
-      <header class="flex h-[45px] shrink-0 items-center justify-between gap-3 border-b border-default px-4">
+      <header class="flex min-h-10 shrink-0 flex-col justify-center gap-2 border-b border-default px-3 py-2 sm:h-10 sm:flex-row sm:items-center sm:justify-between sm:py-0">
         <h1
-          class="flex min-w-0 flex-1 items-center text-base font-semibold"
+          class="flex min-w-0 items-center text-sm font-semibold sm:flex-1"
           :aria-label="chatTitleTarget"
           :title="chatTitleTarget"
         >
@@ -1006,13 +1094,13 @@ onBeforeUnmount(() => {
             v-if="agentVersion"
             color="neutral"
             variant="subtle"
-            size="sm"
+            size="xs"
             class="ml-2 shrink-0"
           >
             v{{ agentVersion }}
           </UBadge>
         </h1>
-        <div class="flex shrink-0 items-center gap-2">
+        <div class="flex w-full min-w-0 items-center gap-1.5 sm:w-auto sm:shrink-0">
           <UTooltip
             v-if="showInvokerSelector"
             :text="invokerSelectorTooltip"
@@ -1024,8 +1112,8 @@ onBeforeUnmount(() => {
               value-key="value"
               label-key="label"
               :disabled="isInvokerLocked"
-              size="sm"
-              class="w-44"
+              size="xs"
+              class="min-w-0 flex-1 sm:w-48 sm:flex-none"
               :ui="{ base: 'min-w-0' }"
             />
           </UTooltip>
@@ -1034,14 +1122,14 @@ onBeforeUnmount(() => {
             label="Clear"
             color="neutral"
             variant="outline"
-            size="sm"
+            size="xs"
             class="shrink-0"
             @click="clear"
           />
         </div>
       </header>
 
-      <div class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(220px,40vh)] overflow-hidden lg:grid-cols-[minmax(0,1fr)_1px_minmax(280px,var(--chat-devtools-sidebar-width))] lg:grid-rows-1" :style="splitterStyle">
+      <div class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(150px,32svh)] overflow-hidden md:grid-cols-[minmax(0,1fr)_1px_minmax(260px,var(--chat-devtools-sidebar-width))] md:grid-rows-1" :style="splitterStyle">
         <section class="flex min-h-0 flex-col overflow-hidden">
           <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-2">
             <UChatMessages
@@ -1130,16 +1218,22 @@ onBeforeUnmount(() => {
                 </div>
               </template>
             </UChatMessages>
-            <div v-else class="flex h-full items-center justify-center px-4">
+            <div v-else class="flex h-full items-center justify-center px-4 py-6">
               <UEmpty
                 icon="i-lucide-message-square"
+                size="xs"
                 title="No messages yet."
-                :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent' }"
+                :ui="{
+                  root: 'border-0 ring-0 shadow-none bg-transparent gap-2 p-0',
+                  header: 'gap-1',
+                  avatar: 'mb-0 size-9 text-base',
+                  title: 'text-sm font-medium',
+                }"
               />
             </div>
           </div>
 
-          <footer class="shrink-0 border-t border-default bg-default px-2 py-2">
+          <footer class="shrink-0 border-t border-default bg-default px-2 py-1.5">
             <UAlert
               v-if="!connected"
               color="neutral"
@@ -1169,7 +1263,7 @@ onBeforeUnmount(() => {
               }"
             />
             <form
-              class="flex min-h-9 items-center gap-1 rounded-md border border-default bg-default px-2 py-1 shadow-xs"
+              class="flex min-h-8 items-center gap-1 rounded-md bg-default px-2 py-1 shadow-xs ring-1 ring-default"
               @submit.prevent="submitComposer"
             >
               <textarea
@@ -1178,7 +1272,7 @@ onBeforeUnmount(() => {
                 placeholder="Type a message..."
                 rows="1"
                 :disabled="status !== 'ready'"
-                class="h-6 max-h-24 min-h-6 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-0 py-0 text-sm/6 outline-none placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-60"
+                class="h-6 max-h-24 min-h-6 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-0 py-0 text-base/6 outline-none placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm/6"
                 @keydown.enter.exact.prevent="send"
               />
               <UButton
@@ -1197,20 +1291,21 @@ onBeforeUnmount(() => {
 
         <button
           type="button"
-          class="group hidden min-h-0 cursor-col-resize bg-border outline-none transition-colors hover:bg-primary focus-visible:bg-primary lg:block"
+          class="group hidden min-h-0 cursor-col-resize bg-transparent outline-none md:block"
           aria-label="Resize integration panel"
           @pointerdown="startSidebarResize"
         >
-          <span class="block h-full w-px bg-transparent group-hover:bg-primary" />
+          <span class="mx-auto block h-full w-px bg-elevated opacity-60 group-hover:bg-primary group-hover:opacity-100 group-focus-visible:bg-primary group-focus-visible:opacity-100" />
         </button>
 
-        <aside class="min-h-0 border-t border-default p-2 lg:border-l lg:border-t-0">
+        <aside class="min-h-0 border-t border-default p-1.5 md:border-t-0 md:p-2">
           <UCard
-            variant="subtle"
+            variant="outline"
             class="flex h-full min-h-0 flex-col"
             :ui="{
-              root: 'rounded-lg',
-              body: 'flex min-h-0 flex-1 flex-col p-2 sm:p-2',
+              root: 'rounded-md',
+              header: 'p-2 sm:p-2',
+              body: 'flex min-h-0 flex-1 flex-col p-1.5 sm:p-1.5',
             }"
           >
             <template #header>
@@ -1219,21 +1314,53 @@ onBeforeUnmount(() => {
                   <UIcon name="i-lucide-plug" class="size-4 shrink-0 text-muted" />
                   <span class="truncate text-sm font-medium">Integration</span>
                 </div>
-                <UBadge color="neutral" variant="soft" size="sm">
+                <UBadge color="neutral" variant="soft" size="xs">
                   {{ state.selected || 'dev' }}
                 </UBadge>
               </div>
             </template>
 
-            <UTabs
-              :items="integrationTabs"
-              class="flex min-h-0 flex-1 flex-col"
-              :ui="{
-                list: 'shrink-0',
-                content: 'min-h-0 flex-1 overflow-y-auto pt-2',
-              }"
-            >
-              <template #files>
+            <div class="flex min-h-0 flex-1 flex-col gap-2">
+              <div
+                role="radiogroup"
+                aria-label="Integration section"
+                class="grid shrink-0 grid-cols-3 gap-1 border-b border-default pb-2 md:grid-cols-1"
+              >
+                <UButton
+                  v-for="section in integrationSections"
+                  :key="section.id"
+                  type="button"
+                  role="radio"
+                  :aria-checked="activeIntegrationSection === section.id"
+                  :icon="section.icon"
+                  :label="section.label"
+                  color="neutral"
+                  :variant="activeIntegrationSection === section.id ? 'soft' : 'ghost'"
+                  size="xs"
+                  block
+                  class="min-h-8 justify-start border-l-2"
+                  :class="activeIntegrationSection === section.id ? 'border-warning text-highlighted' : 'border-transparent text-muted'"
+                  :ui="{
+                    leadingIcon: section.id === 'files' ? 'text-warning' : 'text-muted',
+                    label: 'min-w-0 truncate text-left text-sm',
+                  }"
+                  @click="activeIntegrationSection = section.id"
+                >
+                  <template #trailing>
+                    <UBadge
+                      color="neutral"
+                      :variant="activeIntegrationSection === section.id ? 'soft' : 'outline'"
+                      size="xs"
+                      class="ml-auto shrink-0 tabular-nums"
+                    >
+                      {{ section.count }}
+                    </UBadge>
+                  </template>
+                </UButton>
+              </div>
+
+              <div class="min-h-0 flex-1 overflow-y-auto">
+                <template v-if="activeIntegrationSection === 'files'">
                 <UAlert
                   v-if="fileRows.length && metadataError"
                   color="error"
@@ -1243,7 +1370,17 @@ onBeforeUnmount(() => {
                   class="mb-2"
                   :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
                 />
-                <div v-if="fileRows.length" class="space-y-1">
+                <div
+                  v-if="isMetadataLoading"
+                  class="flex flex-col items-center gap-2 px-2 py-6 text-center"
+                >
+                  <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
+                  <div>
+                    <p class="text-sm font-medium text-toned">Loading workspace files.</p>
+                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
+                  </div>
+                </div>
+                <div v-else-if="fileRows.length" class="space-y-1">
                   <UButton
                     v-for="file in fileRows"
                     :key="file.path"
@@ -1251,56 +1388,48 @@ onBeforeUnmount(() => {
                     :label="fileLabel(file)"
                     color="neutral"
                     :variant="selectedFilePath === file.path ? 'soft' : 'ghost'"
-                    size="sm"
+                    size="xs"
                     block
-                    class="justify-start"
-                    :style="{ paddingLeft: `${0.5 + file.depth * 1.1}rem` }"
+                    class="min-h-7 justify-start"
+                    :style="{ paddingLeft: `${0.45 + file.depth * 0.9}rem` }"
                     :ui="{
                       leadingIcon: file.kind === 'directory' ? 'text-warning' : 'text-muted',
-                      label: 'min-w-0 truncate text-left',
+                      label: 'min-w-0 truncate text-left text-sm sm:text-xs',
                     }"
                     @click="toggleFile(file)"
                   >
                     <template #trailing>
                       <UBadge
-                        v-if="isLazyFile(file)"
-                        color="warning"
+                        v-if="fileMaterializationBadge(file)"
+                        :color="fileMaterializationColor(file)"
                         variant="soft"
-                        size="sm"
+                        size="xs"
                         class="ml-auto shrink-0"
                       >
-                        Lazy
+                        {{ fileMaterializationBadge(file) }}
                       </UBadge>
                     </template>
                   </UButton>
-                </div>
-                <div
-                  v-else-if="isMetadataLoading"
-                  class="flex flex-col items-center gap-2 px-2 py-8 text-center"
-                >
-                  <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
-                  <div>
-                    <p class="text-sm font-medium text-toned">Loading workspace files.</p>
-                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
-                  </div>
                 </div>
                 <UEmpty
                   v-else-if="metadataError"
                   icon="i-lucide-triangle-alert"
                   title="Workspace metadata failed."
                   :description="metadataError"
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
                 <UEmpty
                   v-else
                   icon="i-lucide-folder-search"
                   title="No files exposed."
                   description="This chat has not registered workspace files for DevTools."
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
               </template>
 
-              <template #tools>
+                <template v-else-if="activeIntegrationSection === 'tools'">
                 <UAlert
                   v-if="visibleTools.length && metadataError"
                   color="error"
@@ -1310,7 +1439,17 @@ onBeforeUnmount(() => {
                   class="mb-2"
                   :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
                 />
-                <div v-if="visibleTools.length" class="space-y-2">
+                <div
+                  v-if="isMetadataLoading"
+                  class="flex flex-col items-center gap-2 px-2 py-6 text-center"
+                >
+                  <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
+                  <div>
+                    <p class="text-sm font-medium text-toned">Loading tools.</p>
+                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
+                  </div>
+                </div>
+                <div v-else-if="visibleTools.length" class="space-y-1.5">
                   <div
                     v-for="tool in visibleTools"
                     :key="tool.name"
@@ -1326,7 +1465,7 @@ onBeforeUnmount(() => {
                           <UBadge
                             :color="toolStatusColor(tool)"
                             variant="soft"
-                            size="sm"
+                            size="xs"
                             class="ml-auto shrink-0 capitalize"
                           >
                             {{ toolStatus(tool) }}
@@ -1336,14 +1475,14 @@ onBeforeUnmount(() => {
                           {{ tool.description }}
                         </p>
                         <div v-if="tool.category || toolPresetLabel(tool)" class="mt-2 flex flex-wrap gap-1">
-                          <UBadge v-if="tool.category" color="neutral" variant="outline" size="sm">
+                          <UBadge v-if="tool.category" color="neutral" variant="outline" size="xs">
                             {{ tool.category }}
                           </UBadge>
                           <UBadge
                             v-if="toolPresetLabel(tool)"
                             color="primary"
                             variant="soft"
-                            size="sm"
+                            size="xs"
                           >
                             {{ toolPresetLabel(tool) }}
                           </UBadge>
@@ -1354,7 +1493,7 @@ onBeforeUnmount(() => {
                             :key="command"
                             color="neutral"
                             variant="soft"
-                            size="sm"
+                            size="xs"
                           >
                             {{ command }}
                           </UBadge>
@@ -1363,33 +1502,25 @@ onBeforeUnmount(() => {
                     </div>
                   </div>
                 </div>
-                <div
-                  v-else-if="isMetadataLoading"
-                  class="flex flex-col items-center gap-2 px-2 py-8 text-center"
-                >
-                  <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
-                  <div>
-                    <p class="text-sm font-medium text-toned">Loading tools.</p>
-                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
-                  </div>
-                </div>
                 <UEmpty
                   v-else-if="metadataError"
                   icon="i-lucide-triangle-alert"
                   title="Workspace metadata failed."
                   :description="metadataError"
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
                 <UEmpty
                   v-else
                   icon="i-lucide-wrench"
                   title="No tools exposed."
                   description="This chat has not registered tools for DevTools."
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
               </template>
 
-              <template #instructions>
+                <template v-else>
                 <UAlert
                   v-if="state.instructions?.length && metadataError"
                   color="error"
@@ -1399,33 +1530,33 @@ onBeforeUnmount(() => {
                   class="mb-2"
                   :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
                 />
-                <div v-if="state.instructions?.length" class="min-w-0 space-y-4 px-1">
+                <div
+                  v-if="isMetadataLoading"
+                  class="flex flex-col items-center gap-2 px-2 py-6 text-center"
+                >
+                  <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
+                  <div>
+                    <p class="text-sm font-medium text-toned">Loading instructions.</p>
+                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
+                  </div>
+                </div>
+                <div v-else-if="state.instructions?.length" class="min-w-0 space-y-3 px-1">
                   <div
                     v-for="(instruction, index) in state.instructions"
                     :key="index"
                   >
-                    <div class="mb-2 flex items-center gap-2">
-                      <UIcon name="i-lucide-scroll-text" class="size-4 text-muted" />
+                    <div class="mb-1.5 flex items-center gap-2">
+                      <UIcon name="i-lucide-scroll-text" class="size-4 shrink-0 text-muted" />
                       <span class="min-w-0 truncate text-sm font-medium">{{ instructionLabel(instruction) }}</span>
-                      <UBadge color="neutral" variant="soft" size="sm" class="ml-auto">
+                      <UBadge color="neutral" variant="soft" size="xs" class="ml-auto shrink-0">
                         {{ index + 1 }}
                       </UBadge>
                     </div>
                     <Suspense>
-                      <Comark class="max-w-full break-words text-sm/6 text-toned [&_code]:break-words [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:mb-1 [&_h2]:mt-3 [&_h2]:text-sm [&_h2]:font-semibold [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:my-2 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_strong]:text-highlighted [&_ul]:list-disc [&_ul]:pl-4">
+                      <Comark class="max-w-full break-words text-xs/5 text-toned [&_code]:break-words [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_h1]:mb-1.5 [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:mb-1 [&_h2]:mt-2.5 [&_h2]:text-sm [&_h2]:font-semibold [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:my-1.5 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_strong]:text-highlighted [&_ul]:list-disc [&_ul]:pl-4">
                         {{ instructionContent(instruction) }}
                       </Comark>
                     </Suspense>
-                  </div>
-                </div>
-                <div
-                  v-else-if="isMetadataLoading"
-                  class="flex flex-col items-center gap-2 px-2 py-8 text-center"
-                >
-                  <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
-                  <div>
-                    <p class="text-sm font-medium text-toned">Loading instructions.</p>
-                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
                   </div>
                 </div>
                 <UEmpty
@@ -1433,17 +1564,20 @@ onBeforeUnmount(() => {
                   icon="i-lucide-triangle-alert"
                   title="Workspace metadata failed."
                   :description="metadataError"
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
                 <UEmpty
                   v-else
                   icon="i-lucide-scroll-text"
                   title="No instructions exposed."
                   description="This chat has not registered static system instructions for DevTools."
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
-              </template>
-            </UTabs>
+                </template>
+              </div>
+            </div>
           </UCard>
         </aside>
       </div>

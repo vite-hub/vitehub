@@ -220,6 +220,7 @@ export type {
 
 export {
   createAgentDevtoolsMetadata,
+  materializeAgentDevtoolsSourceMetadata,
   resolveAgentDevtoolsMetadata,
 } from "./workspace-agent.ts"
 

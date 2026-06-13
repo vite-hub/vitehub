@@ -1136,6 +1136,41 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("does not read text getters when streaming native UI message results", async () => {
+    const { createUIMessageStream, readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      run: () => ({
+        get text() {
+          throw new Error("text getter should not be read")
+        },
+        toUIMessageStream() {
+          return createUIMessageStream({
+            execute({ writer }) {
+              writer.write({ type: "start", messageId: "assistant-1" })
+              writer.write({ type: "text-start", id: "text-1" })
+              writer.write({ type: "text-delta", id: "text-1", delta: "answer" })
+              writer.write({ type: "text-end", id: "text-1" })
+              writer.write({ type: "finish", finishReason: "stop" })
+            },
+          })
+        },
+      }),
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain availability" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(messages.at(-1)?.parts).toEqual([
+      { providerMetadata: undefined, state: "done", text: "answer", type: "text" },
+    ])
+  })
+
   it("emits one chat title data part when async event streams become UI message streams", async () => {
     const { readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
