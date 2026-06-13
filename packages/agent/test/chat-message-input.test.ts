@@ -48,4 +48,35 @@ describe("chat message trigger input", () => {
       { id: "tool-1", name: "search", output: "42", state: "completed", type: "tool-result" },
     ])
   })
+
+  it("drops incomplete UI tool calls from follow-up history", () => {
+    const result = createChatMessageTriggerInput({}, {
+      messages: [
+        {
+          parts: [
+            { text: "I checked the workspace.", type: "text" },
+            {
+              input: { command: "rg safety" },
+              state: "input-available",
+              toolCallId: "tool-1",
+              toolName: "shell",
+              type: "dynamic-tool",
+            },
+          ],
+          role: "assistant",
+        },
+        {
+          parts: [{ text: "Follow up", type: "text" }],
+          role: "user",
+        },
+      ],
+    })
+
+    expect(result.input.messages?.[0]?.parts.map(part => ({ text: "text" in part ? part.text : undefined, type: part.type }))).toEqual([
+      { text: "I checked the workspace.", type: "text" },
+    ])
+    expect(result.input.messages?.[1]?.parts.map(part => ({ text: "text" in part ? part.text : undefined, type: part.type }))).toEqual([
+      { text: "Follow up", type: "text" },
+    ])
+  })
 })
