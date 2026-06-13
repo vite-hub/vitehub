@@ -604,6 +604,7 @@ describe("agent chat capability discovery", () => {
     const materializedState = await invokeState(handlers[0]!, {
       action: "materialize-source",
       chat: "support",
+      path: "ingestion",
       source: "ingestion",
     })
 
@@ -639,6 +640,7 @@ describe("agent chat capability discovery", () => {
     const nextState = await invokeState(handlers[0]!, {
       action: "materialize-source",
       chat: "support",
+      path: "portal",
       source: "portal",
     })
 
