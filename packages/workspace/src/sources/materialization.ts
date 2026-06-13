@@ -111,14 +111,14 @@ async function removeStaleMaterializedSourceFiles(
   const entries = await store.list(source.mountPath, { recursive: true })
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
   const staleDirectories = new Set<string>()
-  await Promise.all(entries.map(async (entry) => {
-    if (nextPaths.has(entry.path) || entry.type !== "file") return
+  for (const entry of entries) {
+    if (nextPaths.has(entry.path) || entry.type !== "file") continue
     const file = await store.readFile(entry.path)
     if (options.removeUntracked || file?.metadata?.source === source.key) {
       for (const directory of parentDirectoryPaths(entry.path)) staleDirectories.add(directory)
       await store.rm(entry.path, { force: true })
     }
-  }))
+  }
   for (const entry of entries.filter(entry => entry.type === "directory" && staleDirectories.has(entry.path) && !nextDirectories.has(entry.path)).sort((a, b) => b.path.length - a.path.length)) {
     try {
       await store.rm(entry.path, { force: true })

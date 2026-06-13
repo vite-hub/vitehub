@@ -215,6 +215,50 @@ describe("lazy sources", () => {
     ])
   })
 
+  it("checks stale root source files sequentially while refreshing", async () => {
+    let keys = ["a.bin", "b.bin", "c.bin"]
+    let activeReads = 0
+    let maxActiveReads = 0
+    const store = createMemoryWorkspaceStore()
+    const readFile = store.readFile.bind(store)
+    store.readFile = async (...args) => {
+      activeReads += 1
+      maxActiveReads = Math.max(maxActiveReads, activeReads)
+      try {
+        await new Promise(resolve => setTimeout(resolve, 1))
+        return await readFile(...args)
+      }
+      finally {
+        activeReads -= 1
+      }
+    }
+    const view = createWorkspaceSourceView({
+      name: "lazy-root-sequential-cleanup",
+      sources: {
+        root: source.custom({
+          materialize: "lazy",
+          mount: "",
+          async getKeys() {
+            return keys
+          },
+          async getItem(key) {
+            return { key, path: key, content: key }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["root"] })
+    keys = ["a.bin"]
+    maxActiveReads = 0
+
+    await view.materializeSources({ sources: ["root"] })
+
+    expect(maxActiveReads).toBe(1)
+    await expect(store.stat("b.bin")).resolves.toBeUndefined()
+    await expect(store.stat("c.bin")).resolves.toBeUndefined()
+  })
+
   it("uses a complete source snapshot after materialization", async () => {
     const root = await createRoot()
     await mkdir(join(root, "docs"), { recursive: true })
