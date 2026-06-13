@@ -1294,7 +1294,7 @@ describe("defineAgent workspace option", () => {
     expect(readInstructions).toHaveBeenCalledOnce()
   })
 
-  it("does not run invocation-scoped capability work while resolving DevTools metadata", async () => {
+  it("resolves prepare-scoped capability instructions while resolving DevTools metadata", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const phase = vi.fn()
     const toolResolver = vi.fn(() => ({}))
@@ -1340,14 +1340,15 @@ describe("defineAgent workspace option", () => {
       files: [expect.objectContaining({ path: "docs" })],
       instructions: [[
         "# Workspace instructions",
+        "Dynamic capability instructions.",
         "## Workspace Sources",
         "### docs\n\nUse docs for support evidence.",
       ].join("\n\n")],
       tools: [expect.objectContaining({ name: "tracked" })],
     })
-    expect(phase).not.toHaveBeenCalled()
+    expect(phase.mock.calls.map(call => call[0])).toEqual(["hook:prepare", "prepare", "instructions"])
     expect(toolResolver).not.toHaveBeenCalled()
-    expect(invokerResolve).not.toHaveBeenCalled()
+    expect(invokerResolve).toHaveBeenCalledOnce()
   })
 
   it("resolves recursive DevTools file metadata for lazy source entries", async () => {
@@ -1392,7 +1393,7 @@ describe("defineAgent workspace option", () => {
     })
   })
 
-  it("does not apply Access-scoped workspace visibility during passive DevTools metadata resolution", async () => {
+  it("applies Access-scoped workspace visibility during DevTools metadata resolution", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const { access } = await import("../src/capabilities.ts")
     const resolveScope = vi.fn(({ invoker }) => {
@@ -1443,13 +1444,13 @@ describe("defineAgent workspace option", () => {
     const paths = JSON.stringify(metadata.files)
 
     expect(paths).toContain("customers/acme/orders.sql")
-    expect(paths).toContain("customers/globex")
-    expect(paths).toContain("portal")
-    expect(resolveScope).not.toHaveBeenCalled()
-    expect(createWorkspaceSourceResolutionFacade).not.toHaveBeenCalled()
+    expect(paths).not.toContain("customers/globex")
+    expect(paths).not.toContain("portal")
+    expect(resolveScope).toHaveBeenCalledOnce()
+    expect(createWorkspaceSourceResolutionFacade).toHaveBeenCalledOnce()
   })
 
-  it("renders static Source Instructions without running Access source resolution for DevTools metadata", async () => {
+  it("renders static Source Instructions after Access source resolution for DevTools metadata", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const { access } = await import("../src/capabilities.ts")
     useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
@@ -1485,7 +1486,7 @@ describe("defineAgent workspace option", () => {
         "### ingestion\n\nUse this source for ingestion models.",
       ].join("\n\n")],
     })
-    expect(createWorkspaceSourceResolutionFacade).not.toHaveBeenCalled()
+    expect(createWorkspaceSourceResolutionFacade).toHaveBeenCalledOnce()
   })
 
   it("flattens virtual workspace AGENTS.md while keeping sibling instruction files", async () => {
