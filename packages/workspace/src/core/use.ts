@@ -8,7 +8,7 @@ import {
   type WorkspaceWriteToolMap,
 } from "../ai.ts"
 import { useWorkspaceAssets } from "../asset-registry.ts"
-import { WorkspaceNotFoundError } from "./errors.ts"
+import { WorkspaceError, WorkspaceNotFoundError } from "./errors.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern } from "./path.ts"
 import { useRegisteredWorkspace } from "./registry.ts"
@@ -34,6 +34,7 @@ import type {
   WorkspaceSession,
   WorkspaceStat,
   WorkspaceDiff,
+  WorkspaceMaterializeSourcesOptions,
   WorkspaceSnapshot,
   WriteFileOptions,
   SnapshotOptions,
@@ -105,6 +106,7 @@ export interface ReadonlyWorkspaceFacade<Name extends WorkspaceName = WorkspaceN
 export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   fs: WritableWorkspaceFs<Name>
+  materializeSources(options?: WorkspaceMaterializeSourcesOptions): Promise<WorkspaceMaterializeSourcesResult>
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
   startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
   tools: WorkspaceWriteToolSet
@@ -123,6 +125,13 @@ function normalizeListPath(path = "") {
 
 function normalizePattern(pattern: string | string[]) {
   return Array.isArray(pattern) ? pattern.map(normalizeSafeWorkspacePattern) : normalizeSafeWorkspacePattern(pattern)
+}
+
+async function materializeWorkspaceSources(workspace: Workspace, options?: WorkspaceMaterializeSourcesOptions) {
+  if (!workspace.materializeSources)
+    throw new WorkspaceError("[vitehub] Workspace source materialization is unavailable.")
+
+  return await workspace.materializeSources(options)
 }
 
 function createLazyWorkspace(name: WorkspaceName): Workspace {
@@ -186,14 +195,7 @@ function createLazyWorkspace(name: WorkspaceName): Workspace {
       await (await resolveSyncedWorkspace()).rm(normalizePath(path), options)
     },
     async materializeSources(options) {
-      return await (await resolveSyncedWorkspace()).materializeSources?.(options) ?? {
-        bytes: 0,
-        directories: 0,
-        durationMs: 0,
-        files: 0,
-        path: options?.path || "",
-        sources: [],
-      }
+      return await materializeWorkspaceSources(await resolveSyncedWorkspace(), options)
     },
     async snapshot(options) {
       return await (await resolveSyncedWorkspace()).snapshot(options)
@@ -429,6 +431,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     return {
       diff: async options => await workspace.diff(options),
       fs: createWritableFs<Name>(workspace),
+      materializeSources: async options => await materializeWorkspaceSources(workspace, options),
       snapshot: async options => await workspace.snapshot(options),
       startSession: async options => await workspace.startSession(options),
       tools,

@@ -86,6 +86,25 @@ describe("workspace public API", () => {
     expect(await workspace.fs.glob("**/*.md")).toHaveLength(3)
   })
 
+  it("exposes source materialization on the writable facade", async () => {
+    registerWorkspace("materialize-api", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        docs: source.file({
+          workspacePath: "README.md",
+          content: "# API\n",
+          materialize: "lazy",
+        }),
+      },
+    }))
+
+    const workspace = useWorkspace("materialize-api", { mode: "write" })
+    await expect(workspace.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ source: "docs", status: "ready" })],
+    })
+    expect(await workspace.fs.readFile("README.md")).toBe("# API\n")
+  })
+
   it("serves allowlisted workspace files as H3-compatible responses", async () => {
     registerWorkspace("files", defineWorkspace({
       store: { provider: "memory" },
