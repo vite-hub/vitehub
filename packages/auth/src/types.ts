@@ -1,7 +1,7 @@
 import type { Auth, BetterAuthOptions } from "better-auth"
 
 export type AuthRuntimeOption = "baseURL" | "secret" | "secrets"
-export type AuthReservedOption = AuthRuntimeOption | "basePath" | "database" | "secondaryStorage"
+export type AuthReservedOption = AuthRuntimeOption | "basePath" | "database" | "route" | "secondaryStorage"
 export type AuthBetterAuthOptions = Omit<BetterAuthOptions, AuthReservedOption>
 
 export interface AuthDatabaseReference {

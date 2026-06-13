@@ -12,6 +12,7 @@ import {
   defineAuth,
   type AuthDefinition,
   type AuthModuleOptions,
+  type AuthReservedOption,
   type ResolvedAuthDatabaseConfiguration,
 } from "../src/index.ts"
 import { auth } from "../src/server.ts"
@@ -79,6 +80,10 @@ describe("types", () => {
 
     expectTypeOf(defaultPlacement).toMatchTypeOf<ResolvedAuthDatabaseConfiguration>()
     expectTypeOf(namedPlacement).toMatchTypeOf<ResolvedAuthDatabaseConfiguration>()
+  })
+
+  it("marks every ViteHub-owned Auth Definition field as reserved", () => {
+    expectTypeOf<"basePath" | "database" | "route" | "secondaryStorage">().toMatchTypeOf<AuthReservedOption>()
   })
 
   it("rejects runtime-only and raw storage options in definitions", () => {

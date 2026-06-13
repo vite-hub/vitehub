@@ -34,9 +34,6 @@
   "exports": {
     ".": "./dist/index.js",
     "./agent": "./dist/agent.js",
-    "./config": "./dist/config.js",
-    "./discovery": "./dist/discovery.js",
-    "./runtime/empty-definition": "./dist/runtime/empty-definition.js",
     "./server": "./dist/server.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"

@@ -11,13 +11,16 @@ export default defineConfig({
     entry: [
       "src/agent.ts",
       "src/index.ts",
-      "src/config.ts",
-      "src/discovery.ts",
       "src/runtime/empty-definition.ts",
       "src/server.ts",
       "src/vite.ts",
     ],
     exports: {
+      customExports(exports) {
+        return Object.fromEntries(
+          Object.entries(exports).filter(([key]) => key !== "./runtime/empty-definition"),
+        )
+      },
       inlinedDependencies: false,
     },
     outExtensions: () => ({

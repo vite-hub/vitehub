@@ -190,4 +190,19 @@ Storage placement is metadata in the current package layer. Runtime adapters are
 
 An Auth Session identifies an Auth User. An Agent Invocation receives an Agent Invoker. Those are separate concepts.
 
-Future Agent integration can bridge Auth User and Auth Session into Agent Invoker, but Auth does not move into the Agent Package and Agent identity does not become login UI.
+Use the Authenticated Agent Helper when an Agent should derive its Agent Invoker from the current Auth Session.
+
+```ts [server/support.agent.ts]
+import { defineAgent } from '@vite-hub/agent'
+import { authenticated } from '@vite-hub/auth/agent'
+
+export default defineAgent({
+  invoker: authenticated(),
+})
+```
+
+`authenticated()` is opt-in at the Agent or Entry Surface boundary. Merely defining Auth does not make every Agent Invocation require Auth.
+
+For the default same-app path, `authenticated()` reads the Better Auth session from the request and maps the Auth User to an Agent Invoker with `kind: 'authUser'`. Use its `id`, `kind`, `label`, and `meta` options for common identity shaping, or provide `source` or `map` when the Agent consumes JWTs, bearer tokens, OAuth/OIDC provider output, or product-specific identity.
+
+Auth does not move into the Agent Package and Agent identity does not become login UI.

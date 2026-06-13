@@ -104,3 +104,19 @@ export const authClient = createAuthClient({
 Use Better Auth's framework entrypoints when you want React, Vue, Svelte, Solid, or other framework-specific client behavior. ViteHub does not provide `@vite-hub/auth/client` or a separate Auth Client Definition.
 
 Read [Better Auth's client docs](https://www.better-auth.com/docs/concepts/client) for framework entrypoints and session helpers.
+
+## Authenticated Agents
+
+Use `authenticated()` when an Agent should derive its Agent Invoker from the current Auth Session.
+
+```ts
+// server/support.agent.ts
+import { defineAgent } from "@vite-hub/agent"
+import { authenticated } from "@vite-hub/auth/agent"
+
+export default defineAgent({
+  invoker: authenticated(),
+})
+```
+
+By default, the Auth Package reads the same-app Better Auth session from the request and maps the Auth User to an Agent Invoker with `kind: "authUser"`. Customize `id`, `kind`, `label`, or `meta` for normal identity shaping, and use `source` or `map` when the Agent consumes JWTs, bearer tokens, OAuth/OIDC provider output, or product-specific identity.
