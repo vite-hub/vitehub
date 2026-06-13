@@ -100,6 +100,12 @@ function assertOnlyObjectKeys(body: string | undefined, allowed: Set<string>, la
   throw new TypeError(`\`defineAuth()\` ${label} does not support the "${unknownEntry.key}" option.`)
 }
 
+function assertStaticObjectKeys(body: string | undefined, label: string): void {
+  if (readObjectEntries(body).some(entry => !entry.key)) {
+    throw new TypeError(`\`defineAuth()\` ${label} must use static object keys.`)
+  }
+}
+
 function readAuthRouteConfig(body: string | undefined): false | string {
   const basePath = normalizeAuthBasePath(readStaticStringProperty(body, "basePath", "basePath"))
   if (!hasObjectProperty(body, "route")) return basePath
@@ -165,6 +171,10 @@ export function resolveAuthViteConfig(options?: AuthModuleOptions, rootDir: stri
   if (!definition) return
 
   const body = readDefinitionObjectBody(definition.handler)
+  if (typeof body === "undefined") {
+    throw new TypeError("`defineAuth()` options must be an inline object literal.")
+  }
+  assertStaticObjectKeys(body, "options")
   const basePath = normalizeAuthBasePath(readStaticStringProperty(body, "basePath", "basePath"))
 
   return {

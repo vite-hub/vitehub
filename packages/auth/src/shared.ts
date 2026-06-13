@@ -1,4 +1,4 @@
-export const defaultAuthBasePath = "/api/auth"
+const defaultAuthBasePath = "/api/auth"
 
 export function normalizeAuthBasePath(value: string | undefined): string {
   const path = value?.trim() || defaultAuthBasePath

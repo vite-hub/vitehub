@@ -131,6 +131,36 @@ describe("resolveAuthViteConfig", () => {
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/database must be `true` or an inline object/)
   })
 
+  it("rejects non-static Auth Definition option keys", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [
+      "  ...{ basePath: '/auth' },",
+    ])
+
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/options must use static object keys/)
+
+    await rm(join(rootDir, "server", "auth.ts"))
+    await writeAuth(rootDir, "server/auth.ts", [
+      "  ['basePath']: '/auth',",
+    ])
+
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/options must use static object keys/)
+  })
+
+  it("rejects non-inline Auth Definition options", async () => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "server", "auth.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, [
+      "import { defineAuth } from '@vite-hub/auth'",
+      "const options = { basePath: '/auth' }",
+      "export default defineAuth(options)",
+      "",
+    ].join("\n"))
+
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/options must be an inline object literal/)
+  })
+
   it("requires names for object-shaped database and secondary storage config", async () => {
     const rootDir = await createTempProject()
     await writeAuth(rootDir, "server/auth.ts", [
