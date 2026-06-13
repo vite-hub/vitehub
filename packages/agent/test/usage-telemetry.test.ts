@@ -316,6 +316,57 @@ describe("usage telemetry", () => {
     expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toBeUndefined()
   })
 
+  it("preserves non-token usage details without inventing token cost", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry({
+          pricing: staticModelPricing({
+            "openai/gpt-test": {
+              input: "0.00000010",
+              output: "0.00000020",
+            },
+          }),
+        }),
+      ],
+      run: () => ({
+        response: {
+          modelId: "openai/gpt-test",
+        },
+        text: "ok",
+        usage: {
+          actions: 2,
+          sessions: 1,
+          wallTimeMs: 800,
+        },
+      }),
+    })
+
+    const result = await runAgent(agent, runtime(), {})
+    expect(result).toMatchObject({
+      text: "ok",
+      usage: {
+        details: {
+          actions: 2,
+          sessions: 1,
+          wallTimeMs: 800,
+        },
+      },
+      usageRecord: {
+        usage: {
+          details: {
+            actions: 2,
+            sessions: 1,
+            wallTimeMs: 800,
+          },
+        },
+      },
+    })
+    expect((result as { usageRecord?: { cost?: unknown } }).usageRecord?.cost).toBeUndefined()
+  })
+
   it("loads Vercel AI Gateway pricing from the models endpoint", async () => {
     const { vercelAiGatewayPricing } = await import("../src/capabilities.ts")
     const fetch = vi.fn(async () => Response.json({

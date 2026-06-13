@@ -173,6 +173,21 @@ describe("defineAgent workspace option", () => {
     expect(useWorkspace).not.toHaveBeenCalled()
   })
 
+  it("rejects harness-backed workspace agents until Harness Workspace Sessions are available", async () => {
+    const { defineAgent, runAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+      workspace: {},
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).rejects.toThrow("Harness Agent Drivers with workspace")
+    expect(useWorkspace).toHaveBeenCalledWith("docs")
+  })
+
   it("auto-commits write-mode workspace changes when rules request it", async () => {
     diff.mockResolvedValueOnce({
       entries: [{ after: { type: "file" }, path: "inbox/audio.md", type: "added" }],

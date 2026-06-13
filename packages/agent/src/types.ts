@@ -477,7 +477,6 @@ export interface AgentModelExecutionOptions<
 export interface AgentHarnessCredentialSource {
   label?: string
   source?: "ambient" | "explicit" | "none" | "unknown" | (string & {})
-  value?: unknown
 }
 
 export type AgentHarnessSessionKey<
@@ -899,6 +898,7 @@ export interface AgentAdapterResult {
 }
 
 export interface AgentUsage {
+  details?: Record<string, unknown>
   inputTokenDetails?: Record<string, number>
   inputTokens?: number
   outputTokenDetails?: Record<string, number>
@@ -914,8 +914,14 @@ export interface AgentUsageCost {
   source: "custom" | "estimated" | "provider" | "vercel-ai-gateway" | (string & {})
 }
 
+export interface AgentUsageCredentialSource {
+  label?: string
+  source?: AgentHarnessCredentialSource["source"]
+}
+
 export interface AgentUsageRecord {
   cost?: AgentUsageCost
+  credentialSource?: AgentUsageCredentialSource
   latency?: {
     durationMs?: number
     timeToFirstTokenMs?: number

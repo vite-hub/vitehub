@@ -71,7 +71,6 @@
   },
   "devDependencies": {
     "@ai-sdk/harness": "catalog:ai",
-    "@ai-sdk/harness-codex": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@ai-sdk/sandbox-vercel": "catalog:ai",
     "@types/node": "catalog:tooling",

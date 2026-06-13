@@ -322,6 +322,9 @@ describe("agent public types", () => {
     // @ts-expect-error harness permissions are intentionally not public in V1
     const _permissionDriver: AgentDriver = { harness: { provider: "codex" }, permissions: "bypass" }
 
+    // @ts-expect-error raw harness credential material is not accepted by the generic driver boundary
+    const _rawCredentialDriver: AgentDriver = { credentials: { value: "secret" }, harness: { provider: "codex" } }
+
     // @ts-expect-error root model options cannot be combined with driver
     defineAgent({ driver: { model: "model" }, model: "model" })
 

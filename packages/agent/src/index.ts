@@ -191,6 +191,7 @@ export type {
   AgentRuntimeHooks,
   AgentRuntimeName,
   AgentUsage,
+  AgentUsageCredentialSource,
   AgentUsageCost,
   AgentUsageRecord,
   AgentWebhookRegistrationDefinition,
@@ -541,6 +542,30 @@ function validateNoHarnessPermissionOption(driver: Record<string, unknown>): voi
   }
 }
 
+function normalizeHarnessCredentialSource(value: unknown): AgentHarnessCredentialSource | undefined {
+  if (value === undefined) return undefined
+  if (!isRecord(value)) {
+    throw new TypeError("[vitehub] defineAgent({ driver.credentials }) must be a credential source object.")
+  }
+  if (hasOwnDefined(value, "value")) {
+    throw new Error("[vitehub] defineAgent({ driver.credentials.value }) is not supported by the generic harness adapter yet. Pass provider credentials to the harness adapter constructor or omit credentials for ambient adapter auth.")
+  }
+
+  const label = value.label
+  const source = value.source
+  if (label !== undefined && typeof label !== "string") {
+    throw new TypeError("[vitehub] defineAgent({ driver.credentials.label }) must be a string.")
+  }
+  if (source !== undefined && typeof source !== "string") {
+    throw new TypeError("[vitehub] defineAgent({ driver.credentials.source }) must be a string.")
+  }
+
+  return {
+    ...(label ? { label } : {}),
+    ...(source ? { source: source as AgentHarnessCredentialSource["source"] } : {}),
+  }
+}
+
 function normalizeExplicitAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -573,7 +598,7 @@ function normalizeExplicitAgentDriver<
       throw new TypeError("[vitehub] defineAgent({ driver.sandbox }) must be an AI SDK harness sandbox provider or resolver.")
     }
     return {
-      credentials: driver.credentials as AgentHarnessCredentialSource | undefined,
+      credentials: normalizeHarnessCredentialSource(driver.credentials),
       harness: driver.harness as AgentHarnessDriverInput,
       kind: "harness",
       sandbox: driver.sandbox as AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS> | undefined,

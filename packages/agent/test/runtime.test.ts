@@ -79,6 +79,45 @@ describe("agent message protocol", () => {
     expect(session.destroy).toHaveBeenCalledTimes(1)
   })
 
+  it("labels non-token harness usage with sanitized credentials", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({
+      text: "ok",
+      usage: {
+        actions: 3,
+        wallTimeMs: 1200,
+      },
+    })
+
+    const agent = defineAgent({
+      capabilities: [usageTelemetry()],
+      driver: {
+        credentials: { label: "local Codex", source: "ambient" },
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({
+      text: "ok",
+      usageRecord: {
+        credentialSource: {
+          label: "local Codex",
+          source: "ambient",
+        },
+        usage: {
+          details: {
+            actions: 3,
+            wallTimeMs: 1200,
+          },
+        },
+      },
+    })
+  })
+
   it("resumes harness Agent Drivers with an explicit session key", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const firstSession = { detach: vi.fn(async () => ({ token: "resume" })), destroy: vi.fn() }
@@ -103,7 +142,7 @@ describe("agent message protocol", () => {
     expect(secondSession.detach).toHaveBeenCalledTimes(1)
   })
 
-  it("rejects mixed or permission-shaped Agent Drivers", async () => {
+  it("rejects mixed, permission-shaped, or raw-credential Agent Drivers", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
     expect(() => defineAgent({
@@ -113,6 +152,10 @@ describe("agent message protocol", () => {
     expect(() => defineAgent({
       driver: { harness: { provider: "codex" }, permissions: "bypass" },
     } as never)).toThrow("does not expose harness permission options")
+
+    expect(() => defineAgent({
+      driver: { credentials: { value: "secret" }, harness: { provider: "codex" } },
+    } as never)).toThrow("driver.credentials.value")
   })
 
   it("creates inline schedule capabilities without requiring chat history", async () => {

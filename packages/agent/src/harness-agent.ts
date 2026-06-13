@@ -13,6 +13,8 @@ import type {
   MaybePromise,
 } from "./types.ts"
 
+const vitehubUsageMetadataKey = "__vitehubUsageMetadata"
+
 type HarnessAgentLike = {
   createSession: (options?: Record<string, unknown>) => MaybePromise<HarnessAgentSessionLike>
   generate: (input: Record<string, unknown>) => MaybePromise<unknown>
@@ -36,6 +38,51 @@ interface HarnessAgentAdapterOptions<
   harness: AgentHarnessDriverInput
   sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS>
   sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
+}
+
+function hasEntries(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && Object.keys(value).length > 0
+}
+
+function toHarnessCredentialSourceMetadata(credentials: AgentHarnessCredentialSource | undefined) {
+  if (!credentials) return undefined
+  const source = typeof credentials.source === "string" ? credentials.source : undefined
+  const label = typeof credentials.label === "string" ? credentials.label : undefined
+  if (!source && !label) return undefined
+  return {
+    credentialSource: {
+      ...(label ? { label } : {}),
+      ...(source ? { source } : {}),
+    },
+  }
+}
+
+function defineHarnessUsageMetadata(result: unknown, credentials: AgentHarnessCredentialSource | undefined): unknown {
+  if (!result || typeof result !== "object") return result
+  const metadata = toHarnessCredentialSourceMetadata(credentials)
+  if (!metadata) return result
+  Object.defineProperty(result, vitehubUsageMetadataKey, {
+    configurable: true,
+    value: metadata,
+  })
+  return result
+}
+
+function assertSupportedHarnessDriverContributions(context: AgentAdapterRunContext) {
+  if (context.workspace) {
+    throw new Error("[vitehub] Harness Agent Drivers with workspace are not supported until ViteHub can prepare a Harness Workspace Session for the selected Workspace Scope.")
+  }
+
+  const unsupported = [
+    hasEntries(context.tools) ? "Capability tools" : undefined,
+    context.providerTools?.length ? "provider tools" : undefined,
+    context.capabilityInstructions?.length ? "Capability instructions" : undefined,
+    context.sourceInstructions ? "Workspace Source Instructions" : undefined,
+  ].filter((value): value is string => Boolean(value))
+
+  if (unsupported.length) {
+    throw new Error(`[vitehub] Harness Agent Drivers do not support these Capability Driver Contributions yet: ${unsupported.join(", ")}.`)
+  }
 }
 
 function toHarnessCallInput(context: AgentAdapterRunContext) {
@@ -128,6 +175,7 @@ async function createHarnessAgent<
   options: HarnessAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>,
   context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
 ): Promise<HarnessAgentLike> {
+  assertSupportedHarnessDriverContributions(context)
   const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
   const sandbox = await resolveHarnessSandbox(options.sandbox, context)
   return new HarnessAgent({
@@ -245,10 +293,10 @@ export function createHarnessAgentAdapter<
       const agent = await createHarnessAgent(options, context)
       const { cleanup, session } = await createSession(agent, context)
       try {
-        const result = await agent.generate({
+        const result = defineHarnessUsageMetadata(await agent.generate({
           ...toHarnessCallInput(context),
           session,
-        })
+        }), options.credentials)
         await cleanup()
         return result
       }
@@ -262,10 +310,10 @@ export function createHarnessAgentAdapter<
       const agent = await createHarnessAgent(options, context)
       const { cleanup, session } = await createSession(agent, context)
       try {
-        const result = await agent.stream({
+        const result = defineHarnessUsageMetadata(await agent.stream({
           ...toHarnessCallInput(context),
           session,
-        })
+        }), options.credentials)
         return await withSessionCleanup(result, cleanup)
       }
       catch (error) {

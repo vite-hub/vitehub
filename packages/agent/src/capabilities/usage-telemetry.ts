@@ -56,6 +56,7 @@ interface UsageTelemetryCapabilityMetadata {
 }
 
 const usageTelemetryWrapped = Symbol("vitehub.usageTelemetryWrapped")
+const vitehubUsageMetadataKey = "__vitehubUsageMetadata"
 
 const vercelAiGatewayModelsUrl = "https://ai-gateway.vercel.sh/v1/models"
 
@@ -90,6 +91,14 @@ function readDetails(value: unknown): Record<string, number> | undefined {
   return Object.keys(details).length ? details : undefined
 }
 
+function hasTokenUsage(usage: AgentUsage): boolean {
+  return usage.inputTokens !== undefined
+    || usage.outputTokens !== undefined
+    || usage.totalTokens !== undefined
+    || usage.inputTokenDetails !== undefined
+    || usage.outputTokenDetails !== undefined
+}
+
 export function normalizeAgentUsage(value: unknown): AgentUsage | undefined {
   if (!isRecord(value)) return
 
@@ -108,13 +117,32 @@ export function normalizeAgentUsage(value: unknown): AgentUsage | undefined {
     raw: value,
   }
 
-  return usage.inputTokens !== undefined
-    || usage.outputTokens !== undefined
-    || usage.totalTokens !== undefined
-    || usage.inputTokenDetails !== undefined
-    || usage.outputTokenDetails !== undefined
-    ? usage
+  if (hasTokenUsage(usage)) return usage
+
+  return Object.keys(value).length
+    ? { details: value, raw: value }
     : undefined
+}
+
+function credentialSourceFromMetadata(metadata: unknown): AgentUsageRecord["credentialSource"] | undefined {
+  if (!isRecord(metadata) || !isRecord(metadata.credentialSource)) return
+  const source = metadata.credentialSource.source
+  const label = metadata.credentialSource.label
+  if (source !== undefined && typeof source !== "string") return
+  if (label !== undefined && typeof label !== "string") return
+  if (source === undefined && label === undefined) return
+  return {
+    ...(label ? { label } : {}),
+    ...(source ? { source: source as NonNullable<AgentUsageRecord["credentialSource"]>["source"] } : {}),
+  }
+}
+
+function usageMetadataFromResult(result: UnknownRecord, fallback?: unknown) {
+  return isRecord(result[vitehubUsageMetadataKey])
+    ? result[vitehubUsageMetadataKey]
+    : isRecord(fallback) && isRecord(fallback[vitehubUsageMetadataKey])
+      ? fallback[vitehubUsageMetadataKey]
+      : undefined
 }
 
 function responseFromResult(result: UnknownRecord): AgentUsageRecord["response"] | undefined {
@@ -158,14 +186,17 @@ export async function createAgentUsageRecord(
   result: unknown,
   options: UsageTelemetryOptions = {},
   run?: Partial<AgentRunMetadata>,
+  metadataSource?: unknown,
 ): Promise<AgentUsageRecord | undefined> {
   if (!isRecord(result)) return
   const usage = normalizeAgentUsage(result.totalUsage ?? result.usage)
   if (!usage) return
   const model = modelFromResult(result)
   const response = responseFromResult(result)
+  const credentialSource = credentialSourceFromMetadata(usageMetadataFromResult(result, metadataSource))
 
   const record: AgentUsageRecord = {
+    ...(credentialSource ? { credentialSource } : {}),
     ...(model ? { model } : {}),
     ...(response ? { response } : {}),
     ...(run ? { run } : {}),
@@ -200,8 +231,9 @@ async function recordUsage(
   result: UnknownRecord,
   options: UsageTelemetryOptions,
   run?: Partial<AgentRunMetadata>,
+  metadataSource?: unknown,
 ): Promise<AgentUsageRecord | undefined> {
-  const usageRecord = await createAgentUsageRecord(result, options, run)
+  const usageRecord = await createAgentUsageRecord(result, options, run, metadataSource)
   if (usageRecord) await options.onUsage?.(usageRecord, run ? { run } : {})
   return usageRecord
 }
@@ -211,10 +243,11 @@ async function* withUsageTelemetryStream(
   options: UsageTelemetryOptions,
   run?: Partial<AgentRunMetadata>,
   onRecord?: (record: AgentUsageRecord) => void,
+  metadataSource?: unknown,
 ): AsyncIterable<unknown> {
   for await (const chunk of stream) {
     if (isRecord(chunk) && chunk.type === "finish") {
-      const usageRecord = await recordUsage(chunk, options, run)
+      const usageRecord = await recordUsage(chunk, options, run, metadataSource)
       if (usageRecord) {
         onRecord?.(usageRecord)
         yield { type: "usage", usageRecord }
@@ -305,7 +338,7 @@ function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(result))
   let stream = toReadableAsyncIterableStream(withUsageTelemetryStream(fullStream, options, run, (usageRecord) => {
     defineUsageTelemetryOutput(clone as UnknownRecord, usageRecord)
-  }))
+  }, result))
   Object.defineProperty(clone, "fullStream", {
     configurable: true,
     enumerable: true,
@@ -393,6 +426,7 @@ function pricedTokens(usage: AgentUsage, price: StaticModelPrice): string {
 
 export function staticModelPricing(prices: Record<string, StaticModelPrice>): AgentUsagePricing {
   return ({ model, usage }) => {
+    if (!hasTokenUsage(usage)) return
     const modelId = model?.id
     if (!modelId) return
     const price = prices[modelId]
@@ -437,6 +471,7 @@ export function vercelAiGatewayPricing(options: VercelAiGatewayPricingOptions = 
   }
 
   return async ({ model, usage }) => {
+    if (!hasTokenUsage(usage)) return
     const modelId = model?.id
     if (!modelId) return
     const price = (await loadPrices())[modelId]
