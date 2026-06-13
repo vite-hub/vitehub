@@ -181,6 +181,40 @@ describe("lazy sources", () => {
     })
   })
 
+  it("streams keyed source items while materializing", async () => {
+    const order: string[] = []
+    const store = createMemoryWorkspaceStore()
+    const writeFile = store.writeFile.bind(store)
+    store.writeFile = async (...args) => {
+      order.push(`write:${args[0]}`)
+      return await writeFile(...args)
+    }
+    const view = createWorkspaceSourceView({
+      name: "lazy-streaming",
+      sources: {
+        docs: source.custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md", "b.md"]
+          },
+          async getItem(key) {
+            order.push(`get:${key}`)
+            return { key, path: key, content: `# ${key}\n` }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+
+    expect(order).toEqual([
+      "get:a.md",
+      "write:docs/a.md",
+      "get:b.md",
+      "write:docs/b.md",
+    ])
+  })
+
   it("uses a complete source snapshot after materialization", async () => {
     const root = await createRoot()
     await mkdir(join(root, "docs"), { recursive: true })

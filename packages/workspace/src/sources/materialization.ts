@@ -102,14 +102,19 @@ function parentDirectoryPaths(path: string) {
   return paths
 }
 
-async function removeStaleMaterializedSourceFiles(store: WorkspaceStore, source: ResolvedWorkspaceSource, nextPaths: Set<string>) {
+async function removeStaleMaterializedSourceFiles(
+  store: WorkspaceStore,
+  source: ResolvedWorkspaceSource,
+  nextPaths: Set<string>,
+  options: { removeUntracked?: boolean } = {},
+) {
   const entries = await store.list(source.mountPath, { recursive: true })
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
   const staleDirectories = new Set<string>()
   await Promise.all(entries.map(async (entry) => {
     if (nextPaths.has(entry.path) || entry.type !== "file") return
     const file = await store.readFile(entry.path)
-    if (file?.metadata?.source === source.key) {
+    if (options.removeUntracked || file?.metadata?.source === source.key) {
       for (const directory of parentDirectoryPaths(entry.path)) staleDirectories.add(directory)
       await store.rm(entry.path, { force: true })
     }
@@ -119,6 +124,17 @@ async function removeStaleMaterializedSourceFiles(store: WorkspaceStore, source:
       await store.rm(entry.path, { force: true })
     }
     catch {}
+  }
+}
+
+async function* iterateSourceItems(source: ResolvedWorkspaceSource, ctx: SourceContext): AsyncGenerator<WorkspaceSourceItem> {
+  if (source.source.getItems) {
+    yield* await source.source.getItems(ctx)
+    return
+  }
+
+  for (const key of await source.source.getKeys(ctx)) {
+    yield await source.source.getItem(key, ctx)
   }
 }
 
@@ -163,11 +179,7 @@ export async function materializeWorkspaceSources(
     try {
       const ctx = createSourceContext(definition, source)
       await source.source.prepare?.(ctx)
-      const items = source.source.getItems
-        ? await source.source.getItems(ctx)
-        : await Promise.all((await source.source.getKeys(ctx)).map(async key => await source.source.getItem(key, ctx)))
       if (source.mountPath) {
-        await store.rm(source.mountPath, { recursive: true, force: true })
         await store.mkdir(source.mountPath, { recursive: true })
       }
 
@@ -176,7 +188,7 @@ export async function materializeWorkspaceSources(
       let commit: string | undefined
       const directorySet = new Set<string>(source.mountPath ? [source.mountPath] : [])
       const nextPaths = new Set<string>()
-      for (const item of items) {
+      for await (const item of iterateSourceItems(source, ctx)) {
         const content = item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2))
         const path = normalizeWorkspacePath(`${source.mountPath}/${item.path || item.key}`)
         nextPaths.add(path)
@@ -196,7 +208,7 @@ export async function materializeWorkspaceSources(
         sourceFiles++
         sourceBytes += contentSize(content)
       }
-      if (!source.mountPath) await removeStaleMaterializedSourceFiles(store, source, nextPaths)
+      await removeStaleMaterializedSourceFiles(store, source, nextPaths, { removeUntracked: Boolean(source.mountPath) })
 
       const ready: SourceSnapshotMetadata = {
         configHash,
