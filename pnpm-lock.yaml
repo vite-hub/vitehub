@@ -469,6 +469,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.2
+      '@vite-hub/agent':
+        specifier: workspace:*
+        version: link:../agent
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal

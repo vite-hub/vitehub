@@ -33,6 +33,7 @@
   },
   "exports": {
     ".": "./dist/index.js",
+    "./agent": "./dist/agent.js",
     "./config": "./dist/config.js",
     "./discovery": "./dist/discovery.js",
     "./runtime/empty-definition": "./dist/runtime/empty-definition.js",
@@ -50,6 +51,7 @@
     "better-auth": "catalog:auth"
   },
   "devDependencies": {
+    "@vite-hub/agent": "workspace:*",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
@@ -59,9 +61,13 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@vite-hub/agent": "workspace:*",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@vite-hub/agent": {
+      "optional": true
+    },
     "vite": {
       "optional": true
     }

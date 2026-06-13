@@ -3,6 +3,12 @@ import type { UserConfig } from "vite"
 import { describe, expectTypeOf, it } from "vitest"
 
 import {
+  authenticated,
+  type AuthenticatedOptions,
+  type AuthenticatedSessionData,
+  type AuthenticatedUser,
+} from "../src/agent.ts"
+import {
   defineAuth,
   type AuthDefinition,
   type AuthModuleOptions,
@@ -10,6 +16,8 @@ import {
 } from "../src/index.ts"
 import { auth } from "../src/server.ts"
 import { hubAuth } from "../src/vite.ts"
+
+import type { AgentInvokerOptions, AgentRuntimeConfig } from "@vite-hub/agent"
 
 describe("types", () => {
   it("exposes the intended Auth Definition surface", () => {
@@ -35,6 +43,34 @@ describe("types", () => {
   it("exposes the server auth handler shape", () => {
     expectTypeOf(auth.handler).parameters.toEqualTypeOf<[Request]>()
     expectTypeOf(auth.handler).returns.toEqualTypeOf<Promise<Response>>()
+  })
+
+  it("exposes the authenticated Agent Invoker helper", () => {
+    const invoker = authenticated({
+      id: ({ user }) => user.email,
+      meta: ({ session }) => ({ authSessionId: session.id }),
+      source: () => ({
+        session: { id: "session_1" },
+        user: { email: "maxi@example.com", id: "user_1" },
+      }),
+    })
+
+    const typedInvoker = authenticated<
+      AgentRuntimeConfig,
+      unknown,
+      AuthenticatedUser & { email: string },
+      AuthenticatedSessionData & { id: string }
+    >({
+      id: ({ user }) => user.email,
+      source: () => ({
+        session: { id: "session_1" },
+        user: { email: "maxi@example.com", id: "user_1" },
+      }),
+    })
+
+    expectTypeOf(invoker).toMatchTypeOf<AgentInvokerOptions>()
+    expectTypeOf(typedInvoker).toMatchTypeOf<AgentInvokerOptions>()
+    expectTypeOf({ kind: "authUser" }).toMatchTypeOf<AuthenticatedOptions>()
   })
 
   it("exposes resolved database placement metadata", () => {

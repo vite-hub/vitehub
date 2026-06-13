@@ -9,6 +9,7 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
+      "src/agent.ts",
       "src/index.ts",
       "src/config.ts",
       "src/discovery.ts",
