@@ -264,6 +264,34 @@ describe("hubWorkspace", () => {
     await expect(readFile(join(root, "server", "plugins", "vitehub-workspace.ts"), "utf8")).rejects.toThrow()
   })
 
+  it("emits Nitro runtime setup for explicit local workspace stores", async () => {
+    const root = await createViteRoot()
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const config = plugin.config as (
+      config: { root: string, workspace?: { root?: string, store?: { provider: "local" } } },
+      env: { command: "serve", mode: string },
+    ) => Promise<{ nitro?: { plugins?: string[] } }>
+
+    await expect(config({
+      root,
+      workspace: {
+        root: "server/workspaces",
+        store: { provider: "local" },
+      },
+    }, { command: "serve", mode: "development" })).resolves.toMatchObject({
+      nitro: {
+        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+      },
+    })
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("setWorkspaceRuntimeConfig")
+    expect(pluginSource).toContain('"provider": "local"')
+    expect(pluginSource).toContain(JSON.stringify(join(root, "server", "workspaces")))
+    expect(pluginSource).not.toContain("configureCloudflareWorkspaceRuntime")
+  })
+
   it("keeps generated workspace files in project ViteHub state when Vite root is app", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-app-root-"))
     tempDirs.push(root)

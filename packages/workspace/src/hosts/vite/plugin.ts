@@ -50,6 +50,15 @@ function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]):
   return store.provider === "cloudflare-artifacts" || store.provider === "github"
 }
 
+function shouldInstallRuntimeWorkspacePlugin(
+  options: false | WorkspaceModuleOptions | undefined,
+  normalized: false | ResolvedWorkspaceModuleOptions,
+): normalized is ResolvedWorkspaceModuleOptions {
+  if (!normalized) return false
+  if (isHostedWorkspaceStore(normalized.store)) return true
+  return Boolean(options && (options.root || options.store))
+}
+
 function mergeNitroWorkspaceConfig(value: unknown): NitroConfig {
   const nitro: NitroConfig = isRecord(value) ? { ...value } : {}
   const plugins = Array.isArray(nitro.plugins) ? [...nitro.plugins] : []
@@ -58,6 +67,18 @@ function mergeNitroWorkspaceConfig(value: unknown): NitroConfig {
 }
 
 function renderNitroWorkspacePlugin(config: ResolvedWorkspaceModuleOptions): string {
+  if (!isHostedWorkspaceStore(config.store)) {
+    return [
+      "import { setWorkspaceRuntimeConfig } from '@vite-hub/workspace/runtime'",
+      "import { definePlugin } from 'nitro'",
+      "",
+      "export default definePlugin(() => {",
+      `  setWorkspaceRuntimeConfig(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`,
+      "})",
+      "",
+    ].join("\n")
+  }
+
   return [
     "import { configureCloudflareWorkspaceRuntime } from '@vite-hub/workspace/cloudflare'",
     "import { definePlugin } from 'nitro'",
@@ -144,7 +165,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
           },
         },
       }
-      if (normalized && isHostedWorkspaceStore(normalized.store)) {
+      if (shouldInstallRuntimeWorkspacePlugin(workspaceOptions, normalized)) {
         await writeNitroWorkspacePlugin(roots.projectRoot, normalized)
         viteConfig.nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
       }
