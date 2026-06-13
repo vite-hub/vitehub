@@ -6,6 +6,7 @@ import {
 import {
   normalizeAgentInvokerProfiles,
 } from "./invoker.ts"
+import { normalizeWorkspaceSources } from "@vite-hub/workspace"
 
 import type {
   AgentAdapterInstructions,
@@ -27,11 +28,11 @@ import type {
 } from "./types.ts"
 import type {
   ReadonlyWorkspaceFacade,
+  ResolvedWorkspaceSource,
   SourceContext,
   WorkspaceEntry,
   WorkspaceDefinition,
   WorkspaceName,
-  WorkspaceSource,
 } from "@vite-hub/workspace"
 
 const defaultWorkspaceName = "workspace"
@@ -40,7 +41,6 @@ const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
 
 type NormalizedWorkspaceOptions = WorkspaceAgentWorkspaceOptions & { mode: AgentCapabilityMode }
 type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapabilityMode }
-type WorkspaceSourceMap = NonNullable<WorkspaceDefinition["sources"]>
 
 export type WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -192,34 +192,34 @@ function agentDevtoolsMetadata(definition: Pick<AgentDefinition, "invoker" | "ti
   }
 }
 
-function sourceMountPath(key: string, source: NonNullable<WorkspaceAgentWorkspaceOptions["sources"]>[string]) {
-  if (typeof source.mount === "string") return source.mount
-  if (typeof source.mount === "object" && typeof source.mount.path === "string") return source.mount.path
-  return key
+function normalizedSourcesFromOptions<Name extends WorkspaceName>(options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>): ResolvedWorkspaceSource[] {
+  return normalizeWorkspaceSources(workspaceDefinitionFromOptions(options).sources)
 }
 
-function sourceMaterialize(key: string, source: NonNullable<WorkspaceAgentWorkspaceOptions["sources"]>[string]) {
-  if (typeof source.mount === "object" && source.mount.materialize) return source.mount.materialize
-  if (source.materialize) return source.materialize
-  return source.cache ? "lazy" : "build"
+function sourceMountPath(source: ResolvedWorkspaceSource) {
+  return source.mountPath
+}
+
+function sourceMaterialize(source: ResolvedWorkspaceSource): AgentDevtoolsFileTreeItem["materialize"] {
+  return source.materialize === "none" ? undefined : source.materialize
 }
 
 function workspaceMetadataFiles<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
   _defaults: WorkspaceAgentDefaults<Name>,
 ): AgentDevtoolsFileTreeItem[] {
-  const sources = workspaceDefinitionFromOptions(options).sources || {}
-  return Object.entries(sources).sort(([left], [right]) => left.localeCompare(right)).map(([sourceName, source]) => {
-    const materialize = sourceMaterialize(sourceName, source)
-    const mountPath = sourceMountPath(sourceName, source)
+  const sources = normalizedSourcesFromOptions(options)
+  return sources.sort((left, right) => left.key.localeCompare(right.key)).map((source) => {
+    const materialize = sourceMaterialize(source)
+    const mountPath = sourceMountPath(source)
     return {
       kind: "directory" as const,
-      label: mountPath.split("/").filter(Boolean).at(-1) || sourceName,
+      label: mountPath.split("/").filter(Boolean).at(-1) || source.key,
       materialize,
       materialized: materialize === "build",
       path: mountPath,
-      source: sourceName,
-      status: materialize === "build" ? "ready" as const : "lazy" as const,
+      source: source.key,
+      status: materialize === "lazy" ? "lazy" as const : "ready" as const,
     }
   })
 }
@@ -253,7 +253,7 @@ function localWorkspaceRoots(options: WorkspaceAgentOptions<AgentRuntimeConfig, 
 }
 
 function sourceMountPaths(options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>): string[] {
-  return Object.entries(workspaceDefinitionFromOptions(options).sources || {}).map(([sourceName, source]) => sourceMountPath(sourceName, source))
+  return normalizedSourcesFromOptions(options).map(source => sourceMountPath(source))
 }
 
 function addFileTreePath(root: AgentDevtoolsFileTreeItem, entry: WorkspaceEntry) {
@@ -299,10 +299,10 @@ function markSourceTreeMetadata(
   root: AgentDevtoolsFileTreeItem,
   options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>,
 ) {
-  const sources = workspaceDefinitionFromOptions(options).sources || {}
-  for (const [sourceName, source] of Object.entries(sources)) {
-    const mountPath = sourceMountPath(sourceName, source)
-    const materialize = sourceMaterialize(sourceName, source)
+  const sources = normalizedSourcesFromOptions(options)
+  for (const source of sources) {
+    const mountPath = sourceMountPath(source)
+    const materialize = sourceMaterialize(source)
     const mountedRoot = [root.path, mountPath].filter(Boolean).join("/")
     const pending = [...(root.children || [])]
     while (pending.length) {
@@ -310,13 +310,13 @@ function markSourceTreeMetadata(
       if (item.path === mountedRoot) {
         item.materialize = materialize
         item.materialized = item.materialized || materialize === "build" || Boolean(item.children?.length)
-        item.source = sourceName
+        item.source = source.key
         item.status = item.materialized ? "ready" : materialize === "lazy" ? "lazy" : "ready"
       }
       else if (item.path.startsWith(`${mountedRoot}/`)) {
         item.materialize = materialize
         item.materialized = item.materialized || materialize === "build"
-        item.source = sourceName
+        item.source = source.key
       }
       pending.push(...(item.children || []))
     }
@@ -468,7 +468,7 @@ async function resolveWorkspaceMetadataInstructions<
   )
 }
 
-function sourceInstructionsText(value: WorkspaceSource["instructions"]): string | undefined {
+function sourceInstructionsText(value: ResolvedWorkspaceSource["instructions"]): string | undefined {
   const instructions = (Array.isArray(value) ? value : [value])
     .map(part => part?.trim())
     .filter(Boolean)
@@ -477,9 +477,9 @@ function sourceInstructionsText(value: WorkspaceSource["instructions"]): string 
 }
 
 function renderWorkspaceSourceInstructionBlock(sources: WorkspaceDefinition["sources"] | undefined, visible?: Set<string>): string | undefined {
-  const entries = Object.entries(sources || {})
-    .filter(([key]) => !visible || visible.has(key))
-    .map(([key, source]) => ({ instructions: sourceInstructionsText(source.instructions), key }))
+  const entries = normalizeWorkspaceSources(sources)
+    .filter(source => !visible || visible.has(source.key))
+    .map(source => ({ instructions: sourceInstructionsText(source.instructions), key: source.key }))
     .filter((entry): entry is { instructions: string, key: string } => Boolean(entry.instructions))
     .sort((left, right) => left.key.localeCompare(right.key))
 
@@ -492,17 +492,17 @@ function renderWorkspaceSourceInstructionBlock(sources: WorkspaceDefinition["sou
 }
 
 async function visibleWorkspaceSourceNames(
-  sources: WorkspaceSourceMap,
+  sources: WorkspaceDefinition["sources"],
   workspace: ReadonlyWorkspaceFacade,
   definition?: WorkspaceDefinition,
 ): Promise<Set<string>> {
   const visible = new Set<string>()
-  await Promise.all(Object.entries(sources).map(async ([key, source]) => {
+  await Promise.all(normalizeWorkspaceSources(sources).map(async (source) => {
     try {
-      const paths = await sourceVisibilityProbePaths(key, source, definition)
+      const paths = await sourceVisibilityProbePaths(source, definition)
       for (const path of paths) {
         if (await workspace.fs.exists(path)) {
-          visible.add(key)
+          visible.add(source.key)
           break
         }
       }
@@ -513,17 +513,17 @@ async function visibleWorkspaceSourceNames(
 }
 
 async function sourceVisibilityProbePaths(
-  key: string,
-  source: WorkspaceSource,
+  source: ResolvedWorkspaceSource,
   definition?: WorkspaceDefinition,
 ): Promise<string[]> {
-  const mountPath = normalizeSourceInstructionPath(sourceMountPath(key, source))
+  const mountPath = normalizeSourceInstructionPath(sourceMountPath(source))
   if (mountPath === undefined) return []
   if (mountPath) return [mountPath]
 
-  const ctx = sourceInstructionContext(definition, key, mountPath)
+  const ctx = sourceInstructionContext(definition, source.key, mountPath)
   try {
-    const keys = await source.getKeys?.(ctx)
+    await source.source.prepare?.(ctx)
+    const keys = await source.source.getKeys?.(ctx)
     return (keys || [])
       .map(sourcePath => joinSourceInstructionPath(mountPath, sourcePath))
       .filter((path): path is string => Boolean(path))

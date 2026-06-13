@@ -1,6 +1,6 @@
 import { workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
-import { createWorkspaceSourceResolutionFacade, createWorkspaceTools } from "@vite-hub/workspace"
+import { createWorkspaceSourceResolutionFacade, createWorkspaceTools, normalizeWorkspaceSources } from "@vite-hub/workspace"
 
 import type {
   AgentCallbackContext,
@@ -21,7 +21,7 @@ import type {
   WorkspaceName,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
-  WorkspaceSource,
+  WorkspaceSourceInput,
 } from "@vite-hub/workspace"
 import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
 
@@ -155,11 +155,11 @@ export interface AccessCapabilityOptions<
   workspace?: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext>
 }
 
-export type AccessWorkspaceSourceName<TWorkspace extends { sources?: Record<string, WorkspaceSource> }> =
+export type AccessWorkspaceSourceName<TWorkspace extends { sources?: Record<string, WorkspaceSourceInput> }> =
   Extract<keyof NonNullable<TWorkspace["sources"]>, string>
 
 export type AccessWorkspaceOptionsFor<
-  TWorkspace extends { sources?: Record<string, WorkspaceSource> },
+  TWorkspace extends { sources?: Record<string, WorkspaceSourceInput> },
   TInputContext extends object = Record<string, unknown>,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -420,10 +420,8 @@ function sourceMountPath(source: string, workspaceDefinition?: WorkspaceDefiniti
   if (!definition) {
     throw new Error(`[vitehub] Workspace Scope source grant references unknown source "${source}".`)
   }
-  const mount = definition?.mount
-  const mountPath = typeof mount === "string"
-    ? mount
-    : mount && typeof mount === "object" && typeof mount.path === "string" ? mount.path : source
+  const [resolved] = normalizeWorkspaceSources({ [source]: definition })
+  const mountPath = resolved?.mountPath ?? source
   if (normalizeScopePath(mountPath) === "") {
     throw new Error(`[vitehub] Workspace Scope source grant "${source}" is root-mounted; grant explicit paths instead.`)
   }

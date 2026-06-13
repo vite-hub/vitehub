@@ -6,6 +6,13 @@ export {
   hasWorkspaceSourceResolvers,
   resolveWorkspaceSources,
 } from "./sources/resolution.ts"
+export {
+  normalizeWorkspaceSource,
+  normalizeWorkspaceSources,
+} from "./sources/config.ts"
+export type {
+  ResolvedWorkspaceSource,
+} from "./sources/config.ts"
 export type {
   WorkspaceSourceResolutionFacade,
   WorkspaceSourceResolutionOptions,
