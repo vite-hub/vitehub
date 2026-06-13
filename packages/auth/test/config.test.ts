@@ -161,6 +161,21 @@ describe("resolveAuthViteConfig", () => {
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/options must be an inline object literal/)
   })
 
+  it("rejects indirect Auth Definition exports instead of reading the first defineAuth call", async () => {
+    const rootDir = await createTempProject()
+    const file = join(rootDir, "server", "auth.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, [
+      "import { defineAuth } from '@vite-hub/auth'",
+      "const unused = defineAuth({ appName: 'Unused', basePath: '/unused' })",
+      "const exported = defineAuth({ appName: 'Exported', basePath: '/exported' })",
+      "export default exported",
+      "",
+    ].join("\n"))
+
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/options must be an inline object literal/)
+  })
+
   it("requires names for object-shaped database and secondary storage config", async () => {
     const rootDir = await createTempProject()
     await writeAuth(rootDir, "server/auth.ts", [

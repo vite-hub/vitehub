@@ -12,13 +12,10 @@ import type {
   ResolvedAuthViteConfig,
 } from "./types.ts"
 
-export { normalizeAuthBasePath } from "./shared.ts"
-
 function readDefinitionObjectBody(file: string): string | undefined {
   const source = readFileSync(file, "utf8")
   const calls = findIdentifierCalls(source, "defineAuth")
   const call = calls.find(item => /(?:^|[;\n])\s*export\s+default\s*$/.test(source.slice(Math.max(0, item.start - 100), item.start)))
-    || calls[0]
   const argument = call?.arguments[0]?.trim()
   if (!argument?.startsWith("{")) return
   const closeIndex = findMatching(argument, 0, "{", "}")

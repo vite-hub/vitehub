@@ -134,7 +134,7 @@ export function authenticated<
         throw new AuthenticationRequiredError(options.message)
       }
 
-      const authenticatedContext = createAuthenticatedContext(context, auth)
+      const authenticatedContext = createAuthenticatedContext<TRuntimeConfig, CALL_OPTIONS, TUser, TSession>(context, auth)
       if (options.map) {
         const invoker = await options.map(authenticatedContext)
         if (!invoker) throw new TypeError("[vitehub] authenticated({ map }) must return an Agent Invoker.")

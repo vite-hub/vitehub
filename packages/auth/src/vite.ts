@@ -3,7 +3,7 @@ import { Readable } from "node:stream"
 import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 
 import { resolveAuthViteConfig } from "./config.ts"
-import { createAuth } from "./server.ts"
+import { getAuthForDefinition, resetAuth } from "./server.ts"
 import { isAuthRequestPath } from "./shared.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
@@ -12,7 +12,6 @@ import type {
   AuthDefinition,
   AuthModuleOptions,
   ResolvedAuthViteConfig,
-  ViteHubAuth,
 } from "./types.ts"
 
 export const AUTH_DEFINITION_ID = "#vitehub/auth/definition"
@@ -116,7 +115,6 @@ function loadAuthDefinitionModule(module: unknown): AuthDefinition | undefined {
 export function hubAuth(options?: AuthModuleOptions): AuthVitePlugin {
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedAuthViteConfig | undefined
-  let devAuth: { auth: ViteHubAuth; definition: AuthDefinition } | undefined
 
   function resolvedOptions(): AuthModuleOptions | undefined {
     return resolved?.auth ?? options
@@ -125,15 +123,23 @@ export function hubAuth(options?: AuthModuleOptions): AuthVitePlugin {
   function refreshRuntimeConfig(): ResolvedAuthViteConfig | undefined {
     if (!resolved) return
     runtimeConfig = resolveAuthViteConfig(resolvedOptions(), resolved.root)
-    devAuth = undefined
+    resetAuth()
     return runtimeConfig
   }
 
   return {
     name: AUTH_VITE_PLUGIN_NAME,
+    enforce: "pre",
     api: {
       getConfig: () => runtimeConfig,
       refresh: refreshRuntimeConfig,
+    },
+    config(config) {
+      return {
+        ssr: {
+          noExternal: mergeNoExternal(config.ssr?.noExternal),
+        },
+      }
     },
     configResolved(config) {
       resolved = config
@@ -169,17 +175,8 @@ export function hubAuth(options?: AuthModuleOptions): AuthVitePlugin {
             return
           }
 
-          if (devAuth?.definition !== definition) {
-            devAuth = { auth: createAuth(definition) as unknown as ViteHubAuth, definition }
-          }
-
-          const currentAuth = devAuth
-          if (!currentAuth) {
-            next()
-            return
-          }
-
-          await sendWebResponse(await currentAuth.auth.handler(createWebRequest(request)), response)
+          const auth = getAuthForDefinition(definition)
+          await sendWebResponse(await auth.handler(createWebRequest(request)), response)
         }
         catch (error) {
           next(error)
