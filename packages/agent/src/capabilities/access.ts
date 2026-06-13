@@ -19,6 +19,7 @@ import type {
   WorkspaceDefinition,
   WorkspaceEntry,
   WorkspaceFacadeToolOptions,
+  WorkspaceMaterializeSourcesResult,
   WorkspaceName,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
@@ -466,6 +467,26 @@ function filterHits(scope: ResolvedWorkspaceScope, hits: WorkspaceSearchHit[]): 
   return scope.all ? hits : hits.filter(hit => isReadablePath(scope, hit.path))
 }
 
+function filterMaterializedSources(scope: ResolvedWorkspaceScope, result: WorkspaceMaterializeSourcesResult): WorkspaceMaterializeSourcesResult {
+  return scope.all
+    ? result
+    : {
+        ...result,
+        sources: result.sources.filter(source => isVisiblePath(scope, normalizeScopePath(source.mountPath))),
+      }
+}
+
+function emptyMaterializedSources(path = ""): WorkspaceMaterializeSourcesResult {
+  return {
+    bytes: 0,
+    directories: 0,
+    durationMs: 0,
+    files: 0,
+    path,
+    sources: [],
+  }
+}
+
 function scopedSearchQuery(scope: ResolvedWorkspaceScope, query: WorkspaceSearchQuery): WorkspaceSearchQuery | undefined {
   if (scope.all) return query
   const requested = query.paths?.length
@@ -518,6 +539,13 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
       const scopedQuery = scopedSearchQuery(scope, query)
       if (!scopedQuery) return []
       return filterHits(scope, await workspace.fs.search(scopedQuery))
+    },
+    async materializeSources(options = {}) {
+      const normalized = normalizeScopePath(options.path || "")
+      if (options.path && !isVisiblePath(scope, normalized)) throw notFound(normalized)
+      const result = await workspace.fs.materializeSources?.(options)
+        ?? emptyMaterializedSources(options.path)
+      return filterMaterializedSources(scope, result)
     },
   }
 
