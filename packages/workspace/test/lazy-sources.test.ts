@@ -215,6 +215,38 @@ describe("lazy sources", () => {
     ])
   })
 
+  it("reuses keyed source items with unchanged upstream metadata", async () => {
+    let ref = "one"
+    const getItem = vi.fn(async (key: string) => ({ key, path: key, content: `# ${ref}\n` }))
+    const view = createWorkspaceSourceView({
+      name: "lazy-keyed-reuse",
+      sources: {
+        docs: source.custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md"]
+          },
+          getItem,
+          async getMeta(key) {
+            return { ref }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({ sources: ["docs"] })
+    await view.materializeSources({ sources: ["docs"] })
+
+    expect(getItem).toHaveBeenCalledTimes(1)
+    await expect(view.readFile("docs/a.md")).resolves.toBe("# one\n")
+
+    ref = "two"
+    await view.materializeSources({ sources: ["docs"] })
+
+    expect(getItem).toHaveBeenCalledTimes(2)
+    await expect(view.readFile("docs/a.md")).resolves.toBe("# two\n")
+  })
+
   it("checks stale root source files sequentially while refreshing", async () => {
     let keys = ["a.bin", "b.bin", "c.bin"]
     let activeReads = 0

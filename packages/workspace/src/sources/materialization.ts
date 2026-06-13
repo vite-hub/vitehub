@@ -38,6 +38,7 @@ export interface LazyMaterializedMetadata {
 interface SourceSnapshotMetadata extends WorkspaceSourceMaterializationStatus {
   configHash: string
   cacheMaxAge?: number
+  items?: Record<string, LazyMaterializedMetadata>
 }
 
 function sourceSnapshotMetaKey(sourceKey: string) {
@@ -82,6 +83,15 @@ export async function hasCurrentSourceSnapshot(store: WorkspaceStore, source: Re
 
 async function writeSourceSnapshotMetadata(store: WorkspaceStore, metadata: SourceSnapshotMetadata) {
   await store.setMeta?.(sourceSnapshotMetaKey(metadata.source), metadata)
+}
+
+function materializedItemMeta(
+  snapshot: SourceSnapshotMetadata | undefined,
+  configHash: string,
+  path: string,
+) {
+  if (snapshot?.status !== "ready" || snapshot.configHash !== configHash) return undefined
+  return snapshot.items?.[path]
 }
 
 function contentSize(content: string | Uint8Array) {
@@ -138,6 +148,66 @@ async function* iterateSourceItems(source: ResolvedWorkspaceSource, ctx: SourceC
   }
 }
 
+interface MaterializationEntry {
+  content?: string | Uint8Array
+  item?: WorkspaceSourceItem
+  metadata: LazyMaterializedMetadata
+  path: string
+  reused?: WorkspaceStat
+}
+
+function createMaterializationEntry(
+  source: ResolvedWorkspaceSource,
+  item: WorkspaceSourceItem,
+  upstreamMeta: Record<string, unknown> | undefined,
+): MaterializationEntry {
+  const path = normalizeWorkspacePath(`${source.mountPath}/${item.path || item.key}`)
+  return {
+    content: item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2)),
+    item,
+    metadata: createLazyMaterializedMetadata({
+      sourceKey: source.key,
+      sourcePath: item.key,
+      validate: source.validate,
+    }, item, upstreamMeta),
+    path,
+  }
+}
+
+async function* iterateMaterializationEntries(
+  source: ResolvedWorkspaceSource,
+  ctx: SourceContext,
+  store: WorkspaceStore,
+  snapshot: SourceSnapshotMetadata | undefined,
+  configHash: string,
+): AsyncGenerator<MaterializationEntry> {
+  if (source.source.getItems) {
+    for await (const item of iterateSourceItems(source, ctx)) {
+      yield createMaterializationEntry(source, item, await source.source.getMeta?.(item.key, ctx))
+    }
+    return
+  }
+
+  for (const key of await source.source.getKeys(ctx)) {
+    const upstreamMeta = await source.source.getMeta?.(key, ctx)
+    const path = normalizeWorkspacePath(`${source.mountPath}/${key}`)
+    const previous = materializedItemMeta(snapshot, configHash, path)
+    if (upstreamMeta && previous?.source === source.key && previous.sourcePath === key && !hasSourceMetaChanged(previous, upstreamMeta)) {
+      const stat = await store.stat(path)
+      if (stat?.type === "file") {
+        yield {
+          metadata: previous,
+          path,
+          reused: stat,
+        }
+        continue
+      }
+    }
+
+    yield createMaterializationEntry(source, await source.source.getItem(key, ctx), upstreamMeta)
+  }
+}
+
 export async function materializeWorkspaceSources(
   definition: WorkspaceDefinition,
   store: WorkspaceStore,
@@ -188,20 +258,30 @@ export async function materializeWorkspaceSources(
       let commit: string | undefined
       const directorySet = new Set<string>(source.mountPath ? [source.mountPath] : [])
       const nextPaths = new Set<string>()
-      for await (const item of iterateSourceItems(source, ctx)) {
-        const content = item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2))
-        const path = normalizeWorkspacePath(`${source.mountPath}/${item.path || item.key}`)
+      const itemMetadata: Record<string, LazyMaterializedMetadata> = {}
+      for await (const entry of iterateMaterializationEntries(source, ctx, store, existing, configHash)) {
+        const path = entry.path
         nextPaths.add(path)
         const parts = path.split("/")
         for (let index = 1; index < parts.length; index++) directorySet.add(parts.slice(0, index).join("/"))
+        itemMetadata[path] = entry.metadata
+        if (entry.reused) {
+          commit ||= entry.metadata.ref || entry.metadata.sha
+          sourceFiles++
+          sourceBytes += entry.reused.size || 0
+          continue
+        }
+        const item = entry.item!
+        const content = entry.content!
         const metadata = item.metadata || {}
-        commit ||= readStringMeta(metadata, "ref") || readStringMeta(metadata, "sha")
+        commit ||= readStringMeta(metadata, "ref") || readStringMeta(metadata, "sha") || entry.metadata.ref || entry.metadata.sha
         await store.writeFile(path, {
           path,
           content,
           mediaType: item.mediaType,
           metadata: {
             ...metadata,
+            ...entry.metadata,
             source: source.key,
           },
         })
@@ -219,6 +299,7 @@ export async function materializeWorkspaceSources(
         materializedAt: new Date().toISOString(),
         files: sourceFiles,
         bytes: sourceBytes,
+        items: itemMetadata,
         cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
       }
       await writeSourceSnapshotMetadata(store, ready)
@@ -460,7 +541,7 @@ async function shouldReuseMaterializedFile(
 }
 
 function createLazyMaterializedMetadata(
-  resolution: ResolvedSourcePath,
+  resolution: Pick<ResolvedSourcePath, "sourceKey" | "sourcePath" | "validate">,
   item: WorkspaceSourceItem,
   upstreamMeta: Record<string, unknown> | undefined,
 ): LazyMaterializedMetadata {
