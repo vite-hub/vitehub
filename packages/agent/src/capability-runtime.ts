@@ -38,6 +38,8 @@ import type { Message } from "./messages.ts"
 import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName } from "@vite-hub/workspace"
 
 type ResolvedAgentOutputRenderer = (result: unknown) => MaybePromise<unknown>
+const defaultCapabilityRuntimePhases = ["configure", "prepare", "bind", "input", "resolve", "output"] as const
+type AgentCapabilityRuntimePhase = typeof defaultCapabilityRuntimePhases[number]
 
 export interface ResolvedAgentFinishExtensionProvider {
   id: string
@@ -67,6 +69,9 @@ export interface AgentCapabilityInvocationOptions<
   context?: AgentInvocationContextStore
   invoker?: AgentInvoker
   model?: AgentModelResolver<TRuntimeConfig, Name>
+  phases?: readonly AgentCapabilityRuntimePhase[]
+  resolveInstructions?: boolean
+  resolveTools?: boolean
   workspaceDefinition?: WorkspaceDefinition
 }
 
@@ -260,6 +265,7 @@ export async function resolveAgentCapabilities<
   try {
     for (const capability of capabilities) {
       await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, currentWorkspace, workspaceMode)
+      const phases = invocationOptions.phases || defaultCapabilityRuntimePhases
       const metadataContext = {
         ...runtimeContext,
         context: invocationContext,
@@ -372,19 +378,19 @@ export async function resolveAgentCapabilities<
         await callHooks("capability:close:after", capabilityContext, options?.hooks)
       })
 
-      for (const phase of ["configure", "prepare", "bind", "input", "resolve", "output"] as const) {
+      for (const phase of phases) {
         await callHooks(`capability:${phase}`, capabilityContext, options?.hooks)
         await capability[phase]?.(capabilityContext)
         await callHooks(`capability:${phase}:after`, capabilityContext, options?.hooks)
       }
 
-      if (capability.instructions !== undefined) {
+      if (invocationOptions.resolveInstructions !== false && capability.instructions !== undefined) {
         const values = await resolveInstructionValue(capability, capabilityContext)
         for (const value of values) {
           addInstructionBlock(capabilityInstructions, capability.id, value)
         }
       }
-      if (capability.tools) {
+      if (invocationOptions.resolveTools !== false && capability.tools) {
         const resolved = await resolveRuntimeValue(capability.tools as never, capabilityContext) as unknown
         if (isToolSet(resolved)) tools = { ...tools, ...resolved }
       }
