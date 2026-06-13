@@ -1,8 +1,20 @@
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { authenticated, AuthenticationRequiredError } from "../src/agent.ts"
 
 import type { AgentInvokerOptions, AgentInvokerResolveContext } from "@vite-hub/agent"
+
+const serverMocks = vi.hoisted(() => ({
+  getSession: vi.fn(),
+}))
+
+vi.mock("../src/server.ts", () => ({
+  getAuth: () => ({
+    api: {
+      getSession: serverMocks.getSession,
+    },
+  }),
+}))
 
 const defaultInvoker = {
   id: "anonymous:test",
@@ -37,6 +49,35 @@ async function resolve(options: AgentInvokerOptions, context = createContext()) 
 }
 
 describe("authenticated", () => {
+  beforeEach(() => {
+    serverMocks.getSession.mockReset()
+  })
+
+  it("reads Better Auth sessions authoritatively without refreshing cookies", async () => {
+    const request = new Request("https://example.com/api/agent", {
+      headers: { cookie: "better-auth.session_token=token_1" },
+    })
+    serverMocks.getSession.mockResolvedValue({
+      session: { id: "session_0" },
+      user: { email: "auth@example.com", id: "user_0" },
+    })
+
+    const invoker = await resolve(authenticated(), createContext({ request }))
+
+    expect(serverMocks.getSession).toHaveBeenCalledWith({
+      headers: request.headers,
+      query: {
+        disableCookieCache: true,
+        disableRefresh: true,
+      },
+    })
+    expect(invoker).toMatchObject({
+      id: "user_0",
+      kind: "authUser",
+      label: "auth@example.com",
+    })
+  })
+
   it("maps an authenticated Better Auth session to an Agent Invoker by default", async () => {
     const invoker = await resolve(authenticated({
       source: () => ({
@@ -63,6 +104,8 @@ describe("authenticated", () => {
       label: ({ user }) => user.name,
       meta: ({ session, user }) => ({
         audience: user.email,
+        authSessionId: "custom_session",
+        authUserId: "custom_user",
         token: session.token,
       }),
       source: () => ({
@@ -129,6 +172,13 @@ describe("authenticated", () => {
       required: false,
       source: () => undefined,
     }))).resolves.toBeUndefined()
+  })
+
+  it("preserves normal Agent Invoker resolution for optional non-HTTP invocations", async () => {
+    await expect(resolve(authenticated({
+      required: false,
+    }))).resolves.toBeUndefined()
+    expect(serverMocks.getSession).not.toHaveBeenCalled()
   })
 
   it("requires custom mappers to return an Agent Invoker", async () => {

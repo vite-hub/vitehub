@@ -95,7 +95,15 @@ export class AuthenticationRequiredError extends Error {
   }
 }
 
-type BetterAuthGetSession = (input: { headers: Headers }) => MaybePromise<unknown>
+interface BetterAuthGetSessionInput {
+  headers: Headers
+  query?: {
+    disableCookieCache?: boolean
+    disableRefresh?: boolean
+  }
+}
+
+type BetterAuthGetSession = (input: BetterAuthGetSessionInput) => MaybePromise<unknown>
 
 interface BetterAuthSessionApi {
   api?: {
@@ -141,12 +149,16 @@ export function authenticated<
 async function defaultAuthenticatedSource(
   context: AgentInvokerResolveContext,
 ): Promise<AuthenticatedSession | null | undefined> {
-  if (!context.request) {
-    throw new Error("[vitehub] authenticated() requires a request. Pass `source` for non-HTTP auth.")
-  }
+  if (!context.request) return undefined
 
   const auth = getAuth() as BetterAuthSessionApi
-  const session = await auth.api?.getSession?.({ headers: context.request.headers })
+  const session = await auth.api?.getSession?.({
+    headers: context.request.headers,
+    query: {
+      disableCookieCache: true,
+      disableRefresh: true,
+    },
+  })
   return normalizeAuthenticatedSession(session)
 }
 
@@ -189,9 +201,9 @@ async function createDefaultInvoker<
     kind,
     label,
     meta: {
+      ...meta,
       authUserId: readString(context.user.id) ?? userId,
       ...(sessionId ? { authSessionId: sessionId } : {}),
-      ...meta,
     },
   }
 }
