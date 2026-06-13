@@ -1330,7 +1330,17 @@ onBeforeUnmount(() => {
                   class="mb-2"
                   :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
                 />
-                <div v-if="fileRows.length" class="space-y-1">
+                <div
+                  v-if="isMetadataLoading"
+                  class="flex flex-col items-center gap-2 px-2 py-8 text-center"
+                >
+                  <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
+                  <div>
+                    <p class="text-sm font-medium text-toned">Loading workspace files.</p>
+                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
+                  </div>
+                </div>
+                <div v-else-if="fileRows.length" class="space-y-1">
                   <UButton
                     v-for="file in fileRows"
                     :key="file.path"
@@ -1361,16 +1371,6 @@ onBeforeUnmount(() => {
                     </template>
                   </UButton>
                 </div>
-                <div
-                  v-else-if="isMetadataLoading"
-                  class="flex flex-col items-center gap-2 px-2 py-8 text-center"
-                >
-                  <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
-                  <div>
-                    <p class="text-sm font-medium text-toned">Loading workspace files.</p>
-                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
-                  </div>
-                </div>
                 <UEmpty
                   v-else-if="metadataError"
                   icon="i-lucide-triangle-alert"
@@ -1397,7 +1397,17 @@ onBeforeUnmount(() => {
                   class="mb-2"
                   :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
                 />
-                <div v-if="visibleTools.length" class="space-y-2">
+                <div
+                  v-if="isMetadataLoading"
+                  class="flex flex-col items-center gap-2 px-2 py-8 text-center"
+                >
+                  <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
+                  <div>
+                    <p class="text-sm font-medium text-toned">Loading tools.</p>
+                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
+                  </div>
+                </div>
+                <div v-else-if="visibleTools.length" class="space-y-2">
                   <div
                     v-for="tool in visibleTools"
                     :key="tool.name"
@@ -1450,16 +1460,6 @@ onBeforeUnmount(() => {
                     </div>
                   </div>
                 </div>
-                <div
-                  v-else-if="isMetadataLoading"
-                  class="flex flex-col items-center gap-2 px-2 py-8 text-center"
-                >
-                  <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
-                  <div>
-                    <p class="text-sm font-medium text-toned">Loading tools.</p>
-                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
-                  </div>
-                </div>
                 <UEmpty
                   v-else-if="metadataError"
                   icon="i-lucide-triangle-alert"
@@ -1486,7 +1486,17 @@ onBeforeUnmount(() => {
                   class="mb-2"
                   :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
                 />
-                <div v-if="state.instructions?.length" class="min-w-0 space-y-4 px-1">
+                <div
+                  v-if="isMetadataLoading"
+                  class="flex flex-col items-center gap-2 px-2 py-8 text-center"
+                >
+                  <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
+                  <div>
+                    <p class="text-sm font-medium text-toned">Loading instructions.</p>
+                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
+                  </div>
+                </div>
+                <div v-else-if="state.instructions?.length" class="min-w-0 space-y-4 px-1">
                   <div
                     v-for="(instruction, index) in state.instructions"
                     :key="index"
@@ -1503,16 +1513,6 @@ onBeforeUnmount(() => {
                         {{ instructionContent(instruction) }}
                       </Comark>
                     </Suspense>
-                  </div>
-                </div>
-                <div
-                  v-else-if="isMetadataLoading"
-                  class="flex flex-col items-center gap-2 px-2 py-8 text-center"
-                >
-                  <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
-                  <div>
-                    <p class="text-sm font-medium text-toned">Loading instructions.</p>
-                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
                   </div>
                 </div>
                 <UEmpty
