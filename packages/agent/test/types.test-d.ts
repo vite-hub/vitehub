@@ -308,11 +308,10 @@ describe("agent public types", () => {
     defineAgent({
       driver: {
         credentials: { label: "local Codex", source: "ambient" },
-        harness: {
-          generate({ input }) {
-            expectTypeOf(input.prompt).toEqualTypeOf<AgentRunInput["prompt"]>()
-            return { text: "ok" }
-          },
+        harness: { provider: "codex" },
+        sandbox({ input }) {
+          expectTypeOf(input.prompt).toEqualTypeOf<AgentRunInput["prompt"]>()
+          return {}
         },
       },
     })
@@ -321,7 +320,7 @@ describe("agent public types", () => {
     const _mixedDriver: AgentDriver = { model: "model", run: () => "ok" }
 
     // @ts-expect-error harness permissions are intentionally not public in V1
-    const _permissionDriver: AgentDriver = { harness: { generate: () => ({ text: "ok" }) }, permissions: "bypass" }
+    const _permissionDriver: AgentDriver = { harness: { provider: "codex" }, permissions: "bypass" }
 
     // @ts-expect-error root model options cannot be combined with driver
     defineAgent({ driver: { model: "model" }, model: "model" })

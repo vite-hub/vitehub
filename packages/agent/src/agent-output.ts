@@ -117,12 +117,24 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     if (!finished) yield { type: "finish" }
     return
   }
-  const result = value as { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> }
+  const result = value as { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> }
   const fullStream = result.fullStream
   if (fullStream) {
     const toolNames = new Map<string, string>()
     let finished = false
     for await (const chunk of fullStream) {
+      const event = toAgentStreamEvent(chunk, toolNames)
+      if (!event) continue
+      if (event.type === "finish") finished = true
+      yield event
+    }
+    if (!finished) yield { type: "finish" }
+    return
+  }
+  if (result.stream) {
+    const toolNames = new Map<string, string>()
+    let finished = false
+    for await (const chunk of result.stream) {
       const event = toAgentStreamEvent(chunk, toolNames)
       if (!event) continue
       if (event.type === "finish") finished = true

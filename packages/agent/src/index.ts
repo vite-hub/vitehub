@@ -24,6 +24,7 @@ import {
 import type { ResolvedAgentFinishExtensionProvider } from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 import { finalizeUiMessageStreamOutput } from "./stream-output.ts"
+import { createHarnessAgentAdapter } from "./harness-agent.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -58,7 +59,10 @@ import type {
   AgentCapabilityTypeContract,
   AgentDefinition,
   AgentDriver,
+  AgentHarnessCredentialSource,
   AgentHarnessDriverInput,
+  AgentHarnessSandboxInput,
+  AgentHarnessSessionKey,
   AgentFinishEvent,
   AgentChatOptions,
   AgentInput,
@@ -145,10 +149,10 @@ export type {
   AgentFinishEvent,
   AgentFinishHook,
   AgentHandlerOptions,
-  AgentHarnessAdapterLike,
   AgentHarnessCredentialSource,
   AgentHarnessDriver,
   AgentHarnessDriverInput,
+  AgentHarnessSandboxInput,
   AgentHarnessSessionKey,
   AgentInput,
   AgentInstructionBlock,
@@ -298,8 +302,11 @@ type NormalizedAgentDriver<
     model: AgentModelResolver<TRuntimeConfig>
   }
   | {
-    harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
+    credentials?: AgentHarnessCredentialSource
+    harness: AgentHarnessDriverInput
     kind: "harness"
+    sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS>
+    sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
   }
   | {
     kind: "run"
@@ -560,11 +567,17 @@ function normalizeExplicitAgentDriver<
   }
   if (keys[0] === "harness") {
     if (!driver.harness || (typeof driver.harness !== "object" && typeof driver.harness !== "function")) {
-      throw new TypeError("[vitehub] defineAgent({ driver.harness }) must be a harness adapter or adapter factory.")
+      throw new TypeError("[vitehub] defineAgent({ driver.harness }) must be an AI SDK harness adapter.")
+    }
+    if (hasOwnDefined(driver, "sandbox") && (!driver.sandbox || (typeof driver.sandbox !== "object" && typeof driver.sandbox !== "function"))) {
+      throw new TypeError("[vitehub] defineAgent({ driver.sandbox }) must be an AI SDK harness sandbox provider or resolver.")
     }
     return {
-      harness: driver.harness as AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>,
+      credentials: driver.credentials as AgentHarnessCredentialSource | undefined,
+      harness: driver.harness as AgentHarnessDriverInput,
       kind: "harness",
+      sandbox: driver.sandbox as AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS> | undefined,
+      sessionKey: driver.sessionKey as AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS> | undefined,
     }
   }
   if (typeof driver.run !== "function") {
@@ -609,15 +622,6 @@ function normalizeAgentDriver<
   throw new Error("[vitehub] Agent Driver is required. Use defineAgent({ driver: { model } }) or defineAgent({ driver: { run } }).")
 }
 
-function normalizeHarnessDriver<CALL_OPTIONS>(harness: AgentHarnessDriverInput<AgentRuntimeConfig, CALL_OPTIONS>): AgentAdapter<CALL_OPTIONS> | AgentAdapterFactory<AgentRuntimeConfig, CALL_OPTIONS> {
-  return typeof harness === "function"
-    ? harness as AgentAdapterFactory<AgentRuntimeConfig, CALL_OPTIONS>
-    : {
-        ...harness,
-        name: harness.name || "harness",
-      } as AgentAdapter<CALL_OPTIONS>
-}
-
 function defineBaseAgent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -639,7 +643,7 @@ function defineBaseAgent<
           model: driver.model,
         } as never) as AgentAdapter<CALL_OPTIONS>
       : driver.kind === "harness"
-        ? normalizeHarnessDriver<CALL_OPTIONS>(driver.harness as never)
+        ? createHarnessAgentAdapter<CALL_OPTIONS>(driver as never)
         : undefined
     if (!resolvedAdapter) {
       throw new Error("[vitehub] Agent Driver is required unless the agent defines a custom run() handler.")

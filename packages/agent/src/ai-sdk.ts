@@ -591,7 +591,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       if (context.workspace && tools && "materialize_sources" in tools) {
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.devtools?.reportToolStep)
       }
-      const result = await agent.generate(getCallInput(context) as never) as GenerateTextResult<ToolSet, never>
+      const result = await agent.generate(getCallInput(context) as never) as GenerateTextResult<ToolSet, never, never>
       const text = result.text.trim()
       if (text) return result as unknown as AgentAdapterResult
 
@@ -624,7 +624,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     ...(staticTools ? { tools: staticTools } : {}),
     async stream(context) {
       const { agent, model } = await createAgent(options, context)
-      const result = await agent.stream(getCallInput(context) as never) as StreamTextResult<ToolSet, never>
+      const result = await agent.stream(getCallInput(context) as never) as StreamTextResult<ToolSet, never, never>
       const execution = options.execution ?? options.modelExecution
       return withWorkspaceFallbackStreamResult(result, model as never, context, getFallbackOptions(execution?.workspaceFallback))
     },

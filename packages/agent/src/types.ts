@@ -487,25 +487,16 @@ export type AgentHarnessSessionKey<
   | string
   | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<string | undefined>)
 
-export interface AgentHarnessAdapterLike<
-  TOptions = unknown,
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
-> {
-  generate(context: AgentAdapterRunContext<TOptions, TRuntimeConfig, Name>): MaybePromise<AgentAdapterResult | Response | AsyncIterable<StreamEvent> | unknown>
-  metadata?(context: AgentAdapterMetadataContext<TRuntimeConfig, Name>): MaybePromise<AgentDevtoolsMetadata | undefined>
-  name?: string
-  stream?(context: AgentAdapterRunContext<TOptions, TRuntimeConfig, Name>): MaybePromise<Response | AsyncIterable<StreamEvent> | AgentAdapterResult | unknown>
-  tools?: unknown
-}
+export type AgentHarnessDriverInput =
+  | object
+  | ((...args: never[]) => unknown)
 
-export type AgentHarnessDriverInput<
+export type AgentHarnessSandboxInput<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  Name extends WorkspaceName = WorkspaceName,
 > =
-  | AgentHarnessAdapterLike<CALL_OPTIONS, TRuntimeConfig, Name>
-  | AgentAdapterFactory<TRuntimeConfig, CALL_OPTIONS, Name>
+  | object
+  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<object | undefined>)
 
 export interface AgentModelDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -519,6 +510,7 @@ export interface AgentModelDriver<
   permissionMode?: never
   permissions?: never
   run?: never
+  sandbox?: never
   sessionKey?: never
 }
 
@@ -529,12 +521,13 @@ export interface AgentHarnessDriver<
 > {
   credentials?: AgentHarnessCredentialSource
   execution?: never
-  harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS, Name>
+  harness: AgentHarnessDriverInput
   instructions?: never
   model?: never
   permissionMode?: never
   permissions?: never
   run?: never
+  sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS>
   sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
 }
 
@@ -550,6 +543,7 @@ export interface AgentRunDriver<
   permissionMode?: never
   permissions?: never
   run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
+  sandbox?: never
   sessionKey?: never
 }
 
