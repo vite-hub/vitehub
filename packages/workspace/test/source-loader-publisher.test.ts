@@ -399,7 +399,6 @@ describe("sources, loaders, and publishers", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("github-lazy-tree-cache")
-    await workspace.sync()
 
     await expect(workspace.list("docs")).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "docs/README.md", type: "file" }),
@@ -437,7 +436,6 @@ describe("sources, loaders, and publishers", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("github-lazy-content-cache")
-    await workspace.sync()
 
     await expect(Promise.all([
       workspace.readFile("docs/README.md"),

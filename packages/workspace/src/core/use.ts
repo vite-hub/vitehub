@@ -42,6 +42,10 @@ import type {
 
 type WorkspaceWritablePath<Name extends WorkspaceName> = WorkspaceAssetPath<Name> | (string & {})
 
+type WorkspaceWithDefinitionSync = Workspace & {
+  __syncWorkspaceDefinition?: () => Promise<void>
+}
+
 export interface UseWorkspaceOptions {
   mode?: "read" | "write"
 }
@@ -146,7 +150,7 @@ function createLazyWorkspace(name: WorkspaceName): Workspace {
   async function resolveSyncedWorkspace() {
     const workspace = await resolveWorkspace()
     if (!syncPromise) {
-      const next = workspace.sync()
+      const next = (workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition?.() ?? Promise.resolve()
       syncPromise = next
       next.catch(() => { syncPromise = undefined })
     }
@@ -159,9 +163,9 @@ function createLazyWorkspace(name: WorkspaceName): Workspace {
     async sync(options) {
       const resolved = await resolveWorkspace()
       const next = resolved.sync(options)
-      syncPromise = next
+      syncPromise = next.then(() => undefined)
       next.catch(() => { syncPromise = undefined })
-      await next
+      return await next
     },
     async readFile(path, options) {
       return await (await resolveSyncedWorkspace()).readFile(normalizePath(path), options as never)

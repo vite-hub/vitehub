@@ -2,7 +2,7 @@ import { executeHttpRequest } from "@vite-hub/internal/http-request"
 import { posix } from "node:path"
 
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
-import { markLiveWorkspaceSource } from "./config.ts"
+import { markLiveWorkspaceSource } from "./live.ts"
 
 import type { WorkspaceContent, WorkspaceSource } from "../core/types.ts"
 
@@ -24,7 +24,7 @@ export interface FetchSourceStandardSchemaV1<T = unknown> {
   }
 }
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "sync">
 
 export interface FetchSourceRequestOptions {
   body?: unknown
@@ -61,8 +61,9 @@ export function fetch<TResponse = unknown, TOutput = TResponse>(options: FetchSo
       url: String(options.url),
     },
     instructions: options.instructions,
-    materialize: "lazy",
+    materialize: options.materialize || (options.sync ? "none" : "lazy"),
     mount: mountPath,
+    sync: options.sync,
     async getKeys() {
       return [key]
     },
