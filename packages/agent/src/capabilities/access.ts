@@ -1,6 +1,7 @@
 import { workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
-import { createWorkspaceSourceResolutionFacade, createWorkspaceTools, normalizeWorkspaceSources } from "@vite-hub/workspace"
+import { normalizeAgentWorkspaceSource } from "../workspace-source-metadata.ts"
+import { createWorkspaceSourceResolutionFacade, createWorkspaceTools } from "@vite-hub/workspace"
 
 import type {
   AgentCallbackContext,
@@ -420,8 +421,7 @@ function sourceMountPath(source: string, workspaceDefinition?: WorkspaceDefiniti
   if (!definition) {
     throw new Error(`[vitehub] Workspace Scope source grant references unknown source "${source}".`)
   }
-  const [resolved] = normalizeWorkspaceSources({ [source]: definition })
-  const mountPath = resolved?.mountPath ?? source
+  const mountPath = normalizeAgentWorkspaceSource(source, definition).mountPath
   if (normalizeScopePath(mountPath) === "") {
     throw new Error(`[vitehub] Workspace Scope source grant "${source}" is root-mounted; grant explicit paths instead.`)
   }
