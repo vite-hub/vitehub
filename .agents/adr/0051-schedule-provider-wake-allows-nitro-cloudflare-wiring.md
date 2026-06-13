@@ -14,20 +14,21 @@ The downstream can write a tiny Nitro hook adapter, but ViteHub's Schedule primi
 
 ## Decision
 
-Schedule is the only accepted exception to ADR 0040's ban on package-owned Nitro wiring. `@vite-hub/schedule` may generate Nitro Cloudflare hook/config files from its Vite Integration when Static Schedule Definitions need to run inside a Nitro-owned Cloudflare Worker.
+Schedule is the only accepted exception to ADR 0040's ban on package-owned Nitro wiring. `@vite-hub/schedule` may generate Nitro Cloudflare hook/config files from its Vite Integration when Static Schedule Definitions need to run inside a Nitro-owned Cloudflare Worker. For Nuxt apps, `@vite-hub/schedule/nuxt` may install the Vite Integration and merge that generated Provider Wake output into Nuxt's top-level Nitro config because Nuxt does not consume unknown `nitro` config returned from nested Vite plugins.
 
 This exception is limited to Schedule Provider Wake:
 
 - The public authoring surface remains `defineSchedule(...)` plus `hubSchedule()`.
+- The Nuxt module is Provider Wake installation, not a second Schedule Definition authoring model.
 - Schedule identity and discovery remain ViteHub-owned Vite Integration behavior, not Nitro discovery.
 - Generated Nitro files are Provider Output, not public app-facing imports.
 - The generated runtime hook may call ViteHub Schedule runtime helpers, but it must not route execution through Nitro Task.
 - The generated config may contribute Cloudflare cron triggers required to wake the Worker.
-- This exception does not create public `@vite-hub/schedule/nitro` exports, package-wide Nitro modules, Vite plugin `.nitro` adapters, or a precedent for other packages.
+- This exception does not create public `@vite-hub/schedule/nitro` exports, package-wide Nitro modules, Vite plugin `.nitro` adapters, Nitro-specific discovery, or a precedent for other packages.
 
 ## Consequences
 
-Nitro consumers can use ViteHub Schedule Definitions for Cloudflare cron without reintroducing Nitro Task or writing local Schedule bridge code.
+Nitro and Nuxt consumers can use ViteHub Schedule Definitions for Cloudflare cron without reintroducing Nitro Task or writing local Schedule bridge code.
 
 This deliberately trades ADR 0040 purity for the Schedule Package's Provider Wake responsibility. The exception should stay narrow. If Agent, Workspace, Env, Blob, Database, or other packages need host-specific runtime entrypoints later, they need their own ADR rather than copying Schedule's Nitro wiring.
 

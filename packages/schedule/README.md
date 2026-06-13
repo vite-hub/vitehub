@@ -57,7 +57,7 @@ export default defineConfig({
 
 ## Vite Integration
 
-Use `hubSchedule()` in Vite to discover `server/schedules/<name>.ts` and `src/<name>.schedule.ts`. Static schedules can produce provider cron output, including [Vercel Cron Jobs](https://vercel.com/docs/cron-jobs/). For Nitro apps on Cloudflare, Schedule Provider Wake writes generated `server/plugins/vitehub-schedule.ts` and `server/modules/vitehub-schedule.ts` files so Nitro can register the `cloudflare:scheduled` runtime hook and emit `cloudflare.wrangler.triggers.crons` during standalone `nitro build`. In automatic mode, `server/schedules/*` routes through Nitro Provider Wake while suffix schedules keep standalone provider output.
+Use `hubSchedule()` in Vite to discover `server/schedules/<name>.ts` and `src/<name>.schedule.ts`. Static schedules can produce provider cron output, including [Vercel Cron Jobs](https://vercel.com/docs/cron-jobs/). For Nitro apps on Cloudflare, Schedule Provider Wake writes generated `.vitehub/nitro/schedule/*` files so Nitro can register the `cloudflare:scheduled` runtime hook and emit `cloudflare.wrangler.triggers.crons` during standalone `nitro build`. In Nuxt apps, install `@vite-hub/schedule/nuxt` so the same Provider Wake output is merged into Nuxt's top-level Nitro config. In automatic mode, `server/schedules/*` routes through Nitro Provider Wake while suffix schedules keep standalone provider output.
 
 When a host owns its own Cloudflare scheduled-event bridge, use the runtime helper instead of reimplementing registry matching:
 

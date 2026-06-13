@@ -55,11 +55,22 @@ describe("Vite schedule integration", () => {
       },
     }
     const plugin = hubSchedule()
-    await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+    const config = await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
       userConfig,
       { command: "build", mode: "production" },
     )
 
+    expect(config).toMatchObject({
+      nitro: {
+        cloudflare: {
+          wrangler: {
+            triggers: { crons: ["0 0 * * *", "*/10 * * * *"] },
+          },
+        },
+        modules: ["./.vitehub/nitro/schedule/module.ts"],
+        plugins: [".vitehub/nitro/schedule/plugin.ts"],
+      },
+    })
     expect(userConfig).toMatchObject({
       nitro: {
         cloudflare: {
@@ -80,6 +91,59 @@ describe("Vite schedule integration", () => {
     await expect(readFile(join(root, ".vitehub", "schedule", "registry.d.ts"), "utf8")).resolves.toContain("ScheduleDefinition")
   })
 
+  it("installs Schedule Provider Wake through the Nuxt module", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nuxt-"))
+    await mkdir(join(root, "server", "schedules"), { recursive: true })
+    await writeFile(join(root, "server", "schedules", "mirror.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "export default defineSchedule({ cron: '*/15 * * * *', handler: () => {} })",
+      "",
+    ].join("\n"), "utf8")
+
+    const { default: scheduleNuxt } = await import("../src/nuxt.ts")
+    let nitroConfigHook: ((nitroConfig: Record<string, unknown>) => void | Promise<void>) | undefined
+    const nuxt = {
+      hook(name: "nitro:config", handler: (nitroConfig: Record<string, unknown>) => void | Promise<void>) {
+        if (name === "nitro:config") nitroConfigHook = handler
+      },
+      options: {
+        dev: false,
+        rootDir: root,
+        srcDir: root,
+        vite: {} as { plugins?: unknown[] },
+      },
+    }
+
+    scheduleNuxt({}, nuxt)
+
+    expect(nuxt.options.vite.plugins).toEqual([
+      expect.objectContaining({ name: "@vite-hub/schedule/vite" }),
+    ])
+    expect(nitroConfigHook).toBeDefined()
+
+    const nitroConfig: Record<string, unknown> = {
+      cloudflare: {
+        wrangler: {
+          triggers: { crons: ["0 0 * * *"] },
+        },
+      },
+      modules: ["existing-module"],
+    }
+    await nitroConfigHook?.(nitroConfig)
+
+    expect(nitroConfig).toMatchObject({
+      cloudflare: {
+        wrangler: {
+          triggers: { crons: ["0 0 * * *", "*/15 * * * *"] },
+        },
+      },
+      modules: ["existing-module", "./.vitehub/nitro/schedule/module.ts"],
+      plugins: [".vitehub/nitro/schedule/plugin.ts"],
+    })
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")).resolves.toContain("cloudflare:scheduled")
+    await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "module.ts"), "utf8")).resolves.toContain("\"*/15 * * * *\"")
+  })
+
   it("discovers project server schedules when the Vite root is nested", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-schedule-nested-root-"))
     const appRoot = join(root, "app")
@@ -98,13 +162,24 @@ describe("Vite schedule integration", () => {
 
     const userConfig: Record<string, unknown> = { root: appRoot }
     const plugin = hubSchedule()
-    await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+    const config = await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
       userConfig,
       { command: "build", mode: "production" },
     )
     resolvePluginConfig(plugin, appRoot)
     const registry = await loadScheduleRegistry(plugin)
 
+    expect(config).toMatchObject({
+      nitro: {
+        cloudflare: {
+          wrangler: {
+            triggers: { crons: ["0 4 * * *"] },
+          },
+        },
+        modules: ["./.vitehub/nitro/schedule/module.ts"],
+        plugins: [".vitehub/nitro/schedule/plugin.ts"],
+      },
+    })
     expect(userConfig).toMatchObject({
       nitro: {
         cloudflare: {
@@ -163,7 +238,17 @@ describe("Vite schedule integration", () => {
       { command: "build", mode: "production" },
     )
 
-    expect(config).toBeNull()
+    expect(config).toMatchObject({
+      nitro: {
+        cloudflare: {
+          wrangler: {
+            triggers: { crons: ["0 0 * * *"] },
+          },
+        },
+        modules: ["./.vitehub/nitro/schedule/module.ts"],
+        plugins: [".vitehub/nitro/schedule/plugin.ts"],
+      },
+    })
     expect(userConfig).toMatchObject({
       nitro: {
         cloudflare: {
@@ -195,11 +280,18 @@ describe("Vite schedule integration", () => {
       },
     }
     const plugin = hubSchedule()
-    await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+    const config = await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
       userConfig,
       { command: "build", mode: "production" },
     )
 
+    expect(config).toMatchObject({
+      nitro: {
+        hooks: { "build:before": expect.any(Function) },
+        modules: ["./.vitehub/nitro/schedule/module.ts"],
+        plugins: [".vitehub/nitro/schedule/plugin.ts"],
+      },
+    })
     const buildBefore = ((userConfig.nitro as { hooks?: Record<string, unknown> }).hooks?.["build:before"]) as () => void
     buildBefore()
 

@@ -27,6 +27,12 @@ export interface ScheduleVitePluginOptions {
   projectRoot?: string
 }
 
+export interface ScheduleNitroConfigOptions extends ScheduleVitePluginOptions {
+  command?: "build" | "serve"
+  nitro?: unknown
+  root?: string
+}
+
 export interface ScheduleVitePlugin {
   name: string
   [hook: string]: unknown
@@ -46,6 +52,14 @@ type NitroConfig = Record<string, unknown> & {
 
 type ViteConfigWithNitro = UserConfig & {
   nitro?: NitroConfig
+}
+
+function resolveSchedulePluginRoots(root: string, options: Pick<ScheduleVitePluginOptions, "projectRoot"> = {}) {
+  const resolvedViteRoot = resolve(root)
+  const resolvedProjectRoot = resolveViteHubProjectRoot(resolvedViteRoot, {
+    projectRoot: options.projectRoot,
+  })
+  return { projectRoot: resolvedProjectRoot, viteRoot: resolvedViteRoot }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -212,20 +226,30 @@ function shouldEmitStandaloneProviderOutput(definitions: DiscoveredScheduleDefin
   return definitions.length > 0
 }
 
+export async function createScheduleNitroConfig(options: ScheduleNitroConfigOptions = {}): Promise<NitroConfig | null> {
+  const roots = resolveSchedulePluginRoots(options.root || process.cwd(), options)
+  const definitions = discoverScheduleDefinitions({
+    rootDir: roots.viteRoot,
+    serverRootDir: roots.projectRoot,
+  })
+  if (definitions.length === 0 || !shouldInstallNitroSchedulePlugin(definitions, options)) {
+    return null
+  }
+
+  const nitroDefinitions = selectNitroScheduleDefinitions(definitions, options)
+  const crons = options.command === "build"
+    ? [...new Set((await readDefinitionCrons(nitroDefinitions)).values())]
+    : []
+  const plugin = await writeNitroCloudflarePlugin(roots.projectRoot, nitroDefinitions, crons)
+  return mergeNitroScheduleConfig(options.nitro, { crons, plugin })
+}
+
 export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVitePlugin {
   let resolved: ResolvedConfig | undefined
   let emitStandaloneProviderOutput = true
   let projectRoot: string | undefined
   let standaloneProviderSource: DiscoveredScheduleDefinition["source"] | undefined
   let viteRoot: string | undefined
-
-  function resolveSchedulePluginRoots(root: string) {
-    const resolvedViteRoot = resolve(root)
-    const resolvedProjectRoot = resolveViteHubProjectRoot(resolvedViteRoot, {
-      projectRoot: options.projectRoot,
-    })
-    return { projectRoot: resolvedProjectRoot, viteRoot: resolvedViteRoot }
-  }
 
   function discoverViteSchedules() {
     if (!projectRoot || !viteRoot) {
@@ -264,7 +288,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
     name: SCHEDULE_VITE_PLUGIN_NAME,
     enforce: "pre",
     async config(config, env) {
-      const roots = resolveSchedulePluginRoots(config.root || process.cwd())
+      const roots = resolveSchedulePluginRoots(config.root || process.cwd(), options)
       const definitions = discoverScheduleDefinitions({
         rootDir: roots.viteRoot,
         serverRootDir: roots.projectRoot,
@@ -277,17 +301,19 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       if (!shouldInstallNitroSchedulePlugin(definitions, options)) {
         return null
       }
-      const nitroDefinitions = selectNitroScheduleDefinitions(definitions, options)
-      const crons = env.command === "build"
-        ? [...new Set((await readDefinitionCrons(nitroDefinitions)).values())]
-        : []
-      const plugin = await writeNitroCloudflarePlugin(roots.projectRoot, nitroDefinitions, crons)
-      ;(config as ViteConfigWithNitro).nitro = mergeNitroScheduleConfig((config as { nitro?: unknown }).nitro, { crons, plugin })
-      return null
+      const nitro = await createScheduleNitroConfig({
+        ...options,
+        command: env.command,
+        nitro: (config as { nitro?: unknown }).nitro,
+        root: config.root || process.cwd(),
+      })
+      if (!nitro) return null
+      ;(config as ViteConfigWithNitro).nitro = nitro
+      return { nitro } as unknown as Omit<UserConfig, "plugins">
     },
     configResolved(config) {
       resolved = config
-      const roots = resolveSchedulePluginRoots(config.root)
+      const roots = resolveSchedulePluginRoots(config.root, options)
       projectRoot = roots.projectRoot
       viteRoot = roots.viteRoot
     },
