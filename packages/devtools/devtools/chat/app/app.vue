@@ -60,6 +60,7 @@ const sidebarWidth = ref(340)
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
 let metadataRefreshTimeout: ReturnType<typeof setTimeout> | undefined
+let metadataRefreshEpoch = 0
 let stopSidebarResize: (() => void) | undefined
 
 const disconnectedStatusMessage = "Connect through Vite DevTools to inspect a real chat runtime."
@@ -399,6 +400,8 @@ async function materializeFile(file: ChatDevtoolsFileTreeItem) {
     return
   }
 
+  metadataRefreshEpoch += 1
+  stopMetadataRefresh()
   setFileStatus(file.path, "updating")
   try {
     const bridgeState = await callBridgeState({
@@ -641,10 +644,15 @@ async function callBridgeState(body: Record<string, unknown>, signal?: AbortSign
   }
 }
 
-async function refresh() {
+function canApplyMetadataRefresh(epoch: number | undefined) {
+  return epoch === undefined || epoch === metadataRefreshEpoch
+}
+
+async function refresh(options: { metadataRefreshEpoch?: number } = {}) {
   if (!shouldPreferRpcBridge()) {
     const bridgeState = await callBridgeState({ action: "get-state", ...selectedInvokerRequest() })
     if (bridgeState) {
+      if (!canApplyMetadataRefresh(options.metadataRefreshEpoch)) return
       applyState(bridgeState)
       error.value = undefined
       return
@@ -652,10 +660,12 @@ async function refresh() {
   }
 
   try {
-    applyState(await callRpc<ChatDevtoolsStateResult>(
+    const next = await callRpc<ChatDevtoolsStateResult>(
       chatDevtoolsGetStateRpc,
       selectedInvokerRequest(),
-    ))
+    )
+    if (!canApplyMetadataRefresh(options.metadataRefreshEpoch)) return
+    applyState(next)
     error.value = undefined
   }
   catch (cause) {
@@ -665,8 +675,9 @@ async function refresh() {
 }
 
 async function refreshFromBridge(chat?: string) {
+  const refreshEpoch = metadataRefreshEpoch
   if (shouldPreferRpcBridge()) {
-    await refresh()
+    await refresh({ metadataRefreshEpoch: refreshEpoch })
     return
   }
 
@@ -676,11 +687,12 @@ async function refreshFromBridge(chat?: string) {
     ...selectedInvokerRequest(),
   })
   if (bridgeState) {
+    if (!canApplyMetadataRefresh(refreshEpoch)) return
     applyState(bridgeState)
     error.value = undefined
     return
   }
-  await refresh()
+  await refresh({ metadataRefreshEpoch: refreshEpoch })
 }
 
 async function pollFinalBridgeState(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, text: string }, signal: AbortSignal) {
