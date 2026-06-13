@@ -237,11 +237,10 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
     const config = plugin.config as (
-      config: { root: string, workspace?: { store?: { branch?: string, provider: "github", repository: string, root: string } } },
+      config: { nitro?: { plugins?: string[] }, root: string, workspace?: { store?: { branch?: string, provider: "github", repository: string, root: string } } },
       env: { command: "build", mode: string },
     ) => Promise<{ nitro?: { plugins?: string[] } }>
-
-    await expect(config({
+    const userConfig: Parameters<typeof config>[0] = {
       root,
       workspace: {
         store: {
@@ -251,11 +250,14 @@ describe("hubWorkspace", () => {
           root: "app/server/workspaces/mirror",
         },
       },
-    }, { command: "build", mode: "production" })).resolves.toMatchObject({
+    }
+
+    await expect(config(userConfig, { command: "build", mode: "production" })).resolves.toMatchObject({
       nitro: {
         plugins: [".vitehub/nitro/workspace/plugin.ts"],
       },
     })
+    expect(userConfig.nitro).toMatchObject({ plugins: [".vitehub/nitro/workspace/plugin.ts"] })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(pluginSource).toContain("configureCloudflareWorkspaceRuntime")
@@ -271,21 +273,23 @@ describe("hubWorkspace", () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
     const config = plugin.config as (
-      config: { root: string, workspace?: { root?: string, store?: { provider: "local" } } },
+      config: { nitro?: { plugins?: string[] }, root: string, workspace?: { root?: string, store?: { provider: "local" } } },
       env: { command: "serve", mode: string },
     ) => Promise<{ nitro?: { plugins?: string[] } }>
-
-    await expect(config({
+    const userConfig: Parameters<typeof config>[0] = {
       root,
       workspace: {
         root: "server/workspaces",
         store: { provider: "local" },
       },
-    }, { command: "serve", mode: "development" })).resolves.toMatchObject({
+    }
+
+    await expect(config(userConfig, { command: "serve", mode: "development" })).resolves.toMatchObject({
       nitro: {
         plugins: [".vitehub/nitro/workspace/plugin.ts"],
       },
     })
+    expect(userConfig.nitro).toMatchObject({ plugins: [".vitehub/nitro/workspace/plugin.ts"] })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(pluginSource).toContain("setWorkspaceRuntimeConfig")

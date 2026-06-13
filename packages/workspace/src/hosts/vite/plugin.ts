@@ -172,7 +172,9 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       }
       if (shouldInstallRuntimeWorkspacePlugin(workspaceOptions, normalized)) {
         await writeNitroWorkspacePlugin(roots.projectRoot, normalized)
-        viteConfig.nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
+        const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
+        ;(config as ViteConfigWithWorkspaceNitro).nitro = nitro
+        viteConfig.nitro = nitro
       }
       return viteConfig
     },
