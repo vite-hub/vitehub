@@ -267,6 +267,19 @@ function metadataErrorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : "Chat DevTools metadata inspection failed."
 }
 
+function materializedSourceKeys(metadata: ChatDevtoolsMetadata | undefined): string[] {
+  const sources = new Set<string>()
+  const pending = [...(metadata?.files || [])]
+  while (pending.length) {
+    const file = pending.shift()!
+    if (file.source && (file.status === "ready" || file.materialized || file.materializedAt)) {
+      sources.add(file.source)
+    }
+    pending.push(...(file.children || []))
+  }
+  return [...sources]
+}
+
 async function startMetadataResolution(
   entry: ChatDevtoolsAgentEntry,
   selection: ChatDevtoolsInvokerSelection = {},
@@ -693,8 +706,8 @@ async function materializeDevtoolsSource(
       input: createDevtoolsMetadataInput(metadataSelection),
       ...(input.path ? { path: input.path } : {}),
       ...(input.source ? { source: input.source } : {}),
+      sources: materializedSourceKeys(entry.metadata),
     } as never)
-    entry.metadataStaticKey = metadataStaticKey(entry.metadata)
     entry.metadataSelectionKey = metadataSelectionKey(metadataSelection)
     entry.metadataStatus = "ready"
     entry.metadataTask = undefined

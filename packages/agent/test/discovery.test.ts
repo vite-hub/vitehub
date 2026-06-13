@@ -564,6 +564,18 @@ describe("agent chat capability discovery", () => {
               })
             },
           }),
+          portal: source.custom({
+            cache: { maxAge: 60 },
+            fingerprint: { source: "portal" },
+            materialize: "lazy",
+            mount: "portal",
+            async getKeys() {
+              return ["package.json"]
+            },
+            async getItem(key) {
+              return { content: "{\"name\":\"portal\"}\n", key }
+            },
+          }),
         },
       },
       run: () => "ok",
@@ -579,6 +591,12 @@ describe("agent chat capability discovery", () => {
         materialized: false,
         path: "ingestion",
         source: "ingestion",
+        status: "lazy",
+      }),
+      expect.objectContaining({
+        materialized: false,
+        path: "portal",
+        source: "portal",
         status: "lazy",
       }),
     ])
@@ -608,6 +626,54 @@ describe("agent chat capability discovery", () => {
         materialized: true,
         path: "ingestion",
         source: "ingestion",
+        status: "ready",
+      }),
+      expect.objectContaining({
+        materialized: false,
+        path: "portal",
+        source: "portal",
+        status: "lazy",
+      }),
+    ])
+
+    const nextState = await invokeState(handlers[0]!, {
+      action: "materialize-source",
+      chat: "support",
+      source: "portal",
+    })
+
+    expect(nextState.files).toEqual([
+      expect.objectContaining({
+        children: [
+          expect.objectContaining({
+            children: [
+              expect.objectContaining({
+                kind: "file",
+                path: "ingestion/customers/acme.csv",
+                source: "ingestion",
+              }),
+            ],
+            kind: "directory",
+            path: "ingestion/customers",
+            source: "ingestion",
+          }),
+        ],
+        materialized: true,
+        path: "ingestion",
+        source: "ingestion",
+        status: "ready",
+      }),
+      expect.objectContaining({
+        children: [
+          expect.objectContaining({
+            kind: "file",
+            path: "portal/package.json",
+            source: "portal",
+          }),
+        ],
+        materialized: true,
+        path: "portal",
+        source: "portal",
         status: "ready",
       }),
     ])

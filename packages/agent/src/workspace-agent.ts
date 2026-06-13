@@ -80,6 +80,7 @@ export interface AgentDevtoolsSourceMaterializationOptions<
 > extends AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name> {
   path?: string
   source?: string
+  sources?: string[]
 }
 
 export function normalizeWorkspaceOptions(workspace: WorkspaceAgentWorkspaceConfig): NormalizedWorkspaceOptions {
@@ -736,9 +737,13 @@ export async function materializeAgentDevtoolsSourceMetadata<
     return createAgentDevtoolsMetadata(definition)
   }
 
+  const sources = [...new Set([
+    ...(options.sources || []),
+    ...(options.source ? [options.source] : []),
+  ])]
   const materializeOptions: WorkspaceMaterializeSourcesOptions = {
     ...(options.path ? { path: options.path } : {}),
-    ...(options.source ? { sources: [options.source] } : {}),
+    ...(sources.length ? { sources } : {}),
   }
   await metadataWorkspace.workspace.fs.materializeSources?.(materializeOptions)
 
