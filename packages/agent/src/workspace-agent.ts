@@ -6,7 +6,7 @@ import {
 import {
   normalizeAgentInvokerProfiles,
 } from "./invoker.ts"
-import { normalizeWorkspaceSources } from "@vite-hub/workspace"
+import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 
 import type {
   AgentAdapterInstructions,
@@ -26,9 +26,9 @@ import type {
   WorkspaceAgentWorkspaceConfig,
   WorkspaceAgentWorkspaceOptions,
 } from "./types.ts"
+import type { AgentWorkspaceSourceMetadata } from "./workspace-source-metadata.ts"
 import type {
   ReadonlyWorkspaceFacade,
-  ResolvedWorkspaceSource,
   SourceContext,
   WorkspaceEntry,
   WorkspaceDefinition,
@@ -192,15 +192,15 @@ function agentDevtoolsMetadata(definition: Pick<AgentDefinition, "invoker" | "ti
   }
 }
 
-function normalizedSourcesFromOptions<Name extends WorkspaceName>(options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>): ResolvedWorkspaceSource[] {
-  return normalizeWorkspaceSources(workspaceDefinitionFromOptions(options).sources)
+function normalizedSourcesFromOptions<Name extends WorkspaceName>(options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>): AgentWorkspaceSourceMetadata[] {
+  return normalizeAgentWorkspaceSources(workspaceDefinitionFromOptions(options).sources)
 }
 
-function sourceMountPath(source: ResolvedWorkspaceSource) {
+function sourceMountPath(source: AgentWorkspaceSourceMetadata) {
   return source.mountPath
 }
 
-function sourceMaterialize(source: ResolvedWorkspaceSource): AgentDevtoolsFileTreeItem["materialize"] {
+function sourceMaterialize(source: AgentWorkspaceSourceMetadata): AgentDevtoolsFileTreeItem["materialize"] {
   return source.materialize === "none" ? undefined : source.materialize
 }
 
@@ -468,7 +468,7 @@ async function resolveWorkspaceMetadataInstructions<
   )
 }
 
-function sourceInstructionsText(value: ResolvedWorkspaceSource["instructions"]): string | undefined {
+function sourceInstructionsText(value: AgentWorkspaceSourceMetadata["instructions"]): string | undefined {
   const instructions = (Array.isArray(value) ? value : [value])
     .map(part => part?.trim())
     .filter(Boolean)
@@ -477,7 +477,7 @@ function sourceInstructionsText(value: ResolvedWorkspaceSource["instructions"]):
 }
 
 function renderWorkspaceSourceInstructionBlock(sources: WorkspaceDefinition["sources"] | undefined, visible?: Set<string>): string | undefined {
-  const entries = normalizeWorkspaceSources(sources)
+  const entries = normalizeAgentWorkspaceSources(sources)
     .filter(source => !visible || visible.has(source.key))
     .map(source => ({ instructions: sourceInstructionsText(source.instructions), key: source.key }))
     .filter((entry): entry is { instructions: string, key: string } => Boolean(entry.instructions))
@@ -497,7 +497,7 @@ async function visibleWorkspaceSourceNames(
   definition?: WorkspaceDefinition,
 ): Promise<Set<string>> {
   const visible = new Set<string>()
-  await Promise.all(normalizeWorkspaceSources(sources).map(async (source) => {
+  await Promise.all(normalizeAgentWorkspaceSources(sources).map(async (source) => {
     try {
       const paths = await sourceVisibilityProbePaths(source, definition)
       for (const path of paths) {
@@ -513,17 +513,23 @@ async function visibleWorkspaceSourceNames(
 }
 
 async function sourceVisibilityProbePaths(
-  source: ResolvedWorkspaceSource,
+  source: AgentWorkspaceSourceMetadata,
   definition?: WorkspaceDefinition,
 ): Promise<string[]> {
   const mountPath = normalizeSourceInstructionPath(sourceMountPath(source))
   if (mountPath === undefined) return []
   if (mountPath) return [mountPath]
+  if (source.probeKeys?.length) {
+    return source.probeKeys
+      .map(sourcePath => joinSourceInstructionPath(mountPath, sourcePath))
+      .filter((path): path is string => Boolean(path))
+  }
+  if (!source.source) return []
 
   const ctx = sourceInstructionContext(definition, source.key, mountPath)
   try {
     await source.source.prepare?.(ctx)
-    const keys = await source.source.getKeys?.(ctx)
+    const keys = await source.source.getKeys(ctx)
     return (keys || [])
       .map(sourcePath => joinSourceInstructionPath(mountPath, sourcePath))
       .filter((path): path is string => Boolean(path))
