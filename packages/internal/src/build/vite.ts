@@ -1,5 +1,5 @@
 import { statSync } from "node:fs"
-import { basename, dirname, resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 
 type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
 type WatchIgnoredMatcher = string | RegExp | ((testString: string, ...args: unknown[]) => boolean)
@@ -39,16 +39,25 @@ export function mergeGeneratedViteHubWatchIgnored(ignored: WatchIgnoredValue): W
 
 export function resolveViteHubProjectRoot(root: string): string {
   const resolvedRoot = resolve(root)
-  if (basename(resolvedRoot) !== "app") return resolvedRoot
 
-  const parent = dirname(resolvedRoot)
+  let current = resolvedRoot
+  while (true) {
+    if (hasProjectRootMarker(current)) return current
+
+    const parent = dirname(current)
+    if (parent === current) return resolvedRoot
+    current = parent
+  }
+}
+
+function hasProjectRootMarker(root: string): boolean {
   for (const marker of projectRootMarkers) {
     try {
-      if (statSync(resolve(parent, ...marker)).isDirectory()) return parent
+      if (statSync(resolve(root, ...marker)).isDirectory()) return true
     }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
     }
   }
-  return resolvedRoot
+  return false
 }

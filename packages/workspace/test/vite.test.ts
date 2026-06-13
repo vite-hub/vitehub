@@ -263,6 +263,43 @@ describe("hubWorkspace", () => {
     await expect(readFile(join(root, "app", ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")).rejects.toThrow()
   })
 
+  it("keeps generated workspace files in project ViteHub state when Vite root is nested", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-nested-root-"))
+    tempDirs.push(root)
+    await mkdir(join(root, "frontend"), { recursive: true })
+    await mkdir(join(root, "server", "workspaces", "mirror"), { recursive: true })
+    await writeFile(join(root, "server", "workspaces", "mirror", "config.ts"), [
+      `export default { store: { provider: "memory" } }`,
+      ``,
+    ].join("\n"))
+
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const config = plugin.config as (
+      config: { root: string, workspace?: { store?: { branch?: string, provider: "github", repository: string, root: string } } },
+      env: { command: "build", mode: string },
+    ) => Promise<{ nitro?: { plugins?: string[] } }>
+
+    await expect(config({
+      root: join(root, "frontend"),
+      workspace: {
+        store: {
+          branch: "main",
+          provider: "github",
+          repository: "onmax/quiver-airtable",
+          root: "server/workspaces/mirror",
+        },
+      },
+    }, { command: "build", mode: "production" })).resolves.toMatchObject({
+      nitro: {
+        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+      },
+    })
+
+    await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")).resolves.toContain("configureCloudflareWorkspaceRuntime")
+    await expect(readFile(join(root, "frontend", ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")).rejects.toThrow()
+  })
+
   it("materializes the workspace runtime package for Vercel build output", async () => {
     const root = await createViteRoot()
     const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")

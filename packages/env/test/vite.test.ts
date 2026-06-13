@@ -197,6 +197,32 @@ describe("Vite plugin", () => {
     await expect(readFile(join(root, "app", ".vitehub", "types", "env.d.ts"), "utf8")).rejects.toThrow()
   })
 
+  it("keeps generated env files in project ViteHub state when Vite root is nested", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-nested-root-"))
+    await mkdir(join(root, "frontend"), { recursive: true })
+    await mkdir(join(root, "server", "workspaces"), { recursive: true })
+
+    const plugin = hubEnv()
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+    await configHook({
+      env: {
+        server: {
+          airtableToken: env({ secret: true }),
+        },
+      },
+      root: join(root, "frontend"),
+    }, { command: "build", mode: "production" })
+
+    const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
+    await configResolvedHook({
+      logger: { info: vi.fn() },
+      root: join(root, "frontend"),
+    } as never)
+
+    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": SecretEnv<string>")
+    await expect(readFile(join(root, "frontend", ".vitehub", "types", "env.d.ts"), "utf8")).rejects.toThrow()
+  })
+
   it("resolves Server Env from runtime carriers and active Cloudflare env", () => {
     const registry = createRuntimeRegistry({
       airtableToken: env({ secret: true }),
