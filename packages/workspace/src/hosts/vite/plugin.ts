@@ -69,10 +69,12 @@ function mergeNitroWorkspaceConfig(value: unknown): NitroConfig {
 function renderNitroWorkspacePlugin(config: ResolvedWorkspaceModuleOptions): string {
   if (!isHostedWorkspaceStore(config.store)) {
     return [
-      "import { setWorkspaceRuntimeConfig } from '@vite-hub/workspace/runtime'",
+      "import { setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
       "import { definePlugin } from 'nitro'",
+      "import registry from './registry.js'",
       "",
       "export default definePlugin(() => {",
+      "  setWorkspaceRuntimeRegistry(registry)",
       `  setWorkspaceRuntimeConfig(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`,
       "})",
       "",
@@ -80,10 +82,13 @@ function renderNitroWorkspacePlugin(config: ResolvedWorkspaceModuleOptions): str
   }
 
   return [
+    "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
     "import { configureCloudflareWorkspaceRuntime } from '@vite-hub/workspace/cloudflare'",
     "import { definePlugin } from 'nitro'",
+    "import registry from './registry.js'",
     "",
     "export default definePlugin(() => {",
+    "  setWorkspaceRuntimeRegistry(registry)",
     `  configureCloudflareWorkspaceRuntime(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`,
     "})",
     "",
