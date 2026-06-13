@@ -1,8 +1,16 @@
+import { statSync } from "node:fs"
+import { basename, dirname, resolve } from "node:path"
+
 type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
 type WatchIgnoredMatcher = string | RegExp | ((testString: string, ...args: unknown[]) => boolean)
 type WatchIgnoredValue = WatchIgnoredMatcher | WatchIgnoredMatcher[] | undefined
 
 const generatedViteHubFilesPattern = "**/.vitehub/**"
+const projectRootMarkers = [
+  ["server", "agents"],
+  ["server", "schedules"],
+  ["server", "workspaces"],
+]
 
 export function createNoExternalMerger(packageName: string) {
   return (current: NoExternalValue): NoExternalValue => {
@@ -27,4 +35,21 @@ export function mergeGeneratedViteHubWatchIgnored(ignored: WatchIgnoredValue): W
     return ignored.includes(generatedViteHubFilesPattern) ? ignored : [...ignored, generatedViteHubFilesPattern]
   }
   return [ignored, generatedViteHubFilesPattern]
+}
+
+export function resolveViteHubProjectRoot(root: string): string {
+  const resolvedRoot = resolve(root)
+  if (basename(resolvedRoot) !== "app") return resolvedRoot
+
+  const parent = dirname(resolvedRoot)
+  for (const marker of projectRootMarkers) {
+    try {
+      if (statSync(resolve(parent, ...marker)).isDirectory()) return parent
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+  }
+
+  return resolvedRoot
 }
