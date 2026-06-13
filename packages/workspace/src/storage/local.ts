@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto"
+import { createReadStream } from "node:fs"
+
 import { WorkspaceError } from "../core/errors.ts"
 import { contentToBytes, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 
@@ -28,7 +31,7 @@ async function walk(root: string, current = root): Promise<WorkspaceEntry[]> {
   for (const dirent of dirents) {
     const absolute = `${current}/${dirent.name}`
     const path = normalizeWorkspacePath(relative(root, absolute))
-    const { stat, readFile } = await import("node:fs/promises")
+    const { stat } = await import("node:fs/promises")
     const info = await stat(absolute).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return undefined
       throw error
@@ -40,17 +43,26 @@ async function walk(root: string, current = root): Promise<WorkspaceEntry[]> {
       continue
     }
     if (dirent.isFile()) {
-      const bytes = await readFile(absolute)
       entries.push({
         path,
         type: "file",
         size: info.size,
         mtime: info.mtimeMs,
-        digest: await sha256(bytes),
+        digest: await fileDigest(absolute),
       })
     }
   }
   return entries
+}
+
+async function fileDigest(path: string): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const hash = createHash("sha256")
+    const stream = createReadStream(path)
+    stream.on("data", chunk => hash.update(chunk))
+    stream.on("error", reject)
+    stream.on("end", () => resolve(hash.digest("hex")))
+  })
 }
 
 class LocalWorkspaceStore implements WorkspaceStore {
@@ -118,7 +130,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async stat(path: string): Promise<WorkspaceStat | undefined> {
-    const { readFile, stat } = await import("node:fs/promises")
+    const { stat } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const absolute = resolveInside(this.root, normalized)
     const info = await stat(absolute).catch((error: NodeJS.ErrnoException) => {
@@ -132,7 +144,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       size: info.isFile() ? info.size : undefined,
       mtime: info.mtimeMs,
       mediaType: info.isFile() ? this.#files.get(normalized)?.mediaType : undefined,
-      digest: info.isFile() ? await sha256(await readFile(absolute)) : undefined,
+      digest: info.isFile() ? await fileDigest(absolute) : undefined,
     }
     return entry
   }
