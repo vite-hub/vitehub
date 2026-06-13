@@ -352,8 +352,37 @@ describe("agent message protocol", () => {
       }),
     ])).toEqual([
       {
-        content: [{ output: { ok: true }, toolCallId: "call-1", toolName: "lookup", type: "tool-result" }],
+        content: [{ output: { type: "json", value: { ok: true } }, toolCallId: "call-1", toolName: "lookup", type: "tool-result" }],
         role: "tool",
+      },
+    ])
+  })
+
+  it("splits assistant tool result history into valid model messages", async () => {
+    const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
+
+    expect(toAiSdkModelMessages([
+      createMessage({
+        id: "m1",
+        parts: [
+          { id: "call-1", input: { query: "ok" }, name: "lookup", state: "running", type: "tool-call" },
+          { id: "call-1", name: "lookup", output: { ok: true }, state: "completed", type: "tool-result" },
+          { text: "done", type: "text" },
+        ],
+        role: "assistant",
+      }),
+    ])).toEqual([
+      {
+        content: [{ input: { query: "ok" }, toolCallId: "call-1", toolName: "lookup", type: "tool-call" }],
+        role: "assistant",
+      },
+      {
+        content: [{ output: { type: "json", value: { ok: true } }, toolCallId: "call-1", toolName: "lookup", type: "tool-result" }],
+        role: "tool",
+      },
+      {
+        content: [{ text: "done", type: "text" }],
+        role: "assistant",
       },
     ])
   })
