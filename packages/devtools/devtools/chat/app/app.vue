@@ -56,7 +56,7 @@ const pendingUserMessage = ref<ChatMessage | undefined>()
 const expandedFilePaths = ref(new Set<string>())
 const previousSourceRootStates = ref(new Map<string, SourceRootState>())
 const selectedFilePath = ref<string | undefined>()
-const sidebarWidth = ref(340)
+const sidebarWidth = ref(300)
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
 let metadataRefreshTimeout: ReturnType<typeof setTimeout> | undefined
@@ -435,7 +435,7 @@ function startSidebarResize(event: PointerEvent) {
   if (event.pointerType === "mouse" && event.button !== 0) return
   event.preventDefault()
   const onMove = (moveEvent: PointerEvent) => {
-    sidebarWidth.value = Math.min(560, Math.max(280, window.innerWidth - moveEvent.clientX))
+    sidebarWidth.value = Math.min(480, Math.max(260, window.innerWidth - moveEvent.clientX))
   }
   const onUp = () => {
     document.body.style.cursor = ""
@@ -1080,9 +1080,9 @@ onBeforeUnmount(() => {
   <UApp>
     <main class="fixed inset-0 isolate flex min-h-0 flex-col overflow-hidden bg-default text-default antialiased">
       <UIcon name="i-lucide-terminal" class="hidden" />
-      <header class="flex h-[45px] shrink-0 items-center justify-between gap-3 border-b border-default px-4">
+      <header class="flex min-h-10 shrink-0 flex-col justify-center gap-2 border-b border-default px-3 py-2 sm:h-10 sm:flex-row sm:items-center sm:justify-between sm:py-0">
         <h1
-          class="flex min-w-0 flex-1 items-center text-base font-semibold"
+          class="flex min-w-0 items-center text-sm font-semibold sm:flex-1"
           :aria-label="chatTitleTarget"
           :title="chatTitleTarget"
         >
@@ -1093,13 +1093,13 @@ onBeforeUnmount(() => {
             v-if="agentVersion"
             color="neutral"
             variant="subtle"
-            size="sm"
+            size="xs"
             class="ml-2 shrink-0"
           >
             v{{ agentVersion }}
           </UBadge>
         </h1>
-        <div class="flex shrink-0 items-center gap-2">
+        <div class="flex w-full min-w-0 items-center gap-1.5 sm:w-auto sm:shrink-0">
           <UTooltip
             v-if="showInvokerSelector"
             :text="invokerSelectorTooltip"
@@ -1111,8 +1111,8 @@ onBeforeUnmount(() => {
               value-key="value"
               label-key="label"
               :disabled="isInvokerLocked"
-              size="sm"
-              class="w-44"
+              size="xs"
+              class="min-w-0 flex-1 sm:w-48 sm:flex-none"
               :ui="{ base: 'min-w-0' }"
             />
           </UTooltip>
@@ -1121,14 +1121,14 @@ onBeforeUnmount(() => {
             label="Clear"
             color="neutral"
             variant="outline"
-            size="sm"
+            size="xs"
             class="shrink-0"
             @click="clear"
           />
         </div>
       </header>
 
-      <div class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(220px,40vh)] overflow-hidden lg:grid-cols-[minmax(0,1fr)_1px_minmax(280px,var(--chat-devtools-sidebar-width))] lg:grid-rows-1" :style="splitterStyle">
+      <div class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(150px,32svh)] overflow-hidden md:grid-cols-[minmax(0,1fr)_1px_minmax(260px,var(--chat-devtools-sidebar-width))] md:grid-rows-1" :style="splitterStyle">
         <section class="flex min-h-0 flex-col overflow-hidden">
           <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-2">
             <UChatMessages
@@ -1217,16 +1217,22 @@ onBeforeUnmount(() => {
                 </div>
               </template>
             </UChatMessages>
-            <div v-else class="flex h-full items-center justify-center px-4">
+            <div v-else class="flex h-full items-center justify-center px-4 py-6">
               <UEmpty
                 icon="i-lucide-message-square"
+                size="xs"
                 title="No messages yet."
-                :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent' }"
+                :ui="{
+                  root: 'border-0 ring-0 shadow-none bg-transparent gap-2 p-0',
+                  header: 'gap-1',
+                  avatar: 'mb-0 size-9 text-base',
+                  title: 'text-sm font-medium',
+                }"
               />
             </div>
           </div>
 
-          <footer class="shrink-0 border-t border-default bg-default px-2 py-2">
+          <footer class="shrink-0 border-t border-default bg-default px-2 py-1.5">
             <UAlert
               v-if="!connected"
               color="neutral"
@@ -1256,7 +1262,7 @@ onBeforeUnmount(() => {
               }"
             />
             <form
-              class="flex min-h-9 items-center gap-1 rounded-md border border-default bg-default px-2 py-1 shadow-xs"
+              class="flex min-h-8 items-center gap-1 rounded-md bg-default px-2 py-1 shadow-xs ring-1 ring-default"
               @submit.prevent="submitComposer"
             >
               <textarea
@@ -1265,7 +1271,7 @@ onBeforeUnmount(() => {
                 placeholder="Type a message..."
                 rows="1"
                 :disabled="status !== 'ready'"
-                class="h-6 max-h-24 min-h-6 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-0 py-0 text-sm/6 outline-none placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-60"
+                class="h-6 max-h-24 min-h-6 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-0 py-0 text-base/6 outline-none placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm/6"
                 @keydown.enter.exact.prevent="send"
               />
               <UButton
@@ -1284,20 +1290,21 @@ onBeforeUnmount(() => {
 
         <button
           type="button"
-          class="group hidden min-h-0 cursor-col-resize bg-border outline-none transition-colors hover:bg-primary focus-visible:bg-primary lg:block"
+          class="group hidden min-h-0 cursor-col-resize bg-border outline-none hover:bg-primary focus-visible:bg-primary md:block"
           aria-label="Resize integration panel"
           @pointerdown="startSidebarResize"
         >
           <span class="block h-full w-px bg-transparent group-hover:bg-primary" />
         </button>
 
-        <aside class="min-h-0 border-t border-default p-2 lg:border-l lg:border-t-0">
+        <aside class="min-h-0 border-t border-default p-1.5 md:border-l md:border-t-0 md:p-2">
           <UCard
-            variant="subtle"
+            variant="outline"
             class="flex h-full min-h-0 flex-col"
             :ui="{
-              root: 'rounded-lg',
-              body: 'flex min-h-0 flex-1 flex-col p-2 sm:p-2',
+              root: 'rounded-md',
+              header: 'p-2 sm:p-2',
+              body: 'flex min-h-0 flex-1 flex-col p-1.5 sm:p-1.5',
             }"
           >
             <template #header>
@@ -1306,7 +1313,7 @@ onBeforeUnmount(() => {
                   <UIcon name="i-lucide-plug" class="size-4 shrink-0 text-muted" />
                   <span class="truncate text-sm font-medium">Integration</span>
                 </div>
-                <UBadge color="neutral" variant="soft" size="sm">
+                <UBadge color="neutral" variant="soft" size="xs">
                   {{ state.selected || 'dev' }}
                 </UBadge>
               </div>
@@ -1314,10 +1321,14 @@ onBeforeUnmount(() => {
 
             <UTabs
               :items="integrationTabs"
+              color="neutral"
+              variant="pill"
+              size="xs"
               class="flex min-h-0 flex-1 flex-col"
               :ui="{
-                list: 'shrink-0',
-                content: 'min-h-0 flex-1 overflow-y-auto pt-2',
+                list: 'shrink-0 overflow-x-auto rounded-md p-0.5',
+                trigger: 'min-h-7 flex-none shrink-0 whitespace-nowrap px-2',
+                content: 'min-h-0 flex-1 overflow-y-auto pt-1.5',
               }"
             >
               <template #files>
@@ -1332,9 +1343,9 @@ onBeforeUnmount(() => {
                 />
                 <div
                   v-if="isMetadataLoading"
-                  class="flex flex-col items-center gap-2 px-2 py-8 text-center"
+                  class="flex flex-col items-center gap-2 px-2 py-6 text-center"
                 >
-                  <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
+                  <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
                   <div>
                     <p class="text-sm font-medium text-toned">Loading workspace files.</p>
                     <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
@@ -1348,13 +1359,13 @@ onBeforeUnmount(() => {
                     :label="fileLabel(file)"
                     color="neutral"
                     :variant="selectedFilePath === file.path ? 'soft' : 'ghost'"
-                    size="sm"
+                    size="xs"
                     block
-                    class="justify-start"
-                    :style="{ paddingLeft: `${0.5 + file.depth * 1.1}rem` }"
+                    class="min-h-7 justify-start"
+                    :style="{ paddingLeft: `${0.45 + file.depth * 0.9}rem` }"
                     :ui="{
                       leadingIcon: file.kind === 'directory' ? 'text-warning' : 'text-muted',
-                      label: 'min-w-0 truncate text-left',
+                      label: 'min-w-0 truncate text-left text-sm sm:text-xs',
                     }"
                     @click="toggleFile(file)"
                   >
@@ -1363,7 +1374,7 @@ onBeforeUnmount(() => {
                         v-if="fileMaterializationBadge(file)"
                         :color="fileMaterializationColor(file)"
                         variant="soft"
-                        size="sm"
+                        size="xs"
                         class="ml-auto shrink-0"
                       >
                         {{ fileMaterializationBadge(file) }}
@@ -1376,14 +1387,16 @@ onBeforeUnmount(() => {
                   icon="i-lucide-triangle-alert"
                   title="Workspace metadata failed."
                   :description="metadataError"
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
                 <UEmpty
                   v-else
                   icon="i-lucide-folder-search"
                   title="No files exposed."
                   description="This chat has not registered workspace files for DevTools."
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
               </template>
 
@@ -1399,15 +1412,15 @@ onBeforeUnmount(() => {
                 />
                 <div
                   v-if="isMetadataLoading"
-                  class="flex flex-col items-center gap-2 px-2 py-8 text-center"
+                  class="flex flex-col items-center gap-2 px-2 py-6 text-center"
                 >
-                  <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
+                  <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
                   <div>
                     <p class="text-sm font-medium text-toned">Loading tools.</p>
                     <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
                   </div>
                 </div>
-                <div v-else-if="visibleTools.length" class="space-y-2">
+                <div v-else-if="visibleTools.length" class="space-y-1.5">
                   <div
                     v-for="tool in visibleTools"
                     :key="tool.name"
@@ -1423,7 +1436,7 @@ onBeforeUnmount(() => {
                           <UBadge
                             :color="toolStatusColor(tool)"
                             variant="soft"
-                            size="sm"
+                            size="xs"
                             class="ml-auto shrink-0 capitalize"
                           >
                             {{ toolStatus(tool) }}
@@ -1433,14 +1446,14 @@ onBeforeUnmount(() => {
                           {{ tool.description }}
                         </p>
                         <div v-if="tool.category || toolPresetLabel(tool)" class="mt-2 flex flex-wrap gap-1">
-                          <UBadge v-if="tool.category" color="neutral" variant="outline" size="sm">
+                          <UBadge v-if="tool.category" color="neutral" variant="outline" size="xs">
                             {{ tool.category }}
                           </UBadge>
                           <UBadge
                             v-if="toolPresetLabel(tool)"
                             color="primary"
                             variant="soft"
-                            size="sm"
+                            size="xs"
                           >
                             {{ toolPresetLabel(tool) }}
                           </UBadge>
@@ -1451,7 +1464,7 @@ onBeforeUnmount(() => {
                             :key="command"
                             color="neutral"
                             variant="soft"
-                            size="sm"
+                            size="xs"
                           >
                             {{ command }}
                           </UBadge>
@@ -1465,14 +1478,16 @@ onBeforeUnmount(() => {
                   icon="i-lucide-triangle-alert"
                   title="Workspace metadata failed."
                   :description="metadataError"
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
                 <UEmpty
                   v-else
                   icon="i-lucide-wrench"
                   title="No tools exposed."
                   description="This chat has not registered tools for DevTools."
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
               </template>
 
@@ -1488,28 +1503,28 @@ onBeforeUnmount(() => {
                 />
                 <div
                   v-if="isMetadataLoading"
-                  class="flex flex-col items-center gap-2 px-2 py-8 text-center"
+                  class="flex flex-col items-center gap-2 px-2 py-6 text-center"
                 >
-                  <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted" />
+                  <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
                   <div>
                     <p class="text-sm font-medium text-toned">Loading instructions.</p>
                     <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
                   </div>
                 </div>
-                <div v-else-if="state.instructions?.length" class="min-w-0 space-y-4 px-1">
+                <div v-else-if="state.instructions?.length" class="min-w-0 space-y-3 px-1">
                   <div
                     v-for="(instruction, index) in state.instructions"
                     :key="index"
                   >
-                    <div class="mb-2 flex items-center gap-2">
-                      <UIcon name="i-lucide-scroll-text" class="size-4 text-muted" />
+                    <div class="mb-1.5 flex items-center gap-2">
+                      <UIcon name="i-lucide-scroll-text" class="size-4 shrink-0 text-muted" />
                       <span class="min-w-0 truncate text-sm font-medium">{{ instructionLabel(instruction) }}</span>
-                      <UBadge color="neutral" variant="soft" size="sm" class="ml-auto">
+                      <UBadge color="neutral" variant="soft" size="xs" class="ml-auto shrink-0">
                         {{ index + 1 }}
                       </UBadge>
                     </div>
                     <Suspense>
-                      <Comark class="max-w-full break-words text-sm/6 text-toned [&_code]:break-words [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:mb-1 [&_h2]:mt-3 [&_h2]:text-sm [&_h2]:font-semibold [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:my-2 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_strong]:text-highlighted [&_ul]:list-disc [&_ul]:pl-4">
+                      <Comark class="max-w-full break-words text-xs/5 text-toned [&_code]:break-words [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_h1]:mb-1.5 [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:mb-1 [&_h2]:mt-2.5 [&_h2]:text-sm [&_h2]:font-semibold [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:my-1.5 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_strong]:text-highlighted [&_ul]:list-disc [&_ul]:pl-4">
                         {{ instructionContent(instruction) }}
                       </Comark>
                     </Suspense>
@@ -1520,14 +1535,16 @@ onBeforeUnmount(() => {
                   icon="i-lucide-triangle-alert"
                   title="Workspace metadata failed."
                   :description="metadataError"
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
                 <UEmpty
                   v-else
                   icon="i-lucide-scroll-text"
                   title="No instructions exposed."
                   description="This chat has not registered static system instructions for DevTools."
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
               </template>
             </UTabs>
