@@ -9,9 +9,25 @@ export type WorkspaceRegistryModule = {
 
 export type WorkspaceRegistry = Record<string, () => Promise<WorkspaceRegistryModule>>
 
-const registeredDefinitions = new Map<string, WorkspaceDefinition>()
-const loadedDefinitions = new Map<string, WorkspaceDefinition>()
-let loaders: WorkspaceRegistry = runtimeRegistry
+const workspaceRegistryStateKey = Symbol.for("vitehub.workspace.registryState")
+
+interface WorkspaceRegistryState {
+  loadedDefinitions: Map<string, WorkspaceDefinition>
+  loaders: WorkspaceRegistry
+  registeredDefinitions: Map<string, WorkspaceDefinition>
+}
+
+type WorkspaceRegistryGlobal = typeof globalThis & Record<symbol, WorkspaceRegistryState | undefined>
+
+function workspaceRegistryState(): WorkspaceRegistryState {
+  const scope = globalThis as WorkspaceRegistryGlobal
+  scope[workspaceRegistryStateKey] ??= {
+    loadedDefinitions: new Map<string, WorkspaceDefinition>(),
+    loaders: runtimeRegistry,
+    registeredDefinitions: new Map<string, WorkspaceDefinition>(),
+  }
+  return scope[workspaceRegistryStateKey]
+}
 
 function pickWorkspaceFields(definition: WorkspaceDefinitionInput | Record<string, unknown>): WorkspaceDefinitionInput {
   const {
@@ -56,28 +72,31 @@ export function registerWorkspace(name: string, definition: WorkspaceDefinitionI
   if (!name || typeof name !== "string") {
     throw new TypeError("[vitehub] registerWorkspace requires a string name.")
   }
-  registeredDefinitions.set(name, normalizeWorkspaceDefinition(name, definition))
+  workspaceRegistryState().registeredDefinitions.set(name, normalizeWorkspaceDefinition(name, definition))
 }
 
 export function setWorkspaceRegistry(registry: WorkspaceRegistry): void {
-  loaders = registry
-  loadedDefinitions.clear()
+  const state = workspaceRegistryState()
+  state.loaders = registry
+  state.loadedDefinitions.clear()
 }
 
 export function resetWorkspaceRegistry(): void {
-  loaders = runtimeRegistry
-  loadedDefinitions.clear()
+  const state = workspaceRegistryState()
+  state.loaders = runtimeRegistry
+  state.loadedDefinitions.clear()
 }
 
 async function resolveWorkspaceDefinition(name: string): Promise<WorkspaceDefinition> {
-  const existing = registeredDefinitions.get(name) || loadedDefinitions.get(name)
+  const state = workspaceRegistryState()
+  const existing = state.registeredDefinitions.get(name) || state.loadedDefinitions.get(name)
   if (existing) return existing
 
-  const load = loaders[name]
+  const load = state.loaders[name]
   if (!load) throw new WorkspaceNotFoundError(name)
   const mod = await load()
   const definition = normalizeWorkspaceDefinition(name, mod.default)
-  loadedDefinitions.set(name, definition)
+  state.loadedDefinitions.set(name, definition)
   return definition
 }
 

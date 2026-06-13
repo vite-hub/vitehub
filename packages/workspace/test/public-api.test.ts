@@ -359,6 +359,31 @@ describe("workspace public API", () => {
     await expect(workspace.fs.search({ limit: 1, pattern: "needle" })).resolves.toHaveLength(1)
   })
 
+  it("shares runtime setup across duplicate package instances", async () => {
+    const runtimeRoot = await createRoot()
+    const configA = await import(`${new URL("../src/runtime/config.ts", import.meta.url).href}?copy=config-a`) as typeof import("../src/runtime/config.ts")
+    const configB = await import(`${new URL("../src/runtime/config.ts", import.meta.url).href}?copy=config-b`) as typeof import("../src/runtime/config.ts")
+    const registryA = await import(`${new URL("../src/core/registry.ts", import.meta.url).href}?copy=registry-a`) as typeof import("../src/core/registry.ts")
+    const registryB = await import(`${new URL("../src/core/registry.ts", import.meta.url).href}?copy=registry-b`) as typeof import("../src/core/registry.ts")
+    const assetsA = await import(`${new URL("../src/asset-registry.ts", import.meta.url).href}?copy=assets-a`) as typeof import("../src/asset-registry.ts")
+    const assetsB = await import(`${new URL("../src/asset-registry.ts", import.meta.url).href}?copy=assets-b`) as typeof import("../src/asset-registry.ts")
+
+    configA.setWorkspaceRuntimeConfig({ root: runtimeRoot, store: { provider: "local" } })
+    expect(configB.getWorkspaceRuntimeConfig()).toEqual({ root: runtimeRoot, store: { provider: "local" } })
+
+    registryA.setWorkspaceRegistry({
+      shared: async () => ({ default: defineWorkspace({ store: { provider: "memory" } }) }),
+    })
+    await expect(registryB.useRegisteredWorkspace("shared")).resolves.toMatchObject({ name: "shared" })
+
+    assetsA.setWorkspaceAssetsRegistry({
+      shared: createWorkspaceAssets({
+        "README.md": { load: async () => "# Shared\n" },
+      }),
+    })
+    await expect(assetsB.useWorkspaceAssets("shared").readFile("README.md")).resolves.toBe("# Shared\n")
+  })
+
   it("uses runtime workspace root for default local stores", async () => {
     const root = await createRoot()
     const configuredRoot = join(root, "runtime-workspaces")
