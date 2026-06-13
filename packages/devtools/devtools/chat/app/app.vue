@@ -22,6 +22,7 @@ import { flattenFiles, sourceRootStates, syncExpandedFilePaths, type FileRow, ty
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
 type ChatMessage = UIMessage & { chat?: string }
+type IntegrationSectionId = "files" | "tools" | "instructions"
 
 const input = ref("")
 const promptInput = ref<HTMLTextAreaElement>()
@@ -56,6 +57,7 @@ const pendingUserMessage = ref<ChatMessage | undefined>()
 const expandedFilePaths = ref(new Set<string>())
 const previousSourceRootStates = ref(new Map<string, SourceRootState>())
 const selectedFilePath = ref<string | undefined>()
+const activeIntegrationSection = ref<IntegrationSectionId>("files")
 const sidebarWidth = ref(300)
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
@@ -64,12 +66,6 @@ let metadataRefreshEpoch = 0
 let stopSidebarResize: (() => void) | undefined
 
 const disconnectedStatusMessage = "Connect through Vite DevTools to inspect a real chat runtime."
-const integrationTabs = [
-  { icon: "i-lucide-files", label: "Files", slot: "files" as const },
-  { icon: "i-lucide-wrench", label: "Tools", slot: "tools" as const },
-  { icon: "i-lucide-scroll-text", label: "Instructions", slot: "instructions" as const },
-]
-
 type FileMaterialization = {
   materialize?: string
   materialized?: boolean
@@ -119,6 +115,11 @@ const visibleTools = computed<ChatDevtoolsToolDefinition[]>(() => {
     status: tool.status === "error" ? "disabled" : "available",
   }))
 })
+const integrationSections = computed<Array<{ count: number, icon: string, id: IntegrationSectionId, label: string }>>(() => [
+  { count: fileRows.value.length, icon: "i-lucide-files", id: "files", label: "Files" },
+  { count: visibleTools.value.length, icon: "i-lucide-wrench", id: "tools", label: "Tools" },
+  { count: state.value.instructions?.length || 0, icon: "i-lucide-scroll-text", id: "instructions", label: "Instructions" },
+])
 const metadataStatus = computed(() => state.value.metadataStatus || "ready")
 const isMetadataLoading = computed(() => metadataStatus.value === "loading")
 const metadataError = computed(() => state.value.metadataError)
@@ -1290,14 +1291,14 @@ onBeforeUnmount(() => {
 
         <button
           type="button"
-          class="group hidden min-h-0 cursor-col-resize bg-border outline-none hover:bg-primary focus-visible:bg-primary md:block"
+          class="group hidden min-h-0 cursor-col-resize bg-transparent outline-none md:block"
           aria-label="Resize integration panel"
           @pointerdown="startSidebarResize"
         >
-          <span class="block h-full w-px bg-transparent group-hover:bg-primary" />
+          <span class="mx-auto block h-full w-px bg-elevated opacity-60 group-hover:bg-primary group-hover:opacity-100 group-focus-visible:bg-primary group-focus-visible:opacity-100" />
         </button>
 
-        <aside class="min-h-0 border-t border-default p-1.5 md:border-l md:border-t-0 md:p-2">
+        <aside class="min-h-0 border-t border-default p-1.5 md:border-t-0 md:p-2">
           <UCard
             variant="outline"
             class="flex h-full min-h-0 flex-col"
@@ -1319,19 +1320,47 @@ onBeforeUnmount(() => {
               </div>
             </template>
 
-            <UTabs
-              :items="integrationTabs"
-              color="neutral"
-              variant="pill"
-              size="xs"
-              class="flex min-h-0 flex-1 flex-col"
-              :ui="{
-                list: 'shrink-0 overflow-x-auto rounded-md p-0.5',
-                trigger: 'min-h-7 flex-none shrink-0 whitespace-nowrap px-2',
-                content: 'min-h-0 flex-1 overflow-y-auto pt-1.5',
-              }"
-            >
-              <template #files>
+            <div class="flex min-h-0 flex-1 flex-col gap-2">
+              <div
+                role="radiogroup"
+                aria-label="Integration section"
+                class="grid shrink-0 grid-cols-3 gap-1 border-b border-default pb-2 md:grid-cols-1"
+              >
+                <UButton
+                  v-for="section in integrationSections"
+                  :key="section.id"
+                  type="button"
+                  role="radio"
+                  :aria-checked="activeIntegrationSection === section.id"
+                  :icon="section.icon"
+                  :label="section.label"
+                  color="neutral"
+                  :variant="activeIntegrationSection === section.id ? 'soft' : 'ghost'"
+                  size="xs"
+                  block
+                  class="min-h-8 justify-start border-l-2"
+                  :class="activeIntegrationSection === section.id ? 'border-warning text-highlighted' : 'border-transparent text-muted'"
+                  :ui="{
+                    leadingIcon: section.id === 'files' ? 'text-warning' : 'text-muted',
+                    label: 'min-w-0 truncate text-left text-sm',
+                  }"
+                  @click="activeIntegrationSection = section.id"
+                >
+                  <template #trailing>
+                    <UBadge
+                      color="neutral"
+                      :variant="activeIntegrationSection === section.id ? 'soft' : 'outline'"
+                      size="xs"
+                      class="ml-auto shrink-0 tabular-nums"
+                    >
+                      {{ section.count }}
+                    </UBadge>
+                  </template>
+                </UButton>
+              </div>
+
+              <div class="min-h-0 flex-1 overflow-y-auto">
+                <template v-if="activeIntegrationSection === 'files'">
                 <UAlert
                   v-if="fileRows.length && metadataError"
                   color="error"
@@ -1400,7 +1429,7 @@ onBeforeUnmount(() => {
                 />
               </template>
 
-              <template #tools>
+                <template v-else-if="activeIntegrationSection === 'tools'">
                 <UAlert
                   v-if="visibleTools.length && metadataError"
                   color="error"
@@ -1491,7 +1520,7 @@ onBeforeUnmount(() => {
                 />
               </template>
 
-              <template #instructions>
+                <template v-else>
                 <UAlert
                   v-if="state.instructions?.length && metadataError"
                   color="error"
@@ -1546,8 +1575,9 @@ onBeforeUnmount(() => {
                   size="xs"
                   :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
-              </template>
-            </UTabs>
+                </template>
+              </div>
+            </div>
           </UCard>
         </aside>
       </div>
