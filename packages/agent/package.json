@@ -70,7 +70,9 @@
     "hookable": "catalog:unjs"
   },
   "devDependencies": {
+    "@ai-sdk/harness": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
+    "@ai-sdk/sandbox-vercel": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
@@ -84,7 +86,10 @@
     "vitest": "catalog:tooling"
   },
   "peerDependencies": {
+    "@ai-sdk/harness": "catalog:ai",
+    "@ai-sdk/harness-codex": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
+    "@ai-sdk/sandbox-vercel": "catalog:ai",
     "@vite-hub/workflow": "workspace:*",
     "agents": "catalog:ai",
     "ai": "catalog:ai-compat",
@@ -92,7 +97,16 @@
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@ai-sdk/harness": {
+      "optional": true
+    },
+    "@ai-sdk/harness-codex": {
+      "optional": true
+    },
     "@ai-sdk/mcp": {
+      "optional": true
+    },
+    "@ai-sdk/sandbox-vercel": {
       "optional": true
     },
     "@vite-hub/workflow": {

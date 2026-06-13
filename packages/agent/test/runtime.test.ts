@@ -3,7 +3,173 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createMessage, getMessageText } from "@vite-hub/agent"
 import { chat, chatTitle, schedule } from "../src/capabilities.ts"
 
+const harnessAgentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
+const harnessCreateSession = vi.hoisted(() => vi.fn())
+const harnessGenerate = vi.hoisted(() => vi.fn())
+const harnessStream = vi.hoisted(() => vi.fn())
+
+vi.mock("@ai-sdk/harness/agent", () => ({
+  HarnessAgent: class {
+    constructor(settings: Record<string, unknown>) {
+      harnessAgentSettings.push(settings)
+    }
+
+    async createSession(...args: unknown[]) {
+      return await harnessCreateSession.apply(this, args)
+    }
+
+    async generate(...args: unknown[]) {
+      return await harnessGenerate.apply(this, args)
+    }
+
+    async stream(...args: unknown[]) {
+      return await harnessStream.apply(this, args)
+    }
+  },
+}))
+
+afterEach(() => {
+  harnessAgentSettings.length = 0
+  harnessCreateSession.mockReset()
+  harnessGenerate.mockReset()
+  harnessStream.mockReset()
+})
+
 describe("agent message protocol", () => {
+  it("runs custom Agent Drivers through the invocation lifecycle", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const run = vi.fn(context => `received ${context.prompt}`)
+    const agent = defineAgent({
+      driver: { run },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toBe("received hello")
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: "hello",
+    }))
+  })
+
+  it("runs harness Agent Drivers through AI SDK HarnessAgent", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    harnessAgentSettings.length = 0
+    const session = { destroy: vi.fn() }
+    const harness = { provider: "codex" }
+    const sandbox = { provider: "sandbox" }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({ text: "ok" })
+
+    const agent = defineAgent({
+      driver: {
+        harness,
+        sandbox,
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+    expect(harnessAgentSettings.at(-1)).toMatchObject({
+      harness,
+      permissionMode: "allow-all",
+      sandbox,
+    })
+    expect(harnessCreateSession).toHaveBeenCalledWith(undefined)
+    expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: "hello",
+      session,
+    }))
+    expect(session.destroy).toHaveBeenCalledTimes(1)
+  })
+
+  it("labels non-token harness usage with sanitized credentials", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({
+      text: "ok",
+      usage: {
+        actions: 3,
+        wallTimeMs: 1200,
+      },
+    })
+
+    const agent = defineAgent({
+      capabilities: [usageTelemetry()],
+      driver: {
+        credentials: { label: "local Codex", source: "ambient" },
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({
+      text: "ok",
+      usageRecord: {
+        credentialSource: {
+          label: "local Codex",
+          source: "ambient",
+        },
+        usage: {
+          details: {
+            actions: 3,
+            wallTimeMs: 1200,
+          },
+        },
+      },
+    })
+  })
+
+  it("resumes harness Agent Drivers with an explicit session key", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const firstSession = { detach: vi.fn(async () => ({ token: "resume" })), destroy: vi.fn() }
+    const secondSession = { detach: vi.fn(async () => ({ token: "next" })), destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(firstSession).mockResolvedValueOnce(secondSession)
+    harnessGenerate.mockResolvedValue({ text: "ok" })
+
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+        sessionKey: "thread-1",
+      },
+    })
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "again" })
+
+    expect(harnessCreateSession).toHaveBeenNthCalledWith(1, { sessionId: "thread-1" })
+    expect(harnessCreateSession).toHaveBeenNthCalledWith(2, { resumeFrom: { token: "resume" }, sessionId: "thread-1" })
+    expect(firstSession.detach).toHaveBeenCalledTimes(1)
+    expect(secondSession.detach).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects mixed, permission-shaped, or raw-credential Agent Drivers", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    expect(() => defineAgent({
+      driver: { model: {} as never, run: () => "ok" },
+    } as never)).toThrow("requires exactly one")
+
+    expect(() => defineAgent({
+      driver: { harness: { provider: "codex" }, permissions: "bypass" },
+    } as never)).toThrow("does not expose harness permission options")
+
+    expect(() => defineAgent({
+      driver: { credentials: { value: "secret" }, harness: { provider: "codex" } },
+    } as never)).toThrow("driver.credentials.value")
+
+    expect(() => defineAgent({
+      driver: { harness: { provider: "codex" }, instructions: "ignored" },
+    } as never)).toThrow("does not support option: instructions")
+
+    expect(() => defineAgent({
+      driver: { model: {} as never, sandbox: { provider: "sandbox" } },
+    } as never)).toThrow("does not support option: sandbox")
+
+    expect(() => defineAgent({
+      driver: { execution: {}, run: () => "ok" },
+    } as never)).toThrow("does not support option: execution")
+  })
+
   it("creates inline schedule capabilities without requiring chat history", async () => {
     const { defineAgent } = await import("../src/index.ts")
 

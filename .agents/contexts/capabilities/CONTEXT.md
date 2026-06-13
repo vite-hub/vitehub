@@ -9,7 +9,7 @@ A shareable ViteHub bundle that adds a named agent ability.
 _Avoid_: Plugin, integration, extension
 
 **Capability Definition**:
-The object shape, returned by a factory or written inline, that declares a Capability's id, instructions, tools, metadata, mode, and requirements.
+The object shape, returned by a factory or written inline, that declares a Capability's id, metadata, mode, requirements, and contributions.
 _Avoid_: Raw tool, config mutator
 
 **Capability Type Contract**:
@@ -17,12 +17,16 @@ A narrow type-only contract an official Capability declares for Agent Definition
 _Avoid_: Generic helper, runtime preparation, ambient app type, custom Capability framework
 
 **Capability Lifecycle**:
-The ordered process that validates requirements, applies capability contributions, and exposes resulting instructions, tools, policy, and metadata to the Agent.
+The ordered process that validates requirements, applies capability contributions, and exposes resulting policy, metadata, trigger behavior, and driver-facing inputs to the Agent.
 _Avoid_: Random hook, raw setup
 
 **Capability Trigger Contribution**:
 A Capability-owned server-side contribution that registers Agent Trigger behavior for a product event.
 _Avoid_: Chat helper, DevTools bridge, raw server route, server-only bucket
+
+**Capability Driver Contribution**:
+A Capability-owned contribution that may feed the active Agent Driver, such as model-facing instructions, model-facing tools, or an explicitly supported harness-compatible input.
+_Avoid_: Raw tool, root instructions, implicit harness prompt, dynamic Capability
 
 **Entry Capability**:
 A small official Capability created by `entry()` that lets an Agent receive app-owned product events through Capability Trigger Contributions and trusted Chat App Route exposure.
@@ -195,6 +199,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 ## Relationships
 
 - An Agent attaches zero or more **Capabilities**.
+- Capabilities attach above the **Agent Driver** in the Agent Definition shape.
 - Official helpers such as `entry()`, `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `access()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, `llmGate()`, and `rateLimit()` create **Capability Definitions**.
 - Official Capability factories and Capability-owned helper functions are imported from `@vite-hub/agent/capabilities`, not from the root `@vite-hub/agent` Agent Package entry.
 - Official helpers should map to product abilities rather than implementation mechanisms.
@@ -204,6 +209,11 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A **Capability Trigger Contribution** is composed from `defineAgent({ capabilities })`, not registered through a separate helper.
 - A **Capability Trigger Contribution** belongs directly to the Capability shape unless a broader grouping earns its name later.
 - A **Capability Trigger Contribution** maps product event input into Agent Invocation input and run metadata; Agent execution remains owned by the Agent Package.
+- A **Capability Definition** may provide **Capability Driver Contributions** when the ability needs to feed the active Agent Driver.
+- **Capability Driver Contributions** are conditional on the selected **Agent Driver**.
+- A model-backed **Agent Driver** may receive model-facing tools and model-facing instructions from **Capability Driver Contributions**.
+- A harness-backed **Agent Driver** receives only explicitly supported harness-compatible **Capability Driver Contributions**; model-facing prompt and tool assumptions must not be silently passed into the harness.
+- A custom-run-backed **Agent Driver** receives prepared invocation context and Capability runtime effects; custom `run` code decides which Capability outputs to consume.
 - An **Entry Capability** is the official small helper for app-owned product events when a full product-specific Capability has not earned a name yet.
 - An **Entry Capability** may expose a trusted Chat App Route origin without adding app-route fields to Chat Capability options.
 - A **Prompt Template** belongs to the Capability that renders it and should expose only the **Prompt Template Variables** that are stable for that Capability.
@@ -349,6 +359,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - Build-time Chat Platform Adapter detection was considered - resolved: resolve the **Chat Adapter Callback** at request time because platform credentials and adapter construction can depend on Server Env.
 - Repeating Chat Capability origins in `access()` was considered - resolved: **Chat Capability** owns adapter/webhook origin configuration, while **Access Capability** consumes normalized chat identity and request context for chat admission.
 - Capability phases, contexts, hooks, and instruction slots were considered glossary terms - resolved: group that detail under **Capability Lifecycle** unless a feature needs a sharper term.
+- Capability tools and instructions were considered unconditional Agent inputs - resolved: use **Capability Driver Contribution** and filter driver-facing inputs by the selected Agent Driver.
 - Bare Capability id instruction slots such as `mcp` were considered - resolved: use `capabilities.<id>` without backwards compatibility aliases.
 - Chat History was considered as a standalone Capability - resolved: keep Chat History inside the **Chat Capability** for this stack and revisit during a future Agent Memory pass.
 - Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.

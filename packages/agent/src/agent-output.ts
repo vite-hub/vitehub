@@ -1,7 +1,10 @@
 import { ApprovalRequiredError } from "@vite-hub/runtime"
+import { isAsyncIterable } from "./internal/stream-result.ts"
 
 import type { StreamEvent } from "./messages.ts"
 import type { AgentRunResult, AgentUsageRecord } from "./types.ts"
+
+export { isAsyncIterable } from "./internal/stream-result.ts"
 
 function textFromResult(result: Record<string, unknown>): string | undefined {
   if (typeof result.text === "string") return result.text
@@ -32,10 +35,6 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
     usageRecord: result.usageRecord as AgentUsageRecord | undefined,
     warnings: result.warnings,
   }
-}
-
-export function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return !!value && typeof value === "object" && Symbol.asyncIterator in value
 }
 
 function isUsageRecord(value: unknown): value is AgentUsageRecord {
@@ -117,12 +116,24 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     if (!finished) yield { type: "finish" }
     return
   }
-  const result = value as { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> }
+  const result = value as { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> }
   const fullStream = result.fullStream
   if (fullStream) {
     const toolNames = new Map<string, string>()
     let finished = false
     for await (const chunk of fullStream) {
+      const event = toAgentStreamEvent(chunk, toolNames)
+      if (!event) continue
+      if (event.type === "finish") finished = true
+      yield event
+    }
+    if (!finished) yield { type: "finish" }
+    return
+  }
+  if (result.stream) {
+    const toolNames = new Map<string, string>()
+    let finished = false
+    for await (const chunk of result.stream) {
       const event = toAgentStreamEvent(chunk, toolNames)
       if (!event) continue
       if (event.type === "finish") finished = true

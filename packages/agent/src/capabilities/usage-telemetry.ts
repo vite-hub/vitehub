@@ -1,4 +1,10 @@
+import { readAgentUsageMetadata } from "../internal/agent-usage-metadata.ts"
 import { defineCapability } from "../capability-runtime.ts"
+import {
+  cloneWithPropertyDescriptors,
+  isAsyncIterable,
+  teeingAsyncIterableStreamDescriptor,
+} from "../internal/stream-result.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -63,10 +69,6 @@ function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === "object" && value !== null
 }
 
-function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return !!value && typeof value === "object" && Symbol.asyncIterator in value
-}
-
 function readNumber(record: UnknownRecord, ...keys: string[]): number | undefined {
   for (const key of keys) {
     const value = record[key]
@@ -90,6 +92,14 @@ function readDetails(value: unknown): Record<string, number> | undefined {
   return Object.keys(details).length ? details : undefined
 }
 
+function hasTokenUsage(usage: AgentUsage): boolean {
+  return usage.inputTokens !== undefined
+    || usage.outputTokens !== undefined
+    || usage.totalTokens !== undefined
+    || usage.inputTokenDetails !== undefined
+    || usage.outputTokenDetails !== undefined
+}
+
 export function normalizeAgentUsage(value: unknown): AgentUsage | undefined {
   if (!isRecord(value)) return
 
@@ -108,13 +118,24 @@ export function normalizeAgentUsage(value: unknown): AgentUsage | undefined {
     raw: value,
   }
 
-  return usage.inputTokens !== undefined
-    || usage.outputTokens !== undefined
-    || usage.totalTokens !== undefined
-    || usage.inputTokenDetails !== undefined
-    || usage.outputTokenDetails !== undefined
-    ? usage
+  if (hasTokenUsage(usage)) return usage
+
+  return Object.keys(value).length
+    ? { details: value, raw: value }
     : undefined
+}
+
+function credentialSourceFromMetadata(metadata: unknown): AgentUsageRecord["credentialSource"] | undefined {
+  if (!isRecord(metadata) || !isRecord(metadata.credentialSource)) return
+  const source = metadata.credentialSource.source
+  const label = metadata.credentialSource.label
+  if (source !== undefined && typeof source !== "string") return
+  if (label !== undefined && typeof label !== "string") return
+  if (source === undefined && label === undefined) return
+  return {
+    ...(label ? { label } : {}),
+    ...(source ? { source: source as NonNullable<AgentUsageRecord["credentialSource"]>["source"] } : {}),
+  }
 }
 
 function responseFromResult(result: UnknownRecord): AgentUsageRecord["response"] | undefined {
@@ -158,14 +179,17 @@ export async function createAgentUsageRecord(
   result: unknown,
   options: UsageTelemetryOptions = {},
   run?: Partial<AgentRunMetadata>,
+  metadataSource?: unknown,
 ): Promise<AgentUsageRecord | undefined> {
   if (!isRecord(result)) return
   const usage = normalizeAgentUsage(result.totalUsage ?? result.usage)
   if (!usage) return
   const model = modelFromResult(result)
   const response = responseFromResult(result)
+  const credentialSource = credentialSourceFromMetadata(readAgentUsageMetadata(result, metadataSource))
 
   const record: AgentUsageRecord = {
+    ...(credentialSource ? { credentialSource } : {}),
     ...(model ? { model } : {}),
     ...(response ? { response } : {}),
     ...(run ? { run } : {}),
@@ -200,8 +224,9 @@ async function recordUsage(
   result: UnknownRecord,
   options: UsageTelemetryOptions,
   run?: Partial<AgentRunMetadata>,
+  metadataSource?: unknown,
 ): Promise<AgentUsageRecord | undefined> {
-  const usageRecord = await createAgentUsageRecord(result, options, run)
+  const usageRecord = await createAgentUsageRecord(result, options, run, metadataSource)
   if (usageRecord) await options.onUsage?.(usageRecord, run ? { run } : {})
   return usageRecord
 }
@@ -211,10 +236,11 @@ async function* withUsageTelemetryStream(
   options: UsageTelemetryOptions,
   run?: Partial<AgentRunMetadata>,
   onRecord?: (record: AgentUsageRecord) => void,
+  metadataSource?: unknown,
 ): AsyncIterable<unknown> {
   for await (const chunk of stream) {
     if (isRecord(chunk) && chunk.type === "finish") {
-      const usageRecord = await recordUsage(chunk, options, run)
+      const usageRecord = await recordUsage(chunk, options, run, metadataSource)
       if (usageRecord) {
         onRecord?.(usageRecord)
         yield { type: "usage", usageRecord }
@@ -222,57 +248,6 @@ async function* withUsageTelemetryStream(
     }
     yield chunk
   }
-}
-
-function withAsyncIterator<T>(stream: ReadableStream<T>): AsyncIterable<T> & ReadableStream<T> {
-  if (typeof (stream as AsyncIterable<T>)[Symbol.asyncIterator] === "function") {
-    return stream as AsyncIterable<T> & ReadableStream<T>
-  }
-
-  Object.defineProperty(stream, Symbol.asyncIterator, {
-    configurable: true,
-    value: async function* () {
-      const reader = stream.getReader()
-      try {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) return
-          yield value
-        }
-      }
-      finally {
-        reader.releaseLock()
-      }
-    },
-  })
-  return stream as AsyncIterable<T> & ReadableStream<T>
-}
-
-function toReadableAsyncIterableStream<T>(iterable: AsyncIterable<T>): AsyncIterable<T> & ReadableStream<T> {
-  if (typeof (iterable as ReadableStream<T>).pipeThrough === "function") {
-    return withAsyncIterator(iterable as ReadableStream<T>)
-  }
-
-  const iterator = iterable[Symbol.asyncIterator]()
-  return withAsyncIterator(new ReadableStream<T>({
-    async cancel() {
-      await iterator.return?.()
-    },
-    async pull(controller) {
-      try {
-        const { done, value } = await iterator.next()
-        if (done) {
-          controller.close()
-        }
-        else {
-          controller.enqueue(value)
-        }
-      }
-      catch (error) {
-        controller.error(error)
-      }
-    },
-  }))
 }
 
 function defineUsageTelemetryOutput(output: UnknownRecord, usageRecord: AgentUsageRecord) {
@@ -292,29 +267,39 @@ function defineUsageTelemetryOutput(output: UnknownRecord, usageRecord: AgentUsa
   })
 }
 
+function hasUsageTelemetryStream(result: UnknownRecord): boolean {
+  return isAsyncIterable(result.fullStream) || isAsyncIterable(result.stream)
+}
+
 function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
   result: T,
   options: UsageTelemetryOptions,
   run?: Partial<AgentRunMetadata>,
 ): T {
   if ((result as UnknownRecord & { [usageTelemetryWrapped]?: boolean })[usageTelemetryWrapped]) return result
-  const fullStream = result.fullStream
-  if (!isAsyncIterable(fullStream)) return result
+  if (!hasUsageTelemetryStream(result)) return result
 
-  const clone = Object.create(Object.getPrototypeOf(result)) as T
-  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(result))
-  let stream = toReadableAsyncIterableStream(withUsageTelemetryStream(fullStream, options, run, (usageRecord) => {
-    defineUsageTelemetryOutput(clone as UnknownRecord, usageRecord)
-  }))
-  Object.defineProperty(clone, "fullStream", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const [next, branch] = stream.tee()
-      stream = withAsyncIterator(next)
-      return withAsyncIterator(branch)
-    },
-  })
+  let clone = undefined as unknown as T
+  const withTelemetry = (stream: AsyncIterable<unknown>) =>
+    teeingAsyncIterableStreamDescriptor(withUsageTelemetryStream(stream, options, run, (usageRecord) => {
+      defineUsageTelemetryOutput(clone as UnknownRecord, usageRecord)
+    }, result))
+  const fullStreamDescriptor = isAsyncIterable(result.fullStream) ? withTelemetry(result.fullStream) : undefined
+  const descriptors: PropertyDescriptorMap = {
+    ...(fullStreamDescriptor ? { fullStream: fullStreamDescriptor } : {}),
+    ...(isAsyncIterable(result.stream)
+      ? { stream: result.stream === result.fullStream && fullStreamDescriptor ? fullStreamDescriptor : withTelemetry(result.stream) }
+      : {}),
+  }
+  const toUIMessageStream = result.toUIMessageStream
+  if (typeof toUIMessageStream === "function") {
+    descriptors.toUIMessageStream = {
+      configurable: true,
+      enumerable: true,
+      value: (...args: unknown[]) => toUIMessageStream.apply(clone, args),
+    }
+  }
+  clone = cloneWithPropertyDescriptors(result, descriptors)
   Object.defineProperty(clone, usageTelemetryWrapped, {
     value: true,
   })
@@ -335,7 +320,7 @@ export function usageTelemetry(options: UsageTelemetryOptions = {}): AgentCapabi
       context.output.render(async (result) => {
         if (isAsyncIterable(result)) return withUsageTelemetryStream(result, options, context.run)
         if (!isRecord(result)) return result
-        if (isAsyncIterable(result.fullStream)) return cloneWithUsageTelemetryStream(result, options, context.run)
+        if (hasUsageTelemetryStream(result)) return cloneWithUsageTelemetryStream(result, options, context.run)
         const usageRecord = await recordUsage(result, options, context.run)
         if (!usageRecord) return result
         return {
@@ -393,6 +378,7 @@ function pricedTokens(usage: AgentUsage, price: StaticModelPrice): string {
 
 export function staticModelPricing(prices: Record<string, StaticModelPrice>): AgentUsagePricing {
   return ({ model, usage }) => {
+    if (!hasTokenUsage(usage)) return
     const modelId = model?.id
     if (!modelId) return
     const price = prices[modelId]
@@ -437,6 +423,7 @@ export function vercelAiGatewayPricing(options: VercelAiGatewayPricingOptions = 
   }
 
   return async ({ model, usage }) => {
+    if (!hasTokenUsage(usage)) return
     const modelId = model?.id
     if (!modelId) return
     const price = (await loadPrices())[modelId]
