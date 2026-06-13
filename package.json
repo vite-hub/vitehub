@@ -12,6 +12,7 @@
     "@vercel/queue": "catalog:vercel",
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/agent": "workspace:*",
+    "@vite-hub/auth": "workspace:*",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/devtools": "workspace:*",
