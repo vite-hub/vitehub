@@ -36,6 +36,10 @@ _Avoid_: Hidden database schema, mixed database mode, migration sidecar
 Database-scoped provider wiring stored with a Database Definition.
 _Avoid_: Provider selection, database identity, runtime secret
 
+**Database Host Resource**:
+A host-provided database declared through Integration Options for package-owned host wiring without becoming a Database Definition.
+_Avoid_: Content database, Nuxt Content database, hidden Database Definition
+
 **Live Database Schema**:
 The schema currently present in a running database.
 _Avoid_: Database Table Schema, migration file
@@ -60,6 +64,7 @@ _Avoid_: Raw client, ORM config
 - A **Database Definition** owns its **Database Table Schema**.
 - A **Package Database Contribution** can add package-owned tables to a selected **Database Definition** without changing **Database Definition Mode**.
 - A **Database Definition** can own a **Database Provider Binding** when the binding attaches provider output to that discovered database identity.
+- A **Database Host Resource** can produce host runtime config and Provider Output when another package or framework consumes a database resource outside the Drizzle Runtime Surface.
 - **Generated Drizzle Schema** is derived from **Database Table Schema**.
 - **Generated Validation Schema** is derived from **Database Table Schema**.
 - A **Named Database** is selected through the **Drizzle Runtime Surface**.
@@ -88,3 +93,4 @@ _Avoid_: Raw client, ORM config
 - Provider bindings were considered only Integration Options - resolved: **Database Provider Binding** may live in a **Database Definition** to avoid duplicating discovered database names, while global provider selection remains an Integration Option.
 - Drizzle Kit was considered against an in-memory generated schema - resolved: use **Generated Drizzle Schema** as an inspectable artifact.
 - Package-owned tables were considered to require a separate **Named Database** - resolved: use **Package Database Contribution** when package-owned tables should live in an existing **Database Definition**.
+- Nuxt Content D1 wiring was considered a public Nuxt-specific resolver helper - resolved: use a **Database Host Resource** through the Database Nuxt bridge so the app declares one D1 resource and Nuxt Content remains an implementation consumer.
