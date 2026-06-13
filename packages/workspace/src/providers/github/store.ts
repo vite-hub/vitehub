@@ -102,6 +102,16 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     const normalized = normalizeSafeWorkspacePath(path);
     await this.#ensure({ refresh: false });
     const update = await createGitHubFileUpdate(normalized, this.#root, file.content);
+    const current = this.#files.get(normalized);
+    if (current?.gitSha === update.gitSha) {
+      this.#files.set(normalized, {
+        ...current,
+        mediaType: file.mediaType,
+        metadata: file.metadata,
+        size: contentLength(file.content),
+      });
+      return;
+    }
     this.#files.set(normalized, {
       bytes: update.bytes,
       gitSha: update.gitSha,

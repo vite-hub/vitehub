@@ -98,9 +98,20 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const { dirname } = await import("node:path")
     const { mkdir, writeFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
+    const normalized = normalizeWorkspacePath(path)
+    const bytes = contentToBytes(file.content)
+    const digest = await sha256(bytes)
+    const existing = await this.stat(normalized)
+    if (existing?.type === "file" && existing.digest === digest) {
+      this.#files.set(normalized, {
+        mediaType: file.mediaType,
+        metadata: file.metadata,
+      })
+      return
+    }
     await mkdir(dirname(absolute), { recursive: true })
-    await writeFile(absolute, contentToBytes(file.content))
-    this.#files.set(normalizeWorkspacePath(path), {
+    await writeFile(absolute, bytes)
+    this.#files.set(normalized, {
       mediaType: file.mediaType,
       metadata: file.metadata,
     })

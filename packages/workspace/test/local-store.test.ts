@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -12,6 +12,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return {
     ...actual,
     readFile: vi.fn(actual.readFile),
+    writeFile: vi.fn(actual.writeFile),
   }
 })
 
@@ -82,6 +83,27 @@ describe("local workspace store", () => {
     ]))
     await expect(store.stat("assets/blob.bin")).resolves.toMatchObject({ digest })
     expect(readFile).not.toHaveBeenCalled()
+  })
+
+  it("does not rewrite local files when the content digest is unchanged", async () => {
+    const store = await createStore()
+    const content = new Uint8Array([0, 1, 2, 3])
+
+    await store.writeFile("assets/blob.bin", { path: "assets/blob.bin", content })
+    vi.mocked(writeFile).mockClear()
+
+    await store.writeFile("assets/blob.bin", {
+      path: "assets/blob.bin",
+      content,
+      mediaType: "application/octet-stream",
+      metadata: { source: "airtable" },
+    })
+
+    expect(writeFile).not.toHaveBeenCalled()
+    await expect(store.readFile("assets/blob.bin")).resolves.toMatchObject({
+      mediaType: "application/octet-stream",
+      metadata: { source: "airtable" },
+    })
   })
 
   it("supports brace, character class, and extglob patterns", async () => {

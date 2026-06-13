@@ -252,6 +252,35 @@ describe("GitHub workspace store", () => {
     expect(requests.filter((request) => request.method !== "GET")).toEqual([]);
   });
 
+  it("keeps unchanged remote file content lazy after no-op writes", async () => {
+    seedRemote(".vitehub/workspaces/docs/README.md", "# Docs\n");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await store.writeFile("README.md", { path: "README.md", content: "# Docs\n" });
+    requests.length = 0;
+
+    await expect(store.readFile("README.md")).resolves.toMatchObject({
+      content: textBytes("# Docs\n"),
+      metadata: undefined,
+    });
+
+    expect(requests.filter((request) => request.path.includes("/git/blobs/"))).toEqual([
+      expect.objectContaining({
+        method: "GET",
+        path: `/repos/onmax/repo/git/blobs/${textSha("# Docs\n")}`,
+      }),
+    ]);
+  });
+
   it("fails dirty snapshots when the branch moved after load", async () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
