@@ -13,6 +13,7 @@ import { useRegisteredWorkspace } from "../src/core/registry.ts"
 const globSource = source.glob
 const githubSource = source.github
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 
 const tempDirs: string[] = []
 
@@ -213,6 +214,43 @@ describe("lazy sources", () => {
       "get:b.md",
       "write:docs/b.md",
     ])
+  })
+
+  it("streams source item content into stores that support streaming writes", async () => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const writeFile = vi.spyOn(store, "writeFile")
+    const writeFileStream = vi.spyOn(store, "writeFileStream")
+    const view = createWorkspaceSourceView({
+      name: "lazy-stream-content",
+      sources: {
+        docs: source.custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["asset.bin"]
+          },
+          async getItem(key) {
+            return {
+              key,
+              contentStream: new ReadableStream({
+                start(controller) {
+                  controller.enqueue(new Uint8Array([0, 1, 2]))
+                  controller.enqueue(new Uint8Array([3, 4]))
+                  controller.close()
+                },
+              }),
+              mediaType: "application/octet-stream",
+            }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+
+    expect(writeFile).not.toHaveBeenCalled()
+    expect(writeFileStream).toHaveBeenCalledTimes(1)
+    await expect(view.readFile("docs/asset.bin", { encoding: "binary" })).resolves.toEqual(new Uint8Array([0, 1, 2, 3, 4]))
   })
 
   it("reuses keyed source items with unchanged upstream metadata", async () => {

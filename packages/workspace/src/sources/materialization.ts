@@ -1,7 +1,7 @@
 import { posix } from "node:path"
 
 import { WorkspaceError } from "../core/errors.ts"
-import { decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
 import { searchText } from "../core/search.ts"
 import type { ResolvedWorkspaceSource } from "./config.ts"
@@ -16,6 +16,7 @@ import type {
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
   WorkspaceSourceItem,
+  WorkspaceContentStream,
   WorkspaceStat,
   WorkspaceStore,
   WorkspaceDefinition,
@@ -150,6 +151,7 @@ async function* iterateSourceItems(source: ResolvedWorkspaceSource, ctx: SourceC
 
 interface MaterializationEntry {
   content?: string | Uint8Array
+  contentStream?: WorkspaceContentStream
   item?: WorkspaceSourceItem
   metadata: LazyMaterializedMetadata
   path: string
@@ -163,7 +165,6 @@ function createMaterializationEntry(
 ): MaterializationEntry {
   const path = normalizeWorkspacePath(`${source.mountPath}/${item.path || item.key}`)
   return {
-    content: item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2)),
     item,
     metadata: createLazyMaterializedMetadata({
       sourceKey: source.key,
@@ -171,7 +172,18 @@ function createMaterializationEntry(
       validate: source.validate,
     }, item, upstreamMeta),
     path,
+    ...sourceItemContent(item),
   }
+}
+
+function sourceItemContent(item: WorkspaceSourceItem): Pick<MaterializationEntry, "content" | "contentStream"> {
+  if (item.contentStream) {
+    if (typeof item.content !== "undefined" || typeof item.data !== "undefined") {
+      throw new WorkspaceError("[vitehub] Workspace source items cannot define contentStream with content or data.")
+    }
+    return { contentStream: item.contentStream }
+  }
+  return { content: item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2)) }
 }
 
 async function* iterateMaterializationEntries(
@@ -272,12 +284,12 @@ export async function materializeWorkspaceSources(
           continue
         }
         const item = entry.item!
-        const content = entry.content!
         const metadata = item.metadata || {}
         commit ||= readStringMeta(metadata, "ref") || readStringMeta(metadata, "sha") || entry.metadata.ref || entry.metadata.sha
-        await store.writeFile(path, {
+        const written = await writeMaterializedFile(store, path, {
           path,
-          content,
+          content: entry.content,
+          contentStream: entry.contentStream,
           mediaType: item.mediaType,
           metadata: {
             ...metadata,
@@ -286,7 +298,7 @@ export async function materializeWorkspaceSources(
           },
         })
         sourceFiles++
-        sourceBytes += contentSize(content)
+        sourceBytes += written.size || 0
       }
       await removeStaleMaterializedSourceFiles(store, source, nextPaths, { removeUntracked: Boolean(source.mountPath) })
 
@@ -355,15 +367,49 @@ export async function materializeSourceFile(
   const item = await resolution.source.source.getItem(resolution.sourcePath, ctx)
   const upstreamMeta = await resolution.source.source.getMeta?.(resolution.sourcePath, ctx)
   const metadata = createLazyMaterializedMetadata(resolution, item, upstreamMeta)
-  const next: WorkspaceFile = {
+  const content = sourceItemContent(item)
+  const nextBase = {
     path: resolution.workspacePath,
-    content: item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2)),
     mediaType: item.mediaType,
     metadata: { ...item.metadata, ...metadata },
+  }
+  const next: WorkspaceFile = {
+    ...nextBase,
+    content: content.content ?? await contentStreamToBytes(content.contentStream!),
   }
   await store.writeFile(resolution.workspacePath, next)
   await store.setMeta?.(materializedMetaKey(resolution), metadata)
   return next
+}
+
+async function writeMaterializedFile(
+  store: WorkspaceStore,
+  path: string,
+  file: {
+    path: string
+    content?: string | Uint8Array
+    contentStream?: WorkspaceContentStream
+    mediaType?: string
+    metadata?: Record<string, unknown>
+  },
+): Promise<{ size?: number }> {
+  if (file.contentStream) {
+    if (store.writeFileStream) {
+      return await store.writeFileStream(path, {
+        path: file.path,
+        content: file.contentStream,
+        mediaType: file.mediaType,
+        metadata: file.metadata,
+      })
+    }
+    const content = await contentStreamToBytes(file.contentStream)
+    await store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata })
+    return { size: content.byteLength }
+  }
+
+  const content = file.content ?? ""
+  await store.writeFile(path, { path: file.path, content, mediaType: file.mediaType, metadata: file.metadata })
+  return { size: contentSize(content) }
 }
 
 export async function statVirtualSourcePath(

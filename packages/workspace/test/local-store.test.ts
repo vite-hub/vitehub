@@ -106,6 +106,32 @@ describe("local workspace store", () => {
     })
   })
 
+  it("writes streamed files without buffering through fs.writeFile", async () => {
+    const store = await createStore()
+    const content = new Uint8Array([0, 1, 2, 3, 254, 255])
+    const digest = createHash("sha256").update(content).digest("hex")
+
+    await expect(store.writeFileStream?.("assets/blob.bin", {
+      path: "assets/blob.bin",
+      content: new ReadableStream({
+        start(controller) {
+          controller.enqueue(content.slice(0, 3))
+          controller.enqueue(content.slice(3))
+          controller.close()
+        },
+      }),
+      mediaType: "application/octet-stream",
+      metadata: { source: "stream" },
+    })).resolves.toMatchObject({ digest, path: "assets/blob.bin", size: content.byteLength })
+
+    expect(writeFile).not.toHaveBeenCalled()
+    await expect(store.readFile("assets/blob.bin")).resolves.toMatchObject({
+      content,
+      mediaType: "application/octet-stream",
+      metadata: { source: "stream" },
+    })
+  })
+
   it("supports brace, character class, and extglob patterns", async () => {
     const store = await createStore()
 

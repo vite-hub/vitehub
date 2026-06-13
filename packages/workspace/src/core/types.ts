@@ -1,4 +1,5 @@
 export type WorkspaceContent = string | Uint8Array
+export type WorkspaceContentStream = ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>
 
 export interface ReadFileOptions {
   encoding?: "utf8" | "binary"
@@ -193,6 +194,13 @@ export interface WorkspaceFile {
   metadata?: Record<string, unknown>
 }
 
+export interface WorkspaceStreamFile {
+  path: string
+  content: WorkspaceContentStream
+  mediaType?: string
+  metadata?: Record<string, unknown>
+}
+
 export interface WorkspaceEntry {
   path: string
   type: "file" | "directory"
@@ -238,6 +246,7 @@ export interface WorkspaceAutoCommitPlan {
 export interface WorkspaceStore {
   readFile(path: string): Promise<WorkspaceFile | undefined>
   writeFile(path: string, file: WorkspaceFile): Promise<void>
+  writeFileStream?(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat>
   list(prefix?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
   stat(path: string): Promise<WorkspaceStat | undefined>
@@ -318,6 +327,7 @@ export interface WorkspaceSourceItem {
   key: string
   path?: string
   content?: WorkspaceContent
+  contentStream?: WorkspaceContentStream
   data?: unknown
   mediaType?: string
   metadata?: Record<string, unknown>
