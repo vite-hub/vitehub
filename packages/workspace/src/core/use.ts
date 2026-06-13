@@ -36,6 +36,8 @@ import type {
   WorkspaceDiff,
   WorkspaceMaterializeSourcesOptions,
   WorkspaceSnapshot,
+  WorkspaceSourceSyncResult,
+  WorkspaceSyncOptions,
   WriteFileOptions,
   SnapshotOptions,
 } from "./types.ts"
@@ -113,6 +115,7 @@ export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceN
   materializeSources(options?: WorkspaceMaterializeSourcesOptions): Promise<WorkspaceMaterializeSourcesResult>
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
   startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
+  sync(options: WorkspaceSyncOptions): Promise<WorkspaceSourceSyncResult>
   tools: WorkspaceWriteToolSet
 }
 
@@ -438,6 +441,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       materializeSources: async options => await materializeWorkspaceSources(workspace, options),
       snapshot: async options => await workspace.snapshot(options),
       startSession: async options => await workspace.startSession(options),
+      sync: async options => await workspace.sync(options),
       tools,
     }
   }

@@ -1,6 +1,12 @@
 import { WorkspaceError } from "../core/errors.ts"
-import { normalizeWorkspacePath, sha256 } from "../core/path.ts"
-import { createSourceContext, normalizeWorkspaceSources, type ResolvedWorkspaceSource } from "./config.ts"
+import { normalizeSafeWorkspacePath, sha256 } from "../core/path.ts"
+import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, type ResolvedWorkspaceSource } from "./config.ts"
+import {
+  readWorkspaceSourceSyncState,
+  sourceSyncMetaKey,
+  workspaceSourceSyncStateEquals,
+  type WorkspaceSourceSyncState,
+} from "./sync-state.ts"
 
 import type {
   SnapshotOptions,
@@ -16,34 +22,17 @@ import type {
   WorkspaceSyncOptions,
 } from "../core/types.ts"
 
-interface SourceSyncStatePath {
-  digest: string
-  mediaType?: string
-  sourcePath: string
-}
-
-interface SourceSyncState {
-  configHash: string
-  mountPath: string
-  paths: Record<string, SourceSyncStatePath>
-  source: string
-  syncedAt: string
-}
-
 interface SourceSyncPlan {
   counts: WorkspaceSourceSyncCounts
   files: WorkspaceFile[]
-  nextState: SourceSyncState
+  nextState: WorkspaceSourceSyncState
   paths: WorkspaceSourceSyncPathResult[]
   removals: WorkspaceSourceSyncPathResult[]
   source: ResolvedWorkspaceSource
+  stateChanged: boolean
 }
 
 const sourceSyncLocks = new Map<string, Promise<WorkspaceSourceSyncResult>>()
-
-function sourceSyncMetaKey(sourceKey: string) {
-  return `source:${sourceKey}:sync`
-}
 
 function zeroCounts(): WorkspaceSourceSyncCounts {
   return {
@@ -69,14 +58,6 @@ async function sourceConfigHash(source: ResolvedWorkspaceSource) {
     source: source.source.fingerprint,
     sync: source.sync,
   })
-}
-
-function readSourceSyncState(value: unknown): SourceSyncState | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return
-  const state = value as SourceSyncState
-  if (typeof state.source !== "string" || typeof state.mountPath !== "string") return
-  if (!state.paths || typeof state.paths !== "object" || Array.isArray(state.paths)) return
-  return state
 }
 
 function sourceLockKey(definition: WorkspaceDefinition, source: ResolvedWorkspaceSource) {
@@ -123,6 +104,27 @@ async function getSourceItems(source: ResolvedWorkspaceSource, ctx: ReturnType<t
   return await Promise.all((await source.source.getKeys(ctx)).map(async key => await source.source.getItem(key, ctx)))
 }
 
+function normalizeSourceItemPath(source: ResolvedWorkspaceSource, item: WorkspaceSourceItem) {
+  const rawSourcePath = item.path || item.key
+  const sourcePath = normalizeSafeWorkspacePath(rawSourcePath, { allowEmpty: false })
+  if (sourcePath.split("/").some(part => part === ".git" || part === ".vitehub")) {
+    throw new WorkspaceError(`[vitehub] Workspace Source Sync item path is reserved: ${rawSourcePath}.`)
+  }
+
+  const path = normalizeSafeWorkspacePath(`${source.mountPath}/${sourcePath}`, { allowEmpty: false })
+  if (source.mountPath && !sourceMountContainsPath(source, path)) {
+    throw new WorkspaceError(`[vitehub] Workspace Source Sync item path escapes source mount: ${rawSourcePath}.`)
+  }
+
+  return { path, sourcePath }
+}
+
+async function shouldRemoveStalePath(store: WorkspaceStore, path: string, metadata: WorkspaceSourceSyncState["paths"][string]) {
+  const file = await store.readFile(path)
+  if (!file) return false
+  return await sha256(file.content) === metadata.digest
+}
+
 async function planSourceSync(
   definition: WorkspaceDefinition,
   store: WorkspaceStore,
@@ -130,29 +132,31 @@ async function planSourceSync(
 ): Promise<SourceSyncPlan> {
   const ctx = createSourceContext(definition, source)
   const [previousState, configHash, items] = await Promise.all([
-    store.getMeta?.(sourceSyncMetaKey(source.key)).then(readSourceSyncState),
+    store.getMeta?.(sourceSyncMetaKey(source.key)).then(readWorkspaceSourceSyncState),
     sourceConfigHash(source),
     getSourceItems(source, ctx),
   ])
   const counts = zeroCounts()
   const paths: WorkspaceSourceSyncPathResult[] = []
   const files: WorkspaceFile[] = []
-  const nextPaths: SourceSyncState["paths"] = {}
+  const nextPaths: WorkspaceSourceSyncState["paths"] = {}
 
   for (const item of items) {
-    const sourcePath = item.path || item.key
-    const path = normalizeWorkspacePath(`${source.mountPath}/${sourcePath}`)
+    const { path, sourcePath } = normalizeSourceItemPath(source, item)
+    if (nextPaths[path]) {
+      throw new WorkspaceError(`[vitehub] Workspace Source Sync produced duplicate path: ${path}.`)
+    }
     const content = contentFromItem(item)
     const digest = await sha256(content)
     const existing = await store.readFile(path)
     const existingDigest = existing ? await sha256(existing.content) : undefined
     const status: WorkspaceSourceSyncPathResult["status"] = existing ? existingDigest === digest ? "unchanged" : "updated" : "added"
     countPath(counts, status)
-    paths.push({ path, sourcePath: item.key, status })
+    paths.push({ path, sourcePath, status })
     nextPaths[path] = {
       digest,
       mediaType: item.mediaType,
-      sourcePath: item.key,
+      sourcePath,
     }
     files.push({
       path,
@@ -161,7 +165,7 @@ async function planSourceSync(
       metadata: {
         ...item.metadata,
         source: source.key,
-        sourcePath: item.key,
+        sourcePath,
       },
     })
   }
@@ -170,8 +174,7 @@ async function planSourceSync(
   if (source.sync && source.sync.stale === "remove" && previousState) {
     for (const [path, metadata] of Object.entries(previousState.paths)) {
       if (nextPaths[path]) continue
-      const file = await store.readFile(path)
-      if (file?.metadata?.source !== source.key) continue
+      if (!await shouldRemoveStalePath(store, path, metadata)) continue
       const removal = { path, sourcePath: metadata.sourcePath, status: "removed" as const }
       removals.push(removal)
       paths.push(removal)
@@ -179,19 +182,21 @@ async function planSourceSync(
     }
   }
 
+  const nextState = {
+    configHash,
+    mountPath: source.mountPath,
+    paths: nextPaths,
+    source: source.key,
+  }
+
   return {
     counts,
     files,
-    nextState: {
-      configHash,
-      mountPath: source.mountPath,
-      paths: nextPaths,
-      source: source.key,
-      syncedAt: new Date().toISOString(),
-    },
+    nextState,
     paths,
     removals,
     source,
+    stateChanged: !workspaceSourceSyncStateEquals(previousState, nextState),
   }
 }
 
@@ -203,7 +208,35 @@ async function applySourceSyncPlan(store: WorkspaceStore, plan: SourceSyncPlan) 
   for (const removal of plan.removals) {
     await store.rm(removal.path, { force: true })
   }
-  await store.setMeta?.(sourceSyncMetaKey(plan.source.key), plan.nextState)
+  await pruneEmptySourceDirectories(store, plan.source, plan.removals)
+  if (plan.stateChanged) await store.setMeta?.(sourceSyncMetaKey(plan.source.key), plan.nextState)
+}
+
+async function pruneEmptySourceDirectories(store: WorkspaceStore, source: ResolvedWorkspaceSource, removals: WorkspaceSourceSyncPathResult[]) {
+  const directories = new Set<string>()
+  for (const removal of removals) {
+    for (const directory of parentDirectories(removal.path)) {
+      if (directory === source.mountPath) continue
+      if (source.mountPath && !sourceMountContainsPath(source, directory)) continue
+      directories.add(directory)
+    }
+  }
+
+  for (const directory of [...directories].sort((left, right) => right.length - left.length)) {
+    const stat = await store.stat(directory)
+    if (stat?.type !== "directory") continue
+    if ((await store.list(directory)).length > 0) continue
+    await store.rm(directory, { force: true })
+  }
+}
+
+function parentDirectories(path: string): string[] {
+  const parts = path.split("/").filter(Boolean)
+  const directories: string[] = []
+  for (let index = parts.length - 1; index > 0; index--) {
+    directories.push(parts.slice(0, index).join("/"))
+  }
+  return directories
 }
 
 function statusFromPlan(plan: SourceSyncPlan, details: WorkspaceSyncOptions["details"]): WorkspaceSourceSyncStatus {
@@ -268,7 +301,7 @@ async function syncWorkspaceSourcesUnlocked(
     }
   }
 
-  if (statuses.some(status => status.status === "error")) {
+  if (statuses.some(status => status.status === "error") && !options.publishPartial) {
     return {
       durationMs: Date.now() - started,
       published: false,
@@ -289,7 +322,7 @@ async function syncWorkspaceSourcesUnlocked(
 
   const planStatuses = plans.map(plan => statusFromPlan(plan, options.details))
   const resultSources = [...statuses, ...planStatuses]
-  const snapshot = resultStatus(resultSources) === "ready" || options.publishPartial
+  const snapshot = resultStatus(resultSources) === "ready" || options.publishPartial && planStatuses.length > 0
     ? await snapshotSyncedWorkspace(definition, store, options)
     : undefined
 
