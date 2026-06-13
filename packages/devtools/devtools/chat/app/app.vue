@@ -1058,6 +1058,16 @@ onMounted(() => {
 })
 watch(selectedInvokerProfileId, async (next, previous) => {
   if (!next || next === previous || isInvokerLocked.value) return
+  metadataRefreshEpoch += 1
+  stopMetadataRefresh()
+  state.value = {
+    ...state.value,
+    files: [],
+    instructions: [],
+    metadataError: undefined,
+    metadataStatus: "loading",
+    tools: [],
+  }
   await refreshFromBridge(state.value.selected)
 })
 onBeforeUnmount(() => {
