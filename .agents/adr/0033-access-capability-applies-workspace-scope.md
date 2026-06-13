@@ -12,7 +12,7 @@ ViteHub will add a read-only `access()` Capability. In the first version, `acces
 - `organization()` was rejected because it couples the Capability to one auth and business model; Workspace Scope may be selected from organization membership, customer domain, local configuration, or other trusted invocation context.
 - Ambient invocation keys such as `workspaceScope` were rejected as authority; applications must use an explicit `access({ workspace: { resolve } })` resolver when scope comes from request, auth, or chat identity.
 - Write grants and explicit deny rules were deferred so the first version can prove read isolation with allow-only grants and deny-by-default behavior.
-- Source materialization under scoped access was deferred because it is a separate read surface that can expose source-level metadata; scoped V1 exposes normal reads, lists, searches, and shell-shaped inspection only.
+- Source materialization under scoped access was deferred because it is a separate read surface that can expose source-level metadata; scoped V1 exposes normal reads, lists, searches, and shell-shaped inspection only. ADR 0052 adds a narrow exception for harness-backed Agent Drivers through Harness Workspace Sessions.
 
 ## Consequences
 

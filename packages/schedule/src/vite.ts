@@ -1,4 +1,5 @@
-import { normalize, resolve } from "node:path"
+import { mkdir, writeFile } from "node:fs/promises"
+import { dirname, relative, resolve, normalize } from "node:path"
 
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
@@ -6,19 +7,49 @@ import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-cat
 import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 
 import { discoverScheduleDefinitions } from "./discovery.ts"
-import { generateProviderOutputs, schedulePackageName } from "./internal/provider-output.ts"
+import { generateProviderOutputs, readDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
 import { createScheduleTargetsContents, SCHEDULE_TARGETS_ID } from "./targets-module.ts"
 
-import type { Plugin, ResolvedConfig } from "vite"
+import type { Plugin, ResolvedConfig, UserConfig } from "vite"
+import type { DiscoveredScheduleDefinition } from "./types.ts"
 
 const SCHEDULE_VITE_PLUGIN_NAME = "@vite-hub/schedule/vite"
 const SCHEDULE_REGISTRY_ID = "#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_REGISTRY_ID = "\0#vitehub/schedule/registry"
 const RESOLVED_SCHEDULE_TARGETS_ID = `\0${SCHEDULE_TARGETS_ID}`
 const registryImportAnchor = ".vitehub/schedule/registry.js"
+const generatedNitroCloudflarePlugin = ".vitehub/nitro/schedule/plugin.ts"
+const generatedNitroCloudflareModule = "./.vitehub/nitro/schedule/module.ts"
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
 
-export type ScheduleVitePlugin = Plugin
+export interface ScheduleVitePluginOptions {
+  providerOutput?: "auto" | "standalone" | "nitro" | false
+}
+
+export interface ScheduleVitePlugin {
+  name: string
+  [hook: string]: unknown
+}
+
+type NitroConfig = Record<string, unknown> & {
+  cloudflare?: {
+    wrangler?: {
+      triggers?: {
+        crons?: string[]
+      } & Record<string, unknown>
+    } & Record<string, unknown>
+  } & Record<string, unknown>
+  modules?: unknown[]
+  plugins?: unknown[]
+}
+
+type ViteConfigWithNitro = UserConfig & {
+  nitro?: NitroConfig
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
 
 function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
   const aliases: Record<string, string> = {}
@@ -30,8 +61,160 @@ function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
   return aliases
 }
 
-export function hubSchedule(): ScheduleVitePlugin {
+function moduleImportSpecifier(fromFile: string, targetFile: string): string {
+  const specifier = relative(dirname(fromFile), targetFile).replace(/\\/g, "/")
+  return specifier.startsWith(".") ? specifier : `./${specifier}`
+}
+
+function cloneNitroConfig(value: unknown): NitroConfig {
+  const nitro = isRecord(value) ? { ...value } : {}
+  if (Array.isArray(nitro.plugins)) {
+    nitro.plugins = [...nitro.plugins]
+  }
+  if (isRecord(nitro.cloudflare)) {
+    const cloudflare = { ...nitro.cloudflare }
+    if (isRecord(cloudflare.wrangler)) {
+      const wrangler = { ...cloudflare.wrangler }
+      if (isRecord(wrangler.triggers)) {
+        const triggers = { ...wrangler.triggers }
+        if (Array.isArray(triggers.crons)) {
+          triggers.crons = triggers.crons.filter((cron): cron is string => typeof cron === "string")
+        }
+        wrangler.triggers = triggers
+      }
+      cloudflare.wrangler = wrangler
+    }
+    nitro.cloudflare = cloudflare
+  }
+  return nitro as NitroConfig
+}
+
+function mergeNitroScheduleConfig(value: unknown, options: { crons: string[], plugin: string }): NitroConfig {
+  const nitro = cloneNitroConfig(value)
+  nitro.plugins = Array.isArray(nitro.plugins) && nitro.plugins.includes(options.plugin)
+    ? nitro.plugins
+    : [...(Array.isArray(nitro.plugins) ? nitro.plugins : []), options.plugin]
+  nitro.modules = Array.isArray(nitro.modules) && nitro.modules.includes(generatedNitroCloudflareModule)
+    ? nitro.modules
+    : [...(Array.isArray(nitro.modules) ? nitro.modules : []), generatedNitroCloudflareModule]
+  nitro.cloudflare ||= {}
+  nitro.cloudflare.wrangler ||= {}
+  const wrangler = nitro.cloudflare.wrangler
+  const existingTriggers = isRecord(wrangler.triggers) ? wrangler.triggers : {}
+  const existingCrons = Array.isArray(existingTriggers.crons)
+    ? existingTriggers.crons.filter((cron): cron is string => typeof cron === "string")
+    : []
+  wrangler.triggers = {
+    ...existingTriggers,
+    crons: [...new Set([...existingCrons, ...options.crons])],
+  }
+  return nitro
+}
+
+function renderNitroCloudflarePlugin(definitions: DiscoveredScheduleDefinition[], pluginFile: string, registryFile: string): string {
+  const registryImport = moduleImportSpecifier(pluginFile, registryFile)
+  const scheduleRuntimeImport = "@vite-hub/schedule/runtime/static"
+  return [
+    "import { definePlugin } from 'nitro'",
+    `import scheduleRegistry from ${JSON.stringify(registryImport)}`,
+    `import { executeCloudflareStaticSchedules } from ${JSON.stringify(scheduleRuntimeImport)}`,
+    "",
+    "export default definePlugin((nitroApp) => {",
+    "  nitroApp.hooks.hook('cloudflare:scheduled', async (event) => {",
+    "    await executeCloudflareStaticSchedules(event, { registry: scheduleRegistry })",
+    "  })",
+    "})",
+    "",
+    `export const vitehubScheduleDefinitions = ${JSON.stringify(definitions.map(definition => definition.name))}`,
+    "",
+  ].join("\n")
+}
+
+function renderNitroCloudflareModule(crons: string[]): string {
+  return [
+    "import type { Nitro } from 'nitro/types'",
+    "",
+    `const crons = ${JSON.stringify(crons)}`,
+    "",
+    "function dedupeCloudflareCrons(nitro: Nitro): void {",
+    "  const wrangler = nitro.options.cloudflare?.wrangler",
+    "  if (!wrangler?.triggers || !Array.isArray(wrangler.triggers.crons)) return",
+    "  wrangler.triggers.crons = [...new Set(wrangler.triggers.crons.filter((cron): cron is string => typeof cron === 'string'))]",
+    "}",
+    "",
+    "export default function vitehubScheduleModule(nitro: Nitro): void {",
+    "  nitro.options.cloudflare ??= {}",
+    "  nitro.options.cloudflare.wrangler ??= {}",
+    "  nitro.options.cloudflare.wrangler.triggers ??= {}",
+    "  const existingCrons = Array.isArray(nitro.options.cloudflare.wrangler.triggers.crons) ? nitro.options.cloudflare.wrangler.triggers.crons : []",
+    "  nitro.options.cloudflare.wrangler.triggers.crons = [...new Set([...existingCrons, ...crons])]",
+    "  nitro.hooks.hook('build:before', dedupeCloudflareCrons)",
+    "}",
+    "",
+  ].join("\n")
+}
+
+function renderScheduleRegistryTypes(): string {
+  return [
+    "import type { ScheduleDefinition } from '@vite-hub/schedule'",
+    "",
+    "declare const registry: Record<string, () => Promise<ScheduleDefinition | { default?: ScheduleDefinition }>>",
+    "export default registry",
+    "",
+  ].join("\n")
+}
+
+async function writeNitroCloudflarePlugin(root: string, definitions: DiscoveredScheduleDefinition[], crons: string[]): Promise<string> {
+  const pluginFile = resolve(root, generatedNitroCloudflarePlugin)
+  const moduleFile = resolve(root, generatedNitroCloudflareModule)
+  const registryFile = resolve(root, registryImportAnchor)
+  await Promise.all([
+    mkdir(dirname(pluginFile), { recursive: true }),
+    mkdir(dirname(moduleFile), { recursive: true }),
+    mkdir(dirname(registryFile), { recursive: true }),
+  ])
+  await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
+  await writeFile(registryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(), "utf8")
+  await writeFile(pluginFile, renderNitroCloudflarePlugin(definitions, pluginFile, registryFile), "utf8")
+  await writeFile(moduleFile, renderNitroCloudflareModule(crons), "utf8")
+  return generatedNitroCloudflarePlugin
+}
+
+function hasServerScheduleDefinitions(definitions: DiscoveredScheduleDefinition[]): boolean {
+  return definitions.some(definition => definition.source === "server-schedules")
+}
+
+function hasViteSuffixScheduleDefinitions(definitions: DiscoveredScheduleDefinition[]): boolean {
+  return definitions.some(definition => definition.source === "vite-suffix")
+}
+
+function selectNitroScheduleDefinitions(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): DiscoveredScheduleDefinition[] {
+  if (options.providerOutput === false || options.providerOutput === "standalone") return []
+  if (options.providerOutput === "nitro") return definitions
+  return definitions.filter(definition => definition.source === "server-schedules")
+}
+
+function selectStandaloneProviderSource(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): DiscoveredScheduleDefinition["source"] | undefined {
+  if (options.providerOutput === "auto" || options.providerOutput === undefined) {
+    return hasServerScheduleDefinitions(definitions) ? "vite-suffix" : undefined
+  }
+}
+
+function shouldInstallNitroSchedulePlugin(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): boolean {
+  return selectNitroScheduleDefinitions(definitions, options).length > 0
+}
+
+function shouldEmitStandaloneProviderOutput(definitions: DiscoveredScheduleDefinition[], options: ScheduleVitePluginOptions): boolean {
+  if (options.providerOutput === false || options.providerOutput === "nitro") return false
+  if (options.providerOutput === "standalone") return true
+  if (hasServerScheduleDefinitions(definitions)) return hasViteSuffixScheduleDefinitions(definitions)
+  return definitions.length > 0
+}
+
+export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVitePlugin {
   let resolved: ResolvedConfig | undefined
+  let emitStandaloneProviderOutput = true
+  let standaloneProviderSource: DiscoveredScheduleDefinition["source"] | undefined
 
   function discoverViteSchedules() {
     if (!resolved) {
@@ -44,8 +227,18 @@ export function hubSchedule(): ScheduleVitePlugin {
     })
   }
 
+  function discoverRegistrySchedules() {
+    if (!resolved) {
+      return []
+    }
+
+    return discoverScheduleDefinitions({
+      rootDir: resolved.root,
+    })
+  }
+
   function createRegistryContents() {
-    const definitions = discoverViteSchedules()
+    const definitions = discoverRegistrySchedules()
     const registryImport = resolved ? resolve(resolved.root, registryImportAnchor) : registryImportAnchor
     return createRuntimeRegistryContents(registryImport, definitions)
   }
@@ -54,8 +247,28 @@ export function hubSchedule(): ScheduleVitePlugin {
     return createScheduleTargetsContents(discoverViteSchedules(), { types: false })
   }
 
-  return {
+  const plugin: Plugin = {
     name: SCHEDULE_VITE_PLUGIN_NAME,
+    enforce: "pre",
+    async config(config, env) {
+      const root = resolve(config.root || process.cwd())
+      const definitions = discoverScheduleDefinitions({ rootDir: root })
+      emitStandaloneProviderOutput = shouldEmitStandaloneProviderOutput(definitions, options)
+      standaloneProviderSource = selectStandaloneProviderSource(definitions, options)
+      if (definitions.length === 0) {
+        return null
+      }
+      if (!shouldInstallNitroSchedulePlugin(definitions, options)) {
+        return null
+      }
+      const nitroDefinitions = selectNitroScheduleDefinitions(definitions, options)
+      const crons = env.command === "build"
+        ? [...new Set((await readDefinitionCrons(nitroDefinitions)).values())]
+        : []
+      const plugin = await writeNitroCloudflarePlugin(root, nitroDefinitions, crons)
+      ;(config as ViteConfigWithNitro).nitro = mergeNitroScheduleConfig((config as { nitro?: unknown }).nitro, { crons, plugin })
+      return null
+    },
     configResolved(config) {
       resolved = config
     },
@@ -99,14 +312,17 @@ export function hubSchedule(): ScheduleVitePlugin {
       }
     },
     async closeBundle() {
-      if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
+      if (!resolved || !emitStandaloneProviderOutput || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
         return
       }
       await generateProviderOutputs({
         bundleAlias: resolveStringAliases(resolved),
         clientOutDir: resolved.build.outDir,
         rootDir: resolved.root,
+        source: standaloneProviderSource,
       })
     },
   }
+
+  return plugin as unknown as ScheduleVitePlugin
 }

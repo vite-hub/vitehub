@@ -24,7 +24,7 @@ A named origin that exposes read-only addressable files or items through a Works
 _Avoid_: Input, files, context, resource, mount, connector
 
 **Source Instruction**:
-Model-facing guidance attached to a Source that explains what the Source is for and how an Agent should use it.
+Model-facing guidance attached to a Source that explains what the Source is for and how a model-backed Agent Driver should use it.
 _Avoid_: Source description, source metadata, prompt fragment
 
 **Source Resolution**:
@@ -123,6 +123,14 @@ _Avoid_: Asset workspace, runtime workspace, merged workspace
 A runtime materialization of a Workspace that can execute commands and commit file changes back to the Workspace Store.
 _Avoid_: Open workspace, sandbox, mount
 
+**Harness Workspace Session**:
+A scoped Workspace Session prepared for a harness-backed Agent Driver, exposing a materialized filesystem and session boundary instead of model-facing Workspace Tools by default.
+_Avoid_: Workspace Tools, prompt context, unscoped checkout
+
+**Harness Session Key**:
+A developer-provided stable identity used to reuse a Harness Workspace Session across Agent Invocations.
+_Avoid_: Chat Session, thread id, implicit conversation state
+
 ## Relationships
 
 - A **Workspace** has one **Workspace Store**.
@@ -136,10 +144,10 @@ _Avoid_: Open workspace, sandbox, mount
 - A **Source** may have **Source Instructions**.
 - **Source Instructions** may be declared statically or produced by **Source Resolution**.
 - **Source Instructions** are explicit developer-authored Source configuration, not inferred provider metadata.
-- **Source Instructions** guide Agent behavior, but they do not grant access to hidden Sources or change Workspace Scope.
-- An Agent should receive **Source Instructions** only for Sources visible through the **Selected Workspace Scope**.
-- If any visible Source has **Source Instructions**, the Agent should receive them by default at the end of its instructions unless the **Agent Definition** explicitly places the source guidance.
-- If an **Agent Definition** places `workspace.sources` but no visible Source has **Source Instructions**, the placement should render as empty instructions.
+- **Source Instructions** guide model-backed Agent Driver behavior, but they do not grant access to hidden Sources or change Workspace Scope.
+- A model-backed Agent Driver should receive **Source Instructions** only for Sources visible through the **Selected Workspace Scope**.
+- If any visible Source has **Source Instructions**, a model-backed Agent Driver should receive them by default at the end of its instructions unless the driver explicitly places the source guidance.
+- If a model-backed Agent Driver places `workspace.sources` but no visible Source has **Source Instructions**, the placement should render as empty instructions.
 - Explicit Source Instruction placement uses `workspace.sources` and renders the complete generated Source guidance block, including its heading.
 - The generated Source guidance block should render each Source under a Source Map key heading and should not add generated descriptions or Mount summaries when the Source already has **Source Instructions**.
 - Sources without **Source Instructions** should be omitted from the generated Source guidance block.
@@ -179,11 +187,11 @@ _Avoid_: Open workspace, sandbox, mount
 - A **Workspace Scope** contains **Workspace Scope Grants**.
 - A **Workspace Scope Grant** can target a Source key, a Workspace path prefix, or a path prefix within a Source.
 - A Source-key **Workspace Scope Grant** fails closed for unknown Sources and root-mounted Sources; root-mounted Sources require explicit path grants.
-- A **Workspace Scope Resolver** selects the Workspace Scope before Workspace Tools or Workspace-backed instructions are exposed.
+- A **Workspace Scope Resolver** selects the Workspace Scope before Workspace Tools or model-facing Workspace-backed instructions are exposed.
 - A **Workspace Scope Resolver** can read trusted host, auth, and invocation context, but it does not use model output as authority.
 - A **Workspace Scope Resolver** can select a static named Workspace Scope or return an inline Workspace Scope definition for invocation-specific grants.
 - Workspace Scope is read-only in the first version.
-- Scoped Workspace Scope does not expose source materialization in the first version.
+- Generic scoped Workspace Scope does not expose source materialization in the first version; **Harness Workspace Session** is the narrow materialized-session exception for harness-backed Agent Drivers.
 - An out-of-scope Workspace path is a **Scope-Masked Miss** to the model.
 - A **Scope-Masked Miss** can be recorded in server-side audit or tracing without revealing the hidden path to the model.
 - An Agent Invocation uses one **Selected Workspace Scope** by default.
@@ -191,6 +199,11 @@ _Avoid_: Open workspace, sandbox, mount
 - A missing **Selected Workspace Scope** fails the Agent Invocation unless the developer declared a **Default Workspace Scope**.
 - A **Default Workspace Scope** is explicit configuration and never implies **All-Scopes Workspace Scope**.
 - A **Workspace Session** starts from a Workspace runtime surface and may use a Sandbox provider behind the boundary.
+- A **Harness Workspace Session** starts after the **Selected Workspace Scope** is resolved, so harness-backed Agent Drivers see only scoped Workspace state.
+- A **Harness Workspace Session** is invocation-scoped by default.
+- A **Harness Workspace Session** is reused across Agent Invocations only when a driver option or Capability provides an explicit **Harness Session Key**.
+- A **Harness Session Key** is not inferred from Chat Session, Chat History, Agent Run thread id, or Agent Invoker by default.
+- Harness-backed Agent Drivers receive Workspace state through a **Harness Workspace Session** or equivalent materialized filesystem, not model-facing **Workspace Tools** by default.
 
 ## Example Dialogue
 
@@ -200,9 +213,9 @@ _Avoid_: Open workspace, sandbox, mount
 ## Flagged Ambiguities
 
 - "source" can mean source code, provenance, or data connector - resolved: in Workspace, **Source** means a named origin that exposes read-only addressable files or items.
-- "source instructions" were considered source descriptions or generic metadata - resolved: use **Source Instruction** for model-facing guidance about how an Agent should use a Source.
-- Dynamic Source Instructions were considered - resolved: **Source Instructions** may be produced by **Invocation-Scoped Source Resolution** when the guidance describes the resolved Source itself; invocation-specific audience or behavior guidance still belongs in Agent or Capability instructions.
-- Unplaced Source Instructions were considered explicit-placement-only - resolved: append visible Source Instructions by default at the end of Agent instructions, while allowing explicit placement.
+- "source instructions" were considered source descriptions or generic metadata - resolved: use **Source Instruction** for model-facing guidance about how a model-backed Agent Driver should use a Source.
+- Dynamic Source Instructions were considered - resolved: **Source Instructions** may be produced by **Invocation-Scoped Source Resolution** when the guidance describes the resolved Source itself; invocation-specific audience or behavior guidance still belongs in model-backed driver or Capability instructions.
+- Unplaced Source Instructions were considered explicit-placement-only - resolved: append visible Source Instructions by default at the end of model-backed driver instructions, while allowing explicit placement.
 - Empty Source Instruction placement was considered for an explanatory fallback - resolved: render empty instructions so hidden or scoped-out Sources are not implied.
 - Custom heading ownership for Source Instruction placement was considered - resolved: the generated Source guidance block includes its own heading.
 - Generated Source descriptions and Mount summaries were considered for each Source Instruction entry - resolved: when a Source declares **Source Instructions**, render the Source Map key heading plus the declared instructions only.
@@ -223,6 +236,8 @@ _Avoid_: Open workspace, sandbox, mount
 - Single-file Source `path` was considered an inline content output path - resolved: `path` is only a local input path; inline content uses `workspacePath`.
 - Single-file Sources were considered source-key mounted by default - resolved: **Single-File Sources** root-mount by default; source-key mounting is explicit.
 - Workspace inspection was considered a separate Workspace Capability - resolved: **Workspace Tools** are derived from the Workspace Definition by default.
+- Model-facing **Workspace Tools** were considered the default Workspace surface for harness-backed Agent Drivers - resolved: use a scoped **Harness Workspace Session** or equivalent materialized filesystem by default.
+- Durable harness sessions were considered as an implicit chat or thread default - resolved: **Harness Workspace Sessions** are invocation-scoped by default and require an explicit **Harness Session Key** for reuse.
 - Local and provider Source helpers were considered separate public namespaces - resolved: use one **Source Namespace** for all public Source authoring helpers.
 - Workspace write authority was considered as `allowWrite: true` - resolved: use **Workspace Access Mode** language such as `mode: "write"` instead of a permission boolean.
 - Per-user or per-customer context filtering was considered as instruction-only behavior - resolved: use **Workspace Scope** for the trusted runtime visibility boundary.
@@ -232,7 +247,7 @@ _Avoid_: Open workspace, sandbox, mount
 - `workspaceScope()` was considered as the Capability helper name - resolved: keep **Workspace Scope** as Workspace language and use `access()` for the broader Capability.
 - Ambient `workspaceScope` invocation context was considered as authority - resolved: require an explicit **Workspace Scope Resolver** or **Default Workspace Scope**.
 - Static pre-registration for every customer scope was considered necessary - resolved: use inline Workspace Scope definitions from the **Workspace Scope Resolver** when grants are derived from trusted invocation context.
-- Source materialization under scoped access was considered for the first version - resolved: disable materialization for scoped V1 to avoid source metadata leakage.
+- Source materialization under scoped access was considered for the first version - resolved: disable generic materialization for scoped V1 to avoid source metadata leakage, with **Harness Workspace Session** as the narrow harness-backed Agent Driver exception.
 - Source-level narrowing was considered as direct invoker access - resolved: use **Invocation-Scoped Source Resolution** from trusted invocation context and the **Selected Workspace Scope**, not raw model-facing metadata or duplicate authorization logic inside a Source.
 - Build-time Workspace assets were considered a second user-facing read surface - resolved: users read one **Workspace File Tree** while asset provenance remains internal by default.
 - `open()` was considered as the Workspace execution-session method - resolved: use `startSession()` because it names the **Workspace Session** lifecycle.

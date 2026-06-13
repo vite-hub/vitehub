@@ -1,5 +1,4 @@
-import { cleanWorkspaceShellPath, createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } from "@vite-hub/shell/workspace"
-
+import { normalizeSafeWorkspacePath } from "./core/path.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
 
 import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./core/types.ts"
@@ -88,6 +87,7 @@ export type WorkspaceTools<Operations = undefined> = ((ShellEnabled<Operations> 
 const defaultMaxOutputLength = 30_000
 const workspaceMountPoint = "/workspace"
 const aiSchemaSymbol = Symbol.for("vercel.ai.schema")
+const shellWorkspaceSpecifier = "@vite-hub/shell/workspace"
 
 type ValidationResult<T> =
   | { success: true, value: T }
@@ -117,6 +117,10 @@ function tool<T extends Tool<any, any>>(definition: T): T {
 
 function isWorkspace(input: Workspace | WorkspaceAssets): input is Workspace {
   return "sync" in input
+}
+
+function cleanWorkspaceShellPath(path: string) {
+  return normalizeSafeWorkspacePath(path.replace(/^\/workspace(?:\/|$)/, ""), { allowEmpty: true })
 }
 
 function cleanMutationPath(path: string) {
@@ -200,6 +204,7 @@ async function runShellCommand(
   command: string,
   options: { broadSearchPaths: string[], commands: string[], cwd: string, maxOutputLength: number, timeout?: number },
 ): Promise<WorkspaceShellResult> {
+  const { createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } = await import(/* @vite-ignore */ shellWorkspaceSpecifier) as typeof import("@vite-hub/shell/workspace")
   return await runWorkspaceInspectionCommand(input, command, {
     broadSearchPaths: options.broadSearchPaths,
     commands: options.commands,

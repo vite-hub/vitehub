@@ -17,7 +17,7 @@ import {
   type ChatDevtoolsToolDefinition,
 } from "../../../src/chat-shared.js"
 import { resolveChatBridgeRoute } from "./bridge-route"
-import { flattenFiles, syncExpandedFilePaths, type FileRow } from "./file-tree"
+import { flattenFiles, sourceRootStates, syncExpandedFilePaths, type FileRow, type SourceRootState } from "./file-tree"
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
 type ChatMessage = UIMessage & { chat?: string }
@@ -53,6 +53,7 @@ const chatMessages = computed(() => {
 })
 const pendingUserMessage = ref<ChatMessage | undefined>()
 const expandedFilePaths = ref(new Set<string>())
+const previousSourceRootStates = ref(new Map<string, SourceRootState>())
 const selectedFilePath = ref<string | undefined>()
 const sidebarWidth = ref(340)
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
@@ -322,7 +323,8 @@ function renderToolOutput(tool: ChatDevtoolsTool) {
 }
 
 function syncExpandedFiles(files: ChatDevtoolsFileTreeItem[]) {
-  expandedFilePaths.value = syncExpandedFilePaths(files, expandedFilePaths.value)
+  expandedFilePaths.value = syncExpandedFilePaths(files, expandedFilePaths.value, previousSourceRootStates.value)
+  previousSourceRootStates.value = sourceRootStates(files)
 }
 
 function fileLabel(file: ChatDevtoolsFileTreeItem) {
@@ -1050,14 +1052,14 @@ onBeforeUnmount(() => {
               class="min-h-full px-3 py-2"
             >
               <template #content="{ content, message, parts }">
-                <div class="flex min-w-0 flex-col gap-2 text-sm/5">
+                <div class="flex w-full min-w-0 flex-col gap-2 text-sm/5">
                   <UCollapsible
                     v-if="isLoadingMessage(message) || hasToolParts(parts)"
                     :default-open="isLoadingMessage(message) || hasRunningTool(parts)"
                     :unmount-on-hide="false"
                     :ui="{
-                      root: 'min-w-0',
-                      content: 'overflow-visible',
+                      root: 'w-full min-w-0',
+                      content: 'w-full overflow-visible',
                     }"
                   >
                     <button
@@ -1080,7 +1082,7 @@ onBeforeUnmount(() => {
                     </button>
 
                     <template #content>
-                      <div class="flex min-w-0 flex-col gap-2 px-px pb-px pt-2 text-xs/5">
+                      <div class="flex w-full min-w-0 flex-col gap-2 px-px pb-px pt-2 text-xs/5">
                         <UChatTool
                           v-for="part in chatToolParts(parts)"
                           :key="part.tool.id"
@@ -1090,8 +1092,8 @@ onBeforeUnmount(() => {
                           variant="card"
                           :default-open="false"
                           :ui="{
-                            root: 'min-w-0 rounded-md',
-                            trigger: 'min-h-7 px-2 py-1 text-xs focus-visible:ring-1 focus-visible:ring-muted focus-visible:outline-none',
+                            root: 'w-full min-w-0 self-stretch rounded-md',
+                            trigger: 'min-h-7 w-full px-2 py-1 text-xs focus-visible:ring-1 focus-visible:ring-muted focus-visible:outline-none',
                             leading: 'size-3.5',
                             leadingIcon: 'size-3.5 opacity-70',
                             label: 'min-w-0 truncate',

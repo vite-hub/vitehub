@@ -173,6 +173,21 @@ describe("defineAgent workspace option", () => {
     expect(useWorkspace).not.toHaveBeenCalled()
   })
 
+  it("rejects harness-backed workspace agents until Harness Workspace Sessions are available", async () => {
+    const { defineAgent, runAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+      workspace: {},
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).rejects.toThrow("Harness Agent Drivers with workspace")
+    expect(useWorkspace).toHaveBeenCalledWith("docs")
+  })
+
   it("auto-commits write-mode workspace changes when rules request it", async () => {
     diff.mockResolvedValueOnce({
       entries: [{ after: { type: "file" }, path: "inbox/audio.md", type: "added" }],
@@ -358,6 +373,42 @@ describe("defineAgent workspace option", () => {
       "## Workspace Sources",
       "### docs\n\nUse docs for product behavior.",
     ].join("\n\n"))
+  })
+
+  it("applies model Agent Driver instructions and execution settings", async () => {
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const model = { id: "driver-model" }
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      driver: {
+        execution: {
+          callSettings: {
+            temperature: 0.3,
+          },
+          stepLimit: 4,
+        },
+        instructions: "Answer from the driver.",
+        model: model as never,
+      },
+      workspace: {
+        sources: {
+          docs: { instructions: "Use docs for product behavior.", name: "docs" } as never,
+        },
+      },
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(agentSettings.at(-1)).toMatchObject({
+      instructions: [
+        "Answer from the driver.",
+        "## Workspace Sources",
+        "### docs\n\nUse docs for product behavior.",
+      ].join("\n\n"),
+      model,
+      stopWhen: { count: 4 },
+      temperature: 0.3,
+    })
   })
 
   it("places source instructions in the workspace sources slot", async () => {

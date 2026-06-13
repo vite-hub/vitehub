@@ -70,17 +70,24 @@ afterEach(async () => {
 })
 
 describe("hubWorkspace", () => {
+  it("runs before downstream framework integrations that consume Provider Output config", async () => {
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+
+    expect(plugin.enforce).toBe("pre")
+  })
+
   it("ignores generated workspace files in the Vite dev watcher", async () => {
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
-    const config = plugin.config as (config: { server?: { watch?: { ignored?: string | string[] } } }) => { server?: { watch?: { ignored?: string[] } } }
+    const config = plugin.config as (config: { server?: { watch?: { ignored?: string | string[] } } }) => Promise<{ server?: { watch?: { ignored?: string[] } } }>
 
-    expect(config({}).server?.watch?.ignored).toEqual(["**/.vitehub/**"])
-    expect(config({ server: { watch: { ignored: ["**/node_modules/**"] } } }).server?.watch?.ignored).toEqual([
+    await expect(config({})).resolves.toMatchObject({ server: { watch: { ignored: ["**/.vitehub/**"] } } })
+    await expect(config({ server: { watch: { ignored: ["**/node_modules/**"] } } })).resolves.toMatchObject({ server: { watch: { ignored: [
       "**/node_modules/**",
       "**/.vitehub/**",
-    ])
-    expect(config({ server: { watch: { ignored: ["**/.vitehub/**"] } } }).server?.watch?.ignored).toEqual(["**/.vitehub/**"])
+    ] } } })
+    await expect(config({ server: { watch: { ignored: ["**/.vitehub/**"] } } })).resolves.toMatchObject({ server: { watch: { ignored: ["**/.vitehub/**"] } } })
   })
 
   it("attaches noExternal and virtual workspace manifests", async () => {
@@ -134,6 +141,61 @@ describe("hubWorkspace", () => {
 
     await expect(readFile(join(root, ".vitehub", "types", "workspace.d.ts"), "utf8")).resolves.toContain('"docs": true')
     await expect(readFile(join(root, "vitehub-workspace.d.ts"), "utf8")).rejects.toThrow()
+  })
+
+  it("discovers documented server workspace config files in the Vite integration", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-server-"))
+    tempDirs.push(root)
+    await mkdir(join(root, "server", "workspaces", "tasks"), { recursive: true })
+    await writeFile(join(root, "server", "workspaces", "tasks", "config.ts"), [
+      `import { defineWorkspace } from "@vite-hub/workspace"`,
+      `export default defineWorkspace({ store: { provider: "memory" } })`,
+      ``,
+    ].join("\n"))
+
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const configResolved = plugin.configResolved as (config: { root: string }) => Promise<void>
+    const resolveId = plugin.resolveId as (id: string) => string | undefined
+    const load = plugin.load as (id: string) => string | undefined
+
+    await configResolved({ root } as never)
+
+    await expect(readFile(join(root, ".vitehub", "types", "workspace.d.ts"), "utf8")).resolves.toContain('"tasks": true')
+    expect(load(resolveId("#vitehub-workspace-registry")!)).toContain('"tasks": async () => {')
+    expect(load(resolveId("#vitehub/workspaces")!)).toContain('"tasks"')
+  })
+
+  it("emits Nitro runtime setup for hosted workspace stores outside server plugins", async () => {
+    const root = await createViteRoot()
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const config = plugin.config as (
+      config: { root: string, workspace?: { store?: { branch?: string, provider: "github", repository: string, root: string } } },
+      env: { command: "build", mode: string },
+    ) => Promise<{ nitro?: { plugins?: string[] } }>
+
+    await expect(config({
+      root,
+      workspace: {
+        store: {
+          branch: "main",
+          provider: "github",
+          repository: "onmax/quiver-airtable",
+          root: "app/server/workspaces/mirror",
+        },
+      },
+    }, { command: "build", mode: "production" })).resolves.toMatchObject({
+      nitro: {
+        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+      },
+    })
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("configureCloudflareWorkspaceRuntime")
+    expect(pluginSource).toContain('"provider": "github"')
+    expect(pluginSource).toContain('"repository": "onmax/quiver-airtable"')
+    await expect(readFile(join(root, "server", "plugins", "vitehub-workspace.ts"), "utf8")).rejects.toThrow()
   })
 
   it("materializes the workspace runtime package for Vercel build output", async () => {

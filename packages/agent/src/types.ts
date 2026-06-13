@@ -474,17 +474,93 @@ export interface AgentModelExecutionOptions<
   }
 }
 
-type AgentSettingsBase<
+export interface AgentHarnessCredentialSource {
+  label?: string
+  source?: "ambient" | "explicit" | "none" | "unknown" | (string & {})
+}
+
+export type AgentHarnessSessionKey<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> =
+  | string
+  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<string | undefined>)
+
+export type AgentHarnessDriverInput =
+  | object
+  | ((...args: never[]) => unknown)
+
+export type AgentHarnessSandboxInput<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> =
+  | object
+  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<object | undefined>)
+
+export interface AgentModelDriver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> {
+  credentials?: never
+  execution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
+  harness?: never
+  instructions?: AgentAdapterInstructions<TRuntimeConfig>
+  model: AgentModelResolver<TRuntimeConfig>
+  permissionMode?: never
+  permissions?: never
+  run?: never
+  sandbox?: never
+  sessionKey?: never
+}
+
+export interface AgentHarnessDriver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> {
+  credentials?: AgentHarnessCredentialSource
+  execution?: never
+  harness: AgentHarnessDriverInput
+  instructions?: never
+  model?: never
+  permissionMode?: never
+  permissions?: never
+  run?: never
+  sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS>
+  sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
+}
+
+export interface AgentRunDriver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> {
+  credentials?: never
+  execution?: never
+  harness?: never
+  instructions?: never
+  model?: never
+  permissionMode?: never
+  permissions?: never
+  run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
+  sandbox?: never
+  sessionKey?: never
+}
+
+export type AgentDriver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> =
+  | AgentModelDriver<TRuntimeConfig, CALL_OPTIONS>
+  | AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS>
+  | AgentRunDriver<TRuntimeConfig, CALL_OPTIONS>
+
+type AgentSharedSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > = {
+  capabilities?: AgentCapabilitiesList<TRuntimeConfig>
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig>
-  instructions?: AgentAdapterInstructions<TRuntimeConfig>
-  capabilities?: AgentCapabilitiesList<TRuntimeConfig>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS>
-  modelExecution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
-  model?: AgentModelResolver<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
   title?: string
   version?: string
@@ -494,12 +570,26 @@ type AgentSettingsBase<
 export type AgentSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> = AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS> & (
+> = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS> & (
   | {
+    driver: AgentDriver<TRuntimeConfig, CALL_OPTIONS>
+    instructions?: never
+    model?: never
+    modelExecution?: never
+    run?: never
+  }
+  | {
+    driver?: never
+    instructions?: AgentAdapterInstructions<TRuntimeConfig>
+    model?: never
+    modelExecution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
     run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
   | {
-    model: NonNullable<AgentSettingsBase<TRuntimeConfig, CALL_OPTIONS>["model"]>
+    driver?: never
+    instructions?: AgentAdapterInstructions<TRuntimeConfig>
+    model: AgentModelResolver<TRuntimeConfig>
+    modelExecution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
     run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
 )
@@ -806,6 +896,7 @@ export interface AgentAdapterResult {
 }
 
 export interface AgentUsage {
+  details?: Record<string, unknown>
   inputTokenDetails?: Record<string, number>
   inputTokens?: number
   outputTokenDetails?: Record<string, number>
@@ -821,8 +912,14 @@ export interface AgentUsageCost {
   source: "custom" | "estimated" | "provider" | "vercel-ai-gateway" | (string & {})
 }
 
+export interface AgentUsageCredentialSource {
+  label?: string
+  source?: AgentHarnessCredentialSource["source"]
+}
+
 export interface AgentUsageRecord {
   cost?: AgentUsageCost
+  credentialSource?: AgentUsageCredentialSource
   latency?: {
     durationMs?: number
     timeToFirstTokenMs?: number

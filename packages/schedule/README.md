@@ -57,6 +57,21 @@ export default defineConfig({
 
 ## Vite Integration
 
-Use `hubSchedule()` in Vite to discover `server/schedules/<name>.ts` and `src/<name>.schedule.ts`. Static schedules can produce provider cron output, including [Vercel Cron Jobs](https://vercel.com/docs/cron-jobs/). Cron parsing uses [`cron-schedule`](https://github.com/P4sca1/cron-schedule).
+Use `hubSchedule()` in Vite to discover `server/schedules/<name>.ts` and `src/<name>.schedule.ts`. Static schedules can produce provider cron output, including [Vercel Cron Jobs](https://vercel.com/docs/cron-jobs/). For Nitro apps on Cloudflare, Schedule Provider Wake writes generated `server/plugins/vitehub-schedule.ts` and `server/modules/vitehub-schedule.ts` files so Nitro can register the `cloudflare:scheduled` runtime hook and emit `cloudflare.wrangler.triggers.crons` during standalone `nitro build`. In automatic mode, `server/schedules/*` routes through Nitro Provider Wake while suffix schedules keep standalone provider output.
+
+When a host owns its own Cloudflare scheduled-event bridge, use the runtime helper instead of reimplementing registry matching:
+
+```ts
+import scheduleRegistry from "#vitehub/schedule/registry"
+import { executeCloudflareStaticSchedules } from "@vite-hub/schedule/runtime/static"
+
+export default {
+  async scheduled(event) {
+    await executeCloudflareStaticSchedules(event, { registry: scheduleRegistry })
+  },
+}
+```
+
+Cron parsing uses [`cron-schedule`](https://github.com/P4sca1/cron-schedule).
 
 Learn more at [vitehub.dev](https://vitehub.dev).

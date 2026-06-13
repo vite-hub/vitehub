@@ -1,4 +1,5 @@
 import agentRegistry from "#vitehub/agent/registry"
+import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { getMessageText } from "./messages.ts"
 import { resolveRuntimeContext } from "@vite-hub/runtime"
 import { isAsyncIterable, streamAgentOutputToEvents, toAgentRunResult } from "./agent-output.ts"
@@ -24,6 +25,7 @@ import {
 import type { ResolvedAgentFinishExtensionProvider } from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 import { finalizeUiMessageStreamOutput } from "./stream-output.ts"
+import { createHarnessAgentAdapter } from "./harness-agent.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -68,6 +70,7 @@ import type {
   AgentRegistryModule,
   AgentRequestBody,
   AgentRunContext,
+  AgentRunHandler,
   AgentRunInput,
   AgentRunMetadata,
   AgentRunResult,
@@ -135,10 +138,16 @@ export type {
   AgentDevtoolsFileTreeItem,
   AgentDevtoolsMetadata,
   AgentDevtoolsToolDefinition,
+  AgentDriver,
   AgentExecution,
   AgentFinishEvent,
   AgentFinishHook,
   AgentHandlerOptions,
+  AgentHarnessCredentialSource,
+  AgentHarnessDriver,
+  AgentHarnessDriverInput,
+  AgentHarnessSandboxInput,
+  AgentHarnessSessionKey,
   AgentInput,
   AgentInstructionBlock,
   AgentIntegrationOption,
@@ -151,6 +160,7 @@ export type {
   AgentInvokerProfile,
   AgentInvokerResolveContext,
   AgentModelInput,
+  AgentModelDriver,
   AgentModelExecutionInstrumentation,
   AgentModelExecutionOptions,
   AgentModelInstrumentation,
@@ -163,6 +173,7 @@ export type {
   AgentRegistryModule,
   AgentRunContext,
   AgentRunCallbackContext,
+  AgentRunDriver,
   AgentRunHandler,
   AgentRunInput,
   AgentRunMetadata,
@@ -174,6 +185,7 @@ export type {
   AgentRuntimeHooks,
   AgentRuntimeName,
   AgentUsage,
+  AgentUsageCredentialSource,
   AgentUsageCost,
   AgentUsageRecord,
   AgentWebhookRegistrationDefinition,
@@ -495,17 +507,25 @@ function defineBaseAgent<
 >(
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
-  const { capabilities, description, hooks, run, runtime, title, version, workspace } = options
+  const driver = normalizeAgentDriver(options)
+  const { capabilities, description, hooks, runtime, title, version, workspace } = options
+  const run = driver.kind === "run" ? driver.run : (options as { run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS> }).run
   const normalizedCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const invoker = normalizeAgentInvokerOptions(options.invoker)
   const chat = getChatCapabilityOptions<TRuntimeConfig>(normalizedCapabilities)
   validateNonWorkspaceCapabilities(normalizedCapabilities, !!workspace)
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
-    const resolvedAdapter = "model" in options
-      ? (await import("./ai-sdk.ts")).createAiSdkAdapter(options as never) as AgentAdapter<CALL_OPTIONS>
-      : undefined
+    const resolvedAdapter = driver.kind === "model"
+      ? (await import("./ai-sdk.ts")).createAiSdkAdapter({
+          execution: driver.execution,
+          instructions: driver.instructions,
+          model: driver.model,
+        } as never) as AgentAdapter<CALL_OPTIONS>
+      : driver.kind === "harness"
+        ? createHarnessAgentAdapter<CALL_OPTIONS>(driver as never)
+        : undefined
     if (!resolvedAdapter) {
-      throw new Error("[vitehub] Agent model is required unless the agent defines a custom run() handler.")
+      throw new Error("[vitehub] Agent Driver is required unless the agent defines a custom run() handler.")
     }
     const resolvedContext = createResolvedRuntimeContext(context)
     return typeof resolvedAdapter === "function"
@@ -514,7 +534,7 @@ function defineBaseAgent<
   }
 
   const definition = {
-    ...("model" in options ? { [baseAgentModel]: options.model } : {}),
+    ...(driver.kind === "model" ? { [baseAgentModel]: driver.model } : {}),
     [baseAgentResolve]: resolveBaseAgent,
     chat,
     description,

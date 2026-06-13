@@ -8,6 +8,7 @@ import {
 } from "./invoker.ts"
 
 import type {
+  AgentAdapterInstructions,
   AgentCapabilityDefinition,
   AgentCapabilityMode,
   AgentDefinition,
@@ -131,6 +132,21 @@ export function isWorkspaceAgentOptions(value: unknown): value is WorkspaceAgent
     && (typeof (value as { workspace?: unknown }).workspace === "string"
       || (typeof (value as { workspace?: unknown }).workspace === "object"
         && (value as { workspace?: unknown }).workspace !== null))
+}
+
+function modelDriverInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+): AgentAdapterInstructions<TRuntimeConfig, Name> | undefined {
+  const driver = (options as unknown as { driver?: unknown }).driver
+  if (typeof driver === "object" && driver !== null) {
+    return "model" in driver
+      ? (driver as { instructions?: AgentAdapterInstructions<TRuntimeConfig, Name> }).instructions
+      : undefined
+  }
+  return (options as { instructions?: AgentAdapterInstructions<TRuntimeConfig, Name> }).instructions
 }
 
 function capabilityMetadataTool(capability: NormalizedCapability): AgentDevtoolsToolDefinition | undefined {
@@ -383,7 +399,8 @@ function applyPassiveCapabilityInstructionSlots(instructions: string, blocks: Ag
 function workspaceMetadataInstructions<Name extends WorkspaceName>(
   options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
 ): string[] {
-  const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
+  const configuredInstructions = modelDriverInstructions(options)
+  const parts = Array.isArray(configuredInstructions) ? configuredInstructions : [configuredInstructions]
   const instructions = parts.flatMap((part) => {
     if (typeof part === "string" && part.trim().length > 0) return [part]
     if (typeof part === "function") {
@@ -429,7 +446,8 @@ async function resolveWorkspaceMetadataInstructions<
     fs: workspace.fs,
     workspace,
   }
-  const parts = Array.isArray(options.instructions) ? options.instructions : [options.instructions]
+  const configuredInstructions = modelDriverInstructions(options)
+  const parts = Array.isArray(configuredInstructions) ? configuredInstructions : [configuredInstructions]
   const instructions = await Promise.all(parts.map(part => typeof part === "function"
     ? part(instructionContext as never)
     : part))

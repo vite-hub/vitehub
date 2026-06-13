@@ -104,9 +104,10 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       }
       if (id === RESOLVED_SERVER_ID) {
         return [
-          "import { resolveServerEnv } from '@vite-hub/env/server';",
+          "import { resolveServerEnv, runWithServerEnv as runWithGeneratedServerEnv } from '@vite-hub/env/server';",
           `const registry = ${JSON.stringify(serverRegistry, null, 2)};`,
           "export function useServerEnv(event) { return resolveServerEnv(registry, event); }",
+          "export function runWithServerEnv(event, callback) { return runWithGeneratedServerEnv(event, callback); }",
         ].join("\n")
       }
     },
@@ -137,6 +138,7 @@ function createViteTypes(publicConfig: Record<string, unknown>, serverRegistry: 
     ...createServerTypeFields(serverRegistry, 4),
     "  }",
     "  export function useServerEnv(event?: unknown): ServerEnv",
+    "  export function runWithServerEnv<T>(event: unknown, callback: () => T): T",
     "}",
     "export {}",
     "",

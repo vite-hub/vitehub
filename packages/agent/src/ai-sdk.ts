@@ -1,5 +1,9 @@
 import { getMessageText } from "./messages.ts"
 import {
+  cloneWithPropertyDescriptors,
+  teeingAsyncIterableStreamDescriptor,
+} from "./internal/stream-result.ts"
+import {
   applyCapabilityInstructionSlots,
   applyCapabilityToolTransforms,
 } from "./capability-runtime.ts"
@@ -43,6 +47,7 @@ export interface AiSdkAdapterOptions<
   TTools extends ToolSet = ToolSet,
   Name extends WorkspaceName = WorkspaceName,
 > {
+  execution?: AiSdkModelExecutionOptions<TRuntimeConfig, TCallOptions, TTools>
   instructions?: AgentAdapterInstructions<TRuntimeConfig, Name>
   modelExecution?: AiSdkModelExecutionOptions<TRuntimeConfig, TCallOptions, TTools>
   model: ToolLoopAgentSettings<TCallOptions, TTools>["model"] | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<ToolLoopAgentSettings<TCallOptions, TTools>["model"]>)
@@ -310,71 +315,10 @@ function workspaceFallbackTextEvents(text: string): unknown[] {
   ]
 }
 
-function withAsyncIterator<T>(stream: ReadableStream<T>): AsyncIterable<T> & ReadableStream<T> {
-  if (typeof (stream as AsyncIterable<T>)[Symbol.asyncIterator] === "function") {
-    return stream as AsyncIterable<T> & ReadableStream<T>
-  }
-
-  Object.defineProperty(stream, Symbol.asyncIterator, {
-    configurable: true,
-    value: async function* () {
-      const reader = stream.getReader()
-      try {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) return
-          yield value
-        }
-      }
-      finally {
-        reader.releaseLock()
-      }
-    },
-  })
-  return stream as AsyncIterable<T> & ReadableStream<T>
-}
-
-function toReadableAsyncIterableStream<T>(iterable: AsyncIterable<T>): AsyncIterable<T> & ReadableStream<T> {
-  if (typeof (iterable as ReadableStream<T>).pipeThrough === "function") {
-    return withAsyncIterator(iterable as ReadableStream<T>)
-  }
-
-  const iterator = iterable[Symbol.asyncIterator]()
-  return withAsyncIterator(new ReadableStream<T>({
-    async cancel() {
-      await iterator.return?.()
-    },
-    async pull(controller) {
-      try {
-        const { done, value } = await iterator.next()
-        if (done) {
-          controller.close()
-        }
-        else {
-          controller.enqueue(value)
-        }
-      }
-      catch (error) {
-        controller.error(error)
-      }
-    },
-  }))
-}
-
 function cloneStreamTextResult<T extends object>(result: T, fullStream: AsyncIterable<unknown>): T {
-  const clone = Object.create(Object.getPrototypeOf(result)) as T
-  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(result))
-  let stream = toReadableAsyncIterableStream(fullStream)
-  Object.defineProperty(clone, "fullStream", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const [next, branch] = stream.tee()
-      stream = withAsyncIterator(next)
-      return withAsyncIterator(branch)
-    },
+  return cloneWithPropertyDescriptors(result, {
+    fullStream: teeingAsyncIterableStreamDescriptor(fullStream),
   })
-  return clone
 }
 
 function withWorkspaceFallbackFullStream(
@@ -515,6 +459,7 @@ function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapt
 
 async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRunContext) {
   const { ToolLoopAgent, stepCountIs } = await import("ai")
+  const execution = options.execution ?? options.modelExecution
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   const metadataContext = {
     ...runtime,
@@ -524,7 +469,7 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
     workspace: context.workspace,
   } as AgentAdapterMetadataContext
   const model = await resolveValue(options.model as never, metadataContext)
-  const modelInstrumentation = options.modelExecution?.instrumentation?.model
+  const modelInstrumentation = execution?.instrumentation?.model
   const instrumentedModel = modelInstrumentation
     ? await modelInstrumentation({ ...runtime, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
@@ -547,13 +492,14 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   const toolSet = { ...resolvedTools, ...providerTools }
   const {
     instructions: _instructions,
+    execution: _execution,
     modelExecution: _modelExecution,
     model: _model,
     tools: _tools,
   } = options
-  const stepLimit = options.modelExecution?.stepLimit
-  const baseCallSettings = { ...(options.modelExecution?.callSettings || {}) }
-  const instrumentedCallSettings = await options.modelExecution?.instrumentation?.callSettings?.({
+  const stepLimit = execution?.stepLimit
+  const baseCallSettings = { ...(execution?.callSettings || {}) }
+  const instrumentedCallSettings = await execution?.instrumentation?.callSettings?.({
     ...runtime,
     callSettings: { ...baseCallSettings },
     context: context.context,
@@ -588,11 +534,12 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       if (context.workspace && tools && "materialize_sources" in tools) {
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.devtools?.reportToolStep)
       }
-      const result = await agent.generate(getCallInput(context) as never) as GenerateTextResult<ToolSet, never>
+      const result = await agent.generate(getCallInput(context) as never) as GenerateTextResult<ToolSet, never, never>
       const text = result.text.trim()
       if (text) return result as unknown as AgentAdapterResult
 
-      const fallback = getFallbackOptions(options.modelExecution?.workspaceFallback)
+      const execution = options.execution ?? options.modelExecution
+      const fallback = getFallbackOptions(execution?.workspaceFallback)
       if (fallback.enabled && (result.finishReason === "tool-calls" || hasToolResults(result))) {
         const synthesized = await synthesizeWorkspaceFallback(model as never, context, result, fallback.maxToolResults)
         if (synthesized) return { raw: result, text: synthesized }
@@ -620,8 +567,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     ...(staticTools ? { tools: staticTools } : {}),
     async stream(context) {
       const { agent, model } = await createAgent(options, context)
-      const result = await agent.stream(getCallInput(context) as never) as StreamTextResult<ToolSet, never>
-      return withWorkspaceFallbackStreamResult(result, model as never, context, getFallbackOptions(options.modelExecution?.workspaceFallback))
+      const result = await agent.stream(getCallInput(context) as never) as StreamTextResult<ToolSet, never, never>
+      const execution = options.execution ?? options.modelExecution
+      return withWorkspaceFallbackStreamResult(result, model as never, context, getFallbackOptions(execution?.workspaceFallback))
     },
   }
 }

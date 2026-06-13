@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
 import { createRuntimeRegistry } from "../src/core/resolve.ts"
-import { resolveServerEnv } from "../src/server.ts"
+import { resolveServerEnv, runWithServerEnv } from "../src/server.ts"
 import { env, hubEnv } from "../src/vite.ts"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
@@ -134,6 +134,7 @@ describe("Vite plugin", () => {
     expect(serverLoaded).not.toContain("SERVER_OPTIONAL_TOKEN")
     expect(serverLoaded).not.toContain("serverEnv")
     expect(serverLoaded).toContain("useServerEnv")
+    expect(serverLoaded).toContain("runWithServerEnv")
   })
 
   it("applies prefixes to inferred Vite env names", async () => {
@@ -204,5 +205,20 @@ describe("Vite plugin", () => {
         WEBHOOK_URL: "https://example.test/hook",
       },
     })).toThrow("Missing Runtime Env from env:VITEHUB_AIRTABLE_TOKEN.")
+  })
+
+  it("runs callbacks with Server Env active for nested runtime helpers", () => {
+    const registry = createRuntimeRegistry({
+      airtableToken: env({ secret: true }),
+    }, { prefix: "VITEHUB_" })
+
+    const resolved = runWithServerEnv({
+      env: {
+        VITEHUB_AIRTABLE_TOKEN: "callback-secret",
+      },
+    }, () => resolveServerEnv<{ airtableToken: { unseal(): string } }>(registry))
+
+    expect(resolved.airtableToken.unseal()).toBe("callback-secret")
+    expect(() => resolveServerEnv(registry)).toThrow("Missing Runtime Env from env:VITEHUB_AIRTABLE_TOKEN.")
   })
 })
