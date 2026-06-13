@@ -1,15 +1,16 @@
 import { mkdir, writeFile } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
+import { dirname, relative, resolve } from "node:path"
 
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 
-import { initializeWorkspaceAssetRegistry, refreshWorkspaceBuildState, syncWorkspaceBuildAssets, writeWorkspaceRuntimeRegistry } from "../../build/integration.ts"
-import { normalizeWorkspaceOptions } from "../../config.ts"
-import { discoverViteWorkspaceDefinitions } from "../../build/discovery.ts"
+import { createWorkspaceRegistryContents, discoverViteWorkspaceDefinitions } from "../../build/discovery.ts"
+import { initializeWorkspaceAssetRegistry, refreshWorkspaceBuildState, syncWorkspaceBuildAssets } from "../../build/integration.ts"
 import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
+import { normalizeWorkspaceOptions } from "../../config.ts"
 
 import type { HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
+import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
 import type { ResolvedWorkspaceModuleOptions, WorkspaceModuleOptions } from "../../core/types.ts"
 
@@ -43,6 +44,11 @@ type ViteConfigWithWorkspaceNitro = Omit<UserConfig, "plugins"> & {
   nitro?: NitroConfig
 }
 
+type WorkspacePluginRoots = {
+  projectRoot: string
+  viteRoot: string
+}
+
 function mergeDedupe(current: string[] | undefined): string[] {
   if (!current) return [WORKSPACE_PACKAGE_NAME]
   return current.includes(WORKSPACE_PACKAGE_NAME) ? current : [...current, WORKSPACE_PACKAGE_NAME]
@@ -52,12 +58,16 @@ function isWorkspaceFile(file: string) {
   return workspaceSuffixPattern.test(file) || workspacesDirSegment.test(file)
 }
 
-function resolveWorkspacePluginRoots(root: string, workspaceOptions: false | WorkspaceModuleOptions | undefined) {
+function resolveWorkspacePluginRoots(root: string, workspaceOptions: false | WorkspaceModuleOptions | undefined): WorkspacePluginRoots {
   const resolvedViteRoot = resolve(root)
   const resolvedProjectRoot = resolveViteHubProjectRoot(resolvedViteRoot, {
     projectRoot: workspaceOptions ? workspaceOptions.projectRoot : undefined,
   })
   return { projectRoot: resolvedProjectRoot, viteRoot: resolvedViteRoot }
+}
+
+function discoverDefinitions(roots: WorkspacePluginRoots) {
+  return discoverViteWorkspaceDefinitions(roots.viteRoot, { serverRootDir: roots.projectRoot })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -68,6 +78,25 @@ function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]):
   return store.provider === "cloudflare-artifacts" || store.provider === "github"
 }
 
+function hasNitroConfig(config: UserConfig): boolean {
+  return "nitro" in config
+}
+
+function hasExplicitWorkspaceRuntimeOptions(options: false | WorkspaceModuleOptions | undefined): boolean {
+  return Boolean(options && (options.root || options.store))
+}
+
+function shouldInstallNitroWorkspacePlugin(
+  config: UserConfig,
+  options: false | WorkspaceModuleOptions | undefined,
+  normalized: ResolvedWorkspaceModuleOptions,
+  definitions: DiscoveredWorkspaceDefinition[],
+): boolean {
+  return isHostedWorkspaceStore(normalized.store)
+    || hasExplicitWorkspaceRuntimeOptions(options)
+    || (hasNitroConfig(config) && definitions.length > 0)
+}
+
 function mergeNitroWorkspaceConfig(value: unknown): NitroConfig {
   const nitro: NitroConfig = isRecord(value) ? { ...value } : {}
   const plugins = Array.isArray(nitro.plugins) ? [...nitro.plugins] : []
@@ -75,25 +104,49 @@ function mergeNitroWorkspaceConfig(value: unknown): NitroConfig {
   return { ...nitro, plugins }
 }
 
-function renderNitroWorkspacePlugin(config: ResolvedWorkspaceModuleOptions): string {
+function moduleImportSpecifier(fromFile: string, targetFile: string): string {
+  const specifier = relative(dirname(fromFile), targetFile).replace(/\\/g, "/")
+  return specifier.startsWith(".") ? specifier : `./${specifier}`
+}
+
+function shouldConfigureRuntime(options: false | WorkspaceModuleOptions | undefined, normalized: ResolvedWorkspaceModuleOptions): boolean {
+  return isHostedWorkspaceStore(normalized.store) || hasExplicitWorkspaceRuntimeOptions(options)
+}
+
+function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptions, registryImport: string): string {
+  const runtimeImports = config
+    ? isHostedWorkspaceStore(config.store)
+      ? ["import { configureCloudflareWorkspaceRuntime } from '@vite-hub/workspace/cloudflare'"]
+      : ["import { setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'"]
+    : ["import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'"]
+  const runtimeSetup = config
+    ? isHostedWorkspaceStore(config.store)
+      ? [`  configureCloudflareWorkspaceRuntime(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`]
+      : [`  setWorkspaceRuntimeConfig(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`]
+    : []
+
   return [
-    "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
-    "import { configureCloudflareWorkspaceRuntime } from '@vite-hub/workspace/cloudflare'",
+    ...runtimeImports,
+    `import registry from ${JSON.stringify(registryImport)}`,
     "import { definePlugin } from 'nitro'",
-    "import registry from './registry.js'",
     "",
     "export default definePlugin(() => {",
     "  setWorkspaceRuntimeRegistry(registry)",
-    `  configureCloudflareWorkspaceRuntime(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`,
+    ...runtimeSetup,
     "})",
     "",
   ].join("\n")
 }
 
-async function writeNitroWorkspacePlugin(root: string, config: ResolvedWorkspaceModuleOptions): Promise<void> {
+async function writeNitroWorkspacePlugin(root: string, config: false | ResolvedWorkspaceModuleOptions, definitions: DiscoveredWorkspaceDefinition[]): Promise<void> {
   const pluginFile = resolve(root, generatedNitroWorkspacePlugin)
-  await mkdir(dirname(pluginFile), { recursive: true })
-  await writeFile(pluginFile, renderNitroWorkspacePlugin(config), "utf8")
+  const registryFile = resolve(root, generatedNitroWorkspaceRegistry)
+  await Promise.all([
+    mkdir(dirname(pluginFile), { recursive: true }),
+    mkdir(dirname(registryFile), { recursive: true }),
+  ])
+  await writeFile(registryFile, createWorkspaceRegistryContents(registryFile, definitions), "utf8")
+  await writeFile(pluginFile, renderNitroWorkspacePlugin(config, moduleImportSpecifier(pluginFile, registryFile)), "utf8")
 }
 
 export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOptions = {}): Promise<NitroConfig | null> {
@@ -107,9 +160,8 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
   })
   if (!normalized || !isHostedWorkspaceStore(normalized.store)) return null
 
-  const definitions = discoverViteWorkspaceDefinitions(roots.viteRoot, { serverRootDir: roots.projectRoot })
-  await writeWorkspaceRuntimeRegistry(resolve(roots.projectRoot, generatedNitroWorkspaceRegistry), definitions)
-  await writeNitroWorkspacePlugin(roots.projectRoot, normalized)
+  const definitions = discoverDefinitions(roots)
+  await writeNitroWorkspacePlugin(roots.projectRoot, normalized, definitions)
   return mergeNitroWorkspaceConfig(options.nitro)
 }
 
@@ -129,8 +181,8 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
   let registryContents = "export default {}\n"
   let server: ViteDevServer | undefined
 
-  async function refreshManifest(roots: { projectRoot: string, viteRoot: string }) {
-    const definitions = discoverViteWorkspaceDefinitions(roots.viteRoot, { serverRootDir: roots.projectRoot })
+  async function refreshManifest(roots: WorkspacePluginRoots) {
+    const definitions = discoverDefinitions(roots)
     const state = await refreshWorkspaceBuildState(roots.projectRoot, definitions)
     manifest = state.manifest
     registryContents = state.registryContents
@@ -146,7 +198,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     }
   }
 
-  async function maybeRefreshTypesForFile(roots: { projectRoot: string, viteRoot: string }, file: string) {
+  async function maybeRefreshTypesForFile(roots: WorkspacePluginRoots, file: string) {
     if (!isWorkspaceFile(file)) return
     await refreshManifest(roots)
     invalidateVirtualWorkspaceModules()
@@ -161,6 +213,12 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     async config(config, env) {
       const workspaceOptions = (config as UserConfig & { workspace?: false | WorkspaceModuleOptions }).workspace ?? options
       const roots = resolveWorkspacePluginRoots(config.root || process.cwd(), workspaceOptions)
+      const normalized = normalizeWorkspaceOptions(workspaceOptions, {
+        dev: env?.command !== "build",
+        env: process.env,
+        hosting: process.env.VITEHUB_HOSTING,
+        rootDir: roots.projectRoot,
+      })
       const viteConfig: ViteConfigWithWorkspaceNitro = {
         server: {
           watch: {
@@ -168,13 +226,11 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
           },
         },
       }
-      const nitro = await createWorkspaceNitroConfig({
-        command: env?.command,
-        nitro: (config as ViteConfigWithWorkspaceNitro).nitro,
-        viteRoot: roots.viteRoot,
-        workspace: workspaceOptions,
-      })
-      if (nitro) {
+      const definitions = normalized ? discoverDefinitions(roots) : []
+      if (normalized && shouldInstallNitroWorkspacePlugin(config, workspaceOptions, normalized, definitions)) {
+        const runtimeConfig = shouldConfigureRuntime(workspaceOptions, normalized) ? normalized : false
+        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, definitions)
+        const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
         ;(config as ViteConfigWithWorkspaceNitro).nitro = nitro
         viteConfig.nitro = nitro
       }
@@ -186,6 +242,10 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       const roots = resolveWorkspacePluginRoots(config.root, workspaceOptions)
       projectRoot = roots.projectRoot
       viteRoot = roots.viteRoot
+      if (config.command !== "build")
+        process.env.VITEHUB_WORKSPACE_DEV = "true"
+      else
+        delete process.env.VITEHUB_WORKSPACE_DEV
       resolvedOptions = normalizeWorkspaceOptions(workspaceOptions, {
         dev: config.command !== "build",
         env: process.env,
@@ -214,7 +274,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       await refreshManifest(roots)
       if (resolved.command !== "build" || !assetsRegistryFile) return
 
-      const definitions = discoverViteWorkspaceDefinitions(roots.viteRoot, { serverRootDir: roots.projectRoot })
+      const definitions = discoverDefinitions(roots)
       await syncWorkspaceBuildAssets(definitions, roots.projectRoot, resolvedOptions, assetsRegistryFile)
     },
     closeBundle: {
