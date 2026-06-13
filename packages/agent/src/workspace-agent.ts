@@ -32,7 +32,9 @@ import type {
   SourceContext,
   WorkspaceEntry,
   WorkspaceDefinition,
+  WorkspaceMaterializeSourcesOptions,
   WorkspaceName,
+  WorkspaceSourceResolutionContextValueReader,
 } from "@vite-hub/workspace"
 
 const defaultWorkspaceName = "workspace"
@@ -70,6 +72,14 @@ export interface AgentDevtoolsMetadataResolutionOptions<
 > extends WorkspaceAgentDefaults<Name> {
   input?: AgentRunInput
   runtime?: Partial<ResolvedAgentRuntimeContext<TRuntimeConfig>>
+}
+
+export interface AgentDevtoolsSourceMaterializationOptions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> extends AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name> {
+  path?: string
+  source?: string
 }
 
 export function normalizeWorkspaceOptions(workspace: WorkspaceAgentWorkspaceConfig): NormalizedWorkspaceOptions {
@@ -595,6 +605,75 @@ function applyWorkspaceSourceInstructionsToParts(parts: string[], sourceInstruct
   return instructions ? [instructions] : []
 }
 
+function createDevtoolsSourceResolutionContext(input: AgentRunInput | undefined): WorkspaceSourceResolutionContextValueReader {
+  const values = new Map<string, unknown>()
+  if (input?.context && typeof input.context === "object") {
+    for (const [key, value] of Object.entries(input.context as Record<string, unknown>)) {
+      values.set(key, value)
+    }
+  }
+
+  return {
+    entries: () => values.entries(),
+    get: key => values.get(key) as never,
+    has: key => values.has(key),
+    toJSON: () => Object.fromEntries(values),
+  }
+}
+
+function workspaceOptionsFromDefinition<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+  definition: WorkspaceDefinition,
+): WorkspaceAgentOptions<TRuntimeConfig, Name> {
+  const { name: _name, ...workspace } = definition
+  return {
+    ...options,
+    workspace: {
+      ...workspace,
+      mode: normalizeWorkspaceOptions(options.workspace).mode,
+    },
+  }
+}
+
+async function createDevtoolsMetadataWorkspace<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  definition: Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>,
+  defaultsOverride: AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name> = {},
+) {
+  const defaults = {
+    ...(definition.__vitehubWorkspaceAgentDefaults || definition as WorkspaceAgentDefaults<Name>),
+    ...defaultsOverride,
+  }
+  const workspaceName = defaults.workspace || defaults.name
+  if (!workspaceName || !definition.__vitehubWorkspaceAgentOptions) return
+
+  const { createWorkspaceSourceResolutionFacade, hasWorkspaceSourceResolvers, useWorkspace } = await import("@vite-hub/workspace")
+  const workspace = useWorkspace(workspaceName)
+  const options = definition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
+  const workspaceDefinition = workspaceDefinitionWithNameFromOptions(options, defaults)
+
+  if (!hasWorkspaceSourceResolvers(workspaceDefinition)) {
+    return { defaults, options, workspace }
+  }
+
+  const resolved = await createWorkspaceSourceResolutionFacade(workspace, workspaceDefinition, {
+    invocation: {
+      context: createDevtoolsSourceResolutionContext(defaults.input),
+    },
+  })
+
+  return {
+    defaults,
+    options: workspaceOptionsFromDefinition(options, resolved.definition),
+    workspace: resolved.workspace,
+  }
+}
+
 export function createAgentDevtoolsMetadata<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -627,22 +706,46 @@ export async function resolveAgentDevtoolsMetadata<
     return { files: [], ...agentDevtoolsMetadata(definition), tools: [] }
   }
 
-  const defaults = {
-    ...(workspaceDefinition.__vitehubWorkspaceAgentDefaults || workspaceDefinition as WorkspaceAgentDefaults<Name>),
-    ...defaultsOverride,
-  }
-  const workspaceName = defaults.workspace || defaults.name
-  if (!workspaceName) {
+  const metadataWorkspace = await createDevtoolsMetadataWorkspace(workspaceDefinition, defaultsOverride)
+  if (!metadataWorkspace) {
     return createAgentDevtoolsMetadata(definition)
   }
 
-  const { useWorkspace } = await import("@vite-hub/workspace")
-  const workspace = useWorkspace(workspaceName)
-  const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>
   return {
-    files: await resolveWorkspaceMetadataFiles(options, defaults, workspace),
-    instructions: await resolveWorkspaceMetadataInstructions(options, workspace, defaultsOverride),
+    files: await resolveWorkspaceMetadataFiles(metadataWorkspace.options as never, metadataWorkspace.defaults as never, metadataWorkspace.workspace as never),
+    instructions: await resolveWorkspaceMetadataInstructions(metadataWorkspace.options as never, metadataWorkspace.workspace as never, defaultsOverride),
     ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition),
-    tools: workspaceMetadataTools(options),
+    tools: workspaceMetadataTools(metadataWorkspace.options as never),
+  }
+}
+
+export async function materializeAgentDevtoolsSourceMetadata<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+>(
+  definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  options: AgentDevtoolsSourceMaterializationOptions<TRuntimeConfig, Name> = {},
+): Promise<AgentDevtoolsMetadata> {
+  const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig, Name>>
+  if (!workspaceDefinition.__vitehubWorkspaceAgent || !workspaceDefinition.__vitehubWorkspaceAgentOptions) {
+    return { files: [], ...agentDevtoolsMetadata(definition), tools: [] }
+  }
+
+  const metadataWorkspace = await createDevtoolsMetadataWorkspace(workspaceDefinition, options)
+  if (!metadataWorkspace) {
+    return createAgentDevtoolsMetadata(definition)
+  }
+
+  const materializeOptions: WorkspaceMaterializeSourcesOptions = {
+    ...(options.path ? { path: options.path } : {}),
+    ...(options.source ? { sources: [options.source] } : {}),
+  }
+  await metadataWorkspace.workspace.fs.materializeSources?.(materializeOptions)
+
+  return {
+    files: await resolveWorkspaceMetadataFiles(metadataWorkspace.options as never, metadataWorkspace.defaults as never, metadataWorkspace.workspace as never),
+    instructions: await resolveWorkspaceMetadataInstructions(metadataWorkspace.options as never, metadataWorkspace.workspace as never, options),
+    ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition),
+    tools: workspaceMetadataTools(metadataWorkspace.options as never),
   }
 }
