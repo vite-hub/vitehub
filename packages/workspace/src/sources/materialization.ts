@@ -256,7 +256,7 @@ export async function materializeWorkspaceSources(
     }
 
     const itemMetadata: Record<string, LazyMaterializedMetadata> = existing?.configHash === configHash
-      ? { ...(existing.items || {}) }
+      ? { ...existing.items }
       : {}
     await writeSourceSnapshotMetadata(store, {
       configHash,
@@ -270,7 +270,7 @@ export async function materializeWorkspaceSources(
     let sourceFiles = 0
     let sourceBytes = 0
     try {
-      const ctx = createSourceContext(definition, source)
+      const ctx = createSourceContext(definition, source, store)
       await source.source.prepare?.(ctx)
       if (source.mountPath) {
         await store.mkdir(source.mountPath, { recursive: true })

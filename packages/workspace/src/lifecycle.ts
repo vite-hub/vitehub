@@ -30,7 +30,7 @@ export async function publishWorkspaceSnapshot(definition: WorkspaceDefinition, 
 export async function syncWorkspaceDefinition(definition: WorkspaceDefinition, store: WorkspaceStore): Promise<void> {
   const loaders = definition.loaders?.length ? definition.loaders : [filesLoader()]
   const hasExplicitLoaders = !!definition.loaders?.length
-  const ctxSource = createSourceContext(definition)
+  const ctxSource = createSourceContext(definition, undefined, store)
   const buildSources = normalizeWorkspaceSources(definition.sources)
     .filter(source => source.materialize === "build")
   const hasBuildSourceState = await reconcileBuildSourceMounts(store, buildSources)
@@ -102,7 +102,11 @@ function isSyncedBuildSource(value: unknown): value is SyncedBuildSource {
 
 function createMountedBuildSource(source: ResolvedWorkspaceSource): WorkspaceLoaderSource {
   function getSourceContext(ctx: Parameters<WorkspaceLoaderSource["getKeys"]>[0]) {
-    return { ...ctx, mountPath: source.mountPath, source: source.key }
+    return {
+      ...ctx,
+      mountPath: source.mountPath,
+      source: source.key,
+    }
   }
 
   return {

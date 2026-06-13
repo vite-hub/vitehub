@@ -258,12 +258,19 @@ export interface WorkspaceStore {
   setMeta?(key: string, value: unknown): Promise<void>
 }
 
+export interface SourceContextWorkspaceFiles {
+  readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
+  stat(path: string): Promise<WorkspaceStat | undefined>
+  exists(path: string): Promise<boolean>
+}
+
 export interface SourceContext {
   mountPath?: string
   rootDir: string
   source?: string
   sourceRootDir?: string
   workspace: string
+  workspaceFiles?: SourceContextWorkspaceFiles
 }
 
 export type MaybePromise<T> = T | Promise<T>

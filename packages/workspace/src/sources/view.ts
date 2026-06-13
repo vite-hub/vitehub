@@ -44,14 +44,14 @@ export interface WorkspaceSourceView {
 }
 
 export function createWorkspaceSourceView(definition: WorkspaceDefinition, store: WorkspaceStore): WorkspaceSourceView {
-  const sourceContext = createSourceContext(definition)
+  const sourceContext = createSourceContext(definition, undefined, store)
   const sources = normalizeWorkspaceSources(definition.sources).filter(source => source.materialize === "lazy")
   const writePolicy = createWorkspaceWritePolicy(definition)
   const prepareBySource = new Map<string, Promise<void>>()
   const materializeBySource = new Map<string, Promise<void>>()
 
   function getSourceContext(source: { key: string, mountPath: string }) {
-    return createSourceContext(definition, source)
+    return createSourceContext(definition, source, store)
   }
 
   function isLazySourcePath(path: string) {

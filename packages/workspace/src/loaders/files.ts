@@ -1,4 +1,5 @@
 import { matchesAny, normalizeWorkspacePath } from "../core/path.ts"
+import { createSourceContext } from "../sources/config.ts"
 
 import type { LoaderContext, WorkspaceContent, WorkspaceLoader, WorkspaceSourceItem } from "../core/types.ts"
 
@@ -18,7 +19,11 @@ export function files(options: FilesLoaderOptions = {}): WorkspaceLoader {
   return {
     name: "files",
     async load(ctx: LoaderContext) {
-      const sourceContext = { rootDir: ctx.rootDir, sourceRootDir: ctx.sourceRootDir, workspace: ctx.workspace }
+      const sourceContext = createSourceContext({
+        name: ctx.workspace,
+        rootDir: ctx.rootDir,
+        sourceRootDir: ctx.sourceRootDir,
+      }, undefined, ctx.store)
       for (const source of ctx.sources) {
         await source.prepare?.(sourceContext)
         for (const key of await source.getKeys(sourceContext)) {

@@ -631,6 +631,37 @@ describe("sources, loaders, and publishers", () => {
     await expect(store.list("", { recursive: true })).resolves.toEqual([])
   })
 
+  it("lets build sources read existing workspace files while syncing", async () => {
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("data/sync-report.json", {
+      path: "data/sync-report.json",
+      content: "{\"tasks\":1}",
+    })
+    let previousReport = ""
+
+    await syncWorkspaceDefinition({
+      name: "source-context-build-files",
+      sources: {
+        mirror: source.custom({
+          mount: "generated",
+          async getKeys(ctx) {
+            previousReport = await ctx.workspaceFiles!.readFile("data/sync-report.json")
+            return ["sync-report-copy.json"]
+          },
+          async getItem(key, ctx) {
+            return {
+              key,
+              content: await ctx.workspaceFiles!.readFile("data/sync-report.json"),
+            }
+          },
+        }),
+      },
+    }, store)
+
+    expect(previousReport).toBe("{\"tasks\":1}")
+    await expect(store.readFile("generated/sync-report-copy.json")).resolves.toMatchObject({ content: "{\"tasks\":1}" })
+  })
+
   it("skips initial sync snapshots when a workspace has no build sources", async () => {
     const snapshot = vi.fn(async () => {
       throw new Error("empty snapshots should not be published")

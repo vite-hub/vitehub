@@ -216,6 +216,43 @@ describe("lazy sources", () => {
     ])
   })
 
+  it("lets sources read existing workspace files while materializing", async () => {
+    let previousReport = ""
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("data/sync-report.json", {
+      path: "data/sync-report.json",
+      content: "{\"tasks\":1}",
+    })
+    const view = createWorkspaceSourceView({
+      name: "source-context-files",
+      sources: {
+        mirror: source.custom({
+          mount: {
+            path: "generated",
+            materialize: "lazy",
+          },
+          async getKeys(ctx) {
+            expect(await ctx.workspaceFiles?.exists("data/sync-report.json")).toBe(true)
+            expect(await ctx.workspaceFiles?.stat("data/sync-report.json")).toMatchObject({ path: "data/sync-report.json", type: "file" })
+            previousReport = await ctx.workspaceFiles!.readFile("data/sync-report.json")
+            return ["sync-report-copy.json"]
+          },
+          async getItem(key, ctx) {
+            return {
+              key,
+              content: await ctx.workspaceFiles!.readFile("data/sync-report.json"),
+            }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["mirror"] })
+
+    expect(previousReport).toBe("{\"tasks\":1}")
+    await expect(view.readFile("generated/sync-report-copy.json")).resolves.toBe("{\"tasks\":1}")
+  })
+
   it("streams source item content into stores that support streaming writes", async () => {
     const root = await createRoot()
     const store = createLocalWorkspaceStore(root)
