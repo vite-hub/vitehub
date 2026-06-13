@@ -1,6 +1,8 @@
+import { rm } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { loadEnv } from "vite"
 
 import { formatDiagnostics } from "./core/diagnostics.ts"
@@ -30,6 +32,14 @@ export interface EnvVitePluginAPI {
   getServerEnvRegistry: () => EnvRuntimeRegistry
 }
 
+type NitroConfig = {
+  alias?: Record<string, string>
+} & Record<string, unknown>
+
+type ViteConfigWithEnvNitro = UserConfig & {
+  nitro?: NitroConfig
+}
+
 export type EnvVitePlugin = Plugin & { api: EnvVitePluginAPI }
 
 export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
@@ -49,7 +59,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         return
       }
 
-      const root = resolve(config.root || process.cwd())
+      const root = resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
       const loadedEnv = loadEnv(env.mode, root, "")
       const context = createSourceContext({
         env: { ...loadedEnv, ...process.env },
@@ -83,32 +93,21 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
           ...Object.fromEntries(defineResult.entries.map(entry => [entry.key, JSON.stringify(entry.value)])),
           ...config.define,
         },
+        nitro: mergeNitroEnvConfig((config as ViteConfigWithEnvNitro).nitro, createGeneratedEnvImportAliases(root)),
       }
     },
     async configResolved(config) {
       if (diagnosticsText) {
         config.logger.info(diagnosticsText)
       }
-      await writeFileIfChanged(
-        resolve(config.root, ".vitehub/env/vite.d.ts"),
-        createViteTypes(buildPublicConfig, serverRegistry),
-      )
+      await refreshEnvGeneratedFiles(resolveViteHubProjectRoot(config.root), buildPublicConfig, serverRegistry)
     },
     load(id) {
       if (id === RESOLVED_PUBLIC_ID) {
-        return [
-          `const publicEnv = ${JSON.stringify(buildPublicConfig, null, 2)};`,
-          "export function usePublicEnv() { return publicEnv; }",
-          "export { publicEnv };",
-        ].join("\n")
+        return createPublicEnvModule(buildPublicConfig)
       }
       if (id === RESOLVED_SERVER_ID) {
-        return [
-          "import { resolveServerEnv, runWithServerEnv as runWithGeneratedServerEnv } from '@vite-hub/env/server';",
-          `const registry = ${JSON.stringify(serverRegistry, null, 2)};`,
-          "export function useServerEnv(event) { return resolveServerEnv(registry, event); }",
-          "export function runWithServerEnv(event, callback) { return runWithGeneratedServerEnv(event, callback); }",
-        ].join("\n")
+        return createServerEnvModule(serverRegistry)
       }
     },
     resolveId(id) {
@@ -120,6 +119,70 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       }
     },
   }
+}
+
+function envAmbientTypesPath(root: string) {
+  return resolve(root, ".vitehub", "types", "env.d.ts")
+}
+
+function envPublicModulePath(root: string) {
+  return resolve(root, ".vitehub", "env", "public.mjs")
+}
+
+function envServerModulePath(root: string) {
+  return resolve(root, ".vitehub", "env", "server.mjs")
+}
+
+function createGeneratedEnvImportAliases(root: string): Record<string, string> {
+  return {
+    [ENV_PUBLIC_ID]: envPublicModulePath(root),
+    [ENV_SERVER_ID]: envServerModulePath(root),
+  }
+}
+
+function mergeNitroEnvConfig(value: unknown, aliases: Record<string, string>): NitroConfig {
+  const nitro: NitroConfig = isRecord(value) ? { ...value } : {}
+  return {
+    ...nitro,
+    alias: {
+      ...(isRecord(nitro.alias) ? nitro.alias : {}),
+      ...aliases,
+    },
+  }
+}
+
+function legacyEnvAmbientTypesPaths(root: string) {
+  return [
+    resolve(root, ".vitehub", "env", "vite.d.ts"),
+  ]
+}
+
+async function refreshEnvGeneratedFiles(root: string, publicConfig: Record<string, unknown>, serverRegistry: EnvRuntimeRegistry): Promise<void> {
+  await Promise.all([
+    writeFileIfChanged(envAmbientTypesPath(root), createViteTypes(publicConfig, serverRegistry)),
+    writeFileIfChanged(envPublicModulePath(root), createPublicEnvModule(publicConfig)),
+    writeFileIfChanged(envServerModulePath(root), createServerEnvModule(serverRegistry)),
+    ...legacyEnvAmbientTypesPaths(root).map(path => rm(path, { force: true })),
+  ])
+}
+
+function createPublicEnvModule(publicConfig: Record<string, unknown>): string {
+  return [
+    `const publicEnv = ${JSON.stringify(publicConfig, null, 2)};`,
+    "export function usePublicEnv() { return publicEnv; }",
+    "export { publicEnv };",
+    "",
+  ].join("\n")
+}
+
+function createServerEnvModule(serverRegistry: EnvRuntimeRegistry): string {
+  return [
+    "import { resolveServerEnv, runWithServerEnv as runWithGeneratedServerEnv } from '@vite-hub/env/server';",
+    `const registry = ${JSON.stringify(serverRegistry, null, 2)};`,
+    "export function useServerEnv(event) { return resolveServerEnv(registry, event); }",
+    "export function runWithServerEnv(event, callback) { return runWithGeneratedServerEnv(event, callback); }",
+    "",
+  ].join("\n")
 }
 
 function createViteTypes(publicConfig: Record<string, unknown>, serverRegistry: EnvRuntimeRegistry): string {

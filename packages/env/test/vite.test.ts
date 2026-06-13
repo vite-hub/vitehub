@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -15,6 +15,8 @@ describe("Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-"))
     await writeFile(join(root, "package.json"), JSON.stringify({ version: "1.2.3" }), "utf8")
     await writeFile(join(root, ".env.production"), "PUBLIC_APP_NAME=Quiver\nDEFINE_SENTRY_DEBUG=true\n", "utf8")
+    await mkdir(join(root, ".vitehub", "env"), { recursive: true })
+    await writeFile(join(root, ".vitehub", "env", "vite.d.ts"), "stale env generated types\n", "utf8")
 
     const plugin = hubEnv({ diagnostics: "trace" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
@@ -66,6 +68,12 @@ describe("Vite plugin", () => {
         __GIT_COMMIT__: JSON.stringify("abc123"),
         __SENTRY_DEBUG__: JSON.stringify(true),
       },
+      nitro: {
+        alias: {
+          "#vitehub/env/public": join(root, ".vitehub", "env", "public.mjs"),
+          "#vitehub/env/server": join(root, ".vitehub", "env", "server.mjs"),
+        },
+      },
     })
     expect(plugin.api.getPublicEnv()).toEqual({
       appName: "Quiver",
@@ -98,7 +106,7 @@ describe("Vite plugin", () => {
       root,
     } as never)
 
-    const types = await readFile(join(root, ".vitehub/env/vite.d.ts"), "utf8")
+    const types = await readFile(join(root, ".vitehub/types/env.d.ts"), "utf8")
     expect(types).toContain("declare module \"#vitehub/env/public\"")
     expect(types).toContain("declare module \"#vitehub/env/server\"")
     expect(types).toContain("import type { SecretEnv } from \"@vite-hub/env/secret\"")
@@ -118,6 +126,9 @@ describe("Vite plugin", () => {
     expect(types).not.toContain("buildConfig")
     expect(types).not.toContain("useSafeBuildConfig")
     expect(types).not.toContain("virtual:@vite-hub/env/build")
+    await expect(readFile(join(root, ".vitehub", "env", "vite.d.ts"), "utf8")).rejects.toThrow()
+    await expect(readFile(join(root, ".vitehub", "env", "public.mjs"), "utf8")).resolves.toContain("usePublicEnv")
+    await expect(readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")).resolves.toContain("useServerEnv")
 
     const loadHook = plugin.load as (id: string) => string | undefined
     const loaded = loadHook("\0#vitehub/env/public")
@@ -158,6 +169,32 @@ describe("Vite plugin", () => {
     expect(plugin.api.getPublicEnv()).toEqual({
       appName: "Quiver",
     })
+  })
+
+  it("keeps generated env files in project ViteHub state when Vite root is app", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-app-root-"))
+    await mkdir(join(root, "app"), { recursive: true })
+    await mkdir(join(root, "server", "workspaces"), { recursive: true })
+
+    const plugin = hubEnv()
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+    await configHook({
+      env: {
+        server: {
+          airtableToken: env({ secret: true }),
+        },
+      },
+      root: join(root, "app"),
+    }, { command: "build", mode: "production" })
+
+    const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
+    await configResolvedHook({
+      logger: { info: vi.fn() },
+      root: join(root, "app"),
+    } as never)
+
+    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": SecretEnv<string>")
+    await expect(readFile(join(root, "app", ".vitehub", "types", "env.d.ts"), "utf8")).rejects.toThrow()
   })
 
   it("resolves Server Env from runtime carriers and active Cloudflare env", () => {

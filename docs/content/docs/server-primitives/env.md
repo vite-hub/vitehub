@@ -64,6 +64,20 @@ export async function syncAirtable() {
 }
 ```
 
+## TypeScript names
+
+`hubEnv()` writes generated Public Env and Server Env runtime modules to `.vitehub/env/` and generated types to `.vitehub/types/env.d.ts`. Add that generated type directory to your `tsconfig.json` when you want `#vitehub/env/public` and `#vitehub/env/server` to expose app-specific fields.
+
+```json [tsconfig.json]
+{
+  "include": [
+    "server/**/*.ts",
+    "src/**/*.ts",
+    ".vitehub/types/**/*.d.ts"
+  ]
+}
+```
+
 ## Secrets
 
 Do not put secrets in `env.public` or `env.define`; Vite bundles those values. Put server-only secrets in `env.server` with `secret: true`, then unseal the generated `SecretEnv` value at the boundary that needs the raw string.
