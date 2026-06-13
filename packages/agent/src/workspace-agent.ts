@@ -741,11 +741,20 @@ export async function materializeAgentDevtoolsSourceMetadata<
     ...(options.sources || []),
     ...(options.source ? [options.source] : []),
   ])]
+  const preservedSources = options.source
+    ? sources.filter(source => source !== options.source)
+    : []
+  if (preservedSources.length) {
+    await metadataWorkspace.workspace.fs.materializeSources?.({ sources: preservedSources })
+  }
+
   const materializeOptions: WorkspaceMaterializeSourcesOptions = {
     ...(options.path ? { path: options.path } : {}),
-    ...(sources.length ? { sources } : {}),
+    ...(options.source ? { sources: [options.source] } : !preservedSources.length && sources.length ? { sources } : {}),
   }
-  await metadataWorkspace.workspace.fs.materializeSources?.(materializeOptions)
+  if (materializeOptions.path || materializeOptions.sources?.length) {
+    await metadataWorkspace.workspace.fs.materializeSources?.(materializeOptions)
+  }
 
   return {
     files: await resolveWorkspaceMetadataFiles(metadataWorkspace.options as never, metadataWorkspace.defaults as never, metadataWorkspace.workspace as never),
