@@ -2,7 +2,7 @@ import { WorkspaceError } from "../core/errors.ts"
 import { contentStreamToBytes, decodeFile, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { searchText } from "../core/search.ts"
-import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
+import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath, workspaceSourceRequestDescriptorPath } from "./config.ts"
 import {
   hasCurrentSourceSnapshot,
   materializeWorkspaceSources,
@@ -47,8 +47,9 @@ export interface WorkspaceSourceView {
 export function createWorkspaceSourceView(definition: WorkspaceDefinition, store: WorkspaceStore): WorkspaceSourceView {
   const sourceContext = createSourceContext(definition, undefined, store)
   const allSources = normalizeWorkspaceSources(definition.sources)
-  const sources = allSources.filter(source => source.materialize === "lazy")
+  const sources = allSources.filter(source => !source.requestOnly && source.materialize === "lazy")
   const syncSources = allSources.filter(source => source.sync)
+  const descriptorSources = allSources.filter(source => source.requestDescriptor)
   const writePolicy = createWorkspaceWritePolicy(definition)
   const prepareBySource = new Map<string, Promise<void>>()
   const materializeBySource = new Map<string, Promise<void>>()
@@ -63,6 +64,54 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   function isSyncSourceMountPath(path: string) {
     return syncSources.some(source => source.mountPath && sourceMountContainsPath(source, path))
+  }
+
+  function descriptorSourceForPath(path: string) {
+    return descriptorSources.find(source => workspaceSourceRequestDescriptorPath(source.key) === path)
+  }
+
+  function descriptorPathEntries(path = "", options: ListOptions = {}): WorkspaceEntry[] {
+    if (!descriptorSources.length) return []
+    const normalized = normalizeWorkspacePath(path)
+    const descriptors = descriptorSources.map(source => workspaceSourceRequestDescriptorPath(source.key))
+    if (!normalized) {
+      return options.recursive
+        ? [
+            { path: ".vitehub", type: "directory" },
+            { path: ".vitehub/sources", type: "directory" },
+            ...descriptors.map(descriptor => ({ path: descriptor, type: "file" as const })),
+          ]
+        : [{ path: ".vitehub", type: "directory" }]
+    }
+    if (normalized === ".vitehub") {
+      return options.recursive
+        ? [
+            { path: ".vitehub/sources", type: "directory" },
+            ...descriptors.map(descriptor => ({ path: descriptor, type: "file" as const })),
+          ]
+        : [{ path: ".vitehub/sources", type: "directory" }]
+    }
+    if (normalized === ".vitehub/sources") {
+      return descriptors.map(descriptor => ({ path: descriptor, type: "file" as const }))
+    }
+    if (descriptors.includes(normalized)) return [{ path: normalized, type: "file" }]
+    return []
+  }
+
+  function descriptorStat(path: string): WorkspaceStat | undefined {
+    if (descriptorSourceForPath(path)) return { path, type: "file" }
+    if (descriptorSources.length && (path === ".vitehub" || path === ".vitehub/sources")) return { path, type: "directory" }
+  }
+
+  function isDescriptorPath(path: string): boolean {
+    return descriptorSources.length > 0 && (path === ".vitehub" || path === ".vitehub/sources" || path.startsWith(".vitehub/sources/"))
+  }
+
+  function descriptorContent(source: (typeof descriptorSources)[number]) {
+    return JSON.stringify({
+      ...source.requestDescriptor,
+      sourceKey: source.key,
+    }, null, 2)
   }
 
   function isLiveSource(sourceKey: string) {
@@ -104,6 +153,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function listSourceAware(path = "", options: ListOptions = {}) {
     const storeEntries = await store.list(path, options)
     const result = new Map<string, WorkspaceEntry>(storeEntries.map(entry => [entry.path, entry]))
+    for (const entry of descriptorPathEntries(path, options)) result.set(entry.path, entry)
 
     for (const source of getLazySourcesForPath(path)) {
       await ensurePrepared(source.key)
@@ -166,6 +216,15 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
     if (query.paths?.length && !storePaths.filter(Boolean).length) {
       results.length = 0
+    }
+
+    for (const source of descriptorSources) {
+      const entryPath = workspaceSourceRequestDescriptorPath(source.key)
+      if (query.paths?.length && !requestedPaths.some(path => !normalizeWorkspacePath(path) || sourceMountContainsPath({ mountPath: normalizeWorkspacePath(path) }, entryPath))) {
+        continue
+      }
+      results.push(...searchText(entryPath, descriptorContent(source), { ...query, limit: limit - results.length }))
+      if (results.length >= limit) return dedupeHits(results).slice(0, limit)
     }
 
     for (const source of sources) {
@@ -254,6 +313,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   return {
     async readFile(path, options) {
+      const descriptorSource = descriptorSourceForPath(normalizeWorkspacePath(path))
+      if (descriptorSource) return decodeFile(descriptorContent(descriptorSource), options)
       const resolution = resolveWorkspacePath(definition, path)
       if (resolution.type === "source") {
         await ensurePrepared(resolution.sourceKey)
@@ -270,7 +331,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return decodeFile(file.content, options)
     },
     async writeFile(path, content, options) {
+      if (isDescriptorPath(normalizeWorkspacePath(path))) {
+        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+      }
       const resolution = resolveWorkspacePath(definition, path)
+      if (isDescriptorPath(resolution.workspacePath)) {
+        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+      }
       await assertWritableResolvedStorePath(path, resolution.workspacePath, resolution.type)
       const input = await writePolicy.before({
         content,
@@ -301,6 +368,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       for (const entry of await store.glob(patterns, options)) {
         result.set(entry.path, entry)
       }
+      for (const entry of descriptorPathEntries("", { recursive: true })) {
+        if (entry.type === "file" && patterns.some(pattern => matchesAny(entry.path, pattern))) result.set(entry.path, entry)
+      }
       for (const source of sources.filter(source => source.livePaths)) {
         await pruneLiveSourceStoreEntries(result, source)
         for (const entry of liveSourceEntries(source)) {
@@ -314,6 +384,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return await searchWorkspace(query)
     },
     async stat(path) {
+      const descriptor = descriptorStat(normalizeWorkspacePath(path))
+      if (descriptor) return descriptor
       const resolution = resolveWorkspacePath(definition, path)
       if (resolution.type === "source") {
         await ensurePrepared(resolution.sourceKey)
@@ -343,6 +415,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return await materializeWorkspaceSources(definition, store, options)
     },
     async exists(path) {
+      if (descriptorStat(normalizeWorkspacePath(path))) return true
       const resolution = resolveWorkspacePath(definition, path)
       if (resolution.type === "source") {
         await ensurePrepared(resolution.sourceKey)
@@ -359,7 +432,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return Boolean(await store.stat(resolution.workspacePath))
     },
     async mkdir(path, options) {
+      if (isDescriptorPath(normalizeWorkspacePath(path))) {
+        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+      }
       const resolution = resolveWorkspacePath(definition, path)
+      if (isDescriptorPath(resolution.workspacePath)) {
+        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+      }
       await assertWritableResolvedStorePath(path, resolution.workspacePath, resolution.type)
       const input = await writePolicy.before({
         operation: "mkdir",
@@ -377,7 +456,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
     },
     async rm(path, options) {
+      if (isDescriptorPath(normalizeWorkspacePath(path))) {
+        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+      }
       const resolution = resolveWorkspacePath(definition, path)
+      if (isDescriptorPath(resolution.workspacePath)) {
+        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+      }
       await assertWritableResolvedStorePath(path, resolution.workspacePath, resolution.type)
       const input = await writePolicy.before({
         operation: "rm",

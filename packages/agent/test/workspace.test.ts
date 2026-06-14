@@ -12,7 +12,10 @@ const tools = vi.fn(() => ({}))
 const inspectTools = vi.fn(() => ({}))
 const createWorkspaceTools = vi.fn(() => ({}))
 const createWorkspaceSourceResolutionFacade = vi.fn(async (workspace: ReadonlyWorkspaceFacade | WritableWorkspaceFacade, definition: unknown) => ({ definition, workspace }))
+const getWorkspaceSourceRequestDescriptor = vi.fn(() => undefined)
+const isWorkspaceSourceRequestOnly = vi.fn(() => false)
 const resolveWorkspaceAutoCommit = vi.fn()
+const workspaceSourceRequestDescriptorPath = vi.fn((source: string) => `.vitehub/sources/${source}.json`)
 const useWorkspace = vi.fn<() => ReadonlyWorkspaceFacade | WritableWorkspaceFacade>(() => ({
   diff,
   fs: { exists, list, readFile, writeFile },
@@ -56,7 +59,10 @@ vi.mock("@vite-hub/workspace", async (importOriginal) => {
     ...actual,
     createWorkspaceSourceResolutionFacade,
     createWorkspaceTools,
+    getWorkspaceSourceRequestDescriptor,
+    isWorkspaceSourceRequestOnly,
     resolveWorkspaceAutoCommit,
+    workspaceSourceRequestDescriptorPath,
     useWorkspace,
   }
 })
@@ -113,7 +119,13 @@ describe("defineAgent workspace option", () => {
     createWorkspaceTools.mockReturnValue({})
     createWorkspaceSourceResolutionFacade.mockClear()
     createWorkspaceSourceResolutionFacade.mockImplementation(async (workspace, definition) => ({ definition, workspace }))
+    getWorkspaceSourceRequestDescriptor.mockReset()
+    getWorkspaceSourceRequestDescriptor.mockReturnValue(undefined)
+    isWorkspaceSourceRequestOnly.mockReset()
+    isWorkspaceSourceRequestOnly.mockReturnValue(false)
     useWorkspace.mockClear()
+    workspaceSourceRequestDescriptorPath.mockReset()
+    workspaceSourceRequestDescriptorPath.mockImplementation((source: string) => `.vitehub/sources/${source}.json`)
   })
 
   it("fails when a capability-required workspace path is missing", async () => {
@@ -470,6 +482,37 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toBe("Answer from the workspace.\n\nKeep replies short.")
   })
 
+  it("places Workspace Shell request descriptor hints through the camel-case capability slot", async () => {
+    list.mockImplementation(async path => path === ".vitehub/sources"
+      ? [{ path: ".vitehub/sources/inventoryHealthSummary.json", type: "file" }]
+      : [])
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { workspaceShell } = await import("../src/capabilities.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      capabilities: [workspaceShell()],
+      instructions: [
+        "Answer from the workspace.",
+        "{{ capabilities.workspaceShell }}",
+        "Keep replies short.",
+      ],
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(agentSettings.at(-1)?.instructions).toBe([
+      "Answer from the workspace.",
+      [
+        "API-backed Sources with controlled curl access:",
+        "- inventoryHealthSummary: inspect `.vitehub/sources/inventoryHealthSummary.json` for method, URL, allowed query/body shape, workspace path behavior, and redacted credential names before using curl.",
+        "Use normal curl syntax; ViteHub validates the final request against the Source Request Shape and Source Network Grant.",
+      ].join("\n"),
+      "Keep replies short.",
+    ].join("\n\n"))
+  })
+
   it("filters source instructions through Access-scoped workspace visibility", async () => {
     exists.mockResolvedValue(true)
     useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
@@ -521,6 +564,54 @@ describe("defineAgent workspace option", () => {
             mount: "",
             name: "file",
           } as never,
+          public: { instructions: "Use public source.", mount: "public", name: "public" } as never,
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "public",
+            scopes: {
+              public: { source: "public" },
+            },
+          },
+        }),
+      ],
+      instructions: "Answer from the workspace.",
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(agentSettings.at(-1)?.instructions).toBe([
+      "Answer from the workspace.",
+      "## Workspace Sources",
+      "### public\n\nUse public source.",
+    ].join("\n\n"))
+  })
+
+  it("does not expose request-only source instructions through a visible workspace root", async () => {
+    const privateSource = {
+      async getKeys() {
+        return []
+      },
+      async getItem(key: string) {
+        return { key, path: key, content: "" }
+      },
+      instructions: "Use private API.",
+      mount: "",
+    }
+    getWorkspaceSourceRequestDescriptor.mockImplementation(source => source === privateSource ? { method: "GET", url: "https://private.example.com/api" } : undefined)
+    isWorkspaceSourceRequestOnly.mockImplementation(source => source === privateSource)
+    exists.mockImplementation(async path => path === "" || path === "public")
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {
+        sources: {
+          private: privateSource as never,
           public: { instructions: "Use public source.", mount: "public", name: "public" } as never,
         },
       },

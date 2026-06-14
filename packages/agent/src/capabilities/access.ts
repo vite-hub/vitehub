@@ -1,7 +1,15 @@
 import { workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { normalizeAgentWorkspaceSource } from "../workspace-source-metadata.ts"
-import { createWorkspaceSourceResolutionFacade, createWorkspaceTools } from "@vite-hub/workspace"
+import {
+  attachWorkspaceSourceRequestExecution,
+  createWorkspaceSourceResolutionFacade,
+  createWorkspaceTools,
+  getWorkspaceSourceRequestExecution,
+  getWorkspaceSourceRequestDescriptor,
+  isWorkspaceSourceRequestOnly,
+  workspaceSourceRequestDescriptorPath,
+} from "@vite-hub/workspace"
 
 import type {
   AgentCallbackContext,
@@ -420,13 +428,17 @@ function scopeMaterializeGrants(definition: AccessWorkspaceScopeDefinition, work
       ...(sources?.length ? { sources } : {}),
     })
   }
+  const addSource = (source: string) => {
+    const path = sourceMaterializePath(source, workspaceDefinition)
+    if (path !== undefined) add(path, [source])
+  }
   for (const path of normalizeStringList(definition.path, definition.paths)) add(path)
-  for (const source of normalizeStringList(definition.source, definition.sources)) add(sourceMountPath(source, workspaceDefinition), [source])
+  for (const source of normalizeStringList(definition.source, definition.sources)) addSource(source)
   for (const grant of definition.grants || []) {
     const paths = normalizeStringList(grant.path, grant.paths)
     const sources = normalizeStringList(grant.source, grant.sources)
     for (const path of paths) add(path)
-    for (const source of sources) add(sourceMountPath(source, workspaceDefinition), [source])
+    for (const source of sources) addSource(source)
   }
   return dedupeMaterializeGrants(grants)
 }
@@ -449,10 +461,15 @@ function normalizeStringList(single: string | undefined, multiple: readonly stri
 }
 
 function sourcePaths(sources: string[], workspaceDefinition?: WorkspaceDefinition): string[] {
-  return sources.map(source => sourceMountPath(source, workspaceDefinition))
+  return sources.flatMap(source => sourceScopePaths(source, workspaceDefinition))
 }
 
-function sourceMountPath(source: string, workspaceDefinition?: WorkspaceDefinition): string {
+function sourceMaterializePath(source: string, workspaceDefinition?: WorkspaceDefinition): string | undefined {
+  const paths = sourceScopePaths(source, workspaceDefinition).filter(path => !path.startsWith(".vitehub/sources/"))
+  return paths[0]
+}
+
+function sourceScopePaths(source: string, workspaceDefinition?: WorkspaceDefinition): string[] {
   if (!workspaceDefinition) {
     throw new Error(`[vitehub] Workspace Scope source grant "${source}" requires a Workspace Definition.`)
   }
@@ -460,11 +477,22 @@ function sourceMountPath(source: string, workspaceDefinition?: WorkspaceDefiniti
   if (!definition) {
     throw new Error(`[vitehub] Workspace Scope source grant references unknown source "${source}".`)
   }
-  const mountPath = normalizeAgentWorkspaceSource(source, definition).mountPath
+  const metadata = normalizeAgentWorkspaceSource(source, definition)
+  const descriptorSource = metadata.source
+  const descriptorPath = descriptorSource && getWorkspaceSourceRequestDescriptor(descriptorSource)
+    ? workspaceSourceRequestDescriptorPath(source)
+    : undefined
+  if (descriptorSource && isWorkspaceSourceRequestOnly(descriptorSource)) {
+    return descriptorPath ? [descriptorPath] : []
+  }
+  const mountPath = metadata.mountPath
   if (normalizeScopePath(mountPath) === "") {
     throw new Error(`[vitehub] Workspace Scope source grant "${source}" is root-mounted; grant explicit paths instead.`)
   }
-  return mountPath
+  return [
+    mountPath,
+    ...(descriptorPath ? [descriptorPath] : []),
+  ]
 }
 
 function normalizeScopePath(path = ""): string {
@@ -595,7 +623,7 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
   workspace: ReadonlyWorkspaceFacade<Name>,
   scope: ResolvedWorkspaceScope,
 ): ReadonlyWorkspaceFacade<Name> {
-  const fs: ReadonlyWorkspaceFacade<Name>["fs"] = {
+  const fs = attachWorkspaceSourceRequestExecution({
     async readFile(path, options) {
       const normalized = normalizeScopePath(path)
       if (!isReadablePath(scope, normalized)) throw notFound(normalized)
@@ -635,7 +663,7 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
       }))
       return mergeMaterializedSources(options.path || "", results)
     },
-  }
+  } satisfies ReadonlyWorkspaceFacade<Name>["fs"], getWorkspaceSourceRequestExecution(workspace.fs))
 
   const createTools = (options?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
     broadSearchPaths: options?.broadSearchPaths,

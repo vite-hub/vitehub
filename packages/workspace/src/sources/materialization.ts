@@ -250,7 +250,7 @@ export async function materializeWorkspaceSources(
   options: WorkspaceMaterializeSourcesOptions = {},
 ): Promise<WorkspaceMaterializeSourcesResult> {
   const started = Date.now()
-  const sources = normalizeWorkspaceSources(definition.sources).filter(source => source.materialize === "lazy" && sourcePathMatches("", source, options))
+  const sources = normalizeWorkspaceSources(definition.sources).filter(source => !source.requestOnly && source.materialize === "lazy" && sourcePathMatches("", source, options))
   const resultSources: WorkspaceSourceMaterializationStatus[] = []
   let files = 0
   let directories = 0
@@ -276,7 +276,7 @@ export async function materializeWorkspaceSources(
     }
 
     const itemMetadata: Record<string, LazyMaterializedMetadata> = existing?.configHash === configHash
-      ? { ...existing.items }
+      ? { ...(existing.items || {}) }
       : {}
     if (completeSource) {
       await writeSourceSnapshotMetadata(store, {

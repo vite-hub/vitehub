@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import type { AgentRuntimeContext, AgentToolSet } from "../src/types.ts"
-import { source, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceStat } from "@vite-hub/workspace"
+import { attachWorkspaceSourceRequestExecution, source, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceStat } from "@vite-hub/workspace"
 
 function runtime(): AgentRuntimeContext {
   return {
@@ -22,7 +22,7 @@ function directChildOf(prefix: string, path: string): boolean {
   return !path.slice(prefix.length + 1).includes("/")
 }
 
-function createWorkspace(): ReadonlyWorkspaceFacade {
+function createWorkspace(executor?: Parameters<typeof attachWorkspaceSourceRequestExecution>[1]): ReadonlyWorkspaceFacade {
   const files = new Map<string, string>([
     ["customers/acme/brief.md", "acme only"],
     ["customers/globex/brief.md", "globex only"],
@@ -74,7 +74,7 @@ function createWorkspace(): ReadonlyWorkspaceFacade {
   }
 
   return {
-    fs,
+    fs: executor ? attachWorkspaceSourceRequestExecution(fs, executor) : fs,
     tools: {
       inspect: () => ({}),
       none: () => ({}),
@@ -403,6 +403,57 @@ describe("access capability", () => {
     expect(resolved.tools!.materialize_sources).toBeUndefined()
     expect(result.stdout).toContain("acme")
     expect(result.stdout).not.toContain("globex")
+  })
+
+  it("preserves source request execution on scoped workspace shell commands", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access, workspaceShell } = await import("../src/capabilities.ts")
+    const executeSourceRequest = vi.fn(async () => ({
+      content: JSON.stringify({ status: "ok" }),
+      status: 200,
+    }))
+    const querySchema = {
+      "~standard": {
+        jsonSchema: { input: () => ({ properties: { region: { type: "string" } }, type: "object" }) },
+        validate(input: unknown) {
+          return { value: input as Record<string, unknown> }
+        },
+      },
+    } as const
+    const workspaceDefinition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        inventoryHealthSummary: source.fetch({
+          querySchema,
+          url: "https://portal.example.com/runtime/inventory-health",
+        }),
+      },
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "support",
+            scopes: {
+              support: { source: "inventoryHealthSummary" },
+            },
+          },
+        }),
+        workspaceShell(),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace({ executeSourceRequest }), "read", { workspaceDefinition })
+    const result = await resolved.tools!.shell.execute!(
+      { command: "curl 'https://portal.example.com/runtime/inventory-health?region=eu'" },
+      { toolCallId: "test", messages: [] } as never,
+    ) as { exitCode: number, stdout: string }
+
+    expect(result).toMatchObject({ exitCode: 0, stdout: JSON.stringify({ status: "ok" }) })
+    expect(executeSourceRequest).toHaveBeenCalledWith({
+      body: undefined,
+      method: "GET",
+      url: "https://portal.example.com/runtime/inventory-health?region=eu",
+    })
   })
 
   it("applies Invocation-Scoped Source Resolution after selecting Workspace Scope", async () => {

@@ -187,10 +187,14 @@ function addInstructionBlock(
     .join("\n\n")
   if (instructions) {
     capabilityInstructions.push({
-      id: `capabilities.${options?.id || capabilityId}`,
+      id: capabilityInstructionBlockId(options?.id || capabilityId),
       instructions,
     })
   }
+}
+
+export function capabilityInstructionBlockId(capabilityId: string): string {
+  return `capabilities.${capabilityId === "workspace-shell" ? "workspaceShell" : capabilityId}`
 }
 
 function toAgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig>(

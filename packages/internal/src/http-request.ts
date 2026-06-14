@@ -19,6 +19,7 @@ export interface StandardSchemaV1<T = unknown> {
 
 export interface HttpRequestOptions {
   body?: unknown
+  cookies?: Record<string, string>
   headers?: Record<string, string>
   method?: HttpRequestMethod
   query?: Record<string, unknown>
@@ -47,6 +48,7 @@ export interface HttpRequestResult<TOutput = unknown> {
 }
 
 export interface RedactedHttpRequestSummary {
+  cookies: "redacted" | "none"
   hasBody: boolean
   hasQuery: boolean
   headers: "redacted" | "none"
@@ -91,6 +93,7 @@ async function fetchWithRetry(definition: NormalizedHttpRequest): Promise<Respon
 
 async function fetchOnce(definition: NormalizedHttpRequest): Promise<Response> {
   const headers = new Headers(definition.headers)
+  applyCookies(headers, definition.cookies)
   const body = serializeRequestBody(definition.body, headers)
   const controller = definition.timeout ? new AbortController() : undefined
   const timeout = controller ? setTimeout(() => controller.abort(), definition.timeout) : undefined
@@ -109,6 +112,15 @@ async function fetchOnce(definition: NormalizedHttpRequest): Promise<Response> {
   finally {
     if (timeout) clearTimeout(timeout)
   }
+}
+
+function applyCookies(headers: Headers, cookies: Record<string, string> | undefined): void {
+  if (!cookies || !Object.keys(cookies).length) return
+  const value = Object.entries(cookies)
+    .map(([name, cookieValue]) => `${name}=${cookieValue}`)
+    .join("; ")
+  const existing = headers.get("cookie")
+  headers.set("cookie", existing ? `${existing}; ${value}` : value)
 }
 
 function serializeRequestBody(body: unknown, headers: Headers): FetchBody | undefined {
@@ -191,6 +203,7 @@ export function redactedHttpRequestSummary(
   responseType: InternalHttpResponseType,
 ): RedactedHttpRequestSummary {
   return {
+    cookies: definition.cookies && Object.keys(definition.cookies).length ? "redacted" : "none",
     hasBody: typeof definition.body !== "undefined",
     hasQuery: Boolean(definition.query && Object.keys(definition.query).length),
     headers: definition.headers && Object.keys(definition.headers).length ? "redacted" : "none",
