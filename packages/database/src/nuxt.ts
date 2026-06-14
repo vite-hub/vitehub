@@ -1,6 +1,7 @@
 import { resolve } from "node:path"
 
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 
 import { mergeCloudflareD1Bindings, resolveCloudflareD1Binding } from "./internal/cloudflare.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
@@ -212,8 +213,4 @@ function ensureRecord(parent: Record<string, unknown>, key: string): Record<stri
   const record: Record<string, unknown> = {}
   parent[key] = record
   return record
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }

@@ -1,3 +1,5 @@
+import { isPlainObject as isRecord } from "@vite-hub/internal/object"
+
 import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunContext } from "../types.ts"
 
 export interface ExecuteStaticScheduleOptions {
@@ -92,7 +94,7 @@ function readCloudflareScheduledEvent(event: CloudflareScheduledEventLike): { cr
 
 function runWithCloudflareServerEnv<T>(event: CloudflareScheduledEventLike, callback: () => T): T {
   const globals = globalThis as { __env__?: Record<string, unknown> }
-  const hadGlobalEnv = Object.prototype.hasOwnProperty.call(globals, "__env__")
+  const hadGlobalEnv = Object.hasOwn(globals, "__env__")
   const previousGlobalEnv = globals.__env__
   const env = readCloudflareEventEnv(event)
   if (env) globals.__env__ = env
@@ -124,10 +126,6 @@ function isPromiseLike(value: unknown): value is Promise<unknown> {
   return typeof value === "object"
     && value !== null
     && typeof (value as { finally?: unknown }).finally === "function"
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function readCloudflareEventEnv(event: CloudflareScheduledEventLike): Record<string, unknown> | undefined {

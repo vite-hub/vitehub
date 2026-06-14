@@ -1,3 +1,5 @@
+import { isPlainObject as isRecord } from "@vite-hub/internal/object"
+
 import type {
   AgentCallbackContext,
   AgentInvocationContextStore,
@@ -17,10 +19,6 @@ const profileSelectorKeys = [
   "invoker.profile",
   "invokerProfile",
 ]
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined

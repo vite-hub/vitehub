@@ -76,7 +76,6 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
-    "@vitejs/devtools-kit": "catalog:vite",
     "ai": "catalog:ai",
     "evalite": "catalog:ai",
     "publint": "catalog:tooling",

@@ -55,7 +55,6 @@
   },
   "dependencies": {
     "esbuild": "catalog:tooling",
-    "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
     "local-pkg": "catalog:tooling",
     "mlly": "catalog:unjs",
@@ -65,7 +64,6 @@
     "scule": "catalog:unjs",
     "typescript": "catalog:tooling",
     "ufo": "catalog:unjs",
-    "unctx": "catalog:unjs",
     "unimport": "catalog:unjs"
   },
   "devDependencies": {

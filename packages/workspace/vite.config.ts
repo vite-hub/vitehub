@@ -9,7 +9,6 @@ export default defineConfig({
         "vite",
         "#vitehub-workspace-assets-registry",
         "#vitehub-workspace-registry",
-        "@vercel/nft",
         /^@vite-hub\/sandbox/,
       ],
       onlyBundle: false,

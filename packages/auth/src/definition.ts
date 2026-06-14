@@ -1,3 +1,5 @@
+import { isPlainObject } from "@vite-hub/internal/object"
+
 import { normalizeAuthBasePath } from "./shared.ts"
 
 import type {
@@ -11,10 +13,6 @@ import type {
 const authRuntimeOptionNames = new Set(["baseURL", "secret", "secrets"])
 const databaseReferenceKeys = new Set(["dedicated", "name"])
 const secondaryStorageReferenceKeys = new Set(["store"])
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
-}
 
 function validateNamedString(value: unknown, label: string): void {
   if (typeof value !== "string" || value.trim().length === 0 || value !== value.trim()) {

@@ -1,3 +1,5 @@
+import { isPlainObject as isRecord } from "@vite-hub/internal/object"
+
 import { getAuth } from "./server.ts"
 
 import type {
@@ -254,8 +256,4 @@ function normalizeMeta(value: Record<string, unknown> | null | undefined): Recor
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }

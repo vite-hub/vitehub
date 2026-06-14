@@ -61,7 +61,6 @@
     "test": "vp run -t @vite-hub/workspace#build && vp test"
   },
   "dependencies": {
-    "@vercel/nft": "catalog:vercel",
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
     "exsolve": "catalog:unjs",

@@ -1,3 +1,5 @@
+import { isPlainObject as isPlainRecord } from "@vite-hub/internal/object"
+
 import type {
   WorkspaceCacheOptions,
   WorkspaceDefinition,
@@ -89,24 +91,24 @@ function describeWorkspaceSourceInput(input: WorkspaceSourceInput): WorkspaceSou
 
 function inferWorkspaceSourceFamily(input: Record<string, unknown>): WorkspaceSourceFamily | undefined {
   const providerFamilies: WorkspaceSourceFamily[] = []
-  if (hasOwn(input, "repo")) providerFamilies.push("github")
-  if (hasOwn(input, "url")) providerFamilies.push("fetch")
-  if (hasOwn(input, "server")) providerFamilies.push("mcpResources")
+  if (Object.hasOwn(input, "repo")) providerFamilies.push("github")
+  if (Object.hasOwn(input, "url")) providerFamilies.push("fetch")
+  if (Object.hasOwn(input, "server")) providerFamilies.push("mcpResources")
 
   if (providerFamilies.length > 1) {
     throw ambiguousSourceConfiguration(providerFamilies)
   }
 
   if (providerFamilies[0]) {
-    if (providerFamilies[0] === "github" && (hasOwn(input, "path") || hasOwn(input, "workspacePath") || hasOwn(input, "content"))) {
+    if (providerFamilies[0] === "github" && (Object.hasOwn(input, "path") || Object.hasOwn(input, "workspacePath") || Object.hasOwn(input, "content"))) {
       throw ambiguousSourceConfiguration(["github", "file"])
     }
     return providerFamilies[0]
   }
 
   const localFamilies: WorkspaceSourceFamily[] = []
-  if (hasOwn(input, "include")) localFamilies.push("glob")
-  if (hasOwn(input, "path") || hasOwn(input, "workspacePath") || hasOwn(input, "content")) localFamilies.push("file")
+  if (Object.hasOwn(input, "include")) localFamilies.push("glob")
+  if (Object.hasOwn(input, "path") || Object.hasOwn(input, "workspacePath") || Object.hasOwn(input, "content")) localFamilies.push("file")
 
   if (localFamilies.length > 1) {
     throw ambiguousSourceConfiguration(localFamilies)
@@ -120,7 +122,7 @@ function ambiguousSourceConfiguration(families: WorkspaceSourceFamily[]): TypeEr
 }
 
 function fileSourceDefaults(input: Record<string, unknown>): WorkspaceSourceMetadataDescriptor {
-  const mount = typeof input.mount === "object" && input.mount && !hasOwn(input.mount as Record<string, unknown>, "path")
+  const mount = typeof input.mount === "object" && input.mount && !Object.hasOwn(input.mount as Record<string, unknown>, "path")
     ? { ...input.mount as object, path: "" } as WorkspaceSourceMount
     : input.mount as WorkspaceSourceMount | undefined ?? ""
   return {
@@ -173,11 +175,11 @@ function applyWorkspaceSourceBinding(
 ): WorkspaceSourceMetadataDescriptor {
   return {
     ...descriptor,
-    cache: hasOwn(input, "cache") ? input.cache as WorkspaceSourceMetadataDescriptor["cache"] : descriptor.cache,
-    instructions: hasOwn(input, "instructions") ? input.instructions as WorkspaceSourceInstructions | undefined : descriptor.instructions,
-    materialize: hasOwn(input, "materialize") ? input.materialize as WorkspaceMaterializeMode | undefined : descriptor.materialize,
-    mount: hasOwn(input, "mount") ? input.mount as WorkspaceSourceMount | undefined : descriptor.mount,
-    sync: hasOwn(input, "sync") ? input.sync as WorkspaceSourceSyncConfig | undefined : descriptor.sync,
+    cache: Object.hasOwn(input, "cache") ? input.cache as WorkspaceSourceMetadataDescriptor["cache"] : descriptor.cache,
+    instructions: Object.hasOwn(input, "instructions") ? input.instructions as WorkspaceSourceInstructions | undefined : descriptor.instructions,
+    materialize: Object.hasOwn(input, "materialize") ? input.materialize as WorkspaceMaterializeMode | undefined : descriptor.materialize,
+    mount: Object.hasOwn(input, "mount") ? input.mount as WorkspaceSourceMount | undefined : descriptor.mount,
+    sync: Object.hasOwn(input, "sync") ? input.sync as WorkspaceSourceSyncConfig | undefined : descriptor.sync,
   }
 }
 
@@ -197,7 +199,7 @@ function normalizeSourceSync(sync: WorkspaceSourceSyncConfig | undefined): false
 }
 
 function isExplicitSourceBinding(input: Record<string, unknown>): input is Record<string, unknown> & { source: WorkspaceSourceInput } {
-  return hasOwn(input, "source")
+  return Object.hasOwn(input, "source")
 }
 
 function hasSourceMethods(input: Record<string, unknown>) {
@@ -260,12 +262,4 @@ function normalizeSafePath(path: string, label: string, options: { allowEmpty: b
     throw new Error(`[vitehub] ${label} must not be empty.`)
   }
   return normalized
-}
-
-function isPlainRecord(input: unknown): input is Record<string, unknown> {
-  return !!input && typeof input === "object" && !Array.isArray(input)
-}
-
-function hasOwn(input: Record<string, unknown>, key: string) {
-  return Object.prototype.hasOwnProperty.call(input, key)
 }

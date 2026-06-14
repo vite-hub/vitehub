@@ -110,7 +110,7 @@ function isKnownChatWebhookPlatform(platform: string): platform is KnownChatWebh
 }
 
 function hasExplicitChatWebhook(options: AgentChatOptions, platform: string): boolean {
-  return !!options.webhooks && Object.prototype.hasOwnProperty.call(options.webhooks, platform)
+  return !!options.webhooks && Object.hasOwn(options.webhooks, platform)
 }
 
 function normalizeChatWebhookRegistrations(

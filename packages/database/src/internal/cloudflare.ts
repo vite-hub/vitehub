@@ -2,13 +2,13 @@ import { resolveConfigValue } from "../config-value.ts"
 
 import type { DatabaseConfigValue, ResolvedDBViteConfig } from "../types.ts"
 
-export interface CloudflareD1ProvisionState {
+interface CloudflareD1ProvisionState {
   cloudflare?: {
     d1?: Record<string, string>
   }
 }
 
-export interface CloudflareD1WranglerBinding {
+interface CloudflareD1WranglerBinding {
   binding: string
   database_id: string
   database_name: string
@@ -17,9 +17,9 @@ export interface CloudflareD1WranglerBinding {
   preview_database_id?: string
 }
 
-export type CloudflareD1UnresolvedBindingReason = "missing-database-id" | "missing-database-name"
+type CloudflareD1UnresolvedBindingReason = "missing-database-id" | "missing-database-name"
 
-export interface CloudflareD1UnresolvedBinding {
+interface CloudflareD1UnresolvedBinding {
   binding: string
   database: string
   databaseName?: string
@@ -29,7 +29,7 @@ export interface CloudflareD1UnresolvedBinding {
   reason: CloudflareD1UnresolvedBindingReason
 }
 
-export interface CloudflareD1BindingInput {
+interface CloudflareD1BindingInput {
   binding?: string
   database?: string
   databaseId?: DatabaseConfigValue
@@ -39,18 +39,18 @@ export interface CloudflareD1BindingInput {
   previewDatabaseId?: DatabaseConfigValue
 }
 
-export interface ResolvedCloudflareD1Binding {
+interface ResolvedCloudflareD1Binding {
   bindingName: string
   d1Database?: CloudflareD1WranglerBinding
   unresolved?: CloudflareD1UnresolvedBinding
 }
 
-export interface ResolvedCloudflareD1Bindings {
+interface ResolvedCloudflareD1Bindings {
   d1Databases: CloudflareD1WranglerBinding[]
   unresolved: CloudflareD1UnresolvedBinding[]
 }
 
-export interface ResolveCloudflareD1BindingsOptions {
+interface ResolveCloudflareD1BindingsOptions {
   provisionState?: CloudflareD1ProvisionState
 }
 
@@ -58,7 +58,7 @@ function resolveProvisionedD1Id(provisionState: CloudflareD1ProvisionState | und
   return provisionState?.cloudflare?.d1?.[name]
 }
 
-export function resolveCloudflareD1BindingName(database: string, binding: string | undefined) {
+function resolveCloudflareD1BindingName(database: string, binding: string | undefined) {
   const trimmed = typeof binding === "string" ? binding.trim() : ""
   if (trimmed) return trimmed
   if (database === "default") return "DB"
