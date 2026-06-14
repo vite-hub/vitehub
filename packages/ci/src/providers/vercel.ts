@@ -35,7 +35,7 @@ interface VercelListDeploymentsResponse {
 interface VercelEvent {
   created?: number
   date?: number
-  payload?: { text?: string, deploymentId?: string, info?: { type?: string } }
+  payload?: { text?: string, info?: { type?: string } }
   text?: string
   type?: string
   level?: string
@@ -85,10 +85,6 @@ export const vercelCIProvider: CIProvider = {
       raw: response,
     }
   },
-}
-
-export function createVercelCIProvider(): CIProvider {
-  return vercelCIProvider
 }
 
 function createVercelClient(context: CIContext) {

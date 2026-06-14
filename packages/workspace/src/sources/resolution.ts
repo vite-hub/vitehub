@@ -1,5 +1,6 @@
 import { createWorkspaceTools } from "../ai.ts"
 import { normalizeWorkspacePath } from "../core/path.ts"
+import { isPlainObject as isPlainRecord } from "@vite-hub/internal/object"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
 import { normalizeWorkspaceSource, normalizeWorkspaceSources } from "./config.ts"
 import { resolveWorkspacePath } from "./resolver.ts"
@@ -208,10 +209,6 @@ function withResolvedSourceRuntimeDefaults(source: WorkspaceSource): WorkspaceSo
   }
   if (source.sync) return source
   return { ...source, materialize: "lazy" }
-}
-
-function isPlainRecord(input: unknown): input is Record<string, unknown> {
-  return !!input && typeof input === "object" && !Array.isArray(input)
 }
 
 function isSourcePath(definition: WorkspaceDefinition, path: string): boolean {

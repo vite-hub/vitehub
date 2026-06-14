@@ -50,16 +50,6 @@ async function resolveHostedConfig(): Promise<false | ResolvedKVModuleOptions | 
 async function resolveStorage(name = "default") {
   const existing = storagePromises.get(name)
   if (existing) return existing
-  const env = typeof process !== "undefined" ? process.env : {}
-  if (inferHosting(env) === "vercel") {
-    const promise = resolveHostedConfig().then(config =>
-      name === "default"
-        ? createHostedKVStorage(config)
-        : createNamedHostedKVStorage(config, name),
-    )
-    storagePromises.set(name, promise)
-    return promise
-  }
   const promise = resolveHostedConfig().then(config =>
     name === "default"
       ? createHostedKVStorage(config)

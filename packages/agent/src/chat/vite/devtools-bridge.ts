@@ -522,7 +522,7 @@ function uiToolPartId(part: Record<string, unknown>, name: string, index: number
 function toolPartHasOutput(part: Record<string, unknown>): boolean {
   return part.state === "output-available"
     || part.state === "output-denied"
-    || Object.prototype.hasOwnProperty.call(part, "output")
+    || Object.hasOwn(part, "output")
     || typeof part.errorText === "string"
 }
 

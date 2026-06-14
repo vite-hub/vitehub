@@ -11,10 +11,6 @@ import type {
   ViteHubAuth,
 } from "./types.ts"
 
-function hasRuntimeOptions(options: AuthRuntimeOptions | undefined): boolean {
-  return Boolean(options && Object.keys(options).length > 0)
-}
-
 const authRuntimeStateKey = Symbol.for("vitehub.auth.runtime")
 
 interface AuthRuntimeState {
@@ -79,7 +75,7 @@ export function getAuthForDefinition(
   definition: AuthDefinition,
   runtimeOptions?: AuthRuntimeOptions,
 ): ViteHubAuth {
-  if (hasRuntimeOptions(runtimeOptions)) {
+  if (runtimeOptions && Object.keys(runtimeOptions).length > 0) {
     return createAuth(definition, runtimeOptions) as unknown as ViteHubAuth
   }
 

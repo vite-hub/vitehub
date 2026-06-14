@@ -40,13 +40,6 @@ export class CIMalformedResponseError extends CIProviderError {
   }
 }
 
-export class CIUnsupportedCapabilityError extends CIProviderError {
-  constructor(message = "CI provider does not support this capability.", options: { provider?: string, statusCode?: number, cause?: unknown } = {}) {
-    super(message, options)
-    this.name = "CIUnsupportedCapabilityError"
-  }
-}
-
 export function normalizeProviderError(error: unknown, provider: string): CIProviderError {
   if (error instanceof CIProviderError) {
     return error

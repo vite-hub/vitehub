@@ -26,9 +26,6 @@ function createContext() {
     rpc: {
       register: vi.fn(),
     },
-    views: {
-      hostStatic: vi.fn(),
-    },
   }
 }
 
@@ -39,7 +36,6 @@ describe("hubDevtools", () => {
     hubDevtools().devtools?.setup?.(ctx as never)
 
     expect(viteHubDevtoolsDefaultUrl).toBe("/__vitehub/devtools/")
-    expect(ctx.views.hostStatic).not.toHaveBeenCalled()
     expect(ctx.docks.register).toHaveBeenCalledWith(expect.objectContaining({
       id: viteHubDevtoolsPanelId,
       remote: false,
@@ -60,7 +56,6 @@ describe("hubDevtools", () => {
     plugin.devtools?.setup?.(ctx as never)
     plugin.devtools?.setup?.(ctx as never)
 
-    expect(ctx.views.hostStatic).not.toHaveBeenCalled()
     expect(ctx.docks.register).toHaveBeenCalledTimes(1)
     expect(ctx.rpc.register).toHaveBeenCalledTimes(1)
   })
@@ -84,7 +79,6 @@ describe("hubDevtools", () => {
 
     hubDevtools().devtools?.setup?.(ctx as never)
 
-    expect(ctx.views.hostStatic).not.toHaveBeenCalled()
     expect(ctx.docks.register).toHaveBeenCalledWith(expect.objectContaining({
       id: viteHubDevtoolsPanelId,
       remote: true,

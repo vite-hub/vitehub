@@ -1,7 +1,7 @@
-import { encodeQueueNameHex } from "../internal/hex.ts"
+import { encodeNameHex } from "@vite-hub/internal/integrations/hex"
 
 const vercelQueueTopicPrefix = "topic--"
 
 export function getVercelQueueTopicName(name: string): string {
-  return `${vercelQueueTopicPrefix}${encodeQueueNameHex(name)}`
+  return `${vercelQueueTopicPrefix}${encodeNameHex(name)}`
 }

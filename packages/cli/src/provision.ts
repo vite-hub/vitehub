@@ -89,10 +89,10 @@ export async function runProvision(args: string[], context: ProvisionFeatureCont
     },
   }
 
-  const actions: Array<{ stepId: string, action: ProvisionAction }> = []
+  const actions: ProvisionAction[] = []
   for (const step of steps) {
     for (const action of await step.plan(provisionContext)) {
-      actions.push({ stepId: step.id, action })
+      actions.push(action)
     }
   }
 
@@ -101,7 +101,7 @@ export async function runProvision(args: string[], context: ProvisionFeatureCont
     return 0
   }
 
-  for (const { action } of actions) {
+  for (const action of actions) {
     context.stdout.write(`${action.exists ? "exists" : "create"}\t${action.kind}\t${action.name}\n`)
   }
 
@@ -109,7 +109,7 @@ export async function runProvision(args: string[], context: ProvisionFeatureCont
 
   // apply() is idempotent: it skips creation when the resource exists but still returns its ids.
   let state: ProvisionState = {}
-  for (const { action } of actions) {
+  for (const action of actions) {
     const result = await action.apply()
     if (result.ids) state = mergeProvisionState(state, result.ids)
   }

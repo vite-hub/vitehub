@@ -141,7 +141,7 @@ async function renderChatTitleTemplate(options: ChatTitleOptions, input: ChatTit
   }
   const variables = await resolveTemplateVariables(options, input)
   return template.replace(/\{\{\s*([a-zA-Z][\w.-]*)\s*\}\}/g, (match, name: string) => {
-    if (!Object.prototype.hasOwnProperty.call(variables, name)) return match
+    if (!Object.hasOwn(variables, name)) return match
     const value = variables[name]
     return value === null || value === undefined ? "" : String(value)
   })

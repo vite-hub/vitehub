@@ -2,6 +2,7 @@ import { rm } from "node:fs/promises"
 import { relative, resolve } from "node:path"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import {
   createViteHubEnvImportAliases,
   resolveViteHubProjectRoot,
@@ -37,13 +38,6 @@ const RESOLVED_SERVER_ID = `\0${ENV_SERVER_ID}`
 
 export { env }
 
-export interface EnvVitePluginAPI {
-  getPublicEnv: () => Record<string, unknown>
-  getServerEnvRegistry: () => EnvRuntimeRegistry
-}
-
-export type EnvVitePlugin = Plugin & { api: EnvVitePluginAPI }
-
 export interface EnvGeneratedPathOptions {
   projectRoot?: string
   relativeTo?: string
@@ -62,16 +56,13 @@ export function createEnvTypeScriptPaths(options: EnvGeneratedPathOptions = {}):
   }
 }
 
-export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
+export function hubEnv(options: EnvIntegrationOptions = {}): Plugin {
   let buildPublicConfig: Record<string, unknown> = {}
   let serverRegistry: EnvRuntimeRegistry = {}
   let diagnosticsText: string | undefined
-  const getPublicEnv = () => buildPublicConfig
-  const getServerEnvRegistry = () => serverRegistry
 
   return {
     name: ENV_VITE_PLUGIN_NAME,
-    api: { getPublicEnv, getServerEnvRegistry },
     async config(config, env) {
       const envConfig = (config as UserConfig & EnvViteUserConfig).env
       validateEnvConfigShape(envConfig, "vite")
@@ -148,12 +139,6 @@ function stripModuleExtension(path: string): string {
   return path.replace(/\.mjs$/, "")
 }
 
-function legacyEnvAmbientTypesPaths(root: string) {
-  return [
-    resolve(root, ".vitehub", "env", "vite.d.ts"),
-  ]
-}
-
 async function refreshEnvGeneratedFiles(root: string, publicConfig: Record<string, unknown>, serverRegistry: EnvRuntimeRegistry): Promise<void> {
   await Promise.all([
     writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicConfig, serverRegistry)),
@@ -161,7 +146,7 @@ async function refreshEnvGeneratedFiles(root: string, publicConfig: Record<strin
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicConfig)),
     writeFileIfChanged(viteHubEnvServerModulePath(root), createServerEnvModule(serverRegistry)),
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry)),
-    ...legacyEnvAmbientTypesPaths(root).map(path => rm(path, { force: true })),
+    rm(resolve(root, ".vitehub", "env", "vite.d.ts"), { force: true }),
   ])
 }
 
@@ -285,10 +270,6 @@ function isEnvEntry(value: EnvRuntimeRegistryValue): value is Extract<EnvRuntime
   return isRecord(record.source)
     && typeof record.required === "boolean"
     && typeof record.secret === "boolean"
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 declare module "vite" {

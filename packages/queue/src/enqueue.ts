@@ -9,16 +9,8 @@ const envelopeKeys = new Set([
   "retentionSeconds",
 ])
 
-let fallbackCounter = 0
-
 export function createQueueMessageId(prefix = "queue"): string {
-  const uuid = globalThis.crypto?.randomUUID?.()
-  if (uuid) {
-    return `${prefix}_${uuid}`
-  }
-
-  fallbackCounter = (fallbackCounter + 1) >>> 0
-  return `${prefix}_${Date.now().toString(36)}_${fallbackCounter.toString(36)}`
+  return `${prefix}_${globalThis.crypto.randomUUID()}`
 }
 
 function isQueueEnvelope<TPayload = unknown>(input: QueueEnqueueInput<TPayload>): input is QueueEnqueueEnvelope<TPayload> {

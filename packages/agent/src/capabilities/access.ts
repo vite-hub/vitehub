@@ -1,6 +1,7 @@
 import { workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { normalizeAgentWorkspaceSource } from "../workspace-source-metadata.ts"
+import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import { createWorkspaceSourceResolutionFacade, createWorkspaceTools } from "@vite-hub/workspace"
 
 import type {
@@ -285,10 +286,6 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       setWorkspaceOverride(context, scopedWorkspace)
     },
   })
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 async function resolveWorkspaceScope<

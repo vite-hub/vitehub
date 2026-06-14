@@ -1,3 +1,4 @@
+import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { SecretEnv } from "./secret.ts"
@@ -20,10 +21,6 @@ interface RuntimeEnvEntry {
 interface RuntimeLiteralEntry {
   kind: "literal"
   value: unknown
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function isRuntimeLiteralEntry(value: unknown): value is RuntimeLiteralEntry {
@@ -93,7 +90,7 @@ export function resolveServerEnv<TServerEnv extends Record<string, unknown> = Re
 
 export function runWithServerEnv<T>(event: unknown, callback: () => T): T {
   const globals = globalThis as { __env__?: RuntimeEnv }
-  const hadGlobalEnv = Object.prototype.hasOwnProperty.call(globals, "__env__")
+  const hadGlobalEnv = Object.hasOwn(globals, "__env__")
   const previousGlobalEnv = globals.__env__
   const env = getCloudflareEnv(event)
   if (env) globals.__env__ = env

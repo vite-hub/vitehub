@@ -1,4 +1,5 @@
 import { defu } from "defu"
+import { isPlainObject as isPlainRecord } from "@vite-hub/internal/object"
 
 import { normalizeSafeWorkspacePath } from "../core/path.ts"
 import { getLiveWorkspaceSourcePaths, markLiveWorkspaceSource } from "./live.ts"
@@ -112,24 +113,24 @@ function inferWorkspaceSource(input: WorkspaceSourceInput): WorkspaceSourceInput
   if (hasSourceMethods(input)) return input
 
   const providerFamilies: WorkspaceSourceFamily[] = []
-  if (hasOwn(input, "repo")) providerFamilies.push("github")
-  if (hasOwn(input, "url")) providerFamilies.push("fetch")
-  if (hasOwn(input, "server")) providerFamilies.push("mcpResources")
+  if (Object.hasOwn(input, "repo")) providerFamilies.push("github")
+  if (Object.hasOwn(input, "url")) providerFamilies.push("fetch")
+  if (Object.hasOwn(input, "server")) providerFamilies.push("mcpResources")
 
   if (providerFamilies.length > 1) {
     throw ambiguousSourceConfiguration(providerFamilies)
   }
 
   if (providerFamilies[0]) {
-    if (providerFamilies[0] === "github" && (hasOwn(input, "path") || hasOwn(input, "workspacePath") || hasOwn(input, "content"))) {
+    if (providerFamilies[0] === "github" && (Object.hasOwn(input, "path") || Object.hasOwn(input, "workspacePath") || Object.hasOwn(input, "content"))) {
       throw ambiguousSourceConfiguration(["github", "file"])
     }
     return createInferredWorkspaceSource(providerFamilies[0], input)
   }
 
   const localFamilies: WorkspaceSourceFamily[] = []
-  if (hasOwn(input, "include")) localFamilies.push("glob")
-  if (hasOwn(input, "path") || hasOwn(input, "workspacePath") || hasOwn(input, "content")) localFamilies.push("file")
+  if (Object.hasOwn(input, "include")) localFamilies.push("glob")
+  if (Object.hasOwn(input, "path") || Object.hasOwn(input, "workspacePath") || Object.hasOwn(input, "content")) localFamilies.push("file")
 
   if (localFamilies.length === 0) return input
   if (localFamilies.length > 1) {
@@ -314,17 +315,9 @@ function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "instructions"
 }
 
 function isExplicitSourceBinding(input: WorkspaceSourceInput): input is WorkspaceSourceInput & { source: WorkspaceSourceInput } {
-  return isPlainRecord(input) && hasOwn(input, "source")
+  return isPlainRecord(input) && Object.hasOwn(input, "source")
 }
 
 function hasSourceMethods(input: Record<string, unknown>) {
   return typeof input.getKeys === "function" && typeof input.getItem === "function"
-}
-
-function isPlainRecord(input: unknown): input is Record<string, unknown> {
-  return !!input && typeof input === "object" && !Array.isArray(input)
-}
-
-function hasOwn(input: Record<string, unknown>, key: string) {
-  return Object.prototype.hasOwnProperty.call(input, key)
 }

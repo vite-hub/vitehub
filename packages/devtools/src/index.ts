@@ -32,7 +32,7 @@ export const viteHubDevtoolsGetFeaturesRpc = "@vite-hub/devtools:get-features"
 const devtoolsShellPublicDirectory = fileURLToPath(new URL("../devtools/chat/.output/public", import.meta.url))
 const devtoolsShellRoute = viteHubDevtoolsDefaultUrl
 const devtoolsShellRouteWithoutSlash = devtoolsShellRoute.replace(/\/$/, "")
-const textFileTypes: Record<string, string> = {
+const fileTypes: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -40,9 +40,6 @@ const textFileTypes: Record<string, string> = {
   ".map": "application/json; charset=utf-8",
   ".svg": "image/svg+xml; charset=utf-8",
   ".txt": "text/plain; charset=utf-8",
-}
-
-const binaryFileTypes: Record<string, string> = {
   ".ico": "image/x-icon",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
@@ -82,7 +79,7 @@ function resolveDevtoolsUrl(options: Pick<HubDevtoolsOptions, "url">): string {
 
 function getContentType(filePath: string): string {
   const extension = extname(filePath)
-  return textFileTypes[extension] || binaryFileTypes[extension] || "application/octet-stream"
+  return fileTypes[extension] || "application/octet-stream"
 }
 
 function rewriteDevtoolsShellIndex(html: string): string {

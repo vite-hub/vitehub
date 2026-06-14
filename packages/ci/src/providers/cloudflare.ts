@@ -11,9 +11,7 @@ import {
 import type { CIContext, CILogPage, CILogQuery, CIProvider, CIRun, CIRunQuery } from "../types.ts"
 
 interface CloudflareEnvelope<T> {
-  success?: boolean
   result?: T
-  errors?: Array<{ message?: string }>
 }
 
 interface CloudflareBuild {
@@ -35,7 +33,6 @@ interface CloudflareTriggerMetadata {
   author?: string
   build_trigger_source?: string
   provider_account_name?: string
-  provider_type?: string
   repo_name?: string
 }
 
@@ -91,10 +88,6 @@ export const cloudflareCIProvider: CIProvider = {
     }
     return normalizeCloudflareLogs(envelope.result, query)
   },
-}
-
-export function createCloudflareCIProvider(): CIProvider {
-  return cloudflareCIProvider
 }
 
 function createCloudflareClient(context: CIContext) {

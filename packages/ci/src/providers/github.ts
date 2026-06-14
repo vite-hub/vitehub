@@ -34,7 +34,6 @@ interface GithubRunsResponse {
 }
 
 interface GithubRepository {
-  name?: string
   full_name?: string
   archived?: boolean
   disabled?: boolean
@@ -42,16 +41,8 @@ interface GithubRepository {
 
 interface GithubJob {
   id?: number
-  run_id?: number
   name?: string
-  status?: string
   conclusion?: string | null
-  html_url?: string
-  head_sha?: string
-  head_branch?: string
-  workflow_name?: string
-  started_at?: string
-  completed_at?: string
 }
 
 interface GithubJobsResponse {
@@ -116,10 +107,6 @@ export const githubCIProvider: CIProvider = {
       raw: { jobs },
     }
   },
-}
-
-export function createGithubCIProvider(): CIProvider {
-  return githubCIProvider
 }
 
 function createGithubClient(context: CIContext) {

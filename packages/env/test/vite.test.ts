@@ -81,31 +81,6 @@ describe("Vite plugin", () => {
       "#vitehub/env/public": ["../.vitehub/env/public"],
       "#vitehub/env/server": ["../.vitehub/env/server"],
     })
-    expect(plugin.api.getPublicEnv()).toEqual({
-      appName: "Quiver",
-    })
-    expect(plugin.api.getServerEnvRegistry()).toMatchObject({
-      app: {
-        name: {
-          kind: "literal",
-          value: "Telegram Audio",
-        },
-      },
-      airtableToken: {
-        secret: true,
-        source: { name: "AIRTABLE_TOKEN" },
-      },
-      optionalToken: {
-        source: { name: "OPTIONAL_TOKEN" },
-      },
-      teams: {
-        appType: {
-          kind: "literal",
-          value: "SingleTenant",
-        },
-      },
-    })
-
     const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
     await configResolvedHook({
       logger: { info: vi.fn() },
@@ -178,9 +153,8 @@ describe("Vite plugin", () => {
       root,
     }, { command: "build", mode: "production" })
 
-    expect(plugin.api.getPublicEnv()).toEqual({
-      appName: "Quiver",
-    })
+    const loadHook = plugin.load as (id: string) => string | undefined
+    expect(loadHook("\0#vitehub/env/public")).toContain("Quiver")
   })
 
   it("keeps generated env files in project ViteHub state when Vite root is app", async () => {
