@@ -72,6 +72,8 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
+When you own the route directly, `defineAgentChatFetchHandler(agent)` accepts a `prepare` option for the same server-side derivation before ViteHub runs the `chat.message` trigger.
+
 ## Schedule trigger
 
 Schedule can start an Agent Invocation, but Schedule is not itself an Agent Capability.

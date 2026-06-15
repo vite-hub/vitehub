@@ -442,6 +442,102 @@ describe("server helpers", () => {
     }))
   })
 
+  it("lets chat routes prepare trusted body metadata before invoking the trigger", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatFetchHandler } = await import("../src/server.ts")
+    const run = vi.fn(() => ({ text: "ok" }))
+    const agent = defineAgent({
+      capabilities: [chat()],
+      invoker: {
+        profiles: [{
+          id: "customer:demo:support",
+          kind: "customerPortal",
+          meta: { customer: "demo" },
+        }],
+      },
+      run,
+    })
+    const handler = defineAgentChatFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        id: "portal-chat-1",
+        invokerProfileId: "customer:demo:support",
+        meta: { email: "user@example.com" },
+        messages: [
+          {
+            id: "user-1",
+            parts: [{ text: "hello", type: "text" }],
+            role: "user",
+          },
+        ],
+      }),
+      method: "POST",
+    }), {
+      prepare({ body }) {
+        const meta = body.meta as Record<string, unknown> | undefined
+        return {
+          ...body,
+          run: { origin: "portal" },
+          user: { email: String(meta?.email || "") },
+        }
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({
+        context: expect.objectContaining({
+          chat: expect.objectContaining({
+            run: expect.objectContaining({ origin: "portal" }),
+            user: { email: "user@example.com" },
+          }),
+        }),
+      }),
+      invoker: expect.objectContaining({
+        id: "customer:demo:support",
+        meta: expect.objectContaining({
+          customer: "demo",
+          email: "user@example.com",
+        }),
+      }),
+    }))
+  })
+
+  it("returns JSON from chat routes when stream is false", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatFetchHandler } = await import("../src/server.ts")
+    const agent = defineAgent({
+      capabilities: [chat()],
+      run: () => ({ raw: { id: "raw-1" }, text: "ok", usage: { totalTokens: 1 } }),
+    })
+    const handler = defineAgentChatFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        messages: [
+          {
+            id: "user-1",
+            parts: [{ text: "hello", type: "text" }],
+            role: "user",
+          },
+        ],
+        stream: false,
+      }),
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBeNull()
+    await expect(response.json()).resolves.toEqual({
+      raw: { id: "raw-1" },
+      text: "ok",
+      usage: { totalTokens: 1 },
+    })
+  })
+
   it("handles Chat SDK webhooks through the chat capability", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { access, chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")

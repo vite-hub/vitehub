@@ -2,7 +2,7 @@ import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflar
 import { createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import { Chat, StreamingPlan } from "chat"
 
-import { resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent, streamAgentTrigger } from "./index.ts"
+import { resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, runAgentTrigger, streamAgent, streamAgentTrigger } from "./index.ts"
 import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { getAccessCapabilityOptions } from "./capabilities/access.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "./chat-trigger.ts"
@@ -26,6 +26,7 @@ import type {
   AgentRuntimeName,
   AgentWaitUntil,
   AgentWebhookRegistrationDefinition,
+  MaybePromise,
   MaybeResolvable,
 } from "./types.ts"
 import type { AccessChatIdentity } from "./capabilities/access.ts"
@@ -42,7 +43,7 @@ interface ViteAgentRouteRuntimeContext extends AgentRuntimeContext<ViteAgentRout
   runtimeConfig: ViteAgentRouteRuntimeConfig
 }
 
-type AgentChatRouteBody = Omit<AgentChatMessageTriggerInput, "run"> & {
+export type AgentChatRouteBody = Omit<AgentChatMessageTriggerInput, "run"> & {
   id?: string
   messageId?: string
   run?: Partial<AgentRunMetadata>
@@ -50,8 +51,16 @@ type AgentChatRouteBody = Omit<AgentChatMessageTriggerInput, "run"> & {
   trigger?: string
 }
 
+export interface AgentChatFetchPrepareContext {
+  body: AgentChatRouteBody
+  request: Request
+}
+
+export type AgentChatFetchPrepareResult = AgentChatRouteBody | Response | undefined | void
+
 export interface AgentChatFetchOptions {
   cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"]
+  prepare?: (context: AgentChatFetchPrepareContext) => MaybePromise<AgentChatFetchPrepareResult>
   waitUntil?: AgentWaitUntil
 }
 
@@ -126,6 +135,20 @@ function readableStreamFromResult(value: unknown): ReadableStream<unknown> {
   if (value instanceof ReadableStream) return value
   if (value instanceof Response && value.body) return value.body
   throw new Error("[vitehub] Agent chat route expected a UI message stream.")
+}
+
+function toJsonSafeResult(value: unknown) {
+  if (typeof value !== "object" || value === null) return value
+
+  const result = value as Record<string, unknown>
+  return {
+    finishReason: result.finishReason,
+    raw: result.raw,
+    text: result.text,
+    usage: result.usage,
+    usageRecord: result.usageRecord,
+    warnings: result.warnings,
+  }
 }
 
 function createJsonErrorResponse(status: number, message: string): Response {
@@ -995,7 +1018,11 @@ export function defineAgentChatFetchHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
 ): (request: Request, options?: AgentChatFetchOptions) => Promise<Response> {
   return async (request, handlerOptions = {}) => {
-    const body = await readJsonBody(request.clone())
+    let body = await readJsonBody(request.clone())
+    const prepared = await handlerOptions.prepare?.({ body, request })
+    if (prepared instanceof Response) return prepared
+    if (prepared !== undefined) body = prepared
+
     if (!Array.isArray(body.messages) || body.messages.length === 0) {
       return createBadRequest("Agent chat route requires messages.")
     }
@@ -1008,9 +1035,13 @@ export function defineAgentChatFetchHandler(
     )
     return await runWithRuntimeCloudflareEnv(context, async () => {
       try {
-        const result = await streamAgentTrigger(agent as never, context, "chat.message", chatAppRouteTriggerInput(body), {
-          output: "ui-message-stream",
-        })
+        const input = chatAppRouteTriggerInput(body)
+        if (body.stream === false) {
+          const result = await runAgentTrigger(agent as never, context, "chat.message", input)
+          return Response.json(toJsonSafeResult(result))
+        }
+
+        const result = await streamAgentTrigger(agent as never, context, "chat.message", input, { output: "ui-message-stream" })
         return await toUiMessageStreamResponse(readableStreamFromResult(result))
       }
       catch (error) {
