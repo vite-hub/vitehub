@@ -58,7 +58,10 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
   options: WorkspaceSourceResolutionOptions,
 ): Promise<WorkspaceSourceResolutionFacade<Name>> {
   const resolvedDefinition = await resolveWorkspaceSources(definition, options)
-  if (resolvedDefinition === definition) return { definition, workspace }
+  const sourceRequestExecution = createWorkspaceSourceRequestExecution(resolvedDefinition, {
+    selectedWorkspaceScope: options.selectedWorkspaceScope,
+  })
+  if (resolvedDefinition === definition && !sourceRequestExecution) return { definition, workspace }
 
   const sourceView = createWorkspaceSourceView(resolvedDefinition, createMemoryWorkspaceStore())
   const fs: ReadonlyWorkspaceFacade<Name>["fs"] = attachWorkspaceSourceRequestExecution({
@@ -105,7 +108,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     async materializeSources(options = {}) {
       return await sourceView.materializeSources(options)
     },
-  }, createWorkspaceSourceRequestExecution(resolvedDefinition))
+  }, sourceRequestExecution)
 
   const createTools = (options?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
     broadSearchPaths: options?.broadSearchPaths,

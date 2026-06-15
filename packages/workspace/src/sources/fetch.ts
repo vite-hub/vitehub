@@ -310,6 +310,7 @@ function sourceRequestContext(
       query: request.query,
       url: redactedUrl(options.url),
     },
+    selectedWorkspaceScope: ctx.selectedWorkspaceScope,
     source: {
       key: ctx.source,
     },

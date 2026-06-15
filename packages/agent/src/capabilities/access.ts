@@ -32,6 +32,8 @@ import type {
   WorkspaceName,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
+  WorkspaceSourceRequestDescriptor,
+  WorkspaceSourceRequestExecutionInput,
   WorkspaceSourceInput,
 } from "@vite-hub/workspace"
 import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
@@ -479,11 +481,9 @@ function sourceScopePaths(source: string, workspaceDefinition?: WorkspaceDefinit
   }
   const metadata = normalizeAgentWorkspaceSource(source, definition)
   const descriptorSource = metadata.source
-  const descriptorPath = descriptorSource && getWorkspaceSourceRequestDescriptor(descriptorSource)
-    ? workspaceSourceRequestDescriptorPath(source)
-    : undefined
+  const descriptorPath = workspaceSourceRequestDescriptorPath(source)
   if (descriptorSource && isWorkspaceSourceRequestOnly(descriptorSource)) {
-    return descriptorPath ? [descriptorPath] : []
+    return [descriptorPath]
   }
   const mountPath = metadata.mountPath
   if (normalizeScopePath(mountPath) === "") {
@@ -491,7 +491,7 @@ function sourceScopePaths(source: string, workspaceDefinition?: WorkspaceDefinit
   }
   return [
     mountPath,
-    ...(descriptorPath ? [descriptorPath] : []),
+    descriptorPath,
   ]
 }
 
@@ -623,7 +623,9 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
   workspace: ReadonlyWorkspaceFacade<Name>,
   scope: ResolvedWorkspaceScope,
 ): ReadonlyWorkspaceFacade<Name> {
-  const fs = attachWorkspaceSourceRequestExecution({
+  let fs: ReadonlyWorkspaceFacade<Name>["fs"]
+  const sourceRequestExecution = getWorkspaceSourceRequestExecution(workspace.fs)
+  fs = attachWorkspaceSourceRequestExecution({
     async readFile(path, options) {
       const normalized = normalizeScopePath(path)
       if (!isReadablePath(scope, normalized)) throw notFound(normalized)
@@ -663,7 +665,7 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
       }))
       return mergeMaterializedSources(options.path || "", results)
     },
-  } satisfies ReadonlyWorkspaceFacade<Name>["fs"], getWorkspaceSourceRequestExecution(workspace.fs))
+  } satisfies ReadonlyWorkspaceFacade<Name>["fs"], scopedSourceRequestExecution(() => fs, sourceRequestExecution))
 
   const createTools = (options?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
     broadSearchPaths: options?.broadSearchPaths,
@@ -686,4 +688,106 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
     fs,
     tools,
   }
+}
+
+function scopedSourceRequestExecution(
+  fs: () => ReadonlyWorkspaceFacade["fs"],
+  executor: ReturnType<typeof getWorkspaceSourceRequestExecution>,
+): ReturnType<typeof getWorkspaceSourceRequestExecution> {
+  if (!executor) return undefined
+  return {
+    async executeSourceRequest(input) {
+      if (!await sourceRequestVisible(fs(), input)) {
+        throw new Error("[vitehub] Source request is not visible in the selected workspace scope or does not match a declared Source target.")
+      }
+      return await executor.executeSourceRequest(input)
+    },
+  }
+}
+
+async function sourceRequestVisible(
+  fs: ReadonlyWorkspaceFacade["fs"],
+  input: WorkspaceSourceRequestExecutionInput,
+): Promise<boolean> {
+  let entries: WorkspaceEntry[]
+  try {
+    entries = await fs.list(".vitehub/sources")
+  }
+  catch {
+    return false
+  }
+
+  for (const entry of entries) {
+    if (entry.type !== "file" || !entry.path.endsWith(".json")) continue
+    const descriptor = await readSourceRequestDescriptor(fs, entry.path)
+    if (descriptor && sourceRequestMatches(descriptor, input)) return true
+  }
+  return false
+}
+
+async function readSourceRequestDescriptor(
+  fs: ReadonlyWorkspaceFacade["fs"],
+  path: string,
+): Promise<WorkspaceSourceRequestDescriptor | undefined> {
+  try {
+    const value = JSON.parse(await fs.readFile(path))
+    if (!value || typeof value !== "object") return undefined
+    const descriptor = value as Partial<WorkspaceSourceRequestDescriptor>
+    if (typeof descriptor.method !== "string" || typeof descriptor.url !== "string") return undefined
+    return descriptor as WorkspaceSourceRequestDescriptor
+  }
+  catch {
+    return undefined
+  }
+}
+
+function sourceRequestMatches(
+  descriptor: WorkspaceSourceRequestDescriptor,
+  input: WorkspaceSourceRequestExecutionInput,
+): boolean {
+  if (descriptor.method !== input.method) return false
+  if (!sameRequestTarget(descriptor.url, input.url)) return false
+  return requestShapeMatches(descriptor, input)
+}
+
+function sameRequestTarget(left: string, right: string): boolean {
+  const leftUrl = new URL(left)
+  const rightUrl = new URL(right)
+  return leftUrl.origin === rightUrl.origin && leftUrl.pathname === rightUrl.pathname
+}
+
+function requestShapeMatches(descriptor: WorkspaceSourceRequestDescriptor, input: WorkspaceSourceRequestExecutionInput): boolean {
+  const request = descriptor.request
+  if (request?.querySchema) return bodyShapeMatches(request, input)
+  if (!jsonEqual(queryFromUrl(new URL(input.url)) || {}, serializedQuery(request?.query) || {})) return false
+  return bodyShapeMatches(request, input)
+}
+
+function bodyShapeMatches(request: NonNullable<WorkspaceSourceRequestDescriptor["request"]> | undefined, input: WorkspaceSourceRequestExecutionInput): boolean {
+  if (request?.bodySchema) return true
+  if (typeof request?.body !== "undefined") return jsonEqual(input.body, request.body)
+  return typeof input.body === "undefined"
+}
+
+function queryFromUrl(url: URL): Record<string, unknown> | undefined {
+  const query: Record<string, unknown> = {}
+  for (const key of new Set([...url.searchParams.keys()])) {
+    const values = url.searchParams.getAll(key)
+    query[key] = values.length > 1 ? values : values[0]
+  }
+  return Object.keys(query).length ? query : undefined
+}
+
+function serializedQuery(query: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!query) return undefined
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    const values = Array.isArray(value) ? value : [value]
+    for (const item of values) params.append(key, String(item))
+  }
+  return queryFromUrl(new URL(`https://vitehub.local/?${params}`))
+}
+
+function jsonEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
 }

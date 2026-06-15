@@ -226,6 +226,9 @@ describe("Workspace Source Resolution", () => {
       headers: { "content-type": "application/json" },
       status: 200,
     }))
+    const requestFactory = vi.fn(({ selectedWorkspaceScope }) => ({
+      headers: { "x-scope": selectedWorkspaceScope?.scope },
+    }))
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const querySchema = {
       "~standard": {
@@ -243,6 +246,7 @@ describe("Workspace Source Resolution", () => {
             return source.fetch({
               cookies: { auth_token: "secret" },
               querySchema,
+              request: requestFactory,
               url: "https://portal.example.com/runtime/inventory-health",
             })
           },
@@ -269,6 +273,10 @@ describe("Workspace Source Resolution", () => {
     expect(result).toMatchObject({ exitCode: 0, stdout: JSON.stringify({ status: "ok" }, null, 2) })
     const init = request.mock.calls[0]?.[1] as RequestInit
     expect((init.headers as Headers).get("cookie")).toBe("auth_token=secret")
+    expect((init.headers as Headers).get("x-scope")).toBe("support")
+    expect(requestFactory).toHaveBeenCalledWith(expect.objectContaining({
+      selectedWorkspaceScope: expect.objectContaining({ scope: "support" }),
+    }))
   })
 
   it("fails closed when a resolved source mount is outside the Selected Workspace Scope", async () => {

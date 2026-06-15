@@ -67,7 +67,12 @@ describe("fetch sources", () => {
       },
     }))
 
-    await expect(useWorkspace("fetch-plain-object-path").fs.readFile("status.json")).resolves.toBe(JSON.stringify({ status: "ok" }, null, 2))
+    const fs = useWorkspace("fetch-plain-object-path").fs
+    await expect(fs.readFile("status.json")).resolves.toBe(JSON.stringify({ status: "ok" }, null, 2))
+    await expect(fs.list(".vitehub/sources")).resolves.toEqual([
+      { path: ".vitehub/sources/status.json", type: "file" },
+    ])
+    await expect(fs.readFile(".vitehub/sources/status.json")).resolves.toContain("https://status.example.com/health")
   })
 
   it("supports text, POST request factories, and explicit paths", async () => {

@@ -124,6 +124,8 @@ export type WorkspaceFacade<Name extends WorkspaceName = WorkspaceName, Mode ext
   Mode extends "write" ? WritableWorkspaceFacade<Name> : ReadonlyWorkspaceFacade<Name>
 
 function normalizePath(path: string, allowEmpty = false) {
+  const reserved = normalizeSafeWorkspacePath(path, { allowEmpty, allowReserved: true })
+  if (isGeneratedSourceDescriptorPath(reserved)) return reserved
   return normalizeSafeWorkspacePath(path, { allowEmpty })
 }
 
@@ -132,7 +134,17 @@ function normalizeListPath(path = "") {
 }
 
 function normalizePattern(pattern: string | string[]) {
-  return Array.isArray(pattern) ? pattern.map(normalizeSafeWorkspacePattern) : normalizeSafeWorkspacePattern(pattern)
+  return Array.isArray(pattern) ? pattern.map(normalizeWorkspacePattern) : normalizeWorkspacePattern(pattern)
+}
+
+function normalizeWorkspacePattern(pattern: string) {
+  const reserved = normalizeSafeWorkspacePath(pattern, { allowEmpty: true, allowReserved: true, pattern: true })
+  if (isGeneratedSourceDescriptorPath(reserved)) return reserved
+  return normalizeSafeWorkspacePattern(pattern)
+}
+
+function isGeneratedSourceDescriptorPath(path: string): boolean {
+  return path === ".vitehub/sources" || path.startsWith(".vitehub/sources/")
 }
 
 async function materializeWorkspaceSources(workspace: Workspace, options?: WorkspaceMaterializeSourcesOptions) {

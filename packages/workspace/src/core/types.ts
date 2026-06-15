@@ -287,6 +287,7 @@ export interface SourceContextWorkspaceFiles {
 export interface SourceContext {
   mountPath?: string
   rootDir: string
+  selectedWorkspaceScope?: WorkspaceSelectedScope
   source?: string
   sourceRootDir?: string
   workspace: string

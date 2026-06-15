@@ -3,6 +3,7 @@ import { getWorkspaceSourceRequestExecutor } from "./request-metadata.ts"
 
 import type {
   WorkspaceDefinition,
+  WorkspaceSelectedScope,
   WorkspaceSourceRequestDescriptor,
   WorkspaceSourceRequestExecutionInput,
   WorkspaceSourceRequestExecutionResult,
@@ -27,7 +28,10 @@ export function getWorkspaceSourceRequestExecution(input: object): WorkspaceSour
   return sourceRequestExecutions.get(input)
 }
 
-export function createWorkspaceSourceRequestExecution(definition: WorkspaceDefinition): WorkspaceSourceRequestExecutionTarget | undefined {
+export function createWorkspaceSourceRequestExecution(
+  definition: WorkspaceDefinition,
+  options: { selectedWorkspaceScope?: WorkspaceSelectedScope } = {},
+): WorkspaceSourceRequestExecutionTarget | undefined {
   const sources = normalizeWorkspaceSources(definition.sources)
     .filter(source => source.requestDescriptor && getWorkspaceSourceRequestExecutor(source.source))
 
@@ -54,7 +58,7 @@ export function createWorkspaceSourceRequestExecution(definition: WorkspaceDefin
       return await executor(input, createSourceContext(definition, {
         key: source.key,
         mountPath: source.mountPath,
-      }))
+      }, undefined, { selectedWorkspaceScope: options.selectedWorkspaceScope }))
     },
   }
 }
