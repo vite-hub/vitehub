@@ -101,11 +101,14 @@ describe("workspace types", () => {
       instructions: ["Use for local docs.", "Prefer README files first."] as const,
       prefix: "content",
     })
-    source.fetch({
+    source.fetch<{ status: string }, { ok: boolean }>({
       instructions: "Use for live status.",
-      schema: {
+      querySchema: {
         "~standard": {
-          validate: (input: unknown) => ({ value: input as { status: string } }),
+          jsonSchema: {
+            input: () => ({ type: "object" }),
+          },
+          validate: (input: unknown) => ({ value: input as Record<string, unknown> }),
         },
       },
       transform(data) {
@@ -113,6 +116,17 @@ describe("workspace types", () => {
         return { ok: data.status === "ok" }
       },
       url: "https://status.example.com/api/summary",
+      workspacePath: "status/summary.json",
+    })
+    source.fetch({
+      body: { scope: "all" },
+      cookies: { auth_token: "secret" },
+      method: "POST",
+      request: ({ request }) => ({
+        headers: { "x-method": request.method },
+        timeout: 1000,
+      }),
+      url: "https://status.example.com/query",
     })
     source.mcpResources({
       instructions: "Use for MCP resource docs.",
@@ -128,10 +142,14 @@ describe("workspace types", () => {
     })
     // @ts-expect-error source.fetch does not expose public lifecycle hooks
     source.fetch({ url: "https://status.example.com/api/summary", beforeRequest() {} })
-    // @ts-expect-error source.fetch uses path as its only Workspace-facing address
+    // @ts-expect-error source.fetch uses workspacePath as its only Workspace-facing address
     source.fetch({ url: "https://status.example.com/api/summary", mount: "status" })
+    // @ts-expect-error source.fetch uses workspacePath instead of path for Workspace placement
+    source.fetch({ url: "https://status.example.com/api/summary", path: "status.json" })
     // @ts-expect-error source.fetch does not expose generic source validation mode
     source.fetch({ url: "https://status.example.com/api/summary", validate: "request" })
+    // @ts-expect-error source.fetch request factories cannot redefine query
+    source.fetch({ url: "https://status.example.com/api/summary", request: () => ({ query: { region: "eu" } }) })
     defineWorkspace({
       // @ts-expect-error workspace names are inferred from definition filenames
       name: "typed",

@@ -1,7 +1,15 @@
 import { workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { normalizeAgentWorkspaceSource } from "../workspace-source-metadata.ts"
-import { createWorkspaceSourceResolutionFacade, createWorkspaceTools } from "@vite-hub/workspace"
+import {
+  attachWorkspaceSourceRequestExecution,
+  createWorkspaceSourceResolutionFacade,
+  createWorkspaceTools,
+  getWorkspaceSourceRequestExecution,
+  getWorkspaceSourceRequestDescriptor,
+  isWorkspaceSourceRequestOnly,
+  workspaceSourceRequestDescriptorPath,
+} from "@vite-hub/workspace"
 
 import type {
   AgentCallbackContext,
@@ -24,6 +32,8 @@ import type {
   WorkspaceName,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
+  WorkspaceSourceRequestDescriptor,
+  WorkspaceSourceRequestExecutionInput,
   WorkspaceSourceInput,
 } from "@vite-hub/workspace"
 import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
@@ -420,13 +430,17 @@ function scopeMaterializeGrants(definition: AccessWorkspaceScopeDefinition, work
       ...(sources?.length ? { sources } : {}),
     })
   }
+  const addSource = (source: string) => {
+    const path = sourceMaterializePath(source, workspaceDefinition)
+    if (path !== undefined) add(path, [source])
+  }
   for (const path of normalizeStringList(definition.path, definition.paths)) add(path)
-  for (const source of normalizeStringList(definition.source, definition.sources)) add(sourceMountPath(source, workspaceDefinition), [source])
+  for (const source of normalizeStringList(definition.source, definition.sources)) addSource(source)
   for (const grant of definition.grants || []) {
     const paths = normalizeStringList(grant.path, grant.paths)
     const sources = normalizeStringList(grant.source, grant.sources)
     for (const path of paths) add(path)
-    for (const source of sources) add(sourceMountPath(source, workspaceDefinition), [source])
+    for (const source of sources) addSource(source)
   }
   return dedupeMaterializeGrants(grants)
 }
@@ -449,10 +463,15 @@ function normalizeStringList(single: string | undefined, multiple: readonly stri
 }
 
 function sourcePaths(sources: string[], workspaceDefinition?: WorkspaceDefinition): string[] {
-  return sources.map(source => sourceMountPath(source, workspaceDefinition))
+  return sources.flatMap(source => sourceScopePaths(source, workspaceDefinition))
 }
 
-function sourceMountPath(source: string, workspaceDefinition?: WorkspaceDefinition): string {
+function sourceMaterializePath(source: string, workspaceDefinition?: WorkspaceDefinition): string | undefined {
+  const paths = sourceScopePaths(source, workspaceDefinition).filter(path => !path.startsWith(".vitehub/sources/"))
+  return paths[0]
+}
+
+function sourceScopePaths(source: string, workspaceDefinition?: WorkspaceDefinition): string[] {
   if (!workspaceDefinition) {
     throw new Error(`[vitehub] Workspace Scope source grant "${source}" requires a Workspace Definition.`)
   }
@@ -460,11 +479,20 @@ function sourceMountPath(source: string, workspaceDefinition?: WorkspaceDefiniti
   if (!definition) {
     throw new Error(`[vitehub] Workspace Scope source grant references unknown source "${source}".`)
   }
-  const mountPath = normalizeAgentWorkspaceSource(source, definition).mountPath
+  const metadata = normalizeAgentWorkspaceSource(source, definition)
+  const descriptorSource = metadata.source
+  const descriptorPath = workspaceSourceRequestDescriptorPath(source)
+  if (descriptorSource && isWorkspaceSourceRequestOnly(descriptorSource)) {
+    return [descriptorPath]
+  }
+  const mountPath = metadata.mountPath
   if (normalizeScopePath(mountPath) === "") {
     throw new Error(`[vitehub] Workspace Scope source grant "${source}" is root-mounted; grant explicit paths instead.`)
   }
-  return mountPath
+  return [
+    mountPath,
+    descriptorPath,
+  ]
 }
 
 function normalizeScopePath(path = ""): string {
@@ -595,7 +623,9 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
   workspace: ReadonlyWorkspaceFacade<Name>,
   scope: ResolvedWorkspaceScope,
 ): ReadonlyWorkspaceFacade<Name> {
-  const fs: ReadonlyWorkspaceFacade<Name>["fs"] = {
+  let fs: ReadonlyWorkspaceFacade<Name>["fs"]
+  const sourceRequestExecution = getWorkspaceSourceRequestExecution(workspace.fs)
+  fs = attachWorkspaceSourceRequestExecution({
     async readFile(path, options) {
       const normalized = normalizeScopePath(path)
       if (!isReadablePath(scope, normalized)) throw notFound(normalized)
@@ -635,7 +665,7 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
       }))
       return mergeMaterializedSources(options.path || "", results)
     },
-  }
+  } satisfies ReadonlyWorkspaceFacade<Name>["fs"], scopedSourceRequestExecution(() => fs, sourceRequestExecution))
 
   const createTools = (options?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
     broadSearchPaths: options?.broadSearchPaths,
@@ -658,4 +688,106 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
     fs,
     tools,
   }
+}
+
+function scopedSourceRequestExecution(
+  fs: () => ReadonlyWorkspaceFacade["fs"],
+  executor: ReturnType<typeof getWorkspaceSourceRequestExecution>,
+): ReturnType<typeof getWorkspaceSourceRequestExecution> {
+  if (!executor) return undefined
+  return {
+    async executeSourceRequest(input) {
+      if (!await sourceRequestVisible(fs(), input)) {
+        throw new Error("[vitehub] Source request is not visible in the selected workspace scope or does not match a declared Source target.")
+      }
+      return await executor.executeSourceRequest(input)
+    },
+  }
+}
+
+async function sourceRequestVisible(
+  fs: ReadonlyWorkspaceFacade["fs"],
+  input: WorkspaceSourceRequestExecutionInput,
+): Promise<boolean> {
+  let entries: WorkspaceEntry[]
+  try {
+    entries = await fs.list(".vitehub/sources")
+  }
+  catch {
+    return false
+  }
+
+  for (const entry of entries) {
+    if (entry.type !== "file" || !entry.path.endsWith(".json")) continue
+    const descriptor = await readSourceRequestDescriptor(fs, entry.path)
+    if (descriptor && sourceRequestMatches(descriptor, input)) return true
+  }
+  return false
+}
+
+async function readSourceRequestDescriptor(
+  fs: ReadonlyWorkspaceFacade["fs"],
+  path: string,
+): Promise<WorkspaceSourceRequestDescriptor | undefined> {
+  try {
+    const value = JSON.parse(await fs.readFile(path))
+    if (!value || typeof value !== "object") return undefined
+    const descriptor = value as Partial<WorkspaceSourceRequestDescriptor>
+    if (typeof descriptor.method !== "string" || typeof descriptor.url !== "string") return undefined
+    return descriptor as WorkspaceSourceRequestDescriptor
+  }
+  catch {
+    return undefined
+  }
+}
+
+function sourceRequestMatches(
+  descriptor: WorkspaceSourceRequestDescriptor,
+  input: WorkspaceSourceRequestExecutionInput,
+): boolean {
+  if (descriptor.method !== input.method) return false
+  if (!sameRequestTarget(descriptor.url, input.url)) return false
+  return requestShapeMatches(descriptor, input)
+}
+
+function sameRequestTarget(left: string, right: string): boolean {
+  const leftUrl = new URL(left)
+  const rightUrl = new URL(right)
+  return leftUrl.origin === rightUrl.origin && leftUrl.pathname === rightUrl.pathname
+}
+
+function requestShapeMatches(descriptor: WorkspaceSourceRequestDescriptor, input: WorkspaceSourceRequestExecutionInput): boolean {
+  const request = descriptor.request
+  if (request?.querySchema) return bodyShapeMatches(request, input)
+  if (!jsonEqual(queryFromUrl(new URL(input.url)) || {}, serializedQuery(request?.query) || {})) return false
+  return bodyShapeMatches(request, input)
+}
+
+function bodyShapeMatches(request: NonNullable<WorkspaceSourceRequestDescriptor["request"]> | undefined, input: WorkspaceSourceRequestExecutionInput): boolean {
+  if (request?.bodySchema) return true
+  if (typeof request?.body !== "undefined") return jsonEqual(input.body, request.body)
+  return typeof input.body === "undefined"
+}
+
+function queryFromUrl(url: URL): Record<string, unknown> | undefined {
+  const query: Record<string, unknown> = {}
+  for (const key of new Set([...url.searchParams.keys()])) {
+    const values = url.searchParams.getAll(key)
+    query[key] = values.length > 1 ? values : values[0]
+  }
+  return Object.keys(query).length ? query : undefined
+}
+
+function serializedQuery(query: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!query) return undefined
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    const values = Array.isArray(value) ? value : [value]
+    for (const item of values) params.append(key, String(item))
+  }
+  return queryFromUrl(new URL(`https://vitehub.local/?${params}`))
+}
+
+function jsonEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
 }

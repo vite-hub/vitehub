@@ -1,5 +1,7 @@
 # HTTP Request Core for Sources and Capabilities
 
+Updated by [ADR 0058: Request-Only API-Backed Sources](./0058-request-only-api-backed-sources.md), [ADR 0059: Source Fetch Validates Requests, Not Responses](./0059-source-fetch-validates-requests-not-responses.md), [ADR 0060: Controlled Curl Uses Source Network Grants](./0060-controlled-curl-uses-source-network-grants.md), and [ADR 0061: Source Fetch Request Factory Receives Execution Context](./0061-source-fetch-request-factory-receives-execution-context.md): `source.fetch()` may be request-only, validates request inputs rather than response bodies, exposes controlled shell descriptors through Source Network Grants, and lets request factories receive a narrow execution context for credentials and signing while keeping the Source definition static.
+
 API-backed Workspace Sources and API Capabilities share a neutral HTTP Request Definition core, but remain separate public projections. The core owns request execution concerns such as method, URL, query, headers, body, timeout, abort, retry, response decoding, redaction, and hooks; Sources add read-only addressable Workspace item semantics, while Capabilities add model-facing tool semantics and query/effect policy.
 
 ## Considered Options

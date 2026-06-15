@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import type { AgentRuntimeContext, AgentToolSet } from "../src/types.ts"
-import { source, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceStat } from "@vite-hub/workspace"
+import { attachWorkspaceSourceRequestExecution, source, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceStat } from "@vite-hub/workspace"
 
 function runtime(): AgentRuntimeContext {
   return {
@@ -22,7 +22,7 @@ function directChildOf(prefix: string, path: string): boolean {
   return !path.slice(prefix.length + 1).includes("/")
 }
 
-function createWorkspace(): ReadonlyWorkspaceFacade {
+function createWorkspace(executor?: Parameters<typeof attachWorkspaceSourceRequestExecution>[1]): ReadonlyWorkspaceFacade {
   const files = new Map<string, string>([
     ["customers/acme/brief.md", "acme only"],
     ["customers/globex/brief.md", "globex only"],
@@ -37,6 +37,18 @@ function createWorkspace(): ReadonlyWorkspaceFacade {
     { path: "public", type: "directory" },
     { path: "public/readme.md", size: 6, type: "file" },
   ]
+  if (executor) {
+    files.set(".vitehub/sources/inventoryHealthSummary.json", JSON.stringify({
+      method: "GET",
+      request: { query: { region: "eu" } },
+      url: "https://portal.example.com/runtime/inventory-health",
+    }))
+    entries.push(
+      { path: ".vitehub", type: "directory" },
+      { path: ".vitehub/sources", type: "directory" },
+      { path: ".vitehub/sources/inventoryHealthSummary.json", size: files.get(".vitehub/sources/inventoryHealthSummary.json")!.length, type: "file" },
+    )
+  }
 
   const fs: ReadonlyWorkspaceFacade["fs"] = {
     async readFile(path, options) {
@@ -74,7 +86,7 @@ function createWorkspace(): ReadonlyWorkspaceFacade {
   }
 
   return {
-    fs,
+    fs: executor ? attachWorkspaceSourceRequestExecution(fs, executor) : fs,
     tools: {
       inspect: () => ({}),
       none: () => ({}),
@@ -405,6 +417,118 @@ describe("access capability", () => {
     expect(result.stdout).not.toContain("globex")
   })
 
+  it("preserves source request execution on scoped workspace shell commands", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access, workspaceShell } = await import("../src/capabilities.ts")
+    const executeSourceRequest = vi.fn(async () => ({
+      content: JSON.stringify({ status: "ok" }),
+      status: 200,
+    }))
+    const workspaceDefinition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        inventoryHealthSummary: source.custom({
+          mount: "inventoryHealthSummary",
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            throw new Error(`unexpected read: ${key}`)
+          },
+        }),
+      },
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "support",
+            scopes: {
+              support: { source: "inventoryHealthSummary" },
+            },
+          },
+        }),
+        workspaceShell(),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace({ executeSourceRequest }), "read", { workspaceDefinition })
+    const executeShell = resolved.tools!.shell.execute as unknown as (
+      input: { command: string },
+      options: { messages: unknown[], toolCallId: string },
+    ) => Promise<{ exitCode: number, stdout: string }>
+    const result = await executeShell(
+      { command: "curl 'https://portal.example.com/runtime/inventory-health?region=eu'" },
+      { toolCallId: "test", messages: [] } as never,
+    )
+
+    expect(result).toMatchObject({ exitCode: 0, stdout: JSON.stringify({ status: "ok" }) })
+    expect(executeSourceRequest).toHaveBeenCalledWith({
+      body: undefined,
+      method: "GET",
+      url: "https://portal.example.com/runtime/inventory-health?region=eu",
+    })
+  })
+
+  it("denies scoped source request execution for hidden workspace sources", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access, workspaceShell } = await import("../src/capabilities.ts")
+    const executeSourceRequest = vi.fn(async () => ({
+      content: JSON.stringify({ status: "ok" }),
+      status: 200,
+    }))
+    const workspaceDefinition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        hiddenInventory: source.custom({
+          mount: "hiddenInventory",
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            throw new Error(`unexpected read: ${key}`)
+          },
+        }),
+        inventoryHealthSummary: source.custom({
+          mount: "inventoryHealthSummary",
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            throw new Error(`unexpected read: ${key}`)
+          },
+        }),
+      },
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "support",
+            scopes: {
+              support: { source: "inventoryHealthSummary" },
+            },
+          },
+        }),
+        workspaceShell(),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace({ executeSourceRequest }), "read", { workspaceDefinition })
+    const executeShell = resolved.tools!.shell.execute as unknown as (
+      input: { command: string },
+      options: { messages: unknown[], toolCallId: string },
+    ) => Promise<{ exitCode: number, stderr: string }>
+    const result = await executeShell(
+      { command: "curl 'https://portal.example.com/runtime/hidden-inventory'" },
+      { toolCallId: "test", messages: [] },
+    )
+
+    expect(result).toMatchObject({
+      exitCode: 126,
+      stderr: expect.stringContaining("not visible in the selected workspace scope"),
+    })
+    expect(executeSourceRequest).not.toHaveBeenCalled()
+  })
+
   it("applies Invocation-Scoped Source Resolution after selecting Workspace Scope", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access, workspaceShell } = await import("../src/capabilities.ts")
@@ -527,7 +651,7 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.readFile("ingestion/acme/models/orders.sql")).resolves.toBe("select * from acme_orders\n")
     await expect(resolved.workspace!.fs.exists("ingestion/globex/models/orders.sql")).resolves.toBe(false)
     await expect(resolved.workspace!.fs.readFile("ingestion/globex/models/orders.sql")).rejects.toThrow("Workspace path does not exist")
-    expect(invocationContext.get<{ paths: string[] }>("access.workspaceScope")?.paths).toEqual(["ingestion/acme"])
+    expect(invocationContext.get<{ paths: string[] }>("access.workspaceScope")?.paths).toEqual(["ingestion/acme", ".vitehub/sources/ingestion.json"])
   })
 
   it("forwards lazy Source materialization through scoped workspace facades", async () => {

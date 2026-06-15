@@ -12,6 +12,7 @@ import { WorkspaceError, WorkspaceNotFoundError } from "./errors.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern } from "./path.ts"
 import { useRegisteredWorkspace } from "./registry.ts"
+import { attachWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 
 import type { Tool, ToolSet } from "ai"
 import type {
@@ -123,6 +124,8 @@ export type WorkspaceFacade<Name extends WorkspaceName = WorkspaceName, Mode ext
   Mode extends "write" ? WritableWorkspaceFacade<Name> : ReadonlyWorkspaceFacade<Name>
 
 function normalizePath(path: string, allowEmpty = false) {
+  const reserved = normalizeSafeWorkspacePath(path, { allowEmpty, allowReserved: true })
+  if (isGeneratedSourceDescriptorPath(reserved)) return reserved
   return normalizeSafeWorkspacePath(path, { allowEmpty })
 }
 
@@ -131,7 +134,17 @@ function normalizeListPath(path = "") {
 }
 
 function normalizePattern(pattern: string | string[]) {
-  return Array.isArray(pattern) ? pattern.map(normalizeSafeWorkspacePattern) : normalizeSafeWorkspacePattern(pattern)
+  return Array.isArray(pattern) ? pattern.map(normalizeWorkspacePattern) : normalizeWorkspacePattern(pattern)
+}
+
+function normalizeWorkspacePattern(pattern: string) {
+  const reserved = normalizeSafeWorkspacePath(pattern, { allowEmpty: true, allowReserved: true, pattern: true })
+  if (isGeneratedSourceDescriptorPath(reserved)) return reserved
+  return normalizeSafeWorkspacePattern(pattern)
+}
+
+function isGeneratedSourceDescriptorPath(path: string): boolean {
+  return path === ".vitehub/sources" || path.startsWith(".vitehub/sources/")
 }
 
 async function materializeWorkspaceSources(workspace: Workspace, options?: WorkspaceMaterializeSourcesOptions) {
@@ -232,11 +245,18 @@ function createLazyWorkspace(name: WorkspaceName): Workspace {
     },
   } as Workspace
 
-  return workspace
+  return attachWorkspaceSourceRequestExecution(workspace, {
+    async executeSourceRequest(input) {
+      const resolved = await resolveSyncedWorkspace()
+      const executor = getWorkspaceSourceRequestExecution(resolved)
+      if (!executor) throw new Error("[vitehub] No API-backed Source request executor is available for this workspace.")
+      return await executor.executeSourceRequest(input)
+    },
+  })
 }
 
 function createWritableFs<Name extends WorkspaceName>(workspace: Workspace): WritableWorkspaceFs<Name> {
-  return {
+  return attachWorkspaceSourceRequestExecution({
     readFile: async (path, options) => await workspace.readFile(normalizePath(path), options as never),
     writeFile: async (path, content, options) => await workspace.writeFile(normalizePath(path), content, options),
     appendFile: async (path, content) => await appendWorkspaceFile(workspace, normalizePath(path), content),
@@ -257,7 +277,7 @@ function createWritableFs<Name extends WorkspaceName>(workspace: Workspace): Wri
       await workspace.rm(source, { recursive: true, force: true })
     },
     copyPath: async (from, to, options) => await copyWorkspacePath(workspace, normalizePath(from), normalizePath(to), options?.overwrite),
-  }
+  }, getWorkspaceSourceRequestExecution(workspace))
 }
 
 function useOptionalWorkspaceAssets<Name extends WorkspaceName>(name: Name): WorkspaceAssets<WorkspaceAssetPath<Name>> | undefined {
@@ -309,7 +329,7 @@ function createReadonlyFs<Name extends WorkspaceName>(
 ): ReadonlyWorkspaceFs<Name> {
   const assets = useOptionalWorkspaceAssets(name)
 
-  return {
+  return attachWorkspaceSourceRequestExecution({
     readFile: async (path, options) => {
       const normalized = normalizePath(path)
       try {
@@ -375,7 +395,7 @@ function createReadonlyFs<Name extends WorkspaceName>(
       path: options?.path || "",
       sources: [],
     },
-  }
+  }, getWorkspaceSourceRequestExecution(workspace))
 }
 
 function toReadOperations(options: WorkspaceFacadeToolOptions | undefined): WorkspaceReadOperations {

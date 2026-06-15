@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createWorkspaceTools, type WorkspaceShellResult } from "../src/ai.ts"
-import { useWorkspace } from "../src/index.ts"
+import { source, useWorkspace } from "../src/index.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { setWorkspaceRuntimeAssetsRegistry } from "../src/runtime/state.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
@@ -25,6 +25,7 @@ function createMutableWorkspace() {
 
 afterEach(() => {
   setWorkspaceRuntimeAssetsRegistry({})
+  vi.restoreAllMocks()
 })
 
 describe("createWorkspaceTools", () => {
@@ -168,6 +169,80 @@ describe("createWorkspaceTools", () => {
       event: "policy_denied",
       exitCode: 126,
       stderr: expect.stringContaining("Workspace root search is too broad"),
+    })
+  })
+
+  it("runs controlled curl through visible source.fetch request descriptors", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "ok" }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    }))
+    const querySchema = {
+      "~standard": {
+        jsonSchema: { input: () => ({ properties: { region: { type: "string" } }, type: "object" }) },
+        validate(input: unknown) {
+          return { value: input as Record<string, unknown> }
+        },
+      },
+    } as const
+    const workspace = createWorkspace({
+      name: "curl-source",
+      sources: {
+        inventoryHealthSummary: source.fetch({
+          cookies: { auth_token: "secret" },
+          querySchema,
+          url: "https://portal.example.com/runtime/inventory-health",
+        }),
+      },
+      store: { provider: "memory" },
+    })
+    const tools = createWorkspaceTools(workspace)
+
+    await expect(runShell(tools, "curl -sS 'https://portal.example.com/runtime/inventory-health?region=eu'")).resolves.toMatchObject({
+      event: "command_finished",
+      exitCode: 0,
+      stdout: JSON.stringify({ status: "ok" }, null, 2),
+    })
+    const init = request.mock.calls[0]?.[1] as RequestInit
+    expect((init.headers as Headers).get("cookie")).toBe("auth_token=secret")
+
+    await expect(runShell(tools, "curl -d '{\"region\":\"eu\"}' https://portal.example.com/runtime/inventory-health")).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stderr: expect.stringContaining("does not allow -d"),
+    })
+  })
+
+  it("matches controlled curl by concrete query shape", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "ok" }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    }))
+    const workspace = createWorkspace({
+      name: "curl-source-query-shape",
+      sources: {
+        pageTwo: source.fetch({ query: { page: 2 }, url: "https://portal.example.com/runtime/items" }),
+        pageThree: source.fetch({ query: { page: 3 }, url: "https://portal.example.com/runtime/items" }),
+      },
+      store: { provider: "memory" },
+    })
+
+    await expect(runShell(createWorkspaceTools(workspace), "curl 'https://portal.example.com/runtime/items?page=2'")).resolves.toMatchObject({
+      event: "command_finished",
+      exitCode: 0,
+    })
+    expect(request).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not intercept workspace searches that mention curl", async () => {
+    const tools = createWorkspaceTools(createAssets({
+      "docs/commands.md": "Use curl for API checks.\n",
+    }))
+
+    await expect(runShell(tools, "rg curl docs")).resolves.toMatchObject({
+      event: "command_finished",
+      exitCode: 0,
+      stdout: expect.stringContaining("Use curl for API checks."),
     })
   })
 

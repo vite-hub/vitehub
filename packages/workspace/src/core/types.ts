@@ -287,6 +287,7 @@ export interface SourceContextWorkspaceFiles {
 export interface SourceContext {
   mountPath?: string
   rootDir: string
+  selectedWorkspaceScope?: WorkspaceSelectedScope
   source?: string
   sourceRootDir?: string
   workspace: string
@@ -361,6 +362,46 @@ export interface WorkspaceSourceItem {
 }
 
 export type WorkspaceSourceInstructions = string | readonly string[]
+
+export type WorkspaceSourceRequestMethod = "GET" | "HEAD" | "POST"
+
+export interface WorkspaceSourceRequestDescriptor {
+  cache?: false | WorkspaceCacheOptions
+  credentials?: {
+    cookies?: string[] | "dynamic"
+    headers?: string[] | "dynamic"
+  }
+  description?: string
+  method: WorkspaceSourceRequestMethod
+  request?: {
+    body?: unknown
+    bodySchema?: Record<string, unknown>
+    query?: Record<string, unknown>
+    querySchema?: Record<string, unknown>
+  }
+  responseType?: "json" | "text"
+  sourceKey?: string
+  url: string
+  workspacePath?: string
+}
+
+export interface WorkspaceSourceRequestExecutionInput {
+  body?: unknown
+  method: WorkspaceSourceRequestMethod
+  url: string
+}
+
+export interface WorkspaceSourceRequestExecutionResult {
+  content: WorkspaceContent
+  mediaType?: string
+  metadata?: Record<string, unknown>
+  status?: number
+}
+
+export type WorkspaceSourceRequestExecutor = (
+  input: WorkspaceSourceRequestExecutionInput,
+  context: SourceContext,
+) => MaybePromise<WorkspaceSourceRequestExecutionResult>
 
 export interface WorkspaceSource {
   mount?: WorkspaceSourceMount

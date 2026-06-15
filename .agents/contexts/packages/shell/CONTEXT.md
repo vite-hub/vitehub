@@ -56,6 +56,10 @@ _Avoid_: Shell Runtime, Workspace File System
 The declared execution, filesystem, network, process, streaming, timeout, and enforcement limits of a Shell Session.
 _Avoid_: supports object, provider metadata
 
+**Shell Network Grant**:
+A declared network boundary that allows a Shell Session to run network commands against specific HTTP targets.
+_Avoid_: Raw network access, URL allowlist
+
 **Just Bash Provider**:
 The built-in Execution Provider that runs Bash-compatible commands through `just-bash`.
 _Avoid_: Shell Runtime, default Shell API
@@ -78,6 +82,15 @@ _Avoid_: Cloudflare runtime lifecycle, Shell Runtime
 - A **Shell Runtime** emits **Shell Observations** with command, working directory, output, timing, termination, truncation, and lifecycle facts.
 - A **Shell Session** can manage **Shell Processes** without promising full terminal emulation.
 - A **Shell Session** has one **Shell Boundary**.
+- A **Shell Boundary** may include **Shell Network Grants**.
+- A **Shell Session** can expose network commands only when its **Shell Boundary** includes matching **Shell Network Grants**.
+- Network command output is returned as a **Shell Observation** unless a separate Workspace policy explicitly materializes it.
+- Controlled network command semantics belong to **Execution Providers** such as the **Just Bash Provider** and **Cloudflare Provider**.
+- Controlled network requests are validated by the executing network command against **Shell Network Grants**, not by reconstructing request semantics from **Command Analysis**.
+- Controlled network commands use normal command syntax while the provider validates the resulting request against **Shell Network Grants**.
+- Controlled network commands may accept normal request body flags when the resulting request validates against **Shell Network Grants**.
+- Model-facing guidance for controlled network commands belongs to the Agent/Capability composition surface and should reuse Capability instruction slot templating.
+- The **Shell Package** may expose the command/tool surface facts needed for that guidance, but it does not own a separate prompt template system.
 - An **Execution Provider** backs a Shell Runtime without defining the Shell Package's public concept.
 - The **Just Bash Provider** is the first built-in Execution Provider.
 - The **Cloudflare Provider** is a thin built-in Execution Provider.
@@ -107,3 +120,10 @@ _Avoid_: Cloudflare runtime lifecycle, Shell Runtime
 - Moving Cloudflare shell support out of the package was considered - resolved: keep a thin built-in **Cloudflare Provider**, but do not let Cloudflare lifecycle concerns define the Shell core.
 - A flat provider `supports` object was considered enough - resolved: use a richer **Shell Boundary** so policy, approval, tests, and provider portability can rely on explicit limits.
 - Model-facing tool builders were considered as the Shell core identity - resolved: Shell core stays runtime-focused; Workspace and Agent surfaces adapt Shell into model-facing tools.
+- `curl` was considered a separate HTTP Capability - resolved: controlled network commands belong to the **Shell Runtime** surface and are exposed only through **Shell Network Grants**.
+- Controlled `curl` output was considered as an automatic Workspace write - resolved: return network command output as a **Shell Observation** in v1, leaving materialization to explicit Workspace policy.
+- Workspace-level `curl` interception was considered - resolved: implement controlled network command behavior in **Execution Providers**, using Workspace only to supply grants and metadata.
+- Parser-enforced `curl` policy was considered - resolved: **Command Analysis** may route or flag commands, but network request enforcement belongs to the executing provider command.
+- Custom `curl`-like syntax was considered - resolved: controlled network commands use normal command syntax, with provider-owned validation of the resulting HTTP request.
+- A Shell-owned prompt template for controlled network commands was considered - resolved: reuse Agent Capability instruction slots so `workspaceShell()` guidance can be placed with existing templating.
+- Disallowing normal `curl` body flags was considered - resolved: allow normal body flags when the resulting request validates against **Shell Network Grants**.
