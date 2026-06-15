@@ -226,7 +226,7 @@ async function pruneEmptySourceDirectories(store: WorkspaceStore, source: Resolv
     const stat = await store.stat(directory)
     if (stat?.type !== "directory") continue
     if ((await store.list(directory)).length > 0) continue
-    await store.rm(directory, { force: true })
+    await store.rm(directory, { force: true, recursive: true })
   }
 }
 
