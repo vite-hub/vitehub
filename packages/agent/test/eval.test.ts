@@ -145,6 +145,19 @@ describe("agent eval", () => {
     expect(score.score).toBe(1)
   })
 
+  it("passes eval runtime config into agent invocations", async () => {
+    await import("./fixtures/quiver-sku-runtime.eval.ts")
+
+    expect(evaliteCalls[0]?.name).toBe("quiver-sku-runtime")
+
+    const output = await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
+    const score = await evaliteCalls[0]!.opts.scorers[0].scorer({ output })
+
+    expect(output.text).toContain("Selected SKU RAIN-042-BLK")
+    expect(output.text).toContain("shortfall of 130")
+    expect(score.score).toBe(1)
+  })
+
   it("infers workspace source roots for sibling workspace agents", async () => {
     readFile.mockResolvedValueOnce("workspace config")
 
