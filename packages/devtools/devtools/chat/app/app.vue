@@ -65,7 +65,7 @@ const pendingUserMessage = ref<ChatMessage | undefined>()
 const expandedFilePaths = ref(new Set<string>())
 const previousSourceRootStates = ref(new Map<string, SourceRootState>())
 const selectedFilePath = ref<string | undefined>()
-const activeIntegrationSection = ref<IntegrationSectionId>("files")
+const activeIntegrationSection = ref<IntegrationSectionId>("config")
 const sidebarWidth = ref(300)
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
@@ -1188,6 +1188,7 @@ async function clear() {
   catch {
     state.value = {
       chats: [{ name: state.value.selected || "dev", messages: [] }],
+      ...(state.value.config ? { config: state.value.config } : {}),
       files: state.value.files || [],
       instructions: state.value.instructions || [],
       invokerProfiles: state.value.invokerProfiles || [],
