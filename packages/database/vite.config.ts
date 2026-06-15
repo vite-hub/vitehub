@@ -17,6 +17,7 @@ export default defineConfig({
       "src/cli.ts",
       "src/config.ts",
       "src/drizzle.ts",
+      "src/nuxt.ts",
       "src/virtual.ts",
       "src/vite.ts",
       "src/runtime/cloudflare-vite.ts",

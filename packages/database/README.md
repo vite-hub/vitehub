@@ -57,6 +57,24 @@ export default defineConfig({
 
 Use `server/databases/config.ts` for the default database, or `server/databases/<name>/config.ts` for named databases. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `@vite-hub/database/drizzle`.
 
+## Nuxt D1 host wiring
+
+Nuxt apps can declare one D1 database resource and let the Database Nuxt bridge wire framework consumers and Cloudflare output.
+
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+  modules: ["@vite-hub/database/nuxt", "@nuxt/content"],
+  database: {
+    driver: "d1",
+    databaseName: "app-content",
+    databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,
+  },
+})
+```
+
+The bridge configures Nuxt Content internally and merges the D1 binding into `nitro.cloudflare.wrangler.d1_databases`. Application config should not repeat normal Content D1 wiring by hand.
+
 Built on [Drizzle ORM](https://orm.drizzle.team/), [Drizzle Kit](https://orm.drizzle.team/docs/kit-overview), [libSQL](https://www.npmjs.com/package/%40libsql/client), and Cloudflare [D1](https://developers.cloudflare.com/d1/) bindings when deployed to Cloudflare.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

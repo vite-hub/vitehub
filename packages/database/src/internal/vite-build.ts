@@ -8,6 +8,7 @@ import { readProvisionedId, readProvisionStateSync } from "@vite-hub/internal/pr
 import { resolve } from "pathe"
 
 import { resolveConfigValue } from "../config-value.ts"
+import { resolveCloudflareD1Bindings } from "./cloudflare.ts"
 
 import type { ProvisionState } from "@vite-hub/internal/provision"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
@@ -45,20 +46,11 @@ interface GeneratedDBArtifacts {
   vercelServerFile: string
 }
 
-interface CloudflareDBBindingConfig {
-  binding: string
-  database_id: string
-  database_name?: string
-  migrations_dir?: string
-  migrations_table?: string
-  preview_database_id?: string
-}
-
 interface CloudflareDBConfig {
   assets?: { directory?: string, run_worker_first: string[] }
   compatibility_date: string
   compatibility_flags: string[]
-  d1_databases?: CloudflareDBBindingConfig[]
+  d1_databases?: ReturnType<typeof resolveCloudflareD1Bindings>["d1Databases"]
   main: string
   name?: string
   observability: { enabled: true }
@@ -174,23 +166,6 @@ function resolveDatabaseId(runtimeConfig: ResolvedDBViteConfig, name: string, pr
     ?? readProvisionedId(provisionState, "cloudflare", "d1", name)
 }
 
-function createCloudflareD1Bindings(runtimeConfig: ResolvedDBViteConfig, provisionState: ProvisionState) {
-  return runtimeConfig.databaseNames
-    .flatMap((name) => {
-      const database = runtimeConfig.databases[name]?.cloudflare
-      const databaseId = resolveDatabaseId(runtimeConfig, name, provisionState)
-      return database && databaseId ? [{ database, databaseId }] : []
-    })
-    .map(({ database, databaseId }) => ({
-      binding: database.binding,
-      database_name: resolveConfigValue(database.databaseName)!,
-      database_id: databaseId,
-      ...(database.migrationsDir ? { migrations_dir: database.migrationsDir } : {}),
-      ...(database.migrationsTable ? { migrations_table: database.migrationsTable } : {}),
-      ...(resolveConfigValue(database.previewDatabaseId) ? { preview_database_id: resolveConfigValue(database.previewDatabaseId) } : {}),
-    }))
-}
-
 function isRemoteLibsqlConnectionUrl(url: string | undefined) {
   return typeof url === "string" && /^(?:libsql:|https?:\/\/)/i.test(url)
 }
@@ -236,7 +211,7 @@ function createCloudflareOutput({ artifacts, provisionState, runtimeConfig }: Pr
     throw new Error(`[vitehub] Cloudflare output requires \`db.cloudflare.databaseId\` or a remote libSQL \`db.connection.url\` for databases: ${unsupportedDatabases.join(", ")}.`)
   }
 
-  const d1Databases = createCloudflareD1Bindings(runtimeConfig, provisionState)
+  const d1Databases = resolveCloudflareD1Bindings(runtimeConfig, { provisionState }).d1Databases
 
   const wranglerConfig: CloudflareDBConfig = {
     compatibility_date: defaultCloudflareCompatibilityDate,
