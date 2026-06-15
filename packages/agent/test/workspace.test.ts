@@ -34,6 +34,7 @@ const agentStream = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ ful
 
 vi.mock("ai", () => ({
   generateText,
+  jsonSchema: vi.fn(schema => schema),
   stepCountIs: vi.fn(count => ({ count })),
   ToolLoopAgent: class {
     constructor(public settings: Record<string, unknown>) {
@@ -1199,6 +1200,7 @@ describe("defineAgent workspace option", () => {
 
   it("derives DevTools metadata from workspace agents", async () => {
     const { createAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const model = { modelId: "openai/gpt-test", provider: "openai" }
     const agent = withWorkspaceAgentDefaults(defineAgent({
       workspace: {
         sources: {
@@ -1206,7 +1208,7 @@ describe("defineAgent workspace option", () => {
         },
       },
       instructions: "Answer from the workspace.",
-      model: {} as never,
+      model: model as never,
       title: "Support agent",
       version: "1.2.3",
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
@@ -1216,7 +1218,10 @@ describe("defineAgent workspace option", () => {
       config: {
         driver: {
           kind: "model",
-          model: {},
+          model: {
+            id: "openai/gpt-test",
+            provider: "openai",
+          },
         },
       },
       files: [{
@@ -1240,6 +1245,41 @@ describe("defineAgent workspace option", () => {
         }),
       ]),
     })
+  })
+
+  it("resolves dynamic model metadata for DevTools", async () => {
+    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const resolveModel = vi.fn((context: { invoker: { kind?: string } }) => ({
+      modelId: `test/${context.invoker.kind || "unknown"}`,
+      provider: "test",
+    }))
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      model: resolveModel as never,
+    }), { workspace: "support" })
+
+    expect(await resolveAgentDevtoolsMetadata(agent, {
+      input: {
+        context: {
+          invoker: {
+            id: "devtools",
+            kind: "devtools",
+          },
+        },
+      },
+    })).toMatchObject({
+      config: {
+        driver: {
+          kind: "model",
+          model: {
+            dynamic: true,
+            id: "test/devtools",
+            provider: "test",
+          },
+        },
+      },
+    })
+    expect(resolveModel).toHaveBeenCalledOnce()
   })
 
   it("marks dynamic DevTools instruction metadata without resolving it", async () => {
