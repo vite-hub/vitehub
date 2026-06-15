@@ -3,6 +3,8 @@ export type {
   AuthBetterAuthOptions,
   AuthBetterAuthRuntimeOptions,
   AuthAccessConfiguration,
+  AuthAccessRoute,
+  AuthAccessRouteConfiguration,
   AuthDatabaseConfiguration,
   AuthDatabaseReference,
   AuthDefinition,
