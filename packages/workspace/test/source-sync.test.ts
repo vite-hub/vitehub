@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineWorkspace, source, useWorkspace } from "../src/index.ts"
 import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/core/registry.ts"
+import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { registerWorkspace } from "../src/test.ts"
 
@@ -147,6 +148,36 @@ describe("Workspace Source Sync", () => {
 
     expect(result.sources[0]?.counts.removed).toBe(1)
     await expect(workspace.exists("docs/stale.md")).resolves.toBe(false)
+  })
+
+  it("prunes empty source directories from local stores", async () => {
+    const root = await createRoot()
+    const items = new Map([
+      ["stale/old.md", "# Stale\n"],
+    ])
+    registerWorkspace("local-stale-sync", defineWorkspace({
+      store: createLocalWorkspaceStore(root),
+      sources: {
+        docs: {
+          sync: { stale: "remove" },
+          async getKeys() {
+            return [...items.keys()]
+          },
+          async getItem(key: string) {
+            return { key, content: items.get(key) || "" }
+          },
+        },
+      },
+    }))
+
+    const workspace = await useRegisteredWorkspace("local-stale-sync")
+    await workspace.sync({ sources: ["docs"] })
+
+    items.clear()
+    const result = await workspace.sync({ sources: ["docs"] })
+
+    expect(result.sources[0]?.counts.removed).toBe(1)
+    await expect(workspace.exists("docs/stale")).resolves.toBe(false)
   })
 
   it("does not rewrite sync state for unchanged no-op source syncs", async () => {
