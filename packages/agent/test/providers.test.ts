@@ -415,7 +415,10 @@ describe("server helpers", () => {
       }),
       invoker: expect.objectContaining({
         id: "customer:demo:support",
-        meta: { customer: "demo" },
+        meta: expect.objectContaining({
+          customer: "demo",
+          email: "user@example.com",
+        }),
       }),
       messages: expect.arrayContaining([
         expect.objectContaining({

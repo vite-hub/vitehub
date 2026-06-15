@@ -169,6 +169,12 @@ export async function resolveAgentInvoker<
   const requestedInvoker = resolveInputAgentInvoker(input.context)
   const defaultInvoker = requestedInvoker || createFallbackAgentInvoker(run)
   const selectedProfile = selectAgentInvokerProfile(profiles, input.context)
+  const selectedInvoker = selectedProfile && defaultInvoker.meta
+    ? {
+        ...selectedProfile,
+        meta: { ...defaultInvoker.meta, ...selectedProfile.meta },
+      }
+    : selectedProfile
   const resolved = await normalizedOptions?.resolve?.({
     ...callbackContext,
     context: invocationContext,
@@ -178,7 +184,7 @@ export async function resolveAgentInvoker<
     ...(selectedProfile ? { selectedProfile } : {}),
   })
   const invoker = resolved === undefined || resolved === null
-    ? selectedProfile || defaultInvoker
+    ? selectedInvoker || defaultInvoker
     : normalizeAgentInvoker(resolved, "defineAgent({ invoker.resolve })")
 
   ensureAgentInvokerContext(invocationContext, invoker)
