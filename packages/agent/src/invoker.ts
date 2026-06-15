@@ -60,9 +60,11 @@ export function normalizeAgentInvoker(value: unknown, label = "Agent Invoker"): 
   }
 }
 
-export function normalizeAgentInvokerProfiles(
-  profiles: readonly AgentInvokerProfile[] | undefined,
-): AgentInvokerProfile[] {
+export function normalizeAgentInvokerProfiles<
+  TProfile extends AgentInvokerProfile = AgentInvokerProfile,
+>(
+  profiles: readonly TProfile[] | undefined,
+): TProfile[] {
   if (profiles === undefined) return []
   if (!Array.isArray(profiles)) {
     throw new TypeError("[vitehub] defineAgent({ invoker.profiles }) must be an ordered array.")
@@ -75,21 +77,22 @@ export function normalizeAgentInvokerProfiles(
       throw new Error(`[vitehub] Duplicate Agent Invoker Profile id "${normalized.id}" in one agent.`)
     }
     seen.add(normalized.id)
-    return normalized
+    return normalized as TProfile
   })
 }
 
 export function normalizeAgentInvokerOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  TProfile extends AgentInvokerProfile = AgentInvokerProfile,
 >(
-  options: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined,
-): AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined {
+  options: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TProfile> | undefined,
+): AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TProfile> | undefined {
   if (options === undefined) return undefined
   if (!isRecord(options)) {
     throw new TypeError("[vitehub] defineAgent({ invoker }) must be an object.")
   }
-  const invokerOptions = options as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS>
+  const invokerOptions = options as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TProfile>
   if (invokerOptions.resolve !== undefined && typeof invokerOptions.resolve !== "function") {
     throw new TypeError("[vitehub] defineAgent({ invoker.resolve }) must be a function.")
   }
@@ -138,10 +141,12 @@ function selectedProfileId(inputContext: object | undefined): string | undefined
   }
 }
 
-function selectAgentInvokerProfile(
-  profiles: readonly AgentInvokerProfile[],
+function selectAgentInvokerProfile<
+  TProfile extends AgentInvokerProfile,
+>(
+  profiles: readonly TProfile[],
   inputContext: object | undefined,
-): AgentInvokerProfile | undefined {
+): TProfile | undefined {
   if (!profiles.length) return undefined
 
   const requestedProfileId = selectedProfileId(inputContext)
@@ -157,8 +162,9 @@ function selectAgentInvokerProfile(
 export async function resolveAgentInvoker<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  TProfile extends AgentInvokerProfile = AgentInvokerProfile,
 >(
-  options: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  options: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TProfile> | undefined,
   callbackContext: AgentCallbackContext<TRuntimeConfig>,
   invocationContext: AgentInvocationContextStore,
   input: AgentRunInput<CALL_OPTIONS>,

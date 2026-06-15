@@ -64,32 +64,36 @@ export interface AgentInvocationContextStore {
   toJSON: () => Record<string, unknown>
 }
 
-export interface AgentInvoker {
+export type AgentInvokerMeta = Record<string, unknown>
+
+export interface AgentInvoker<TMeta extends AgentInvokerMeta = AgentInvokerMeta> {
   id: string
   kind?: "anonymous" | "chat" | "devtools" | (string & {})
   label?: string
-  meta?: Record<string, unknown>
+  meta?: TMeta
 }
 
-export type AgentInvokerProfile = AgentInvoker
+export type AgentInvokerProfile<TMeta extends AgentInvokerMeta = AgentInvokerMeta> = AgentInvoker<TMeta>
 
 export interface AgentInvokerResolveContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  TProfile extends AgentInvokerProfile = AgentInvokerProfile,
 > extends AgentCallbackContext<TRuntimeConfig> {
   context: AgentInvocationContextStore
   defaultInvoker: AgentInvoker
   input: AgentRunInput<CALL_OPTIONS>
-  profiles: readonly AgentInvokerProfile[]
-  selectedProfile?: AgentInvokerProfile
+  profiles: readonly TProfile[]
+  selectedProfile?: TProfile
 }
 
 export interface AgentInvokerOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  TProfile extends AgentInvokerProfile = AgentInvokerProfile,
 > {
-  profiles?: readonly AgentInvokerProfile[]
-  resolve?: (context: AgentInvokerResolveContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<AgentInvoker | null | undefined>
+  profiles?: readonly TProfile[]
+  resolve?: (context: AgentInvokerResolveContext<TRuntimeConfig, CALL_OPTIONS, TProfile>) => MaybePromise<AgentInvoker | null | undefined>
 }
 
 export interface AgentRunInput<
@@ -556,11 +560,12 @@ export type AgentDriver<
 type AgentSharedSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
 > = {
   capabilities?: AgentCapabilitiesList<TRuntimeConfig>
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig>
-  invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS>
+  invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>
   runtime?: AgentRuntimeBinding
   title?: string
   version?: string
@@ -570,7 +575,8 @@ type AgentSharedSettings<
 export type AgentSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS> & (
+  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+> = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> & (
   | {
     driver: AgentDriver<TRuntimeConfig, CALL_OPTIONS>
     instructions?: never
@@ -597,12 +603,13 @@ export type AgentSettings<
 export interface AgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
 > {
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS>
-  invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS>
+  invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>
   runtime?: AgentRuntimeBinding
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>

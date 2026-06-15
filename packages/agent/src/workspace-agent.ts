@@ -20,6 +20,7 @@ import type {
   AgentDevtoolsMetadata,
   AgentDevtoolsToolDefinition,
   AgentInvocationContextStore,
+  AgentInvokerProfile,
   AgentInput,
   AgentInstructionBlock,
   AgentRunInput,
@@ -51,7 +52,9 @@ type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapability
 export type WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   _Name extends WorkspaceName = WorkspaceName,
-> = AgentSettings<TRuntimeConfig> & {
+  CALL_OPTIONS = unknown,
+  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+> = AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> & {
   name?: string
   workspace: WorkspaceAgentWorkspaceConfig
 }
@@ -59,10 +62,12 @@ export type WorkspaceAgentOptions<
 export type WorkspaceAgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-> = AgentDefinition<TRuntimeConfig> & WorkspaceAgentWorkspaceOptions & {
+  CALL_OPTIONS = unknown,
+  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+> = AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> & WorkspaceAgentWorkspaceOptions & {
   __vitehubWorkspaceAgent: true
   __vitehubWorkspaceAgentDefaults?: WorkspaceAgentDefaults<Name>
-  __vitehubWorkspaceAgentOptions: WorkspaceAgentOptions<TRuntimeConfig, Name>
+  __vitehubWorkspaceAgentOptions: WorkspaceAgentOptions<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile>
 }
 
 export interface WorkspaceAgentDefaults<Name extends WorkspaceName = WorkspaceName> {

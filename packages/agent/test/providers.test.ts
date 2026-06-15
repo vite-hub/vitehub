@@ -292,10 +292,12 @@ describe("agent Vite plugin", () => {
       const chatRoute = await readFile(join(root, ".vitehub/agent/chat-route.ts"), "utf8")
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
-      expect(chatRoute).toContain("async function toRequest(event)")
+      expect(chatRoute).toContain("function toRequest(event)")
       expect(chatRoute).toContain("function waitUntilFromEvent(event)")
       expect(chatRoute).toContain("function cloudflareFromEvent(event)")
-      expect(chatRoute).toContain("return await handler(await toRequest(event), { cloudflare, waitUntil: waitUntilFromEvent(event) })")
+      expect(chatRoute).toContain("const request = toRequest(event)")
+      expect(chatRoute).toContain("const body = await readValidatedBody(event, validateAgentChatRouteBody)")
+      expect(chatRoute).toContain("return await runAgentChatRoute(definition, body, { cloudflare, request, waitUntil: waitUntilFromEvent(event) })")
       expect(webhookRoute).toContain("import { createCloudflareAgentState } from '@vite-hub/agent/cloudflare'")
       expect(webhookRoute).toContain("async function toRequest(event)")
       expect(webhookRoute).toContain("function waitUntilFromEvent(event)")
@@ -319,19 +321,24 @@ describe("agent Vite plugin", () => {
 })
 
 describe("server helpers", () => {
-  it("rejects chat route requests without messages", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentChatFetchHandler } = await import("../src/server.ts")
-    const handler = defineAgentChatFetchHandler(defineAgent({ run: () => "unused" }) as never)
+  it("validates chat route requests require messages", async () => {
+    const { validateAgentChatRouteBody } = await import("../src/server.ts")
 
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
-      body: JSON.stringify({}),
-      method: "POST",
-    }))
+    expect(() => validateAgentChatRouteBody({})).toThrow("Agent chat route requires messages.")
+  })
+
+  it("returns bad request from chat routes without messages", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentChatRoute } = await import("../src/server.ts")
+
+    const response = await runAgentChatRoute(defineAgent({ run: () => "unused" }) as never, {} as never, {
+      request: new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        method: "POST",
+      }),
+    })
 
     await expect(response.json()).resolves.toMatchObject({
-      message: "Agent chat route requires messages.",
-      status: 400,
+      error: "Agent chat route requires messages.",
     })
     expect(response.status).toBe(400)
   })
@@ -339,7 +346,7 @@ describe("server helpers", () => {
   it("preserves AI SDK chat route context for follow-up messages", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { defineAgentChatFetchHandler } = await import("../src/server.ts")
+    const { runAgentChatRoute } = await import("../src/server.ts")
     const run = vi.fn(() => ({ text: "ok" }))
     const agent = defineAgent({
       capabilities: [chat()],
@@ -352,42 +359,42 @@ describe("server helpers", () => {
       },
       run,
     })
-    const handler = defineAgentChatFetchHandler(agent as never)
 
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
-      body: JSON.stringify({
-        id: "portal-chat-1",
-        invokerProfileId: "customer:demo:support",
-        messageId: "user-2",
-        meta: { customer: "demo", email: "user@example.com" },
-        messages: [
-          {
-            id: "user-1",
-            metadata: { quiver: { customer: "demo" } },
-            parts: [{ text: "first", type: "text" }],
-            role: "user",
-          },
-          {
-            id: "assistant-1",
-            parts: [
-              { data: { title: "Forecasting", type: "chat-title" }, type: "data-chat-title" },
-              { state: "done", text: "previous answer", type: "text" },
-            ],
-            role: "assistant",
-          },
-          {
-            id: "user-2",
-            metadata: { quiver: { customer: "demo" } },
-            parts: [{ text: "second", type: "text" }],
-            role: "user",
-          },
-        ],
-        run: { origin: "portal" },
-        trigger: "submit-message",
-        user: { email: "user@example.com", id: "user-1" },
+    const response = await runAgentChatRoute(agent as never, {
+      id: "portal-chat-1",
+      invokerProfileId: "customer:demo:support",
+      messageId: "user-2",
+      meta: { customer: "demo", email: "user@example.com" },
+      messages: [
+        {
+          id: "user-1",
+          metadata: { quiver: { customer: "demo" } },
+          parts: [{ text: "first", type: "text" }],
+          role: "user",
+        },
+        {
+          id: "assistant-1",
+          parts: [
+            { data: { title: "Forecasting", type: "chat-title" }, type: "data-chat-title" },
+            { state: "done", text: "previous answer", type: "text" },
+          ],
+          role: "assistant",
+        },
+        {
+          id: "user-2",
+          metadata: { quiver: { customer: "demo" } },
+          parts: [{ text: "second", type: "text" }],
+          role: "user",
+        },
+      ],
+      run: { origin: "portal" },
+      trigger: "submit-message",
+      user: { email: "user@example.com", id: "user-1" },
+    }, {
+      request: new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        method: "POST",
       }),
-      method: "POST",
-    }))
+    })
 
     expect(response.status).toBe(200)
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
@@ -442,10 +449,10 @@ describe("server helpers", () => {
     }))
   })
 
-  it("lets chat routes prepare trusted body metadata before invoking the trigger", async () => {
+  it("lets chat routes pass trusted body metadata before invoking the trigger", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { defineAgentChatFetchHandler } = await import("../src/server.ts")
+    const { runAgentChatRoute } = await import("../src/server.ts")
     const run = vi.fn(() => ({ text: "ok" }))
     const agent = defineAgent({
       capabilities: [chat()],
@@ -458,31 +465,27 @@ describe("server helpers", () => {
       },
       run,
     })
-    const handler = defineAgentChatFetchHandler(agent as never)
+    const body = {
+      id: "portal-chat-1",
+      invokerProfileId: "customer:demo:support",
+      meta: { email: "user@example.com" },
+      messages: [
+        {
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        },
+      ],
+    }
 
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
-      body: JSON.stringify({
-        id: "portal-chat-1",
-        invokerProfileId: "customer:demo:support",
-        meta: { email: "user@example.com" },
-        messages: [
-          {
-            id: "user-1",
-            parts: [{ text: "hello", type: "text" }],
-            role: "user",
-          },
-        ],
+    const response = await runAgentChatRoute(agent as never, {
+      ...body,
+      run: { origin: "portal" },
+      user: { email: body.meta.email },
+    }, {
+      request: new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        method: "POST",
       }),
-      method: "POST",
-    }), {
-      prepare({ body }) {
-        const meta = body.meta as Record<string, unknown> | undefined
-        return {
-          ...body,
-          run: { origin: "portal" },
-          user: { email: String(meta?.email || "") },
-        }
-      },
     })
 
     expect(response.status).toBe(200)
@@ -508,26 +511,26 @@ describe("server helpers", () => {
   it("returns JSON from chat routes when stream is false", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { defineAgentChatFetchHandler } = await import("../src/server.ts")
+    const { runAgentChatRoute } = await import("../src/server.ts")
     const agent = defineAgent({
       capabilities: [chat()],
       run: () => ({ raw: { id: "raw-1" }, text: "ok", usage: { totalTokens: 1 } }),
     })
-    const handler = defineAgentChatFetchHandler(agent as never)
 
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
-      body: JSON.stringify({
-        messages: [
-          {
-            id: "user-1",
-            parts: [{ text: "hello", type: "text" }],
-            role: "user",
-          },
-        ],
-        stream: false,
+    const response = await runAgentChatRoute(agent as never, {
+      messages: [
+        {
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        },
+      ],
+      stream: false,
+    }, {
+      request: new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        method: "POST",
       }),
-      method: "POST",
-    }))
+    })
 
     expect(response.status).toBe(200)
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBeNull()

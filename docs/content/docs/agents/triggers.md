@@ -53,26 +53,30 @@ Trusted chat surfaces can pass app-owned metadata through the trigger input `met
 Generated Chat App Route request bodies are client-controlled unless the host authenticates them first. When email affects access or rate limits, populate `user` and `meta` from server-owned auth state, not from untrusted browser input.
 
 ```ts [server/api/support-chat.post.ts]
+import { runAgentChatRoute, validateAgentChatRouteBody } from '@vite-hub/agent/server'
+import { readValidatedBody } from 'h3'
+import support from '../agents/support'
+
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ messages: unknown[] }>(event)
+  const request = event.req.clone()
+  const body = await readValidatedBody(event, validateAgentChatRouteBody)
   const authenticatedUser = await requireAuthenticatedUser(event)
 
-  return $fetch('/api/_vitehub/agents/support/chat', {
-    method: 'POST',
-    body: {
-      messages: body.messages,
-      user: { email: authenticatedUser.email },
-      meta: {
-        customer: authenticatedUser.customer,
-        email: authenticatedUser.email,
-      },
-      run: { origin: 'portal' },
+  return runAgentChatRoute(support, {
+    ...body,
+    user: { email: authenticatedUser.email },
+    meta: {
+      customer: authenticatedUser.customer,
+      email: authenticatedUser.email,
     },
+    run: { ...body.run, origin: 'portal' },
+  }, {
+    request,
   })
 })
 ```
 
-When you own the route directly, `defineAgentChatFetchHandler(agent)` accepts a `prepare` option for the same server-side derivation before ViteHub runs the `chat.message` trigger.
+`validateAgentChatRouteBody` validates the Chat App Route transport body. Keep auth, rate limits, and trusted metadata derivation in the route before ViteHub runs the `chat.message` trigger.
 
 ## Schedule trigger
 

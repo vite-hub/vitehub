@@ -8,6 +8,7 @@ import type {
   AgentCapabilityDefinition,
   AgentCapabilityRuntimeContext,
   AgentCapabilityTypeContract,
+  AgentInvoker,
   AgentRunInput,
   AgentRuntimeConfig,
   AgentWebhookRegistrationDefinition,
@@ -97,11 +98,17 @@ export type AccessWorkspaceScopeSelectionInput<TSourceName extends string = stri
   | string
   | AccessWorkspaceScopeSelection<TSourceName>
 
+type AccessInputContextInvoker<TInputContext extends object> =
+  TInputContext extends { invoker?: infer TInvoker }
+    ? Extract<TInvoker, AgentInvoker> extends never ? AgentInvoker : Extract<TInvoker, AgentInvoker>
+    : AgentInvoker
+
 export type AccessWorkspaceResolverContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   TInputContext extends object = Record<string, unknown>,
-> = Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, "input"> & {
+> = Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, "input" | "invoker"> & {
+  invoker: AccessInputContextInvoker<TInputContext>
   input: Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>["input"], "get"> & {
     get: () => AgentRunInput<unknown, TInputContext>
   }

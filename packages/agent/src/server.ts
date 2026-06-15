@@ -26,7 +26,6 @@ import type {
   AgentRuntimeName,
   AgentWaitUntil,
   AgentWebhookRegistrationDefinition,
-  MaybePromise,
   MaybeResolvable,
 } from "./types.ts"
 import type { AccessChatIdentity } from "./capabilities/access.ts"
@@ -51,20 +50,16 @@ export type AgentChatRouteBody = Omit<AgentChatMessageTriggerInput, "run"> & {
   trigger?: string
 }
 
-export interface AgentChatFetchPrepareContext {
-  body: AgentChatRouteBody
-  request: Request
-}
-
-export type AgentChatFetchPrepareResult = AgentChatRouteBody | Response | undefined | void
-
-export interface AgentChatFetchOptions {
+interface AgentRouteRuntimeOptions {
   cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"]
-  prepare?: (context: AgentChatFetchPrepareContext) => MaybePromise<AgentChatFetchPrepareResult>
   waitUntil?: AgentWaitUntil
 }
 
-export interface AgentChatWebhookFetchOptions extends AgentChatFetchOptions {
+export interface AgentChatRouteOptions extends AgentRouteRuntimeOptions {
+  request: Request
+}
+
+export interface AgentChatWebhookFetchOptions extends AgentRouteRuntimeOptions {
   agentName?: string
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
 }
@@ -91,9 +86,15 @@ interface ChatTypingRefresh {
   stop(): void
 }
 
-async function readJsonBody(request: Request): Promise<AgentChatRouteBody> {
-  const body = await request.json().catch(() => undefined)
-  return typeof body === "object" && body !== null ? body as AgentChatRouteBody : { messages: [] }
+function createRouteBodyError(message: string): Error & { status?: number, statusCode?: number } {
+  return Object.assign(new Error(message), { status: 400, statusCode: 400 })
+}
+
+export function validateAgentChatRouteBody(body: unknown): AgentChatRouteBody {
+  if (typeof body !== "object" || body === null || !Array.isArray((body as AgentChatRouteBody).messages) || (body as AgentChatRouteBody).messages.length === 0) {
+    throw createRouteBodyError("Agent chat route requires messages.")
+  }
+  return body as AgentChatRouteBody
 }
 
 function chatAppRouteTriggerInput(body: AgentChatRouteBody): AgentChatMessageTriggerInput {
@@ -1014,43 +1015,34 @@ async function createChatWebhookHandler(
   return handler
 }
 
-export function defineAgentChatFetchHandler(
+export async function runAgentChatRoute(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
-): (request: Request, options?: AgentChatFetchOptions) => Promise<Response> {
-  return async (request, handlerOptions = {}) => {
-    let body = await readJsonBody(request.clone())
-    const prepared = await handlerOptions.prepare?.({ body, request })
-    if (prepared instanceof Response) return prepared
-    if (prepared !== undefined) body = prepared
+  body: AgentChatRouteBody,
+  options: AgentChatRouteOptions,
+): Promise<Response> {
+  const context = createRuntimeContext(
+    options.request,
+    undefined,
+    await resolveRuntimeWaitUntil(options.waitUntil),
+    options.cloudflare,
+  )
+  return await runWithRuntimeCloudflareEnv(context, async () => {
+    try {
+      const input = chatAppRouteTriggerInput(validateAgentChatRouteBody(body))
+      if (body.stream === false) {
+        const result = await runAgentTrigger(agent as never, context, "chat.message", input)
+        return Response.json(toJsonSafeResult(result))
+      }
 
-    if (!Array.isArray(body.messages) || body.messages.length === 0) {
-      return createBadRequest("Agent chat route requires messages.")
+      const result = await streamAgentTrigger(agent as never, context, "chat.message", input, { output: "ui-message-stream" })
+      return await toUiMessageStreamResponse(readableStreamFromResult(result))
     }
-
-    const context = createRuntimeContext(
-      request,
-      undefined,
-      await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
-      handlerOptions.cloudflare,
-    )
-    return await runWithRuntimeCloudflareEnv(context, async () => {
-      try {
-        const input = chatAppRouteTriggerInput(body)
-        if (body.stream === false) {
-          const result = await runAgentTrigger(agent as never, context, "chat.message", input)
-          return Response.json(toJsonSafeResult(result))
-        }
-
-        const result = await streamAgentTrigger(agent as never, context, "chat.message", input, { output: "ui-message-stream" })
-        return await toUiMessageStreamResponse(readableStreamFromResult(result))
-      }
-      catch (error) {
-        const response = toHttpErrorResponse(error)
-        if (response) return response
-        throw error
-      }
-    })
-  }
+    catch (error) {
+      const response = toHttpErrorResponse(error)
+      if (response) return response
+      throw error
+    }
+  })
 }
 
 export function defineAgentChatWebhookFetchHandler(
