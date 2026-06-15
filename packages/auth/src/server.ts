@@ -7,6 +7,7 @@ import type {
   AuthBetterAuthRuntimeOptions,
   AuthDefinition,
   AuthDefinitionOptions,
+  AuthRequest,
   AuthRuntimeOptions,
   ViteHubAuth,
 } from "./types.ts"
@@ -15,13 +16,31 @@ function hasRuntimeOptions(options: AuthRuntimeOptions | undefined): boolean {
   return Boolean(options && Object.keys(options).length > 0)
 }
 
+interface RequestInitWithDuplex extends RequestInit {
+  duplex?: "half"
+}
+
 function hasTrustedOrigins(options: object): boolean {
   return "trustedOrigins" in options
 }
 
+function toRequest(request: AuthRequest): Request {
+  if (request instanceof Request) return request
+  const init: RequestInitWithDuplex = {
+    headers: request.headers,
+    method: request.method,
+    signal: request.signal,
+  }
+  if (request.body) {
+    init.body = request.body
+    init.duplex = "half"
+  }
+  return new Request(request.url, init)
+}
+
 export function createAuthRequestRuntimeOptions(
   definition: AuthDefinition,
-  request: Request,
+  request: Pick<Request, "url">,
   runtimeOptions: AuthRuntimeOptions = {},
 ): AuthRuntimeOptions {
   const baseURL = runtimeOptions.baseURL || new URL(request.url).origin
@@ -81,10 +100,18 @@ export function createAuth<const TOptions extends AuthDefinitionOptions>(
 
 export function createAuthForRequest<const TOptions extends AuthDefinitionOptions>(
   definition: AuthDefinition<TOptions>,
-  request: Request,
+  request: Pick<Request, "url">,
   runtimeOptions?: AuthRuntimeOptions,
 ): ViteHubAuth<AuthBetterAuthRuntimeOptions<TOptions>> {
   return createAuth(definition, createAuthRequestRuntimeOptions(definition, request, runtimeOptions))
+}
+
+export function handleAuthRequest<const TOptions extends AuthDefinitionOptions>(
+  definition: AuthDefinition<TOptions>,
+  request: AuthRequest,
+  runtimeOptions?: AuthRuntimeOptions,
+): Promise<Response> {
+  return createAuthForRequest(definition, request, runtimeOptions).handler(toRequest(request))
 }
 
 export function createAuthHandler<const TOptions extends AuthDefinitionOptions>(

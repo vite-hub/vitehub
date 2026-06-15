@@ -47,13 +47,13 @@ export default auth.handler
 For host routes that need runtime secrets or request-derived origins, create the request-scoped Auth instance at the mount point.
 
 ```ts
-import { createAuthForRequest } from "@vite-hub/auth/server"
+import { handleAuthRequest } from "@vite-hub/auth/server"
 import authDefinition from "../../auth"
 
 export default async function handleAuth(request: Request) {
-  return createAuthForRequest(authDefinition, request, {
+  return handleAuthRequest(authDefinition, request, {
     secret: process.env.BETTER_AUTH_SECRET,
-  }).handler(request)
+  })
 }
 ```
 

@@ -7,6 +7,7 @@ export type {
   AuthDefinition,
   AuthDefinitionOptions,
   AuthModuleOptions,
+  AuthRequest,
   AuthReservedOption,
   AuthRuntimeOnlyOptions,
   AuthRuntimeOption,

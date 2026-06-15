@@ -12,10 +12,11 @@ import {
   defineAuth,
   type AuthDefinition,
   type AuthModuleOptions,
+  type AuthRequest,
   type AuthReservedOption,
   type ResolvedAuthDatabaseConfiguration,
 } from "../src/index.ts"
-import { auth, createAuthForRequest } from "../src/server.ts"
+import { auth, createAuthForRequest, handleAuthRequest } from "../src/server.ts"
 import { hubAuth } from "../src/vite.ts"
 
 import type { AgentInvokerOptions, AgentRuntimeConfig } from "@vite-hub/agent"
@@ -55,6 +56,17 @@ describe("types", () => {
       trustedOrigins: ["https://app.example.com"],
     })
     expectTypeOf(runtimeAuth.handler).parameters.toEqualTypeOf<[Request]>()
+
+    const request = new Request("https://app.example.com/api/auth")
+    const h3LikeRequest = {
+      body: request.body,
+      headers: request.headers,
+      method: request.method,
+      signal: request.signal,
+      url: request.url,
+    } satisfies AuthRequest
+
+    expectTypeOf(handleAuthRequest(defineAuth({ appName: "ViteHub" }), h3LikeRequest)).toEqualTypeOf<Promise<Response>>()
   })
 
   it("exposes the authenticated Agent Invoker helper", () => {

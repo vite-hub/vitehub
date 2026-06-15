@@ -61,5 +61,6 @@ export interface ResolvedAuthViteConfig {
 export type AuthRuntimeOptions = Partial<Omit<BetterAuthOptions, "basePath">>
 export type AuthBetterAuthRuntimeOptions<TOptions extends AuthDefinitionOptions = AuthDefinitionOptions> =
   Omit<TOptions, AuthRuntimeOption | "database" | "route" | "secondaryStorage"> & AuthRuntimeOptions & BetterAuthOptions
+export type AuthRequest = Pick<Request, "body" | "headers" | "method" | "signal" | "url">
 export type ViteHubAuth<Options extends BetterAuthOptions = BetterAuthOptions> = Auth<Options>
 export type AuthModuleOptions = false | Record<string, never>

@@ -60,13 +60,13 @@ export default auth.handler
 If runtime auth values depend on the current request or server environment, derive them at the mount point.
 
 ```ts [server/api/auth/[...].ts]
-import { createAuthForRequest } from '@vite-hub/auth/server'
+import { handleAuthRequest } from '@vite-hub/auth/server'
 import authDefinition from '../../auth'
 
 export default async function handleAuth(request: Request) {
-  return createAuthForRequest(authDefinition, request, {
+  return handleAuthRequest(authDefinition, request, {
     secret: process.env.BETTER_AUTH_SECRET,
-  }).handler(request)
+  })
 }
 ```
 
