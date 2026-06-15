@@ -18,7 +18,6 @@ import { resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/eva
 
 import type { Plugin, ResolvedConfig } from "vite"
 import type { CloudflareAgentStateMigration, CloudflareAgentStateRollupTarget, CloudflareAgentStateTarget } from "./cloudflare.ts"
-import type { ChatDevToolsOptions } from "./chat/devtools.ts"
 import type { AgentModuleOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "./types.ts"
 
 interface AgentCliContributingPlugin {
@@ -134,12 +133,6 @@ function agentDevtoolsEnabled(agent: AgentModuleOptions | false | undefined): bo
   return agent !== false && agent?.devtools !== false
 }
 
-function agentDevtoolsMeta(agent: AgentModuleOptions | false | undefined): ChatDevToolsOptions["meta"] {
-  return agent && isRecord(agent.devtools) && isRecord(agent.devtools.meta) && !Array.isArray(agent.devtools.meta)
-    ? { ...agent.devtools.meta }
-    : undefined
-}
-
 function normalizeNitroRoute(route: string): string {
   const normalized = route.startsWith("/") ? route : `/${route}`
   return normalized.replace(/\[([^\]]+)\]/g, ":$1")
@@ -210,19 +203,22 @@ function generateAgentRouteHandler(definitions: DiscoveredAgentDefinition[], han
 
   return [
     "import { withWorkspaceAgentDefaults } from '@vite-hub/agent'",
-    "import { runAgentChatRoute, validateAgentChatRouteBody } from '@vite-hub/agent/server'",
+    "import { defineAgentChatFetchHandler } from '@vite-hub/agent/server'",
     "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/internal/runtime/state'",
-    "import { createError, defineEventHandler, getRequestHeaders, getRequestURL, getRouterParam, readValidatedBody } from 'h3'",
+    "import { createError, defineEventHandler, getRequestHeaders, getRequestURL, getRouterParam, readRawBody } from 'h3'",
     imports,
     "",
     "function resolveAgentModule(module) {",
     "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
     "}",
     "",
-    "function toRequest(event) {",
-    "  const request = event.req instanceof Request ? event.req : event.request instanceof Request ? event.request : undefined",
-    "  if (request) return request.clone()",
+    "async function toRequest(event) {",
+    "  if (event.request instanceof Request) {",
+    "    return event.request",
+    "  }",
+    "  const body = await readRawBody(event)",
     "  return new Request(getRequestURL(event), {",
+    "    body: body || undefined,",
     "    headers: getRequestHeaders(event),",
     "    method: event.method || 'POST',",
     "  })",
@@ -233,17 +229,16 @@ function generateAgentRouteHandler(definitions: DiscoveredAgentDefinition[], han
     `setWorkspaceRuntimeRegistry({${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}})`,
     "",
     `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
+    "const handlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, defineAgentChatFetchHandler(agent)]))",
     "",
     "export default defineEventHandler(async (event) => {",
     "  const agent = getRouterParam(event, 'agent')",
-    "  const definition = agent ? agents[agent] : undefined",
-    "  if (!definition) {",
+    "  const handler = agent ? handlers[agent] : undefined",
+    "  if (!handler) {",
     "    throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
     "  }",
-    "  const request = toRequest(event)",
-    "  const body = await readValidatedBody(event, validateAgentChatRouteBody)",
     "  const cloudflare = cloudflareFromEvent(event)",
-    "  return await runAgentChatRoute(definition, body, { cloudflare, request, waitUntil: waitUntilFromEvent(event) })",
+    "  return await handler(await toRequest(event), { cloudflare, waitUntil: waitUntilFromEvent(event) })",
     "})",
     "",
   ].join("\n")
@@ -339,19 +334,20 @@ async function writeAgentWebhookRouteHandler(root: string, options: { cloudflare
 export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   let agent: AgentModuleOptions | false | undefined = options
   let resolved: ResolvedConfig | undefined
+  const chatDevtoolsPlugin = chatDevTools()
 
   return {
     name: "@vite-hub/agent/vite",
     devtools: {
       setup(ctx) {
         if (agentDevtoolsEnabled(agent)) {
-          return chatDevTools({ meta: agentDevtoolsMeta(agent) }).devtools?.setup?.(ctx)
+          return chatDevtoolsPlugin.devtools?.setup?.(ctx)
         }
       },
     },
     configureServer(server) {
       if (agentDevtoolsEnabled(agent)) {
-        registerChatDevtoolsBridge(server, { meta: agentDevtoolsMeta(agent) })
+        registerChatDevtoolsBridge(server)
       }
     },
     vitehub: {

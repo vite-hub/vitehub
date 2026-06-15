@@ -44,31 +44,6 @@ import {
 | Routing and gates | `llmRoute()`, `llmGate()` | A pre-invocation model decision should select a route or reject input. |
 | Rate limiting | `rateLimit()` | A trusted invocation budget should be checked before model execution. |
 
-## Access
-
-`access()` resolves trusted invocation access before Workspace-reading tools are exposed. Workspace scopes can include `instructions` when the selected scope should also contribute explicit model-facing guidance:
-
-```ts
-const technicalEmails = new Set(['support-engineer@example.com'])
-
-access({
-  workspace: {
-    resolve({ invoker }) {
-      const email = String(invoker.meta?.email || '').toLowerCase()
-      return technicalEmails.has(email)
-        ? { instructions: 'Use technical support detail.', role: 'admin', scope: 'support' }
-        : { instructions: 'Use customer support detail.', role: 'viewer', scope: 'customer' }
-    },
-    scopes: {
-      customer: { paths: ['customers/acme'] },
-      support: { all: true },
-    },
-  },
-})
-```
-
-Render those instructions with `{{ capabilities.access.workspace }}`. Scope grants and roles still enforce access; instructions only guide model behavior.
-
 ## Storage capabilities
 
 Storage Capabilities are intentionally small. KV and Blob expose read/edit surfaces instead of every primitive method. Database exposes database-native schema, query, and execute tools with guardrails.

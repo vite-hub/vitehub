@@ -15,30 +15,19 @@ import {
   normalizeAgentInvokerProfiles,
   resolveAgentInvoker,
 } from "./invoker.ts"
-import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 
 import type {
-  AgentAdapterMetadataContext,
   AgentAdapterInstructions,
   AgentCapabilityDefinition,
   AgentCapabilityMode,
   AgentDefinition,
-  AgentDevtoolsConfigMetadata,
-  AgentDevtoolsConfigValue,
-  AgentDevtoolsDriverMetadata,
   AgentDevtoolsFileTreeItem,
-  AgentDevtoolsHarnessMetadata,
   AgentDevtoolsMetadata,
-  AgentDevtoolsModelExecutionMetadata,
-  AgentDevtoolsModelMetadata,
   AgentDevtoolsToolDefinition,
   AgentInvocationContextStore,
-  AgentInvokerProfile,
   AgentInput,
   AgentInstructionBlock,
-  AgentModelInput,
-  AgentModelResolver,
   AgentRunInput,
   AgentRuntimeConfig,
   AgentRuntimeContext,
@@ -68,9 +57,7 @@ type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapability
 export type WorkspaceAgentOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   _Name extends WorkspaceName = WorkspaceName,
-  CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-> = AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> & {
+> = AgentSettings<TRuntimeConfig> & {
   name?: string
   workspace: WorkspaceAgentWorkspaceConfig
 }
@@ -78,11 +65,10 @@ export type WorkspaceAgentOptions<
 export type WorkspaceAgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
-  CALL_OPTIONS = unknown,
-> = AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & WorkspaceAgentWorkspaceOptions & {
+> = AgentDefinition<TRuntimeConfig> & WorkspaceAgentWorkspaceOptions & {
   __vitehubWorkspaceAgent: true
   __vitehubWorkspaceAgentDefaults?: WorkspaceAgentDefaults<Name>
-  __vitehubWorkspaceAgentOptions: WorkspaceAgentOptions<TRuntimeConfig, Name, CALL_OPTIONS>
+  __vitehubWorkspaceAgentOptions: WorkspaceAgentOptions<TRuntimeConfig, Name>
 }
 
 export interface WorkspaceAgentDefaults<Name extends WorkspaceName = WorkspaceName> {
@@ -218,205 +204,16 @@ function capabilityMetadataTool(capability: NormalizedCapability): AgentDevtools
     : undefined
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-}
-
-function agentSettings<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
->(definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>): AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined {
-  return (definition as { __vitehubAgentSettings?: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> }).__vitehubAgentSettings
-}
-
-function stringField(record: Record<string, unknown>, keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = record[key]
-    if (typeof value === "string" && value.trim()) return value.trim()
-  }
-}
-
-function modelProviderFromId(id: string | undefined): string | undefined {
-  const provider = id?.split("/", 1)[0]?.trim()
-  return provider && provider !== id ? provider : undefined
-}
-
-function modelMetadata(model: AgentModelInput, dynamic = false): AgentDevtoolsModelMetadata {
-  const record = isRecord(model) ? model : undefined
-  const id = record ? stringField(record, ["modelId", "id", "model", "name"]) : undefined
-  const provider = record ? stringField(record, ["provider", "providerId"]) || modelProviderFromId(id) : undefined
-  return {
-    ...(dynamic ? { dynamic: true } : {}),
-    ...(id ? { id } : {}),
-    ...(provider ? { provider } : {}),
-  }
-}
-
-function configValue(value: unknown): AgentDevtoolsConfigValue | undefined {
-  if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") {
-    return value
-  }
-}
-
-function redactedConfigValue(key: string, value: unknown): AgentDevtoolsConfigValue | undefined {
-  if (/(?:api[-_]?key|authorization|credential|password|secret|token)/i.test(key)) {
-    return "[redacted]"
-  }
-  return configValue(value)
-}
-
-function callSettingsMetadata(value: unknown): Record<string, AgentDevtoolsConfigValue> | undefined {
-  if (!isRecord(value)) return
-  const entries = Object.entries(value)
-    .flatMap(([key, setting]) => {
-      const metadataValue = redactedConfigValue(key, setting)
-      return metadataValue === undefined ? [] : [[key, metadataValue] as const]
-    })
-  return entries.length ? Object.fromEntries(entries) : undefined
-}
-
-function workspaceFallbackMetadata(
-  value: AgentDevtoolsModelExecutionMetadata["workspaceFallback"] | boolean | undefined,
-): AgentDevtoolsModelExecutionMetadata["workspaceFallback"] | undefined {
-  if (typeof value === "boolean") return { enabled: value }
-  if (!isRecord(value)) return
-  const enabled = typeof value.enabled === "boolean" ? value.enabled : undefined
-  const maxToolResults = typeof value.maxToolResults === "number" ? value.maxToolResults : undefined
-  return enabled !== undefined || maxToolResults !== undefined
-    ? {
-        ...(enabled !== undefined ? { enabled } : {}),
-        ...(maxToolResults !== undefined ? { maxToolResults } : {}),
-      }
-    : undefined
-}
-
-function executionMetadata(value: AgentDevtoolsDriverMetadata["execution"] | undefined): AgentDevtoolsModelExecutionMetadata | undefined {
-  if (!value) return
-  const callSettings = callSettingsMetadata(value.callSettings)
-  const workspaceFallback = workspaceFallbackMetadata(value.workspaceFallback)
-  const stepLimit = typeof value.stepLimit === "number" ? value.stepLimit : undefined
-  return callSettings || workspaceFallback || stepLimit !== undefined
-    ? {
-        ...(callSettings ? { callSettings } : {}),
-        ...(stepLimit !== undefined ? { stepLimit } : {}),
-        ...(workspaceFallback ? { workspaceFallback } : {}),
-      }
-    : undefined
-}
-
-function harnessMetadata(driver: { credentials?: unknown, harness: unknown, sandbox?: unknown, sessionKey?: unknown }): AgentDevtoolsHarnessMetadata | undefined {
-  const harness = isRecord(driver.harness) ? driver.harness : undefined
-  const provider = harness ? stringField(harness, ["provider", "name"]) : undefined
-  const credentials = isRecord(driver.credentials)
-    ? {
-        ...(typeof driver.credentials.label === "string" && driver.credentials.label ? { label: driver.credentials.label } : {}),
-        ...(typeof driver.credentials.source === "string" && driver.credentials.source ? { source: driver.credentials.source } : {}),
-      }
-    : undefined
-  return provider || credentials || driver.sandbox || driver.sessionKey
-    ? {
-        ...(credentials && Object.keys(credentials).length ? { credentials } : {}),
-        ...(provider ? { provider } : {}),
-        ...(driver.sandbox ? { sandbox: true } : {}),
-        ...(driver.sessionKey ? { sessionKey: true } : {}),
-      }
-    : undefined
-}
-
-function staticDriverMetadata<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
->(settings: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined): AgentDevtoolsDriverMetadata | undefined {
-  if (!settings) return
-  const driver = normalizeAgentDriver(settings)
-  if (driver.kind === "model") {
-    return {
-      ...(driver.execution ? { execution: executionMetadata(driver.execution as never) } : {}),
-      kind: "model",
-      model: modelMetadata(typeof driver.model === "function" ? undefined : driver.model, typeof driver.model === "function"),
-    }
-  }
-  if (driver.kind === "harness") {
-    return {
-      ...(harnessMetadata(driver) ? { harness: harnessMetadata(driver) } : {}),
-      kind: "harness",
-    }
-  }
-  return { kind: "run" }
-}
-
-async function resolvedDriverMetadata<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
-  CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
->(
-  settings: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined,
-  context: AgentAdapterMetadataContext<TRuntimeConfig, Name>,
-): Promise<AgentDevtoolsDriverMetadata | undefined> {
-  if (!settings) return
-  const driver = normalizeAgentDriver(settings)
-  if (driver.kind === "model") {
-    const dynamic = typeof driver.model === "function"
-    const model = dynamic
-      ? await (driver.model as (context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => AgentModelInput | Promise<AgentModelInput>)(context)
-      : driver.model
-    return {
-      ...(driver.execution ? { execution: executionMetadata(driver.execution as never) } : {}),
-      kind: "model",
-      model: modelMetadata(model, dynamic),
-    }
-  }
-  if (driver.kind === "harness") {
-    const harness = harnessMetadata(driver)
-    return {
-      ...(harness ? { harness } : {}),
-      kind: "harness",
-    }
-  }
-  return { kind: "run" }
-}
-
-function staticConfigMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-): AgentDevtoolsConfigMetadata | undefined {
-  const driver = staticDriverMetadata(agentSettings(definition))
-  return driver ? { driver } : undefined
-}
-
-async function resolvedConfigMetadata<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(
-  definition: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-  context: AgentAdapterMetadataContext<TRuntimeConfig, Name>,
-): Promise<AgentDevtoolsConfigMetadata | undefined> {
-  const driver = await resolvedDriverMetadata(agentSettings(definition), context)
-  return driver ? { driver } : undefined
-}
-
-function agentDevtoolsMetadata<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
->(
-  definition: Pick<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>, "invoker" | "title" | "version"> & AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-): Pick<AgentDevtoolsMetadata, "config" | "invokerProfiles" | "title" | "version"> {
+function agentDevtoolsMetadata(definition: Pick<AgentDefinition, "invoker" | "title" | "version">): Pick<AgentDevtoolsMetadata, "invokerProfiles" | "title" | "version"> {
   const invokerProfiles = normalizeAgentInvokerProfiles(definition.invoker?.profiles)
-  const config = staticConfigMetadata(definition)
   return {
-    ...(config ? { config } : {}),
     ...(invokerProfiles.length ? { invokerProfiles } : {}),
     ...(definition.title ? { title: definition.title } : {}),
     ...(definition.version ? { version: definition.version } : {}),
   }
 }
 
-function normalizedSourcesFromOptions<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): AgentWorkspaceSourceMetadata[] {
+function normalizedSourcesFromOptions<Name extends WorkspaceName>(options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>): AgentWorkspaceSourceMetadata[] {
   return normalizeAgentWorkspaceSources(workspaceDefinitionFromOptions(options).sources)
 }
 
@@ -428,11 +225,8 @@ function sourceMaterialize(source: AgentWorkspaceSourceMetadata): AgentDevtoolsF
   return source.materialize === "none" ? undefined : source.materialize
 }
 
-function workspaceMetadataFiles<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(
-  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+function workspaceMetadataFiles<Name extends WorkspaceName>(
+  options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
   _defaults: WorkspaceAgentDefaults<Name>,
 ): AgentDevtoolsFileTreeItem[] {
   const sources = normalizedSourcesFromOptions(options)
@@ -461,10 +255,7 @@ function getNodeBuiltin<T>(name: string): T | undefined {
   }
 }
 
-function localWorkspaceRoots<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): string[] {
+function localWorkspaceRoots(options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>): string[] {
   const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
   const path = getNodeBuiltin<typeof import("node:path")>("node:path")
   const cwd = (globalThis.process as { cwd?: () => string } | undefined)?.cwd?.()
@@ -482,10 +273,7 @@ function localWorkspaceRoots<
   }
 }
 
-function sourceMountPaths<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): string[] {
+function sourceMountPaths(options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>): string[] {
   return normalizedSourcesFromOptions(options).map(source => sourceMountPath(source))
 }
 
@@ -593,11 +381,8 @@ async function resolveWorkspaceMetadataFiles<Name extends WorkspaceName>(
   return root.children || []
 }
 
-function workspaceMetadataTools<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(
-  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+function workspaceMetadataTools<Name extends WorkspaceName>(
+  options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
 ): AgentDevtoolsToolDefinition[] {
   return normalizeCapabilities(options.capabilities)
     .map(capabilityMetadataTool)
@@ -605,11 +390,8 @@ function workspaceMetadataTools<
     .sort((left, right) => left.name.localeCompare(right.name))
 }
 
-function staticCapabilityInstructionBlocks<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(
-  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+function staticCapabilityInstructionBlocks<Name extends WorkspaceName>(
+  options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
 ): AgentInstructionBlock[] {
   return normalizeCapabilities(options.capabilities)
     .flatMap((capability) => {
@@ -635,18 +417,15 @@ function applyPassiveCapabilityInstructionSlots(instructions: string, blocks: Ag
   return rendered.replace(capabilityInstructionSlotPattern, "").trim().replace(/\n{3,}/g, "\n\n")
 }
 
-function workspaceMetadataInstructions<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(
-  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+function workspaceMetadataInstructions<Name extends WorkspaceName>(
+  options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>,
 ): string[] {
   const configuredInstructions = modelDriverInstructions(options)
   const parts = Array.isArray(configuredInstructions) ? configuredInstructions : [configuredInstructions]
   const instructions = parts.flatMap((part) => {
     if (typeof part === "string" && part.trim().length > 0) return [part]
     if (typeof part === "function") {
-      const localInstructions = readLocalWorkspaceInstructions(options)
+      const localInstructions = readLocalWorkspaceInstructions(options as WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>)
       if (localInstructions) return [localInstructions]
       return ["Dynamic system instructions resolver configured."]
     }
@@ -662,10 +441,7 @@ function workspaceMetadataInstructions<
   )
 }
 
-function readLocalWorkspaceInstructions<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): string | undefined {
+function readLocalWorkspaceInstructions(options: WorkspaceAgentOptions<AgentRuntimeConfig, WorkspaceName>): string | undefined {
   const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
   const path = getNodeBuiltin<typeof import("node:path")>("node:path")
   if (!fs || !path) return undefined
@@ -686,7 +462,7 @@ async function resolveWorkspaceMetadataInstructions<
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   workspace: ReadonlyWorkspaceFacade<Name>,
   resolution: AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name> = {},
-  capabilityBlocks: AgentInstructionBlock[] = staticCapabilityInstructionBlocks(options),
+  capabilityBlocks: AgentInstructionBlock[] = staticCapabilityInstructionBlocks(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>),
   sourceDefinition: WorkspaceDefinition = workspaceDefinitionWithNameFromOptions(options, resolution),
 ) {
   const instructionContext = {
@@ -995,19 +771,11 @@ async function resolveWorkspaceMetadataCapabilityContext<
     workspaceDefinition,
   })
   const sourceResolvedDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
-  const metadataWorkspace = capabilities.workspace || workspace
 
   return {
     capabilityInstructions: capabilities.capabilityInstructions,
     definition: sourceResolvedDefinition || workspaceDefinition,
-    metadataContext: {
-      ...agentCallbackContext(runtime),
-      context: invocationContext,
-      fs: metadataWorkspace.fs,
-      invoker,
-      workspace: metadataWorkspace,
-    } satisfies AgentAdapterMetadataContext<TRuntimeConfig, Name>,
-    workspace: metadataWorkspace,
+    workspace: capabilities.workspace || workspace,
   }
 }
 
@@ -1022,11 +790,11 @@ export function createAgentDevtoolsMetadata<
     return { files: [], ...agentDevtoolsMetadata(definition), tools: [] }
   }
 
-  const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
+  const options = workspaceDefinition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>
   return {
     files: workspaceMetadataFiles(options, workspaceDefinition.__vitehubWorkspaceAgentDefaults || workspaceDefinition as WorkspaceAgentDefaults<Name>),
     instructions: workspaceMetadataInstructions(options),
-    ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
+    ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition),
     tools: workspaceMetadataTools(options),
   }
 }
@@ -1057,10 +825,6 @@ export async function resolveAgentDevtoolsMetadata<
     metadataWorkspace.options as never,
     capabilityContext.definition as never,
   )
-  const config = await resolvedConfigMetadata(
-    workspaceDefinition as AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-    capabilityContext.metadataContext,
-  )
 
   return {
     files: await resolveWorkspaceMetadataFiles(metadataOptions as never, metadataWorkspace.defaults as never, capabilityContext.workspace as never),
@@ -1071,8 +835,7 @@ export async function resolveAgentDevtoolsMetadata<
       capabilityContext.capabilityInstructions,
       capabilityContext.definition,
     ),
-    ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
-    ...(config ? { config } : {}),
+    ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition),
     tools: workspaceMetadataTools(metadataWorkspace.options as never),
   }
 }
@@ -1122,10 +885,6 @@ export async function materializeAgentDevtoolsSourceMetadata<
     metadataWorkspace.options as never,
     capabilityContext.definition as never,
   )
-  const config = await resolvedConfigMetadata(
-    workspaceDefinition as AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-    capabilityContext.metadataContext,
-  )
 
   return {
     files: await resolveWorkspaceMetadataFiles(metadataOptions as never, metadataWorkspace.defaults as never, capabilityContext.workspace as never),
@@ -1136,8 +895,7 @@ export async function materializeAgentDevtoolsSourceMetadata<
       capabilityContext.capabilityInstructions,
       capabilityContext.definition,
     ),
-    ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
-    ...(config ? { config } : {}),
+    ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition),
     tools: workspaceMetadataTools(metadataWorkspace.options as never),
   }
 }

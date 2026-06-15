@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineAgentInvoker, type AgentDriver, type AgentInvoker, type AgentRunInput, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
+import { defineAgent, type AgentDriver, type AgentRunInput, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
 import { access, blob, chat, chatTitle, db, entry, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -366,32 +366,28 @@ describe("agent public types", () => {
     type ChatContext = AgentChatRunContext<
       { quiver?: { customer?: string } },
       { email?: string },
-      "portal" | "teams",
-      { customer?: string, email?: string }
+      "portal" | "teams"
     >
     const workspaceAccess: AccessWorkspaceOptionsFor<typeof workspace, ChatContext> = {
       defaultScope: "customer",
       resolve({ input }) {
         const chat = input.get().context?.chat
         expectTypeOf(chat?.message?.metadata?.quiver?.customer).toEqualTypeOf<string | undefined>()
-        expectTypeOf(chat?.meta?.customer).toEqualTypeOf<string | undefined>()
-        expectTypeOf(chat?.meta?.email).toEqualTypeOf<string | undefined>()
         expectTypeOf(chat?.run?.origin).toEqualTypeOf<"portal" | "teams" | undefined>()
         expectTypeOf(chat?.user?.email).toEqualTypeOf<string | undefined>()
         return chat?.user?.email?.endsWith("@quiver.dk")
-          ? { instructions: "Use the internal support tone.", role: "admin", scope: "quiver" }
+          ? { role: "admin", scope: "quiver" }
           : "customer"
       },
       scopes: {
         customer: {
-          instructions: ["Use the customer support tone."],
           grants: [
             { path: "AGENTS.md" },
             { source: "forecastingEngine" },
             { sources: ["docs"] },
           ],
         },
-        quiver: { all: true, instructions: "Use the internal support tone." },
+        quiver: { all: true },
       },
     }
     access({ workspace: workspaceAccess })
@@ -464,15 +460,7 @@ describe("agent public types", () => {
         forecastingEngine: source.github({ repo: "acme/forecasting-engine" }),
       },
     }
-    type SupportInvoker = AgentInvoker<{ audience?: "support" | "technical", customer?: "acme" }>
-    type SupportInputContext = AgentChatRunContext<SupportMessageMetadata, SupportChatUser, "portal" | "teams"> & {
-      invoker?: SupportInvoker
-    }
-    const supportProfiles: readonly AgentInvokerProfile<{ audience?: "technical", customer?: "acme" }>[] = [
-      { id: "support-customer", kind: "customer", meta: { customer: "acme" } },
-      { id: "support-technical", kind: "technical", meta: { audience: "technical" } },
-    ]
-    expectTypeOf(supportProfiles[0]?.meta?.customer).toEqualTypeOf<"acme" | undefined>()
+    type SupportInputContext = AgentChatRunContext<SupportMessageMetadata, SupportChatUser, "portal" | "teams">
     expectTypeOf({} as AgentRunInput<unknown, SupportInputContext>["context"]).toEqualTypeOf<SupportInputContext | undefined>()
     const supportAccess: AccessWorkspaceOptionsFor<typeof workspace, SupportInputContext> = {
       resolve({ input, invoker }) {
@@ -481,8 +469,8 @@ describe("agent public types", () => {
         expectTypeOf(chat?.run?.origin).toEqualTypeOf<"portal" | "teams" | undefined>()
         expectTypeOf(chat?.user?.email).toEqualTypeOf<string | undefined>()
         expectTypeOf(invoker.id).toEqualTypeOf<string>()
-        expectTypeOf(invoker.meta?.customer).toEqualTypeOf<"acme" | undefined>()
-        return invoker.meta?.customer || "customer"
+        expectTypeOf(invoker.meta).toEqualTypeOf<Record<string, unknown> | undefined>()
+        return typeof invoker.meta?.customer === "string" ? invoker.meta.customer : "customer"
       },
       scopes: {
         customer: {
@@ -499,16 +487,19 @@ describe("agent public types", () => {
       run() {
         return "ok"
       },
-      invoker: defineAgentInvoker({
-        profiles: supportProfiles,
+      invoker: {
+        profiles: [
+          { id: "support-customer", kind: "customer", meta: { customer: "acme" } },
+          { id: "support-technical", kind: "technical", meta: { audience: "technical" } },
+        ],
         resolve({ defaultInvoker, input, profiles, selectedProfile }) {
           expectTypeOf(defaultInvoker.id).toEqualTypeOf<string>()
           expectTypeOf(input.messages).toEqualTypeOf<AgentRunInput["messages"]>()
-          expectTypeOf(profiles).toEqualTypeOf<typeof supportProfiles>()
-          expectTypeOf(selectedProfile?.meta?.customer).toEqualTypeOf<"acme" | undefined>()
+          expectTypeOf(profiles).toEqualTypeOf<readonly AgentInvokerProfile[]>()
+          expectTypeOf(selectedProfile?.meta).toEqualTypeOf<Record<string, unknown> | undefined>()
           return selectedProfile || defaultInvoker
         },
-      }),
+      },
       capabilities: [
         access({
           workspace: supportAccess,

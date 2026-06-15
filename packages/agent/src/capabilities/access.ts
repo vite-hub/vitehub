@@ -16,7 +16,6 @@ import type {
   AgentCapabilityDefinition,
   AgentCapabilityRuntimeContext,
   AgentCapabilityTypeContract,
-  AgentInvoker,
   AgentRunInput,
   AgentRuntimeConfig,
   AgentWebhookRegistrationDefinition,
@@ -86,13 +85,9 @@ export interface AccessWorkspaceScopeGrant<TSourceName extends string = string> 
   sources?: readonly TSourceName[]
 }
 
-export type AccessWorkspaceScopeInstructions = string | readonly string[]
-type NormalizedWorkspaceScopeInstructions = string | string[]
-
 export interface AccessWorkspaceScopeDefinition<TSourceName extends string = string> {
   all?: boolean
   grants?: readonly AccessWorkspaceScopeGrant<TSourceName>[]
-  instructions?: AccessWorkspaceScopeInstructions
   path?: string
   paths?: readonly string[]
   source?: TSourceName
@@ -108,17 +103,11 @@ export type AccessWorkspaceScopeSelectionInput<TSourceName extends string = stri
   | string
   | AccessWorkspaceScopeSelection<TSourceName>
 
-type AccessInputContextInvoker<TInputContext extends object> =
-  TInputContext extends { invoker?: infer TInvoker }
-    ? Extract<TInvoker, AgentInvoker> extends never ? AgentInvoker : Extract<TInvoker, AgentInvoker>
-    : AgentInvoker
-
 export type AccessWorkspaceResolverContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   TInputContext extends object = Record<string, unknown>,
-> = Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, "input" | "invoker"> & {
-  invoker: AccessInputContextInvoker<TInputContext>
+> = Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, "input"> & {
   input: Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>["input"], "get"> & {
     get: () => AgentRunInput<unknown, TInputContext>
   }
@@ -192,7 +181,6 @@ export type AccessWorkspaceOptionsFor<
 interface ResolvedWorkspaceScope {
   all: boolean
   definition: AccessWorkspaceScopeDefinition
-  instructions?: NormalizedWorkspaceScopeInstructions
   materializeGrants: ResolvedWorkspaceMaterializeGrant[]
   paths: string[]
   role: AccessRoleName
@@ -206,7 +194,6 @@ interface ResolvedWorkspaceMaterializeGrant {
 
 interface NormalizedWorkspaceScopeSelection<TSourceName extends string = string> {
   definition?: AccessWorkspaceScopeDefinition<TSourceName>
-  instructions?: NormalizedWorkspaceScopeInstructions
   role?: AccessRoleName
   scope: string
 }
@@ -309,7 +296,6 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
         role: finalScope.role,
         scope: finalScope.scope,
       })
-      context.instructions.add(finalScope.instructions, { id: "access.workspace" })
       if (sourceResolution.definition && sourceResolution.definition !== context.workspaceDefinition) {
         context.context.set("workspace.sourceResolution.definition", sourceResolution.definition)
       }
@@ -350,7 +336,6 @@ async function resolveWorkspaceScope<
   return {
     all,
     definition,
-    instructions: selection.instructions ?? normalizeScopeInstructions(definition.instructions, `Workspace Scope "${selection.scope}" instructions`),
     materializeGrants: all ? [{ path: "" }] : scopeMaterializeGrants(definition, context.workspaceDefinition),
     paths: all ? [""] : scopePaths(definition, context.workspaceDefinition),
     role,
@@ -407,24 +392,15 @@ function hasInlineScopeDefinition(value: Record<string, unknown>): boolean {
     || hasNonEmptyScopeGrant(value)
 }
 
-function normalizeScopeInstructions(value: unknown, label: string): NormalizedWorkspaceScopeInstructions | undefined {
-  if (value === undefined) return undefined
-  if (typeof value === "string") return value
-  if (Array.isArray(value) && value.every(part => typeof part === "string")) return [...value]
-  throw new TypeError(`[vitehub] ${label} must be a string or an array of strings.`)
-}
-
 function normalizeSelection<TSourceName extends string>(value: unknown): NormalizedWorkspaceScopeSelection<TSourceName> | undefined {
   if (typeof value === "string" && value.trim()) return { scope: value }
   if (!value || typeof value !== "object") return undefined
   const candidate = value as { role?: unknown, scope?: unknown }
   if (typeof candidate.scope !== "string" || !candidate.scope.trim()) return undefined
-  const instructions = normalizeScopeInstructions((value as { instructions?: unknown }).instructions, "Workspace Scope resolver instructions")
   return {
     ...(hasInlineScopeDefinition(value as Record<string, unknown>)
       ? { definition: value as AccessWorkspaceScopeDefinition<TSourceName> }
       : {}),
-    ...(instructions !== undefined ? { instructions } : {}),
     ...(typeof candidate.role === "string" && candidate.role.trim() ? { role: candidate.role } : {}),
     scope: candidate.scope,
   }

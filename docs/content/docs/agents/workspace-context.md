@@ -160,7 +160,6 @@ export default defineAgent({
               { source: 'forecastingEngine' },
               { path: `ingestion/${customer}` },
             ],
-            instructions: `Answer for the ${customer} customer workspace.`,
             scope: customer,
           }
         },
@@ -172,7 +171,6 @@ export default defineAgent({
   ],
   instructions: [
     'Answer from the scoped customer workspace.',
-    '{{ capabilities.access.workspace }}',
     '{{ workspace.sources }}',
   ],
   model: gateway('openai/gpt-5.1-mini'),
@@ -181,9 +179,7 @@ export default defineAgent({
 
 Agent Invoker metadata drives the access decision. The invoker resolver normalizes comma-separated customer metadata into a `support.customerScope` Agent Invocation Context Value before Access and Source Resolution run. In this example, a customer invoker can see the shared support guide, the forecasting engine source, and only that customer's ingestion path. A support invoker with `scope: 'all'` receives the explicit all-files Workspace Scope.
 
-Workspace Scope Instructions are explicit prompt text for the selected scope. Static scopes and resolver results can return `instructions`, and agents opt into rendering them with `{{ capabilities.access.workspace }}`. ViteHub does not generate prompt text from the scope name, grants, role, Source metadata, or invoker metadata.
-
-Configured Agent Invoker Profiles give DevTools and trusted app routing stable identities to select. Server-owned Chat App Routes can pass app-owned `meta`, such as `{ email, customer }`, after authenticating the request; the Chat Capability preserves that metadata under `chat.meta` and lifts it into the default chat invoker when it derives identity from chat user data. When a request selects an Agent Invoker Profile, the selected profile keeps that runtime metadata and lets profile metadata override matching keys. Chat Platform Adapters can also provide email metadata from trusted platform identity when available. V1 trusts request-provided invoker context, trigger metadata, and profile ids, so validate requests before they reach a Chat App Route or other Agent Trigger Consumer when identity affects access.
+Configured Agent Invoker Profiles give DevTools and trusted app routing stable identities to select. Server-owned routes can also pass `context.invoker` after authenticating the request, and Chat Platform Adapters can provide a chat invoker from trusted platform identity. V1 trusts request-provided invoker context and profile ids, so validate requests before they reach a Chat App Route or other Agent Trigger Consumer when identity affects access.
 
 Order matters. Access should run before Workspace-reading Capabilities so the scope is applied before tools are exposed.
 

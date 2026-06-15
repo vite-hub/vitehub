@@ -48,44 +48,6 @@ export interface ChatDevtoolsToolDefinition {
   status?: "available" | "disabled"
 }
 
-export type ChatDevtoolsConfigValue = boolean | null | number | string
-
-export interface ChatDevtoolsModelMetadata {
-  dynamic?: boolean
-  id?: string
-  provider?: string
-}
-
-export interface ChatDevtoolsModelExecutionMetadata {
-  callSettings?: Record<string, ChatDevtoolsConfigValue>
-  stepLimit?: number
-  workspaceFallback?: {
-    enabled?: boolean
-    maxToolResults?: number
-  }
-}
-
-export interface ChatDevtoolsHarnessMetadata {
-  credentials?: {
-    label?: string
-    source?: string
-  }
-  provider?: string
-  sandbox?: boolean
-  sessionKey?: boolean
-}
-
-export interface ChatDevtoolsDriverMetadata {
-  execution?: ChatDevtoolsModelExecutionMetadata
-  harness?: ChatDevtoolsHarnessMetadata
-  kind: "harness" | "model" | "run"
-  model?: ChatDevtoolsModelMetadata
-}
-
-export interface ChatDevtoolsConfigMetadata {
-  driver: ChatDevtoolsDriverMetadata
-}
-
 export interface ChatDevtoolsInvokerProfile {
   id: string
   kind?: string
@@ -94,7 +56,6 @@ export interface ChatDevtoolsInvokerProfile {
 }
 
 export interface ChatDevtoolsMetadata {
-  config?: ChatDevtoolsConfigMetadata
   files?: ChatDevtoolsFileTreeItem[]
   instructions?: string[]
   invokerProfiles?: ChatDevtoolsInvokerProfile[]
@@ -125,13 +86,11 @@ export interface ChatDevtoolsConversation {
 
 export interface ChatDevtoolsStateResult {
   chats: ChatDevtoolsConversation[]
-  config?: ChatDevtoolsConfigMetadata
   files?: ChatDevtoolsFileTreeItem[]
   instructions?: string[]
   invokerFallback?: boolean
   invokerProfileId?: string
   invokerProfiles?: ChatDevtoolsInvokerProfile[]
-  meta?: Record<string, unknown>
   metadataError?: string
   metadataStatus?: ChatDevtoolsMetadataStatus
   selected: string
@@ -146,7 +105,6 @@ export interface ChatDevtoolsSendInput {
   chat?: string
   invokerFallback?: boolean
   invokerProfileId?: string
-  meta?: Record<string, unknown>
   stream?: boolean
   text: string
 }
@@ -155,14 +113,12 @@ export interface ChatDevtoolsClearInput {
   chat?: string
   invokerFallback?: boolean
   invokerProfileId?: string
-  meta?: Record<string, unknown>
 }
 
 export interface ChatDevtoolsMaterializeSourceInput {
   chat?: string
   invokerFallback?: boolean
   invokerProfileId?: string
-  meta?: Record<string, unknown>
   path?: string
   source?: string
 }

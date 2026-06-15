@@ -9,7 +9,6 @@ import {
   chatDevtoolsMaterializeSourceRpc,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
-  type ChatDevtoolsConfigValue,
   type ChatDevtoolsFileTreeItem,
   type ChatDevtoolsInvokerProfile,
   type ChatDevtoolsSendResult,
@@ -23,14 +22,7 @@ import { flattenFiles, sourceRootStates, syncExpandedFilePaths, type FileRow, ty
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
 type ChatMessage = UIMessage & { chat?: string }
-type IntegrationSectionId = "config" | "files" | "tools" | "instructions" | "meta"
-type ConfigRow = {
-  badge?: string
-  icon: string
-  label: string
-  mono?: boolean
-  value: string
-}
+type IntegrationSectionId = "files" | "tools" | "instructions"
 
 const input = ref("")
 const promptInput = ref<HTMLTextAreaElement>()
@@ -65,7 +57,7 @@ const pendingUserMessage = ref<ChatMessage | undefined>()
 const expandedFilePaths = ref(new Set<string>())
 const previousSourceRootStates = ref(new Map<string, SourceRootState>())
 const selectedFilePath = ref<string | undefined>()
-const activeIntegrationSection = ref<IntegrationSectionId>("config")
+const activeIntegrationSection = ref<IntegrationSectionId>("files")
 const sidebarWidth = ref(300)
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
@@ -91,25 +83,6 @@ const chatTitleTarget = computed(() => normalizeChatTitle(selectedChat()?.title 
 const agentVersion = computed(() => state.value.version?.trim())
 const fallbackInvokerProfileId = "__vitehub_fallback__"
 const selectedInvokerProfileId = ref<string | undefined>()
-const invokerMetaStorageKey = "vitehub.chat.devtools.meta"
-const invokerMetaInput = ref("")
-const invokerMetaStorageReady = ref(false)
-const hasStoredInvokerMeta = ref(false)
-const parsedInvokerMeta = computed<{ error?: string, meta?: Record<string, unknown> }>(() => {
-  const raw = invokerMetaInput.value.trim()
-  if (!raw) return {}
-  try {
-    const meta = JSON.parse(raw) as unknown
-    return meta && typeof meta === "object" && !Array.isArray(meta)
-      ? { meta: meta as Record<string, unknown> }
-      : { error: "Meta must be a JSON object." }
-  }
-  catch {
-    return { error: "Meta must be valid JSON." }
-  }
-})
-const invokerMeta = computed(() => parsedInvokerMeta.value.meta)
-const invokerMetaError = computed(() => parsedInvokerMeta.value.error)
 const invokerProfiles = computed<ChatDevtoolsInvokerProfile[]>(() => state.value.invokerProfiles || [])
 const showInvokerSelector = computed(() => invokerProfiles.value.length > 0)
 const selectedConversationMessages = computed(() => stateUiMessages(state.value, state.value.selected))
@@ -142,122 +115,14 @@ const visibleTools = computed<ChatDevtoolsToolDefinition[]>(() => {
     status: tool.status === "error" ? "disabled" : "available",
   }))
 })
-const configRows = computed<ConfigRow[]>(() => agentConfigRows(state.value.config))
 const integrationSections = computed<Array<{ count: number, icon: string, id: IntegrationSectionId, label: string }>>(() => [
-  { count: configRows.value.length, icon: "i-lucide-settings-2", id: "config", label: "Config" },
   { count: fileRows.value.length, icon: "i-lucide-files", id: "files", label: "Files" },
   { count: visibleTools.value.length, icon: "i-lucide-wrench", id: "tools", label: "Tools" },
   { count: state.value.instructions?.length || 0, icon: "i-lucide-scroll-text", id: "instructions", label: "Instructions" },
-  { count: invokerMeta.value ? Object.keys(invokerMeta.value).length : 0, icon: "i-lucide-braces", id: "meta", label: "Meta" },
 ])
 const metadataStatus = computed(() => state.value.metadataStatus || "ready")
 const isMetadataLoading = computed(() => metadataStatus.value === "loading")
 const metadataError = computed(() => state.value.metadataError)
-
-function formattedConfigValue(value: ChatDevtoolsConfigValue) {
-  if (typeof value === "boolean") return value ? "true" : "false"
-  if (value === null) return "null"
-  return String(value)
-}
-
-function driverKindLabel(kind: string) {
-  if (kind === "model") return "Model-backed Agent Driver"
-  if (kind === "harness") return "Harness-backed Agent Driver"
-  if (kind === "run") return "Custom-run Agent Driver"
-  return kind
-}
-
-function workspaceFallbackLabel(value: NonNullable<NonNullable<NonNullable<ChatDevtoolsStateResult["config"]>["driver"]["execution"]>["workspaceFallback"]>) {
-  const enabled = value.enabled === false ? "disabled" : "enabled"
-  return value.maxToolResults !== undefined
-    ? `${enabled}, ${value.maxToolResults} tool results`
-    : enabled
-}
-
-function agentConfigRows(config: ChatDevtoolsStateResult["config"]): ConfigRow[] {
-  if (!config?.driver) return []
-
-  const rows: ConfigRow[] = [{
-    icon: "i-lucide-route",
-    label: "Driver",
-    value: driverKindLabel(config.driver.kind),
-  }]
-  const model = config.driver.model
-  if (model) {
-    rows.push({
-      ...(model.dynamic ? { badge: "dynamic" } : {}),
-      icon: "i-lucide-brain-circuit",
-      label: "Model",
-      mono: Boolean(model.id),
-      value: model.id || (model.dynamic ? "Dynamic model resolver" : "Configured model"),
-    })
-    if (model.provider) {
-      rows.push({
-        icon: "i-lucide-cloud",
-        label: "Provider",
-        mono: true,
-        value: model.provider,
-      })
-    }
-  }
-  const harness = config.driver.harness
-  if (harness?.provider) {
-    rows.push({
-      icon: "i-lucide-box",
-      label: "Harness",
-      mono: true,
-      value: harness.provider,
-    })
-  }
-  if (harness?.credentials?.label || harness?.credentials?.source) {
-    rows.push({
-      ...(harness.credentials.source ? { badge: harness.credentials.source } : {}),
-      icon: "i-lucide-key-round",
-      label: "Credentials",
-      value: harness.credentials.label || harness.credentials.source || "configured",
-    })
-  }
-  if (harness?.sandbox) {
-    rows.push({
-      icon: "i-lucide-box",
-      label: "Sandbox",
-      value: "configured",
-    })
-  }
-  if (harness?.sessionKey) {
-    rows.push({
-      icon: "i-lucide-link",
-      label: "Session key",
-      value: "configured",
-    })
-  }
-  const execution = config.driver.execution
-  if (execution?.stepLimit !== undefined) {
-    rows.push({
-      icon: "i-lucide-list-checks",
-      label: "Step limit",
-      mono: true,
-      value: String(execution.stepLimit),
-    })
-  }
-  if (execution?.workspaceFallback) {
-    rows.push({
-      icon: "i-lucide-undo-2",
-      label: "Workspace fallback",
-      value: workspaceFallbackLabel(execution.workspaceFallback),
-    })
-  }
-  for (const [key, value] of Object.entries(execution?.callSettings || {})) {
-    rows.push({
-      icon: "i-lucide-sliders-horizontal",
-      label: key,
-      mono: true,
-      value: formattedConfigValue(value),
-    })
-  }
-
-  return rows
-}
 
 function clearPendingMessages() {
   const pendingId = pendingUserMessage.value?.id
@@ -274,9 +139,6 @@ function normalizeChatTitle(value: string | undefined) {
 }
 
 function applyState(next: ChatDevtoolsStateResult) {
-  if (!hasStoredInvokerMeta.value && !invokerMetaInput.value.trim() && next.meta) {
-    invokerMetaInput.value = JSON.stringify(next.meta, null, 2)
-  }
   state.value = {
     files: next.files || [],
     instructions: next.instructions || [],
@@ -342,13 +204,6 @@ function selectedInvokerRequest() {
   return selectedInvokerProfileId.value
     ? { invokerProfileId: selectedInvokerProfileId.value }
     : {}
-}
-
-function devtoolsRequestInput() {
-  return {
-    ...selectedInvokerRequest(),
-    ...(invokerMeta.value !== undefined ? { meta: invokerMeta.value } : {}),
-  }
 }
 
 function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
@@ -545,7 +400,6 @@ async function materializeFile(file: ChatDevtoolsFileTreeItem) {
     toggleFile(file)
     return
   }
-  if (invokerMetaError.value) return
 
   metadataRefreshEpoch += 1
   stopMetadataRefresh()
@@ -556,7 +410,7 @@ async function materializeFile(file: ChatDevtoolsFileTreeItem) {
       chat: state.value.selected,
       path: file.path,
       source,
-      ...devtoolsRequestInput(),
+      ...selectedInvokerRequest(),
     })
     if (bridgeState) {
       applyState(bridgeState)
@@ -796,9 +650,8 @@ function canApplyMetadataRefresh(epoch: number | undefined) {
 }
 
 async function refresh(options: { metadataRefreshEpoch?: number } = {}) {
-  if (invokerMetaError.value) return
   if (!shouldPreferRpcBridge()) {
-    const bridgeState = await callBridgeState({ action: "get-state", ...devtoolsRequestInput() })
+    const bridgeState = await callBridgeState({ action: "get-state", ...selectedInvokerRequest() })
     if (bridgeState) {
       if (!canApplyMetadataRefresh(options.metadataRefreshEpoch)) return
       applyState(bridgeState)
@@ -810,7 +663,7 @@ async function refresh(options: { metadataRefreshEpoch?: number } = {}) {
   try {
     const next = await callRpc<ChatDevtoolsStateResult>(
       chatDevtoolsGetStateRpc,
-      devtoolsRequestInput(),
+      selectedInvokerRequest(),
     )
     if (!canApplyMetadataRefresh(options.metadataRefreshEpoch)) return
     applyState(next)
@@ -832,7 +685,7 @@ async function refreshFromBridge(chat?: string) {
   const bridgeState = await callBridgeState({
     action: "get-state",
     ...(chat ? { chat } : {}),
-    ...devtoolsRequestInput(),
+    ...selectedInvokerRequest(),
   })
   if (bridgeState) {
     if (!canApplyMetadataRefresh(refreshEpoch)) return
@@ -843,7 +696,7 @@ async function refreshFromBridge(chat?: string) {
   await refresh({ metadataRefreshEpoch: refreshEpoch })
 }
 
-async function pollFinalBridgeState(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }, signal: AbortSignal) {
+async function pollFinalBridgeState(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, text: string }, signal: AbortSignal) {
   while (!signal.aborted) {
     await new Promise(resolve => setTimeout(resolve, 700))
     if (signal.aborted) break
@@ -853,7 +706,6 @@ async function pollFinalBridgeState(input: { chat?: string, invokerFallback?: bo
       ...(input.chat ? { chat: input.chat } : {}),
       ...(input.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
       ...(input.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
-      ...(input.meta ? { meta: input.meta } : {}),
     }, signal)
     if (!next) continue
 
@@ -871,7 +723,7 @@ async function pollFinalBridgeState(input: { chat?: string, invokerFallback?: bo
   return false
 }
 
-async function recoverTimedOutBridgeSend(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }, signal: AbortSignal) {
+async function recoverTimedOutBridgeSend(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, text: string }, signal: AbortSignal) {
   const startedAt = Date.now()
   let sawSubmittedMessage = false
 
@@ -884,7 +736,6 @@ async function recoverTimedOutBridgeSend(input: { chat?: string, invokerFallback
       ...(input.chat ? { chat: input.chat } : {}),
       ...(input.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
       ...(input.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
-      ...(input.meta ? { meta: input.meta } : {}),
     }, signal)
     if (!next) continue
 
@@ -904,7 +755,7 @@ async function recoverTimedOutBridgeSend(input: { chat?: string, invokerFallback
   return false
 }
 
-async function pollFinalRpcState(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }, signal: AbortSignal) {
+async function pollFinalRpcState(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, text: string }, signal: AbortSignal) {
   while (!signal.aborted) {
     await new Promise(resolve => setTimeout(resolve, 700))
     if (signal.aborted) break
@@ -914,7 +765,6 @@ async function pollFinalRpcState(input: { chat?: string, invokerFallback?: boole
         ...(input.chat ? { chat: input.chat } : {}),
         ...(input.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
         ...(input.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
-        ...(input.meta ? { meta: input.meta } : {}),
       })
       if (hasCurrentUserMessage(next, input.chat, input.text)) {
         applyState(next)
@@ -932,7 +782,7 @@ async function pollFinalRpcState(input: { chat?: string, invokerFallback?: boole
   return false
 }
 
-async function readDirectBridgeStream(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }): Promise<boolean> {
+async function readDirectBridgeStream(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, text: string }): Promise<boolean> {
   const abortController = new AbortController()
   currentReader = { cancel: () => abortController.abort() }
 
@@ -1045,7 +895,7 @@ async function readDirectBridgeStream(input: { chat?: string, invokerFallback?: 
   }
 }
 
-async function readRpcStream(streamId: string, input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }) {
+async function readRpcStream(streamId: string, input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, text: string }) {
   const abortController = new AbortController()
   const reader = (rpcClient as { streaming?: { subscribe: <T>(channel: string, id: string, options?: Record<string, unknown>) => AsyncIterable<T> & { cancel: () => unknown } } } | undefined)?.streaming?.subscribe<ChatDevtoolsStreamEvent>(chatDevtoolsStreamChannel, streamId, {
     highWaterMark: 1024,
@@ -1093,7 +943,7 @@ async function readRpcStream(streamId: string, input: { chat?: string, invokerFa
 
 async function send() {
   const text = (input.value || promptInput.value?.value || "").trim()
-  if (!text || status.value !== "ready" || invokerMetaError.value) {
+  if (!text || status.value !== "ready") {
     return
   }
 
@@ -1114,7 +964,7 @@ async function send() {
 
     const bridgeInput = {
       ...(chat ? { chat } : {}),
-      ...devtoolsRequestInput(),
+      ...selectedInvokerRequest(),
       text,
     }
     if (!shouldPreferRpcBridge()) {
@@ -1129,8 +979,10 @@ async function send() {
     }
 
     const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
-      ...bridgeInput,
+      ...(chat ? { chat } : {}),
+      ...selectedInvokerRequest(),
       stream: true,
+      text,
     })
     if (!result.streamId) {
       applyState(result)
@@ -1177,7 +1029,7 @@ async function clear() {
     currentReader?.cancel()
     currentReader = undefined
     pendingUserMessage.value = undefined
-    const invokerRequest = devtoolsRequestInput()
+    const invokerRequest = selectedInvokerRequest()
     const bridgeState = await callBridgeState({ action: "clear", chat: state.value.selected, ...invokerRequest })
     applyState(bridgeState || await callRpc<ChatDevtoolsStateResult>(chatDevtoolsClearRpc, {
         chat: state.value.selected,
@@ -1188,7 +1040,6 @@ async function clear() {
   catch {
     state.value = {
       chats: [{ name: state.value.selected || "dev", messages: [] }],
-      ...(state.value.config ? { config: state.value.config } : {}),
       files: state.value.files || [],
       instructions: state.value.instructions || [],
       invokerProfiles: state.value.invokerProfiles || [],
@@ -1203,12 +1054,6 @@ async function clear() {
 }
 
 onMounted(() => {
-  const storedMeta = localStorage.getItem(invokerMetaStorageKey)
-  if (storedMeta !== null) {
-    invokerMetaInput.value = storedMeta
-    hasStoredInvokerMeta.value = true
-  }
-  invokerMetaStorageReady.value = true
   syncExpandedFiles(state.value.files || [])
   refresh()
 })
@@ -1224,16 +1069,6 @@ watch(selectedInvokerProfileId, async (next, previous) => {
     metadataStatus: "loading",
     tools: [],
   }
-  await refreshFromBridge(state.value.selected)
-})
-watch(invokerMetaInput, async (next, previous) => {
-  if (!invokerMetaStorageReady.value || next === previous) return
-  hasStoredInvokerMeta.value = true
-  if (next.trim()) localStorage.setItem(invokerMetaStorageKey, next)
-  else localStorage.removeItem(invokerMetaStorageKey)
-  if (invokerMetaError.value || isBusy.value) return
-  metadataRefreshEpoch += 1
-  stopMetadataRefresh()
   await refreshFromBridge(state.value.selected)
 })
 onBeforeUnmount(() => {
@@ -1443,7 +1278,7 @@ onBeforeUnmount(() => {
               <UButton
                 type="submit"
                 :icon="status === 'ready' ? 'i-lucide-arrow-up' : 'i-lucide-square'"
-                :disabled="status === 'ready' && (!input.trim() || !!invokerMetaError)"
+                :disabled="status === 'ready' && !input.trim()"
                 :aria-label="status === 'ready' ? 'Send message' : 'Stop response'"
                 color="primary"
                 size="xs"
@@ -1489,7 +1324,7 @@ onBeforeUnmount(() => {
               <div
                 role="radiogroup"
                 aria-label="Integration section"
-                class="grid shrink-0 grid-cols-5 gap-1 border-b border-default pb-2 md:grid-cols-1"
+                class="grid shrink-0 grid-cols-3 gap-1 border-b border-default pb-2 md:grid-cols-1"
               >
                 <UButton
                   v-for="section in integrationSections"
@@ -1506,7 +1341,7 @@ onBeforeUnmount(() => {
                   class="min-h-8 justify-start border-l-2"
                   :class="activeIntegrationSection === section.id ? 'border-warning text-highlighted' : 'border-transparent text-muted'"
                   :ui="{
-                    leadingIcon: section.id === 'files' ? 'text-warning' : section.id === 'config' ? 'text-primary' : 'text-muted',
+                    leadingIcon: section.id === 'files' ? 'text-warning' : 'text-muted',
                     label: 'min-w-0 truncate text-left text-sm',
                   }"
                   @click="activeIntegrationSection = section.id"
@@ -1525,66 +1360,7 @@ onBeforeUnmount(() => {
               </div>
 
               <div class="min-h-0 flex-1 overflow-y-auto">
-                <template v-if="activeIntegrationSection === 'config'">
-                  <UAlert
-                    v-if="configRows.length && metadataError"
-                    color="error"
-                    variant="soft"
-                    icon="i-lucide-triangle-alert"
-                    :title="metadataError"
-                    class="mb-2"
-                    :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
-                  />
-                  <div v-if="configRows.length" class="space-y-1.5 px-1">
-                    <div
-                      v-for="row in configRows"
-                      :key="`${row.label}:${row.value}`"
-                      class="rounded-md border border-default bg-default/60 p-2"
-                    >
-                      <div class="flex min-w-0 items-start gap-2">
-                        <UIcon :name="row.icon" class="mt-0.5 size-4 shrink-0 text-muted" />
-                        <div class="min-w-0 flex-1">
-                          <div class="flex min-w-0 items-center gap-2">
-                            <span class="shrink-0 text-xs font-medium text-muted">{{ row.label }}</span>
-                            <UBadge
-                              v-if="row.badge"
-                              color="neutral"
-                              variant="soft"
-                              size="xs"
-                              class="ml-auto shrink-0"
-                            >
-                              {{ row.badge }}
-                            </UBadge>
-                          </div>
-                          <p
-                            class="mt-1 break-words text-sm text-toned"
-                            :class="row.mono ? 'font-mono text-xs/5' : 'text-sm/5'"
-                          >
-                            {{ row.value }}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <UEmpty
-                    v-else-if="metadataError"
-                    icon="i-lucide-triangle-alert"
-                    title="Config metadata failed."
-                    :description="metadataError"
-                    size="xs"
-                    :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
-                  />
-                  <UEmpty
-                    v-else
-                    icon="i-lucide-settings-2"
-                    title="No config metadata."
-                    description="This chat has not exposed Agent Driver metadata for DevTools."
-                    size="xs"
-                    :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
-                  />
-                </template>
-
-                <template v-else-if="activeIntegrationSection === 'files'">
+                <template v-if="activeIntegrationSection === 'files'">
                 <UAlert
                   v-if="fileRows.length && metadataError"
                   color="error"
@@ -1744,7 +1520,7 @@ onBeforeUnmount(() => {
                 />
               </template>
 
-                <template v-else-if="activeIntegrationSection === 'instructions'">
+                <template v-else>
                 <UAlert
                   v-if="state.instructions?.length && metadataError"
                   color="error"
@@ -1799,29 +1575,6 @@ onBeforeUnmount(() => {
                   size="xs"
                   :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
-                </template>
-                <template v-else>
-                  <div class="space-y-2 px-1">
-                    <label class="block text-xs font-medium text-muted" for="vitehub-devtools-meta">
-                      Invoker meta
-                    </label>
-                    <textarea
-                      id="vitehub-devtools-meta"
-                      v-model="invokerMetaInput"
-                      rows="10"
-                      spellcheck="false"
-                      class="min-h-40 w-full resize-none rounded-md bg-default p-2 font-mono text-xs/5 text-default outline-none ring-1 ring-default focus:ring-2 focus:ring-primary"
-                      placeholder="{&quot;email&quot;:&quot;you@example.com&quot;}"
-                    />
-                    <UAlert
-                      v-if="invokerMetaError"
-                      color="error"
-                      variant="soft"
-                      icon="i-lucide-triangle-alert"
-                      :title="invokerMetaError"
-                      :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
-                    />
-                  </div>
                 </template>
               </div>
             </div>

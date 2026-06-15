@@ -136,37 +136,6 @@ describe("rateLimit capability", () => {
     })
   })
 
-  it("keeps trusted invoker metadata when selecting a profile", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const agent = defineAgent({
-      invoker: {
-        profiles: [
-          { id: "support:acme", kind: "customer", meta: { customer: "acme", scope: "support" } },
-        ],
-      },
-      run: context => context.invoker,
-    })
-
-    await expect(runAgent(agent, runtime(), {
-      context: {
-        invoker: {
-          id: "chat:user_1",
-          kind: "chat",
-          meta: { email: "user@example.com", scope: "customer" },
-        },
-        invokerProfileId: "support:acme",
-      },
-    })).resolves.toEqual({
-      id: "support:acme",
-      kind: "customer",
-      meta: {
-        customer: "acme",
-        email: "user@example.com",
-        scope: "support",
-      },
-    })
-  })
-
   it("selects configured invoker profiles for rate limit identity", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({

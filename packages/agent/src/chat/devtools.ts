@@ -104,14 +104,13 @@ export interface ChatDevtoolsAdapterOptions {
 
 export interface ChatDevToolsOptions {
   devtools?: false
-  meta?: Record<string, unknown>
 }
 
 export type ChatDevToolsPlugin = Plugin
 export type ChatDevToolsPanelPlugin = Plugin
 
 export type ChatDevtoolsBridgeRequest =
-  | { action: "get-state", chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown> }
+  | { action: "get-state", chat?: string, invokerFallback?: boolean, invokerProfileId?: string }
   | ({ action: "send" } & ChatDevtoolsSendInput)
   | ({ action: "clear" } & ChatDevtoolsClearInput)
 
@@ -149,9 +148,7 @@ export interface ChatDevtoolsTypingThread {
   startTyping(text?: string): Promise<unknown>
 }
 
-type ResolvedChatDevtoolsMetadata =
-  Required<Omit<ChatDevtoolsMetadata, "config" | "title" | "version">>
-  & Pick<ChatDevtoolsMetadata, "config" | "title" | "version">
+type ResolvedChatDevtoolsMetadata = Required<Omit<ChatDevtoolsMetadata, "title" | "version">> & Pick<ChatDevtoolsMetadata, "title" | "version">
 
 interface ChatDevtoolsFullStreamToolPart {
   error?: unknown
@@ -169,11 +166,7 @@ export const chatDevtoolsPanelPluginName = "@vite-hub/agent/chat/devtools-panel"
 const defaultOutputPreviewLength = 4_000
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value)
-}
-
-function optionalRecord(value: unknown): Record<string, unknown> | undefined {
-  return isRecord(value) ? { ...value } : undefined
+  return !!value && typeof value === "object"
 }
 
 function truncateText(value: string, length: number): string {
@@ -480,7 +473,6 @@ function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): 
     title: metadata?.title,
     tools: metadata?.tools ? [...metadata.tools] : [],
     version: metadata?.version,
-    ...(metadata?.config ? { config: metadata.config } : {}),
   }
 }
 
@@ -773,7 +765,6 @@ async function writeChatDevtoolsStream(
           const chat = "chat" in body && typeof body.chat === "string" ? body.chat : undefined
           const invokerFallback = "invokerFallback" in body && body.invokerFallback === true
           const invokerProfileId = "invokerProfileId" in body && typeof body.invokerProfileId === "string" ? body.invokerProfileId : undefined
-          const meta = optionalRecord((body as { meta?: unknown }).meta)
           stream.write({
             type: "state",
             state: await postChatDevtoolsBridge(ctx, route, {
@@ -781,7 +772,6 @@ async function writeChatDevtoolsStream(
               ...(chat ? { chat } : {}),
               ...(invokerFallback ? { invokerFallback } : {}),
               ...(invokerProfileId ? { invokerProfileId } : {}),
-              ...(meta ? { meta } : {}),
             }),
           })
           stream.close()
@@ -812,7 +802,6 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
 }
 
 export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToolsPanelPlugin {
-  const defaultMeta = optionalRecord(options.meta)
   return {
     name: chatDevtoolsPanelPluginName,
     devtools: {
@@ -837,12 +826,11 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
           name: chatDevtoolsGetStateRpc,
           type: "query",
           setup: () => ({
-            handler: async (input?: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown> }) => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, {
+            handler: async (input?: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string }) => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, {
               action: "get-state",
               ...(input?.chat ? { chat: input.chat } : {}),
               ...(input?.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
               ...(input?.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
-              ...(input?.meta ? { meta: input.meta } : defaultMeta ? { meta: defaultMeta } : {}),
             }),
           }),
         }) as never)
@@ -851,16 +839,11 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
           type: "action",
           setup: () => ({
             handler: async (input): Promise<ChatDevtoolsSendResult> => {
-              const body = {
-                action: "send" as const,
-                ...input,
-                ...(input.meta ? {} : defaultMeta ? { meta: defaultMeta } : {}),
-              }
               if (!chatStream) {
-                return await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, body)
+                return await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, { action: "send", ...input })
               }
               const stream = chatStream.start()
-              void writeChatDevtoolsStream(ctx, chatDevtoolsBridgeRoute, body, stream)
+              void writeChatDevtoolsStream(ctx, chatDevtoolsBridgeRoute, { action: "send", ...input }, stream)
               return {
                 chats: [],
                 selected: input.chat || "",
@@ -872,13 +855,7 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsClearRpc,
           type: "action",
-          setup: () => ({
-            handler: async input => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, {
-              action: "clear",
-              ...input,
-              ...(input.meta ? {} : defaultMeta ? { meta: defaultMeta } : {}),
-            }),
-          }),
+          setup: () => ({ handler: async input => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, { action: "clear", ...input }) }),
         }) as never)
       },
     },
@@ -887,7 +864,7 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
 
 declare module "@vitejs/devtools-kit" {
   interface DevToolsRpcServerFunctions {
-    [chatDevtoolsGetStateRpc]: (input?: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown> }) => Promise<ChatDevtoolsStateResult>
+    [chatDevtoolsGetStateRpc]: (input?: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string }) => Promise<ChatDevtoolsStateResult>
     [chatDevtoolsSendRpc]: (input: ChatDevtoolsSendInput) => Promise<ChatDevtoolsSendResult>
     [chatDevtoolsClearRpc]: (input: ChatDevtoolsClearInput) => Promise<ChatDevtoolsStateResult>
   }

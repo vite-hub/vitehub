@@ -1,5 +1,4 @@
 import { getMessageText } from "./messages.ts"
-import { jsonSchema } from "ai"
 import {
   cloneWithPropertyDescriptors,
   teeingAsyncIterableStreamDescriptor,
@@ -452,26 +451,6 @@ async function resolveTools(options: AiSdkAdapterOptions, context: AgentAdapterM
   }
 }
 
-const defaultToolInputSchema = jsonSchema({
-  additionalProperties: false,
-  properties: {},
-  type: "object",
-})
-
-function withDefaultToolInputSchemas<TTools extends Record<string, unknown> | undefined>(tools: TTools): TTools {
-  if (!tools) return tools
-  return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
-    const record = tool as { inputSchema?: unknown, type?: unknown } | undefined
-    if (!record || typeof record !== "object" || record.type === "provider" || record.type === "provider-defined" || record.inputSchema != null) {
-      return [name, tool]
-    }
-    return [name, {
-      ...record,
-      inputSchema: defaultToolInputSchema,
-    }]
-  })) as TTools
-}
-
 function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapterRunContext) {
   const {
     onRunStepFinish,
@@ -548,10 +527,10 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
       context.sourceInstructions,
     )
   const adapterTools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)
-  const resolvedTools = withDefaultToolInputSchemas(await applyCapabilityToolTransforms({
+  const resolvedTools = await applyCapabilityToolTransforms({
     ...context.tools,
     ...adapterTools,
-  }, []))
+  }, [])
   const providerTools = Object.fromEntries((context.providerTools || []).map(tool => [tool.name, {
     args: tool.args || {},
     id: tool.id,

@@ -7,77 +7,25 @@ import { normalizeAuthBasePath } from "./shared.ts"
 
 import type {
   AuthModuleOptions,
-  ResolvedAuthAccessRoute,
   ResolvedAuthDatabaseConfiguration,
   ResolvedAuthSecondaryStorageConfiguration,
   ResolvedAuthViteConfig,
 } from "./types.ts"
 
-interface DefinitionObjectBody {
-  body: string
-  callback: boolean
+function readDefinitionObjectBody(file: string): string | undefined {
+  const source = readFileSync(file, "utf8")
+  const calls = findIdentifierCalls(source, "defineAuth")
+  const call = calls.find(item => /(?:^|[;\n])\s*export\s+default\s*$/.test(source.slice(Math.max(0, item.start - 100), item.start)))
+  const argument = call?.arguments[0]?.trim()
+  if (!argument?.startsWith("{")) return
+  const closeIndex = findMatching(argument, 0, "{", "}")
+  return typeof closeIndex === "undefined" ? undefined : argument.slice(1, closeIndex)
 }
 
 function objectLiteralBody(value: string | undefined): string | undefined {
   const trimmed = value?.trim()
   if (!trimmed?.startsWith("{")) return
   const closeIndex = findMatching(trimmed, 0, "{", "}")
-  return typeof closeIndex === "undefined" ? undefined : trimmed.slice(1, closeIndex)
-}
-
-function readReturnedObjectBody(block: string): string | undefined {
-  const body = objectLiteralBody(block)
-  if (typeof body === "undefined") return
-
-  const match = /\breturn\s*/.exec(body)
-  if (!match) return
-
-  return readExpressionObjectBody(body.slice(match.index + match[0].length))
-}
-
-function readExpressionObjectBody(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  if (!trimmed) return
-
-  if (trimmed.startsWith("{")) {
-    return objectLiteralBody(trimmed)
-  }
-
-  if (trimmed.startsWith("(")) {
-    const closeIndex = findMatching(trimmed, 0, "(", ")")
-    if (typeof closeIndex === "undefined") return
-    return objectLiteralBody(trimmed.slice(1, closeIndex))
-  }
-}
-
-function readDefinitionArgumentObjectBody(argument: string | undefined): DefinitionObjectBody | undefined {
-  const trimmed = argument?.trim()
-  if (!trimmed) return
-
-  const arrowIndex = trimmed.indexOf("=>")
-  if (arrowIndex !== -1) {
-    const body = trimmed.slice(arrowIndex + 2).trim()
-    const callbackBody = body.startsWith("{")
-      ? readReturnedObjectBody(body)
-      : readExpressionObjectBody(body)
-    return typeof callbackBody === "undefined" ? undefined : { body: callbackBody, callback: true }
-  }
-
-  const objectBody = readExpressionObjectBody(trimmed)
-  if (typeof objectBody !== "undefined") return { body: objectBody, callback: false }
-}
-
-function readDefinitionObjectBody(file: string): DefinitionObjectBody | undefined {
-  const source = readFileSync(file, "utf8")
-  const calls = findIdentifierCalls(source, "defineAuth")
-  const call = calls.find(item => /(?:^|[;\n])\s*export\s+default\s*$/.test(source.slice(Math.max(0, item.start - 100), item.start)))
-  return readDefinitionArgumentObjectBody(call?.arguments[0])
-}
-
-function arrayLiteralBody(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  if (!trimmed?.startsWith("[")) return
-  const closeIndex = findMatching(trimmed, 0, "[", "]")
   return typeof closeIndex === "undefined" ? undefined : trimmed.slice(1, closeIndex)
 }
 
@@ -131,14 +79,6 @@ function readStaticStringProperty(body: string | undefined, property: string, la
   return value
 }
 
-function readStaticRouteProperty(body: string | undefined, property: string, label: string): string | undefined {
-  const value = readStaticStringProperty(body, property, label)
-  if (typeof value !== "undefined" && !value.startsWith("/")) {
-    throw new TypeError(`\`defineAuth()\` ${label} must start with \`/\`.`)
-  }
-  return value
-}
-
 function readStaticBooleanProperty(body: string | undefined, property: string, label: string): boolean | undefined {
   if (!hasObjectProperty(body, property)) return
   const value = readStaticBooleanLiteral(readObjectPropertyValue(body, property))
@@ -172,46 +112,7 @@ function readAuthRouteConfig(body: string | undefined): false | string {
   throw new TypeError("`defineAuth()` route can only be `false` when provided.")
 }
 
-function readAuthAccessRoute(entry: string, index: number): ResolvedAuthAccessRoute {
-  const route = readStaticStringLiteral(entry)
-  if (typeof route !== "undefined") {
-    if (!route.startsWith("/")) {
-      throw new TypeError(`\`defineAuth()\` access.routes[${index}] must start with \`/\`.`)
-    }
-    return { route }
-  }
-
-  const routeObject = objectLiteralBody(entry)
-  if (typeof routeObject === "undefined") {
-    throw new TypeError(`\`defineAuth()\` access.routes[${index}] must be an inline route string or route object.`)
-  }
-
-  assertOnlyObjectKeys(routeObject, new Set(["method", "route"]), `access.routes[${index}]`)
-
-  const resolvedRoute = readStaticRouteProperty(routeObject, "route", `access.routes[${index}].route`)
-  if (!resolvedRoute) {
-    throw new TypeError(`\`defineAuth()\` access.routes[${index}].route is required.`)
-  }
-
-  const method = readStaticStringProperty(routeObject, "method", `access.routes[${index}].method`)
-  return method ? { method, route: resolvedRoute } : { route: resolvedRoute }
-}
-
-function readAuthAccessRoutesConfig(body: string | undefined): ResolvedAuthAccessRoute[] {
-  const access = objectLiteralBody(readObjectPropertyValue(body, "access"))
-  if (!access || !hasObjectProperty(access, "routes")) return []
-
-  const routes = arrayLiteralBody(readObjectPropertyValue(access, "routes"))
-  if (typeof routes === "undefined") {
-    throw new TypeError("`defineAuth()` access.routes must be an inline array.")
-  }
-
-  return splitTopLevel(routes)
-    .filter(entry => entry.length > 0)
-    .map((entry, index) => readAuthAccessRoute(entry, index))
-}
-
-function readAuthDatabaseConfig(body: string | undefined, allowRuntimeValue = false): ResolvedAuthDatabaseConfiguration {
+function readAuthDatabaseConfig(body: string | undefined): ResolvedAuthDatabaseConfiguration {
   if (!hasObjectProperty(body, "database")) return { mode: "default" }
 
   const expression = readObjectPropertyValue(body, "database")?.trim()
@@ -222,7 +123,6 @@ function readAuthDatabaseConfig(body: string | undefined, allowRuntimeValue = fa
 
   const database = objectLiteralBody(expression)
   if (typeof database === "undefined") {
-    if (allowRuntimeValue) return { mode: "default" }
     throw new TypeError("`defineAuth()` database must be `true` or an inline object with `name`.")
   }
 
@@ -237,7 +137,7 @@ function readAuthDatabaseConfig(body: string | undefined, allowRuntimeValue = fa
   }
 }
 
-function readAuthSecondaryStorageConfig(body: string | undefined, allowRuntimeValue = false): false | ResolvedAuthSecondaryStorageConfiguration {
+function readAuthSecondaryStorageConfig(body: string | undefined): false | ResolvedAuthSecondaryStorageConfiguration {
   if (!hasObjectProperty(body, "secondaryStorage")) return false
 
   const expression = readObjectPropertyValue(body, "secondaryStorage")?.trim()
@@ -248,7 +148,6 @@ function readAuthSecondaryStorageConfig(body: string | undefined, allowRuntimeVa
 
   const secondaryStorage = objectLiteralBody(expression)
   if (typeof secondaryStorage === "undefined") {
-    if (allowRuntimeValue) return false
     throw new TypeError("`defineAuth()` secondaryStorage must be `true` or an inline object with `store`.")
   }
 
@@ -268,23 +167,19 @@ export function resolveAuthViteConfig(options?: AuthModuleOptions, rootDir: stri
   const definition = discoverAuthDefinition(rootDir)
   if (!definition) return
 
-  const definitionObject = readDefinitionObjectBody(definition.handler)
-  if (typeof definitionObject === "undefined") {
+  const body = readDefinitionObjectBody(definition.handler)
+  if (typeof body === "undefined") {
     throw new TypeError("`defineAuth()` options must be an inline object literal.")
   }
-  const body = definitionObject.body
   assertStaticObjectKeys(body, "options")
   const basePath = normalizeAuthBasePath(readStaticStringProperty(body, "basePath", "basePath"))
 
   return {
-    access: {
-      routes: readAuthAccessRoutesConfig(body),
-    },
     basePath,
-    database: readAuthDatabaseConfig(body, definitionObject.callback),
+    database: readAuthDatabaseConfig(body),
     definition,
     rootDir,
     route: readAuthRouteConfig(body),
-    secondaryStorage: readAuthSecondaryStorageConfig(body, definitionObject.callback),
+    secondaryStorage: readAuthSecondaryStorageConfig(body),
   }
 }

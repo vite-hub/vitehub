@@ -13,78 +13,19 @@ describe("chat message trigger input", () => {
         { metadata: { sessionId: "b" }, parts: [{ text: "session b", type: "text" }], role: "user" },
       ],
       session: { id: "b" },
-      meta: { email: "support@example.com" },
       user: { id: "user_1" },
     })
 
     expect(result.input.context?.chat).toMatchObject({
-      meta: { email: "support@example.com" },
       session: { id: "b" },
       user: { id: "user_1" },
     })
     expect(result.input.context?.["chat.identity"]).toBe("user_1")
-    expect(result.input.context?.invoker).toMatchObject({
-      id: "user_1",
-      kind: "chat",
-      meta: {
-        email: "support@example.com",
-        id: "user_1",
-      },
-    })
     expect(result.input.messages?.map(message => message.parts
       .filter((part): part is { text: string, type: "text" } => part.type === "text")
       .map(part => part.text)
       .join(""))).toEqual(["session b"])
     expect(result.hookArgs.message.text).toBe("session b")
-  })
-
-  it("uses Chat Trigger metadata to enrich a user-derived invoker", () => {
-    const result = createChatMessageTriggerInput({}, {
-      messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }],
-      meta: {
-        customer: "acme",
-        email: "support@example.com",
-      },
-      user: { email: "support@example.com" },
-    })
-
-    expect(result.input.context?.["chat.identity"]).toBe("support@example.com")
-    expect(result.input.context?.invoker).toEqual({
-      id: "support@example.com",
-      kind: "chat",
-      meta: {
-        customer: "acme",
-        email: "support@example.com",
-      },
-    })
-  })
-
-  it("preserves Chat Trigger metadata without creating identity from metadata alone", () => {
-    const result = createChatMessageTriggerInput({}, {
-      messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }],
-      meta: { email: "support@example.com" },
-    })
-
-    expect(result.input.context?.chat).toMatchObject({
-      meta: { email: "support@example.com" },
-    })
-    expect(result.input.context?.["chat.identity"]).toBeUndefined()
-    expect(result.input.context?.invoker).toBeUndefined()
-  })
-
-  it("uses the devtools origin as the Chat Trigger invoker kind", () => {
-    const result = createChatMessageTriggerInput({}, {
-      messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }],
-      meta: { email: "maximo@quiver.dk" },
-      run: { origin: "devtools", runId: "devtools-run" },
-      user: { email: "maximo@quiver.dk" },
-    })
-
-    expect(result.input.context?.invoker).toMatchObject({
-      id: "devtools:maximo@quiver.dk",
-      kind: "devtools",
-      meta: { email: "maximo@quiver.dk" },
-    })
   })
 
   it("preserves completed UI tool calls", () => {

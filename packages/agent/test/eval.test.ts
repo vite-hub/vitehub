@@ -37,7 +37,6 @@ vi.mock("@vite-hub/workspace/test", () => ({
 }))
 
 vi.mock("ai", () => ({
-  jsonSchema: vi.fn(schema => schema),
   stepCountIs: vi.fn(count => ({ count })),
   ToolLoopAgent: class {
     constructor(public settings: Record<string, unknown>) {

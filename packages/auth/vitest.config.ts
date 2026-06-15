@@ -4,7 +4,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "#vitehub/auth/definition": new URL("./src/runtime/empty-definition.ts", import.meta.url).pathname,
-      "#vitehub/auth/server": new URL("./src/server.ts", import.meta.url).pathname,
     },
   },
   test: {

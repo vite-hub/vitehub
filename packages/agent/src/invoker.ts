@@ -11,16 +11,6 @@ import type {
 
 export const agentInvokerContextKey = "invoker"
 
-export function defineAgentInvoker<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  const TProfile extends AgentInvokerProfile = AgentInvokerProfile,
->(
-  options: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TProfile>,
-): AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TProfile> {
-  return options
-}
-
 const profileSelectorKeys = [
   "invoker.profileId",
   "invokerProfileId",
@@ -70,11 +60,9 @@ export function normalizeAgentInvoker(value: unknown, label = "Agent Invoker"): 
   }
 }
 
-export function normalizeAgentInvokerProfiles<
-  TProfile extends AgentInvokerProfile = AgentInvokerProfile,
->(
-  profiles: readonly TProfile[] | undefined,
-): TProfile[] {
+export function normalizeAgentInvokerProfiles(
+  profiles: readonly AgentInvokerProfile[] | undefined,
+): AgentInvokerProfile[] {
   if (profiles === undefined) return []
   if (!Array.isArray(profiles)) {
     throw new TypeError("[vitehub] defineAgent({ invoker.profiles }) must be an ordered array.")
@@ -87,22 +75,21 @@ export function normalizeAgentInvokerProfiles<
       throw new Error(`[vitehub] Duplicate Agent Invoker Profile id "${normalized.id}" in one agent.`)
     }
     seen.add(normalized.id)
-    return normalized as TProfile
+    return normalized
   })
 }
 
 export function normalizeAgentInvokerOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TProfile extends AgentInvokerProfile = AgentInvokerProfile,
 >(
-  options: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TProfile> | undefined,
-): AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TProfile> | undefined {
+  options: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined,
+): AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined {
   if (options === undefined) return undefined
   if (!isRecord(options)) {
     throw new TypeError("[vitehub] defineAgent({ invoker }) must be an object.")
   }
-  const invokerOptions = options as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TProfile>
+  const invokerOptions = options as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS>
   if (invokerOptions.resolve !== undefined && typeof invokerOptions.resolve !== "function") {
     throw new TypeError("[vitehub] defineAgent({ invoker.resolve }) must be a function.")
   }
@@ -151,12 +138,10 @@ function selectedProfileId(inputContext: object | undefined): string | undefined
   }
 }
 
-function selectAgentInvokerProfile<
-  TProfile extends AgentInvokerProfile,
->(
-  profiles: readonly TProfile[],
+function selectAgentInvokerProfile(
+  profiles: readonly AgentInvokerProfile[],
   inputContext: object | undefined,
-): TProfile | undefined {
+): AgentInvokerProfile | undefined {
   if (!profiles.length) return undefined
 
   const requestedProfileId = selectedProfileId(inputContext)
@@ -172,9 +157,8 @@ function selectAgentInvokerProfile<
 export async function resolveAgentInvoker<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TProfile extends AgentInvokerProfile = AgentInvokerProfile,
 >(
-  options: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TProfile> | undefined,
+  options: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined,
   callbackContext: AgentCallbackContext<TRuntimeConfig>,
   invocationContext: AgentInvocationContextStore,
   input: AgentRunInput<CALL_OPTIONS>,
@@ -185,12 +169,6 @@ export async function resolveAgentInvoker<
   const requestedInvoker = resolveInputAgentInvoker(input.context)
   const defaultInvoker = requestedInvoker || createFallbackAgentInvoker(run)
   const selectedProfile = selectAgentInvokerProfile(profiles, input.context)
-  const selectedInvoker = selectedProfile && defaultInvoker.meta
-    ? {
-        ...selectedProfile,
-        meta: { ...defaultInvoker.meta, ...selectedProfile.meta },
-      }
-    : selectedProfile
   const resolved = await normalizedOptions?.resolve?.({
     ...callbackContext,
     context: invocationContext,
@@ -200,7 +178,7 @@ export async function resolveAgentInvoker<
     ...(selectedProfile ? { selectedProfile } : {}),
   })
   const invoker = resolved === undefined || resolved === null
-    ? selectedInvoker || defaultInvoker
+    ? selectedProfile || defaultInvoker
     : normalizeAgentInvoker(resolved, "defineAgent({ invoker.resolve })")
 
   ensureAgentInvokerContext(invocationContext, invoker)
