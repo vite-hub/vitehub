@@ -91,6 +91,7 @@ export interface ChatDevtoolsStateResult {
   invokerFallback?: boolean
   invokerProfileId?: string
   invokerProfiles?: ChatDevtoolsInvokerProfile[]
+  meta?: Record<string, unknown>
   metadataError?: string
   metadataStatus?: ChatDevtoolsMetadataStatus
   selected: string
@@ -105,6 +106,7 @@ export interface ChatDevtoolsSendInput {
   chat?: string
   invokerFallback?: boolean
   invokerProfileId?: string
+  meta?: Record<string, unknown>
   stream?: boolean
   text: string
 }
@@ -113,12 +115,14 @@ export interface ChatDevtoolsClearInput {
   chat?: string
   invokerFallback?: boolean
   invokerProfileId?: string
+  meta?: Record<string, unknown>
 }
 
 export interface ChatDevtoolsMaterializeSourceInput {
   chat?: string
   invokerFallback?: boolean
   invokerProfileId?: string
+  meta?: Record<string, unknown>
   path?: string
   source?: string
 }

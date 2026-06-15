@@ -49,7 +49,7 @@ import {
 `access()` resolves trusted invocation access before Workspace-reading tools are exposed. Workspace scopes can include `instructions` when the selected scope should also contribute explicit model-facing guidance:
 
 ```ts
-const technicalEmails = new Set(['maximo@quiver.dk'])
+const technicalEmails = new Set(['support-engineer@example.com'])
 
 access({
   workspace: {

@@ -22,7 +22,7 @@ import { flattenFiles, sourceRootStates, syncExpandedFilePaths, type FileRow, ty
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
 type ChatMessage = UIMessage & { chat?: string }
-type IntegrationSectionId = "files" | "tools" | "instructions"
+type IntegrationSectionId = "files" | "tools" | "instructions" | "meta"
 
 const input = ref("")
 const promptInput = ref<HTMLTextAreaElement>()
@@ -83,6 +83,25 @@ const chatTitleTarget = computed(() => normalizeChatTitle(selectedChat()?.title 
 const agentVersion = computed(() => state.value.version?.trim())
 const fallbackInvokerProfileId = "__vitehub_fallback__"
 const selectedInvokerProfileId = ref<string | undefined>()
+const invokerMetaStorageKey = "vitehub.chat.devtools.meta"
+const invokerMetaInput = ref("")
+const invokerMetaStorageReady = ref(false)
+const hasStoredInvokerMeta = ref(false)
+const parsedInvokerMeta = computed<{ error?: string, meta?: Record<string, unknown> }>(() => {
+  const raw = invokerMetaInput.value.trim()
+  if (!raw) return {}
+  try {
+    const meta = JSON.parse(raw) as unknown
+    return meta && typeof meta === "object" && !Array.isArray(meta)
+      ? { meta: meta as Record<string, unknown> }
+      : { error: "Meta must be a JSON object." }
+  }
+  catch {
+    return { error: "Meta must be valid JSON." }
+  }
+})
+const invokerMeta = computed(() => parsedInvokerMeta.value.meta)
+const invokerMetaError = computed(() => parsedInvokerMeta.value.error)
 const invokerProfiles = computed<ChatDevtoolsInvokerProfile[]>(() => state.value.invokerProfiles || [])
 const showInvokerSelector = computed(() => invokerProfiles.value.length > 0)
 const selectedConversationMessages = computed(() => stateUiMessages(state.value, state.value.selected))
@@ -119,6 +138,7 @@ const integrationSections = computed<Array<{ count: number, icon: string, id: In
   { count: fileRows.value.length, icon: "i-lucide-files", id: "files", label: "Files" },
   { count: visibleTools.value.length, icon: "i-lucide-wrench", id: "tools", label: "Tools" },
   { count: state.value.instructions?.length || 0, icon: "i-lucide-scroll-text", id: "instructions", label: "Instructions" },
+  { count: invokerMeta.value ? Object.keys(invokerMeta.value).length : 0, icon: "i-lucide-braces", id: "meta", label: "Meta" },
 ])
 const metadataStatus = computed(() => state.value.metadataStatus || "ready")
 const isMetadataLoading = computed(() => metadataStatus.value === "loading")
@@ -139,6 +159,9 @@ function normalizeChatTitle(value: string | undefined) {
 }
 
 function applyState(next: ChatDevtoolsStateResult) {
+  if (!hasStoredInvokerMeta.value && !invokerMetaInput.value.trim() && next.meta) {
+    invokerMetaInput.value = JSON.stringify(next.meta, null, 2)
+  }
   state.value = {
     files: next.files || [],
     instructions: next.instructions || [],
@@ -204,6 +227,13 @@ function selectedInvokerRequest() {
   return selectedInvokerProfileId.value
     ? { invokerProfileId: selectedInvokerProfileId.value }
     : {}
+}
+
+function devtoolsRequestInput() {
+  return {
+    ...selectedInvokerRequest(),
+    ...(invokerMeta.value !== undefined ? { meta: invokerMeta.value } : {}),
+  }
 }
 
 function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
@@ -400,6 +430,7 @@ async function materializeFile(file: ChatDevtoolsFileTreeItem) {
     toggleFile(file)
     return
   }
+  if (invokerMetaError.value) return
 
   metadataRefreshEpoch += 1
   stopMetadataRefresh()
@@ -410,7 +441,7 @@ async function materializeFile(file: ChatDevtoolsFileTreeItem) {
       chat: state.value.selected,
       path: file.path,
       source,
-      ...selectedInvokerRequest(),
+      ...devtoolsRequestInput(),
     })
     if (bridgeState) {
       applyState(bridgeState)
@@ -650,8 +681,9 @@ function canApplyMetadataRefresh(epoch: number | undefined) {
 }
 
 async function refresh(options: { metadataRefreshEpoch?: number } = {}) {
+  if (invokerMetaError.value) return
   if (!shouldPreferRpcBridge()) {
-    const bridgeState = await callBridgeState({ action: "get-state", ...selectedInvokerRequest() })
+    const bridgeState = await callBridgeState({ action: "get-state", ...devtoolsRequestInput() })
     if (bridgeState) {
       if (!canApplyMetadataRefresh(options.metadataRefreshEpoch)) return
       applyState(bridgeState)
@@ -663,7 +695,7 @@ async function refresh(options: { metadataRefreshEpoch?: number } = {}) {
   try {
     const next = await callRpc<ChatDevtoolsStateResult>(
       chatDevtoolsGetStateRpc,
-      selectedInvokerRequest(),
+      devtoolsRequestInput(),
     )
     if (!canApplyMetadataRefresh(options.metadataRefreshEpoch)) return
     applyState(next)
@@ -685,7 +717,7 @@ async function refreshFromBridge(chat?: string) {
   const bridgeState = await callBridgeState({
     action: "get-state",
     ...(chat ? { chat } : {}),
-    ...selectedInvokerRequest(),
+    ...devtoolsRequestInput(),
   })
   if (bridgeState) {
     if (!canApplyMetadataRefresh(refreshEpoch)) return
@@ -696,7 +728,7 @@ async function refreshFromBridge(chat?: string) {
   await refresh({ metadataRefreshEpoch: refreshEpoch })
 }
 
-async function pollFinalBridgeState(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, text: string }, signal: AbortSignal) {
+async function pollFinalBridgeState(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }, signal: AbortSignal) {
   while (!signal.aborted) {
     await new Promise(resolve => setTimeout(resolve, 700))
     if (signal.aborted) break
@@ -706,6 +738,7 @@ async function pollFinalBridgeState(input: { chat?: string, invokerFallback?: bo
       ...(input.chat ? { chat: input.chat } : {}),
       ...(input.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
       ...(input.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
+      ...(input.meta ? { meta: input.meta } : {}),
     }, signal)
     if (!next) continue
 
@@ -723,7 +756,7 @@ async function pollFinalBridgeState(input: { chat?: string, invokerFallback?: bo
   return false
 }
 
-async function recoverTimedOutBridgeSend(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, text: string }, signal: AbortSignal) {
+async function recoverTimedOutBridgeSend(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }, signal: AbortSignal) {
   const startedAt = Date.now()
   let sawSubmittedMessage = false
 
@@ -736,6 +769,7 @@ async function recoverTimedOutBridgeSend(input: { chat?: string, invokerFallback
       ...(input.chat ? { chat: input.chat } : {}),
       ...(input.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
       ...(input.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
+      ...(input.meta ? { meta: input.meta } : {}),
     }, signal)
     if (!next) continue
 
@@ -755,7 +789,7 @@ async function recoverTimedOutBridgeSend(input: { chat?: string, invokerFallback
   return false
 }
 
-async function pollFinalRpcState(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, text: string }, signal: AbortSignal) {
+async function pollFinalRpcState(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }, signal: AbortSignal) {
   while (!signal.aborted) {
     await new Promise(resolve => setTimeout(resolve, 700))
     if (signal.aborted) break
@@ -765,6 +799,7 @@ async function pollFinalRpcState(input: { chat?: string, invokerFallback?: boole
         ...(input.chat ? { chat: input.chat } : {}),
         ...(input.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
         ...(input.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
+        ...(input.meta ? { meta: input.meta } : {}),
       })
       if (hasCurrentUserMessage(next, input.chat, input.text)) {
         applyState(next)
@@ -782,7 +817,7 @@ async function pollFinalRpcState(input: { chat?: string, invokerFallback?: boole
   return false
 }
 
-async function readDirectBridgeStream(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, text: string }): Promise<boolean> {
+async function readDirectBridgeStream(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }): Promise<boolean> {
   const abortController = new AbortController()
   currentReader = { cancel: () => abortController.abort() }
 
@@ -895,7 +930,7 @@ async function readDirectBridgeStream(input: { chat?: string, invokerFallback?: 
   }
 }
 
-async function readRpcStream(streamId: string, input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, text: string }) {
+async function readRpcStream(streamId: string, input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }) {
   const abortController = new AbortController()
   const reader = (rpcClient as { streaming?: { subscribe: <T>(channel: string, id: string, options?: Record<string, unknown>) => AsyncIterable<T> & { cancel: () => unknown } } } | undefined)?.streaming?.subscribe<ChatDevtoolsStreamEvent>(chatDevtoolsStreamChannel, streamId, {
     highWaterMark: 1024,
@@ -943,7 +978,7 @@ async function readRpcStream(streamId: string, input: { chat?: string, invokerFa
 
 async function send() {
   const text = (input.value || promptInput.value?.value || "").trim()
-  if (!text || status.value !== "ready") {
+  if (!text || status.value !== "ready" || invokerMetaError.value) {
     return
   }
 
@@ -964,7 +999,7 @@ async function send() {
 
     const bridgeInput = {
       ...(chat ? { chat } : {}),
-      ...selectedInvokerRequest(),
+      ...devtoolsRequestInput(),
       text,
     }
     if (!shouldPreferRpcBridge()) {
@@ -979,10 +1014,8 @@ async function send() {
     }
 
     const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
-      ...(chat ? { chat } : {}),
-      ...selectedInvokerRequest(),
+      ...bridgeInput,
       stream: true,
-      text,
     })
     if (!result.streamId) {
       applyState(result)
@@ -1029,7 +1062,7 @@ async function clear() {
     currentReader?.cancel()
     currentReader = undefined
     pendingUserMessage.value = undefined
-    const invokerRequest = selectedInvokerRequest()
+    const invokerRequest = devtoolsRequestInput()
     const bridgeState = await callBridgeState({ action: "clear", chat: state.value.selected, ...invokerRequest })
     applyState(bridgeState || await callRpc<ChatDevtoolsStateResult>(chatDevtoolsClearRpc, {
         chat: state.value.selected,
@@ -1054,6 +1087,12 @@ async function clear() {
 }
 
 onMounted(() => {
+  const storedMeta = localStorage.getItem(invokerMetaStorageKey)
+  if (storedMeta !== null) {
+    invokerMetaInput.value = storedMeta
+    hasStoredInvokerMeta.value = true
+  }
+  invokerMetaStorageReady.value = true
   syncExpandedFiles(state.value.files || [])
   refresh()
 })
@@ -1069,6 +1108,16 @@ watch(selectedInvokerProfileId, async (next, previous) => {
     metadataStatus: "loading",
     tools: [],
   }
+  await refreshFromBridge(state.value.selected)
+})
+watch(invokerMetaInput, async (next, previous) => {
+  if (!invokerMetaStorageReady.value || next === previous) return
+  hasStoredInvokerMeta.value = true
+  if (next.trim()) localStorage.setItem(invokerMetaStorageKey, next)
+  else localStorage.removeItem(invokerMetaStorageKey)
+  if (invokerMetaError.value || isBusy.value) return
+  metadataRefreshEpoch += 1
+  stopMetadataRefresh()
   await refreshFromBridge(state.value.selected)
 })
 onBeforeUnmount(() => {
@@ -1278,7 +1327,7 @@ onBeforeUnmount(() => {
               <UButton
                 type="submit"
                 :icon="status === 'ready' ? 'i-lucide-arrow-up' : 'i-lucide-square'"
-                :disabled="status === 'ready' && !input.trim()"
+                :disabled="status === 'ready' && (!input.trim() || !!invokerMetaError)"
                 :aria-label="status === 'ready' ? 'Send message' : 'Stop response'"
                 color="primary"
                 size="xs"
@@ -1324,7 +1373,7 @@ onBeforeUnmount(() => {
               <div
                 role="radiogroup"
                 aria-label="Integration section"
-                class="grid shrink-0 grid-cols-3 gap-1 border-b border-default pb-2 md:grid-cols-1"
+                class="grid shrink-0 grid-cols-4 gap-1 border-b border-default pb-2 md:grid-cols-1"
               >
                 <UButton
                   v-for="section in integrationSections"
@@ -1520,7 +1569,7 @@ onBeforeUnmount(() => {
                 />
               </template>
 
-                <template v-else>
+                <template v-else-if="activeIntegrationSection === 'instructions'">
                 <UAlert
                   v-if="state.instructions?.length && metadataError"
                   color="error"
@@ -1575,6 +1624,29 @@ onBeforeUnmount(() => {
                   size="xs"
                   :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
+                </template>
+                <template v-else>
+                  <div class="space-y-2 px-1">
+                    <label class="block text-xs font-medium text-muted" for="vitehub-devtools-meta">
+                      Invoker meta
+                    </label>
+                    <textarea
+                      id="vitehub-devtools-meta"
+                      v-model="invokerMetaInput"
+                      rows="10"
+                      spellcheck="false"
+                      class="min-h-40 w-full resize-none rounded-md bg-default p-2 font-mono text-xs/5 text-default outline-none ring-1 ring-default focus:ring-2 focus:ring-primary"
+                      placeholder="{&quot;email&quot;:&quot;you@example.com&quot;}"
+                    />
+                    <UAlert
+                      v-if="invokerMetaError"
+                      color="error"
+                      variant="soft"
+                      icon="i-lucide-triangle-alert"
+                      :title="invokerMetaError"
+                      :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
+                    />
+                  </div>
                 </template>
               </div>
             </div>

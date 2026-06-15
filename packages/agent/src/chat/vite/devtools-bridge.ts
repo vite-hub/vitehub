@@ -43,12 +43,21 @@ import type {
 
 type ReadUIMessageStream = typeof import("ai").readUIMessageStream
 type ChatDevtoolsAction = "clear" | "get-state" | "materialize-source" | "send"
-const chatDevtoolsDefaultEmail = "maximo@quiver.dk"
+const chatDevtoolsInvoker = {
+  id: "devtools",
+  kind: "devtools" as const,
+  label: "DevTools User",
+}
+const chatDevtoolsUser = {
+  id: "devtools",
+  name: "DevTools User",
+}
 type ChatDevtoolsBridgeBody = {
   action?: string
   chat?: string
   invokerFallback?: boolean
   invokerProfileId?: string
+  meta?: Record<string, unknown>
   path?: string
   source?: string
   stream?: boolean
@@ -58,6 +67,7 @@ type ChatDevtoolsBridgeBody = {
 interface ChatDevtoolsInvokerSelection {
   invokerFallback?: boolean
   invokerProfileId?: string
+  meta?: Record<string, unknown>
 }
 
 interface ViteAgentDevtoolsRuntimeConfig extends AgentRuntimeConfig {
@@ -92,9 +102,14 @@ interface ChatDevtoolsAgentEntry {
 }
 
 interface ChatDevtoolsBridgeState {
+  defaultMeta?: Record<string, unknown>
   entries: Map<string, ChatDevtoolsAgentEntry>
   sessions: Map<string, ChatDevtoolsSession>
   selected?: string
+}
+
+export interface ChatDevtoolsBridgeOptions {
+  meta?: Record<string, unknown>
 }
 
 function normalizeChatDevtoolsAction(action: string): ChatDevtoolsAction | undefined {
@@ -105,7 +120,11 @@ function normalizeChatDevtoolsAction(action: string): ChatDevtoolsAction | undef
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object"
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+function optionalRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? { ...value } : undefined
 }
 
 function resolveAgentModule(module: unknown): AgentInput<ViteAgentDevtoolsRuntimeContext> | undefined {
@@ -197,20 +216,19 @@ function createRuntimeContext(server: ViteDevServer, req: IncomingMessage, run: 
 }
 
 function createDevtoolsMetadataInput(selection: ChatDevtoolsInvokerSelection = {}): AgentRunInput {
+  const meta = optionalRecord(selection.meta)
   return {
     context: {
       invoker: {
-        id: `devtools:${chatDevtoolsDefaultEmail}`,
-        kind: "devtools",
-        label: "DevTools User",
-        meta: { email: chatDevtoolsDefaultEmail },
+        ...chatDevtoolsInvoker,
+        ...(meta ? { meta } : {}),
       },
       ...(!selection.invokerFallback && selection.invokerProfileId ? { invokerProfileId: selection.invokerProfileId } : {}),
       chat: {
         message: { metadata: {} },
-        meta: { email: chatDevtoolsDefaultEmail },
+        ...(meta ? { meta } : {}),
         run: { origin: "devtools" },
-        user: { email: chatDevtoolsDefaultEmail },
+        user: chatDevtoolsUser,
       },
     },
     messages: [],
@@ -225,15 +243,25 @@ function metadataSelectionForAgent(
   agent: AgentInput<ViteAgentDevtoolsRuntimeContext>,
   selection: ChatDevtoolsInvokerSelection = {},
 ): ChatDevtoolsInvokerSelection {
-  if (selection.invokerFallback) return { invokerFallback: true }
-  return agentHasInvokerProfile(agent, selection.invokerProfileId)
+  const meta = optionalRecord(selection.meta)
+  if (selection.invokerFallback) {
+    return {
+      invokerFallback: true,
+      ...(meta ? { meta } : {}),
+    }
+  }
+  const invokerSelection = agentHasInvokerProfile(agent, selection.invokerProfileId)
     ? { invokerProfileId: selection.invokerProfileId }
     : {}
+  return {
+    ...invokerSelection,
+    ...(meta ? { meta } : {}),
+  }
 }
 
 function metadataSelectionKey(selection: ChatDevtoolsInvokerSelection = {}): string {
-  if (selection.invokerFallback) return "fallback"
-  return selection.invokerProfileId ? `profile:${selection.invokerProfileId}` : "default"
+  const invoker = selection.invokerFallback ? "fallback" : selection.invokerProfileId ? `profile:${selection.invokerProfileId}` : "default"
+  return `${invoker}:${JSON.stringify(selection.meta || {})}`
 }
 
 function canResolveWorkspaceMetadata(agent: AgentInput<ViteAgentDevtoolsRuntimeContext>): boolean {
@@ -422,10 +450,19 @@ function assertKnownInvokerProfile(metadata: ChatDevtoolsMetadata | undefined, i
   }
 }
 
-function normalizeInvokerSelection(input: { invokerFallback?: boolean, invokerProfileId?: string } | undefined): ChatDevtoolsInvokerSelection {
-  if (input?.invokerFallback === true) return { invokerFallback: true }
+function normalizeInvokerSelection(input: { invokerFallback?: boolean, invokerProfileId?: string, meta?: unknown } | undefined, defaultMeta?: Record<string, unknown>): ChatDevtoolsInvokerSelection {
+  const meta = optionalRecord(input?.meta) ?? optionalRecord(defaultMeta)
+  if (input?.invokerFallback === true) {
+    return {
+      invokerFallback: true,
+      ...(meta ? { meta } : {}),
+    }
+  }
   const invokerProfileId = input?.invokerProfileId?.trim()
-  return invokerProfileId ? { invokerProfileId } : {}
+  return {
+    ...(invokerProfileId ? { invokerProfileId } : {}),
+    ...(meta ? { meta } : {}),
+  }
 }
 
 async function serializeState(
@@ -463,6 +500,7 @@ async function serializeState(
     ...(invokerFallback ? { invokerFallback: true } : {}),
     ...(invokerProfileId ? { invokerProfileId } : {}),
     invokerProfiles: metadata?.invokerProfiles || [],
+    ...(requestedSelection.meta ? { meta: requestedSelection.meta } : {}),
     ...(entry?.metadataError ? { metadataError: entry.metadataError } : {}),
     ...(entry?.metadataStatus ? { metadataStatus: entry.metadataStatus } : {}),
     selected: nextSelected,
@@ -565,7 +603,7 @@ async function sendDevtoolsUIMessage(
   server: ViteDevServer,
   req: IncomingMessage,
   state: ChatDevtoolsBridgeState,
-  input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, stream?: boolean, text?: string },
+  input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, stream?: boolean, text?: string },
   onChange?: (next: ChatDevtoolsStateResult) => void | Promise<void>,
 ): Promise<ChatDevtoolsStateResult> {
   if (!input.stream) {
@@ -590,7 +628,7 @@ async function sendDevtoolsUIMessage(
 
   const session = getSession(state, selected)
   state.selected = selected
-  const requestedSelection = normalizeInvokerSelection(input)
+  const requestedSelection = normalizeInvokerSelection(input, state.defaultMeta)
   const requestedProfileId = requestedSelection.invokerProfileId
   assertKnownInvokerProfile(selectedEntry.metadata, requestedProfileId)
   if (
@@ -617,11 +655,11 @@ async function sendDevtoolsUIMessage(
   const runtimeContext = createRuntimeContext(server, req, run)
   const triggerInput: AgentChatMessageTriggerInput = {
     ...(session.invokerProfileId ? { invokerProfileId: session.invokerProfileId } : {}),
-    meta: { email: chatDevtoolsDefaultEmail },
+    ...(requestedSelection.meta ? { meta: requestedSelection.meta } : {}),
     messages: baseMessages,
     run,
     timeout: 90_000,
-    user: { email: chatDevtoolsDefaultEmail },
+    user: chatDevtoolsUser,
   }
   const stream = readableStreamFromResult(await streamAgentTrigger(selectedEntry.agent as never, runtimeContext as never, "chat.message", triggerInput, {
     output: "ui-message-stream",
@@ -675,13 +713,13 @@ async function sendDevtoolsUIMessage(
   return await serializeState(state, selected)
 }
 
-async function clearDevtoolsMessages(state: ChatDevtoolsBridgeState, input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string }): Promise<ChatDevtoolsStateResult> {
+async function clearDevtoolsMessages(state: ChatDevtoolsBridgeState, input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown> }): Promise<ChatDevtoolsStateResult> {
   const selected = getSelectedName(state, input.chat)
   if (!selected) return await serializeState(state)
   const entry = state.entries.get(selected)
   if (!entry) return await serializeState(state)
   const session = getSession(state, selected)
-  const requestedSelection = normalizeInvokerSelection(input)
+  const requestedSelection = normalizeInvokerSelection(input, state.defaultMeta)
   assertKnownInvokerProfile(entry.metadata, requestedSelection.invokerProfileId)
   state.selected = selected
   session.thinkingFallback = null
@@ -694,7 +732,7 @@ async function clearDevtoolsMessages(state: ChatDevtoolsBridgeState, input: { ch
 
 async function materializeDevtoolsSource(
   state: ChatDevtoolsBridgeState,
-  input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, path?: string, source?: string },
+  input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, path?: string, source?: string },
 ): Promise<ChatDevtoolsStateResult> {
   const selected = getSelectedName(state, input.chat)
   if (!selected) return await serializeState(state)
@@ -704,7 +742,7 @@ async function materializeDevtoolsSource(
     throw new Response("Missing workspace source or path.", { status: 400 })
   }
 
-  const requestedSelection = normalizeInvokerSelection(input)
+  const requestedSelection = normalizeInvokerSelection(input, state.defaultMeta)
   assertKnownInvokerProfile(entry.metadata, requestedSelection.invokerProfileId)
   const metadataSelection = metadataSelectionForAgent(entry.agent, requestedSelection)
   state.selected = selected
@@ -806,7 +844,7 @@ async function handleChatDevtoolsRequest(
     return new Response("Missing chat devtools action.", { status: 400 })
   }
 
-  const invokerSelection = normalizeInvokerSelection(body)
+  const invokerSelection = normalizeInvokerSelection(body, state.defaultMeta)
   await discoverChatAgents(server, state)
   if (body.chat && state.entries.has(body.chat)) {
     state.selected = body.chat
@@ -889,8 +927,10 @@ function errorResponse(error: unknown): Response {
   })
 }
 
-export function registerChatDevtoolsBridge(server: ViteDevServer): void {
+export function registerChatDevtoolsBridge(server: ViteDevServer, options: ChatDevtoolsBridgeOptions = {}): void {
+  const defaultMeta = optionalRecord(options.meta)
   const state: ChatDevtoolsBridgeState = {
+    ...(defaultMeta ? { defaultMeta } : {}),
     entries: new Map(),
     sessions: new Map(),
   }

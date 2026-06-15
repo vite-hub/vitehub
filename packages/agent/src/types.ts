@@ -668,7 +668,7 @@ export type AgentCliOptions = Record<never, never>
 
 export interface AgentModuleOptions {
   cli?: false | AgentCliOptions
-  devtools?: false
+  devtools?: false | { meta?: Record<string, unknown> }
   execution?: AgentExecution
   eval?: false | AgentEvalOptions
   imports?: boolean

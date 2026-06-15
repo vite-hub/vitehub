@@ -259,6 +259,7 @@ describe("agent chat capability discovery", () => {
 
     const { access, chat } = await import("../src/capabilities.ts")
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const devtoolsMeta = { email: "maximo@quiver.dk" }
     const technicalEmails = new Set(["maximo@quiver.dk"])
     const agent = withWorkspaceAgentDefaults(defineAgent({
       invoker: {
@@ -346,6 +347,7 @@ describe("agent chat capability discovery", () => {
       action: "clear",
       chat: "support",
       invokerFallback: true,
+      meta: devtoolsMeta,
     })
     const clearedFallbackState = JSON.parse(clearedFallbackResponse.body)
     expect(clearedFallbackState).toMatchObject({
@@ -359,6 +361,7 @@ describe("agent chat capability discovery", () => {
       action: "get-state",
       chat: "support",
       invokerFallback: true,
+      meta: devtoolsMeta,
     })
     expect(resolvedFallbackState).toMatchObject({
       instructions: ["# Support\n\nAudience resolved for technical."],
@@ -372,6 +375,7 @@ describe("agent chat capability discovery", () => {
       action: "send",
       chat: "support",
       invokerFallback: true,
+      meta: devtoolsMeta,
       stream: true,
       text: "hello fallback",
     })
