@@ -65,6 +65,7 @@ import type {
   AgentInvocationHooks,
   AgentInvocationContextStore,
   AgentInvoker,
+  AgentInvokerOptions,
   AgentInvokerProfile,
   AgentModelResolver,
   AgentRegistry,
@@ -136,8 +137,14 @@ export type {
   AgentChatSessionOptions,
   AgentRequestBody,
   AgentDefinition,
+  AgentDevtoolsConfigMetadata,
+  AgentDevtoolsConfigValue,
+  AgentDevtoolsDriverMetadata,
   AgentDevtoolsFileTreeItem,
+  AgentDevtoolsHarnessMetadata,
   AgentDevtoolsMetadata,
+  AgentDevtoolsModelExecutionMetadata,
+  AgentDevtoolsModelMetadata,
   AgentDevtoolsToolDefinition,
   AgentDriver,
   AgentExecution,
@@ -226,6 +233,11 @@ export {
   resolveAgentDevtoolsMetadata,
 } from "./workspace-agent.ts"
 
+export {
+  agentInvokerContextKey,
+  defineAgentInvoker,
+} from "./invoker.ts"
+
 export type {
   WorkspaceAgentDefinition,
   WorkspaceAgentDefaults,
@@ -243,7 +255,13 @@ export type {
   ToolInvocationState,
 } from "./messages.ts"
 
+export {
+  agentChatContextKey,
+  getAgentChatContext,
+} from "./chat-trigger.ts"
+
 export type {
+  AgentChatContext,
   AgentChatRunContext,
 } from "./chat-trigger.ts"
 
@@ -294,7 +312,8 @@ type BaseAgentResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
 type AgentDefinitionWithBaseResolve<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> = AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & {
+  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+> = AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> & {
   [baseAgentResolve]?: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS>
   [baseAgentModel]?: AgentModelResolver<TRuntimeConfig>
 }
@@ -515,7 +534,7 @@ function defineBaseAgent<
   const { capabilities, description, hooks, runtime, title, version, workspace } = options
   const run = driver.kind === "run" ? driver.run : (options as { run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS> }).run
   const normalizedCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
-  const invoker = normalizeAgentInvokerOptions(options.invoker)
+  const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined
   const chat = getChatCapabilityOptions<TRuntimeConfig>(normalizedCapabilities)
   validateNonWorkspaceCapabilities(normalizedCapabilities, !!workspace)
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
@@ -563,7 +582,7 @@ function defineBaseAgent<
         ? { ...adapterInstance, tools: capabilityTools }
         : adapterInstance
     },
-  } as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS>
+  } as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>
   Object.defineProperty(definition, "__vitehubAgentSettings", { value: options })
   return definition
 }
@@ -616,8 +635,8 @@ function createWorkspaceAgentDefinition<
   } as never) as WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile>
 
   if (!definition.run) {
-    const run: NonNullable<AgentDefinition<TRuntimeConfig>["run"]> = async (context) => {
-      const adapter = await resolveAgentForRun<TRuntimeConfig, unknown>(definition, context)
+    const run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> = async (context) => {
+      const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, context)
       const invocationContext = await createAgentInvocationContext(definition as never, context as never, context.input)
       const result = await adapter.generate(toAgentAdapterRunContext(invocationContext) as never)
       return typeof result === "object" && result && "text" in result && typeof (result as { text?: unknown }).text === "string"

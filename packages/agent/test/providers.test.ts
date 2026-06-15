@@ -541,6 +541,59 @@ describe("server helpers", () => {
     })
   })
 
+  it("serves hosted Chat DevTools state for an explicit agent handler", async () => {
+    const { defineAgent, defineAgentInvoker } = await import("../src/index.ts")
+    const { defineAgentChatDevtoolsFetchHandler } = await import("../src/server.ts")
+    const agent = defineAgent({
+      invoker: defineAgentInvoker({
+        profiles: [{
+          id: "customer:demo:support",
+          kind: "customerPortal",
+          meta: { customer: "demo" },
+        }],
+      }),
+      run: () => "unused",
+      title: "Support",
+      version: "test-agent",
+    })
+    const handler = defineAgentChatDevtoolsFetchHandler(agent as never, {
+      meta: { email: "user@example.com" },
+      name: "support",
+    })
+
+    const response = await handler(new Request("https://example.com/__vitehub/agent/chat/devtools", {
+      body: JSON.stringify({
+        action: "get-state",
+        invokerProfileId: "customer:demo:support",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("access-control-allow-origin")).toBe("*")
+    await expect(response.json()).resolves.toMatchObject({
+      chats: [{
+        invokerProfileId: "customer:demo:support",
+        name: "support",
+        title: "Support",
+        uiMessages: [],
+      }],
+      invokerProfileId: "customer:demo:support",
+      invokerProfiles: [{
+        id: "customer:demo:support",
+        kind: "customerPortal",
+        meta: { customer: "demo" },
+      }],
+      meta: { email: "user@example.com" },
+      metadataStatus: "ready",
+      selected: "support",
+      title: "Support",
+      uiMessages: [],
+      version: "test-agent",
+    })
+  })
+
   it("handles Chat SDK webhooks through the chat capability", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { access, chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")

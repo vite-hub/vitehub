@@ -4,16 +4,145 @@ import { betterAuth } from "better-auth"
 import { normalizeAuthBasePath } from "./shared.ts"
 
 import type {
+  AuthAccessConfiguration,
   AuthBetterAuthRuntimeOptions,
   AuthDefinition,
-  AuthDefinitionOptions,
+  AuthDefinitionInput,
+  AuthDefinitionResolver,
   AuthRequest,
+  AuthRequestInput,
+  AuthRuntimeContext,
   AuthRuntimeOptions,
+  AuthRuntimeOptionsResolver,
+  AuthSignInConfiguration,
   ViteHubAuth,
 } from "./types.ts"
 
+type AuthRuntimeEnvResolver = (event?: unknown) => Record<string, unknown>
+
 function hasRuntimeOptions(options: AuthRuntimeOptions | undefined): boolean {
   return Boolean(options && Object.keys(options).length > 0)
+}
+
+function hasRequestRuntimeOptions(definition: AuthDefinition): boolean {
+  if (typeof definition.options === "function") return true
+  return typeof definition.options.runtime === "function"
+}
+
+let authRuntimeEnvResolver: AuthRuntimeEnvResolver | undefined
+
+export function setAuthRuntimeEnvResolver(resolver: AuthRuntimeEnvResolver | undefined): void {
+  authRuntimeEnvResolver = resolver
+}
+
+function resolveAuthRuntimeEnv(event?: unknown): Record<string, unknown> {
+  return authRuntimeEnvResolver?.(event) ?? {}
+}
+
+function requestOrigin(request?: Pick<Request, "url">): string {
+  return request ? new URL(request.url).origin : "http://localhost"
+}
+
+function createAuthRuntimeContext(
+  request?: Pick<Request, "headers" | "url">,
+  event?: unknown,
+): AuthRuntimeContext {
+  return {
+    env: resolveAuthRuntimeEnv(event ?? request),
+    ...(request ? { request } : {}),
+    requestOrigin: requestOrigin(request),
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+}
+
+function isAuthDatabaseMetadata(value: unknown): boolean {
+  return value === true
+    || (
+      isPlainObject(value)
+      && typeof value.name === "string"
+      && Object.keys(value).every(key => key === "dedicated" || key === "name")
+    )
+}
+
+function isAuthSecondaryStorageMetadata(value: unknown): boolean {
+  return value === true
+    || (
+      isPlainObject(value)
+      && typeof value.store === "string"
+      && Object.keys(value).every(key => key === "store")
+    )
+}
+
+function resolveDefinitionOptions(
+  definition: AuthDefinition,
+  request?: Pick<Request, "headers" | "url">,
+  event?: unknown,
+  runtimeOptions: AuthRuntimeOptions = {},
+): AuthRuntimeOptions & Record<string, unknown> {
+  const context = createAuthRuntimeContext(request, event)
+  const options = (typeof definition.options === "function"
+    ? (definition.options as AuthDefinitionResolver)(context)
+    : definition.options) as AuthRuntimeOptions & Record<string, unknown>
+  const runtime = options.runtime
+  const resolvedRuntime = !runtime
+    ? {}
+    : typeof runtime === "function"
+      ? (runtime as AuthRuntimeOptionsResolver)(context)
+      : runtime
+  return {
+    ...options,
+    ...resolvedRuntime,
+    ...runtimeOptions,
+  }
+}
+
+function resolveRequestRuntimeOptions(
+  definition: AuthDefinition,
+  request: Pick<Request, "headers" | "url">,
+  event?: unknown,
+): AuthRuntimeOptions & Record<string, unknown> {
+  if (typeof definition.options === "function") {
+    return resolveDefinitionOptions(definition, request, event)
+  }
+
+  const runtime = definition.options.runtime
+  if (!runtime) return {}
+  const context = createAuthRuntimeContext(request, event)
+  return (typeof runtime === "function"
+    ? (runtime as AuthRuntimeOptionsResolver)(context)
+    : runtime) as AuthRuntimeOptions & Record<string, unknown>
+}
+
+function hasStaticTrustedOrigins(definition: AuthDefinition): boolean {
+  return typeof definition.options !== "function" && "trustedOrigins" in definition.options
+}
+
+function definitionBasePath(definition: AuthDefinition): string | undefined {
+  if (typeof definition.options === "function") return
+  return definition.options.basePath
+}
+
+function stripViteHubOptions(
+  options: AuthRuntimeOptions & Record<string, unknown>,
+): AuthBetterAuthRuntimeOptions {
+  const {
+    access: _access,
+    database,
+    route: _route,
+    runtime: _runtime,
+    secondaryStorage,
+    ...rest
+  } = options
+
+  return {
+    ...rest,
+    ...(!isAuthDatabaseMetadata(database) ? { database } : {}),
+    ...(!isAuthSecondaryStorageMetadata(secondaryStorage) ? { secondaryStorage } : {}),
+    basePath: normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined),
+  } as AuthBetterAuthRuntimeOptions
 }
 
 interface RequestInitWithDuplex extends RequestInit {
@@ -38,16 +167,25 @@ function toRequest(request: AuthRequest): Request {
   return new Request(request.url, init)
 }
 
+function unwrapAuthRequest(input: AuthRequestInput): AuthRequest {
+  return "req" in input ? input.req : input
+}
+
 export function createAuthRequestRuntimeOptions(
   definition: AuthDefinition,
-  request: Pick<Request, "url">,
+  request: Pick<Request, "headers" | "url">,
   runtimeOptions: AuthRuntimeOptions = {},
+  event?: unknown,
 ): AuthRuntimeOptions {
-  const baseURL = runtimeOptions.baseURL || new URL(request.url).origin
+  const requestRuntimeOptions = {
+    ...resolveRequestRuntimeOptions(definition, request, event),
+    ...runtimeOptions,
+  }
+  const baseURL = requestRuntimeOptions.baseURL || new URL(request.url).origin
   return {
     baseURL,
-    ...(!hasTrustedOrigins(definition.options) && !hasTrustedOrigins(runtimeOptions) ? { trustedOrigins: [baseURL] } : {}),
-    ...runtimeOptions,
+    ...(!hasTrustedOrigins(requestRuntimeOptions) && !hasStaticTrustedOrigins(definition) ? { trustedOrigins: [baseURL] } : {}),
+    ...requestRuntimeOptions,
   } as AuthRuntimeOptions
 }
 
@@ -73,51 +211,49 @@ function resolveDefaultDefinition(): AuthDefinition {
   return discoveredDefinition
 }
 
-export function createBetterAuthOptions<const TOptions extends AuthDefinitionOptions>(
-  definition: AuthDefinition<TOptions>,
+export function createBetterAuthOptions(
+  definition: AuthDefinition,
   runtimeOptions: AuthRuntimeOptions = {},
-): AuthBetterAuthRuntimeOptions<TOptions> {
-  const {
-    database: _database,
-    route: _route,
-    secondaryStorage: _secondaryStorage,
-    ...options
-  } = definition.options
-
-  return {
-    ...options,
-    basePath: normalizeAuthBasePath(options.basePath),
-    ...runtimeOptions,
-  } as AuthBetterAuthRuntimeOptions<TOptions>
+): AuthBetterAuthRuntimeOptions {
+  return stripViteHubOptions(resolveDefinitionOptions(definition, undefined, undefined, runtimeOptions))
 }
 
-export function createAuth<const TOptions extends AuthDefinitionOptions>(
-  definition: AuthDefinition<TOptions>,
+function createBetterAuthOptionsFromResolved(
+  options: AuthRuntimeOptions & Record<string, unknown>,
+): AuthBetterAuthRuntimeOptions {
+  return stripViteHubOptions(options)
+}
+
+export function createAuth(
+  definition: AuthDefinition,
   runtimeOptions?: AuthRuntimeOptions,
-): ViteHubAuth<AuthBetterAuthRuntimeOptions<TOptions>> {
-  return betterAuth(createBetterAuthOptions(definition, runtimeOptions)) as ViteHubAuth<AuthBetterAuthRuntimeOptions<TOptions>>
+): ViteHubAuth {
+  return betterAuth(createBetterAuthOptions(definition, runtimeOptions)) as ViteHubAuth
 }
 
-export function createAuthForRequest<const TOptions extends AuthDefinitionOptions>(
-  definition: AuthDefinition<TOptions>,
-  request: Pick<Request, "url">,
+export function createAuthForRequest(
+  definition: AuthDefinition,
+  request: Pick<Request, "headers" | "url">,
   runtimeOptions?: AuthRuntimeOptions,
-): ViteHubAuth<AuthBetterAuthRuntimeOptions<TOptions>> {
-  return createAuth(definition, createAuthRequestRuntimeOptions(definition, request, runtimeOptions))
+  event?: unknown,
+): ViteHubAuth {
+  const requestRuntimeOptions = createAuthRequestRuntimeOptions(definition, request, runtimeOptions, event) as AuthRuntimeOptions & Record<string, unknown>
+  return betterAuth(createBetterAuthOptionsFromResolved(resolveDefinitionOptions(definition, request, event, requestRuntimeOptions))) as ViteHubAuth
 }
 
-export function handleAuthRequest<const TOptions extends AuthDefinitionOptions>(
-  definition: AuthDefinition<TOptions>,
+export function handleAuthRequest(
+  definition: AuthDefinition,
   request: AuthRequest,
   runtimeOptions?: AuthRuntimeOptions,
+  event?: unknown,
 ): Promise<Response> {
-  return createAuthForRequest(definition, request, runtimeOptions).handler(toRequest(request))
+  return createAuthForRequest(definition, request, runtimeOptions, event).handler(toRequest(request))
 }
 
-export function createAuthHandler<const TOptions extends AuthDefinitionOptions>(
-  definition: AuthDefinition<TOptions>,
+export function createAuthHandler(
+  definition: AuthDefinition,
   runtimeOptions?: AuthRuntimeOptions,
-): ViteHubAuth<AuthBetterAuthRuntimeOptions<TOptions>>["handler"] {
+): ViteHubAuth["handler"] {
   return createAuth(definition, runtimeOptions).handler
 }
 
@@ -146,6 +282,103 @@ export function getAuthForDefinition(
 export function getAuth(runtimeOptions?: AuthRuntimeOptions): ViteHubAuth {
   return getAuthForDefinition(resolveDefaultDefinition(), runtimeOptions)
 }
+
+export function getAuthForRequest(
+  request: Pick<Request, "headers" | "url">,
+  runtimeOptions?: AuthRuntimeOptions,
+  event?: unknown,
+): ViteHubAuth {
+  const definition = resolveDefaultDefinition()
+  if (!hasRequestRuntimeOptions(definition) && !hasRuntimeOptions(runtimeOptions)) {
+    return getAuthForDefinition(definition)
+  }
+  return createAuthForRequest(definition, request, runtimeOptions, event) as unknown as ViteHubAuth
+}
+
+export function handleAuth(
+  input: AuthRequestInput,
+  runtimeOptions?: AuthRuntimeOptions,
+): Promise<Response> {
+  const request = unwrapAuthRequest(input)
+  return handleAuthRequest(resolveDefaultDefinition(), request, runtimeOptions, input)
+}
+
+function authRequestBasePath(definition: AuthDefinition, request: Pick<Request, "headers" | "url">, event?: unknown): string {
+  const options = createAuthRequestRuntimeOptions(definition, request, {}, event) as AuthRuntimeOptions & { basePath?: unknown }
+  return normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : definitionBasePath(definition))
+}
+
+function authBaseURL(definition: AuthDefinition, request: Pick<Request, "headers" | "url">, event?: unknown): string {
+  return new URL(createAuthRequestRuntimeOptions(definition, request, {}, event).baseURL as string).origin
+}
+
+function wantsHtml(request: Pick<Request, "headers" | "method">): boolean {
+  return request.method === "GET" && request.headers.get("accept")?.includes("text/html") === true
+}
+
+async function createSignInResponse(
+  definition: AuthDefinition,
+  request: AuthRequest,
+  signIn: AuthSignInConfiguration,
+  event?: unknown,
+): Promise<Response> {
+  const origin = authBaseURL(definition, request, event)
+  const response = await handleAuthRequest(definition, new Request(`${origin}${authRequestBasePath(definition, request, event)}/sign-in/social`, {
+    body: JSON.stringify({
+      callbackURL: signIn.callbackURL,
+      errorCallbackURL: signIn.errorCallbackURL,
+      provider: signIn.provider,
+      requestSignUp: signIn.requestSignUp,
+      scopes: signIn.scopes,
+    }),
+    headers: {
+      "content-type": "application/json",
+      "accept": "application/json",
+      "origin": origin,
+    },
+    method: "POST",
+  }), undefined, event)
+
+  if (!response.ok) return response
+
+  const body = await response.json().catch(() => undefined) as { url?: unknown } | undefined
+  if (typeof body?.url !== "string") {
+    return Response.json({ error: "Auth sign-in did not return a redirect URL." }, { status: 502 })
+  }
+
+  const headers = new Headers(response.headers)
+  headers.delete("content-type")
+  headers.set("location", body.url)
+  return new Response(null, { headers, status: 302 })
+}
+
+export async function requireAuth(
+  input: AuthRequestInput,
+  definition: AuthDefinition = resolveDefaultDefinition(),
+): Promise<Response | undefined> {
+  const request = unwrapAuthRequest(input)
+  const auth = createAuthForRequest(definition, request, undefined, input)
+  const session = await auth.api.getSession({ headers: request.headers })
+  if (session) return
+
+  if (!wantsHtml(request)) {
+    return Response.json({ error: "Unauthorized." }, { status: 401 })
+  }
+
+  if (new URL(request.url).searchParams.has("auth_error")) {
+    return new Response("Unauthorized.", {
+      headers: { "content-type": "text/plain; charset=utf-8" },
+      status: 403,
+    })
+  }
+
+  const signIn = (resolveDefinitionOptions(definition, request, input) as { access?: AuthAccessConfiguration }).access?.signIn
+  return signIn
+    ? await createSignInResponse(definition, request, signIn, input)
+    : Response.json({ error: "Unauthorized." }, { status: 401 })
+}
+
+export default handleAuth
 
 export const auth = new Proxy({}, {
   get(_target, property, receiver) {

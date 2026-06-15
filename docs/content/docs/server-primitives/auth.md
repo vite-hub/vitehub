@@ -43,32 +43,78 @@ export default defineAuth({
 
 `server/auth.ts` is the canonical Auth Definition Location. You can use `server.auth.ts` instead when a flat server file fits the project better.
 
-Better Auth options stay top-level. ViteHub reserves `database`, `secondaryStorage`, `basePath`, and `route` for package-owned wiring.
+Better Auth options stay top-level. ViteHub reserves `access`, `runtime`, `database`, `secondaryStorage`, `basePath`, and `route` for package-owned wiring.
 
 ## Expose the Auth route
 
-The Canonical Auth Route Path is `/api/auth/**`. In local Vite development, the Vite Integration exposes that route by default.
+The Canonical Auth Route Path is `/api/auth/**`. The Vite Integration exposes that route in local development and registers the generated Nitro handler for production builds. Apps do not need to create `server/api/auth/[...].ts`.
 
-When your host needs an explicit server route, or when you set `route: false`, mount the Auth handler yourself.
+Set `route: false` only when a host integration mounts Auth itself.
 
-```ts [server/api/auth/[...].ts]
-import { auth } from '@vite-hub/auth/server'
+```ts [server/auth.ts]
+import { defineAuth } from '@vite-hub/auth'
 
-export default auth.handler
+export default defineAuth({
+  appName: 'My app',
+  route: false,
+})
 ```
 
-If runtime auth values depend on the current request or server environment, derive them at the mount point.
+Manual hosts can mount the stable `#vitehub/auth/server` handler directly. That helper uses the discovered Auth Definition.
 
-```ts [server/api/auth/[...].ts]
-import { handleAuthRequest } from '@vite-hub/auth/server'
-import authDefinition from '../../auth'
+If runtime auth values depend on the current request, server environment, provider credentials, or route access policy, keep that behavior in the Auth Definition.
 
-export default async function handleAuth(request: Request) {
-  return handleAuthRequest(authDefinition, request, {
-    secret: process.env.BETTER_AUTH_SECRET,
-  })
-}
+```ts [vite.config.ts]
+import { hubAuth } from '@vite-hub/auth/vite'
+import { env, hubEnv } from '@vite-hub/env/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [
+    hubEnv(),
+    hubAuth(),
+  ],
+  env: {
+    server: {
+      auth: {
+        github: {
+          clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+        },
+        secret: env({ secret: true, source: env.source('BETTER_AUTH_SECRET') }),
+      },
+    },
+  },
+})
 ```
+
+```ts [server/auth.ts]
+import { defineAuth } from '@vite-hub/auth'
+
+export default defineAuth(({ env, requestOrigin }) => ({
+  appName: 'My app',
+  baseURL: requestOrigin,
+  secret: env.auth.secret.unseal(),
+  access: {
+    routes: ['/app', '/app/**'],
+    signIn: {
+      provider: 'github',
+      callbackURL: '/app',
+      errorCallbackURL: '/app?auth_error=github',
+    },
+  },
+  socialProviders: {
+    github: {
+      clientId: env.auth.github.clientId,
+      clientSecret: env.auth.github.clientSecret.unseal(),
+    },
+  },
+}))
+```
+
+When `@vite-hub/env` is installed, the Auth Definition callback receives the typed server env. It also receives `requestOrigin`, so same-origin apps do not need a separate auth URL environment variable.
+
+The generated Nitro middleware uses `access.signIn` when one of the configured `access.routes` needs a browser redirect. `access.routes` must be static route strings or `{ method, route }` objects so the Vite Integration can register middleware at build time.
 
 Use Manual Auth Mount only when automatic Auth Route Exposure is unavailable or intentionally disabled.
 
@@ -138,7 +184,7 @@ export const authClient = createAuthClient({
 })
 ```
 
-`basePath` is route metadata. Do not put `baseURL`, `secret`, or `secrets` in `defineAuth()`. Those values are resolved at runtime by the Auth Package.
+`basePath` is route metadata. Put `baseURL`, `secret`, or `secrets` in a `defineAuth()` callback when they depend on the current request or server environment.
 
 Use `baseURL` in the client only when the browser talks to an Auth server on a different origin.
 

@@ -37,31 +37,69 @@ export default defineConfig({
 })
 ```
 
-```ts
-// server/api/auth/[...].ts
-import { auth } from "@vite-hub/auth/server"
+`hubAuth()` discovers `server/auth.ts`, exposes `/api/auth/**`, and generates the Nitro route handler for production builds.
 
-export default auth.handler
-```
-
-For host routes that need runtime secrets or request-derived origins, create the request-scoped Auth instance at the mount point.
+For host routes that need runtime secrets, provider credentials, request-derived origins, or route guarding, keep that policy in the Auth Definition.
 
 ```ts
-import { handleAuthRequest } from "@vite-hub/auth/server"
-import authDefinition from "../../auth"
+// vite.config.ts
+import { hubAuth } from "@vite-hub/auth/vite"
+import { env, hubEnv } from "@vite-hub/env/vite"
+import { defineConfig } from "vite"
 
-export default async function handleAuth(request: Request) {
-  return handleAuthRequest(authDefinition, request, {
-    secret: process.env.BETTER_AUTH_SECRET,
-  })
-}
+export default defineConfig({
+  plugins: [
+    hubEnv(),
+    hubAuth(),
+  ],
+  env: {
+    server: {
+      auth: {
+        github: {
+          clientId: env({ source: env.source("GITHUB_CLIENT_ID") }),
+          clientSecret: env({ secret: true, source: env.source("GITHUB_CLIENT_SECRET") }),
+        },
+        secret: env({ secret: true, source: env.source("BETTER_AUTH_SECRET") }),
+      },
+    },
+  },
+})
 ```
+
+```ts
+// server/auth.ts
+import { defineAuth } from "@vite-hub/auth"
+
+export default defineAuth(({ env, requestOrigin }) => ({
+  appName: "My app",
+  baseURL: requestOrigin,
+  secret: env.auth.secret.unseal(),
+  access: {
+    routes: ["/app", "/app/**"],
+    signIn: {
+      provider: "github",
+      callbackURL: "/app",
+      errorCallbackURL: "/app?auth_error=github",
+    },
+  },
+  socialProviders: {
+    github: {
+      clientId: env.auth.github.clientId,
+      clientSecret: env.auth.github.clientSecret.unseal(),
+    },
+  },
+}))
+```
+
+When `@vite-hub/env` is installed, the Auth Definition callback receives the typed server env. It also receives `requestOrigin`, so same-origin apps do not need a separate auth URL environment variable.
+
+The generated Nitro middleware uses `access.signIn` when one of the configured `access.routes` needs a browser redirect.
 
 ## Vite Integration
 
-Use `server/auth.ts` for the canonical Auth Definition, or `server.auth.ts` when a flat server file fits the project better. Vite discovers one Auth Definition, exposes it through an internal virtual module, and owns `/api/auth/**` in development by default.
+Use `server/auth.ts` for the canonical Auth Definition, or `server.auth.ts` when a flat server file fits the project better. Vite discovers one Auth Definition, exposes it through an internal virtual module, owns `/api/auth/**` in development, and registers the same route with Nitro builds by default.
 
-Set `route: false` to opt out of automatic route exposure.
+Set `route: false` only when a host integration mounts Auth itself.
 
 ```ts
 export default defineAuth({
@@ -69,7 +107,9 @@ export default defineAuth({
 })
 ```
 
-Better Auth options stay top-level. ViteHub-owned runtime wiring uses reserved fields: `database`, `secondaryStorage`, `basePath`, and `route`. `baseURL`, `secret`, and `secrets` are runtime options and cannot be defined in `defineAuth()`.
+Manual hosts can mount the stable `#vitehub/auth/server` handler directly.
+
+Better Auth options stay top-level. ViteHub-owned wiring uses reserved fields: `access`, `database`, `secondaryStorage`, `basePath`, and `route`. `access.routes` must be static route strings or `{ method, route }` objects so the Vite Integration can register Nitro middleware.
 
 ```ts
 export default defineAuth({

@@ -28,6 +28,13 @@ async function writeAuth(rootDir: string, path: string, body: string[]): Promise
   return file
 }
 
+async function writeAuthSource(rootDir: string, path: string, source: string[]): Promise<string> {
+  const file = join(rootDir, path)
+  await mkdir(dirname(file), { recursive: true })
+  await writeFile(file, [...source, ""].join("\n"))
+  return file
+}
+
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
@@ -78,6 +85,9 @@ describe("resolveAuthViteConfig", () => {
     ])
 
     expect(resolveAuthViteConfig(undefined, rootDir)).toEqual({
+      access: {
+        routes: [],
+      },
       basePath: "/api/auth",
       database: { mode: "default" },
       definition: {
@@ -104,6 +114,82 @@ describe("resolveAuthViteConfig", () => {
       database: { dedicated: true, mode: "named", name: "auth" },
       route: "/auth",
       secondaryStorage: { mode: "named", store: "auth" },
+    })
+  })
+
+  it("resolves static access route middleware config", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [
+      "  access: {",
+      "    routes: [",
+      "      '/app',",
+      "      '/app/**',",
+      "      { method: 'POST', route: '/api/app' },",
+      "    ],",
+      "  },",
+    ])
+
+    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
+      access: {
+        routes: [
+          { route: "/app" },
+          { route: "/app/**" },
+          { method: "POST", route: "/api/app" },
+        ],
+      },
+    })
+  })
+
+  it("resolves static middleware config from a callback Auth Definition", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from '@vite-hub/auth'",
+      "export default defineAuth(({ env, requestOrigin }) => ({",
+      "  access: {",
+      "    routes: [",
+      "      '/app',",
+      "      { method: 'POST', route: '/api/app' },",
+      "    ],",
+      "  },",
+      "  appName: 'ViteHub',",
+      "  baseURL: requestOrigin,",
+      "  database: createDatabase(env),",
+      "  secret: env.auth.secret.unseal(),",
+      "}))",
+    ])
+
+    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
+      access: {
+        routes: [
+          { route: "/app" },
+          { method: "POST", route: "/api/app" },
+        ],
+      },
+      database: { mode: "default" },
+    })
+  })
+
+  it("resolves static middleware config from a block callback Auth Definition", async () => {
+    const rootDir = await createTempProject()
+    await writeAuthSource(rootDir, "server/auth.ts", [
+      "import { defineAuth } from '@vite-hub/auth'",
+      "export default defineAuth(({ env, requestOrigin }) => {",
+      "  const secret = env.auth.secret.unseal()",
+      "  return {",
+      "    access: { routes: ['/app'] },",
+      "    appName: 'ViteHub',",
+      "    baseURL: requestOrigin,",
+      "    secret,",
+      "  }",
+      "})",
+    ])
+
+    expect(resolveAuthViteConfig(undefined, rootDir)).toMatchObject({
+      access: {
+        routes: [
+          { route: "/app" },
+        ],
+      },
     })
   })
 
@@ -159,6 +245,22 @@ describe("resolveAuthViteConfig", () => {
     ].join("\n"))
 
     expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/options must be an inline object literal/)
+  })
+
+  it("rejects dynamic access route middleware config", async () => {
+    const rootDir = await createTempProject()
+    await writeAuth(rootDir, "server/auth.ts", [
+      "  access: { routes },",
+    ])
+
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/access\.routes must be an inline array/)
+
+    await rm(join(rootDir, "server", "auth.ts"))
+    await writeAuth(rootDir, "server/auth.ts", [
+      "  access: { routes: [{ route: routePath }] },",
+    ])
+
+    expect(() => resolveAuthViteConfig(undefined, rootDir)).toThrow(/access\.routes\[0\]\.route must be an inline string literal/)
   })
 
   it("rejects indirect Auth Definition exports instead of reading the first defineAuth call", async () => {

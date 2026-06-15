@@ -6,6 +6,7 @@ import type {
   AgentHarnessDriverInput,
   AgentHarnessSandboxInput,
   AgentHarnessSessionKey,
+  AgentInvokerProfile,
   AgentModelExecutionOptions,
   AgentModelResolver,
   AgentRunHandler,
@@ -139,8 +140,9 @@ function normalizeExplicitAgentDriver<
 export function normalizeAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
+  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
 >(
-  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS>,
+  options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
 ): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
   const record = options as Record<string, unknown>
   if (hasOwnDefined(record, "driver")) {

@@ -1,4 +1,4 @@
-import { getAuth } from "./server.ts"
+import { getAuth, getAuthForRequest } from "./server.ts"
 
 import type {
   AgentInvoker,
@@ -151,7 +151,7 @@ async function defaultAuthenticatedSource(
 ): Promise<AuthenticatedSession | null | undefined> {
   if (!context.request) return undefined
 
-  const auth = getAuth() as BetterAuthSessionApi
+  const auth = (context.request ? getAuthForRequest(context.request) : getAuth()) as BetterAuthSessionApi
   const session = await auth.api?.getSession?.({
     headers: context.request.headers,
     query: {

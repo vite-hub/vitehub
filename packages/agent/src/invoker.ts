@@ -11,6 +11,16 @@ import type {
 
 export const agentInvokerContextKey = "invoker"
 
+export function defineAgentInvoker<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+  const TProfile extends AgentInvokerProfile = AgentInvokerProfile,
+>(
+  options: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TProfile>,
+): AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TProfile> {
+  return options
+}
+
 const profileSelectorKeys = [
   "invoker.profileId",
   "invokerProfileId",

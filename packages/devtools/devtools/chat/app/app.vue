@@ -9,6 +9,7 @@ import {
   chatDevtoolsMaterializeSourceRpc,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
+  type ChatDevtoolsConfigValue,
   type ChatDevtoolsFileTreeItem,
   type ChatDevtoolsInvokerProfile,
   type ChatDevtoolsSendResult,
@@ -22,7 +23,14 @@ import { flattenFiles, sourceRootStates, syncExpandedFilePaths, type FileRow, ty
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
 type ChatMessage = UIMessage & { chat?: string }
-type IntegrationSectionId = "files" | "tools" | "instructions" | "meta"
+type IntegrationSectionId = "config" | "files" | "tools" | "instructions" | "meta"
+type ConfigRow = {
+  badge?: string
+  icon: string
+  label: string
+  mono?: boolean
+  value: string
+}
 
 const input = ref("")
 const promptInput = ref<HTMLTextAreaElement>()
@@ -134,7 +142,9 @@ const visibleTools = computed<ChatDevtoolsToolDefinition[]>(() => {
     status: tool.status === "error" ? "disabled" : "available",
   }))
 })
+const configRows = computed<ConfigRow[]>(() => agentConfigRows(state.value.config))
 const integrationSections = computed<Array<{ count: number, icon: string, id: IntegrationSectionId, label: string }>>(() => [
+  { count: configRows.value.length, icon: "i-lucide-settings-2", id: "config", label: "Config" },
   { count: fileRows.value.length, icon: "i-lucide-files", id: "files", label: "Files" },
   { count: visibleTools.value.length, icon: "i-lucide-wrench", id: "tools", label: "Tools" },
   { count: state.value.instructions?.length || 0, icon: "i-lucide-scroll-text", id: "instructions", label: "Instructions" },
@@ -143,6 +153,111 @@ const integrationSections = computed<Array<{ count: number, icon: string, id: In
 const metadataStatus = computed(() => state.value.metadataStatus || "ready")
 const isMetadataLoading = computed(() => metadataStatus.value === "loading")
 const metadataError = computed(() => state.value.metadataError)
+
+function formattedConfigValue(value: ChatDevtoolsConfigValue) {
+  if (typeof value === "boolean") return value ? "true" : "false"
+  if (value === null) return "null"
+  return String(value)
+}
+
+function driverKindLabel(kind: string) {
+  if (kind === "model") return "Model-backed Agent Driver"
+  if (kind === "harness") return "Harness-backed Agent Driver"
+  if (kind === "run") return "Custom-run Agent Driver"
+  return kind
+}
+
+function workspaceFallbackLabel(value: NonNullable<NonNullable<NonNullable<ChatDevtoolsStateResult["config"]>["driver"]["execution"]>["workspaceFallback"]>) {
+  const enabled = value.enabled === false ? "disabled" : "enabled"
+  return value.maxToolResults !== undefined
+    ? `${enabled}, ${value.maxToolResults} tool results`
+    : enabled
+}
+
+function agentConfigRows(config: ChatDevtoolsStateResult["config"]): ConfigRow[] {
+  if (!config?.driver) return []
+
+  const rows: ConfigRow[] = [{
+    icon: "i-lucide-route",
+    label: "Driver",
+    value: driverKindLabel(config.driver.kind),
+  }]
+  const model = config.driver.model
+  if (model) {
+    rows.push({
+      ...(model.dynamic ? { badge: "dynamic" } : {}),
+      icon: "i-lucide-brain-circuit",
+      label: "Model",
+      mono: Boolean(model.id),
+      value: model.id || (model.dynamic ? "Dynamic model resolver" : "Configured model"),
+    })
+    if (model.provider) {
+      rows.push({
+        icon: "i-lucide-cloud",
+        label: "Provider",
+        mono: true,
+        value: model.provider,
+      })
+    }
+  }
+  const harness = config.driver.harness
+  if (harness?.provider) {
+    rows.push({
+      icon: "i-lucide-box",
+      label: "Harness",
+      mono: true,
+      value: harness.provider,
+    })
+  }
+  if (harness?.credentials?.label || harness?.credentials?.source) {
+    rows.push({
+      ...(harness.credentials.source ? { badge: harness.credentials.source } : {}),
+      icon: "i-lucide-key-round",
+      label: "Credentials",
+      value: harness.credentials.label || harness.credentials.source || "configured",
+    })
+  }
+  if (harness?.sandbox) {
+    rows.push({
+      icon: "i-lucide-box",
+      label: "Sandbox",
+      value: "configured",
+    })
+  }
+  if (harness?.sessionKey) {
+    rows.push({
+      icon: "i-lucide-link",
+      label: "Session key",
+      value: "configured",
+    })
+  }
+  const execution = config.driver.execution
+  if (execution?.stepLimit !== undefined) {
+    rows.push({
+      icon: "i-lucide-list-checks",
+      label: "Step limit",
+      mono: true,
+      value: String(execution.stepLimit),
+    })
+  }
+  if (execution?.workspaceFallback) {
+    rows.push({
+      icon: "i-lucide-undo-2",
+      label: "Workspace fallback",
+      value: workspaceFallbackLabel(execution.workspaceFallback),
+    })
+  }
+  for (const [key, value] of Object.entries(execution?.callSettings || {})) {
+    rows.push({
+      icon: "i-lucide-sliders-horizontal",
+      label: key,
+      mono: true,
+      value: formattedConfigValue(value),
+    })
+  }
+
+  return rows
+}
 
 function clearPendingMessages() {
   const pendingId = pendingUserMessage.value?.id
@@ -1373,7 +1488,7 @@ onBeforeUnmount(() => {
               <div
                 role="radiogroup"
                 aria-label="Integration section"
-                class="grid shrink-0 grid-cols-4 gap-1 border-b border-default pb-2 md:grid-cols-1"
+                class="grid shrink-0 grid-cols-5 gap-1 border-b border-default pb-2 md:grid-cols-1"
               >
                 <UButton
                   v-for="section in integrationSections"
@@ -1390,7 +1505,7 @@ onBeforeUnmount(() => {
                   class="min-h-8 justify-start border-l-2"
                   :class="activeIntegrationSection === section.id ? 'border-warning text-highlighted' : 'border-transparent text-muted'"
                   :ui="{
-                    leadingIcon: section.id === 'files' ? 'text-warning' : 'text-muted',
+                    leadingIcon: section.id === 'files' ? 'text-warning' : section.id === 'config' ? 'text-primary' : 'text-muted',
                     label: 'min-w-0 truncate text-left text-sm',
                   }"
                   @click="activeIntegrationSection = section.id"
@@ -1409,7 +1524,66 @@ onBeforeUnmount(() => {
               </div>
 
               <div class="min-h-0 flex-1 overflow-y-auto">
-                <template v-if="activeIntegrationSection === 'files'">
+                <template v-if="activeIntegrationSection === 'config'">
+                  <UAlert
+                    v-if="configRows.length && metadataError"
+                    color="error"
+                    variant="soft"
+                    icon="i-lucide-triangle-alert"
+                    :title="metadataError"
+                    class="mb-2"
+                    :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
+                  />
+                  <div v-if="configRows.length" class="space-y-1.5 px-1">
+                    <div
+                      v-for="row in configRows"
+                      :key="`${row.label}:${row.value}`"
+                      class="rounded-md border border-default bg-default/60 p-2"
+                    >
+                      <div class="flex min-w-0 items-start gap-2">
+                        <UIcon :name="row.icon" class="mt-0.5 size-4 shrink-0 text-muted" />
+                        <div class="min-w-0 flex-1">
+                          <div class="flex min-w-0 items-center gap-2">
+                            <span class="shrink-0 text-xs font-medium text-muted">{{ row.label }}</span>
+                            <UBadge
+                              v-if="row.badge"
+                              color="neutral"
+                              variant="soft"
+                              size="xs"
+                              class="ml-auto shrink-0"
+                            >
+                              {{ row.badge }}
+                            </UBadge>
+                          </div>
+                          <p
+                            class="mt-1 break-words text-sm text-toned"
+                            :class="row.mono ? 'font-mono text-xs/5' : 'text-sm/5'"
+                          >
+                            {{ row.value }}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <UEmpty
+                    v-else-if="metadataError"
+                    icon="i-lucide-triangle-alert"
+                    title="Config metadata failed."
+                    :description="metadataError"
+                    size="xs"
+                    :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
+                  />
+                  <UEmpty
+                    v-else
+                    icon="i-lucide-settings-2"
+                    title="No config metadata."
+                    description="This chat has not exposed Agent Driver metadata for DevTools."
+                    size="xs"
+                    :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
+                  />
+                </template>
+
+                <template v-else-if="activeIntegrationSection === 'files'">
                 <UAlert
                   v-if="fileRows.length && metadataError"
                   color="error"

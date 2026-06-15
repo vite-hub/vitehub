@@ -149,7 +149,9 @@ export interface ChatDevtoolsTypingThread {
   startTyping(text?: string): Promise<unknown>
 }
 
-type ResolvedChatDevtoolsMetadata = Required<Omit<ChatDevtoolsMetadata, "title" | "version">> & Pick<ChatDevtoolsMetadata, "title" | "version">
+type ResolvedChatDevtoolsMetadata =
+  Required<Omit<ChatDevtoolsMetadata, "config" | "title" | "version">>
+  & Pick<ChatDevtoolsMetadata, "config" | "title" | "version">
 
 interface ChatDevtoolsFullStreamToolPart {
   error?: unknown
@@ -478,6 +480,7 @@ function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): 
     title: metadata?.title,
     tools: metadata?.tools ? [...metadata.tools] : [],
     version: metadata?.version,
+    ...(metadata?.config ? { config: metadata.config } : {}),
   }
 }
 

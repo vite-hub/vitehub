@@ -9,6 +9,7 @@ import type {
   AgentChatFinishExtension,
   AgentChatOptions,
   AgentChatWebhookRegistrationDefinition,
+  AgentInvocationContextStore,
   AgentRunMetadata,
   AgentRuntimeConfig,
   AgentTriggerDefinition,
@@ -44,6 +45,8 @@ export type AgentChatOptionsOrigin<TOptions> =
   [AgentChatKnownOrigin<TOptions>] extends [never]
     ? string
     : AgentChatKnownOrigin<TOptions>
+
+export const agentChatContextKey = "chat"
 
 type ChatCapabilityTypeContract<TOrigin extends string = string> = AgentCapabilityTypeContract & {
   chatOrigins: TOrigin
@@ -81,6 +84,25 @@ export interface AgentChatRunContext<
     session?: AgentChatMessageTriggerInput["session"]
     user?: TUser
   }
+}
+
+export type AgentChatContext<
+  TMeta extends object = Record<string, unknown>,
+  TUser extends object = Record<string, unknown>,
+  TOrigin extends string = string,
+  TMessageMetadata extends object = Record<string, unknown>,
+> = NonNullable<AgentChatRunContext<TMessageMetadata, TUser, TOrigin, TMeta>["chat"]>
+
+export function getAgentChatContext<
+  TMeta extends object = Record<string, unknown>,
+  TUser extends object = Record<string, unknown>,
+  TOrigin extends string = string,
+  TMessageMetadata extends object = Record<string, unknown>,
+>(
+  input: AgentInvocationContextStore | { context: AgentInvocationContextStore },
+): AgentChatContext<TMeta, TUser, TOrigin, TMessageMetadata> | undefined {
+  const store = "get" in input ? input : input.context
+  return store.get<AgentChatContext<TMeta, TUser, TOrigin, TMessageMetadata>>(agentChatContextKey)
 }
 
 async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeConfig>(

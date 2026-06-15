@@ -14,6 +14,11 @@ vi.mock("../src/server.ts", () => ({
       getSession: serverMocks.getSession,
     },
   }),
+  getAuthForRequest: () => ({
+    api: {
+      getSession: serverMocks.getSession,
+    },
+  }),
 }))
 
 const defaultInvoker = {

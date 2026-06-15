@@ -1,9 +1,11 @@
+import { resolve } from "node:path"
 import { Readable } from "node:stream"
 
-import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored } from "@vite-hub/internal/build/vite"
+import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 
 import { resolveAuthViteConfig } from "./config.ts"
-import { getAuthForDefinition, resetAuth } from "./server.ts"
+import { getAuthForDefinition, handleAuthRequest, resetAuth } from "./server.ts"
 import { isAuthRequestPath } from "./shared.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
@@ -15,11 +17,20 @@ import type {
 } from "./types.ts"
 
 export const AUTH_DEFINITION_ID = "#vitehub/auth/definition"
+export const AUTH_SERVER_ID = "#vitehub/auth/server"
 export const AUTH_VITE_PLUGIN_NAME = "@vite-hub/auth/vite"
 
 const RESOLVED_AUTH_DEFINITION_ID = `\0${AUTH_DEFINITION_ID}`
+const RESOLVED_AUTH_SERVER_ID = `\0${AUTH_SERVER_ID}`
 const authPackageName = "@vite-hub/auth"
+const envServerModuleId = "#vitehub/env/server"
+const envVitePluginName = "@vite-hub/env/vite"
+const generatedAuthAccessMiddlewareHandler = ".vitehub/auth/access-middleware.ts"
+const generatedAuthRouteHandler = ".vitehub/auth/route.ts"
 const mergeNoExternal = createNoExternalMerger(authPackageName)
+
+type NitroConfig = Record<string, unknown>
+type NitroHandler = { handler: string; method?: string; middleware?: boolean; route: string }
 
 export interface AuthVitePluginAPI {
   getConfig: () => ResolvedAuthViteConfig | undefined
@@ -42,6 +53,130 @@ function renderAuthDefinitionModule(config: ResolvedAuthViteConfig | undefined):
     "export default definition",
     "",
   ].join("\n")
+}
+
+function renderAuthServerModule(options: { serverEnv: boolean } = { serverEnv: false }): string {
+  return [
+    ...(options.serverEnv
+      ? [
+          `import { setAuthRuntimeEnvResolver } from ${JSON.stringify("@vite-hub/auth/server")}`,
+          `import { useServerEnv } from ${JSON.stringify(envServerModuleId)}`,
+          "setAuthRuntimeEnvResolver(useServerEnv)",
+          "",
+        ]
+      : []),
+    `export * from ${JSON.stringify("@vite-hub/auth/server")}`,
+    `export { handleAuth as default } from ${JSON.stringify("@vite-hub/auth/server")}`,
+    "",
+  ].join("\n")
+}
+
+function renderAuthRouteHandler(): string {
+  return [
+    `export { default } from ${JSON.stringify(AUTH_SERVER_ID)}`,
+    "",
+  ].join("\n")
+}
+
+function renderAuthAccessMiddlewareHandler(config: ResolvedAuthViteConfig | undefined): string {
+  const routes = JSON.stringify(config?.access.routes ?? [])
+  return [
+    `import { requireAuth } from ${JSON.stringify(AUTH_SERVER_ID)}`,
+    "",
+    `const routes = ${routes}`,
+    "",
+    "function routeMatches(pattern, pathname) {",
+    "  if (pattern.endsWith('/**')) {",
+    "    const base = pattern.slice(0, -3)",
+    "    return pathname === base || pathname.startsWith(`${base}/`)",
+    "  }",
+    "  return pathname === pattern",
+    "}",
+    "",
+    "function matchesAccessRoute(event) {",
+    "  const method = event.req.method",
+    "  const pathname = event.url.pathname",
+    "  return routes.some(route => (!route.method || route.method.toUpperCase() === method) && routeMatches(route.route, pathname))",
+    "}",
+    "",
+    "export default function viteHubAuthAccessMiddleware(event) {",
+    "  if (!matchesAccessRoute(event)) return",
+    "  return requireAuth(event)",
+    "}",
+    "",
+  ].join("\n")
+}
+
+function authAmbientTypesPath(root: string): string {
+  return resolve(root, ".vitehub", "types", "auth.d.ts")
+}
+
+function renderAuthAmbientTypes(options: { serverEnv: boolean } = { serverEnv: false }): string {
+  return [
+    ...(options.serverEnv
+      ? [
+          `import type { ServerEnv } from ${JSON.stringify(envServerModuleId)}`,
+          "",
+          `declare module ${JSON.stringify("@vite-hub/auth")} {`,
+          "  interface AuthRuntimeEnv extends ServerEnv {}",
+          "}",
+          "",
+        ]
+      : []),
+    `declare module ${JSON.stringify(AUTH_SERVER_ID)} {`,
+    `  export * from ${JSON.stringify("@vite-hub/auth/server")}`,
+    `  export { handleAuth as default } from ${JSON.stringify("@vite-hub/auth/server")}`,
+    "}",
+    "",
+  ].join("\n")
+}
+
+async function refreshAuthGeneratedFiles(root: string, config?: ResolvedAuthViteConfig, options: { serverEnv?: boolean } = {}): Promise<void> {
+  await Promise.all([
+    writeFileIfChanged(resolve(root, generatedAuthAccessMiddlewareHandler), renderAuthAccessMiddlewareHandler(config)),
+    writeFileIfChanged(authAmbientTypesPath(root), renderAuthAmbientTypes({ serverEnv: Boolean(options.serverEnv) })),
+    writeFileIfChanged(resolve(root, generatedAuthRouteHandler), renderAuthRouteHandler()),
+  ])
+}
+
+function hasServerEnvIntegration(config: ResolvedConfig | undefined): boolean {
+  return Array.isArray(config?.plugins) && config.plugins.some(plugin => plugin.name === envVitePluginName)
+}
+
+function cloneNitroConfig(value: unknown): NitroConfig {
+  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
+}
+
+function authRoutePattern(route: string): string {
+  return `${route}/**`
+}
+
+function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | undefined): NitroConfig {
+  const nitro = cloneNitroConfig(value)
+  if (!config) return nitro
+
+  const existingHandlers = Array.isArray(nitro.handlers) ? nitro.handlers : []
+  const authHandlers: NitroHandler[] = [
+    ...(config.route === false
+      ? []
+      : [{
+          handler: generatedAuthRouteHandler,
+          route: authRoutePattern(config.route),
+        }]),
+    ...(config.access.routes.length > 0
+      ? [{
+          handler: generatedAuthAccessMiddlewareHandler,
+          middleware: true,
+          route: "/**",
+        }]
+      : []),
+  ]
+  if (!authHandlers.length) return nitro
+
+  return {
+    ...nitro,
+    handlers: [...existingHandlers, ...authHandlers],
+  }
 }
 
 function readForwardedProtocol(request: IncomingMessage): string {
@@ -115,6 +250,7 @@ function loadAuthDefinitionModule(module: unknown): AuthDefinition | undefined {
 export function hubAuth(options?: AuthModuleOptions): AuthVitePlugin {
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedAuthViteConfig | undefined
+  let serverEnv = false
 
   function resolvedOptions(): AuthModuleOptions | undefined {
     return resolved?.auth ?? options
@@ -135,15 +271,31 @@ export function hubAuth(options?: AuthModuleOptions): AuthVitePlugin {
       refresh: refreshRuntimeConfig,
     },
     config(config) {
+      const configRoot = config.root || process.cwd()
+      const authConfig = resolveAuthViteConfig((config as { auth?: AuthModuleOptions }).auth ?? options, configRoot)
+      const nitro = mergeNitroAuthHandler((config as { nitro?: unknown }).nitro, authConfig)
+      const hasNitroHandlers = Boolean(authConfig && (authConfig.route !== false || authConfig.access.routes.length > 0))
       return {
         ssr: {
           noExternal: mergeNoExternal(config.ssr?.noExternal),
         },
+        ...(hasNitroHandlers
+          ? {
+              nitro,
+            }
+          : {}),
+        server: {
+          watch: {
+            ignored: mergeGeneratedViteHubWatchIgnored(config.server?.watch?.ignored),
+          },
+        },
       }
     },
-    configResolved(config) {
+    async configResolved(config) {
       resolved = config
-      refreshRuntimeConfig()
+      serverEnv = hasServerEnvIntegration(config)
+      const runtimeConfig = refreshRuntimeConfig()
+      await refreshAuthGeneratedFiles(config.root, runtimeConfig, { serverEnv })
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {
@@ -175,8 +327,13 @@ export function hubAuth(options?: AuthModuleOptions): AuthVitePlugin {
             return
           }
 
-          const auth = getAuthForDefinition(definition)
-          await sendWebResponse(await auth.handler(createWebRequest(request)), response)
+          const webRequest = createWebRequest(request)
+          const hasRequestRuntime = typeof definition.options === "function"
+            || typeof definition.options.runtime === "function"
+          const authResponse = hasRequestRuntime
+            ? await handleAuthRequest(definition, webRequest)
+            : await getAuthForDefinition(definition).handler(webRequest)
+          await sendWebResponse(authResponse, response)
         }
         catch (error) {
           next(error)
@@ -196,12 +353,18 @@ export function hubAuth(options?: AuthModuleOptions): AuthVitePlugin {
       if (definitionModule) {
         context.server.moduleGraph.invalidateModule(definitionModule)
       }
+      const serverModule = context.server.moduleGraph.getModuleById(RESOLVED_AUTH_SERVER_ID)
+      if (serverModule) {
+        context.server.moduleGraph.invalidateModule(serverModule)
+      }
     },
     resolveId(id) {
       if (id === AUTH_DEFINITION_ID) return RESOLVED_AUTH_DEFINITION_ID
+      if (id === AUTH_SERVER_ID) return RESOLVED_AUTH_SERVER_ID
     },
     load(id) {
       if (id === RESOLVED_AUTH_DEFINITION_ID) return renderAuthDefinitionModule(runtimeConfig)
+      if (id === RESOLVED_AUTH_SERVER_ID) return renderAuthServerModule({ serverEnv })
     },
   }
 }

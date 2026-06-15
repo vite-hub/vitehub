@@ -1,4 +1,5 @@
 import type { UserConfig } from "vite"
+import handleVirtualAuth, { requireAuth as requireVirtualAuth } from "#vitehub/auth/server"
 
 import { describe, expectTypeOf, it } from "vitest"
 
@@ -11,12 +12,17 @@ import {
 import {
   defineAuth,
   type AuthDefinition,
+  type AuthDefinitionResolver,
   type AuthModuleOptions,
   type AuthRequest,
   type AuthReservedOption,
+  type AuthResolvedDefinitionOptions,
+  type AuthRuntimeContext,
+  type AuthRuntimeEnv,
+  type AuthRuntimeOptions,
   type ResolvedAuthDatabaseConfiguration,
 } from "../src/index.ts"
-import { auth, createAuthForRequest, handleAuthRequest } from "../src/server.ts"
+import { auth, createAuthForRequest, handleAuthRequest, requireAuth } from "../src/server.ts"
 import { hubAuth } from "../src/vite.ts"
 
 import type { AgentInvokerOptions, AgentRuntimeConfig } from "@vite-hub/agent"
@@ -24,13 +30,43 @@ import type { AgentInvokerOptions, AgentRuntimeConfig } from "@vite-hub/agent"
 describe("types", () => {
   it("exposes the intended Auth Definition surface", () => {
     const definition = defineAuth({
+      access: {
+        signIn: {
+          callbackURL: "/app",
+          provider: "github",
+          scopes: ["read:org"],
+        },
+      },
       appName: "ViteHub",
       database: { name: "auth" },
+      runtime: ({ env, request, requestOrigin }) => {
+        expectTypeOf(request?.url).toMatchTypeOf<string | undefined>()
+        return {
+          baseURL: requestOrigin,
+          secret: typeof env.value === "string" ? env.value : "runtime-secret",
+        }
+      },
       secondaryStorage: true,
     })
 
     expectTypeOf(definition).toMatchTypeOf<AuthDefinition>()
     expectTypeOf(definition.options.database).toMatchTypeOf<{ name: string } | true | undefined>()
+    expectTypeOf(definition.options.runtime).toMatchTypeOf<AuthRuntimeOptions | ((context: AuthRuntimeContext) => AuthRuntimeOptions) | undefined>()
+    expectTypeOf<AuthRuntimeEnv>().toMatchTypeOf<Record<string, unknown>>()
+  })
+
+  it("exposes request-scoped Auth Definition callbacks", () => {
+    const definition = defineAuth(({ env, request, requestOrigin }) => {
+      expectTypeOf(request?.headers).toMatchTypeOf<Headers | undefined>()
+      return {
+        appName: "ViteHub",
+        baseURL: requestOrigin,
+        secret: typeof env.value === "string" ? env.value : "runtime-secret",
+      }
+    })
+
+    expectTypeOf(definition).toMatchTypeOf<AuthDefinition<AuthDefinitionResolver>>()
+    expectTypeOf(definition.options).toMatchTypeOf<AuthDefinitionResolver<AuthResolvedDefinitionOptions>>()
   })
 
   it("augments vite user config with auth options", () => {
@@ -67,6 +103,9 @@ describe("types", () => {
     } satisfies AuthRequest
 
     expectTypeOf(handleAuthRequest(defineAuth({ appName: "ViteHub" }), h3LikeRequest)).toEqualTypeOf<Promise<Response>>()
+    expectTypeOf(requireAuth(h3LikeRequest)).toEqualTypeOf<Promise<Response | undefined>>()
+    expectTypeOf(handleVirtualAuth(h3LikeRequest)).toEqualTypeOf<Promise<Response>>()
+    expectTypeOf(requireVirtualAuth(h3LikeRequest)).toEqualTypeOf<Promise<Response | undefined>>()
   })
 
   it("exposes the authenticated Agent Invoker helper", () => {
@@ -106,7 +145,7 @@ describe("types", () => {
   })
 
   it("marks every ViteHub-owned Auth Definition field as reserved", () => {
-    expectTypeOf<"basePath" | "database" | "route" | "secondaryStorage">().toMatchTypeOf<AuthReservedOption>()
+    expectTypeOf<"access" | "basePath" | "database" | "route" | "runtime" | "secondaryStorage">().toMatchTypeOf<AuthReservedOption>()
   })
 
   it("rejects runtime-only and raw storage options in definitions", () => {

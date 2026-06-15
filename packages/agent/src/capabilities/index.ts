@@ -2,7 +2,9 @@ export {
   access,
 } from "./access.ts"
 export {
+  agentChatContextKey,
   chat,
+  getAgentChatContext,
 } from "../chat-trigger.ts"
 export {
   entry,
@@ -95,6 +97,7 @@ export type {
 } from "./access.ts"
 export type {
   AgentChatCapabilityOrigin,
+  AgentChatContext,
   AgentChatMessageTriggerInput,
   AgentChatOptionsOrigin,
   AgentChatRunContext,

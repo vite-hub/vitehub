@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, type AgentDriver, type AgentInvoker, type AgentRunInput, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, type AgentDriver, type AgentInvoker, type AgentRunInput, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
 import { access, blob, chat, chatTitle, db, entry, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -499,7 +499,7 @@ describe("agent public types", () => {
       run() {
         return "ok"
       },
-      invoker: {
+      invoker: defineAgentInvoker({
         profiles: supportProfiles,
         resolve({ defaultInvoker, input, profiles, selectedProfile }) {
           expectTypeOf(defaultInvoker.id).toEqualTypeOf<string>()
@@ -508,7 +508,7 @@ describe("agent public types", () => {
           expectTypeOf(selectedProfile?.meta?.customer).toEqualTypeOf<"acme" | undefined>()
           return selectedProfile || defaultInvoker
         },
-      },
+      }),
       capabilities: [
         access({
           workspace: supportAccess,

@@ -619,7 +619,7 @@ export interface AgentDefinition<
 }
 
 export type AgentInput<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
-  AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig>
+  AgentDefinition<TContext extends AgentRuntimeContext<infer TRuntimeConfig> ? TRuntimeConfig : AgentRuntimeConfig, any, any>
 
 export type AgentRegistryModule<TContext extends AgentRuntimeContext<any> = AgentRuntimeContext> =
   | { default?: AgentInput<TContext> }
@@ -884,7 +884,43 @@ export interface AgentDevtoolsToolDefinition {
   status?: "available" | "disabled"
 }
 
+export type AgentDevtoolsConfigValue = boolean | null | number | string
+
+export interface AgentDevtoolsModelMetadata {
+  dynamic?: boolean
+  id?: string
+  provider?: string
+}
+
+export interface AgentDevtoolsModelExecutionMetadata {
+  callSettings?: Record<string, AgentDevtoolsConfigValue>
+  stepLimit?: number
+  workspaceFallback?: {
+    enabled?: boolean
+    maxToolResults?: number
+  }
+}
+
+export interface AgentDevtoolsHarnessMetadata {
+  credentials?: AgentHarnessCredentialSource
+  provider?: string
+  sandbox?: boolean
+  sessionKey?: boolean
+}
+
+export interface AgentDevtoolsDriverMetadata {
+  execution?: AgentDevtoolsModelExecutionMetadata
+  harness?: AgentDevtoolsHarnessMetadata
+  kind: "harness" | "model" | "run"
+  model?: AgentDevtoolsModelMetadata
+}
+
+export interface AgentDevtoolsConfigMetadata {
+  driver: AgentDevtoolsDriverMetadata
+}
+
 export interface AgentDevtoolsMetadata {
+  config?: AgentDevtoolsConfigMetadata
   files?: AgentDevtoolsFileTreeItem[]
   instructions?: string[]
   invokerProfiles?: AgentInvokerProfile[]

@@ -1213,6 +1213,12 @@ describe("defineAgent workspace option", () => {
     }), { workspace: "support" })
 
     expect(createAgentDevtoolsMetadata(agent)).toEqual({
+      config: {
+        driver: {
+          kind: "model",
+          model: {},
+        },
+      },
       files: [{
         kind: "directory",
         label: "docs",

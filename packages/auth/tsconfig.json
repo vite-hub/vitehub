@@ -11,6 +11,9 @@
       "#vitehub/auth/definition": [
         "packages/auth/src/runtime/empty-definition.ts"
       ],
+      "#vitehub/auth/server": [
+        "packages/auth/src/server.ts"
+      ],
       "@vite-hub/internal/*": [
         "packages/internal/src/*.ts"
       ]

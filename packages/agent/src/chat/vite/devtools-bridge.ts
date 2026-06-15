@@ -495,6 +495,7 @@ async function serializeState(
 
   return {
     chats,
+    ...(metadata?.config ? { config: metadata.config } : {}),
     files: metadata?.files || [],
     instructions: metadata?.instructions || [],
     ...(invokerFallback ? { invokerFallback: true } : {}),
