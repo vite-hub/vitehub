@@ -52,18 +52,23 @@ Trusted chat surfaces can pass app-owned metadata through the trigger input `met
 
 Generated Chat App Route request bodies are client-controlled unless the host authenticates them first. When email affects access or rate limits, populate `user` and `meta` from server-owned auth state, not from untrusted browser input.
 
-```ts
-await fetch('/agents/support', {
-  method: 'POST',
-  body: JSON.stringify({
-    messages,
-    user: { email: authenticatedUser.email },
-    meta: {
-      customer: authenticatedUser.customer,
-      email: authenticatedUser.email,
+```ts [server/api/support-chat.post.ts]
+export default defineEventHandler(async (event) => {
+  const body = await readBody<{ messages: unknown[] }>(event)
+  const authenticatedUser = await requireAuthenticatedUser(event)
+
+  return $fetch('/api/_vitehub/agents/support/chat', {
+    method: 'POST',
+    body: {
+      messages: body.messages,
+      user: { email: authenticatedUser.email },
+      meta: {
+        customer: authenticatedUser.customer,
+        email: authenticatedUser.email,
+      },
+      run: { origin: 'portal' },
     },
-    run: { origin: 'portal' },
-  }),
+  })
 })
 ```
 
