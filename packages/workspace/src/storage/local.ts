@@ -1,5 +1,10 @@
+import { createHash, randomUUID } from "node:crypto"
+import { createReadStream, createWriteStream } from "node:fs"
+import { Readable, Transform } from "node:stream"
+import { pipeline } from "node:stream/promises"
+
 import { WorkspaceError } from "../core/errors.ts"
-import { contentToBytes, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
+import { contentStreamChunks, contentToBytes, matchesAny, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 
 import type {
   DiffOptions,
@@ -13,6 +18,7 @@ import type {
   WorkspaceFile,
   WorkspaceSnapshot,
   WorkspaceStat,
+  WorkspaceStreamFile,
   WorkspaceStore,
 } from "../core/types.ts"
 
@@ -28,7 +34,7 @@ async function walk(root: string, current = root): Promise<WorkspaceEntry[]> {
   for (const dirent of dirents) {
     const absolute = `${current}/${dirent.name}`
     const path = normalizeWorkspacePath(relative(root, absolute))
-    const { stat, readFile } = await import("node:fs/promises")
+    const { stat } = await import("node:fs/promises")
     const info = await stat(absolute).catch((error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return undefined
       throw error
@@ -40,17 +46,26 @@ async function walk(root: string, current = root): Promise<WorkspaceEntry[]> {
       continue
     }
     if (dirent.isFile()) {
-      const bytes = await readFile(absolute)
       entries.push({
         path,
         type: "file",
         size: info.size,
         mtime: info.mtimeMs,
-        digest: await sha256(bytes),
+        digest: await fileDigest(absolute),
       })
     }
   }
   return entries
+}
+
+async function fileDigest(path: string): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const hash = createHash("sha256")
+    const stream = createReadStream(path)
+    stream.on("data", chunk => hash.update(chunk))
+    stream.on("error", reject)
+    stream.on("end", () => resolve(hash.digest("hex")))
+  })
 }
 
 class LocalWorkspaceStore implements WorkspaceStore {
@@ -86,12 +101,81 @@ class LocalWorkspaceStore implements WorkspaceStore {
     const { dirname } = await import("node:path")
     const { mkdir, writeFile } = await import("node:fs/promises")
     const absolute = resolveInside(this.root, path)
+    const normalized = normalizeWorkspacePath(path)
+    const bytes = contentToBytes(file.content)
+    const digest = await sha256(bytes)
+    const existing = await this.stat(normalized)
+    if (existing?.type === "file" && existing.digest === digest) {
+      this.#files.set(normalized, {
+        mediaType: file.mediaType,
+        metadata: file.metadata,
+      })
+      return
+    }
     await mkdir(dirname(absolute), { recursive: true })
-    await writeFile(absolute, contentToBytes(file.content))
-    this.#files.set(normalizeWorkspacePath(path), {
+    await writeFile(absolute, bytes)
+    this.#files.set(normalized, {
       mediaType: file.mediaType,
       metadata: file.metadata,
     })
+  }
+
+  async writeFileStream(path: string, file: WorkspaceStreamFile): Promise<WorkspaceStat> {
+    const { dirname } = await import("node:path")
+    const { mkdir, rename, rm } = await import("node:fs/promises")
+    const normalized = normalizeWorkspacePath(path)
+    const absolute = resolveInside(this.root, path)
+    const temp = `${absolute}.${process.pid}.${Date.now()}.tmp`
+    const hash = createHash("sha256")
+    let size = 0
+
+    await mkdir(dirname(absolute), { recursive: true })
+    try {
+      const hashing = new Transform({
+        transform(chunk: Uint8Array, _encoding, callback) {
+          hash.update(chunk)
+          size += chunk.byteLength
+          callback(undefined, chunk)
+        },
+      })
+      await pipeline(
+        Readable.from(contentStreamChunks(file.content)),
+        hashing,
+        createWriteStream(temp),
+      )
+      const digest = hash.digest("hex")
+      const existing = await this.stat(normalized)
+      if (existing?.type === "file" && existing.digest === digest) {
+        await rm(temp, { force: true })
+        this.#files.set(normalized, {
+          mediaType: file.mediaType,
+          metadata: file.metadata,
+        })
+        return {
+          ...existing,
+          mediaType: file.mediaType,
+          size,
+          digest,
+        }
+      }
+
+      await rename(temp, absolute)
+      this.#files.set(normalized, {
+        mediaType: file.mediaType,
+        metadata: file.metadata,
+      })
+      return {
+        path: normalized,
+        type: "file",
+        size,
+        mediaType: file.mediaType,
+        digest,
+      }
+    }
+    catch (error) {
+      await rm(temp, { force: true }).catch(() => undefined)
+      throw error
+    }
   }
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
@@ -118,7 +202,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
   }
 
   async stat(path: string): Promise<WorkspaceStat | undefined> {
-    const { readFile, stat } = await import("node:fs/promises")
+    const { stat } = await import("node:fs/promises")
     const normalized = normalizeWorkspacePath(path)
     const absolute = resolveInside(this.root, normalized)
     const info = await stat(absolute).catch((error: NodeJS.ErrnoException) => {
@@ -132,7 +216,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       size: info.isFile() ? info.size : undefined,
       mtime: info.mtimeMs,
       mediaType: info.isFile() ? this.#files.get(normalized)?.mediaType : undefined,
-      digest: info.isFile() ? await sha256(await readFile(absolute)) : undefined,
+      digest: info.isFile() ? await fileDigest(absolute) : undefined,
     }
     return entry
   }
@@ -226,9 +310,17 @@ class LocalWorkspaceStore implements WorkspaceStore {
 
   async #writeMeta() {
     const { dirname } = await import("node:path")
-    const { mkdir, writeFile } = await import("node:fs/promises")
+    const { mkdir, rename, rm, writeFile } = await import("node:fs/promises")
+    const temp = `${this.#metaPath}.${randomUUID()}.tmp`
     await mkdir(dirname(this.#metaPath), { recursive: true })
-    await writeFile(this.#metaPath, JSON.stringify(Object.fromEntries(this.#meta), null, 2))
+    try {
+      await writeFile(temp, JSON.stringify(Object.fromEntries(this.#meta), null, 2))
+      await rename(temp, this.#metaPath)
+    }
+    catch (error) {
+      await rm(temp, { force: true }).catch(() => undefined)
+      throw error
+    }
   }
 }
 

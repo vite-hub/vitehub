@@ -2,6 +2,8 @@
 
 Updated by [ADR 0051: Schedule Provider Wake Allows Nitro Cloudflare Wiring](./0051-schedule-provider-wake-allows-nitro-cloudflare-wiring.md): ViteHub remains Vite-only for public framework integrations, but Schedule may generate package-owned Nitro Cloudflare hook/config wiring as a narrow Provider Wake exception.
 
+Updated by [ADR 0056: Workspace Hosted Runtime Setup Allows Nuxt Nitro Handoff](./0056-workspace-hosted-runtime-setup-allows-nuxt-nitro-handoff.md): Workspace may expose a narrow Nuxt module that installs the existing Vite Integration and merges generated hosted Workspace runtime setup into Nuxt's top-level Nitro config.
+
 ViteHub's framework integration surface is Vite-only. Packages expose Vite Integrations, Stable ViteHub Import Paths, Runtime Registries, Runtime Helpers, and Provider Output. Nitro is not a ViteHub-owned Framework Integration, Server Host Adapter, internal compatibility adapter, example target, or test target.
 
 Package-specific `@vite-hub/*/nitro` modules, generated Nitro plugins, Vite plugin `.nitro` adapters, and Nitro-specific discovery modes are removed except for ADR 0051's Schedule Provider Wake exception. Server directory discovery belongs to ViteHub's Vite Integration, not to Nitro.

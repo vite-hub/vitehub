@@ -1,6 +1,18 @@
-import { resolve } from "node:path"
+import { rm } from "node:fs/promises"
+import { relative, resolve } from "node:path"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
+import {
+  createViteHubEnvImportAliases,
+  resolveViteHubProjectRoot,
+  VITEHUB_ENV_PUBLIC_ID,
+  VITEHUB_ENV_SERVER_ID,
+  viteHubEnvAmbientTypesPath,
+  viteHubEnvPublicModulePath,
+  viteHubEnvPublicModuleTypesPath,
+  viteHubEnvServerModulePath,
+  viteHubEnvServerModuleTypesPath,
+} from "@vite-hub/internal/build/vite"
 import { loadEnv } from "vite"
 
 import { formatDiagnostics } from "./core/diagnostics.ts"
@@ -17,8 +29,8 @@ import type {
 import type { Plugin, UserConfig } from "vite"
 
 export const ENV_VITE_PLUGIN_NAME = "@vite-hub/env/vite"
-export const ENV_PUBLIC_ID = "#vitehub/env/public"
-export const ENV_SERVER_ID = "#vitehub/env/server"
+export const ENV_PUBLIC_ID: typeof VITEHUB_ENV_PUBLIC_ID = VITEHUB_ENV_PUBLIC_ID
+export const ENV_SERVER_ID: typeof VITEHUB_ENV_SERVER_ID = VITEHUB_ENV_SERVER_ID
 
 const RESOLVED_PUBLIC_ID = `\0${ENV_PUBLIC_ID}`
 const RESOLVED_SERVER_ID = `\0${ENV_SERVER_ID}`
@@ -31,6 +43,24 @@ export interface EnvVitePluginAPI {
 }
 
 export type EnvVitePlugin = Plugin & { api: EnvVitePluginAPI }
+
+export interface EnvGeneratedPathOptions {
+  projectRoot?: string
+  relativeTo?: string
+}
+
+export function createEnvImportAliases(options: EnvGeneratedPathOptions = {}): Record<string, string> {
+  return createViteHubEnvImportAliases(resolveEnvProjectRoot(options))
+}
+
+export function createEnvTypeScriptPaths(options: EnvGeneratedPathOptions = {}): Record<string, string[]> {
+  const root = resolveEnvProjectRoot(options)
+  const toTypeScriptPath = (path: string) => stripModuleExtension(options.relativeTo ? relative(resolve(options.relativeTo), path) : path)
+  return {
+    [ENV_PUBLIC_ID]: [toTypeScriptPath(viteHubEnvPublicModulePath(root))],
+    [ENV_SERVER_ID]: [toTypeScriptPath(viteHubEnvServerModulePath(root))],
+  }
+}
 
 export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   let buildPublicConfig: Record<string, unknown> = {}
@@ -49,7 +79,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         return
       }
 
-      const root = resolve(config.root || process.cwd())
+      const root = resolveViteHubProjectRoot(resolve(config.root || process.cwd()), { projectRoot: options.projectRoot })
       const loadedEnv = loadEnv(env.mode, root, "")
       const context = createSourceContext({
         env: { ...loadedEnv, ...process.env },
@@ -89,26 +119,14 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       if (diagnosticsText) {
         config.logger.info(diagnosticsText)
       }
-      await writeFileIfChanged(
-        resolve(config.root, ".vitehub/env/vite.d.ts"),
-        createViteTypes(buildPublicConfig, serverRegistry),
-      )
+      await refreshEnvGeneratedFiles(resolveViteHubProjectRoot(config.root, { projectRoot: options.projectRoot }), buildPublicConfig, serverRegistry)
     },
     load(id) {
       if (id === RESOLVED_PUBLIC_ID) {
-        return [
-          `const publicEnv = ${JSON.stringify(buildPublicConfig, null, 2)};`,
-          "export function usePublicEnv() { return publicEnv; }",
-          "export { publicEnv };",
-        ].join("\n")
+        return createPublicEnvModule(buildPublicConfig)
       }
       if (id === RESOLVED_SERVER_ID) {
-        return [
-          "import { resolveServerEnv, runWithServerEnv as runWithGeneratedServerEnv } from '@vite-hub/env/server';",
-          `const registry = ${JSON.stringify(serverRegistry, null, 2)};`,
-          "export function useServerEnv(event) { return resolveServerEnv(registry, event); }",
-          "export function runWithServerEnv(event, callback) { return runWithGeneratedServerEnv(event, callback); }",
-        ].join("\n")
+        return createServerEnvModule(serverRegistry)
       }
     },
     resolveId(id) {
@@ -122,12 +140,79 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   }
 }
 
+function resolveEnvProjectRoot(options: EnvGeneratedPathOptions): string {
+  return resolveViteHubProjectRoot(process.cwd(), { projectRoot: options.projectRoot })
+}
+
+function stripModuleExtension(path: string): string {
+  return path.replace(/\.mjs$/, "")
+}
+
+function legacyEnvAmbientTypesPaths(root: string) {
+  return [
+    resolve(root, ".vitehub", "env", "vite.d.ts"),
+  ]
+}
+
+async function refreshEnvGeneratedFiles(root: string, publicConfig: Record<string, unknown>, serverRegistry: EnvRuntimeRegistry): Promise<void> {
+  await Promise.all([
+    writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicConfig, serverRegistry)),
+    writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),
+    writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicConfig)),
+    writeFileIfChanged(viteHubEnvServerModulePath(root), createServerEnvModule(serverRegistry)),
+    writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry)),
+    ...legacyEnvAmbientTypesPaths(root).map(path => rm(path, { force: true })),
+  ])
+}
+
+function createPublicEnvModule(publicConfig: Record<string, unknown>): string {
+  return [
+    `const publicEnv = ${JSON.stringify(publicConfig, null, 2)};`,
+    "export function usePublicEnv() { return publicEnv; }",
+    "export { publicEnv };",
+    "",
+  ].join("\n")
+}
+
+function createPublicEnvModuleTypes(publicConfig: Record<string, unknown>): string {
+  return [
+    "export interface PublicEnv {",
+    ...createPublicTypeFields(publicConfig, 2),
+    "}",
+    "export const publicEnv: PublicEnv",
+    "export function usePublicEnv(): PublicEnv",
+    "",
+  ].join("\n")
+}
+
+function createServerEnvModule(serverRegistry: EnvRuntimeRegistry): string {
+  return [
+    "import { resolveServerEnv, runWithServerEnv as runWithGeneratedServerEnv } from '@vite-hub/env/server';",
+    `const registry = ${JSON.stringify(serverRegistry, null, 2)};`,
+    "export function useServerEnv(event) { return resolveServerEnv(registry, event); }",
+    "export function runWithServerEnv(event, callback) { return runWithGeneratedServerEnv(event, callback); }",
+    "",
+  ].join("\n")
+}
+
+function createServerEnvModuleTypes(serverRegistry: EnvRuntimeRegistry): string {
+  return [
+    "import type { SecretEnv } from \"@vite-hub/env/secret\"",
+    "",
+    "export interface ServerEnv {",
+    ...createServerTypeFields(serverRegistry, 2),
+    "}",
+    "export function useServerEnv(event?: unknown): ServerEnv",
+    "export function runWithServerEnv<T>(event: unknown, callback: () => T): T",
+    "",
+  ].join("\n")
+}
+
 function createViteTypes(publicConfig: Record<string, unknown>, serverRegistry: EnvRuntimeRegistry): string {
-  const publicFields = Object.entries(publicConfig).map(([key, value]) => `    ${JSON.stringify(key)}: ${typeof value}`)
   return [
     "declare module \"#vitehub/env/public\" {",
     "  export interface PublicEnv {",
-    ...publicFields,
+    ...createPublicTypeFields(publicConfig, 4),
     "  }",
     "  export const publicEnv: PublicEnv",
     "  export function usePublicEnv(): PublicEnv",
@@ -143,6 +228,11 @@ function createViteTypes(publicConfig: Record<string, unknown>, serverRegistry: 
     "export {}",
     "",
   ].join("\n")
+}
+
+function createPublicTypeFields(publicConfig: Record<string, unknown>, indent: number): string[] {
+  const prefix = " ".repeat(indent)
+  return Object.entries(publicConfig).map(([key, value]) => `${prefix}${JSON.stringify(key)}: ${typeof value}`)
 }
 
 function createServerTypeFields(registry: EnvRuntimeRegistry, indent: number): string[] {

@@ -40,6 +40,7 @@
     "./ai": "./dist/ai.js",
     "./cloudflare": "./dist/cloudflare.js",
     "./loader": "./dist/loader.js",
+    "./nuxt": "./dist/nuxt.js",
     "./publish": "./dist/publish.js",
     "./runtime": "./dist/runtime.js",
     "./server": "./dist/server.js",
@@ -72,6 +73,7 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
+    "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/shell": "workspace:*",

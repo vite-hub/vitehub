@@ -64,6 +64,42 @@ export async function syncAirtable() {
 }
 ```
 
+## TypeScript names
+
+`hubEnv()` writes generated Public Env and Server Env runtime modules to `.vitehub/env/` and generated types to `.vitehub/types/env.d.ts`. Add that generated type directory to your `tsconfig.json` when you want `#vitehub/env/public` and `#vitehub/env/server` to expose app-specific fields.
+
+```json [tsconfig.json]
+{
+  "include": [
+    "server/**/*.ts",
+    "src/**/*.ts",
+    ".vitehub/types/**/*.d.ts"
+  ]
+}
+```
+
+Hosts that generate their own TypeScript config or server bundler aliases can use the package-owned path helpers instead of hardcoding `.vitehub` file paths:
+
+```ts [nuxt.config.ts]
+import { createEnvImportAliases, createEnvTypeScriptPaths, hubEnv } from '@vite-hub/env/vite'
+
+export default defineNuxtConfig({
+  nitro: {
+    alias: createEnvImportAliases(),
+  },
+  typescript: {
+    tsConfig: {
+      compilerOptions: {
+        paths: createEnvTypeScriptPaths({ relativeTo: '.nuxt' }),
+      },
+    },
+  },
+  vite: {
+    plugins: [hubEnv()],
+  },
+})
+```
+
 ## Secrets
 
 Do not put secrets in `env.public` or `env.define`; Vite bundles those values. Put server-only secrets in `env.server` with `secret: true`, then unseal the generated `SecretEnv` value at the boundary that needs the raw string.

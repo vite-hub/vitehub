@@ -149,11 +149,11 @@ export function discoverServerWorkspaceDefinitions(rootDir: string): DiscoveredW
   return discoverDefinitions("workspace", [...serverWorkspaceSource(rootDir)])
 }
 
-export function discoverViteWorkspaceDefinitions(rootDir: string): DiscoveredWorkspaceDefinition[] {
+export function discoverViteWorkspaceDefinitions(rootDir: string, options: { serverRootDir?: string } = {}): DiscoveredWorkspaceDefinition[] {
   return mergeDefinitions(
     "workspace",
     discoverDefinitions("workspace", [...viteWorkspaceSource(rootDir)]),
-    discoverDefinitions("workspace", [...serverWorkspaceSource(rootDir)]),
+    discoverDefinitions("workspace", [...serverWorkspaceSource(options.serverRootDir || rootDir)]),
   )
 }
 

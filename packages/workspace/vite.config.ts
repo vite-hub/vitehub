@@ -19,6 +19,7 @@ export default defineConfig({
       "src/cloudflare.ts",
       "src/index.ts",
       "src/loader.ts",
+      "src/nuxt.ts",
       "src/publish.ts",
       "src/runtime.ts",
       "src/runtime/empty-assets-registry.ts",

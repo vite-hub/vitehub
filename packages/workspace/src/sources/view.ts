@@ -1,5 +1,5 @@
 import { WorkspaceError } from "../core/errors.ts"
-import { decodeFile, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
+import { contentStreamToBytes, decodeFile, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { searchText } from "../core/search.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
@@ -24,6 +24,7 @@ import type {
   WorkspaceEntry,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
+  WorkspaceSourceItem,
   WorkspaceStat,
   WorkspaceStore,
   WriteFileOptions,
@@ -43,14 +44,14 @@ export interface WorkspaceSourceView {
 }
 
 export function createWorkspaceSourceView(definition: WorkspaceDefinition, store: WorkspaceStore): WorkspaceSourceView {
-  const sourceContext = createSourceContext(definition)
+  const sourceContext = createSourceContext(definition, undefined, store)
   const sources = normalizeWorkspaceSources(definition.sources).filter(source => source.materialize === "lazy")
   const writePolicy = createWorkspaceWritePolicy(definition)
   const prepareBySource = new Map<string, Promise<void>>()
   const materializeBySource = new Map<string, Promise<void>>()
 
   function getSourceContext(source: { key: string, mountPath: string }) {
-    return createSourceContext(definition, source)
+    return createSourceContext(definition, source, store)
   }
 
   function isLazySourcePath(path: string) {
@@ -172,7 +173,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           const sourcePath = source.livePaths[entry.path]
           if (typeof sourcePath !== "string") continue
           const item = await source.source.getItem(sourcePath, getSourceContext(source))
-          const content = item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2))
+          const content = await sourceItemContent(item)
           const text = typeof content === "string" ? content : new TextDecoder().decode(content)
           results.push(...searchText(entry.path, text, { ...query, limit: limit - results.length }))
           if (results.length >= limit) break
@@ -240,7 +241,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         await ensurePrepared(resolution.sourceKey)
         if (isLiveSource(resolution.sourceKey)) {
           const item = await resolution.source.source.getItem(resolution.sourcePath, getSourceContext(resolution.source))
-          return decodeFile(item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2)), options)
+          return decodeFile(await sourceItemContent(item), options)
         }
         await ensureMaterialized(resolution.sourceKey)
         return await readResolvedSourceFile(resolution, store, sourceContext, options)
@@ -410,6 +411,16 @@ function liveSourceEntries(source: ReturnType<typeof normalizeWorkspaceSources>[
     entries.set(path, { path, type: "file" })
   }
   return [...entries.values()]
+}
+
+async function sourceItemContent(item: WorkspaceSourceItem): Promise<WorkspaceContent> {
+  if (item.contentStream) {
+    if (typeof item.content !== "undefined" || typeof item.data !== "undefined") {
+      throw new WorkspaceError("[vitehub] Workspace source items cannot define contentStream with content or data.")
+    }
+    return await contentStreamToBytes(item.contentStream)
+  }
+  return item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2))
 }
 
 function addLiveSourceEntries(

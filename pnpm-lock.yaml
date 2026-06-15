@@ -1099,6 +1099,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.2
+      '@vite-hub/env':
+        specifier: workspace:*
+        version: link:../env
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal

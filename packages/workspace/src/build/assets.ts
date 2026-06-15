@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto"
+import { existsSync } from "node:fs"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { createViteHubEnvImportAliases } from "@vite-hub/internal/build/vite"
 import { createImportPath } from "@vite-hub/internal/build/paths"
 import { resolveModulePath } from "exsolve"
 import { createJiti } from "jiti"
@@ -39,10 +41,23 @@ function serializeContent(content: WorkspaceContent) {
   return `new Uint8Array(${JSON.stringify([...content])})`
 }
 
-const workspaceConfigLoader = createJiti(import.meta.url, { moduleCache: false })
+function generatedViteHubImportAliases(rootDir: string) {
+  const aliases: Record<string, string> = {}
+  for (const [id, path] of Object.entries(createViteHubEnvImportAliases(rootDir))) {
+    if (existsSync(path)) aliases[id] = path
+  }
+  return aliases
+}
 
-async function importWorkspaceConfig(path: string): Promise<{ default?: WorkspaceDefinitionInput }> {
-  return await workspaceConfigLoader.import(path)
+function createWorkspaceConfigLoader(rootDir: string) {
+  return createJiti(import.meta.url, {
+    alias: generatedViteHubImportAliases(rootDir),
+    moduleCache: false,
+  })
+}
+
+async function importWorkspaceConfig(loader: ReturnType<typeof createJiti>, path: string): Promise<{ default?: WorkspaceDefinitionInput }> {
+  return await loader.import(path)
 }
 
 function runtimeAssetsModulePath() {
@@ -80,10 +95,11 @@ export async function syncDiscoveredWorkspaceAssetBundles(
   if (!options) return []
 
   const bundles: WorkspaceAssetBundle[] = []
+  const workspaceConfigLoader = createWorkspaceConfigLoader(rootDir)
   for (const definition of definitions) {
     if (!shouldBundleWorkspaceAssets(options.assets, definition.name)) continue
 
-    const mod = await importWorkspaceConfig(definition.path)
+    const mod = await importWorkspaceConfig(workspaceConfigLoader, definition.path)
     if (!mod.default) throw new TypeError(`[vitehub] Workspace definition "${definition.name}" has no default export.`)
 
     const store = createMemoryWorkspaceStore()

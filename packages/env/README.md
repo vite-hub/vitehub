@@ -59,4 +59,28 @@ export async function sync(event: unknown) {
 
 Use `hubEnv()` in Vite to resolve public/build env, generate `#vitehub/env/public` and `#vitehub/env/server`, and keep environment declarations close to the app config. Runtime secrets are read from the host environment at request time and are wrapped in `SecretEnv` until explicitly unsealed. `runWithServerEnv(event, callback)` activates host Runtime Env for nested ViteHub runtime helpers that cannot receive the request or scheduled event directly.
 
+`hubEnv()` writes generated env runtime modules to `.vitehub/env/` and generated env types to `.vitehub/types/env.d.ts`. Add `.vitehub/types/**/*.d.ts` to your `tsconfig.json` include list when TypeScript should see app-specific Public Env and Server Env fields.
+
+For hosts that do not consume Vite plugin aliases directly, compose the generated modules explicitly:
+
+```ts
+import { createEnvImportAliases, createEnvTypeScriptPaths, hubEnv } from "@vite-hub/env/vite"
+
+export default {
+  nitro: {
+    alias: createEnvImportAliases(),
+  },
+  typescript: {
+    tsConfig: {
+      compilerOptions: {
+        paths: createEnvTypeScriptPaths({ relativeTo: ".nuxt" }),
+      },
+    },
+  },
+  vite: {
+    plugins: [hubEnv()],
+  },
+}
+```
+
 Learn more at [vitehub.dev](https://vitehub.dev).

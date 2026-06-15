@@ -1,13 +1,18 @@
 import { defu } from "defu"
 
-import { normalizeSafeWorkspacePath } from "../core/path.ts"
+import { WorkspaceError } from "../core/errors.ts"
+import { decodeFile, normalizeSafeWorkspacePath } from "../core/path.ts"
 
 import type {
+  ReadFileOptions,
+  ReadFileResult,
   SourceContext,
+  SourceContextWorkspaceFiles,
   WorkspaceCacheOptions,
   WorkspaceDefinition,
   WorkspaceMaterializeMode,
   WorkspaceSource,
+  WorkspaceStore,
   WorkspaceValidateMode,
 } from "../core/types.ts"
 
@@ -30,13 +35,35 @@ export function markLiveWorkspaceSource(source: WorkspaceSource, paths: Record<s
   return source
 }
 
-export function createSourceContext(definition: WorkspaceDefinition, source?: { key: string, mountPath: string }): SourceContext {
+export function createSourceContext(definition: WorkspaceDefinition, source?: { key: string, mountPath: string }, store?: WorkspaceStore): SourceContext {
   return {
     mountPath: source?.mountPath,
     rootDir: definition.rootDir || process.cwd(),
     source: source?.key,
     sourceRootDir: definition.sourceRootDir,
     workspace: definition.name,
+    workspaceFiles: store ? createSourceContextWorkspaceFiles(store) : undefined,
+  }
+}
+
+function createSourceContextWorkspaceFiles(store: WorkspaceStore): SourceContextWorkspaceFiles {
+  async function readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>> {
+    const workspacePath = normalizeSafeWorkspacePath(path)
+    const file = await store.readFile(workspacePath)
+    if (!file) throw new WorkspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
+    return decodeFile(file.content, options)
+  }
+
+  async function stat(path: string) {
+    return await store.stat(normalizeSafeWorkspacePath(path, { allowEmpty: true }))
+  }
+
+  return {
+    readFile,
+    stat,
+    async exists(path) {
+      return Boolean(await stat(path))
+    },
   }
 }
 

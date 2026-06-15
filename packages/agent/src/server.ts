@@ -42,8 +42,12 @@ interface ViteAgentRouteRuntimeContext extends AgentRuntimeContext<ViteAgentRout
   runtimeConfig: ViteAgentRouteRuntimeConfig
 }
 
-type AgentChatRouteBody = AgentChatMessageTriggerInput & {
+type AgentChatRouteBody = Omit<AgentChatMessageTriggerInput, "run"> & {
+  id?: string
+  messageId?: string
+  run?: Partial<AgentRunMetadata>
   stream?: boolean
+  trigger?: string
 }
 
 export interface AgentChatFetchOptions {
@@ -84,11 +88,36 @@ async function readJsonBody(request: Request): Promise<AgentChatRouteBody> {
 }
 
 function chatAppRouteTriggerInput(body: AgentChatRouteBody): AgentChatMessageTriggerInput {
+  const run = normalizeChatRouteRun(body)
   return {
     ...(body.history !== undefined ? { history: body.history } : {}),
+    ...(body.invokerProfileId !== undefined ? { invokerProfileId: body.invokerProfileId } : {}),
     messages: body.messages,
+    ...(run ? { run } : {}),
     ...(body.session !== undefined ? { session: body.session } : {}),
     ...(body.timeout !== undefined ? { timeout: body.timeout } : {}),
+    ...(body.user !== undefined ? { user: body.user } : {}),
+  }
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === "string" && value.length > 0)
+}
+
+function normalizeChatRouteRun(body: AgentChatRouteBody): AgentRunMetadata | undefined {
+  if (body.run === undefined && body.id === undefined && body.messageId === undefined) return undefined
+  const latestMessage = body.messages.at(-1)
+  const messageId = firstString(body.run?.messageId, body.messageId, latestMessage?.id)
+  const threadId = firstString(body.run?.threadId, body.id)
+  const runId = firstString(body.run?.runId, messageId, threadId)
+  if (!runId) return undefined
+  const origin = firstString(body.run?.origin) || "chat-app"
+  return {
+    ...(body.run?.channelId ? { channelId: body.run.channelId } : threadId ? { channelId: `${origin}:${threadId}` } : {}),
+    ...(messageId ? { messageId } : {}),
+    origin,
+    runId,
+    ...(threadId ? { threadId } : {}),
   }
 }
 

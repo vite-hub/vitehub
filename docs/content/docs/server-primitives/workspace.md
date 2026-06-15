@@ -41,6 +41,8 @@ Source keys are named origins. A glob, file, fetch, or GitHub source is not auto
 
 `instructions` is optional model-facing guidance for agents that use the Workspace. It does not grant access or change which files are visible.
 
+Custom Sources can read existing materialized Workspace files through `ctx.workspaceFiles`. Use this when a Source needs previous generated output, such as a sync report or cached asset metadata, while producing the next materialized files. The view is read-only and does not expose Workspace Stores, provider adapters, snapshots, diffs, or Source materialization.
+
 ## Invocation-scoped source resolution
 
 Sources can resolve their concrete origin, Mount, and Source Instructions for one invocation from trusted runtime context. Use this when the same Source key should point at a narrowed origin after Access has selected a Workspace Scope.

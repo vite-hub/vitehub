@@ -333,6 +333,107 @@ describe("server helpers", () => {
     expect(response.status).toBe(400)
   })
 
+  it("preserves AI SDK chat route context for follow-up messages", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatFetchHandler } = await import("../src/server.ts")
+    const run = vi.fn(() => ({ text: "ok" }))
+    const agent = defineAgent({
+      capabilities: [chat()],
+      invoker: {
+        profiles: [{
+          id: "customer:demo:support",
+          kind: "customerPortal",
+          meta: { customer: "demo" },
+        }],
+      },
+      run,
+    })
+    const handler = defineAgentChatFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        id: "portal-chat-1",
+        invokerProfileId: "customer:demo:support",
+        messageId: "user-2",
+        messages: [
+          {
+            id: "user-1",
+            metadata: { quiver: { customer: "demo" } },
+            parts: [{ text: "first", type: "text" }],
+            role: "user",
+          },
+          {
+            id: "assistant-1",
+            parts: [
+              { data: { title: "Forecasting", type: "chat-title" }, type: "data-chat-title" },
+              { state: "done", text: "previous answer", type: "text" },
+            ],
+            role: "assistant",
+          },
+          {
+            id: "user-2",
+            metadata: { quiver: { customer: "demo" } },
+            parts: [{ text: "second", type: "text" }],
+            role: "user",
+          },
+        ],
+        run: { origin: "portal" },
+        trigger: "submit-message",
+        user: { email: "user@example.com", id: "user-1" },
+      }),
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
+    await expect(response.text()).resolves.toContain("ok")
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({
+        context: expect.objectContaining({
+          chat: expect.objectContaining({
+            message: expect.objectContaining({
+              id: "user-2",
+              metadata: { quiver: { customer: "demo" } },
+              text: "second",
+            }),
+            run: expect.objectContaining({
+              messageId: "user-2",
+              origin: "portal",
+              runId: "user-2",
+              threadId: "portal-chat-1",
+            }),
+            user: { email: "user@example.com", id: "user-1" },
+          }),
+          invokerProfileId: "customer:demo:support",
+        }),
+      }),
+      invoker: expect.objectContaining({
+        id: "customer:demo:support",
+        meta: { customer: "demo" },
+      }),
+      messages: expect.arrayContaining([
+        expect.objectContaining({
+          id: "assistant-1",
+          parts: [expect.objectContaining({ text: "previous answer", type: "text" })],
+          role: "assistant",
+        }),
+        expect.objectContaining({
+          id: "user-2",
+          parts: [expect.objectContaining({ text: "second", type: "text" })],
+          role: "user",
+        }),
+      ]),
+      run: expect.objectContaining({
+        channelId: "portal:portal-chat-1",
+        messageId: "user-2",
+        origin: "portal",
+        runId: "user-2",
+        threadId: "portal-chat-1",
+      }),
+    }))
+  })
+
   it("handles Chat SDK webhooks through the chat capability", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { access, chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")

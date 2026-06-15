@@ -1,10 +1,20 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { createHash } from "node:crypto"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>()
+  return {
+    ...actual,
+    readFile: vi.fn(actual.readFile),
+    writeFile: vi.fn(actual.writeFile),
+  }
+})
 
 const tempDirs: string[] = []
 
@@ -15,6 +25,7 @@ async function createStore() {
 }
 
 afterEach(async () => {
+  vi.clearAllMocks()
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
 
@@ -57,6 +68,85 @@ describe("local workspace store", () => {
       expect.objectContaining({ path: "docs", type: "directory" }),
       expect.objectContaining({ path: "guide", type: "directory" }),
     ])
+  })
+
+  it("hashes local file entries without reading whole files into memory", async () => {
+    const store = await createStore()
+    const content = new Uint8Array([0, 1, 2, 3, 254, 255])
+    const digest = createHash("sha256").update(content).digest("hex")
+
+    await store.writeFile("assets/blob.bin", { path: "assets/blob.bin", content })
+    vi.mocked(readFile).mockClear()
+
+    await expect(store.list("", { recursive: true })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ digest, path: "assets/blob.bin", type: "file" }),
+    ]))
+    await expect(store.stat("assets/blob.bin")).resolves.toMatchObject({ digest })
+    expect(readFile).not.toHaveBeenCalled()
+  })
+
+  it("does not rewrite local files when the content digest is unchanged", async () => {
+    const store = await createStore()
+    const content = new Uint8Array([0, 1, 2, 3])
+
+    await store.writeFile("assets/blob.bin", { path: "assets/blob.bin", content })
+    vi.mocked(writeFile).mockClear()
+
+    await store.writeFile("assets/blob.bin", {
+      path: "assets/blob.bin",
+      content,
+      mediaType: "application/octet-stream",
+      metadata: { source: "airtable" },
+    })
+
+    expect(writeFile).not.toHaveBeenCalled()
+    await expect(store.readFile("assets/blob.bin")).resolves.toMatchObject({
+      mediaType: "application/octet-stream",
+      metadata: { source: "airtable" },
+    })
+  })
+
+  it("replaces metadata atomically through a temporary file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-store-"))
+    tempDirs.push(root)
+    const store = createLocalWorkspaceStore(root)
+    const metadata = { status: "updating", files: 1 }
+    const metaPath = `${root}.meta.json`
+
+    vi.mocked(writeFile).mockClear()
+    await store.setMeta?.("source:airtable:snapshot", metadata)
+
+    const writePath = String(vi.mocked(writeFile).mock.calls[0]?.[0])
+    expect(writePath).not.toBe(metaPath)
+    expect(writePath).toMatch(/\.meta\.json\.[^.]+\.tmp$/)
+    await expect(readFile(metaPath, "utf8")).resolves.toContain("source:airtable:snapshot")
+    await expect(store.getMeta?.("source:airtable:snapshot")).resolves.toEqual(metadata)
+  })
+
+  it("writes streamed files without buffering through fs.writeFile", async () => {
+    const store = await createStore()
+    const content = new Uint8Array([0, 1, 2, 3, 254, 255])
+    const digest = createHash("sha256").update(content).digest("hex")
+
+    await expect(store.writeFileStream?.("assets/blob.bin", {
+      path: "assets/blob.bin",
+      content: new ReadableStream({
+        start(controller) {
+          controller.enqueue(content.slice(0, 3))
+          controller.enqueue(content.slice(3))
+          controller.close()
+        },
+      }),
+      mediaType: "application/octet-stream",
+      metadata: { source: "stream" },
+    })).resolves.toMatchObject({ digest, path: "assets/blob.bin", size: content.byteLength })
+
+    expect(writeFile).not.toHaveBeenCalled()
+    await expect(store.readFile("assets/blob.bin")).resolves.toMatchObject({
+      content,
+      mediaType: "application/octet-stream",
+      metadata: { source: "stream" },
+    })
   })
 
   it("supports brace, character class, and extglob patterns", async () => {
