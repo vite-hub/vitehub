@@ -312,8 +312,7 @@ type BaseAgentResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
 type AgentDefinitionWithBaseResolve<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-> = AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> & {
+> = AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & {
   [baseAgentResolve]?: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS>
   [baseAgentModel]?: AgentModelResolver<TRuntimeConfig>
 }
@@ -529,12 +528,12 @@ function defineBaseAgent<
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
 >(
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
-): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> {
+): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const driver = normalizeAgentDriver(options)
   const { capabilities, description, hooks, runtime, title, version, workspace } = options
   const run = driver.kind === "run" ? driver.run : (options as { run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS> }).run
   const normalizedCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
-  const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> | undefined
+  const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
   const chat = getChatCapabilityOptions<TRuntimeConfig>(normalizedCapabilities)
   validateNonWorkspaceCapabilities(normalizedCapabilities, !!workspace)
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
@@ -582,7 +581,7 @@ function defineBaseAgent<
         ? { ...adapterInstance, tools: capabilityTools }
         : adapterInstance
     },
-  } as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>
+  } as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS>
   Object.defineProperty(definition, "__vitehubAgentSettings", { value: options })
   return definition
 }
@@ -603,14 +602,14 @@ export interface DefineAgent {
     const TOptions extends WorkspaceAgentOptions<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile> = WorkspaceAgentOptions<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile>,
   >(
     options: TOptions & ValidateWorkspaceAgentOptions<TOptions>,
-  ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile>
+  ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
   >(
     options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> & { workspace?: never },
-  ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>
+  ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
 }
 
 function createWorkspaceAgentDefinition<
@@ -621,7 +620,7 @@ function createWorkspaceAgentDefinition<
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile>,
   defaults: WorkspaceAgentDefaults<Name> = {},
-): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile> {
+): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS> {
   const workspaceDefinition = workspaceDefinitionFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
   validateWorkspaceCapabilities(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
   const definition = defineBaseAgent<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>({
@@ -632,7 +631,7 @@ function createWorkspaceAgentDefinition<
     runtime: options.runtime,
     version: options.version,
     workspace: workspaceDefinition,
-  } as never) as WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile>
+  } as never) as WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>
 
   if (!definition.run) {
     const run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> = async (context) => {
@@ -658,11 +657,10 @@ export function withWorkspaceAgentDefaults<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   CALL_OPTIONS = unknown,
-  TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
 >(
-  definition: WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile>,
+  definition: WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>,
   defaults: WorkspaceAgentDefaults<Name>,
-): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile> {
+): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS> {
   if (!definition?.__vitehubWorkspaceAgent) return definition
   return createWorkspaceAgentDefinition(definition.__vitehubWorkspaceAgentOptions, defaults)
 }
