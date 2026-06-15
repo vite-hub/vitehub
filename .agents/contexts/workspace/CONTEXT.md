@@ -20,12 +20,52 @@ The directory beside a Colocated Workspace Definition that contains local files 
 _Avoid_: Project root, worktree root, automatic sibling ingestion
 
 **Source**:
-A named origin that exposes read-only addressable files or items through a Workspace.
+A named origin that exposes read-only addressable files, items, or controlled request access through a Workspace.
 _Avoid_: Input, files, context, resource, mount, connector
+
+**Request-Only Source**:
+An API-backed Source that exposes a Source Request Descriptor and Source Network Grant without a default Source-Backed Path.
+_Avoid_: Query-only tool, default materialized file
 
 **Source Instruction**:
 Model-facing guidance attached to a Source that explains what the Source is for and how a model-backed Agent Driver should use it.
 _Avoid_: Source description, source metadata, prompt fragment
+
+**Source Network Grant**:
+A network access boundary contributed by a Source so a Workspace-backed Shell Runtime can inspect the Source's HTTP origin through controlled shell commands.
+_Avoid_: Source Instruction, generic fetch permission
+
+**Source Request Shape**:
+A structured request boundary for an API-backed Source that describes the allowed HTTP URL, method, query, and body before materialized reads or controlled shell requests run.
+_Avoid_: OpenAPI operation, full API catalog, Source Instruction
+
+**Source Request Part Branch**:
+The mutually exclusive choice between a concrete Fetch-style request value and a schema-backed model-authored request input for one request part.
+_Avoid_: Duplicate default, merged request input, request contract
+
+**Schema-Derived Default Request**:
+The default API-backed Source request produced by validating empty input through schema-backed request parts when a Source-Backed Path is present.
+_Avoid_: Hidden fallback, inferred model input, second default
+
+**Source Request Schema Projection**:
+A Standard JSON Schema-compatible representation of a Source Request Shape's model-authored request inputs for Source Request Descriptor guidance.
+_Avoid_: Custom schema summary, OpenAPI operation, prompt-only example
+
+**Source Request Credential**:
+A trusted request value, such as a header or cookie, that ViteHub injects for API-backed Source reads and controlled shell requests without exposing the secret to the model.
+_Avoid_: Model-authored header, visible token, prompt credential
+
+**Source Request Callback Context**:
+The trusted runtime argument passed to an API-backed Source request factory while executing a Source read or controlled shell request.
+_Avoid_: Source definition factory, model input, runtime config bag
+
+**Source Request Descriptor**:
+A generated Workspace metadata file for one visible API-backed Source, written at `.vitehub/sources/<sourceKey>.json`.
+_Avoid_: Source, Source Instructions, full request schema prompt, global request index
+
+**Shell Source Request Hint**:
+A generated model-facing instruction block that points a shell-capable Agent Driver to visible Source Request Descriptors for controlled `curl` use.
+_Avoid_: Source Instructions, workspace.sources, full request schema prompt, custom curl syntax
 
 **Source Resolution**:
 The trusted step that turns a Source declaration into the concrete Source origin, Mount, and Source Instructions for one Workspace runtime surface.
@@ -70,6 +110,10 @@ _Avoid_: Source
 **Source-Backed Path**:
 A workspace path whose contents come from a Source.
 _Avoid_: Editable source file, synced file
+
+**Source Workspace Path**:
+An explicit Workspace File Tree path where an API-backed Source exposes a default Source-Backed Path.
+_Avoid_: HTTP path, Source path, fetch path
 
 **Single-File Source**:
 A Source that contributes exactly one build-time materialized file from the Workspace Source Root into a Workspace.
@@ -170,9 +214,55 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - A **Source Namespace** contains local, inline, tree, and provider Source helpers.
 - A **Source Map** key is ordinary Source identity; a key such as `instructions` does not make Source content into Agent instructions.
 - A **Source** may have **Source Instructions**.
+- A **Source** may be a **Request-Only Source**.
 - **Source Instructions** may be declared statically or produced by **Source Resolution**.
 - **Source Instructions** are explicit developer-authored Source configuration, not inferred provider metadata.
 - **Source Instructions** guide model-backed Agent Driver behavior, but they do not grant access to hidden Sources or change Workspace Scope.
+- A **Source** may contribute a **Source Network Grant** separately from its **Source Instructions**.
+- **Source Network Grants** grant controlled shell network access; **Source Instructions** only guide model-backed Agent Driver behavior.
+- A visible API-backed **Source** may contribute a **Source Network Grant** automatically when a Workspace-backed Shell Runtime is enabled.
+- An API-backed **Source** may declare a **Source Request Shape** to describe allowed query parameters and request body fields.
+- A **Source Request Shape** is declared with Standard Schema-compatible schemas.
+- A **Source Request Shape** uses **Source Request Part Branches** for query and body.
+- A concrete request value branch uses Fetch-style names such as `query` and `body`.
+- A schema-backed request input branch uses schema names such as `querySchema` and `bodySchema`.
+- A Source declaration must not declare both branches for the same request part.
+- A schema-backed request input branch may provide default values through its Standard Schema-compatible validator.
+- An API-backed Source with a Source-Backed Path and a schema-backed request input branch uses a **Schema-Derived Default Request** for that request part.
+- A **Schema-Derived Default Request** validates empty input through the request part schema.
+- If a **Schema-Derived Default Request** cannot be produced, the Source-Backed Path read fails clearly and the Source should either add schema defaults or become a **Request-Only Source**.
+- A **Source Request Shape** needs a **Source Request Schema Projection** when it is exposed through a **Source Request Descriptor**.
+- A **Source Request Schema Projection** uses the Standard JSON Schema-compatible interface rather than a ViteHub-specific schema summary.
+- API-backed Sources use Fetch-style option names such as method, query, body, headers, cookies, timeout, and workspacePath.
+- In Fetch-style API-backed Source options, headers and cookies are **Source Request Credentials**, not model-authored request input schemas.
+- Request-shaped API-backed Sources support `GET`, `HEAD`, and `POST` in v1.
+- A **Source Request Shape** is method-aware; request bodies belong only to methods that support bodies.
+- In v1, `GET` and `HEAD` request shapes may use query branches but not body branches.
+- In v1, `POST` request shapes may use query and body branches.
+- A **Source Request Shape** can shape compact model guidance and **Source Network Grants** without exposing a full API catalog as **Source Instructions**.
+- A **Source Request Shape** can generate the mechanical model guidance for controlled shell requests; **Source Instructions** remain optional guidance about the Source's domain meaning.
+- A **Source Request Shape** validates the request produced by controlled shell commands.
+- API-backed Source response validation is not part of the **Source Request Shape**.
+- **Source Request Credentials** may be injected into API-backed Source reads and controlled shell requests but must not be authored or overridden by the model.
+- API-backed Source reads and controlled shell requests use the same **Source Request Credentials** by default.
+- API-backed Source request factories may receive a **Source Request Callback Context**.
+- A **Source Request Callback Context** includes the normalized outbound request facts after request validation and schema defaulting.
+- A **Source Request Callback Context** includes Source identity, Workspace identity, Selected Workspace Scope, trusted invocation context when available, run metadata when available, and host/server runtime context when available.
+- A Source request factory may use its **Source Request Callback Context** to produce execution-only request additions such as headers, cookies, and timeout.
+- A Source request factory must not use its **Source Request Callback Context** to redefine Source identity, URL, method, Workspace placement, request schemas, Source Instructions, or cache policy.
+- A **Source Request Descriptor** exposes compact request guidance for one visible API-backed Source.
+- A **Source Request Descriptor** is scoped to the **Selected Workspace Scope** and is not generated for hidden Sources.
+- A **Source Request Descriptor** redacts **Source Request Credentials**.
+- A **Source Request Descriptor** uses the Source Map key as its file stem in `.vitehub/sources/`.
+- A request-shaped API-backed Source key must be safe as a single generated file stem in v1.
+- A **Request-Only Source** must have a **Source Request Descriptor** when visible.
+- A **Request-Only Source** does not create a default Source-Backed Path.
+- An API-backed Source uses a **Source Workspace Path** only when it should expose a default Source-Backed Path.
+- Controlled shell requests against **Source Network Grants** return ephemeral Shell observations by default, not Workspace Store writes.
+- A **Shell Source Request Hint** is emitted only when `workspaceShell()` is enabled and at least one visible API-backed Source has a **Source Request Descriptor**.
+- A **Shell Source Request Hint** should reuse existing Capability instruction slot templating rather than introduce a Source-specific placement slot.
+- A **Shell Source Request Hint** should be placeable through the `workspaceShell()` Capability instruction block, such as `{{ capabilities.workspaceShell }}` or the catch-all `{{ capabilities }}`.
+- A **Shell Source Request Hint** must not render through `workspace.sources`, because it is generated shell guidance rather than developer-authored **Source Instructions**.
 - A model-backed Agent Driver should receive **Source Instructions** only for Sources visible through the **Selected Workspace Scope**.
 - If any visible Source has **Source Instructions**, a model-backed Agent Driver should receive them by default at the end of its instructions unless the driver explicitly places the source guidance.
 - If a model-backed Agent Driver places `workspace.sources` but no visible Source has **Source Instructions**, the placement should render as empty instructions.
@@ -187,8 +277,9 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - **Invocation-Scoped Source Resolution** depends on trusted Agent Invocation inputs, not model output.
 - **Invocation-Scoped Source Resolution** may narrow a Source to the **Selected Workspace Scope**, but it does not replace Workspace Scope enforcement.
 - **Invocation-Scoped Source Resolution** cannot broaden visibility beyond the Sources and paths allowed by the **Selected Workspace Scope**.
-- A **Source** can expose local or external read-only information when that information has addressable files or items.
-- A **Source** must expose addressable files or items; query-only read tools belong outside the Source concept.
+- A **Source** can expose local or external read-only information as addressable files, addressable items, or controlled request access.
+- A Source that exposes only controlled request access must be a **Request-Only Source**.
+- Arbitrary model-facing query tools remain outside the Source concept.
 - An **MCP Resource Source** is appropriate when an MCP Server mostly exposes read-only resources that can be addressed as files or items.
 - MCP tools remain Capability behavior; an **MCP Resource Source** should not turn executable MCP tools into Source-Backed Paths.
 - A **Materialized Source** persists its items in the **Workspace Store**.
@@ -306,7 +397,8 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - Generated Source descriptions and Mount summaries were considered for each Source Instruction entry - resolved: when a Source declares **Source Instructions**, render the Source Map key heading plus the declared instructions only.
 - Inferring **Source Instructions** from provider metadata such as GitHub repository descriptions was considered - resolved: do not infer prompt text from provider metadata in the first version.
 - Rendering every visible Source in the generated Source guidance block was considered - resolved: only Sources with explicit **Source Instructions** appear.
-- Query-only access to external information was considered a Source shape - resolved: a **Source** must expose addressable files or items, even when search or query helps discover them.
+- Query-only access to external information was considered a Source shape - resolved: arbitrary query tools remain outside Source, while API-backed **Request-Only Sources** are valid only through **Source Request Shape**, **Source Request Descriptor**, and **Source Network Grant** boundaries.
+- API-backed Sources without useful default data files were reconsidered - resolved: allow **Request-Only Sources** when they expose a scoped **Source Request Descriptor** and **Source Network Grant**.
 - Non-store-backed external Sources were called "virtual" or "ephemeral" - resolved: use **Live Source** for on-demand read-through Sources and reserve "virtual" for Vite module surfaces.
 - Addressable Sources were assumed to be fully enumerable - resolved: a **Live Source** can support direct reads for known paths without global enumeration.
 - Live Source search was considered mandatory - resolved: search is optional, and any search hit must resolve to a readable Source-Backed Path.
@@ -319,6 +411,7 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - Single-file Source root mounting was considered equivalent to tree Source root mounting - resolved: **Single-File Source** can use basename-at-root defaults because it contributes one build-time materialized file.
 - Single-file Source paths were considered project-root paths - resolved: **Single-File Source** paths are relative to the **Workspace Source Root** and do not allow absolute paths; this applies to both shorthand and object forms.
 - Single-file Source `path` was considered an inline content output path - resolved: `path` is only a local input path; inline content uses `workspacePath`.
+- API-backed Source `path` was considered for Workspace placement - resolved: use **Source Workspace Path** language and `workspacePath` so it does not collide with HTTP paths or Source Package paths.
 - Single-file Sources were considered source-key mounted by default - resolved: **Single-File Sources** root-mount by default; source-key mounting is explicit.
 - Workspace inspection was considered a separate Workspace Capability - resolved: **Workspace Tools** are derived from the Workspace Definition by default.
 - Model-facing **Workspace Tools** were considered the default Workspace surface for harness-backed Agent Drivers - resolved: use a scoped **Harness Workspace Session** or equivalent materialized filesystem by default.
@@ -335,6 +428,26 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - Automatically rendering Workspace Scope into prompt text was considered - resolved: expose only explicit **Workspace Scope Instructions** so scope metadata is not model-facing by default.
 - Source materialization under scoped access was considered for the first version - resolved: disable generic materialization for scoped V1 to avoid source metadata leakage, with **Harness Workspace Session** as the narrow harness-backed Agent Driver exception.
 - Source-level narrowing was considered as direct invoker access - resolved: use **Invocation-Scoped Source Resolution** from trusted invocation context and the **Selected Workspace Scope**, not raw model-facing metadata or duplicate authorization logic inside a Source.
+- Source Instructions were considered as network policy for shell `curl` - resolved: use **Source Network Grants** for authority and **Source Instructions** only for model guidance.
+- OpenAPI operations were considered as the first public request language for API-backed Sources - resolved: use **Source Request Shape** for the Source-owned boundary, with OpenAPI left as a possible future import/export format.
+- Plain examples were considered for Source Request Shapes - resolved: require Standard Schema-compatible schemas so request enforcement has a validation boundary.
+- Validation-only Standard Schema was considered enough for the **Source Request Descriptor** - resolved: request validation uses Standard Schema-compatible schemas, while model-visible request guidance requires a Standard JSON Schema-compatible **Source Request Schema Projection**.
+- Allowing both concrete request values and schema-backed inputs for the same request part was considered - resolved: use a **Source Request Part Branch** so `query`/`body` and `querySchema`/`bodySchema` are mutually exclusive.
+- Requiring a separate default request beside schema-backed request parts was considered - resolved: use a **Schema-Derived Default Request** for Source-Backed Path reads, and fail clearly when schema defaults cannot produce one.
+- A nested credentials option was considered for injected headers and cookies - resolved: use Fetch-style option names and avoid overloading credentials language.
+- Copying ofetch-style hooks was considered - resolved: borrow stable request option vocabulary, but keep public hooks deferred to a future extension boundary.
+- Duplicating request mechanics in Source Instructions was considered - resolved: let **Source Request Shapes** generate mechanical request guidance and keep **Source Instructions** for domain-specific guidance.
+- Response validation was considered for API-backed Sources - resolved: keep the first request-shaped `source.fetch()` design request-side only.
+- Controlled shell request output was considered for automatic Source materialization - resolved: keep `curl` output ephemeral by default and leave materialization to explicit Workspace policy.
+- A new Workspace template slot for controlled `curl` descriptors was considered - resolved: reuse existing Capability instruction slot templating through the `workspaceShell()` Capability contribution.
+- Method-neutral Source Request Shapes were considered - resolved: make **Source Request Shape** method-aware so bodies are not allowed on methods that do not support bodies.
+- Supporting write-semantics HTTP methods in request-shaped Sources was considered - resolved: v1 supports `GET`, `HEAD`, and `POST`; methods such as `PUT`, `PATCH`, and `DELETE` belong to Capabilities or a future effect boundary.
+- Treating headers and cookies as model-authored request schema fields was considered - resolved: use injected **Source Request Credentials** for headers and cookies, and do not expose secret values to the model.
+- Separate credentials for Source reads and controlled shell requests were considered - resolved: use the same **Source Request Credentials** by default.
+- Zero-argument-only request factories were considered - resolved: allow a **Source Request Callback Context** so credential factories can inspect the final validated request and trusted invocation/runtime context.
+- Full `source.fetch(() => options)` factories were considered - resolved: keep Source definitions static and restrict request factories to execution-only request additions.
+- A single scoped request index was considered - resolved: generate one **Source Request Descriptor** per visible API-backed Source at `.vitehub/sources/<sourceKey>.json`.
+- Custom request syntax for controlled shell commands was considered - resolved: keep normal command syntax and validate the resulting request against the **Source Request Shape**.
 - Build-time Workspace assets were considered a second user-facing read surface - resolved: users read one **Workspace File Tree** while asset provenance remains internal by default.
 - `open()` was considered as the Workspace execution-session method - resolved: use `startSession()` because it names the **Workspace Session** lifecycle.
 - "explicit sync source" was considered as a Source kind - resolved: keep **Source Sync** as a Workspace lifecycle operation over existing Sources.

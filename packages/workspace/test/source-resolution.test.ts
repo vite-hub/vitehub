@@ -1,15 +1,17 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   createWorkspaceSourceResolutionFacade,
   resolveWorkspaceSources,
   source,
+  type WorkspaceShellResult,
+  workspaceSourceRequestDescriptorPath,
   type ReadonlyWorkspaceFacade,
   type WorkspaceDefinition,
   type WorkspaceSourceResolutionOptions,
 } from "../src/index.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
-import { normalizeWorkspaceSources } from "../src/sources/config.ts"
+import { getWorkspaceSourceRequestDescriptor, isWorkspaceSourceRequestOnly, normalizeWorkspaceSources } from "../src/sources/config.ts"
 
 const invocation = {
   context: {
@@ -87,6 +89,10 @@ function facade(workspace: ReturnType<typeof createWorkspace>): ReadonlyWorkspac
     } as never,
   }
 }
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe("Workspace Source Resolution", () => {
   it("resolves source origin, mount, instructions, and scope-aware fingerprint", async () => {
@@ -179,6 +185,98 @@ describe("Workspace Source Resolution", () => {
       mountPath: "ingestion/acme",
       sync: { stale: "remove" },
     })
+  })
+
+  it("preserves request descriptors on resolved fetch sources", async () => {
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        inventoryHealthSummary: source.custom({
+          async resolve() {
+            return source.fetch({
+              query: { region: "eu" },
+              url: "https://portal.example.com/runtime/inventory-health",
+            })
+          },
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            throw new Error(`unresolved source read: ${key}`)
+          },
+        }),
+      },
+    }
+
+    const descriptorPath = workspaceSourceRequestDescriptorPath("inventoryHealthSummary")
+    const resolved = await resolveWorkspaceSources(definition, scope("support", [descriptorPath]))
+    const resolvedSource = normalizeWorkspaceSources(resolved.sources).find(source => source.key === "inventoryHealthSummary")?.source
+
+    expect(resolvedSource).toBeDefined()
+    expect(isWorkspaceSourceRequestOnly(resolvedSource!)).toBe(true)
+    expect(getWorkspaceSourceRequestDescriptor(resolvedSource!)).toMatchObject({
+      method: "GET",
+      request: { query: { region: "eu" } },
+      url: "https://portal.example.com/runtime/inventory-health",
+    })
+  })
+
+  it("preserves controlled curl execution on resolved fetch source facades", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "ok" }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    }))
+    const requestFactory = vi.fn(({ selectedWorkspaceScope }) => ({
+      headers: { "x-scope": selectedWorkspaceScope?.scope },
+    }))
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const querySchema = {
+      "~standard": {
+        jsonSchema: { input: () => ({ properties: { region: { type: "string" } }, type: "object" }) },
+        validate(input: unknown) {
+          return { value: input as Record<string, unknown> }
+        },
+      },
+    } as const
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        inventoryHealthSummary: source.custom({
+          async resolve() {
+            return source.fetch({
+              cookies: { auth_token: "secret" },
+              querySchema,
+              request: requestFactory,
+              url: "https://portal.example.com/runtime/inventory-health",
+            })
+          },
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            throw new Error(`unresolved source read: ${key}`)
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(
+      facade(base),
+      definition,
+      scope("support", [workspaceSourceRequestDescriptorPath("inventoryHealthSummary")]),
+    )
+    const result = await workspace.tools.shell.execute!(
+      { command: "curl 'https://portal.example.com/runtime/inventory-health?region=eu'" },
+      { toolCallId: "test", messages: [] } as never,
+    ) as WorkspaceShellResult
+
+    expect(result).toMatchObject({ exitCode: 0, stdout: JSON.stringify({ status: "ok" }, null, 2) })
+    const init = request.mock.calls[0]?.[1] as RequestInit
+    expect((init.headers as Headers).get("cookie")).toBe("auth_token=secret")
+    expect((init.headers as Headers).get("x-scope")).toBe("support")
+    expect(requestFactory).toHaveBeenCalledWith(expect.objectContaining({
+      selectedWorkspaceScope: expect.objectContaining({ scope: "support" }),
+    }))
   })
 
   it("fails closed when a resolved source mount is outside the Selected Workspace Scope", async () => {

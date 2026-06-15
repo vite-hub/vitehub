@@ -1,7 +1,8 @@
 import { createWorkspaceTools } from "../ai.ts"
 import { normalizeWorkspacePath } from "../core/path.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
-import { normalizeWorkspaceSource, normalizeWorkspaceSources } from "./config.ts"
+import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources } from "./config.ts"
+import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution } from "./request-execution.ts"
 import { resolveWorkspacePath } from "./resolver.ts"
 import { createWorkspaceSourceView } from "./view.ts"
 
@@ -57,10 +58,13 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
   options: WorkspaceSourceResolutionOptions,
 ): Promise<WorkspaceSourceResolutionFacade<Name>> {
   const resolvedDefinition = await resolveWorkspaceSources(definition, options)
-  if (resolvedDefinition === definition) return { definition, workspace }
+  const sourceRequestExecution = createWorkspaceSourceRequestExecution(resolvedDefinition, {
+    selectedWorkspaceScope: options.selectedWorkspaceScope,
+  })
+  if (resolvedDefinition === definition && !sourceRequestExecution) return { definition, workspace }
 
   const sourceView = createWorkspaceSourceView(resolvedDefinition, createMemoryWorkspaceStore())
-  const fs: ReadonlyWorkspaceFacade<Name>["fs"] = {
+  const fs: ReadonlyWorkspaceFacade<Name>["fs"] = attachWorkspaceSourceRequestExecution({
     async readFile(path, options) {
       if (isSourcePath(resolvedDefinition, path) || await sourceViewHasPath(resolvedDefinition, sourceView, path)) {
         return await sourceView.readFile(path, options as never)
@@ -104,7 +108,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     async materializeSources(options = {}) {
       return await sourceView.materializeSources(options)
     },
-  }
+  }, sourceRequestExecution)
 
   const createTools = (options?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
     broadSearchPaths: options?.broadSearchPaths,
@@ -162,7 +166,7 @@ async function resolveWorkspaceSource(
   const normalized = normalizeWorkspaceSource(key, resolvedSource)
   if (!selectedScopeIntersectsMount(options.selectedWorkspaceScope, normalized.mountPath)) return undefined
 
-  return {
+  return copyWorkspaceSourceMetadata(resolvedSource, {
     ...resolvedSource,
     fingerprint: {
       source: resolvedSource.fingerprint,
@@ -173,11 +177,11 @@ async function resolveWorkspaceSource(
               paths: options.selectedWorkspaceScope.paths,
               role: options.selectedWorkspaceScope.role,
               scope: options.selectedWorkspaceScope.scope,
-            }
+        }
           : undefined,
       },
     },
-  }
+  })
 }
 
 function applyResolvedWorkspaceSourceBinding(input: WorkspaceSourceInput, source: WorkspaceSource): WorkspaceSource {
@@ -207,7 +211,7 @@ function withResolvedSourceRuntimeDefaults(source: WorkspaceSource): WorkspaceSo
     return source
   }
   if (source.sync) return source
-  return { ...source, materialize: "lazy" }
+  return copyWorkspaceSourceMetadata(source, { ...source, materialize: "lazy" })
 }
 
 function isPlainRecord(input: unknown): input is Record<string, unknown> {

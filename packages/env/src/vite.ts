@@ -187,10 +187,9 @@ function createPublicEnvModuleTypes(publicConfig: Record<string, unknown>): stri
 
 function createServerEnvModule(serverRegistry: EnvRuntimeRegistry): string {
   return [
-    "import { resolveServerEnv, runWithServerEnv as runWithGeneratedServerEnv } from '@vite-hub/env/server';",
+    "import { resolveServerEnv } from '@vite-hub/env/server';",
     `const registry = ${JSON.stringify(serverRegistry, null, 2)};`,
     "export function useServerEnv(event) { return resolveServerEnv(registry, event); }",
-    "export function runWithServerEnv(event, callback) { return runWithGeneratedServerEnv(event, callback); }",
     "",
   ].join("\n")
 }
@@ -203,7 +202,6 @@ function createServerEnvModuleTypes(serverRegistry: EnvRuntimeRegistry): string 
     ...createServerTypeFields(serverRegistry, 2),
     "}",
     "export function useServerEnv(event?: unknown): ServerEnv",
-    "export function runWithServerEnv<T>(event: unknown, callback: () => T): T",
     "",
   ].join("\n")
 }
@@ -223,7 +221,6 @@ function createViteTypes(publicConfig: Record<string, unknown>, serverRegistry: 
     ...createServerTypeFields(serverRegistry, 4),
     "  }",
     "  export function useServerEnv(event?: unknown): ServerEnv",
-    "  export function runWithServerEnv<T>(event: unknown, callback: () => T): T",
     "}",
     "export {}",
     "",

@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
 import { createRuntimeRegistry } from "../src/core/resolve.ts"
-import { resolveServerEnv, runWithServerEnv } from "../src/server.ts"
+import { resolveServerEnv } from "../src/server.ts"
 import { createEnvImportAliases, createEnvTypeScriptPaths, env, hubEnv } from "../src/vite.ts"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
@@ -127,6 +127,7 @@ describe("Vite plugin", () => {
     expect(types).toContain("\"appType\": \"SingleTenant\"")
     expect(types).toContain("usePublicEnv(): PublicEnv")
     expect(types).toContain("useServerEnv(event?: unknown): ServerEnv")
+    expect(types).not.toContain("runWithServerEnv")
     expect(types).not.toContain("import(\"@vite-hub/env/secret\")")
     expect(types).not.toContain("serverEnv")
     expect(types).not.toContain("buildConfig")
@@ -141,6 +142,7 @@ describe("Vite plugin", () => {
     expect(serverModuleTypes).toContain("export interface ServerEnv")
     expect(serverModuleTypes).toContain("\"airtableToken\": SecretEnv<string>")
     expect(serverModuleTypes).toContain("export function useServerEnv(event?: unknown): ServerEnv")
+    expect(serverModuleTypes).not.toContain("runWithServerEnv")
 
     const loadHook = plugin.load as (id: string) => string | undefined
     const loaded = loadHook("\0#vitehub/env/public")
@@ -157,7 +159,7 @@ describe("Vite plugin", () => {
     expect(serverLoaded).not.toContain("SERVER_OPTIONAL_TOKEN")
     expect(serverLoaded).not.toContain("serverEnv")
     expect(serverLoaded).toContain("useServerEnv")
-    expect(serverLoaded).toContain("runWithServerEnv")
+    expect(serverLoaded).not.toContain("runWithServerEnv")
   })
 
   it("applies prefixes to inferred Vite env names", async () => {
@@ -333,18 +335,4 @@ describe("Vite plugin", () => {
     })).toThrow("Missing Runtime Env from env:VITEHUB_AIRTABLE_TOKEN.")
   })
 
-  it("runs callbacks with Server Env active for nested runtime helpers", () => {
-    const registry = createRuntimeRegistry({
-      airtableToken: env({ secret: true }),
-    }, { prefix: "VITEHUB_" })
-
-    const resolved = runWithServerEnv({
-      env: {
-        VITEHUB_AIRTABLE_TOKEN: "callback-secret",
-      },
-    }, () => resolveServerEnv<{ airtableToken: { unseal(): string } }>(registry))
-
-    expect(resolved.airtableToken.unseal()).toBe("callback-secret")
-    expect(() => resolveServerEnv(registry)).toThrow("Missing Runtime Env from env:VITEHUB_AIRTABLE_TOKEN.")
-  })
 })

@@ -28,6 +28,7 @@ export function resolveWorkspacePath(definition: WorkspaceDefinition, path: stri
   const sources = normalizeWorkspaceSources(definition.sources).filter(source => source.materialize !== "none")
 
   for (const source of sources) {
+    if (source.requestOnly) continue
     const liveSourcePath = source.livePaths?.[workspacePath]
     if (typeof liveSourcePath === "string") {
       return createSourceResolution(source, workspacePath, liveSourcePath)

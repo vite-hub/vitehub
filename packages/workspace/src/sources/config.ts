@@ -2,7 +2,13 @@ import { defu } from "defu"
 
 import { WorkspaceError } from "../core/errors.ts"
 import { decodeFile, normalizeSafeWorkspacePath } from "../core/path.ts"
+import { fetch as fetchSource } from "./fetch.ts"
 import { getLiveWorkspaceSourcePaths, markLiveWorkspaceSource } from "./live.ts"
+import {
+  copyWorkspaceSourceRequestMetadata,
+  getWorkspaceSourceRequestDescriptor,
+  isWorkspaceSourceRequestOnly,
+} from "./request-metadata.ts"
 
 import type {
   ReadFileOptions,
@@ -12,6 +18,8 @@ import type {
   WorkspaceCacheOptions,
   WorkspaceDefinition,
   WorkspaceMaterializeMode,
+  WorkspaceSelectedScope,
+  WorkspaceSourceRequestDescriptor,
   WorkspaceSource,
   WorkspaceStore,
   WorkspaceSourceInput,
@@ -32,12 +40,38 @@ export interface ResolvedWorkspaceSource {
   instructions?: WorkspaceSource["instructions"]
   livePaths?: Record<string, string>
   readonly: true
+  requestDescriptor?: WorkspaceSourceRequestDescriptor
+  requestOnly?: boolean
 }
 
-export function createSourceContext(definition: WorkspaceDefinition, source?: { key: string, mountPath: string }, store?: WorkspaceStore): SourceContext {
+export {
+  getWorkspaceSourceRequestDescriptor,
+  getWorkspaceSourceRequestExecutor,
+  isWorkspaceSourceRequestOnly,
+  markWorkspaceSourceRequestDescriptor,
+  markWorkspaceSourceRequestExecutor,
+  workspaceSourceRequestDescriptorPath,
+} from "./request-metadata.ts"
+
+export function copyWorkspaceSourceMetadata(source: WorkspaceSource, target: WorkspaceSource): WorkspaceSource {
+  const livePaths = getLiveWorkspaceSourcePaths(source)
+  if (livePaths) markLiveWorkspaceSource(target, livePaths)
+
+  copyWorkspaceSourceRequestMetadata(source, target)
+
+  return target
+}
+
+export function createSourceContext(
+  definition: WorkspaceDefinition,
+  source?: { key: string, mountPath: string },
+  store?: WorkspaceStore,
+  options: { selectedWorkspaceScope?: WorkspaceSelectedScope } = {},
+): SourceContext {
   return {
     mountPath: source?.mountPath,
     rootDir: definition.rootDir || process.cwd(),
+    selectedWorkspaceScope: options.selectedWorkspaceScope,
     source: source?.key,
     sourceRootDir: definition.sourceRootDir,
     workspace: definition.name,
@@ -91,6 +125,8 @@ export function normalizeWorkspaceSource(key: string, input: WorkspaceSourceInpu
     instructions: source.instructions,
     livePaths: getLiveWorkspaceSourcePaths(source),
     readonly: true,
+    requestDescriptor: getWorkspaceSourceRequestDescriptor(source),
+    requestOnly: isWorkspaceSourceRequestOnly(source),
   }
 }
 
@@ -151,6 +187,7 @@ function inferWorkspaceSource(input: WorkspaceSourceInput): WorkspaceSourceInput
     if (providerFamilies[0] === "github" && (hasOwn(input, "path") || hasOwn(input, "workspacePath") || hasOwn(input, "content"))) {
       throw ambiguousSourceConfiguration(["github", "file"])
     }
+    if (providerFamilies[0] === "fetch") return createInferredFetchSource(input)
     return createInferredWorkspaceSource(providerFamilies[0], input)
   }
 
@@ -170,6 +207,13 @@ function inferWorkspaceSource(input: WorkspaceSourceInput): WorkspaceSourceInput
 
 function ambiguousSourceConfiguration(families: WorkspaceSourceFamily[]): TypeError {
   return new TypeError(`[vitehub] Workspace source configuration is ambiguous. Matched ${families.join(", ")}. Use { source: ... } or source.custom(...) to make the source kind explicit.`)
+}
+
+function createInferredFetchSource(input: WorkspaceSourceInput): WorkspaceSource {
+  if (!isPlainRecord(input)) return fetchSource(input as never)
+  const record = input as Record<string, unknown>
+  const workspacePath = typeof record.workspacePath === "string" ? record.workspacePath : inferFetchWorkspacePath(record)
+  return fetchSource({ ...input, workspacePath } as never)
 }
 
 function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): WorkspaceSource {
@@ -214,7 +258,10 @@ function createInferredWorkspaceSource(family: WorkspaceSourceFamily, input: Wor
 }
 
 async function loadInferredWorkspaceSource(family: WorkspaceSourceFamily, input: WorkspaceSourceInput): Promise<WorkspaceSource> {
-  if (family === "fetch") return (await import("./fetch.ts")).fetch(input as never)
+  if (family === "fetch" && isPlainRecord(input)) {
+    return createInferredFetchSource(input)
+  }
+  if (family === "fetch") return createInferredFetchSource(input)
   if (family === "file") return (await import("./file.ts")).file(input as never)
   if (family === "github") return (await import("./github.ts")).github(input as never)
   if (family === "glob") return (await import("./glob.ts")).glob(input as never)
@@ -321,6 +368,7 @@ function basename(path: string) {
 function applyWorkspaceBinding(source: WorkspaceSource, input: WorkspaceSourceInput): WorkspaceSource {
   if (!isPlainRecord(input)) return source
   const next: WorkspaceSource = { ...source }
+  copyWorkspaceSourceMetadata(source, next)
   copyDefinedWorkspaceBindingOption(next, input, "cache")
   copyDefinedWorkspaceBindingOption(next, input, "instructions")
   copyDefinedWorkspaceBindingOption(next, input, "materialize")

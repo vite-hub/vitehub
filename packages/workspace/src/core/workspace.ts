@@ -1,4 +1,5 @@
 import { createBasicWorkspaceSession } from "../session/basic.ts"
+import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 import { createWorkspaceSourceView } from "../sources/view.ts"
 import { createWorkspaceStoreFromProvider } from "../storage/provider.ts"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
@@ -99,5 +100,5 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
     await syncWorkspaceDefinition(definition, store)
   }
 
-  return workspace
+  return attachWorkspaceSourceRequestExecution(workspace, createWorkspaceSourceRequestExecution(definition))
 }

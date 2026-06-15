@@ -1,10 +1,16 @@
 import {
   applyCapabilityInstructionSlots,
+  capabilityInstructionBlockId,
   normalizeCapabilities,
   normalizeMode,
   resolveAgentCapabilities,
 } from "./capability-runtime.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
+import {
+  getWorkspaceSourceRequestDescriptor,
+  isWorkspaceSourceRequestOnly,
+  workspaceSourceRequestDescriptorPath,
+} from "@vite-hub/workspace"
 import {
   normalizeAgentInvokerProfiles,
   resolveAgentInvoker,
@@ -615,7 +621,7 @@ function staticCapabilityInstructionBlocks<
         .filter(Boolean)
         .join("\n\n")
       return instructions
-        ? [{ id: `capabilities.${capability.id}`, instructions }]
+        ? [{ id: capabilityInstructionBlockId(capability.id), instructions }]
         : []
     })
 }
@@ -757,26 +763,40 @@ async function sourceVisibilityProbePaths(
   source: AgentWorkspaceSourceMetadata,
   definition?: WorkspaceDefinition,
 ): Promise<string[]> {
-  const mountPath = normalizeSourceInstructionPath(sourceMountPath(source))
-  if (mountPath === undefined) return []
-  if (mountPath) return [mountPath]
-  if (source.probeKeys?.length) {
-    return source.probeKeys
-      .map(sourcePath => joinSourceInstructionPath(mountPath, sourcePath))
-      .filter((path): path is string => Boolean(path))
+  const descriptorSource = source.source
+  const descriptorPath = descriptorSource && getWorkspaceSourceRequestDescriptor(descriptorSource)
+    ? workspaceSourceRequestDescriptorPath(source.key)
+    : undefined
+  if (descriptorPath && descriptorSource && isWorkspaceSourceRequestOnly(descriptorSource)) {
+    return [descriptorPath]
   }
-  if (!source.source) return []
+  const mountPath = normalizeSourceInstructionPath(sourceMountPath(source))
+  const descriptorPaths = descriptorPath ? [descriptorPath] : []
+  if (mountPath === undefined) return descriptorPaths
+  if (mountPath) return [...descriptorPaths, mountPath]
+  if (source.probeKeys?.length) {
+    return [
+      ...descriptorPaths,
+      ...source.probeKeys
+      .map(sourcePath => joinSourceInstructionPath(mountPath, sourcePath))
+        .filter((path): path is string => Boolean(path)),
+    ]
+  }
+  if (!source.source) return descriptorPaths
 
   const ctx = sourceInstructionContext(definition, source.key, mountPath)
   try {
     await source.source.prepare?.(ctx)
     const keys = await source.source.getKeys(ctx)
-    return (keys || [])
+    return [
+      ...descriptorPaths,
+      ...(keys || [])
       .map(sourcePath => joinSourceInstructionPath(mountPath, sourcePath))
-      .filter((path): path is string => Boolean(path))
+        .filter((path): path is string => Boolean(path)),
+    ]
   }
   catch {
-    return []
+    return descriptorPaths
   }
 }
 

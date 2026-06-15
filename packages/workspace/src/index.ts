@@ -6,6 +6,15 @@ export {
   hasWorkspaceSourceResolvers,
   resolveWorkspaceSources,
 } from "./sources/resolution.ts"
+export {
+  getWorkspaceSourceRequestDescriptor,
+  isWorkspaceSourceRequestOnly,
+  workspaceSourceRequestDescriptorPath,
+} from "./sources/config.ts"
+export {
+  attachWorkspaceSourceRequestExecution,
+  getWorkspaceSourceRequestExecution,
+} from "./sources/request-execution.ts"
 export type {
   WorkspaceSourceResolutionFacade,
   WorkspaceSourceResolutionOptions,
