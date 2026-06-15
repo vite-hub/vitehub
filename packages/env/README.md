@@ -43,21 +43,20 @@ export const appName = publicEnv.appName
 
 ```ts
 // server/sync.ts
-import { runWithServerEnv, useServerEnv } from "#vitehub/env/server"
+import { useServerEnv } from "#vitehub/env/server"
 
 export async function sync(event: unknown) {
-  return runWithServerEnv(event, async () => {
-    const { airtableToken } = useServerEnv()
-    await fetch("https://api.airtable.com/v0/app/table", {
-      headers: { Authorization: `Bearer ${airtableToken.unseal()}` },
-    })
+  const { airtableToken } = useServerEnv(event)
+
+  await fetch("https://api.airtable.com/v0/app/table", {
+    headers: { Authorization: `Bearer ${airtableToken.unseal()}` },
   })
 }
 ```
 
 ## Vite Integration
 
-Use `hubEnv()` in Vite to resolve public/build env, generate `#vitehub/env/public` and `#vitehub/env/server`, and keep environment declarations close to the app config. Runtime secrets are read from the host environment at request time and are wrapped in `SecretEnv` until explicitly unsealed. `runWithServerEnv(event, callback)` activates host Runtime Env for nested ViteHub runtime helpers that cannot receive the request or scheduled event directly.
+Use `hubEnv()` in Vite to resolve public/build env, generate `#vitehub/env/public` and `#vitehub/env/server`, and keep environment declarations close to the app config. Runtime secrets are read from the host environment at request time and are wrapped in `SecretEnv` until explicitly unsealed.
 
 `hubEnv()` writes generated env runtime modules to `.vitehub/env/` and generated env types to `.vitehub/types/env.d.ts`. Add `.vitehub/types/**/*.d.ts` to your `tsconfig.json` include list when TypeScript should see app-specific Public Env and Server Env fields.
 
