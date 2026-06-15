@@ -18,4 +18,4 @@ V1 trusts request-provided invoker context and profile ids; applications that ne
 
 ## Consequences
 
-DevTools can show an Agent Invoker selector only when configured profiles make that feature meaningful, select the first profile by default for new Chat Sessions, keep the fallback option available for default-caller testing, and require clearing the session before changing invoker. Quiver-style impersonation uses configured Agent Invoker Metadata such as customer or audience rather than arbitrary DevTools metadata editing.
+DevTools can show an Agent Invoker selector only when configured profiles make that feature meaningful, select the first profile by default for new Chat Sessions, keep the fallback option available for default-caller testing, and require clearing the session before changing invoker. DevTools may expose a local editable `meta` payload to simulate host-derived metadata during development. That payload is not a trust boundary; production app routes must authenticate or derive metadata before ViteHub receives it, and configured Agent Invoker Profiles remain the stable named identities.
