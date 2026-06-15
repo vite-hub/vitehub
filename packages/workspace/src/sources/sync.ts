@@ -1,5 +1,5 @@
 import { WorkspaceError } from "../core/errors.ts"
-import { normalizeSafeWorkspacePath, sha256 } from "../core/path.ts"
+import { contentStreamToBytes, normalizeSafeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, type ResolvedWorkspaceSource } from "./config.ts"
 import {
   readWorkspaceSourceSyncState,
@@ -47,7 +47,13 @@ function countPath(counts: WorkspaceSourceSyncCounts, status: WorkspaceSourceSyn
   counts[status]++
 }
 
-function contentFromItem(item: WorkspaceSourceItem) {
+async function contentFromItem(item: WorkspaceSourceItem) {
+  if (item.contentStream) {
+    if (typeof item.content !== "undefined" || typeof item.data !== "undefined") {
+      throw new WorkspaceError("[vitehub] Workspace source items cannot define contentStream with content or data.")
+    }
+    return await contentStreamToBytes(item.contentStream)
+  }
   return item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2))
 }
 
@@ -146,7 +152,7 @@ async function planSourceSync(
     if (nextPaths[path]) {
       throw new WorkspaceError(`[vitehub] Workspace Source Sync produced duplicate path: ${path}.`)
     }
-    const content = contentFromItem(item)
+    const content = await contentFromItem(item)
     const digest = await sha256(content)
     const existing = await store.readFile(path)
     const existingDigest = existing ? await sha256(existing.content) : undefined

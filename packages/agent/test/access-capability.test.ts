@@ -581,6 +581,65 @@ describe("access capability", () => {
       sources: [{ mountPath: "ingestion/acme", source: "ingestion", status: "ready" }],
     })
     expect(calls).toEqual([{ path: "ingestion/acme", sources: ["ingestion"] }])
+
+    calls.length = 0
+    await expect(resolved.workspace!.fs.materializeSources?.({
+      path: "ingestion",
+      sources: ["ingestion"],
+    })).resolves.toMatchObject({
+      path: "ingestion",
+      sources: [{ mountPath: "ingestion/acme", source: "ingestion", status: "ready" }],
+    })
+    await expect(resolved.workspace!.fs.materializeSources?.()).resolves.toMatchObject({
+      path: "",
+      sources: [{ mountPath: "ingestion/acme", source: "ingestion", status: "ready" }],
+    })
+    expect(calls).toEqual([
+      { path: "ingestion/acme", sources: ["ingestion"] },
+      { path: "ingestion/acme" },
+    ])
+
+    calls.length = 0
+    const sourceScoped = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: {
+              grants: [{ source: "acme" }],
+              scope: "acme",
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace, "read", {
+      workspaceDefinition: {
+        name: "support",
+        sources: {
+          acme: source.custom({
+            materialize: "lazy",
+            mount: "ingestion/acme",
+            async getKeys() {
+              return []
+            },
+            async getItem(key) {
+              return { key, content: "" }
+            },
+          }),
+          private: source.custom({
+            materialize: "lazy",
+            mount: "ingestion/acme/private",
+            async getKeys() {
+              return []
+            },
+            async getItem(key) {
+              return { key, content: "" }
+            },
+          }),
+        },
+      },
+    })
+    await sourceScoped.workspace!.fs.materializeSources?.()
+    expect(calls).toEqual([{ path: "ingestion/acme", sources: ["acme"] }])
   })
 
   it("omits resolved Source Instructions when the resolved source is outside access scope", async () => {

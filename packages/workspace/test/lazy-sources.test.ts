@@ -252,6 +252,35 @@ describe("lazy sources", () => {
     await expect(view.readFile("generated/sync-report-copy.json")).resolves.toBe("{\"tasks\":1}")
   })
 
+  it("materializes only requested lazy source paths", async () => {
+    const getItem = vi.fn(async (key: string) => ({ key, path: key, content: `# ${key}\n` }))
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "lazy-scoped-materialization",
+      sources: {
+        ingestion: source.custom({
+          materialize: "lazy",
+          mount: "ingestion",
+          async getKeys() {
+            return [
+              "acme/models/orders.sql",
+              "globex/models/orders.sql",
+            ]
+          },
+          getItem,
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ path: "ingestion/acme", sources: ["ingestion"] })
+
+    expect(getItem.mock.calls.map(call => call[0])).toEqual(["acme/models/orders.sql"])
+    await expect(store.readFile("ingestion/acme/models/orders.sql")).resolves.toMatchObject({
+      content: "# acme/models/orders.sql\n",
+    })
+    await expect(store.readFile("ingestion/globex/models/orders.sql")).resolves.toBeUndefined()
+  })
+
   it("streams source item content into stores that support streaming writes", async () => {
     const root = await createRoot()
     const store = createLocalWorkspaceStore(root)

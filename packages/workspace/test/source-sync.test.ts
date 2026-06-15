@@ -69,6 +69,40 @@ describe("Workspace Source Sync", () => {
     await expect(workspace.readFile("docs/guide/setup.md")).resolves.toBe("# guide/setup.md\n")
   })
 
+  it("preserves streamed source content", async () => {
+    const bytes = new Uint8Array([0, 1, 2, 3, 254, 255])
+    registerWorkspace("stream-sync", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        assets: {
+          sync: true,
+          async getKeys() {
+            return ["blob.bin"]
+          },
+          async getItem(key: string) {
+            return {
+              key,
+              contentStream: new ReadableStream({
+                start(controller) {
+                  controller.enqueue(bytes.slice(0, 3))
+                  controller.enqueue(bytes.slice(3))
+                  controller.close()
+                },
+              }),
+              mediaType: "application/octet-stream",
+            }
+          },
+        },
+      },
+    }))
+
+    const workspace = await useRegisteredWorkspace("stream-sync")
+    const result = await workspace.sync({ sources: ["assets"] })
+
+    expect(result.sources[0]?.counts.added).toBe(1)
+    await expect(workspace.readFile("assets/blob.bin", { encoding: "binary" })).resolves.toEqual(bytes)
+  })
+
   it("returns path details when requested and removes stale files only when configured", async () => {
     const items = new Map([
       ["README.md", "# Readme v1\n"],

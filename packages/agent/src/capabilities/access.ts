@@ -19,6 +19,7 @@ import type {
   WorkspaceDefinition,
   WorkspaceEntry,
   WorkspaceFacadeToolOptions,
+  WorkspaceMaterializeSourcesOptions,
   WorkspaceMaterializeSourcesResult,
   WorkspaceName,
   WorkspaceSearchHit,
@@ -170,9 +171,15 @@ export type AccessWorkspaceOptionsFor<
 interface ResolvedWorkspaceScope {
   all: boolean
   definition: AccessWorkspaceScopeDefinition
+  materializeGrants: ResolvedWorkspaceMaterializeGrant[]
   paths: string[]
   role: AccessRoleName
   scope: string
+}
+
+interface ResolvedWorkspaceMaterializeGrant {
+  path: string
+  sources?: string[]
 }
 
 interface NormalizedWorkspaceScopeSelection<TSourceName extends string = string> {
@@ -319,6 +326,7 @@ async function resolveWorkspaceScope<
   return {
     all,
     definition,
+    materializeGrants: all ? [{ path: "" }] : scopeMaterializeGrants(definition, context.workspaceDefinition),
     paths: all ? [""] : scopePaths(definition, context.workspaceDefinition),
     role,
     scope: selection.scope,
@@ -329,6 +337,7 @@ function finalizeResolvedWorkspaceScope(scope: ResolvedWorkspaceScope, workspace
   if (scope.all) return scope
   return {
     ...scope,
+    materializeGrants: scopeMaterializeGrants(scope.definition, workspaceDefinition),
     paths: scopePaths(scope.definition, workspaceDefinition),
   }
 }
@@ -401,6 +410,35 @@ function scopePaths(definition: AccessWorkspaceScopeDefinition, workspaceDefinit
     throw new Error("[vitehub] Workspace Scope must grant at least one path or source.")
   }
   return normalized.sort((left, right) => left.length - right.length || left.localeCompare(right))
+}
+
+function scopeMaterializeGrants(definition: AccessWorkspaceScopeDefinition, workspaceDefinition?: WorkspaceDefinition): ResolvedWorkspaceMaterializeGrant[] {
+  const grants: ResolvedWorkspaceMaterializeGrant[] = []
+  const add = (path: string, sources?: string[]) => {
+    grants.push({
+      path: normalizeScopePath(path),
+      ...(sources?.length ? { sources } : {}),
+    })
+  }
+  for (const path of normalizeStringList(definition.path, definition.paths)) add(path)
+  for (const source of normalizeStringList(definition.source, definition.sources)) add(sourceMountPath(source, workspaceDefinition), [source])
+  for (const grant of definition.grants || []) {
+    const paths = normalizeStringList(grant.path, grant.paths)
+    const sources = normalizeStringList(grant.source, grant.sources)
+    for (const path of paths) add(path)
+    for (const source of sources) add(sourceMountPath(source, workspaceDefinition), [source])
+  }
+  return dedupeMaterializeGrants(grants)
+}
+
+function dedupeMaterializeGrants(grants: ResolvedWorkspaceMaterializeGrant[]): ResolvedWorkspaceMaterializeGrant[] {
+  const seen = new Set<string>()
+  return grants.filter((grant) => {
+    const key = `${grant.path}\0${grant.sources?.join("\0") || ""}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 function normalizeStringList(single: string | undefined, multiple: readonly string[] | undefined): string[] {
@@ -476,6 +514,51 @@ function filterMaterializedSources(scope: ResolvedWorkspaceScope, result: Worksp
       }
 }
 
+function scopedMaterializeSourceRequests(scope: ResolvedWorkspaceScope, options: WorkspaceMaterializeSourcesOptions): WorkspaceMaterializeSourcesOptions[] {
+  if (scope.all) return [options]
+  const requested = normalizeScopePath(options.path || "")
+  const requests: WorkspaceMaterializeSourcesOptions[] = []
+  const seen = new Set<string>()
+  for (const grant of scope.materializeGrants) {
+    const path = options.path && pathContains(grant.path, requested)
+      ? requested
+      : !options.path || pathContains(requested, grant.path)
+        ? grant.path
+        : undefined
+    if (path === undefined) continue
+    const sources = scopedMaterializeSources(grant, options)
+    if (sources === false) continue
+    const key = `${path}\0${sources?.join("\0") || ""}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    requests.push({
+      ...options,
+      path,
+      ...(sources ? { sources } : {}),
+    })
+  }
+  return requests
+}
+
+function scopedMaterializeSources(grant: ResolvedWorkspaceMaterializeGrant, options: WorkspaceMaterializeSourcesOptions): string[] | false | undefined {
+  if (!grant.sources?.length) return options.sources
+  if (!options.sources?.length) return grant.sources
+  const allowed = new Set(grant.sources)
+  const sources = options.sources.filter(source => allowed.has(source))
+  return sources.length ? sources : false
+}
+
+function mergeMaterializedSources(path: string, results: WorkspaceMaterializeSourcesResult[]): WorkspaceMaterializeSourcesResult {
+  return {
+    bytes: results.reduce((total, result) => total + result.bytes, 0),
+    directories: results.reduce((total, result) => total + result.directories, 0),
+    durationMs: results.reduce((total, result) => total + result.durationMs, 0),
+    files: results.reduce((total, result) => total + result.files, 0),
+    path,
+    sources: results.flatMap(result => result.sources),
+  }
+}
+
 function emptyMaterializedSources(path = ""): WorkspaceMaterializeSourcesResult {
   return {
     bytes: 0,
@@ -543,9 +626,14 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
     async materializeSources(options = {}) {
       const normalized = normalizeScopePath(options.path || "")
       if (options.path && !isVisiblePath(scope, normalized)) throw notFound(normalized)
-      const result = await workspace.fs.materializeSources?.(options)
-        ?? emptyMaterializedSources(options.path)
-      return filterMaterializedSources(scope, result)
+      const requests = scopedMaterializeSourceRequests(scope, options)
+      const results = await Promise.all(requests.map(async (request) => {
+        const result = workspace.fs.materializeSources
+          ? await workspace.fs.materializeSources(request)
+          : emptyMaterializedSources(request.path)
+        return filterMaterializedSources(scope, result)
+      }))
+      return mergeMaterializedSources(options.path || "", results)
     },
   }
 
