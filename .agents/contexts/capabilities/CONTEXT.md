@@ -216,6 +216,8 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A custom-run-backed **Agent Driver** receives prepared invocation context and Capability runtime effects; custom `run` code decides which Capability outputs to consume.
 - An **Entry Capability** is the official small helper for app-owned product events when a full product-specific Capability has not earned a name yet.
 - An **Entry Capability** may expose a trusted Chat App Route origin without adding app-route fields to Chat Capability options.
+- The **Access Capability** may contribute **Workspace Scope Instructions** from a static Workspace Scope or Workspace Scope Resolver result.
+- **Workspace Scope Instructions** are developer-authored Capability Driver Contributions; they do not grant access or make the Selected Workspace Scope model-facing by default.
 - A **Prompt Template** belongs to the Capability that renders it and should expose only the **Prompt Template Variables** that are stable for that Capability.
 - An **MCP Prompt Template** is Capability behavior, not Workspace content by default.
 - An **MCP Prompt Template** can be exposed as an **Input Command** when the host should let users invoke a named prompt before the Agent runs.

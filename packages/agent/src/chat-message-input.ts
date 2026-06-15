@@ -21,6 +21,7 @@ export type UIMessageLike = {
 export interface AgentChatMessageTriggerInput {
   history?: AgentChatOptions["history"]
   invokerProfileId?: string
+  meta?: Record<string, unknown>
   messages: UIMessageLike[]
   run?: AgentRunMetadata
   session?: {
@@ -50,7 +51,7 @@ function firstString(...values: unknown[]): string | undefined {
 }
 
 function chatIdentity(user: Record<string, unknown> | undefined, run: AgentRunMetadata | undefined): string | undefined {
-  const identity = firstString(user?.id, user?.sub, user?.email, user?.username)
+  const identity = firstString(user?.id, user?.sub, user?.email, user?.username)?.trim()
   if (!identity) return
   return run?.origin ? `${run.origin}:${identity}` : identity
 }
@@ -266,12 +267,20 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   }
   const selectedMessages = selectChatHistory(messages, triggerInput?.history ?? options.history, options.sessions, triggerInput?.session)
   const hookArgs = createChatTriggerHookArgs<TRuntimeConfig>(selectedMessages, triggerInput?.run, triggerInput?.session)
+  const userMeta: Record<string, unknown> = {}
+  for (const key of ["id", "sub", "email", "username", "name", "customer"]) {
+    const value = firstString(triggerInput?.user?.[key])?.trim()
+    if (value) userMeta[key] = value
+  }
+  const meta = Object.keys(userMeta).length || triggerInput?.meta
+    ? { ...userMeta, ...triggerInput?.meta }
+    : undefined
   const identity = chatIdentity(triggerInput?.user, triggerInput?.run)
   const invoker = identity
     ? {
         id: identity,
-        kind: "chat" as const,
-        ...(triggerInput?.user ? { meta: { user: triggerInput.user } } : {}),
+        kind: triggerInput?.run?.origin === "devtools" ? "devtools" as const : "chat" as const,
+        ...(meta ? { meta } : {}),
       }
     : undefined
   return {
@@ -285,6 +294,7 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
           message: hookArgs.message,
           run: triggerInput?.run,
           session: triggerInput?.session,
+          meta: triggerInput?.meta,
           user: triggerInput?.user,
         },
       },

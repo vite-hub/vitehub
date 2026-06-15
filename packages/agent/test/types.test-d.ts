@@ -366,28 +366,32 @@ describe("agent public types", () => {
     type ChatContext = AgentChatRunContext<
       { quiver?: { customer?: string } },
       { email?: string },
-      "portal" | "teams"
+      "portal" | "teams",
+      { customer?: string, email?: string }
     >
     const workspaceAccess: AccessWorkspaceOptionsFor<typeof workspace, ChatContext> = {
       defaultScope: "customer",
       resolve({ input }) {
         const chat = input.get().context?.chat
         expectTypeOf(chat?.message?.metadata?.quiver?.customer).toEqualTypeOf<string | undefined>()
+        expectTypeOf(chat?.meta?.customer).toEqualTypeOf<string | undefined>()
+        expectTypeOf(chat?.meta?.email).toEqualTypeOf<string | undefined>()
         expectTypeOf(chat?.run?.origin).toEqualTypeOf<"portal" | "teams" | undefined>()
         expectTypeOf(chat?.user?.email).toEqualTypeOf<string | undefined>()
         return chat?.user?.email?.endsWith("@quiver.dk")
-          ? { role: "admin", scope: "quiver" }
+          ? { instructions: "Use the internal support tone.", role: "admin", scope: "quiver" }
           : "customer"
       },
       scopes: {
         customer: {
+          instructions: ["Use the customer support tone."],
           grants: [
             { path: "AGENTS.md" },
             { source: "forecastingEngine" },
             { sources: ["docs"] },
           ],
         },
-        quiver: { all: true },
+        quiver: { all: true, instructions: "Use the internal support tone." },
       },
     }
     access({ workspace: workspaceAccess })

@@ -25,7 +25,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, secr
         return Response.json({ ignored: true, ok: true })
       }
       const chat = rawMessage.chat as { id?: number | string } | undefined
-      const from = rawMessage.from as { id?: number | string, username?: string } | undefined
+      const from = rawMessage.from as { email?: string, id?: number | string, mail?: string, userPrincipalName?: string, username?: string } | undefined
       const date = typeof rawMessage.date === "number"
         ? new Date(rawMessage.date * 1000)
         : new Date("2026-06-10T12:00:00.000Z")
@@ -42,6 +42,9 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, secr
           : [],
         author: {
           fullName: "Maxi",
+          ...(from?.email ? { email: from.email } : {}),
+          ...(from?.mail ? { mail: from.mail } : {}),
+          ...(from?.userPrincipalName ? { userPrincipalName: from.userPrincipalName } : {}),
           isBot: false,
           isMe: false,
           userId: String(from?.id ?? "123"),
@@ -356,6 +359,7 @@ describe("server helpers", () => {
         id: "portal-chat-1",
         invokerProfileId: "customer:demo:support",
         messageId: "user-2",
+        meta: { customer: "demo", email: "user@example.com" },
         messages: [
           {
             id: "user-1",
@@ -392,6 +396,7 @@ describe("server helpers", () => {
       input: expect.objectContaining({
         context: expect.objectContaining({
           chat: expect.objectContaining({
+            meta: { customer: "demo", email: "user@example.com" },
             message: expect.objectContaining({
               id: "user-2",
               metadata: { quiver: { customer: "demo" } },
@@ -488,7 +493,7 @@ describe("server helpers", () => {
         message: {
           chat: { id: 456, type: "private" },
           date: 1781092800,
-          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          from: { email: "maxi@example.com", first_name: "Maxi", id: 123, username: "maxi" },
           message_id: 7,
           audio: { file_id: "audio-file" },
           text: "hello",
@@ -506,6 +511,9 @@ describe("server helpers", () => {
     expect(admitChat).toHaveBeenCalledWith(expect.objectContaining({
       identity: expect.objectContaining({
         id: "123",
+        metadata: expect.objectContaining({
+          email: "maxi@example.com",
+        }),
         provider: "telegram",
         username: "maxi",
       }),
@@ -520,6 +528,12 @@ describe("server helpers", () => {
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       context: expect.objectContaining({
         get: expect.any(Function),
+      }),
+      invoker: expect.objectContaining({
+        id: "telegram:123",
+        meta: expect.objectContaining({
+          email: "maxi@example.com",
+        }),
       }),
       messages: [expect.objectContaining({
         metadata: expect.objectContaining({

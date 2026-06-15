@@ -92,6 +92,7 @@ function chatAppRouteTriggerInput(body: AgentChatRouteBody): AgentChatMessageTri
   return {
     ...(body.history !== undefined ? { history: body.history } : {}),
     ...(body.invokerProfileId !== undefined ? { invokerProfileId: body.invokerProfileId } : {}),
+    ...(body.meta !== undefined ? { meta: body.meta } : {}),
     messages: body.messages,
     ...(run ? { run } : {}),
     ...(body.session !== undefined ? { session: body.session } : {}),
@@ -626,9 +627,11 @@ function isoDate(value: unknown): string | undefined {
 }
 
 function accessChatIdentity(provider: string, message: ChatSdkMessage): AccessChatIdentity {
+  const email = chatMessageAuthorEmail(message)
   return objectWithoutUndefined({
     id: message.author.userId,
     metadata: objectWithoutUndefined({
+      email,
       isBot: message.author.isBot,
       isMe: message.author.isMe,
       userKey: message.userKey,
@@ -637,6 +640,14 @@ function accessChatIdentity(provider: string, message: ChatSdkMessage): AccessCh
     provider,
     username: message.author.userName,
   })
+}
+
+function chatMessageAuthorEmail(message: ChatSdkMessage): string | undefined {
+  return firstString(
+    (message.author as { email?: unknown }).email,
+    (message.author as { mail?: unknown }).mail,
+    (message.author as { userPrincipalName?: unknown }).userPrincipalName,
+  )
 }
 
 function audioData(value: unknown): AudioData | undefined {
@@ -718,7 +729,9 @@ function createChatTriggerInput(
     name: message.author.fullName,
     username: message.author.userName,
   })
+  const email = chatMessageAuthorEmail(message)
   return {
+    ...(email ? { meta: { email } } : {}),
     messages: [{
       createdAt: isoDate(message.metadata.dateSent),
       id: message.id,

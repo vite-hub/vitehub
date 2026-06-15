@@ -72,9 +72,11 @@ export interface AgentChatRunContext<
   TMessageMetadata extends object = Record<string, unknown>,
   TUser extends object = Record<string, unknown>,
   TOrigin extends string = string,
+  TMeta extends object = Record<string, unknown>,
 > {
   chat?: {
     message?: Omit<AgentChatAgentHookArgs["message"], "metadata"> & { metadata?: TMessageMetadata }
+    meta?: TMeta
     run?: AgentRunMetadata<TOrigin>
     session?: AgentChatMessageTriggerInput["session"]
     user?: TUser

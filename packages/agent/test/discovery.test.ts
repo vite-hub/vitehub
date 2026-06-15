@@ -258,13 +258,8 @@ describe("agent chat capability discovery", () => {
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
 
     const { access, chat } = await import("../src/capabilities.ts")
-    const { defineAgent, defineCapability, withWorkspaceAgentDefaults } = await import("../src/index.ts")
-    const supportAudience = defineCapability({
-      id: "support-audience",
-      prepare(context) {
-        context.instructions.add(`Audience resolved for ${context.invoker.meta?.audience}.`)
-      },
-    })
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const technicalEmails = new Set(["maximo@quiver.dk"])
     const agent = withWorkspaceAgentDefaults(defineAgent({
       invoker: {
         profiles: [
@@ -276,22 +271,25 @@ describe("agent chat capability discovery", () => {
         access({
           workspace: {
             resolve({ invoker }) {
-              return invoker.meta?.scope === "support"
+              const email = typeof invoker.meta?.email === "string" ? invoker.meta.email.toLowerCase() : undefined
+              return invoker.meta?.scope === "support" || (email && technicalEmails.has(email))
                 ? { role: "admin", scope: "support" }
                 : { role: "viewer", scope: "customer" }
             },
             scopes: {
-              customer: { paths: ["customers/acme"] },
-              support: { all: true },
+              customer: { instructions: "Audience resolved for customer.", paths: ["customers/acme"] },
+              support: { all: true, instructions: "Audience resolved for technical." },
             },
           },
         }),
-        supportAudience,
         chat(),
       ],
-      instructions: "# Support\n\n{{ capabilities.support-audience }}",
+      instructions: "# Support\n\n{{ capabilities.access.workspace }}",
       workspace: {},
-      run: (context: { invoker: { kind?: string }, workspace?: unknown }) => `answered as ${context.invoker.kind} with ${context.workspace ? "workspace" : "no workspace"}`,
+      run: (context: { invoker: { kind?: string, meta?: Record<string, unknown> }, workspace?: unknown }) => {
+        const email = typeof context.invoker.meta?.email === "string" ? `:${context.invoker.meta.email}` : ""
+        return `answered as ${context.invoker.kind}${email} with ${context.workspace ? "workspace" : "no workspace"}`
+      },
     }), { workspace: "support" })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent()
@@ -363,7 +361,7 @@ describe("agent chat capability discovery", () => {
       invokerFallback: true,
     })
     expect(resolvedFallbackState).toMatchObject({
-      instructions: ["# Support\n\nAudience resolved for undefined."],
+      instructions: ["# Support\n\nAudience resolved for technical."],
       invokerFallback: true,
       metadataStatus: "ready",
       selected: "support",
@@ -386,7 +384,7 @@ describe("agent chat capability discovery", () => {
     expect(fallbackEvents.at(-1)).toEqual({ type: "done" })
     expect(fallbackFinalState.invokerFallback).toBe(true)
     expect(fallbackFinalState.invokerProfileId).toBeUndefined()
-    expect(textFromUiMessage(fallbackFinalState.uiMessages[1])).toBe("answered as devtools with workspace")
+    expect(textFromUiMessage(fallbackFinalState.uiMessages[1])).toBe("answered as devtools:maximo@quiver.dk with workspace")
   })
 
   it("serves initial chat devtools state while workspace metadata resolves", async () => {

@@ -48,6 +48,25 @@ export default defineAgent({
 
 The Chat Capability can own webhook autowiring, Agent Invoker identity, and Chat History behavior. The Agent still owns the model-backed invocation.
 
+Trusted chat surfaces can pass app-owned metadata through the trigger input `meta` field. ViteHub preserves that payload as `chat.meta` and includes it in the default chat invoker metadata when the trigger derives identity from chat user data, so Access, Rate Limit, and instruction callbacks can share fields such as `email` or `customer` without a custom context helper.
+
+Generated Chat App Route request bodies are client-controlled unless the host authenticates them first. When email affects access or rate limits, populate `user` and `meta` from server-owned auth state, not from untrusted browser input.
+
+```ts
+await fetch('/agents/support', {
+  method: 'POST',
+  body: JSON.stringify({
+    messages,
+    user: { email: authenticatedUser.email },
+    meta: {
+      customer: authenticatedUser.customer,
+      email: authenticatedUser.email,
+    },
+    run: { origin: 'portal' },
+  }),
+})
+```
+
 ## Schedule trigger
 
 Schedule can start an Agent Invocation, but Schedule is not itself an Agent Capability.

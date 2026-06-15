@@ -127,6 +127,10 @@ _Avoid_: Default admin view, merged workspace, unrestricted context
 A declared visibility grant inside a Workspace Scope, expressed through Source keys, Workspace path prefixes, or both.
 _Avoid_: Prompt filter, role, Workspace Rule
 
+**Workspace Scope Instructions**:
+Developer-authored model-facing guidance attached to a selected Workspace Scope, describing how the agent should talk about or handle that explicit scope.
+_Avoid_: Generated scope prompt, Access Role, Source Instructions
+
 **Workspace Scope Resolver**:
 Explicit trusted runtime logic that selects the Workspace Scope for one Agent Invocation from host, auth, or invocation context.
 _Avoid_: Model route, prompt classifier, Workspace Definition
@@ -263,6 +267,10 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - A **Workspace Scope** is enforced by Workspace reads, lists, searches, shell-shaped commands, and Workspace Tools; the model sees only the scoped Workspace File Tree.
 - A **Workspace Scope** contains **Workspace Scope Grants**.
 - A **Workspace Scope Grant** can target a Source key, a Workspace path prefix, or a path prefix within a Source.
+- A **Workspace Scope** may have **Workspace Scope Instructions**.
+- **Workspace Scope Instructions** are explicit developer-authored guidance; ViteHub does not infer them from grants, role, invoker metadata, or Source metadata.
+- **Workspace Scope Instructions** may be declared on a static Workspace Scope or returned by a Workspace Scope Resolver for the selected invocation.
+- **Workspace Scope Instructions** do not grant access, broaden visibility, or replace Workspace Scope enforcement.
 - A Source-key **Workspace Scope Grant** fails closed for unknown Sources and root-mounted Sources; root-mounted Sources require explicit path grants.
 - A **Workspace Scope Resolver** selects the Workspace Scope before Workspace Tools or model-facing Workspace-backed instructions are exposed.
 - A **Workspace Scope Resolver** can read trusted host, auth, and invocation context, but it does not use model output as authority.
@@ -324,6 +332,7 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - `workspaceScope()` was considered as the Capability helper name - resolved: keep **Workspace Scope** as Workspace language and use `access()` for the broader Capability.
 - Ambient `workspaceScope` invocation context was considered as authority - resolved: require an explicit **Workspace Scope Resolver** or **Default Workspace Scope**.
 - Static pre-registration for every customer scope was considered necessary - resolved: use inline Workspace Scope definitions from the **Workspace Scope Resolver** when grants are derived from trusted invocation context.
+- Automatically rendering Workspace Scope into prompt text was considered - resolved: expose only explicit **Workspace Scope Instructions** so scope metadata is not model-facing by default.
 - Source materialization under scoped access was considered for the first version - resolved: disable generic materialization for scoped V1 to avoid source metadata leakage, with **Harness Workspace Session** as the narrow harness-backed Agent Driver exception.
 - Source-level narrowing was considered as direct invoker access - resolved: use **Invocation-Scoped Source Resolution** from trusted invocation context and the **Selected Workspace Scope**, not raw model-facing metadata or duplicate authorization logic inside a Source.
 - Build-time Workspace assets were considered a second user-facing read surface - resolved: users read one **Workspace File Tree** while asset provenance remains internal by default.

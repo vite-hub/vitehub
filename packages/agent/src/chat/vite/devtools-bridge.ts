@@ -43,6 +43,7 @@ import type {
 
 type ReadUIMessageStream = typeof import("ai").readUIMessageStream
 type ChatDevtoolsAction = "clear" | "get-state" | "materialize-source" | "send"
+const chatDevtoolsDefaultEmail = "maximo@quiver.dk"
 type ChatDevtoolsBridgeBody = {
   action?: string
   chat?: string
@@ -198,10 +199,18 @@ function createRuntimeContext(server: ViteDevServer, req: IncomingMessage, run: 
 function createDevtoolsMetadataInput(selection: ChatDevtoolsInvokerSelection = {}): AgentRunInput {
   return {
     context: {
+      invoker: {
+        id: `devtools:${chatDevtoolsDefaultEmail}`,
+        kind: "devtools",
+        label: "DevTools User",
+        meta: { email: chatDevtoolsDefaultEmail },
+      },
       ...(!selection.invokerFallback && selection.invokerProfileId ? { invokerProfileId: selection.invokerProfileId } : {}),
       chat: {
         message: { metadata: {} },
+        meta: { email: chatDevtoolsDefaultEmail },
         run: { origin: "devtools" },
+        user: { email: chatDevtoolsDefaultEmail },
       },
     },
     messages: [],
@@ -608,9 +617,11 @@ async function sendDevtoolsUIMessage(
   const runtimeContext = createRuntimeContext(server, req, run)
   const triggerInput: AgentChatMessageTriggerInput = {
     ...(session.invokerProfileId ? { invokerProfileId: session.invokerProfileId } : {}),
+    meta: { email: chatDevtoolsDefaultEmail },
     messages: baseMessages,
     run,
     timeout: 90_000,
+    user: { email: chatDevtoolsDefaultEmail },
   }
   const stream = readableStreamFromResult(await streamAgentTrigger(selectedEntry.agent as never, runtimeContext as never, "chat.message", triggerInput, {
     output: "ui-message-stream",
