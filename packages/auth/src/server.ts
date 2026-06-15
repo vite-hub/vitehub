@@ -15,6 +15,23 @@ function hasRuntimeOptions(options: AuthRuntimeOptions | undefined): boolean {
   return Boolean(options && Object.keys(options).length > 0)
 }
 
+function hasTrustedOrigins(options: object): boolean {
+  return "trustedOrigins" in options
+}
+
+export function createAuthRequestRuntimeOptions(
+  definition: AuthDefinition,
+  request: Request,
+  runtimeOptions: AuthRuntimeOptions = {},
+): AuthRuntimeOptions {
+  const baseURL = runtimeOptions.baseURL || new URL(request.url).origin
+  return {
+    baseURL,
+    ...(!hasTrustedOrigins(definition.options) && !hasTrustedOrigins(runtimeOptions) ? { trustedOrigins: [baseURL] } : {}),
+    ...runtimeOptions,
+  } as AuthRuntimeOptions
+}
+
 const authRuntimeStateKey = Symbol.for("vitehub.auth.runtime")
 
 interface AuthRuntimeState {
@@ -60,6 +77,14 @@ export function createAuth<const TOptions extends AuthDefinitionOptions>(
   runtimeOptions?: AuthRuntimeOptions,
 ): ViteHubAuth<AuthBetterAuthRuntimeOptions<TOptions>> {
   return betterAuth(createBetterAuthOptions(definition, runtimeOptions)) as ViteHubAuth<AuthBetterAuthRuntimeOptions<TOptions>>
+}
+
+export function createAuthForRequest<const TOptions extends AuthDefinitionOptions>(
+  definition: AuthDefinition<TOptions>,
+  request: Request,
+  runtimeOptions?: AuthRuntimeOptions,
+): ViteHubAuth<AuthBetterAuthRuntimeOptions<TOptions>> {
+  return createAuth(definition, createAuthRequestRuntimeOptions(definition, request, runtimeOptions))
 }
 
 export function createAuthHandler<const TOptions extends AuthDefinitionOptions>(

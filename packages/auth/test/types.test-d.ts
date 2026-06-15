@@ -15,7 +15,7 @@ import {
   type AuthReservedOption,
   type ResolvedAuthDatabaseConfiguration,
 } from "../src/index.ts"
-import { auth } from "../src/server.ts"
+import { auth, createAuthForRequest } from "../src/server.ts"
 import { hubAuth } from "../src/vite.ts"
 
 import type { AgentInvokerOptions, AgentRuntimeConfig } from "@vite-hub/agent"
@@ -44,6 +44,17 @@ describe("types", () => {
   it("exposes the server auth handler shape", () => {
     expectTypeOf(auth.handler).parameters.toEqualTypeOf<[Request]>()
     expectTypeOf(auth.handler).returns.toEqualTypeOf<Promise<Response>>()
+
+    const runtimeAuth = createAuthForRequest(defineAuth({ appName: "ViteHub" }), new Request("https://app.example.com/api/auth"), {
+      socialProviders: {
+        github: {
+          clientId: "client-id",
+          clientSecret: "client-secret",
+        },
+      },
+      trustedOrigins: ["https://app.example.com"],
+    })
+    expectTypeOf(runtimeAuth.handler).parameters.toEqualTypeOf<[Request]>()
   })
 
   it("exposes the authenticated Agent Invoker helper", () => {

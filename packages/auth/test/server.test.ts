@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest"
 
 import { defineAuth } from "../src/index.ts"
-import { createBetterAuthOptions, getAuth, getAuthForDefinition, resetAuth } from "../src/server.ts"
+import { createAuthRequestRuntimeOptions, createBetterAuthOptions, getAuth, getAuthForDefinition, resetAuth } from "../src/server.ts"
 
 describe("server auth helpers", () => {
   afterEach(() => {
@@ -34,6 +34,29 @@ describe("server auth helpers", () => {
       secondaryStorage: runtimeSecondaryStorage,
     })
     expect(options).not.toHaveProperty("route")
+  })
+
+  it("derives request runtime origin defaults", () => {
+    const definition = defineAuth({ appName: "ViteHub" })
+    const request = new Request("https://app.example.com/api/auth/session")
+
+    expect(createAuthRequestRuntimeOptions(definition, request)).toMatchObject({
+      baseURL: "https://app.example.com",
+      trustedOrigins: ["https://app.example.com"],
+    })
+
+    expect(createAuthRequestRuntimeOptions(definition, request, {
+      baseURL: "https://auth.example.com",
+      trustedOrigins: ["https://app.example.com"],
+    })).toMatchObject({
+      baseURL: "https://auth.example.com",
+      trustedOrigins: ["https://app.example.com"],
+    })
+
+    expect(createAuthRequestRuntimeOptions(defineAuth({
+      appName: "ViteHub",
+      trustedOrigins: ["https://trusted.example.com"],
+    }), request)).not.toHaveProperty("trustedOrigins")
   })
 
   it("shares the cached Auth instance used by route exposure and session resolution", async () => {

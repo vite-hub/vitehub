@@ -44,6 +44,19 @@ import { auth } from "@vite-hub/auth/server"
 export default auth.handler
 ```
 
+For host routes that need runtime secrets or request-derived origins, create the request-scoped Auth instance at the mount point.
+
+```ts
+import { createAuthForRequest } from "@vite-hub/auth/server"
+import authDefinition from "../../auth"
+
+export default async function handleAuth(request: Request) {
+  return createAuthForRequest(authDefinition, request, {
+    secret: process.env.BETTER_AUTH_SECRET,
+  }).handler(request)
+}
+```
+
 ## Vite Integration
 
 Use `server/auth.ts` for the canonical Auth Definition, or `server.auth.ts` when a flat server file fits the project better. Vite discovers one Auth Definition, exposes it through an internal virtual module, and owns `/api/auth/**` in development by default.

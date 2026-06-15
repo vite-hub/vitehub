@@ -58,7 +58,7 @@ export interface ResolvedAuthViteConfig {
   secondaryStorage: false | ResolvedAuthSecondaryStorageConfiguration
 }
 
-export type AuthRuntimeOptions = Pick<BetterAuthOptions, AuthRuntimeOption | "database" | "secondaryStorage">
+export type AuthRuntimeOptions = Partial<Omit<BetterAuthOptions, "basePath">>
 export type AuthBetterAuthRuntimeOptions<TOptions extends AuthDefinitionOptions = AuthDefinitionOptions> =
   Omit<TOptions, AuthRuntimeOption | "database" | "route" | "secondaryStorage"> & AuthRuntimeOptions & BetterAuthOptions
 export type ViteHubAuth<Options extends BetterAuthOptions = BetterAuthOptions> = Auth<Options>
