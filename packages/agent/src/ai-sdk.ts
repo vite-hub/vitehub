@@ -87,43 +87,105 @@ function toTextModelMessageContent(parts: MessagePart[]): string {
   }).filter(Boolean).join("\n")
 }
 
+type AssistantContentPart = Exclude<AssistantContent, string>[number]
+type ToolContentPart = ToolContent[number]
+
 function toToolResultOutput(part: Extract<MessagePart, { type: "tool-result" }>): ToolResultPart["output"] {
-  return (part.error ? { error: part.error } : part.output ?? null) as ToolResultPart["output"]
+  if (part.error) {
+    return { type: "error-text", value: part.error } as ToolResultPart["output"]
+  }
+  const output = part.output ?? null
+  if (typeof output === "string") {
+    return { type: "text", value: output } as ToolResultPart["output"]
+  }
+  return { type: "json", value: output } as ToolResultPart["output"]
 }
 
-function toAssistantModelMessageContent(parts: MessagePart[]): AssistantContent {
-  const content: Exclude<AssistantContent, string> = []
+function toToolResultModelPart(part: Extract<MessagePart, { type: "tool-result" }>): ToolResultPart {
+  return {
+    output: toToolResultOutput(part),
+    toolCallId: part.id,
+    toolName: part.name,
+    type: "tool-result",
+  }
+}
+
+function toApprovalResponseModelPart(part: Extract<MessagePart, { type: "approval-decision" }>): ToolContentPart {
+  return {
+    approvalId: part.id,
+    approved: part.approved,
+    reason: part.reason,
+    type: "tool-approval-response",
+  }
+}
+
+function toAssistantModelMessagePart(part: MessagePart): AssistantContentPart | undefined {
+  if (part.type === "text") {
+    return { text: part.text, type: "text" as const }
+  }
+  if (part.type === "tool-call") {
+    return {
+      input: part.input ?? {},
+      toolCallId: part.id,
+      toolName: part.name,
+      type: "tool-call" as const,
+    }
+  }
+  if (part.type === "approval-request") {
+    return {
+      approvalId: part.id,
+      toolCallId: part.id,
+      type: "tool-approval-request" as const,
+    }
+  }
+}
+
+function pushAssistantModelMessage(messages: ModelMessage[], content: AssistantContentPart[]): void {
+  if (content.length) {
+    messages.push({ content, role: "assistant" })
+  }
+}
+
+function pushToolModelMessage(messages: ModelMessage[], content: ToolContent): void {
+  if (content.length) {
+    messages.push({ content, role: "tool" })
+  }
+}
+
+function toAssistantModelMessages(parts: MessagePart[]): ModelMessage[] {
+  const messages: ModelMessage[] = []
+  let assistantContent: AssistantContentPart[] = []
+  let toolContent: ToolContent = []
 
   for (const part of parts) {
-    if (part.type === "text") {
-      content.push({ text: part.text, type: "text" as const })
-    }
-    if (part.type === "tool-call") {
-      content.push({
-        input: part.input,
-        toolCallId: part.id,
-        toolName: part.name,
-        type: "tool-call" as const,
-      })
-    }
     if (part.type === "tool-result") {
-      content.push({
-        output: toToolResultOutput(part),
-        toolCallId: part.id,
-        toolName: part.name,
-        type: "tool-result" as const,
-      })
+      pushAssistantModelMessage(messages, assistantContent)
+      assistantContent = []
+      toolContent.push(toToolResultModelPart(part))
+      continue
     }
-    if (part.type === "approval-request") {
-      content.push({
-        approvalId: part.id,
-        toolCallId: part.id,
-        type: "tool-approval-request" as const,
-      })
+    if (part.type === "approval-decision") {
+      pushAssistantModelMessage(messages, assistantContent)
+      assistantContent = []
+      toolContent.push(toApprovalResponseModelPart(part))
+      continue
+    }
+    const assistantPart = toAssistantModelMessagePart(part)
+    if (assistantPart) {
+      pushToolModelMessage(messages, toolContent)
+      toolContent = []
+      assistantContent.push(assistantPart)
     }
   }
 
-  return content.length ? content : toTextModelMessageContent(parts)
+  pushAssistantModelMessage(messages, assistantContent)
+  pushToolModelMessage(messages, toolContent)
+  if (messages.length) return messages
+
+  const content = toTextModelMessageContent(parts)
+  return hasModelMessageContent(content)
+    ? [{ content, role: "assistant" }]
+    : []
 }
 
 function toToolModelMessageContent(parts: MessagePart[]): ToolContent {
@@ -131,20 +193,10 @@ function toToolModelMessageContent(parts: MessagePart[]): ToolContent {
 
   for (const part of parts) {
     if (part.type === "tool-result") {
-      content.push({
-        output: toToolResultOutput(part),
-        toolCallId: part.id,
-        toolName: part.name,
-        type: "tool-result" as const,
-      })
+      content.push(toToolResultModelPart(part))
     }
     if (part.type === "approval-decision") {
-      content.push({
-        approvalId: part.id,
-        approved: part.approved,
-        reason: part.reason,
-        type: "tool-approval-response" as const,
-      })
+      content.push(toApprovalResponseModelPart(part))
     }
   }
 
@@ -153,25 +205,21 @@ function toToolModelMessageContent(parts: MessagePart[]): ToolContent {
 
 export function toAiSdkModelMessages(messages: Message[]): ModelMessage[] {
   return messages
-    .map((message): ModelMessage | undefined => {
+    .flatMap((message): ModelMessage[] => {
       if (message.role === "assistant") {
-        const content = toAssistantModelMessageContent(message.parts)
-        return hasModelMessageContent(content)
-          ? { content, role: message.role } as ModelMessage
-          : undefined
+        return toAssistantModelMessages(message.parts)
       }
       if (message.role === "tool") {
         const content = toToolModelMessageContent(message.parts)
         return hasModelMessageContent(content)
-          ? { content, role: message.role } as ModelMessage
-          : undefined
+          ? [{ content, role: message.role } as ModelMessage]
+          : []
       }
       const content = getMessageText(message) || toTextModelMessageContent(message.parts)
       return hasModelMessageContent(content)
-        ? { content, role: message.role } as ModelMessage
-        : undefined
+        ? [{ content, role: message.role } as ModelMessage]
+        : []
     })
-    .filter((message): message is ModelMessage => Boolean(message))
 }
 
 function hasModelMessageContent(content: unknown): boolean {

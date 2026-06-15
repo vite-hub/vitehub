@@ -111,6 +111,20 @@ function sourcePathMatches(path: string, source: ResolvedWorkspaceSource, option
   return sourceMountIntersectsPath(source, requested)
 }
 
+function pathContains(container: string, path: string): boolean {
+  return !container || path === container || path.startsWith(`${container}/`)
+}
+
+function materializationPathMatches(path: string, options: WorkspaceMaterializeSourcesOptions | undefined) {
+  const requested = normalizeWorkspacePath(options?.path || "")
+  return pathContains(requested, path)
+}
+
+function materializesCompleteSource(source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
+  const requested = normalizeWorkspacePath(options?.path || "")
+  return !requested || Boolean(source.mountPath && pathContains(requested, source.mountPath))
+}
+
 function parentDirectoryPaths(path: string) {
   const parts = normalizeWorkspacePath(path).split("/").filter(Boolean)
   const paths: string[] = []
@@ -122,12 +136,14 @@ async function removeStaleMaterializedSourceFiles(
   store: WorkspaceStore,
   source: ResolvedWorkspaceSource,
   nextPaths: Set<string>,
+  scope: WorkspaceMaterializeSourcesOptions | undefined,
   options: { removeUntracked?: boolean } = {},
 ) {
   const entries = await store.list(source.mountPath, { recursive: true })
   const nextDirectories = new Set([...nextPaths].flatMap(path => parentDirectoryPaths(path)))
   const staleDirectories = new Set<string>()
   for (const entry of entries) {
+    if (!materializationPathMatches(entry.path, scope)) continue
     if (nextPaths.has(entry.path) || entry.type !== "file") continue
     const file = await store.readFile(entry.path)
     if (options.removeUntracked || file?.metadata?.source === source.key) {
@@ -197,10 +213,12 @@ async function* iterateMaterializationEntries(
   store: WorkspaceStore,
   snapshot: SourceSnapshotMetadata | undefined,
   configHash: string,
+  options: WorkspaceMaterializeSourcesOptions | undefined,
 ): AsyncGenerator<MaterializationEntry> {
   if (source.source.getItems) {
     for await (const item of iterateSourceItems(source, ctx)) {
-      yield createMaterializationEntry(source, item, await source.source.getMeta?.(item.key, ctx))
+      const entry = createMaterializationEntry(source, item, await source.source.getMeta?.(item.key, ctx))
+      if (materializationPathMatches(entry.path, options)) yield entry
     }
     return
   }
@@ -208,6 +226,7 @@ async function* iterateMaterializationEntries(
   for (const key of await source.source.getKeys(ctx)) {
     const upstreamMeta = await source.source.getMeta?.(key, ctx)
     const path = normalizeWorkspacePath(`${source.mountPath}/${key}`)
+    if (!materializationPathMatches(path, options)) continue
     const previous = materializedItemMeta(snapshot, configHash, path)
     if (upstreamMeta && previous?.source === source.key && previous.sourcePath === key && !hasSourceMetaChanged(previous, upstreamMeta)) {
       const stat = await store.stat(path)
@@ -240,7 +259,8 @@ export async function materializeWorkspaceSources(
   for (const source of sources) {
     const configHash = await sourceConfigHash(source)
     const existing = await readSourceSnapshotMetadata(store, source.key)
-    if (isSnapshotFresh(existing, source, configHash)) {
+    const completeSource = materializesCompleteSource(source, options)
+    if (completeSource && isSnapshotFresh(existing, source, configHash)) {
       resultSources.push({
         source: source.key,
         mountPath: source.mountPath,
@@ -258,14 +278,16 @@ export async function materializeWorkspaceSources(
     const itemMetadata: Record<string, LazyMaterializedMetadata> = existing?.configHash === configHash
       ? { ...existing.items }
       : {}
-    await writeSourceSnapshotMetadata(store, {
-      configHash,
-      source: source.key,
-      mountPath: source.mountPath,
-      status: "updating",
-      items: checkpointItems(itemMetadata),
-      cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
-    })
+    if (completeSource) {
+      await writeSourceSnapshotMetadata(store, {
+        configHash,
+        source: source.key,
+        mountPath: source.mountPath,
+        status: "updating",
+        items: checkpointItems(itemMetadata),
+        cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
+      })
+    }
 
     let sourceFiles = 0
     let sourceBytes = 0
@@ -279,7 +301,7 @@ export async function materializeWorkspaceSources(
       let commit: string | undefined
       const directorySet = new Set<string>(source.mountPath ? [source.mountPath] : [])
       const nextPaths = new Set<string>()
-      for await (const entry of iterateMaterializationEntries(source, ctx, store, existing, configHash)) {
+      for await (const entry of iterateMaterializationEntries(source, ctx, store, existing, configHash, options)) {
         const path = entry.path
         nextPaths.add(path)
         const parts = path.split("/")
@@ -289,17 +311,19 @@ export async function materializeWorkspaceSources(
           commit ||= entry.metadata.ref || entry.metadata.sha
           sourceFiles++
           sourceBytes += entry.reused.size || 0
-          await writeSourceSnapshotMetadata(store, {
-            configHash,
-            source: source.key,
-            mountPath: source.mountPath,
-            status: "updating",
-            commit,
-            files: sourceFiles,
-            bytes: sourceBytes,
-            items: checkpointItems(itemMetadata),
-            cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
-          })
+          if (completeSource) {
+            await writeSourceSnapshotMetadata(store, {
+              configHash,
+              source: source.key,
+              mountPath: source.mountPath,
+              status: "updating",
+              commit,
+              files: sourceFiles,
+              bytes: sourceBytes,
+              items: checkpointItems(itemMetadata),
+              cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
+            })
+          }
           continue
         }
         const item = entry.item!
@@ -318,19 +342,21 @@ export async function materializeWorkspaceSources(
         })
         sourceFiles++
         sourceBytes += written.size || 0
-        await writeSourceSnapshotMetadata(store, {
-          configHash,
-          source: source.key,
-          mountPath: source.mountPath,
-          status: "updating",
-          commit,
-          files: sourceFiles,
-          bytes: sourceBytes,
-          items: checkpointItems(itemMetadata),
-          cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
-        })
+        if (completeSource) {
+          await writeSourceSnapshotMetadata(store, {
+            configHash,
+            source: source.key,
+            mountPath: source.mountPath,
+            status: "updating",
+            commit,
+            files: sourceFiles,
+            bytes: sourceBytes,
+            items: checkpointItems(itemMetadata),
+            cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
+          })
+        }
       }
-      await removeStaleMaterializedSourceFiles(store, source, nextPaths, { removeUntracked: Boolean(source.mountPath) })
+      await removeStaleMaterializedSourceFiles(store, source, nextPaths, options, { removeUntracked: Boolean(source.mountPath) })
       const readyItems = Object.fromEntries([...nextPaths].flatMap((path) => {
         const metadata = itemMetadata[path]
         return metadata ? [[path, metadata] as const] : []
@@ -348,7 +374,13 @@ export async function materializeWorkspaceSources(
         items: readyItems,
         cacheMaxAge: source.cache ? source.cache.maxAge : undefined,
       }
-      await writeSourceSnapshotMetadata(store, ready)
+      if (completeSource) await writeSourceSnapshotMetadata(store, ready)
+      else if (existing?.configHash === configHash) {
+        await writeSourceSnapshotMetadata(store, {
+          ...existing,
+          items: checkpointItems(itemMetadata),
+        })
+      }
       resultSources.push(ready)
       files += sourceFiles
       bytes += sourceBytes

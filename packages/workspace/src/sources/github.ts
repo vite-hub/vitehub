@@ -4,7 +4,7 @@ import { github as createGitHubSource, type GitHubSourceOptions as SourcePackage
 import { resolveWorkspaceEnv } from "../env.ts"
 import type { MaybePromise, WorkspaceSource, WorkspaceSourceResolutionContext } from "../core/types.ts"
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "mount" | "validate">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "mount" | "sync" | "validate">
 type GitHubAuth = NonNullable<SourcePackageGitHubSourceOptions["auth"]>
 
 export interface GitHubSourceOptions extends Omit<SourcePackageGitHubSourceOptions, "auth">, SourceRuntimeOptions {
@@ -59,6 +59,7 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
     instructions: resolvedOptions.instructions,
     materialize: resolvedOptions.materialize,
     mount: resolvedOptions.mount,
+    sync: resolvedOptions.sync,
     validate: resolvedOptions.validate,
     async prepare(ctx) {
       const source = await getSourceForRoot(ctx.rootDir)

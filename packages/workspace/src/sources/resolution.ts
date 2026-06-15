@@ -15,6 +15,7 @@ import type {
   WorkspaceSearchQuery,
   WorkspaceSelectedScope,
   WorkspaceSource,
+  WorkspaceSourceInput,
   WorkspaceSourceResolutionInvocation,
 } from "../core/types.ts"
 
@@ -29,7 +30,7 @@ export interface WorkspaceSourceResolutionFacade<Name extends WorkspaceName = Wo
 }
 
 export function hasWorkspaceSourceResolvers(definition: Pick<WorkspaceDefinition, "sources"> | undefined): boolean {
-  return Object.values(definition?.sources || {}).some(source => typeof source.resolve === "function")
+  return normalizeWorkspaceSources(definition?.sources).some(source => typeof source.source.resolve === "function")
 }
 
 export async function resolveWorkspaceSources(
@@ -134,12 +135,13 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
 async function resolveWorkspaceSource(
   definition: WorkspaceDefinition,
   key: string,
-  source: WorkspaceSource,
+  input: WorkspaceSourceInput,
   options: WorkspaceSourceResolutionOptions,
 ): Promise<WorkspaceSource | undefined> {
+  const declared = normalizeWorkspaceSource(key, input)
+  const source = declared.source
   if (!source.resolve) return source
 
-  const declared = normalizeWorkspaceSource(key, source)
   const context = {
     invocation: options.invocation,
     selectedWorkspaceScope: options.selectedWorkspaceScope,
@@ -156,7 +158,7 @@ async function resolveWorkspaceSource(
   const resolved = await source.resolve(context)
   if (!resolved) return undefined
 
-  const resolvedSource = withResolvedSourceRuntimeDefaults(resolved)
+  const resolvedSource = withResolvedSourceRuntimeDefaults(applyResolvedWorkspaceSourceBinding(input, resolved))
   const normalized = normalizeWorkspaceSource(key, resolvedSource)
   if (!selectedScopeIntersectsMount(options.selectedWorkspaceScope, normalized.mountPath)) return undefined
 
@@ -178,11 +180,38 @@ async function resolveWorkspaceSource(
   }
 }
 
+function applyResolvedWorkspaceSourceBinding(input: WorkspaceSourceInput, source: WorkspaceSource): WorkspaceSource {
+  if (!isPlainRecord(input) || !("source" in input)) return source
+  const next: WorkspaceSource = { ...source }
+  copyDefinedWorkspaceBindingOption(next, input, "cache")
+  copyDefinedWorkspaceBindingOption(next, input, "instructions")
+  copyDefinedWorkspaceBindingOption(next, input, "materialize")
+  copyDefinedWorkspaceBindingOption(next, input, "mount")
+  copyDefinedWorkspaceBindingOption(next, input, "sync")
+  copyDefinedWorkspaceBindingOption(next, input, "validate")
+  return next
+}
+
+function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "instructions" | "materialize" | "mount" | "sync" | "validate">(
+  target: WorkspaceSource,
+  input: Record<string, unknown>,
+  key: TKey,
+) {
+  if (input[key] !== undefined) {
+    target[key] = input[key] as never
+  }
+}
+
 function withResolvedSourceRuntimeDefaults(source: WorkspaceSource): WorkspaceSource {
   if (source.materialize || source.mount && typeof source.mount === "object" && source.mount.materialize) {
     return source
   }
+  if (source.sync) return source
   return { ...source, materialize: "lazy" }
+}
+
+function isPlainRecord(input: unknown): input is Record<string, unknown> {
+  return !!input && typeof input === "object" && !Array.isArray(input)
 }
 
 function isSourcePath(definition: WorkspaceDefinition, path: string): boolean {
@@ -200,7 +229,9 @@ async function sourceViewHasPath(definition: WorkspaceDefinition, sourceView: Re
 }
 
 function sourcePathIntersects(definition: WorkspaceDefinition, path: string): boolean {
-  return normalizeWorkspaceSources(definition.sources).some(source => pathIntersects(source.mountPath, path))
+  return normalizeWorkspaceSources(definition.sources)
+    .filter(source => source.materialize !== "none")
+    .some(source => pathIntersects(source.mountPath, path))
 }
 
 function searchQueryTargetsSource(definition: WorkspaceDefinition, query: WorkspaceSearchQuery): boolean {

@@ -1,5 +1,6 @@
 import { workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
+import { normalizeAgentWorkspaceSource } from "../workspace-source-metadata.ts"
 import { createWorkspaceSourceResolutionFacade, createWorkspaceTools } from "@vite-hub/workspace"
 
 import type {
@@ -18,10 +19,12 @@ import type {
   WorkspaceDefinition,
   WorkspaceEntry,
   WorkspaceFacadeToolOptions,
+  WorkspaceMaterializeSourcesOptions,
+  WorkspaceMaterializeSourcesResult,
   WorkspaceName,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
-  WorkspaceSource,
+  WorkspaceSourceInput,
 } from "@vite-hub/workspace"
 import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
 
@@ -155,11 +158,11 @@ export interface AccessCapabilityOptions<
   workspace?: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext>
 }
 
-export type AccessWorkspaceSourceName<TWorkspace extends { sources?: Record<string, WorkspaceSource> }> =
+export type AccessWorkspaceSourceName<TWorkspace extends { sources?: Record<string, WorkspaceSourceInput> }> =
   Extract<keyof NonNullable<TWorkspace["sources"]>, string>
 
 export type AccessWorkspaceOptionsFor<
-  TWorkspace extends { sources?: Record<string, WorkspaceSource> },
+  TWorkspace extends { sources?: Record<string, WorkspaceSourceInput> },
   TInputContext extends object = Record<string, unknown>,
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -168,9 +171,15 @@ export type AccessWorkspaceOptionsFor<
 interface ResolvedWorkspaceScope {
   all: boolean
   definition: AccessWorkspaceScopeDefinition
+  materializeGrants: ResolvedWorkspaceMaterializeGrant[]
   paths: string[]
   role: AccessRoleName
   scope: string
+}
+
+interface ResolvedWorkspaceMaterializeGrant {
+  path: string
+  sources?: string[]
 }
 
 interface NormalizedWorkspaceScopeSelection<TSourceName extends string = string> {
@@ -317,6 +326,7 @@ async function resolveWorkspaceScope<
   return {
     all,
     definition,
+    materializeGrants: all ? [{ path: "" }] : scopeMaterializeGrants(definition, context.workspaceDefinition),
     paths: all ? [""] : scopePaths(definition, context.workspaceDefinition),
     role,
     scope: selection.scope,
@@ -327,6 +337,7 @@ function finalizeResolvedWorkspaceScope(scope: ResolvedWorkspaceScope, workspace
   if (scope.all) return scope
   return {
     ...scope,
+    materializeGrants: scopeMaterializeGrants(scope.definition, workspaceDefinition),
     paths: scopePaths(scope.definition, workspaceDefinition),
   }
 }
@@ -401,6 +412,35 @@ function scopePaths(definition: AccessWorkspaceScopeDefinition, workspaceDefinit
   return normalized.sort((left, right) => left.length - right.length || left.localeCompare(right))
 }
 
+function scopeMaterializeGrants(definition: AccessWorkspaceScopeDefinition, workspaceDefinition?: WorkspaceDefinition): ResolvedWorkspaceMaterializeGrant[] {
+  const grants: ResolvedWorkspaceMaterializeGrant[] = []
+  const add = (path: string, sources?: string[]) => {
+    grants.push({
+      path: normalizeScopePath(path),
+      ...(sources?.length ? { sources } : {}),
+    })
+  }
+  for (const path of normalizeStringList(definition.path, definition.paths)) add(path)
+  for (const source of normalizeStringList(definition.source, definition.sources)) add(sourceMountPath(source, workspaceDefinition), [source])
+  for (const grant of definition.grants || []) {
+    const paths = normalizeStringList(grant.path, grant.paths)
+    const sources = normalizeStringList(grant.source, grant.sources)
+    for (const path of paths) add(path)
+    for (const source of sources) add(sourceMountPath(source, workspaceDefinition), [source])
+  }
+  return dedupeMaterializeGrants(grants)
+}
+
+function dedupeMaterializeGrants(grants: ResolvedWorkspaceMaterializeGrant[]): ResolvedWorkspaceMaterializeGrant[] {
+  const seen = new Set<string>()
+  return grants.filter((grant) => {
+    const key = `${grant.path}\0${grant.sources?.join("\0") || ""}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 function normalizeStringList(single: string | undefined, multiple: readonly string[] | undefined): string[] {
   return [
     ...(single ? [single] : []),
@@ -420,10 +460,7 @@ function sourceMountPath(source: string, workspaceDefinition?: WorkspaceDefiniti
   if (!definition) {
     throw new Error(`[vitehub] Workspace Scope source grant references unknown source "${source}".`)
   }
-  const mount = definition?.mount
-  const mountPath = typeof mount === "string"
-    ? mount
-    : mount && typeof mount === "object" && typeof mount.path === "string" ? mount.path : source
+  const mountPath = normalizeAgentWorkspaceSource(source, definition).mountPath
   if (normalizeScopePath(mountPath) === "") {
     throw new Error(`[vitehub] Workspace Scope source grant "${source}" is root-mounted; grant explicit paths instead.`)
   }
@@ -466,6 +503,71 @@ function filterEntries(scope: ResolvedWorkspaceScope, entries: WorkspaceEntry[])
 
 function filterHits(scope: ResolvedWorkspaceScope, hits: WorkspaceSearchHit[]): WorkspaceSearchHit[] {
   return scope.all ? hits : hits.filter(hit => isReadablePath(scope, hit.path))
+}
+
+function filterMaterializedSources(scope: ResolvedWorkspaceScope, result: WorkspaceMaterializeSourcesResult): WorkspaceMaterializeSourcesResult {
+  return scope.all
+    ? result
+    : {
+        ...result,
+        sources: result.sources.filter(source => isVisiblePath(scope, normalizeScopePath(source.mountPath))),
+      }
+}
+
+function scopedMaterializeSourceRequests(scope: ResolvedWorkspaceScope, options: WorkspaceMaterializeSourcesOptions): WorkspaceMaterializeSourcesOptions[] {
+  if (scope.all) return [options]
+  const requested = normalizeScopePath(options.path || "")
+  const requests: WorkspaceMaterializeSourcesOptions[] = []
+  const seen = new Set<string>()
+  for (const grant of scope.materializeGrants) {
+    const path = options.path && pathContains(grant.path, requested)
+      ? requested
+      : !options.path || pathContains(requested, grant.path)
+        ? grant.path
+        : undefined
+    if (path === undefined) continue
+    const sources = scopedMaterializeSources(grant, options)
+    if (sources === false) continue
+    const key = `${path}\0${sources?.join("\0") || ""}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    requests.push({
+      ...options,
+      path,
+      ...(sources ? { sources } : {}),
+    })
+  }
+  return requests
+}
+
+function scopedMaterializeSources(grant: ResolvedWorkspaceMaterializeGrant, options: WorkspaceMaterializeSourcesOptions): string[] | false | undefined {
+  if (!grant.sources?.length) return options.sources
+  if (!options.sources?.length) return grant.sources
+  const allowed = new Set(grant.sources)
+  const sources = options.sources.filter(source => allowed.has(source))
+  return sources.length ? sources : false
+}
+
+function mergeMaterializedSources(path: string, results: WorkspaceMaterializeSourcesResult[]): WorkspaceMaterializeSourcesResult {
+  return {
+    bytes: results.reduce((total, result) => total + result.bytes, 0),
+    directories: results.reduce((total, result) => total + result.directories, 0),
+    durationMs: results.reduce((total, result) => total + result.durationMs, 0),
+    files: results.reduce((total, result) => total + result.files, 0),
+    path,
+    sources: results.flatMap(result => result.sources),
+  }
+}
+
+function emptyMaterializedSources(path = ""): WorkspaceMaterializeSourcesResult {
+  return {
+    bytes: 0,
+    directories: 0,
+    durationMs: 0,
+    files: 0,
+    path,
+    sources: [],
+  }
 }
 
 function scopedSearchQuery(scope: ResolvedWorkspaceScope, query: WorkspaceSearchQuery): WorkspaceSearchQuery | undefined {
@@ -520,6 +622,18 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
       const scopedQuery = scopedSearchQuery(scope, query)
       if (!scopedQuery) return []
       return filterHits(scope, await workspace.fs.search(scopedQuery))
+    },
+    async materializeSources(options = {}) {
+      const normalized = normalizeScopePath(options.path || "")
+      if (options.path && !isVisiblePath(scope, normalized)) throw notFound(normalized)
+      const requests = scopedMaterializeSourceRequests(scope, options)
+      const results = await Promise.all(requests.map(async (request) => {
+        const result = workspace.fs.materializeSources
+          ? await workspace.fs.materializeSources(request)
+          : emptyMaterializedSources(request.path)
+        return filterMaterializedSources(scope, result)
+      }))
+      return mergeMaterializedSources(options.path || "", results)
     },
   }
 

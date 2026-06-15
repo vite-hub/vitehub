@@ -116,13 +116,15 @@ export async function finalizeUiMessageStreamOutput(
   shouldWrapOutput: boolean,
   finish: (error?: unknown) => MaybePromise<void>,
 ): Promise<FinalizedStreamOutput<unknown>> {
-  const text = textFromRenderedOutput(rendered)
-  if (!isUIMessageStreamResult(rendered) && !isAsyncIterable(rendered) && text === undefined) {
+  const hasUiMessageStream = isUIMessageStreamResult(rendered)
+  const hasAsyncIterable = isAsyncIterable(rendered)
+  const text = hasUiMessageStream || hasAsyncIterable ? undefined : textFromRenderedOutput(rendered)
+  if (!hasUiMessageStream && !hasAsyncIterable && text === undefined) {
     throw new Error("[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream().")
   }
-  const stream = isUIMessageStreamResult(rendered)
+  const stream = hasUiMessageStream
     ? rendered.toUIMessageStream()
-    : isAsyncIterable(rendered)
+    : hasAsyncIterable
       ? (await import("ai")).createUIMessageStream({
           execute: async ({ writer }) => await writeEventsToUiMessageStream(writer, rendered),
         })

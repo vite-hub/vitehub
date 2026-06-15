@@ -12,7 +12,7 @@ import * as loader from "../src/loader.ts"
 import * as publish from "../src/publish.ts"
 import { source } from "../src/index.ts"
 import { hubWorkspace } from "../src/vite.ts"
-import type { WorkspaceModuleOptions, WorkspacePlugin, WorkspaceWriteInput } from "../src/core/types.ts"
+import type { Workspace, WorkspaceModuleOptions, WorkspacePlugin, WorkspaceSourceSyncResult, WorkspaceWriteInput } from "../src/core/types.ts"
 
 declare global {
   interface ViteHubWorkspaceAssetMap {
@@ -24,7 +24,21 @@ describe("workspace types", () => {
   it("types the facade helpers", async () => {
     const definition = defineWorkspace({
       runtime: "sandbox",
-      sources: { docs: source.markdown({ path: "README.md" }) },
+      sources: {
+        docs: source.markdown({ path: "README.md" }),
+        externalDocs: {
+          include: "**/*.md",
+          sync: true,
+        },
+        githubDocs: {
+          repo: "acme/docs",
+          sync: { stale: "remove" },
+        },
+        wrappedDocs: {
+          source: source.github({ repo: "acme/docs" }),
+          sync: true,
+        },
+      },
       loaders: [loader.files()],
       publish: [
         publish.virtualModule({ id: "#vitehub/workspaces/typed" }),
@@ -125,6 +139,7 @@ describe("workspace types", () => {
 
     const readonly = useWorkspace("typed")
     const writable = useWorkspace("typed", { mode: "write" })
+    const runtimeWorkspace = null as unknown as Workspace
 
     expectTypeOf(definition).toMatchTypeOf<object>()
     expectTypeOf(createWorkspaceTools(createWorkspaceAssets({
@@ -139,11 +154,18 @@ describe("workspace types", () => {
     readonly.tools()
     // @ts-expect-error read-only facade does not expose executable write sessions
     readonly.startSession()
+    // @ts-expect-error read-only facade does not expose Source Sync
+    readonly.sync({ sources: ["externalDocs"] })
     expectTypeOf(writable.tools).toMatchTypeOf<ToolSet>()
     expectTypeOf(writable.tools.writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
     expectTypeOf(writable.tools.inspect().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
     expectTypeOf(writable.tools.write().writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
     expectTypeOf(writable.startSession).toBeFunction()
+    expectTypeOf(await writable.sync({ sources: ["externalDocs"] })).toMatchTypeOf<WorkspaceSourceSyncResult>()
+    // @ts-expect-error workspace.sync requires explicit sources
+    await runtimeWorkspace.sync()
+    expectTypeOf(await runtimeWorkspace.sync({ sources: ["externalDocs"] })).toMatchTypeOf<WorkspaceSourceSyncResult>()
+    expectTypeOf(await runtimeWorkspace.sync({ details: "paths", publish: true, snapshot: { message: "sync docs" }, sources: "all" })).toMatchTypeOf<WorkspaceSourceSyncResult>()
     const workspaceOptions: WorkspaceModuleOptions = { assets: ["typed"], store: { provider: "memory" } }
     const githubWorkspaceOptions: WorkspaceModuleOptions = { store: { branch: "main", provider: "github", repository: "acme/app", root: ".vitehub/workspaces/<workspace>" } }
     // @ts-expect-error syncOnBuild was removed in favor of assets

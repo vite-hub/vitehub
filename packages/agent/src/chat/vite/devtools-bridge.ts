@@ -6,6 +6,7 @@ import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/internal/runtim
 
 import {
   createAgentDevtoolsMetadata,
+  materializeAgentDevtoolsSourceMetadata,
   resolveAgentDevtoolsMetadata,
   resolveAgentTriggers,
   streamAgentTrigger,
@@ -20,6 +21,7 @@ import {
   chatDevtoolsBridgeRoute,
   chatDevtoolsClearRpc,
   chatDevtoolsGetStateRpc,
+  chatDevtoolsMaterializeSourceRpc,
   chatDevtoolsSendRpc,
 } from "../devtools.ts"
 import { createAgentRuntimeContext } from "../../runtime/context.ts"
@@ -40,12 +42,14 @@ import type {
 } from "../../index.ts"
 
 type ReadUIMessageStream = typeof import("ai").readUIMessageStream
-type ChatDevtoolsAction = "clear" | "get-state" | "send"
+type ChatDevtoolsAction = "clear" | "get-state" | "materialize-source" | "send"
 type ChatDevtoolsBridgeBody = {
   action?: string
   chat?: string
   invokerFallback?: boolean
   invokerProfileId?: string
+  path?: string
+  source?: string
   stream?: boolean
   text?: string
 }
@@ -96,6 +100,7 @@ function normalizeChatDevtoolsAction(action: string): ChatDevtoolsAction | undef
   if (action === "get-state" || action === chatDevtoolsGetStateRpc) return "get-state"
   if (action === "send" || action === chatDevtoolsSendRpc) return "send"
   if (action === "clear" || action === chatDevtoolsClearRpc) return "clear"
+  if (action === "materialize-source" || action === chatDevtoolsMaterializeSourceRpc) return "materialize-source"
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -260,6 +265,19 @@ function createChatDevtoolsAgentEntry(
 
 function metadataErrorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : "Chat DevTools metadata inspection failed."
+}
+
+function materializedSourceKeys(metadata: ChatDevtoolsMetadata | undefined): string[] {
+  const sources = new Set<string>()
+  const pending = [...(metadata?.files || [])]
+  while (pending.length) {
+    const file = pending.shift()!
+    if (file.source && (file.status === "ready" || file.materialized || file.materializedAt)) {
+      sources.add(file.source)
+    }
+    pending.push(...(file.children || []))
+  }
+  return [...sources]
 }
 
 async function startMetadataResolution(
@@ -663,6 +681,45 @@ async function clearDevtoolsMessages(state: ChatDevtoolsBridgeState, input: { ch
   return await serializeState(state, selected, requestedSelection)
 }
 
+async function materializeDevtoolsSource(
+  state: ChatDevtoolsBridgeState,
+  input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, path?: string, source?: string },
+): Promise<ChatDevtoolsStateResult> {
+  const selected = getSelectedName(state, input.chat)
+  if (!selected) return await serializeState(state)
+  const entry = state.entries.get(selected)
+  if (!entry) return await serializeState(state)
+  if (!input.source && !input.path) {
+    throw new Response("Missing workspace source or path.", { status: 400 })
+  }
+
+  const requestedSelection = normalizeInvokerSelection(input)
+  assertKnownInvokerProfile(entry.metadata, requestedSelection.invokerProfileId)
+  const metadataSelection = metadataSelectionForAgent(entry.agent, requestedSelection)
+  state.selected = selected
+  entry.metadataStatus = "loading"
+  entry.metadataError = undefined
+
+  try {
+    entry.metadata = await materializeAgentDevtoolsSourceMetadata(entry.agent as never, {
+      ...entry.defaults,
+      input: createDevtoolsMetadataInput(metadataSelection),
+      ...(input.path ? { path: input.path } : {}),
+      ...(input.source ? { source: input.source } : {}),
+      sources: materializedSourceKeys(entry.metadata),
+    } as never)
+    entry.metadataSelectionKey = metadataSelectionKey(metadataSelection)
+    entry.metadataStatus = "ready"
+    entry.metadataTask = undefined
+  }
+  catch (cause) {
+    entry.metadataError = metadataErrorMessage(cause)
+    entry.metadataStatus = "error"
+  }
+
+  return await serializeState(state, selected, requestedSelection)
+}
+
 function createChatDevtoolsStreamResponse(run: (emit: (event: ChatDevtoolsStreamEvent) => void, signal: AbortSignal) => Promise<void>): Response {
   const encoder = new TextEncoder()
   const abortController = new AbortController()
@@ -766,6 +823,9 @@ async function handleChatDevtoolsRequest(
   }
   if (action === "clear") {
     return Response.json(await clearDevtoolsMessages(state, body))
+  }
+  if (action === "materialize-source") {
+    return Response.json(await materializeDevtoolsSource(state, body))
   }
 
   return new Response(`Unknown chat devtools action: ${body.action}`, { status: 400 })

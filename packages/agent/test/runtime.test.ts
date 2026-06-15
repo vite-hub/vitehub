@@ -352,8 +352,37 @@ describe("agent message protocol", () => {
       }),
     ])).toEqual([
       {
-        content: [{ output: { ok: true }, toolCallId: "call-1", toolName: "lookup", type: "tool-result" }],
+        content: [{ output: { type: "json", value: { ok: true } }, toolCallId: "call-1", toolName: "lookup", type: "tool-result" }],
         role: "tool",
+      },
+    ])
+  })
+
+  it("splits assistant tool result history into valid model messages", async () => {
+    const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
+
+    expect(toAiSdkModelMessages([
+      createMessage({
+        id: "m1",
+        parts: [
+          { id: "call-1", input: { query: "ok" }, name: "lookup", state: "running", type: "tool-call" },
+          { id: "call-1", name: "lookup", output: { ok: true }, state: "completed", type: "tool-result" },
+          { text: "done", type: "text" },
+        ],
+        role: "assistant",
+      }),
+    ])).toEqual([
+      {
+        content: [{ input: { query: "ok" }, toolCallId: "call-1", toolName: "lookup", type: "tool-call" }],
+        role: "assistant",
+      },
+      {
+        content: [{ output: { type: "json", value: { ok: true } }, toolCallId: "call-1", toolName: "lookup", type: "tool-result" }],
+        role: "tool",
+      },
+      {
+        content: [{ text: "done", type: "text" }],
+        role: "assistant",
       },
     ])
   })
@@ -1103,6 +1132,41 @@ describe("agent message protocol", () => {
 
     expect(messages.at(-1)?.parts).toEqual([
       { data: { title: "Sidebar title", type: "chat-title" }, type: "data-chat-title" },
+      { providerMetadata: undefined, state: "done", text: "answer", type: "text" },
+    ])
+  })
+
+  it("does not read text getters when streaming native UI message results", async () => {
+    const { createUIMessageStream, readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      run: () => ({
+        get text() {
+          throw new Error("text getter should not be read")
+        },
+        toUIMessageStream() {
+          return createUIMessageStream({
+            execute({ writer }) {
+              writer.write({ type: "start", messageId: "assistant-1" })
+              writer.write({ type: "text-start", id: "text-1" })
+              writer.write({ type: "text-delta", id: "text-1", delta: "answer" })
+              writer.write({ type: "text-end", id: "text-1" })
+              writer.write({ type: "finish", finishReason: "stop" })
+            },
+          })
+        },
+      }),
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain availability" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(messages.at(-1)?.parts).toEqual([
       { providerMetadata: undefined, state: "done", text: "answer", type: "text" },
     ])
   })

@@ -530,6 +530,118 @@ describe("access capability", () => {
     expect(invocationContext.get<{ paths: string[] }>("access.workspaceScope")?.paths).toEqual(["ingestion/acme"])
   })
 
+  it("forwards lazy Source materialization through scoped workspace facades", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const calls: unknown[] = []
+    const base = createWorkspace()
+    const workspace: ReadonlyWorkspaceFacade = {
+      ...base,
+      fs: {
+        ...base.fs,
+        async materializeSources(options = {}) {
+          calls.push(options)
+          return {
+            bytes: 10,
+            directories: 1,
+            durationMs: 2,
+            files: 1,
+            path: options.path || "",
+            sources: [
+              { mountPath: "ingestion/acme", source: "ingestion", status: "ready" },
+              { mountPath: "ingestion/globex", source: "ingestion", status: "ready" },
+            ],
+          }
+        },
+      },
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: {
+              grants: [{ path: "ingestion/acme" }],
+              scope: "acme",
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace)
+
+    await expect(resolved.workspace!.fs.materializeSources?.({
+      path: "ingestion/globex",
+      sources: ["ingestion"],
+    })).rejects.toThrow("Workspace path does not exist")
+    await expect(resolved.workspace!.fs.materializeSources?.({
+      path: "ingestion/acme",
+      sources: ["ingestion"],
+    })).resolves.toMatchObject({
+      path: "ingestion/acme",
+      sources: [{ mountPath: "ingestion/acme", source: "ingestion", status: "ready" }],
+    })
+    expect(calls).toEqual([{ path: "ingestion/acme", sources: ["ingestion"] }])
+
+    calls.length = 0
+    await expect(resolved.workspace!.fs.materializeSources?.({
+      path: "ingestion",
+      sources: ["ingestion"],
+    })).resolves.toMatchObject({
+      path: "ingestion",
+      sources: [{ mountPath: "ingestion/acme", source: "ingestion", status: "ready" }],
+    })
+    await expect(resolved.workspace!.fs.materializeSources?.()).resolves.toMatchObject({
+      path: "",
+      sources: [{ mountPath: "ingestion/acme", source: "ingestion", status: "ready" }],
+    })
+    expect(calls).toEqual([
+      { path: "ingestion/acme", sources: ["ingestion"] },
+      { path: "ingestion/acme" },
+    ])
+
+    calls.length = 0
+    const sourceScoped = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: {
+              grants: [{ source: "acme" }],
+              scope: "acme",
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace, "read", {
+      workspaceDefinition: {
+        name: "support",
+        sources: {
+          acme: source.custom({
+            materialize: "lazy",
+            mount: "ingestion/acme",
+            async getKeys() {
+              return []
+            },
+            async getItem(key) {
+              return { key, content: "" }
+            },
+          }),
+          private: source.custom({
+            materialize: "lazy",
+            mount: "ingestion/acme/private",
+            async getKeys() {
+              return []
+            },
+            async getItem(key) {
+              return { key, content: "" }
+            },
+          }),
+        },
+      },
+    })
+    await sourceScoped.workspace!.fs.materializeSources?.()
+    expect(calls).toEqual([{ path: "ingestion/acme", sources: ["acme"] }])
+  })
+
   it("omits resolved Source Instructions when the resolved source is outside access scope", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")

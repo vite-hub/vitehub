@@ -36,11 +36,17 @@ import type {
   WorkspaceDiff,
   WorkspaceMaterializeSourcesOptions,
   WorkspaceSnapshot,
+  WorkspaceSourceSyncResult,
+  WorkspaceSyncOptions,
   WriteFileOptions,
   SnapshotOptions,
 } from "./types.ts"
 
 type WorkspaceWritablePath<Name extends WorkspaceName> = WorkspaceAssetPath<Name> | (string & {})
+
+type WorkspaceWithDefinitionSync = Workspace & {
+  __syncWorkspaceDefinition?: () => Promise<void>
+}
 
 export interface UseWorkspaceOptions {
   mode?: "read" | "write"
@@ -109,6 +115,7 @@ export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceN
   materializeSources(options?: WorkspaceMaterializeSourcesOptions): Promise<WorkspaceMaterializeSourcesResult>
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
   startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
+  sync(options: WorkspaceSyncOptions): Promise<WorkspaceSourceSyncResult>
   tools: WorkspaceWriteToolSet
 }
 
@@ -146,7 +153,7 @@ function createLazyWorkspace(name: WorkspaceName): Workspace {
   async function resolveSyncedWorkspace() {
     const workspace = await resolveWorkspace()
     if (!syncPromise) {
-      const next = workspace.sync()
+      const next = (workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition?.() ?? Promise.resolve()
       syncPromise = next
       next.catch(() => { syncPromise = undefined })
     }
@@ -159,9 +166,9 @@ function createLazyWorkspace(name: WorkspaceName): Workspace {
     async sync(options) {
       const resolved = await resolveWorkspace()
       const next = resolved.sync(options)
-      syncPromise = next
+      syncPromise = next.then(() => undefined)
       next.catch(() => { syncPromise = undefined })
-      await next
+      return await next
     },
     async readFile(path, options) {
       return await (await resolveSyncedWorkspace()).readFile(normalizePath(path), options as never)
@@ -434,6 +441,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
       materializeSources: async options => await materializeWorkspaceSources(workspace, options),
       snapshot: async options => await workspace.snapshot(options),
       startSession: async options => await workspace.startSession(options),
+      sync: async options => await workspace.sync(options),
       tools,
     }
   }
