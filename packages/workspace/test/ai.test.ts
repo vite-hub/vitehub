@@ -70,6 +70,7 @@ describe("createWorkspaceTools", () => {
     })
     expect(tools.shell.description).toContain("Only the listed commands are available")
     expect(tools.shell.description).toContain("Do not use unsupported helpers such as `xargs`")
+    expect(tools.shell.description).not.toContain("controlled `curl`")
   })
 
   it("limits shell commands to the enabled read capabilities", async () => {
@@ -197,6 +198,10 @@ describe("createWorkspaceTools", () => {
       store: { provider: "memory" },
     })
     const tools = createWorkspaceTools(workspace)
+
+    expect(tools.shell.description).toContain("controlled `curl`")
+    expect(tools.shell.description).toContain(".vitehub/sources/*.json")
+    expect(tools.shell.description).toContain("Source Request Shape")
 
     await expect(runShell(tools, "curl -sS 'https://portal.example.com/runtime/inventory-health?region=eu'")).resolves.toMatchObject({
       event: "command_finished",

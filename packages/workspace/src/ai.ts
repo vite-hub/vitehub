@@ -168,7 +168,7 @@ function shellCommandsFor(operations: ReturnType<typeof resolveReadOperations>) 
   return commands
 }
 
-function describeShellCommands(commands: string[]) {
+function describeShellCommands(commands: string[], options: { sourceRequests?: boolean } = {}) {
   const supported = new Set(commands)
   const available = [
     supported.has("pwd") && "`pwd`",
@@ -179,18 +179,21 @@ function describeShellCommands(commands: string[]) {
     supported.has("head") && "`head`",
     supported.has("tail") && "`tail`",
     supported.has("wc") && "`wc`",
+    options.sourceRequests && "controlled `curl` for API-backed Sources listed under `.vitehub/sources/*.json`",
   ].filter(Boolean)
   const examples = [
     supported.has("rg") && supported.has("head") && "`rg 'siff|PLC' ingestion forecasting-engine | head -n 20`",
     supported.has("rg") && !supported.has("head") && "`rg 'siff|PLC' ingestion forecasting-engine`",
     supported.has("find") && "`find ingestion -type f -name '*.sql'`",
     supported.has("cat") && supported.has("head") && "`cat forecasting-engine/README.md | head -n 40`",
+    options.sourceRequests && "`curl --json '{\"region\":\"eu\"}' https://example.com/api/source`",
   ].filter(Boolean)
 
   return [
     "Run a real Bash-compatible workspace shell command over files mounted at `/workspace`.",
     `Available workspace commands include: ${available.join(", ")}.`,
     "Only the listed commands are available; other executables are rejected before they run.",
+    options.sourceRequests && "For controlled `curl`, inspect the matching `.vitehub/sources/<sourceKey>.json` descriptor first; ViteHub validates the request against the Source Request Shape and injects Source credentials.",
     "Pipes, redirects, chaining, quoted patterns, and multiline shell scripts are supported when they use available commands.",
     "The workspace filesystem controls whether writes are allowed; read-only tools reject mutation commands at execution time.",
     "Do not use unsupported helpers such as `xargs`, `awk`, `sed`, `sort`, `cut`, or `python`.",
@@ -690,7 +693,9 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
 
   if (resolved.commands.length) {
     result.shell = tool({
-      description: describeShellCommands(resolved.commands),
+      description: describeShellCommands(resolved.commands, {
+        sourceRequests: Boolean(getWorkspaceSourceRequestExecution(input)),
+      }),
       inputSchema: jsonSchema<{ command: string }>({
         additionalProperties: false,
         properties: {
