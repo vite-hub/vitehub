@@ -620,6 +620,7 @@ function createChatSdkConfig(
     concurrency: chatSdkOption<ChatConfig["concurrency"]>(options, "concurrency"),
     dedupeTtlMs: chatSdkOption<number>(options, "dedupeTtlMs"),
     fallbackStreamingPlaceholderText,
+    identity: options?.identity,
     lockScope: chatSdkOption<ChatConfig["lockScope"]>(options, "lockScope"),
     logger: chatSdkOption<ChatConfig["logger"]>(options, "logger"),
     messageHistory: chatSdkOption<ChatConfig["messageHistory"]>(options, "messageHistory"),

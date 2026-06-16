@@ -436,8 +436,13 @@ describe("server helpers", () => {
           },
         }),
         chat({
+          identity: ({ adapter, author }) => `${adapter}:${author.userId}`,
           platforms: {
             telegram: () => adapter as never,
+          },
+          transcripts: {
+            maxPerUser: 50,
+            retention: "30d",
           },
           webhooks: {
             telegram: {},

@@ -1,5 +1,5 @@
 import type { Message, StreamEvent } from "./messages.ts"
-import type { Adapter, AdapterPostableMessage, StateAdapter, TranscriptsConfig } from "chat"
+import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
 import type {
   MaybePromise,
   MaybeResolvable,
@@ -853,7 +853,7 @@ export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
   fallbackStreamingPlaceholderText?: string | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   history?: AgentChatAgentBindingOptions["history"]
   hooks?: AgentChatEventHooks<TRuntimeConfig>
-  identity?: never
+  identity?: IdentityResolver
   lifecycleHooks?: Record<string, unknown>
   platforms?: AgentChatPlatformsResolver<TRuntimeConfig>
   sessions?: boolean | AgentChatSessionOptions
