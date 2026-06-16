@@ -128,6 +128,27 @@ describe("workspace types", () => {
       }),
       url: "https://status.example.com/query",
     })
+    source.fetch<{ status: string }, { ok: boolean }>(({ invocation, selectedWorkspaceScope, source: sourceContext, workspace }) => {
+      expectTypeOf(invocation.context.get<{ customers: string[] }>("support.customerScope")?.customers).toEqualTypeOf<string[] | undefined>()
+      expectTypeOf(selectedWorkspaceScope?.scope).toEqualTypeOf<string | undefined>()
+      expectTypeOf(sourceContext.key).toEqualTypeOf<string>()
+      expectTypeOf(workspace.name).toEqualTypeOf<string>()
+      if (!selectedWorkspaceScope) return null
+      const customer = invocation.context.get<{ customers: string[] }>("support.customerScope")?.customers[0]
+      if (!customer) return false
+      return {
+        body: { customer },
+        method: "POST",
+        request: {
+          headers: { "x-workspace": workspace.name },
+        },
+        transform(data) {
+          expectTypeOf(data.status).toEqualTypeOf<string>()
+          return { ok: data.status === "ok" }
+        },
+        url: `https://status.example.com/api/${sourceContext.key}`,
+      }
+    })
     source.mcpResources({
       instructions: "Use for MCP resource docs.",
       mount: "nuxt",
