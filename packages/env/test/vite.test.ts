@@ -13,7 +13,7 @@ import { booleanSchema, stringSchema } from "./helpers.ts"
 describe("Vite plugin", () => {
   it("loads Vite env, validates build values, injects define, and serves virtual config", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-"))
-    await writeFile(join(root, "package.json"), JSON.stringify({ version: "1.2.3" }), "utf8")
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "quiver-chat", version: "1.2.3" }), "utf8")
     await writeFile(join(root, ".env.production"), "PUBLIC_APP_NAME=Quiver\nDEFINE_SENTRY_DEBUG=true\n", "utf8")
     await mkdir(join(root, ".vitehub", "env"), { recursive: true })
     await writeFile(join(root, ".vitehub", "env", "vite.d.ts"), "stale env generated types\n", "utf8")
@@ -37,6 +37,41 @@ describe("Vite plugin", () => {
             mode: "build",
             schema: booleanSchema(),
           }),
+          __QUIVER_DEPLOYMENT_INFO__: {
+            app: {
+              name: env({
+                mode: "build",
+                schema: stringSchema(),
+                source: env.packageJson("name"),
+              }),
+              version: env({
+                mode: "build",
+                schema: stringSchema(),
+                source: env.packageJson("version"),
+              }),
+            },
+            build: {
+              timestamp: env({
+                mode: "build",
+                schema: stringSchema(),
+                source: env.buildTimestamp(),
+              }),
+            },
+            git: {
+              sha: env({
+                mode: "build",
+                schema: stringSchema(),
+                source: env.custom("git:sha", () => "abc123"),
+              }),
+              tag: env({
+                mode: "build",
+                optional: true,
+                schema: stringSchema(),
+                source: env.gitTag(),
+              }),
+            },
+            hosting: "vercel",
+          },
         },
         public: {
           appName: env({
@@ -69,6 +104,19 @@ describe("Vite plugin", () => {
         __SENTRY_DEBUG__: JSON.stringify(true),
       },
     })
+    const deploymentInfo = JSON.parse((result as { define: Record<string, string> }).define.__QUIVER_DEPLOYMENT_INFO__)
+    expect(deploymentInfo).toMatchObject({
+      app: {
+        name: "quiver-chat",
+        version: "1.2.3",
+      },
+      git: {
+        sha: "abc123",
+      },
+      hosting: "vercel",
+    })
+    expect(deploymentInfo.git).not.toHaveProperty("tag")
+    expect(typeof deploymentInfo.build.timestamp).toBe("string")
     expect(createEnvImportAliases({ projectRoot: root })).toEqual({
       "#vitehub/env/public": join(root, ".vitehub", "env", "public.mjs"),
       "#vitehub/env/server": join(root, ".vitehub", "env", "server.mjs"),
@@ -127,7 +175,7 @@ describe("Vite plugin", () => {
     expect(types).toContain("\"appType\": \"SingleTenant\"")
     expect(types).toContain("usePublicEnv(): PublicEnv")
     expect(types).toContain("useServerEnv(event?: unknown): ServerEnv")
-    expect(types).not.toContain("runWithServerEnv")
+    expect(types).toContain("runWithServerEnv")
     expect(types).not.toContain("import(\"@vite-hub/env/secret\")")
     expect(types).not.toContain("serverEnv")
     expect(types).not.toContain("buildConfig")
@@ -142,7 +190,7 @@ describe("Vite plugin", () => {
     expect(serverModuleTypes).toContain("export interface ServerEnv")
     expect(serverModuleTypes).toContain("\"airtableToken\": SecretEnv<string>")
     expect(serverModuleTypes).toContain("export function useServerEnv(event?: unknown): ServerEnv")
-    expect(serverModuleTypes).not.toContain("runWithServerEnv")
+    expect(serverModuleTypes).toContain("runWithServerEnv")
 
     const loadHook = plugin.load as (id: string) => string | undefined
     const loaded = loadHook("\0#vitehub/env/public")
@@ -159,7 +207,32 @@ describe("Vite plugin", () => {
     expect(serverLoaded).not.toContain("SERVER_OPTIONAL_TOKEN")
     expect(serverLoaded).not.toContain("serverEnv")
     expect(serverLoaded).toContain("useServerEnv")
-    expect(serverLoaded).not.toContain("runWithServerEnv")
+    expect(serverLoaded).toContain("runWithServerEnv")
+  })
+
+  it("does not read package metadata unless packageJson is declared", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-no-package-json-"))
+    await writeFile(join(root, ".env.production"), "DEFINE_SENTRY_DEBUG=true\n", "utf8")
+
+    const plugin = hubEnv()
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+    const result = await configHook({
+      env: {
+        define: {
+          __SENTRY_DEBUG__: env({
+            mode: "build",
+            schema: booleanSchema(),
+          }),
+        },
+      },
+      root,
+    }, { command: "build", mode: "production" })
+
+    expect(result).toMatchObject({
+      define: {
+        __SENTRY_DEBUG__: JSON.stringify(true),
+      },
+    })
   })
 
   it("applies prefixes to inferred Vite env names", async () => {
@@ -288,7 +361,7 @@ describe("Vite plugin", () => {
     await expect(readFile(join(root, "app", ".vitehub", "types", "env.d.ts"), "utf8")).rejects.toThrow()
   })
 
-  it("resolves Server Env from runtime carriers and active Cloudflare env", () => {
+  it("resolves Server Env from runtime carriers and active Cloudflare env", async () => {
     const registry = createRuntimeRegistry({
       airtableToken: env({ secret: true }),
       optionalToken: env({ optional: true, secret: true }),

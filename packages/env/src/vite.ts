@@ -17,7 +17,7 @@ import { loadEnv } from "vite"
 
 import { formatDiagnostics } from "./core/diagnostics.ts"
 import { env } from "./core/declarations.ts"
-import { createRuntimeRegistry, createSourceContext, resolveEnvEntries, validateEnvConfigShape } from "./core/resolve.ts"
+import { createRuntimeRegistry, createSourceContext, resolveBuildConfig, resolveEnvEntries, validateEnvConfigShape } from "./core/resolve.ts"
 
 import type {
   EnvIntegrationOptions,
@@ -94,7 +94,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         section: "env.public",
         timing: "Vite config/dev/build",
       })
-      const defineResult = await resolveEnvEntries(envConfig.define, {
+      const defineResult = await resolveBuildConfig(envConfig.define, {
         context,
         exposure: "compile-time replacement",
         prefix: options.prefix,
@@ -110,7 +110,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
 
       return {
         define: {
-          ...Object.fromEntries(defineResult.entries.map(entry => [entry.key, JSON.stringify(entry.value)])),
+          ...Object.fromEntries(Object.entries(defineResult.values).map(([key, value]) => [key, JSON.stringify(value)])),
           ...config.define,
         },
       }
@@ -190,6 +190,7 @@ function createServerEnvModule(serverRegistry: EnvRuntimeRegistry): string {
     "import { resolveServerEnv } from '@vite-hub/env/server';",
     `const registry = ${JSON.stringify(serverRegistry, null, 2)};`,
     "export function useServerEnv(event) { return resolveServerEnv(registry, event); }",
+    "export async function runWithServerEnv(event, callback) { return await callback(useServerEnv(event)); }",
     "",
   ].join("\n")
 }
@@ -202,6 +203,7 @@ function createServerEnvModuleTypes(serverRegistry: EnvRuntimeRegistry): string 
     ...createServerTypeFields(serverRegistry, 2),
     "}",
     "export function useServerEnv(event?: unknown): ServerEnv",
+    "export function runWithServerEnv<T>(event: unknown, callback: (env: ServerEnv) => T | Promise<T>): Promise<T>",
     "",
   ].join("\n")
 }
@@ -221,6 +223,7 @@ function createViteTypes(publicConfig: Record<string, unknown>, serverRegistry: 
     ...createServerTypeFields(serverRegistry, 4),
     "  }",
     "  export function useServerEnv(event?: unknown): ServerEnv",
+    "  export function runWithServerEnv<T>(event: unknown, callback: (env: ServerEnv) => T | Promise<T>): Promise<T>",
     "}",
     "export {}",
     "",

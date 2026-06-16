@@ -16,6 +16,10 @@ _Avoid_: Process env read, config property
 Environment values resolved for Vite build and transform usage.
 _Avoid_: Runtime secret, server config
 
+**Build Metadata Source**:
+An explicit Build Env source for package metadata, git metadata, or build timestamps declared in Env Package config.
+_Avoid_: Automatic app metadata, package defaults, deployment globals
+
 **Runtime Env**:
 Environment values resolved for server runtime usage.
 _Avoid_: Public build value, compile-time define, runtime config
@@ -27,6 +31,10 @@ _Avoid_: Safe runtime config, app config
 **Generated Server Env Type**:
 The build-generated TypeScript shape of Server Env declarations, including required, optional, and Secret Env fields.
 _Avoid_: Handwritten runtime config, adapter config type
+
+**Generated Server Env Module**:
+The Env Package-owned generated runtime module behind `#vitehub/env/server`, including Server Env helpers for server runtimes.
+_Avoid_: Downstream generated glue, app-owned env shim, Nitro env file
 
 **Public Env**:
 Build Env values intentionally exposed to browser-safe application code.
@@ -52,12 +60,14 @@ _Avoid_: Leak prevention, DLP, log scanning
 
 - The **Env Package** owns **Env Declarations**.
 - **Build Env** belongs to Vite integration.
+- A **Build Metadata Source** is read only when declared by Env Package config.
 - **Runtime Env** belongs to Env Package server runtime behavior.
 - **Runtime Env** is the Env Package's primary language for server runtime values; runtime config is integration language, not the public Env API name.
 - **Server Env** is the public API naming pattern for server-code access to **Runtime Env**.
 - **Generated Server Env Type** is the preferred source for Agent Runtime Config types when an app uses Env Package declarations.
 - **Public Env** is the public API naming pattern for build-time public values.
 - Generated env access should use stable `#vitehub/env/*` import paths instead of exposing integration-specific virtual module names.
+- The Env Package owns the **Generated Server Env Module**; downstream apps should not need local Vite plugins to generate that stable import path.
 - Agent and Chat callbacks should use **Server Env** for app-owned Runtime Env instead of receiving those values through callback runtime config.
 - A **Secret Env** is a Runtime Env value.
 - A **Secret Env** is not interchangeable with its underlying value.

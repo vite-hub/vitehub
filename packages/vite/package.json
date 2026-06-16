@@ -1,0 +1,62 @@
+{
+  "name": "@vite-hub/vite",
+  "version": "0.0.1",
+  "description": "Preset Vite integration for ViteHub primitives.",
+  "keywords": [
+    "vite",
+    "vitehub"
+  ],
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/vite"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "test": "vp run -t @vite-hub/vite#build && vp test"
+  },
+  "dependencies": {
+    "@vite-hub/agent": "workspace:*",
+    "@vite-hub/database": "workspace:*",
+    "@vite-hub/devtools": "workspace:*",
+    "@vite-hub/env": "workspace:*",
+    "@vite-hub/workflow": "workspace:*",
+    "@vite-hub/workspace": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
+  },
+  "peerDependencies": {
+    "vite": "catalog:vite-compat"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "forceConsistentCasingInFileNames": true,
+    "rootDir": "..",
+    "baseUrl": "../..",
+    "paths": {
+      "@vite-hub/agent": [
+        "packages/agent/src/index.ts"
+      ],
+      "@vite-hub/agent/*": [
+        "packages/agent/src/*"
+      ],
+      "@vite-hub/database": [
+        "packages/database/src/index.ts"
+      ],
+      "@vite-hub/database/*": [
+        "packages/database/src/*"
+      ],
+      "@vite-hub/devtools": [
+        "packages/devtools/src/index.ts"
+      ],
+      "@vite-hub/env": [
+        "packages/env/src/index.ts"
+      ],
+      "@vite-hub/env/*": [
+        "packages/env/src/*"
+      ],
+      "@vite-hub/workflow": [
+        "packages/workflow/src/index.ts"
+      ],
+      "@vite-hub/workflow/*": [
+        "packages/workflow/src/*"
+      ],
+      "@vite-hub/workspace": [
+        "packages/workspace/src/index.ts"
+      ],
+      "@vite-hub/workspace/*": [
+        "packages/workspace/src/*"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "test/**/*.test-d.ts"
+  ],
+  "exclude": [
+    "dist",
+    "examples",
+    "node_modules"
+  ]
+}

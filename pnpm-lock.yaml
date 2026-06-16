@@ -1014,6 +1014,46 @@ importers:
         specifier: npm:@voidzero-dev/vite-plus-test@0.1.24
         version: '@voidzero-dev/vite-plus-test@0.1.24(@opentelemetry/api@1.9.0)(@types/node@24.13.2)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.7.0)(publint@0.3.21)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(unrun@0.2.36)(vite@8.0.16)(yaml@2.9.0)'
 
+  packages/vite:
+    dependencies:
+      '@vite-hub/agent':
+        specifier: workspace:*
+        version: link:../agent
+      '@vite-hub/database':
+        specifier: workspace:*
+        version: link:../database
+      '@vite-hub/devtools':
+        specifier: workspace:*
+        version: link:../devtools
+      '@vite-hub/env':
+        specifier: workspace:*
+        version: link:../env
+      '@vite-hub/workflow':
+        specifier: workspace:*
+        version: link:../workflow
+      '@vite-hub/workspace':
+        specifier: workspace:*
+        version: link:../workspace
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.1.24
+        version: '@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.6.0)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.7.0)(publint@0.3.21)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(unrun@0.2.36)(yaml@2.9.0)'
+    devDependencies:
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.13.2
+      publint:
+        specifier: catalog:tooling
+        version: 0.3.21
+      typescript:
+        specifier: catalog:tooling
+        version: 6.0.2
+      vite-plus:
+        specifier: catalog:tooling
+        version: 0.1.24(@opentelemetry/api@1.9.0)(@types/node@24.13.2)(@vitejs/devtools@0.1.19)(@voidzero-dev/vite-plus-core@0.1.24)(esbuild@0.28.0)(jiti@2.7.0)(publint@0.3.21)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(unrun@0.2.36)(yaml@2.9.0)
+      vitest:
+        specifier: npm:@voidzero-dev/vite-plus-test@0.1.24
+        version: '@voidzero-dev/vite-plus-test@0.1.24(@opentelemetry/api@1.9.0)(@types/node@24.13.2)(@vitejs/devtools@0.1.19)(esbuild@0.28.0)(jiti@2.7.0)(publint@0.3.21)(terser@5.46.1)(tsx@4.21.0)(typescript@6.0.2)(unrun@0.2.36)(vite@8.0.16)(yaml@2.9.0)'
+
   packages/workflow:
     dependencies:
       '@vercel/functions':
