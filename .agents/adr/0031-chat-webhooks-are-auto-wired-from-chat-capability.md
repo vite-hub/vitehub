@@ -4,7 +4,7 @@ ViteHub automatically exposes platform chat webhook routes for discovered Agent 
 
 This ADR predates Chat Platform Public Configuration. The long-term public shape should use `chat({ platforms, state, ... })`, while Chat Platform Adapters remain implementation objects behind each configured platform.
 
-The Agent Package generates a Chat Webhook Route such as `/api/_vitehub/agents/:agent/chat/:platform`. At request time, the Chat Webhook Handler resolves the discovered Agent, reads its Chat Capability options, resolves the Chat Platform Callback, invokes the matching ChatSDK platform adapter webhook, and dispatches the event through the resolved `chat.message` Agent Trigger.
+The Agent Package generates a Chat Webhook Route such as `/api/_vitehub/agents/:agent/webhooks/:webhook`. At request time, the Chat Webhook Handler resolves the discovered Agent, reads its Chat Capability options, resolves the Chat Platform Callback, invokes the matching ChatSDK platform adapter webhook, and dispatches the event through the resolved `chat.message` Agent Trigger.
 
 ## Considered Options
 

@@ -407,6 +407,13 @@ describe("server helpers", () => {
     const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
     const adapter = createTestChatAdapter()
     const admitChat = vi.fn(({ invoker }) => invoker?.id === "customer:acme")
+    const invokerResolve = vi.fn(({ defaultInvoker }) => {
+      return {
+        id: "customer:acme",
+        kind: "customer",
+        meta: defaultInvoker.meta,
+      }
+    })
     const run = vi.fn(({ messages }) => {
       const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
       return {
@@ -446,13 +453,7 @@ describe("server helpers", () => {
         }),
       ],
       invoker: {
-        resolve({ defaultInvoker }) {
-          return {
-            id: "customer:acme",
-            kind: "customer",
-            meta: defaultInvoker.meta,
-          }
-        },
+        resolve: invokerResolve,
       },
       run,
     })
@@ -479,6 +480,7 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "echo: hello" })
     expect(adapter.postMessage).toHaveBeenCalledTimes(1)
     expect(adapter.editMessage).not.toHaveBeenCalled()
+    expect(invokerResolve).toHaveBeenCalledOnce()
     expect(admitChat).toHaveBeenCalledWith(expect.objectContaining({
       invoker: expect.objectContaining({
         id: "customer:acme",

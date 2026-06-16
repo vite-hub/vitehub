@@ -8,7 +8,7 @@ import { getAccessCapabilityOptions } from "./capabilities/access.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "./chat-trigger.ts"
 import { uiMessagesToAgentMessages } from "./chat-message-input.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
-import { resolveAgentInvoker } from "./invoker.ts"
+import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "./invoker.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
 import { toHttpErrorResponse } from "./http-error.ts"
 
@@ -882,7 +882,7 @@ async function isChatMessageAuthorized(
   input: AgentRunInput,
   run: AgentRunMetadata | undefined,
   messageContext?: MessageContext,
-): Promise<boolean> {
+): Promise<AgentInvoker | undefined> {
   const invocationContext = createAgentInvocationContextStore(input.context)
   const invoker = await resolveAgentInvoker(
     (agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined)?.invoker,
@@ -901,9 +901,9 @@ async function isChatMessageAuthorized(
       request: context.request,
       webhook: registration,
     })
-    if (result === false) return false
+    if (result === false) return
   }
-  return true
+  return invoker
 }
 
 async function handleChatSdkMessage(
@@ -923,7 +923,8 @@ async function handleChatSdkMessage(
     const firstMessage = input.messages[0]
     if (!firstMessage || !Array.isArray(firstMessage.parts) || firstMessage.parts.length === 0) return
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
-    if (!await isChatMessageAuthorized(agent, context, registration, thread, message, invocation.input as AgentRunInput, invocation.run, messageContext)) return
+    const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, invocation.input as AgentRunInput, invocation.run, messageContext)
+    if (!invoker) return
 
     typing = options?.stream !== false ? startChatTypingRefresh(thread, context) : undefined
     run = invocation.run
@@ -932,7 +933,7 @@ async function handleChatSdkMessage(
       ...(invocation.run ? { run: invocation.run } : {}),
     }
     const chatFinish = createChatFinishExtension(input, registration)
-    const invocationInput = withChatFinishExtension(invocation.input as AgentRunInput, chatFinish)
+    const invocationInput = withChatFinishExtension(withResolvedAgentInvokerInput(invocation.input as AgentRunInput, invoker), chatFinish)
     if (options?.stream === false) {
       const result = await runAgentInline(agent as never, runContext as never, invocationInput as never)
       const text = await collectAgentOutput(result)

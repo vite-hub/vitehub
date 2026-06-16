@@ -10,6 +10,7 @@ import type {
 } from "./types.ts"
 
 export const agentInvokerContextKey = "invoker"
+const resolvedAgentInvokerInputKey = Symbol.for("vitehub.resolvedAgentInvokerInput")
 
 export function defineAgentInvoker<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -143,6 +144,20 @@ export function ensureAgentInvokerContext(
   context.set(agentInvokerContextKey, invoker, { overwrite: true })
 }
 
+export function withResolvedAgentInvokerInput<CALL_OPTIONS>(
+  input: AgentRunInput<CALL_OPTIONS>,
+  invoker: AgentInvoker,
+): AgentRunInput<CALL_OPTIONS> {
+  return {
+    ...input,
+    context: {
+      ...(input.context || {}),
+      [agentInvokerContextKey]: invoker,
+      [resolvedAgentInvokerInputKey]: true,
+    },
+  }
+}
+
 function selectedProfileId(inputContext: object | undefined): string | undefined {
   const context = contextRecord(inputContext)
   for (const key of profileSelectorKeys) {
@@ -183,6 +198,10 @@ export async function resolveAgentInvoker<
   const normalizedOptions = normalizeAgentInvokerOptions(options)
   const profiles = normalizedOptions?.profiles || []
   const requestedInvoker = resolveInputAgentInvoker(input.context)
+  if (requestedInvoker && (input.context as { [resolvedAgentInvokerInputKey]?: unknown } | undefined)?.[resolvedAgentInvokerInputKey] === true) {
+    ensureAgentInvokerContext(invocationContext, requestedInvoker)
+    return requestedInvoker
+  }
   const defaultInvoker = requestedInvoker || createFallbackAgentInvoker(run)
   const selectedProfile = selectAgentInvokerProfile(profiles, input.context)
   const selectedInvoker = selectedProfile && defaultInvoker.meta
