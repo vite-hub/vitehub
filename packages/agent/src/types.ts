@@ -681,7 +681,6 @@ export interface AgentModuleOptions {
   imports?: boolean
   integrations?: AgentIntegrationsOptions
   providers?: AgentProvidersOptions
-  route?: boolean | string
   runtime?: AgentRuntime
   webhooks?: boolean | string
 }
@@ -695,7 +694,6 @@ export interface ResolvedAgentModuleOptions {
     scheduler: Required<AgentSchedulerProviderOptions>
     state: ResolvedAgentStateProviderOptions
   }
-  route: false | string
   runtime: AgentRuntime
   webhooks: false | string
 }

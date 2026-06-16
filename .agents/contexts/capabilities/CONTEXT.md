@@ -29,7 +29,7 @@ A Capability-owned contribution that may feed the active Agent Driver, such as m
 _Avoid_: Raw tool, root instructions, implicit harness prompt, dynamic Capability
 
 **Entry Capability**:
-A small official Capability created by `entry()` that lets an Agent receive app-owned product events through Capability Trigger Contributions and trusted Chat App Route exposure.
+A small official Capability created by `entry()` that lets an Agent receive app-owned product events through Capability Trigger Contributions.
 _Avoid_: Chat App Capability, route helper, trigger helper
 
 **Capability Requirement**:
@@ -215,7 +215,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A harness-backed **Agent Driver** receives only explicitly supported harness-compatible **Capability Driver Contributions**; model-facing prompt and tool assumptions must not be silently passed into the harness.
 - A custom-run-backed **Agent Driver** receives prepared invocation context and Capability runtime effects; custom `run` code decides which Capability outputs to consume.
 - An **Entry Capability** is the official small helper for app-owned product events when a full product-specific Capability has not earned a name yet.
-- An **Entry Capability** may expose a trusted Chat App Route origin without adding app-route fields to Chat Capability options.
+- An **Entry Capability** should stay focused on app-owned product event triggers and should not expose served chat routes.
 - The **Access Capability** may contribute **Workspace Scope Instructions** from a static Workspace Scope or Workspace Scope Resolver result.
 - **Workspace Scope Instructions** are developer-authored Capability Driver Contributions; they do not grant access or make the Selected Workspace Scope model-facing by default.
 - A **Prompt Template** belongs to the Capability that renders it and should expose only the **Prompt Template Variables** that are stable for that Capability.
@@ -241,7 +241,6 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A **Chat Capability** owns Chat History behavior for the current stack.
 - A **Chat Capability** may declare **Chat Platform Adapters** through a **Chat Adapter Callback**.
 - A **Chat Capability** carries trusted Chat Capability origins from its Chat Platform Adapter names.
-- An **Entry Capability** carries trusted Chat Capability origins from its Chat App Route origin and a linked Chat Capability's Chat Platform Adapter names.
 - A **Chat Capability** can provide a platform-scoped Agent Invoker default for Chat Platform Adapter messages when trusted chat identity is available.
 - A **Chat Platform Adapter** may come from a **Chat Adapter Package** that remains an explicit optional application dependency.
 - The Agent Package should not generate exports for every **Chat Adapter Package**.
@@ -386,9 +385,9 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - Multiple route or gate decisions writing the same context key were considered for priority or merging - resolved: **Pre-Invocation Decision** ids are unique per Agent, with duplicate ids failing early.
 - Dynamic Capability activation through route decisions was considered - resolved: Pre-Invocation Decisions can influence conditional contributions but must not attach, remove, or grant **Capabilities** at runtime.
 - A generic `decisionPolicy()` helper and request-refinement Capability were considered - resolved: defer them until **LLM Route Capability**, **LLM Gate Capability**, and Chat Sessions prove the internal primitive.
-- App-level rate-limit middleware was considered for agent chat routes - resolved: use a **Rate Limit Capability** so invocation budgets compose through Agent Definitions and can run before model execution on every Agent Invocation path.
+- App-level rate-limit middleware was considered for agent chat entry points - resolved: use a **Rate Limit Capability** so invocation budgets compose through Agent Definitions and can run before model execution on every Agent Invocation path.
 - Plain KV `get`/`set` counters were considered for **Rate Limit Capability** storage - resolved: rate limiting needs an explicit consume contract because distributed enforcement depends on atomic store behavior.
-- Client-provided Chat App Route user/run fields were considered for **Rate Limit Capability** defaults - resolved: do not trust them as budget identity; official chat triggers should produce an Agent Invoker from trusted server-side inputs.
+- Client-provided app-route user/run fields were considered for **Rate Limit Capability** defaults - resolved: do not trust them as budget identity; official chat triggers should produce an Agent Invoker from trusted server-side inputs.
 - Forwarded request headers were considered for default IP identity - resolved: require explicit trusted header names because proxy trust is deployment-specific.
 - Exposing `hubKv` as a **Rate Limit Capability** option was considered - resolved: keep `store` as the Rate Limit Store boundary and let provider-specific KV handles live inside adapters or future helpers.
 - Weighted rate-limit costs were considered for the first version - resolved: use one Agent Invocation as the budget unit and defer token, cost, and usage quotas until Agent Usage requirements prove the shape.
