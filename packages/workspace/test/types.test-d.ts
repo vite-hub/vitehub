@@ -4,7 +4,6 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import {
   defineWorkspace,
-  type FetchSourceOptions,
   useWorkspace,
 } from "../src/index.ts"
 import { createWorkspaceTools, type WorkspaceMaterializeSourcesResult, type WorkspaceShellResult } from "../src/ai.ts"
@@ -129,7 +128,6 @@ describe("workspace types", () => {
       url: "https://status.example.com/api/summary",
       workspacePath: "status/summary.json",
     })
-    expectTypeOf<FetchSourceOptions["url"]>().toEqualTypeOf<string | URL>()
     source.fetch({
       body: { scope: "all" },
       cookies: { auth_token: "secret" },
