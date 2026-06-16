@@ -117,12 +117,12 @@ describe("agent Vite plugin", () => {
 
   it("exposes hubAgent options through Vite config", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent({ webhooks: true })
+    const plugin = hubAgent({ routes: { chat: true } })
     const result = typeof plugin.config === "function"
       ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
       : undefined
 
-    expect(result).toMatchObject({ agent: { webhooks: true } })
+    expect(result).toMatchObject({ agent: { routes: { chat: true } } })
   })
 
   it("materializes the MCP runtime package for Vercel build output", async () => {
@@ -144,30 +144,41 @@ describe("agent Vite plugin", () => {
 
   it("registers configured agent webhook routes with Nitro", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent({ webhooks: true })
+    const plugin = hubAgent({ routes: { webhooks: true } })
     const result = typeof plugin.config === "function"
       ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
       : undefined
 
     expect(result).toMatchObject({
       nitro: {
-        handlers: [
-          {
-            handler: ".vitehub/agent/chat-webhook-route.ts",
-            route: "/api/_vitehub/agents/:agent/chat",
-          },
-          {
-            handler: ".vitehub/agent/chat-webhook-route.ts",
-            route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
-          },
-        ],
+        handlers: [{
+          handler: ".vitehub/agent/chat-webhook-route.ts",
+          route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
+        }],
+      },
+    })
+  })
+
+  it("registers configured agent chat routes with Nitro", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ routes: { chat: true } })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
+      : undefined
+
+    expect(result).toMatchObject({
+      nitro: {
+        handlers: [{
+          handler: ".vitehub/agent/chat-webhook-route.ts",
+          route: "/api/_vitehub/agents/:agent/chat",
+        }],
       },
     })
   })
 
   it("installs Cloudflare chat state bindings for generated webhook routes", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent({ webhooks: true })
+    const plugin = hubAgent({ routes: { webhooks: true } })
     const result = typeof plugin.config === "function"
       ? await plugin.config.call({} as never, {
           build: {
@@ -221,7 +232,7 @@ describe("agent Vite plugin", () => {
 
   it("keeps Cloudflare chat state opt-out when the state provider is memory", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent({ providers: { state: { provider: "memory" } }, webhooks: true })
+    const plugin = hubAgent({ providers: { state: { provider: "memory" } }, routes: { chat: true, webhooks: true } })
     const result = typeof plugin.config === "function"
       ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
       : undefined
@@ -251,7 +262,7 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-routes-"))
     try {
-      const plugin = hubAgent({ webhooks: true })
+      const plugin = hubAgent({ routes: { chat: true, webhooks: true } })
       if (typeof plugin.configResolved === "function") {
         await plugin.configResolved.call({} as never, { root } as never)
       }
@@ -263,9 +274,12 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("async function toRequest(event)")
       expect(webhookRoute).toContain("function waitUntilFromEvent(event)")
       expect(webhookRoute).toContain("function chatStateFromCloudflare(cloudflare)")
+      expect(webhookRoute).toContain("function resolveChatRouteOptions(module)")
       expect(webhookRoute).toContain("waitUntil: waitUntilFromEvent(event)")
       expect(webhookRoute).toContain("state: chatStateFromCloudflare(cloudflare)")
+      expect(webhookRoute).toContain("const agentModules")
       expect(webhookRoute).toContain("const chatHandlers")
+      expect(webhookRoute).toContain("defineAgentChatFetchHandler(agent, resolveChatRouteOptions(agentModules[name]))")
       expect(webhookRoute).toContain("const webhookHandlers")
       expect(webhookRoute).toContain("return webhook ? await handler(await toRequest(event), webhook")
     }
@@ -516,6 +530,62 @@ describe("server helpers", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: "Agent chat route identity must be derived server-side with defineAgent({ invoker }).",
     })
+  })
+
+  it("maps trusted AI SDK chat route input before invoking the chat trigger", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatFetchHandler } = await import("../src/server.ts")
+    const run = vi.fn(({ context, invoker, run }) => {
+      const chatContext = context.get("chat") as { meta?: { audience?: string }, user?: { email?: string } } | undefined
+      return `portal ${run.origin} ${invoker.id} ${invoker.meta.scope} ${chatContext?.user?.email} ${chatContext?.meta?.audience}`
+    })
+    const handler = defineAgentChatFetchHandler(defineAgent({
+      capabilities: [chat()],
+      invoker: {
+        profiles: [{
+          id: "customer:acme",
+          kind: "customerPortal",
+          meta: { scope: "acme" },
+        }],
+      },
+      run,
+    }) as never, {
+      mapInput({ body, request }) {
+        if (request.headers.get("x-quiver-chat-token") !== "trusted") {
+          throw new Error("Invalid Quiver Chat token.")
+        }
+        return {
+          invokerProfileId: "customer:acme",
+          meta: body.meta as Record<string, unknown>,
+          run: body.run as never,
+          user: body.user as Record<string, unknown>,
+        }
+      },
+    })
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+        meta: { audience: "technical", customer: "acme", source: "portal" },
+        run: { origin: "portal" },
+        user: { email: "user@example.com" },
+      }),
+      headers: {
+        "content-type": "application/json",
+        "x-quiver-chat-token": "trusted",
+      },
+      method: "POST",
+    }), { agentName: "support" })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
+    await expect(response.text()).resolves.toContain("portal portal customer:acme acme user@example.com technical")
+    expect(run).toHaveBeenCalled()
   })
 
   it("handles Chat SDK webhooks through the chat capability", async () => {

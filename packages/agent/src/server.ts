@@ -30,6 +30,7 @@ import type {
   AgentRuntimeName,
   AgentWaitUntil,
   AgentWebhookRegistrationDefinition,
+  MaybePromise,
   MaybeResolvable,
 } from "./types.ts"
 import type { AudioData, MessagePart } from "./messages.ts"
@@ -75,6 +76,17 @@ export interface AgentChatWebhookFetchOptions extends AgentRouteRuntimeOptions {
 
 export interface AgentChatFetchOptions extends AgentRouteRuntimeOptions {
   agentName?: string
+}
+
+export interface AgentChatFetchMapInputContext {
+  agentName: string
+  body: AgentChatFetchBody
+  input: AgentChatMessageTriggerInput
+  request: Request
+}
+
+export interface AgentChatFetchHandlerOptions {
+  mapInput?: (context: AgentChatFetchMapInputContext) => MaybePromise<Partial<AgentChatMessageTriggerInput> | undefined | void>
 }
 
 export interface RegisterWorkspaceAgentOptions<Name extends WorkspaceName = WorkspaceName> extends WorkspaceAgentDefaults<Name> {
@@ -1004,11 +1016,15 @@ type AgentChatDevtoolsAction = "clear" | "get-state" | "materialize-source" | "s
 type CreateUIMessageStreamResponse = typeof import("ai").createUIMessageStreamResponse
 type ReadUIMessageStream = typeof import("ai").readUIMessageStream
 
-type AgentChatFetchBody = {
+export type AgentChatFetchBody = {
   history?: AgentChatMessageTriggerInput["history"]
   id?: string
+  invoker?: unknown
+  invokerProfileId?: unknown
   messageId?: string
+  meta?: unknown
   messages?: unknown
+  run?: unknown
   session?: unknown
   trigger?: string
   user?: unknown
@@ -1341,11 +1357,11 @@ function optionalBodyString(value: unknown, label: string): string | undefined {
   return trimmed || undefined
 }
 
-function agentChatFetchInput(body: AgentChatFetchBody, agentName: string): AgentChatMessageTriggerInput {
+function agentChatFetchInput(body: AgentChatFetchBody, agentName: string, allowTrustedInput = false): AgentChatMessageTriggerInput {
   if (!Array.isArray(body.messages)) {
     throw createRouteBodyError("Agent chat payload requires a messages array.")
   }
-  if ("invoker" in body || "invokerProfileId" in body || "meta" in body || "run" in body || "user" in body) {
+  if (!allowTrustedInput && ("invoker" in body || "invokerProfileId" in body || "meta" in body || "run" in body || "user" in body)) {
     throw createRouteBodyError("Agent chat route identity must be derived server-side with defineAgent({ invoker }).")
   }
   const messages = body.messages as UIMessage[]
@@ -1355,6 +1371,20 @@ function agentChatFetchInput(body: AgentChatFetchBody, agentName: string): Agent
     messages,
     run: createHttpChatRunMetadata(agentName, body, messages),
     ...(session ? { session } : {}),
+  }
+}
+
+function mergeAgentChatFetchInput(
+  input: AgentChatMessageTriggerInput,
+  patch: Partial<AgentChatMessageTriggerInput> | undefined | void,
+): AgentChatMessageTriggerInput {
+  if (patch === undefined) return input
+  if (!isRecord(patch)) throw createRouteBodyError("Agent chat route input mapper must return an object.")
+  return {
+    ...input,
+    ...patch,
+    ...(patch.run ? { run: { ...input.run, ...patch.run } } : {}),
+    ...(patch.session ? { session: { ...input.session, ...patch.session } } : {}),
   }
 }
 
@@ -1777,6 +1807,7 @@ function agentChatFetchErrorResponse(error: unknown): Response {
 
 export function defineAgentChatFetchHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  options: AgentChatFetchHandlerOptions = {},
 ): (request: Request, options?: AgentChatFetchOptions) => Promise<Response> {
   return async (request, handlerOptions = {}) => {
     if (request.method !== "POST") {
@@ -1792,7 +1823,11 @@ export function defineAgentChatFetchHandler(
         await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
         handlerOptions.cloudflare,
       )
-      const triggerInput = agentChatFetchInput(body, agentName)
+      const baseInput = agentChatFetchInput(body, agentName, Boolean(options.mapInput))
+      const triggerInput = mergeAgentChatFetchInput(
+        baseInput,
+        await options.mapInput?.({ agentName, body, input: baseInput, request }),
+      )
       const result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
         output: "ui-message-stream",
       }))
