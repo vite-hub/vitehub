@@ -62,13 +62,29 @@ export function createSourceContext(input: {
     git: {
       branch: () => gitOutput(input.rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]),
       commit: options => gitOutput(input.rootDir, options?.short ? ["rev-parse", "--short", "HEAD"] : ["rev-parse", "HEAD"]),
-      ref: () => gitOutput(input.rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]),
-      sha: options => gitOutput(input.rootDir, options?.short ? ["rev-parse", "--short", "HEAD"] : ["rev-parse", "HEAD"]),
-      tag: async () => await gitOutput(input.rootDir, ["describe", "--tags", "--exact-match", "HEAD"]).catch(() => undefined),
+      ref: async () => envValue(input.env, ["GIT_REF_NAME", "GITHUB_REF_NAME"]) ?? await gitOutput(input.rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]),
+      sha: async options => {
+        const value = envValue(input.env, ["GIT_SHA", "GITHUB_SHA"])
+        if (value) return options?.short ? value.slice(0, 7) : value
+        return gitOutput(input.rootDir, options?.short ? ["rev-parse", "--short", "HEAD"] : ["rev-parse", "HEAD"])
+      },
+      tag: async () => {
+        const tag = envValue(input.env, ["GIT_TAG"])
+        if (tag) return tag
+        if (input.env.GITHUB_REF_TYPE === "tag") return envValue(input.env, ["GITHUB_REF_NAME"])
+        return await gitOutput(input.rootDir, ["describe", "--tags", "--exact-match", "HEAD"]).catch(() => undefined)
+      },
     },
     mode: input.mode,
     packageJson: () => readPackageJson(input.rootDir),
     rootDir: input.rootDir,
+  }
+}
+
+function envValue(env: Record<string, string | undefined>, names: string[]): string | undefined {
+  for (const name of names) {
+    const value = env[name]
+    if (value) return value
   }
 }
 
