@@ -56,7 +56,7 @@ describe("hubDb", () => {
       databaseNames: ["default"],
       databases: {
         default: {
-          connection: { url: "file:.data/database/sqlite.db" },
+          connection: { url: "file:.vitehub/data/database/sqlite.db" },
           migrationsDir: "server/databases/migrations",
           mode: "default",
         },
@@ -65,7 +65,7 @@ describe("hubDb", () => {
     await expect(readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")).resolves.toContain("export const notes")
     await expect(readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")).resolves.toContain("server/databases/migrations")
     await expect(readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")).resolves.toContain("dbCredentials")
-    await expect(readFile(join(rootDir, ".vitehub/database/drizzle/default.config.ts"), "utf8")).resolves.toContain("file:.data/database/sqlite.db")
+    await expect(readFile(join(rootDir, ".vitehub/database/drizzle/default.config.ts"), "utf8")).resolves.toContain("file:.vitehub/data/database/sqlite.db")
   })
 
   it("writes one Drizzle config per named database migrations directory", async () => {
@@ -81,9 +81,9 @@ describe("hubDb", () => {
     const primaryConfig = await readFile(join(rootDir, ".vitehub/database/drizzle/primary.config.ts"), "utf8")
 
     expect(analyticsConfig).toContain("server/databases/analytics/migrations")
-    expect(analyticsConfig).toContain("file:.data/database/analytics.sqlite.db")
+    expect(analyticsConfig).toContain("file:.vitehub/data/database/analytics.sqlite.db")
     expect(primaryConfig).toContain("server/databases/primary/migrations")
-    expect(primaryConfig).toContain("file:.data/database/primary.sqlite.db")
+    expect(primaryConfig).toContain("file:.vitehub/data/database/primary.sqlite.db")
   })
 
   it("keeps env-sourced Drizzle credentials as runtime expressions", async () => {

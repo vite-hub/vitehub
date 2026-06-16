@@ -27,8 +27,8 @@ describe("database config values", () => {
     expect(renderConfigValueExpression(createRuntimeEnvConfigValue([
       "VITEHUB_PRIMARY_DATABASE_URL",
       "VITEHUB_FALLBACK_DATABASE_URL",
-    ], "file:.data/database/sqlite.db"))).toBe(
-      'process.env["VITEHUB_PRIMARY_DATABASE_URL"] || process.env["VITEHUB_FALLBACK_DATABASE_URL"] || "file:.data/database/sqlite.db"',
+    ], "file:.vitehub/data/database/sqlite.db"))).toBe(
+      'process.env["VITEHUB_PRIMARY_DATABASE_URL"] || process.env["VITEHUB_FALLBACK_DATABASE_URL"] || "file:.vitehub/data/database/sqlite.db"',
     )
   })
 })

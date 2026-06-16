@@ -713,13 +713,17 @@ describe("workflow runtime", () => {
     })
   })
 
-  it("requires storage for the OpenWorkflow provider", async () => {
+  it("uses local SQLite storage for the OpenWorkflow provider by default", async () => {
     setWorkflowRuntimeConfig({ provider: "openworkflow" })
     setWorkflowRuntimeRegistry({
       welcome: async () => ({ default: { handler: async () => ({ ok: true }) } }),
     })
 
-    await expect(runWorkflow("welcome", {})).rejects.toThrow(/Missing OpenWorkflow storage/)
+    await runWorkflow("welcome", {})
+
+    expect(openWorkflowMock.sqliteConnect).toHaveBeenCalledWith(".vitehub/data/openworkflow.sqlite.db", {
+      namespaceId: "production",
+    })
   })
 
   it("creates an OpenWorkflow worker from the runtime registry", async () => {
