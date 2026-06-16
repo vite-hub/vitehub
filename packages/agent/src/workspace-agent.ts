@@ -61,6 +61,7 @@ import type {
 
 const defaultWorkspaceName = "workspace"
 const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"]
+const sourceRequestCommands = ["curl"]
 const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
 
 type NormalizedWorkspaceOptions = WorkspaceAgentWorkspaceOptions & { mode: AgentCapabilityMode }
@@ -190,12 +191,17 @@ function modelDriverInstructions<
   return (options as { instructions?: AgentAdapterInstructions<TRuntimeConfig, Name> }).instructions
 }
 
-function capabilityMetadataTool(capability: NormalizedCapability): AgentDevtoolsToolDefinition | undefined {
+function workspaceShellMetadataCommands(mode: AgentCapabilityMode, sourceRequests = false) {
+  const commands = mode === "write" ? writeCommands : readCommands
+  return sourceRequests ? [...commands, ...sourceRequestCommands] : commands
+}
+
+function capabilityMetadataTool(capability: NormalizedCapability, options: { sourceRequests?: boolean } = {}): AgentDevtoolsToolDefinition | undefined {
   if (capability.id === "workspace-shell") {
     const mode = normalizeMode(capability.mode, "Workspace Shell")
     return {
       category: "workspace",
-      commands: mode === "write" ? writeCommands : readCommands,
+      commands: workspaceShellMetadataCommands(mode, options.sourceRequests),
       description: mode === "write"
         ? "Run curated workspace read and write shell operations."
         : "Run curated workspace read shell operations.",
@@ -604,11 +610,40 @@ function workspaceMetadataTools<
   Name extends WorkspaceName,
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+  toolOptions: { sourceRequests?: boolean } = {},
 ): AgentDevtoolsToolDefinition[] {
   return normalizeCapabilities(options.capabilities)
-    .map(capabilityMetadataTool)
+    .map(capability => capabilityMetadataTool(capability, toolOptions))
     .filter((tool): tool is AgentDevtoolsToolDefinition => Boolean(tool))
     .sort((left, right) => left.name.localeCompare(right.name))
+}
+
+async function workspaceHasSourceRequestDescriptors<Name extends WorkspaceName>(
+  workspace: ReadonlyWorkspaceFacade<Name>,
+): Promise<boolean> {
+  try {
+    const entries = await workspace.fs.list(".vitehub/sources")
+    return entries.some(entry =>
+      entry.type === "file"
+      && entry.path.startsWith(".vitehub/sources/")
+      && entry.path.endsWith(".json"),
+    )
+  }
+  catch {
+    return false
+  }
+}
+
+async function resolveWorkspaceMetadataTools<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+  workspace: ReadonlyWorkspaceFacade<Name>,
+): Promise<AgentDevtoolsToolDefinition[]> {
+  return workspaceMetadataTools(options, {
+    sourceRequests: await workspaceHasSourceRequestDescriptors(workspace),
+  })
 }
 
 function staticCapabilityInstructionBlocks<
@@ -1079,7 +1114,7 @@ export async function resolveAgentDevtoolsMetadata<
     ),
     ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
     ...(config ? { config } : {}),
-    tools: workspaceMetadataTools(metadataWorkspace.options as never),
+    tools: await resolveWorkspaceMetadataTools(metadataWorkspace.options as never, capabilityContext.workspace as never),
   }
 }
 
@@ -1144,6 +1179,6 @@ export async function materializeAgentDevtoolsSourceMetadata<
     ),
     ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
     ...(config ? { config } : {}),
-    tools: workspaceMetadataTools(metadataWorkspace.options as never),
+    tools: await resolveWorkspaceMetadataTools(metadataWorkspace.options as never, capabilityContext.workspace as never),
   }
 }
