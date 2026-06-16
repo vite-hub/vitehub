@@ -104,10 +104,7 @@ export type {
 } from "../chat-trigger.ts"
 export type {
   AgentEntryCapabilityMetadata,
-  AgentEntryChatExposure,
-  AgentEntryChatOptions,
   AgentEntryOptions,
-  AgentEntryOptionsOrigin,
 } from "./entry.ts"
 export type {
   AgentChatAdapterResolver,

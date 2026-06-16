@@ -33,7 +33,7 @@ import {
 | Ability | Capability | Use it when |
 | --- | --- | --- |
 | Chat behavior | `chat()` | A chat surface should start Agent Invocations and manage Chat History. |
-| App entry | `entry()` | An app-owned surface should expose a trusted Chat App Route or custom Agent Trigger. |
+| App entry | `entry()` | An app-owned surface should contribute a custom Agent Trigger. |
 | Workspace files | `workspaceShell()` | The model should inspect or edit Workspace files. |
 | Storage | `kv()`, `blob()`, `db()` | The model needs scoped access to configured storage primitives. |
 | Isolated execution | `sandbox()` | The model should run explicit commands in an isolated runtime. |

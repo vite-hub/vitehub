@@ -2,7 +2,7 @@ import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflar
 import { createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import { Chat, StreamingPlan } from "chat"
 
-import { createAgentDevtoolsMetadata, materializeAgentDevtoolsSourceMetadata, resolveAgentDevtoolsMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, runAgentTrigger, streamAgent, streamAgentTrigger } from "./index.ts"
+import { createAgentDevtoolsMetadata, materializeAgentDevtoolsSourceMetadata, resolveAgentDevtoolsMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent, streamAgentTrigger } from "./index.ts"
 import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { getAccessCapabilityOptions } from "./capabilities/access.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "./chat-trigger.ts"
@@ -57,21 +57,9 @@ interface ViteAgentRouteRuntimeContext extends AgentRuntimeContext<ViteAgentRout
   runtimeConfig: ViteAgentRouteRuntimeConfig
 }
 
-export type AgentChatRouteBody = Omit<AgentChatMessageTriggerInput, "run"> & {
-  id?: string
-  messageId?: string
-  run?: Partial<AgentRunMetadata>
-  stream?: boolean
-  trigger?: string
-}
-
 interface AgentRouteRuntimeOptions {
   cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"]
   waitUntil?: AgentWaitUntil
-}
-
-export interface AgentChatRouteOptions extends AgentRouteRuntimeOptions {
-  request: Request
 }
 
 export interface AgentChatWebhookFetchOptions extends AgentRouteRuntimeOptions {
@@ -105,66 +93,14 @@ function createRouteBodyError(message: string): Error & { status?: number, statu
   return Object.assign(new Error(message), { status: 400, statusCode: 400 })
 }
 
-export function validateAgentChatRouteBody(body: unknown): AgentChatRouteBody {
-  if (typeof body !== "object" || body === null || !Array.isArray((body as AgentChatRouteBody).messages) || (body as AgentChatRouteBody).messages.length === 0) {
-    throw createRouteBodyError("Agent chat route requires messages.")
-  }
-  return body as AgentChatRouteBody
-}
-
-function chatAppRouteTriggerInput(body: AgentChatRouteBody): AgentChatMessageTriggerInput {
-  const run = normalizeChatRouteRun(body)
-  return {
-    ...(body.history !== undefined ? { history: body.history } : {}),
-    ...(body.invokerProfileId !== undefined ? { invokerProfileId: body.invokerProfileId } : {}),
-    ...(body.meta !== undefined ? { meta: body.meta } : {}),
-    messages: body.messages,
-    ...(run ? { run } : {}),
-    ...(body.session !== undefined ? { session: body.session } : {}),
-    ...(body.timeout !== undefined ? { timeout: body.timeout } : {}),
-    ...(body.user !== undefined ? { user: body.user } : {}),
-  }
-}
-
 function firstString(...values: unknown[]): string | undefined {
   return values.find((value): value is string => typeof value === "string" && value.length > 0)
-}
-
-function normalizeChatRouteRun(body: AgentChatRouteBody): AgentRunMetadata | undefined {
-  if (body.run === undefined && body.id === undefined && body.messageId === undefined) return undefined
-  const latestMessage = body.messages.at(-1)
-  const messageId = firstString(body.run?.messageId, body.messageId, latestMessage?.id)
-  const threadId = firstString(body.run?.threadId, body.id)
-  const runId = firstString(body.run?.runId, messageId, threadId)
-  if (!runId) return undefined
-  const origin = firstString(body.run?.origin) || "chat-app"
-  return {
-    ...(body.run?.channelId ? { channelId: body.run.channelId } : threadId ? { channelId: `${origin}:${threadId}` } : {}),
-    ...(messageId ? { messageId } : {}),
-    origin,
-    runId,
-    ...(threadId ? { threadId } : {}),
-  }
 }
 
 function readableStreamFromResult(value: unknown): ReadableStream<unknown> {
   if (value instanceof ReadableStream) return value
   if (value instanceof Response && value.body) return value.body
-  throw new Error("[vitehub] Agent chat route expected a UI message stream.")
-}
-
-function toJsonSafeResult(value: unknown) {
-  if (typeof value !== "object" || value === null) return value
-
-  const result = value as Record<string, unknown>
-  return {
-    finishReason: result.finishReason,
-    raw: result.raw,
-    text: result.text,
-    usage: result.usage,
-    usageRecord: result.usageRecord,
-    warnings: result.warnings,
-  }
+  throw new Error("[vitehub] Agent chat trigger expected a UI message stream.")
 }
 
 function createJsonErrorResponse(status: number, message: string): Response {
@@ -243,13 +179,6 @@ async function resolveRuntimeWaitUntil(waitUntil: AgentWaitUntil | undefined): P
   if (detectRuntime() !== "vercel") return waitUntil
   const vercel = await import("@vercel/functions").catch(() => undefined) as { waitUntil?: AgentWaitUntil } | undefined
   return vercel?.waitUntil || waitUntil
-}
-
-async function toUiMessageStreamResponse(stream: ReadableStream<unknown>): Promise<Response> {
-  const { createUIMessageStreamResponse } = await import("ai") as {
-    createUIMessageStreamResponse: (options: { stream: ReadableStream<unknown> }) => Response
-  }
-  return createUIMessageStreamResponse({ stream })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1721,36 +1650,6 @@ export function defineAgentChatDevtoolsFetchHandler(
     session: { uiMessages: [] },
   }
   return async (request, requestOptions = {}) => await handleAgentChatDevtoolsFetchRequest(agent, request, state, options, requestOptions)
-}
-
-export async function runAgentChatRoute(
-  agent: AgentInput<ViteAgentRouteRuntimeContext>,
-  body: AgentChatRouteBody,
-  options: AgentChatRouteOptions,
-): Promise<Response> {
-  const context = createRuntimeContext(
-    options.request,
-    undefined,
-    await resolveRuntimeWaitUntil(options.waitUntil),
-    options.cloudflare,
-  )
-  return await runWithRuntimeCloudflareEnv(context, async () => {
-    try {
-      const input = chatAppRouteTriggerInput(validateAgentChatRouteBody(body))
-      if (body.stream === false) {
-        const result = await runAgentTrigger(agent as never, context, "chat.message", input)
-        return Response.json(toJsonSafeResult(result))
-      }
-
-      const result = await streamAgentTrigger(agent as never, context, "chat.message", input, { output: "ui-message-stream" })
-      return await toUiMessageStreamResponse(readableStreamFromResult(result))
-    }
-    catch (error) {
-      const response = toHttpErrorResponse(error)
-      if (response) return response
-      throw error
-    }
-  })
 }
 
 export function defineAgentChatWebhookFetchHandler(
