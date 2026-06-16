@@ -449,6 +449,7 @@ describe("agent public types", () => {
     }
     const teamsAdapter = {} as AgentChatPlatformResolver
     const supportChat = chat({
+      identity: ({ adapter, author }) => `${adapter}:${author.userId}`,
       platforms: () => ({ teams: teamsAdapter }),
       transcripts: {
         maxPerUser: 50,
@@ -458,10 +459,6 @@ describe("agent public types", () => {
     chat({
       // @ts-expect-error adapters was removed; public Chat config uses platforms
       adapters: () => ({ teams: teamsAdapter }),
-    })
-    chat({
-      // @ts-expect-error chat identity was removed; use defineAgent({ invoker }) instead
-      identity: () => "teams:user",
     })
     const workspace = {
       sources: {
