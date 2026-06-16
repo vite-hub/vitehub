@@ -10,11 +10,14 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { collectWorkspaceStoreAssetBundle, syncDiscoveredWorkspaceAssetBundles, writeWorkspaceAssetsRegistry } from "../src/build/assets.ts"
 import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets } from "../src/build/integration.ts"
+import { resetWorkspaceAssetsRegistry } from "../src/asset-registry.ts"
 import { defineWorkspace, source, useWorkspace } from "../src/index.ts"
 import * as loader from "../src/loader.ts"
 import * as publish from "../src/publish.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
+import { setWorkspaceRuntimeAssetsRegistry } from "../src/runtime/state.ts"
+import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { useRegisteredWorkspace } from "../src/core/registry.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
@@ -33,6 +36,7 @@ afterEach(async () => {
   delete process.env.GITHUB_TOKEN
   delete (globalThis as { __env__?: Record<string, unknown> }).__env__
   setStorage(createMemoryStorage())
+  resetWorkspaceAssetsRegistry()
   vi.unstubAllGlobals()
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
@@ -595,6 +599,55 @@ describe("sources, loaders, and publishers", () => {
       name: "support",
     })
     expect(Buffer.from(bundles[0]!.files[0]!.content)).toEqual(Buffer.from("# Support\n"))
+  })
+
+  it("syncs explicit file sources from bundled assets when the original source root is absent", async () => {
+    const root = await createRoot()
+    const directory = join(root, "server", "agents", "support")
+    const sourceRoot = join(directory, "workspace")
+    await mkdir(sourceRoot, { recursive: true })
+    await writeFile(join(sourceRoot, "AGENTS.md"), "# Bundled Support\n")
+    await writeFile(join(directory, "config.mjs"), [
+      `import { source } from '${workspaceSourceImport}'`,
+      "export default {",
+      "  sources: { instructions: source.file('AGENTS.md') },",
+      "}",
+      "",
+    ].join("\n"))
+
+    const [bundle] = await syncDiscoveredWorkspaceAssetBundles([{
+      handler: join(directory, "config.mjs"),
+      name: "support",
+      path: join(directory, "config.mjs"),
+      source: "test",
+      sourceRootDir: sourceRoot,
+    }], root, {
+      root: join(root, ".vitehub", "workspaces"),
+      store: { provider: "memory" },
+      assets: true,
+    })
+    await rm(sourceRoot, { recursive: true, force: true })
+    setWorkspaceRuntimeAssetsRegistry({
+      support: createWorkspaceAssets(Object.fromEntries(bundle!.files.map(file => [
+        file.path,
+        {
+          load: async () => file.content,
+          mediaType: file.mediaType,
+        },
+      ]))),
+    })
+
+    const store = createMemoryWorkspaceStore()
+    await syncWorkspaceDefinition({
+      name: "support",
+      rootDir: root,
+      sourceRootDir: sourceRoot,
+      sources: { instructions: source.file("AGENTS.md") },
+    }, store)
+
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({
+      content: new TextEncoder().encode("# Bundled Support\n"),
+    })
   })
 
   it("purges stale build source files when source maps change", async () => {
