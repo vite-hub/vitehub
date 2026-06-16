@@ -8,7 +8,7 @@ import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentUsageRecord } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import { source } from "@vite-hub/workspace"
-import type { AccessWorkspaceOptionsFor, AgentChatPlatformResolver, AgentChatRunContext, FetchCapabilityToolOptions, TranscriptionResult } from "../src/capabilities.ts"
+import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatPlatformResolver, AgentChatRunContext, FetchCapabilityToolOptions, TranscriptionResult } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
@@ -130,6 +130,8 @@ describe("agent public types", () => {
       set: () => undefined,
       toJSON: () => ({}),
     }
+    expectTypeOf(invocationContext.get("access")).toEqualTypeOf<AccessInvocationContextValue | undefined>()
+    expectTypeOf(invocationContext.get("access")?.workspaceScope?.scope).toEqualTypeOf<string | undefined>()
     expectTypeOf(getTranscriptionResults(invocationContext)).toEqualTypeOf<TranscriptionResult[]>()
     expectTypeOf(getTranscriptionResults({ context: invocationContext })).toEqualTypeOf<TranscriptionResult[]>()
 
@@ -208,6 +210,7 @@ describe("agent public types", () => {
           expectTypeOf(event.extensions.get<AgentChatFinishExtension>("chat")).toEqualTypeOf<AgentChatFinishExtension | undefined>()
           expectTypeOf(event.extensions.get<TranscriptionResult[]>("transcribe")).toEqualTypeOf<TranscriptionResult[] | undefined>()
           expectTypeOf(event.extensions.get<AgentUsageRecord>("usage-telemetry")).toEqualTypeOf<AgentUsageRecord | undefined>()
+          expectTypeOf(event.extensions.get<string>("usage-telemetry", "transcription")).toEqualTypeOf<string | undefined>()
         },
       },
     })
@@ -518,6 +521,28 @@ describe("agent public types", () => {
         supportChat,
       ],
       model: {} as never,
+    })
+
+    defineAgent({
+      workspace,
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "quiver",
+            scopes: {
+              demo: { source: "docs" },
+              quiver: { all: true },
+            },
+          },
+        }),
+      ],
+      run({ context }) {
+        const accessContext = context.get("access")
+        expectTypeOf(accessContext).toMatchTypeOf<AccessInvocationContextValue<"demo" | "quiver"> | undefined>()
+        expectTypeOf(accessContext?.workspaceScope?.scope).toEqualTypeOf<"demo" | "quiver" | undefined>()
+        expectTypeOf(accessContext?.workspaceScope?.paths).toEqualTypeOf<string[] | undefined>()
+        return "ok"
+      },
     })
 
     // @ts-expect-error access source grants are checked against defineAgent({ workspace.sources })

@@ -13,6 +13,8 @@ import {
 
 import type {
   AgentCallbackContext,
+  AgentAccessInvocationContextValue,
+  AgentAccessWorkspaceScopeContext,
   AgentCapabilityDefinition,
   AgentCapabilityRuntimeContext,
   AgentCapabilityTypeContract,
@@ -44,8 +46,12 @@ export type AccessRoleName = "viewer" | "admin" | (string & {})
 export type AccessCapabilityTypeContract<
   TSourceName extends string = string,
   TInputContext extends object = Record<string, unknown>,
+  TScopeName extends string = string,
 > = AgentCapabilityTypeContract & {
   inputContext: TInputContext
+  invocationContext: {
+    access: AccessInvocationContextValue<TScopeName>
+  }
   workspaceSources: TSourceName
 }
 
@@ -67,6 +73,41 @@ type AccessResolvedScopeSelection<TResolve> =
   TResolve extends (...args: any[]) => infer TResult
     ? Awaited<TResult>
     : TResolve
+
+type AccessScopeSelectionName<TSelection> =
+  TSelection extends string
+    ? TSelection
+    : TSelection extends { scope: infer TScope }
+      ? TScope
+      : never
+
+type AccessWorkspaceStaticScopeName<TWorkspace> =
+  TWorkspace extends { scopes?: infer TScopes }
+    ? Extract<keyof NonNullable<TScopes>, string>
+    : never
+
+type AccessWorkspaceResolvedScopeName<TWorkspace> =
+  TWorkspace extends { resolve?: infer TResolve }
+    ? Extract<AccessScopeSelectionName<AccessResolvedScopeSelection<NonNullable<TResolve>>>, string>
+    : never
+
+type AccessWorkspaceDefaultScopeName<TWorkspace> =
+  TWorkspace extends { defaultScope?: infer TDefaultScope }
+    ? Extract<TDefaultScope, string>
+    : never
+
+type AccessWorkspaceScopeName<TWorkspace> =
+  Extract<
+    AccessWorkspaceStaticScopeName<TWorkspace>
+    | AccessWorkspaceResolvedScopeName<TWorkspace>
+    | AccessWorkspaceDefaultScopeName<TWorkspace>,
+    string
+  >
+
+type AccessWorkspaceScopeNameOrString<TWorkspace> =
+  [AccessWorkspaceScopeName<TWorkspace>] extends [never]
+    ? string
+    : AccessWorkspaceScopeName<TWorkspace>
 
 export type AccessWorkspaceScopeSourceName<TWorkspace> =
   Extract<
@@ -107,6 +148,9 @@ export interface AccessWorkspaceScopeSelection<TSourceName extends string = stri
 export type AccessWorkspaceScopeSelectionInput<TSourceName extends string = string> =
   | string
   | AccessWorkspaceScopeSelection<TSourceName>
+
+export type AccessWorkspaceScopeContext<TScopeName extends string = string> = AgentAccessWorkspaceScopeContext<TScopeName>
+export type AccessInvocationContextValue<TScopeName extends string = string> = AgentAccessInvocationContextValue<TScopeName>
 
 type AccessInputContextInvoker<TInputContext extends object> =
   TInputContext extends { invoker?: infer TInvoker }
@@ -245,7 +289,7 @@ export function access<
   Name extends WorkspaceName = WorkspaceName,
   TInputContext extends object = Record<string, unknown>,
   const TWorkspace extends AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext> = AccessWorkspaceOptions<TRuntimeConfig, Name, string, TInputContext>,
->(options: { chat?: AccessChatOptions<TRuntimeConfig>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext>>
+>(options: { chat?: AccessChatOptions<TRuntimeConfig>, input?: undefined, workspace: TWorkspace }): AgentCapabilityDefinition<TRuntimeConfig, Name, AccessCapabilityTypeContract<AccessWorkspaceScopeSourceName<TWorkspace>, TInputContext, AccessWorkspaceScopeNameOrString<TWorkspace>>>
 export function access<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -295,11 +339,13 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       const scopedWorkspace = finalScope.all
         ? sourceResolution.workspace
         : createScopedWorkspaceFacade(sourceResolution.workspace, finalScope)
-      context.context.set("access.workspaceScope", {
-        all: finalScope.all,
-        paths: finalScope.paths,
-        role: finalScope.role,
-        scope: finalScope.scope,
+      context.context.set("access", {
+        workspaceScope: {
+          all: finalScope.all,
+          paths: finalScope.paths,
+          role: finalScope.role,
+          scope: finalScope.scope,
+        },
       })
       context.instructions.add(finalScope.instructions, { id: "access.workspace" })
       if (sourceResolution.definition && sourceResolution.definition !== context.workspaceDefinition) {

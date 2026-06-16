@@ -545,8 +545,11 @@ export async function createAgentInvocationExtensions(
 ): Promise<AgentFinishEvent["extensions"]> {
   const values = new Map<string, unknown>()
   const extensions: AgentFinishEvent["extensions"] = {
-    get<T = unknown>(capabilityId: string): T | undefined {
-      return values.get(capabilityId) as T | undefined
+    get<T = unknown>(capabilityId: string, key?: string): T | undefined {
+      const value = values.get(capabilityId)
+      if (key === undefined) return value as T | undefined
+      if (typeof value !== "object" || value === null) return undefined
+      return (value as Record<string, unknown>)[key] as T | undefined
     },
   }
   const finishEvent = { ...event, extensions } as AgentFinishEvent

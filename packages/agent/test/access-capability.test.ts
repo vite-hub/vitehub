@@ -725,7 +725,8 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.readFile("ingestion/acme/models/orders.sql")).resolves.toBe("select * from acme_orders\n")
     await expect(resolved.workspace!.fs.exists("ingestion/globex/models/orders.sql")).resolves.toBe(false)
     await expect(resolved.workspace!.fs.readFile("ingestion/globex/models/orders.sql")).rejects.toThrow("Workspace path does not exist")
-    expect(invocationContext.get<{ paths: string[] }>("access.workspaceScope")?.paths).toEqual(["ingestion/acme", ".vitehub/sources/ingestion.json"])
+    expect(invocationContext.get("access")?.workspaceScope?.paths).toEqual(["ingestion/acme", ".vitehub/sources/ingestion.json"])
+    expect(Object.keys(invocationContext.toJSON()).filter(key => key.startsWith("access"))).toEqual(["access"])
   })
 
   it("forwards lazy Source materialization through scoped workspace facades", async () => {
