@@ -73,6 +73,10 @@ export interface AgentChatWebhookFetchOptions extends AgentRouteRuntimeOptions {
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
 }
 
+export interface AgentChatFetchOptions extends AgentRouteRuntimeOptions {
+  agentName?: string
+}
+
 export interface RegisterWorkspaceAgentOptions<Name extends WorkspaceName = WorkspaceName> extends WorkspaceAgentDefaults<Name> {
   sourceRootDir?: string
 }
@@ -997,7 +1001,18 @@ async function createChatWebhookHandler(
 }
 
 type AgentChatDevtoolsAction = "clear" | "get-state" | "materialize-source" | "send"
+type CreateUIMessageStreamResponse = typeof import("ai").createUIMessageStreamResponse
 type ReadUIMessageStream = typeof import("ai").readUIMessageStream
+
+type AgentChatFetchBody = {
+  history?: AgentChatMessageTriggerInput["history"]
+  id?: string
+  messageId?: string
+  messages?: unknown
+  session?: unknown
+  trigger?: string
+  user?: unknown
+}
 
 type AgentChatDevtoolsBridgeBody = {
   action?: string
@@ -1284,6 +1299,62 @@ function createUserUIMessage(text: string): UIMessage {
     metadata: {},
     parts: [{ text, type: "text" }],
     role: "user",
+  }
+}
+
+function createHttpChatRunMetadata(agentName: string, body: AgentChatFetchBody, messages: UIMessage[]): AgentRunMetadata {
+  const chatId = optionalBodyString(body.id, "id") || "default"
+  const messageId = optionalBodyString(body.messageId, "messageId") || messages.at(-1)?.id || randomToken()
+  return {
+    channelId: `http:${agentName}`,
+    messageId,
+    origin: "http",
+    runId: globalThis.crypto?.randomUUID?.() || `http-run-${randomToken()}`,
+    threadId: `http:${agentName}:${chatId}`,
+  }
+}
+
+async function parseAgentChatFetchBody(request: Request): Promise<AgentChatFetchBody> {
+  const raw = await request.text()
+  if (!raw.trim()) throw createRouteBodyError("Missing agent chat payload.")
+  try {
+    const body = JSON.parse(raw) as AgentChatFetchBody
+    if (!isRecord(body)) throw createRouteBodyError("Agent chat payload must be a JSON object.")
+    return body
+  }
+  catch (error) {
+    if (error instanceof Error && "statusCode" in error) throw error
+    throw createRouteBodyError("Malformed agent chat payload.")
+  }
+}
+
+function optionalBodyRecord(value: unknown, label: string): Record<string, unknown> | undefined {
+  if (value === undefined) return undefined
+  if (!isRecord(value)) throw createRouteBodyError(`${label} must be an object when provided.`)
+  return { ...value }
+}
+
+function optionalBodyString(value: unknown, label: string): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== "string") throw createRouteBodyError(`${label} must be a string when provided.`)
+  const trimmed = value.trim()
+  return trimmed || undefined
+}
+
+function agentChatFetchInput(body: AgentChatFetchBody, agentName: string): AgentChatMessageTriggerInput {
+  if (!Array.isArray(body.messages)) {
+    throw createRouteBodyError("Agent chat payload requires a messages array.")
+  }
+  if ("invoker" in body || "invokerProfileId" in body || "meta" in body || "run" in body || "user" in body) {
+    throw createRouteBodyError("Agent chat route identity must be derived server-side with defineAgent({ invoker }).")
+  }
+  const messages = body.messages as UIMessage[]
+  const session = optionalBodyRecord(body.session, "session") as AgentChatMessageTriggerInput["session"] | undefined
+  return {
+    ...(body.history !== undefined ? { history: body.history } : {}),
+    messages,
+    run: createHttpChatRunMetadata(agentName, body, messages),
+    ...(session ? { session } : {}),
   }
 }
 
@@ -1687,6 +1758,50 @@ export function defineAgentChatDevtoolsFetchHandler(
     session: { uiMessages: [] },
   }
   return async (request, requestOptions = {}) => await handleAgentChatDevtoolsFetchRequest(agent, request, state, options, requestOptions)
+}
+
+async function toAgentChatFetchResponse(result: unknown): Promise<Response> {
+  if (result instanceof Response) return result
+  const { createUIMessageStreamResponse } = await import("ai") as { createUIMessageStreamResponse: CreateUIMessageStreamResponse }
+  return createUIMessageStreamResponse({ stream: readableStreamFromResult(result) as never })
+}
+
+function agentChatFetchErrorResponse(error: unknown): Response {
+  const response = toHttpErrorResponse(error)
+  if (response) return response
+  if (error instanceof TypeError) {
+    return createJsonErrorResponse(400, error.message)
+  }
+  return createJsonErrorResponse(500, error instanceof Error ? error.message : "Agent chat request failed.")
+}
+
+export function defineAgentChatFetchHandler(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+): (request: Request, options?: AgentChatFetchOptions) => Promise<Response> {
+  return async (request, handlerOptions = {}) => {
+    if (request.method !== "POST") {
+      return createJsonErrorResponse(405, "Agent chat route only accepts POST requests.")
+    }
+
+    try {
+      const body = await parseAgentChatFetchBody(request)
+      const agentName = handlerOptions.agentName || "agent"
+      const context = createRuntimeContext(
+        request,
+        undefined,
+        await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+        handlerOptions.cloudflare,
+      )
+      const triggerInput = agentChatFetchInput(body, agentName)
+      const result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
+        output: "ui-message-stream",
+      }))
+      return await toAgentChatFetchResponse(result)
+    }
+    catch (error) {
+      return agentChatFetchErrorResponse(error)
+    }
+  }
 }
 
 export function defineAgentChatWebhookFetchHandler(
