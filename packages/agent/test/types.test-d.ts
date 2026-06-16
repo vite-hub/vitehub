@@ -452,6 +452,14 @@ describe("agent public types", () => {
         retention: "30d",
       },
     })
+    chat({
+      // @ts-expect-error adapters was removed; public Chat config uses platforms
+      adapters: () => ({ teams: teamsAdapter }),
+    })
+    chat({
+      // @ts-expect-error chat identity was removed; use defineAgent({ invoker }) instead
+      identity: () => "teams:user",
+    })
     const workspace = {
       sources: {
         docs: source.file("AGENTS.md"),

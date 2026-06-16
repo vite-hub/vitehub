@@ -6,7 +6,9 @@ import { createAgentDevtoolsMetadata, materializeAgentDevtoolsSourceMetadata, re
 import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { getAccessCapabilityOptions } from "./capabilities/access.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "./chat-trigger.ts"
-import { createChatMessageTriggerInput, uiMessagesToAgentMessages } from "./chat-message-input.ts"
+import { uiMessagesToAgentMessages } from "./chat-message-input.ts"
+import { createAgentInvocationContextStore } from "./invocation-context.ts"
+import { resolveAgentInvoker } from "./invoker.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
 import { toHttpErrorResponse } from "./http-error.ts"
 
@@ -18,6 +20,7 @@ import type {
   AgentChatFinishExtension,
   AgentChatMessage,
   AgentChatOptions,
+  AgentDefinition,
   AgentInput,
   AgentInvoker,
   AgentRunInput,
@@ -876,14 +879,21 @@ async function isChatMessageAuthorized(
   registration: AgentWebhookRegistrationDefinition,
   thread: Thread,
   message: ChatSdkMessage,
-  input: AgentChatMessageTriggerInput,
-  options: AgentChatOptions | undefined,
+  input: AgentRunInput,
+  run: AgentRunMetadata | undefined,
   messageContext?: MessageContext,
 ): Promise<boolean> {
-  const invoker = createChatMessageTriggerInput(options || {}, input).input.context?.invoker as AgentInvoker | undefined
-  for (const options of getAccessCapabilityOptions(getAgentCapabilities(agent))) {
-    if (!options.chat) continue
-    const result = await options.chat.resolve({
+  const invocationContext = createAgentInvocationContextStore(input.context)
+  const invoker = await resolveAgentInvoker(
+    (agent as AgentDefinition<ViteAgentRouteRuntimeConfig> | undefined)?.invoker,
+    context,
+    invocationContext,
+    input,
+    run,
+  )
+  for (const accessOptions of getAccessCapabilityOptions(getAgentCapabilities(agent))) {
+    if (!accessOptions.chat) continue
+    const result = await accessOptions.chat.resolve({
       ...context,
       invoker,
       input: accessChatInput(thread, message, messageContext),
@@ -912,10 +922,10 @@ async function handleChatSdkMessage(
     input = createChatTriggerInput(registration.provider, thread, message, messageContext)
     const firstMessage = input.messages[0]
     if (!firstMessage || !Array.isArray(firstMessage.parts) || firstMessage.parts.length === 0) return
-    if (!await isChatMessageAuthorized(agent, context, registration, thread, message, input, options, messageContext)) return
+    const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
+    if (!await isChatMessageAuthorized(agent, context, registration, thread, message, invocation.input as AgentRunInput, invocation.run, messageContext)) return
 
     typing = options?.stream !== false ? startChatTypingRefresh(thread, context) : undefined
-    const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
     run = invocation.run
     const runContext = {
       ...context,

@@ -406,7 +406,7 @@ describe("server helpers", () => {
     const { access, chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
     const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
     const adapter = createTestChatAdapter()
-    const admitChat = vi.fn(({ invoker }) => invoker?.id === "telegram:123")
+    const admitChat = vi.fn(({ invoker }) => invoker?.id === "customer:acme")
     const run = vi.fn(({ messages }) => {
       const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
       return {
@@ -445,6 +445,15 @@ describe("server helpers", () => {
           }),
         }),
       ],
+      invoker: {
+        resolve({ defaultInvoker }) {
+          return {
+            id: "customer:acme",
+            kind: "customer",
+            meta: defaultInvoker.meta,
+          }
+        },
+      },
       run,
     })
     const handler = defineAgentChatWebhookFetchHandler(agent as never)
@@ -472,8 +481,8 @@ describe("server helpers", () => {
     expect(adapter.editMessage).not.toHaveBeenCalled()
     expect(admitChat).toHaveBeenCalledWith(expect.objectContaining({
       invoker: expect.objectContaining({
-        id: "telegram:123",
-        kind: "chat",
+        id: "customer:acme",
+        kind: "customer",
         meta: expect.objectContaining({
           email: "maxi@example.com",
           id: "123",
@@ -494,7 +503,7 @@ describe("server helpers", () => {
         get: expect.any(Function),
       }),
       invoker: expect.objectContaining({
-        id: "telegram:123",
+        id: "customer:acme",
         meta: expect.objectContaining({
           email: "maxi@example.com",
         }),

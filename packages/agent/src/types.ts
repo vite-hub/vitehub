@@ -805,6 +805,7 @@ export interface AgentChatFinishExtension {
 }
 
 export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  adapters?: never
   agent?: never
   event?: AgentChatAgentBindingOptions["event"]
   execution?: never
@@ -812,6 +813,7 @@ export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
   fallbackStreamingPlaceholderText?: string | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   history?: AgentChatAgentBindingOptions["history"]
   hooks?: AgentChatEventHooks<TRuntimeConfig>
+  identity?: never
   lifecycleHooks?: Record<string, unknown>
   platforms?: AgentChatPlatformsResolver<TRuntimeConfig>
   sessions?: boolean | AgentChatSessionOptions
