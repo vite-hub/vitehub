@@ -78,6 +78,23 @@ describe("env declarations", () => {
       label: "git:commit",
       short: true,
     })
+    expect(env.gitRef()).toMatchObject({
+      kind: "git-ref",
+      label: "git:ref",
+    })
+    expect(env.gitSha({ short: true })).toMatchObject({
+      kind: "git-sha",
+      label: "git:sha",
+      short: true,
+    })
+    expect(env.gitTag()).toMatchObject({
+      kind: "git-tag",
+      label: "git:tag",
+    })
+    expect(env.buildTimestamp()).toMatchObject({
+      kind: "build-timestamp",
+      label: "build:timestamp",
+    })
     expect(env.custom("custom:preview", () => true)).toMatchObject({
       kind: "custom",
       label: "custom:preview",

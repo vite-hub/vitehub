@@ -22,9 +22,13 @@ defaultStringSchemaParsers.add(defaultStringSchema.safeParse)
 
 interface EnvNamespace {
   (options?: EnvVariableOptions): EnvVariableDeclaration
+  buildTimestamp: () => EnvSource
   custom: (label: string, resolver: EnvSourceResolver) => EnvSource
   gitBranch: () => EnvSource
   gitCommit: (options?: { short?: boolean }) => EnvSource
+  gitRef: () => EnvSource
+  gitSha: (options?: { short?: boolean }) => EnvSource
+  gitTag: () => EnvSource
   packageJson: (path: string) => EnvSource
   source: (name: string | string[]) => EnvSource
   variable: (options?: EnvVariableOptions) => EnvVariableDeclaration
@@ -68,6 +72,39 @@ function gitCommit(options: { short?: boolean } = {}): EnvSource {
     label: "git:commit",
     serializable: true,
     short: options.short,
+  }
+}
+
+function gitRef(): EnvSource {
+  return {
+    kind: "git-ref",
+    label: "git:ref",
+    serializable: true,
+  }
+}
+
+function gitSha(options: { short?: boolean } = {}): EnvSource {
+  return {
+    kind: "git-sha",
+    label: "git:sha",
+    serializable: true,
+    short: options.short,
+  }
+}
+
+function gitTag(): EnvSource {
+  return {
+    kind: "git-tag",
+    label: "git:tag",
+    serializable: true,
+  }
+}
+
+function buildTimestamp(): EnvSource {
+  return {
+    kind: "build-timestamp",
+    label: "build:timestamp",
+    serializable: true,
   }
 }
 
@@ -118,9 +155,13 @@ function variable(options: EnvVariableOptions = {}): EnvVariableDeclaration {
 }
 
 export const env: EnvNamespace = Object.assign(variable, {
+  buildTimestamp: buildTimestamp,
   custom: custom,
   gitBranch: gitBranch,
   gitCommit: gitCommit,
+  gitRef: gitRef,
+  gitSha: gitSha,
+  gitTag: gitTag,
   packageJson: packageJson,
   source: source,
   variable: variable,

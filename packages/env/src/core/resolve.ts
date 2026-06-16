@@ -8,6 +8,8 @@ import { defaultStringSchema, isDefaultStringEnvVariable } from "./declarations.
 import { EnvError } from "./errors.ts"
 
 import type {
+  EnvBuildConfigOptions,
+  EnvBuildStaticValue,
   EnvDiagnosticEntry,
   EnvMode,
   EnvRuntimeConfigOptions,
@@ -44,15 +46,7 @@ export function validateEnvConfigShape(config: EnvViteConfigOptions | undefined,
     }
   }
 
-  for (const [key, declaration] of Object.entries(viteConfig.define || {})) {
-    assertEnvVariableDeclaration(`env.define.${key}`, declaration)
-    if (declaration.mode !== "build") {
-      throw new EnvError(`env.define.${key} must use mode: "build".`)
-    }
-    if (declaration.secret) {
-      throw new EnvError(`env.define.${key} cannot be marked secret because Vite define values are bundled.`)
-    }
-  }
+  validateBuildDeclarations(viteConfig.define, "env.define")
 }
 
 export function createSourceContext(input: {
@@ -61,15 +55,43 @@ export function createSourceContext(input: {
   rootDir: string
 }): EnvSourceContext {
   return {
+    build: {
+      timestamp: () => new Date().toISOString(),
+    },
     env: input.env,
     git: {
       branch: () => gitOutput(input.rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]),
       commit: options => gitOutput(input.rootDir, options?.short ? ["rev-parse", "--short", "HEAD"] : ["rev-parse", "HEAD"]),
+      ref: () => gitOutput(input.rootDir, ["rev-parse", "--abbrev-ref", "HEAD"]),
+      sha: options => gitOutput(input.rootDir, options?.short ? ["rev-parse", "--short", "HEAD"] : ["rev-parse", "HEAD"]),
+      tag: async () => await gitOutput(input.rootDir, ["describe", "--tags", "--exact-match", "HEAD"]).catch(() => undefined),
     },
     mode: input.mode,
     packageJson: () => readPackageJson(input.rootDir),
     rootDir: input.rootDir,
   }
+}
+
+export async function resolveBuildConfig(
+  declarations: Record<string, EnvBuildConfigOptions | EnvBuildStaticValue | EnvVariableDeclaration> | undefined,
+  input: {
+    context: EnvSourceContext
+    exposure: "compile-time replacement"
+    prefix?: string
+    section: "env.define"
+    timing: string
+  },
+): Promise<{ diagnostics: EnvDiagnosticEntry[], values: Record<string, unknown> }> {
+  const diagnostics: EnvDiagnosticEntry[] = []
+  const values: Record<string, unknown> = {}
+
+  for (const [key, declaration] of Object.entries(declarations || {})) {
+    const result = await resolveBuildConfigValue(declaration, `${input.section}.${key}`, input)
+    values[key] = result.value
+    diagnostics.push(...result.diagnostics)
+  }
+
+  return { diagnostics, values }
 }
 
 export async function resolveEnvEntries(
@@ -140,6 +162,76 @@ export async function resolveEnvEntries(
 
 export function createRuntimeRegistry(declarations: EnvRuntimeConfigOptions | undefined, options: { prefix?: string } = {}): EnvRuntimeRegistry {
   return buildRegistry(declarations, "env", options.prefix)
+}
+
+async function resolveBuildConfigValue(
+  declaration: EnvBuildConfigOptions | EnvBuildStaticValue | EnvVariableDeclaration,
+  path: string,
+  input: {
+    context: EnvSourceContext
+    exposure: "compile-time replacement"
+    prefix?: string
+    timing: string
+  },
+): Promise<{ diagnostics: EnvDiagnosticEntry[], value: unknown }> {
+  if (isEnvVariableDeclaration(declaration)) {
+    const source = resolveEnvSource(declaration, path, input.prefix)
+    const resolvedSource = await resolveSourceValue(source, input.context)
+    const defaulted = typeof resolvedSource.value === "undefined"
+    const valueForSchema = defaulted ? declaration.default : resolvedSource.value
+    if (typeof valueForSchema === "undefined") {
+      if (declaration.required) {
+        throw new EnvError(`Missing ${path} from ${source.label}.`)
+      }
+      return {
+        diagnostics: [{
+          exposed: input.exposure,
+          key: path,
+          masked: false,
+          mode: declaration.mode,
+          source: resolvedSource.label,
+          status: "missing",
+          timing: input.timing,
+          type: declaration.type ?? "undefined",
+        }],
+        value: undefined,
+      }
+    }
+
+    const value = parseSchema(declaration.schema, valueForSchema, path)
+    const type = declaration.type ?? inferTypeName(value)
+    return {
+      diagnostics: [{
+        exposed: input.exposure,
+        key: path,
+        masked: false,
+        mode: declaration.mode,
+        source: defaulted ? "default" : resolvedSource.label,
+        status: defaulted ? "defaulted" : "valid",
+        timing: input.timing,
+        type,
+      }],
+      value,
+    }
+  }
+
+  if (isBuildStaticValue(declaration)) {
+    return { diagnostics: [], value: declaration }
+  }
+
+  if (!isPlainRecord(declaration)) {
+    throw new EnvError(`Invalid build declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
+  }
+
+  const value: Record<string, unknown> = {}
+  const diagnostics: EnvDiagnosticEntry[] = []
+  for (const [key, child] of Object.entries(declaration)) {
+    const result = await resolveBuildConfigValue(child, `${path}.${key}`, input)
+    value[key] = result.value
+    diagnostics.push(...result.diagnostics)
+  }
+
+  return { diagnostics, value }
 }
 
 function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: string, prefix?: string): EnvRuntimeRegistry {
@@ -224,8 +316,37 @@ async function resolveSourceValue(source: EnvSource, context: EnvSourceContext):
       return { label: source.label, value: await context.git.branch() }
     case "git-commit":
       return { label: source.label, value: await context.git.commit({ short: source.short }) }
+    case "git-ref":
+      return { label: source.label, value: await context.git.ref() }
+    case "git-sha":
+      return { label: source.label, value: await context.git.sha({ short: source.short }) }
+    case "git-tag":
+      return { label: source.label, value: await context.git.tag() }
+    case "build-timestamp":
+      return { label: source.label, value: context.build.timestamp() }
     case "package-json":
       return { label: source.label, value: readPath(await context.packageJson(), source.path) }
+  }
+}
+
+function validateBuildDeclarations(declarations: EnvBuildConfigOptions | undefined, path: string): void {
+  if (typeof declarations === "undefined") return
+  if (!isPlainRecord(declarations)) {
+    throw new EnvError(`Invalid declaration at ${path}. Use env(), a serializable static value, or a nested object.`)
+  }
+  for (const [key, declaration] of Object.entries(declarations)) {
+    const valuePath = `${path}.${key}`
+    if (isEnvVariableDeclaration(declaration)) {
+      if (declaration.mode !== "build") {
+        throw new EnvError(`${valuePath} must use mode: "build".`)
+      }
+      if (declaration.secret) {
+        throw new EnvError(`${valuePath} cannot be marked secret because Vite define values are bundled.`)
+      }
+      continue
+    }
+    if (isBuildStaticValue(declaration)) continue
+    validateBuildDeclarations(declaration as EnvBuildConfigOptions, valuePath)
   }
 }
 
@@ -278,6 +399,10 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isRuntimeStaticValue(value: unknown): value is EnvRuntimeStaticValue {
+  return isBuildStaticValue(value)
+}
+
+function isBuildStaticValue(value: unknown): value is EnvBuildStaticValue {
   if (value === null) {
     return true
   }
@@ -292,7 +417,7 @@ function isRuntimeStaticValue(value: unknown): value is EnvRuntimeStaticValue {
         return false
       }
       for (let index = 0; index < value.length; index += 1) {
-        if (!(index in value) || !isRuntimeStaticValue(value[index])) {
+        if (!(index in value) || !isBuildStaticValue(value[index])) {
           return false
         }
       }

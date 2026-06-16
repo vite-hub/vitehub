@@ -20,6 +20,10 @@ _Avoid_: Inline id, definition id override, parsed helper option
 The build and dev integration installed through a Vite plugin.
 _Avoid_: Nitro module, runtime client
 
+**Preset Vite Integration**:
+A Vite Integration that composes package-owned Vite Integrations behind one explicit app config entry while preserving per-package enablement and Integration Options.
+_Avoid_: App workaround plugin, magic setup, framework module
+
 **Runtime Registry**:
 A generated module that maps discovered names to lazy-loaded Definitions.
 _Avoid_: Definition list, route table
@@ -75,6 +79,7 @@ _Avoid_: Virtual module path, generated file path, framework import path
 - **Discovery Identity** comes from discovery location rather than Definition Options parsed from user source.
 - **Discovery Identity** is the framework discovery rule for all package-owned Discovered Definitions, not a package-specific rule.
 - A **Vite Integration** can discover Definitions and generate Provider Output.
+- A **Preset Vite Integration** can compose multiple package-owned **Vite Integrations**.
 - A **Runtime Registry** contains Discovered Definitions.
 - **Integration Options** are resolved into Runtime Config when runtime code needs them.
 - **Definition Options** travel with one Definition.
@@ -84,6 +89,7 @@ _Avoid_: Virtual module path, generated file path, framework import path
 - First-class discovered definition files use a **Discovered Definition Export**.
 - A direct default-exported **Definition Boundary Helper** is the only source shape eligible for Build-Extracted Definition Options.
 - **Provider Selection** belongs in Integration Options when it changes generated output, bindings, imports, or deployment behavior.
+- **Preset Vite Integration** options should stay explicit about which primitives are enabled and pass primitive-specific options through to the owning package.
 - Options should live as late as possible unless static analysis, type generation, provider binding, generated files, or deployment output require earlier placement.
 - A **Stable ViteHub Import Path** can resolve to a Runtime Registry, Provider Output, virtual module, or generated file.
 - Application code should import generated or integration-backed ViteHub surfaces through **Stable ViteHub Import Paths** unless an ADR makes another import path public.
