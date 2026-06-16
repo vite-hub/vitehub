@@ -30,16 +30,21 @@ function createContext(
   overrides: Partial<AgentInvokerResolveContext> = {},
 ): AgentInvokerResolveContext {
   const store = new Map<string, unknown>()
-  return {
-    context: {
-      entries: () => store.entries(),
-      get: id => store.get(id),
-      has: id => store.has(id),
-      set: (id, value) => {
-        store.set(id, value)
-      },
-      toJSON: () => Object.fromEntries(store),
+  const context: AgentInvokerResolveContext["context"] = {
+    entries: () => store.entries(),
+    get<T = unknown>(id: string): T | undefined {
+      return store.get(id) as T | undefined
     },
+    has(id: string) {
+      return store.has(id)
+    },
+    set(id: string, value: unknown) {
+      store.set(id, value)
+    },
+    toJSON: () => Object.fromEntries(store),
+  }
+  return {
+    context,
     defaultInvoker,
     input: {},
     profiles: [],
