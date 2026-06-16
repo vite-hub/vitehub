@@ -1,5 +1,6 @@
 export { defineWorkspace } from "./core/define.ts"
 export * as source from "./sources/index.ts"
+export type * from "./sources/index.ts"
 export { createWorkspaceTools } from "./ai.ts"
 export {
   createWorkspaceSourceResolutionFacade,

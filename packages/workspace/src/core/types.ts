@@ -184,11 +184,15 @@ export interface WorkspaceSession {
 declare global {
   interface ViteHubWorkspaceNameMap {}
   interface ViteHubWorkspaceAssetMap {}
+  interface ViteHubWorkspaceSourceResolutionContextMap {}
+  interface ViteHubWorkspaceScopeNameMap {}
 }
 
 export interface WorkspaceNameMap extends ViteHubWorkspaceNameMap {}
+export interface WorkspaceSourceResolutionContextMap extends ViteHubWorkspaceSourceResolutionContextMap {}
 
 export type WorkspaceName = [keyof ViteHubWorkspaceNameMap] extends [never] ? string : Extract<keyof ViteHubWorkspaceNameMap, string>
+export type WorkspaceScopeName = [keyof ViteHubWorkspaceScopeNameMap] extends [never] ? string : Extract<keyof ViteHubWorkspaceScopeNameMap, string>
 
 export type WorkspaceAssetPath<Name extends WorkspaceName = WorkspaceName> =
   Name extends keyof ViteHubWorkspaceAssetMap
@@ -296,22 +300,23 @@ export interface SourceContext {
 
 export type MaybePromise<T> = T | Promise<T>
 
-export interface WorkspaceSourceResolutionContextValueReader {
+export interface WorkspaceSourceResolutionContextValueReader<TContextMap extends object = WorkspaceSourceResolutionContextMap> {
   entries(): IterableIterator<[string, unknown]>
+  get<K extends Extract<keyof TContextMap, string>>(id: K): TContextMap[K] | undefined
   get<T = unknown>(id: string): T | undefined
   has(id: string): boolean
   toJSON?(): Record<string, unknown>
 }
 
-export interface WorkspaceSelectedScope {
+export interface WorkspaceSelectedScope<TScopeName extends string = string> {
   all: boolean
   paths?: readonly string[]
   role?: string
-  scope: string
+  scope: TScopeName
 }
 
-export interface WorkspaceSourceResolutionInvocation {
-  context: WorkspaceSourceResolutionContextValueReader
+export interface WorkspaceSourceResolutionInvocation<TContextMap extends object = WorkspaceSourceResolutionContextMap> {
+  context: WorkspaceSourceResolutionContextValueReader<TContextMap>
   run?: {
     channelId?: string
     messageId?: string
@@ -321,9 +326,12 @@ export interface WorkspaceSourceResolutionInvocation {
   }
 }
 
-export interface WorkspaceSourceResolutionContext {
-  invocation: WorkspaceSourceResolutionInvocation
-  selectedWorkspaceScope?: WorkspaceSelectedScope
+export interface WorkspaceSourceResolutionContext<
+  TContextMap extends object = WorkspaceSourceResolutionContextMap,
+  TScopeName extends string = WorkspaceScopeName,
+> {
+  invocation: WorkspaceSourceResolutionInvocation<TContextMap>
+  selectedWorkspaceScope?: WorkspaceSelectedScope<TScopeName>
   source: {
     key: string
     mountPath: string
@@ -332,7 +340,10 @@ export interface WorkspaceSourceResolutionContext {
 }
 
 export type WorkspaceSourceResolutionResult = WorkspaceSource | false | null | undefined
-export type WorkspaceSourceResolver = (context: WorkspaceSourceResolutionContext) => MaybePromise<WorkspaceSourceResolutionResult>
+export type WorkspaceSourceResolver<
+  TContextMap extends object = WorkspaceSourceResolutionContextMap,
+  TScopeName extends string = WorkspaceScopeName,
+> = (context: WorkspaceSourceResolutionContext<TContextMap, TScopeName>) => MaybePromise<WorkspaceSourceResolutionResult>
 
 export type WorkspaceMaterializeMode = "build" | "lazy" | "none"
 

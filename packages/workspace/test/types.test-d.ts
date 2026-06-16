@@ -4,6 +4,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import {
   defineWorkspace,
+  type FetchSourceOptions,
   useWorkspace,
 } from "../src/index.ts"
 import { createWorkspaceTools, type WorkspaceMaterializeSourcesResult, type WorkspaceShellResult } from "../src/ai.ts"
@@ -17,6 +18,16 @@ import type { Workspace, WorkspaceModuleOptions, WorkspacePlugin, WorkspaceSourc
 declare global {
   interface ViteHubWorkspaceAssetMap {
     typed: "AGENTS.md" | "README.md"
+  }
+
+  interface ViteHubWorkspaceSourceResolutionContextMap {
+    "support.customerScope": { customers: Array<"acme" | "globex"> }
+  }
+
+  interface ViteHubWorkspaceScopeNameMap {
+    acme: true
+    globex: true
+    support: true
   }
 }
 
@@ -79,11 +90,11 @@ describe("workspace types", () => {
       instructions: "Use for hosted docs.",
     })
     source.github(({ invocation, selectedWorkspaceScope, source: sourceContext, workspace }) => {
-      expectTypeOf(invocation.context.get<{ customers: string[] }>("support.customerScope")?.customers).toEqualTypeOf<string[] | undefined>()
-      expectTypeOf(selectedWorkspaceScope?.scope).toEqualTypeOf<string | undefined>()
+      expectTypeOf(invocation.context.get("support.customerScope")?.customers).toEqualTypeOf<Array<"acme" | "globex"> | undefined>()
+      expectTypeOf(selectedWorkspaceScope?.scope).toEqualTypeOf<"acme" | "globex" | "support" | undefined>()
       expectTypeOf(sourceContext.key).toEqualTypeOf<string>()
       expectTypeOf(workspace.name).toEqualTypeOf<string>()
-      const customer = invocation.context.get<{ customers: string[] }>("support.customerScope")?.customers[0]
+      const customer = invocation.context.get("support.customerScope")?.customers[0]
       if (!customer) return false
       return {
         repo: "acme/app",
@@ -118,6 +129,7 @@ describe("workspace types", () => {
       url: "https://status.example.com/api/summary",
       workspacePath: "status/summary.json",
     })
+    expectTypeOf<FetchSourceOptions["url"]>().toEqualTypeOf<string | URL>()
     source.fetch({
       body: { scope: "all" },
       cookies: { auth_token: "secret" },
@@ -127,6 +139,27 @@ describe("workspace types", () => {
         timeout: 1000,
       }),
       url: "https://status.example.com/query",
+    })
+    source.fetch<{ status: string }, { ok: boolean }>(({ invocation, selectedWorkspaceScope, source: sourceContext, workspace }) => {
+      expectTypeOf(invocation.context.get("support.customerScope")?.customers).toEqualTypeOf<Array<"acme" | "globex"> | undefined>()
+      expectTypeOf(selectedWorkspaceScope?.scope).toEqualTypeOf<"acme" | "globex" | "support" | undefined>()
+      expectTypeOf(sourceContext.key).toEqualTypeOf<string>()
+      expectTypeOf(workspace.name).toEqualTypeOf<string>()
+      if (!selectedWorkspaceScope) return null
+      const customer = invocation.context.get("support.customerScope")?.customers[0]
+      if (!customer) return false
+      return {
+        body: { customer },
+        method: "POST",
+        request: {
+          headers: { "x-workspace": workspace.name },
+        },
+        transform(data) {
+          expectTypeOf(data.status).toEqualTypeOf<string>()
+          return { ok: data.status === "ok" }
+        },
+        url: `https://status.example.com/api/${sourceContext.key}`,
+      }
     })
     source.mcpResources({
       instructions: "Use for MCP resource docs.",
@@ -150,8 +183,6 @@ describe("workspace types", () => {
     source.fetch({ url: "https://status.example.com/api/summary", validate: "request" })
     // @ts-expect-error source.fetch request factories cannot redefine query
     source.fetch({ url: "https://status.example.com/api/summary", request: () => ({ query: { region: "eu" } }) })
-    // @ts-expect-error source.fetch definitions are static; only request credentials may be dynamic
-    source.fetch(() => ({ url: "https://status.example.com/api/summary" }))
     defineWorkspace({
       // @ts-expect-error workspace names are inferred from definition filenames
       name: "typed",

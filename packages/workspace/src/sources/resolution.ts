@@ -17,12 +17,14 @@ import type {
   WorkspaceSelectedScope,
   WorkspaceSource,
   WorkspaceSourceInput,
+  WorkspaceSourceResolutionContext,
   WorkspaceSourceResolutionInvocation,
+  WorkspaceSourceResolver,
 } from "../core/types.ts"
 
 export interface WorkspaceSourceResolutionOptions {
-  invocation: WorkspaceSourceResolutionInvocation
-  selectedWorkspaceScope?: WorkspaceSelectedScope
+  invocation: WorkspaceSourceResolutionInvocation<object>
+  selectedWorkspaceScope?: WorkspaceSelectedScope<string>
 }
 
 export interface WorkspaceSourceResolutionFacade<Name extends WorkspaceName = WorkspaceName> {
@@ -146,7 +148,7 @@ async function resolveWorkspaceSource(
   const source = declared.source
   if (!source.resolve) return source
 
-  const context = {
+  const context: WorkspaceSourceResolutionContext<object, string> = {
     invocation: options.invocation,
     selectedWorkspaceScope: options.selectedWorkspaceScope,
     source: {
@@ -159,7 +161,8 @@ async function resolveWorkspaceSource(
       sourceRootDir: definition.sourceRootDir,
     },
   }
-  const resolved = await source.resolve(context)
+  const resolve = source.resolve as WorkspaceSourceResolver<object, string>
+  const resolved = await resolve(context)
   if (!resolved) return undefined
 
   const resolvedSource = withResolvedSourceRuntimeDefaults(applyResolvedWorkspaceSourceBinding(input, resolved))
