@@ -234,6 +234,7 @@ export interface AgentRunResult {
 
 export interface AgentInvocationExtensions {
   get<T = unknown>(capabilityId: string): T | undefined
+  get<T = unknown>(capabilityId: string, key: string): T | undefined
 }
 
 export interface AgentFinishEvent<

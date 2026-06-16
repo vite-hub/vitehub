@@ -557,7 +557,7 @@ describe("agent message protocol", () => {
         {
           id: "second",
           output(context) {
-            context.finish.provide("second-value")
+            context.finish.provide({ value: "second-value" })
           },
         },
       ],
@@ -586,7 +586,9 @@ describe("agent message protocol", () => {
     }))
     const event = finish.mock.calls[0]![0]
     expect(event.extensions.get("first")).toBe("ok:first")
-    expect(event.extensions.get("second")).toBe("second-value")
+    expect(event.extensions.get("second")).toEqual({ value: "second-value" })
+    expect(event.extensions.get("second", "value")).toBe("second-value")
+    expect(event.extensions.get("first", "length")).toBeUndefined()
     expect(event.extensions.get("missing")).toBeUndefined()
   })
 
