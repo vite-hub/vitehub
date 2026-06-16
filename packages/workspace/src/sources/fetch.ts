@@ -15,8 +15,6 @@ import type {
   WorkspaceSourceRequestDescriptor,
   WorkspaceSourceRequestExecutionInput,
   WorkspaceSourceRequestExecutionResult,
-  MaybePromise,
-  WorkspaceSourceResolutionContext,
 } from "../core/types.ts"
 
 export type FetchSourceMethod = "GET" | "HEAD" | "POST"
@@ -93,20 +91,7 @@ export interface FetchSourceOptions<TResponse = unknown, TOutput = TResponse> ex
   workspacePath?: string
 }
 
-export type FetchSourceResolver<TResponse = unknown, TOutput = TResponse> = (
-  context: WorkspaceSourceResolutionContext,
-) => MaybePromise<FetchSourceOptions<TResponse, TOutput> | false | null | undefined>
-
-export type FetchSourceInput<TResponse = unknown, TOutput = TResponse> =
-  | FetchSourceOptions<TResponse, TOutput>
-  | FetchSourceResolver<TResponse, TOutput>
-
-export function fetch<TResponse = unknown, TOutput = TResponse>(options: FetchSourceOptions<TResponse, TOutput>): WorkspaceSource
-export function fetch<TResponse = unknown, TOutput = TResponse>(resolve: FetchSourceResolver<TResponse, TOutput>): WorkspaceSource
-export function fetch<TResponse = unknown, TOutput = TResponse>(input: FetchSourceInput<TResponse, TOutput>): WorkspaceSource {
-  if (typeof input === "function") return resolvableFetchSource(input)
-
-  const options = input
+export function fetch<TResponse = unknown, TOutput = TResponse>(options: FetchSourceOptions<TResponse, TOutput>): WorkspaceSource {
   const responseType = normalizePublicResponseType(options.responseType || "json")
   const method = normalizeMethod(options.method)
   assertRequestShape(options, method)
@@ -180,31 +165,6 @@ export function fetch<TResponse = unknown, TOutput = TResponse>(input: FetchSour
   })
 
   return workspacePath ? markLiveWorkspaceSource(source, { [workspacePath]: key }) : source
-}
-
-function resolvableFetchSource<TResponse, TOutput>(resolve: FetchSourceResolver<TResponse, TOutput>): WorkspaceSource {
-  return {
-    fingerprint: {
-      sourceResolution: "fetch",
-    },
-    materialize: "lazy",
-    async getKeys() {
-      return []
-    },
-    async getItem(key) {
-      throw new Error(`[vitehub] source.fetch() resolver did not resolve before reading ${JSON.stringify(key)}.`)
-    },
-    async getItems() {
-      return []
-    },
-    async search() {
-      return []
-    },
-    async resolve(ctx) {
-      const options = await resolve(ctx)
-      return options ? fetch(options) : false
-    },
-  }
 }
 
 function normalizePublicResponseType(responseType: string): FetchSourceResponseType {

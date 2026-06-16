@@ -146,62 +146,6 @@ describe("Workspace Source Resolution", () => {
     })
   })
 
-  it("resolves fetch sources from source.fetch resolvers", async () => {
-    const resolveFetch = vi.fn(({ selectedWorkspaceScope }) => ({
-      body: { customer: selectedWorkspaceScope?.scope },
-      method: "POST" as const,
-      request: {
-        headers: { "x-customer": selectedWorkspaceScope?.scope ?? "unknown" },
-      },
-      url: "https://portal.example.com/runtime/inventory-health",
-    }))
-    const definition: WorkspaceDefinition = {
-      name: "support",
-      sources: {
-        inventoryHealthSummary: source.fetch(resolveFetch),
-      },
-    }
-
-    const descriptorPath = workspaceSourceRequestDescriptorPath("inventoryHealthSummary")
-    const resolved = await resolveWorkspaceSources(definition, scope("acme", [descriptorPath]))
-    const resolvedSource = normalizeWorkspaceSources(resolved.sources).find(source => source.key === "inventoryHealthSummary")?.source
-
-    expect(resolveFetch).toHaveBeenCalledWith(expect.objectContaining({
-      selectedWorkspaceScope: expect.objectContaining({ scope: "acme" }),
-      source: {
-        key: "inventoryHealthSummary",
-        mountPath: "inventoryHealthSummary",
-      },
-      workspace: expect.objectContaining({ name: "support" }),
-    }))
-    expect(resolvedSource).toBeDefined()
-    expect(isWorkspaceSourceRequestOnly(resolvedSource!)).toBe(true)
-    expect(getWorkspaceSourceRequestDescriptor(resolvedSource!)).toMatchObject({
-      credentials: { headers: ["x-customer"] },
-      method: "POST",
-      request: { body: { customer: "acme" } },
-      url: "https://portal.example.com/runtime/inventory-health",
-    })
-  })
-
-  it("hides fetch sources when source.fetch resolvers return false", async () => {
-    const resolveFetch = vi.fn((): false => false)
-    const definition: WorkspaceDefinition = {
-      name: "support",
-      sources: {
-        inventoryHealthSummary: source.fetch(resolveFetch),
-      },
-    }
-
-    const resolved = await resolveWorkspaceSources(
-      definition,
-      scope("support", [workspaceSourceRequestDescriptorPath("inventoryHealthSummary")]),
-    )
-
-    expect(resolveFetch).toHaveBeenCalledTimes(1)
-    expect(resolved.sources).toEqual({})
-  })
-
   it("preserves explicit source binding options after source resolution", async () => {
     const definition: WorkspaceDefinition = {
       name: "support",
