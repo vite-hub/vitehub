@@ -862,7 +862,7 @@ function applyWorkspaceSourceInstructionsToParts(parts: string[], sourceInstruct
   return instructions ? [instructions] : []
 }
 
-function createDevtoolsSourceResolutionContext(input: AgentRunInput | undefined): WorkspaceSourceResolutionContextValueReader {
+function createDevtoolsSourceResolutionContext(input: AgentRunInput | undefined): WorkspaceSourceResolutionContextValueReader<object> {
   const values = new Map<string, unknown>()
   if (input?.context && typeof input.context === "object") {
     for (const [key, value] of Object.entries(input.context as Record<string, unknown>)) {
@@ -872,7 +872,7 @@ function createDevtoolsSourceResolutionContext(input: AgentRunInput | undefined)
 
   return {
     entries: () => values.entries(),
-    get: key => values.get(key) as never,
+    get: (key: string) => values.get(key) as never,
     has: key => values.has(key),
     toJSON: () => Object.fromEntries(values),
   }

@@ -18,6 +18,16 @@ declare global {
   interface ViteHubWorkspaceAssetMap {
     typed: "AGENTS.md" | "README.md"
   }
+
+  interface ViteHubWorkspaceSourceResolutionContextMap {
+    "support.customerScope": { customers: Array<"acme" | "globex"> }
+  }
+
+  interface ViteHubWorkspaceScopeNameMap {
+    acme: true
+    globex: true
+    support: true
+  }
 }
 
 describe("workspace types", () => {
@@ -79,11 +89,11 @@ describe("workspace types", () => {
       instructions: "Use for hosted docs.",
     })
     source.github(({ invocation, selectedWorkspaceScope, source: sourceContext, workspace }) => {
-      expectTypeOf(invocation.context.get<{ customers: string[] }>("support.customerScope")?.customers).toEqualTypeOf<string[] | undefined>()
-      expectTypeOf(selectedWorkspaceScope?.scope).toEqualTypeOf<string | undefined>()
+      expectTypeOf(invocation.context.get("support.customerScope")?.customers).toEqualTypeOf<Array<"acme" | "globex"> | undefined>()
+      expectTypeOf(selectedWorkspaceScope?.scope).toEqualTypeOf<"acme" | "globex" | "support" | undefined>()
       expectTypeOf(sourceContext.key).toEqualTypeOf<string>()
       expectTypeOf(workspace.name).toEqualTypeOf<string>()
-      const customer = invocation.context.get<{ customers: string[] }>("support.customerScope")?.customers[0]
+      const customer = invocation.context.get("support.customerScope")?.customers[0]
       if (!customer) return false
       return {
         repo: "acme/app",
