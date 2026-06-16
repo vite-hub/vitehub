@@ -11,6 +11,7 @@ import {
 import type {
   SourceContext,
   WorkspaceContent,
+  WorkspaceSelectedScope,
   WorkspaceSource,
   WorkspaceSourceRequestDescriptor,
   WorkspaceSourceRequestExecutionInput,
@@ -64,7 +65,7 @@ export interface FetchSourceRequestCallbackContext {
     query?: Record<string, unknown>
     url: string
   }
-  selectedWorkspaceScope?: unknown
+  selectedWorkspaceScope?: WorkspaceSelectedScope
   source: {
     key?: string
   }

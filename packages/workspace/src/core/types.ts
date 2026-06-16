@@ -310,9 +310,9 @@ export interface WorkspaceSourceResolutionContextValueReader<TContextMap extends
 
 export interface WorkspaceSelectedScope<TScopeName extends string = string> {
   all: boolean
+  name: TScopeName
   paths?: readonly string[]
   role?: string
-  scope: TScopeName
 }
 
 export interface WorkspaceSourceResolutionInvocation<TContextMap extends object = WorkspaceSourceResolutionContextMap> {

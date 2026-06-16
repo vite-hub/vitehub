@@ -91,7 +91,7 @@ describe("workspace types", () => {
     })
     source.github(({ invocation, selectedWorkspaceScope, source: sourceContext, workspace }) => {
       expectTypeOf(invocation.context.get("support.customerScope")?.customers).toEqualTypeOf<Array<"acme" | "globex"> | undefined>()
-      expectTypeOf(selectedWorkspaceScope?.scope).toEqualTypeOf<"acme" | "globex" | "support" | undefined>()
+      expectTypeOf(selectedWorkspaceScope?.name).toEqualTypeOf<"acme" | "globex" | "support" | undefined>()
       expectTypeOf(sourceContext.key).toEqualTypeOf<string>()
       expectTypeOf(workspace.name).toEqualTypeOf<string>()
       const customer = invocation.context.get("support.customerScope")?.customers[0]
@@ -142,7 +142,7 @@ describe("workspace types", () => {
     })
     source.fetch<{ status: string }, { ok: boolean }>(({ invocation, selectedWorkspaceScope, source: sourceContext, workspace }) => {
       expectTypeOf(invocation.context.get("support.customerScope")?.customers).toEqualTypeOf<Array<"acme" | "globex"> | undefined>()
-      expectTypeOf(selectedWorkspaceScope?.scope).toEqualTypeOf<"acme" | "globex" | "support" | undefined>()
+      expectTypeOf(selectedWorkspaceScope?.name).toEqualTypeOf<"acme" | "globex" | "support" | undefined>()
       expectTypeOf(sourceContext.key).toEqualTypeOf<string>()
       expectTypeOf(workspace.name).toEqualTypeOf<string>()
       if (!selectedWorkspaceScope) return null
