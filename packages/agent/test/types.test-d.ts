@@ -8,7 +8,7 @@ import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentUsageRecord } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import { source } from "@vite-hub/workspace"
-import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatAdapterResolver, AgentChatRunContext, FetchCapabilityToolOptions, TranscriptionResult } from "../src/capabilities.ts"
+import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatPlatformResolver, AgentChatRunContext, FetchCapabilityToolOptions, TranscriptionResult } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
@@ -16,8 +16,8 @@ describe("agent public types", () => {
       capabilities: [
         access({
           chat: {
-            resolve({ identity, provider }) {
-              expectTypeOf(identity?.id).toEqualTypeOf<string | undefined>()
+            resolve({ invoker, provider }) {
+              expectTypeOf(invoker?.id).toEqualTypeOf<string | undefined>()
               expectTypeOf(provider).toEqualTypeOf<string>()
               return true
             },
@@ -447,18 +447,21 @@ describe("agent public types", () => {
     interface SupportChatUser {
       email?: string
     }
-    const teamsAdapter = {} as AgentChatAdapterResolver
+    const teamsAdapter = {} as AgentChatPlatformResolver
     const supportChat = chat({
-      adapters: () => ({ teams: teamsAdapter }),
-      identity({ adapter, author }) {
-        expectTypeOf(adapter).toEqualTypeOf<string>()
-        expectTypeOf(author.userId).toEqualTypeOf<string>()
-        return `${adapter}:${author.userId}`
-      },
+      platforms: () => ({ teams: teamsAdapter }),
       transcripts: {
         maxPerUser: 50,
         retention: "30d",
       },
+    })
+    chat({
+      // @ts-expect-error adapters was removed; public Chat config uses platforms
+      adapters: () => ({ teams: teamsAdapter }),
+    })
+    chat({
+      // @ts-expect-error chat identity was removed; use defineAgent({ invoker }) instead
+      identity: () => "teams:user",
     })
     const workspace = {
       sources: {

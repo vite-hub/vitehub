@@ -68,9 +68,13 @@ _Avoid_: Agent migration batch, SQL script
 A Capability that gives an Agent chat-oriented runtime behavior, including Chat History for the current stack.
 _Avoid_: Chat History Capability, Agent Memory
 
+**Chat Platform**:
+A configured external chat ingress on the Chat Capability, keyed by a platform name and backed by a Chat Platform Adapter.
+_Avoid_: Adapter identity policy, Agent Invoker, Access Role, webhook-only config
+
 **Chat Platform Adapter**:
-A ChatSDK adapter returned by Chat Capability configuration for an external chat platform such as Teams.
-_Avoid_: Agent Model Execution, Agent Trigger, Nitro handler
+The implementation object behind a Chat Platform that verifies and parses external chat platform events and provides platform actor facts.
+_Avoid_: Agent Invoker, Access Role, Agent Model Execution, Agent Trigger, public identity policy
 
 **Chat Adapter Package**:
 An optional integration package that constructs a Chat Platform Adapter or Chat Capability state backend, such as `@chat-adapter/teams` or `@chat-adapter/state-pg`.
@@ -80,9 +84,13 @@ _Avoid_: Built-in Capability, Agent Package dependency, generated adapter export
 A narrow ViteHub-owned import subpath for a first-party-supported Chat Adapter Package when ViteHub owns a stable shim and missing-package diagnostics.
 _Avoid_: Adapter barrel, generated upstream re-export, root Agent Package export
 
-**Chat Adapter Callback**:
-The lazy Chat Capability option that returns the current request's Chat Platform Adapters.
+**Chat Platform Callback**:
+The lazy Chat Capability option that returns the current request's configured Chat Platforms.
 _Avoid_: Webhook registration helper, adapter registry, build-time adapter scan
+
+**Chat Platform Actor Facts**:
+Trusted platform-scoped actor or source facts extracted from verified Chat Platform traffic before Agent Invoker mapping.
+_Avoid_: Auth User, Agent Invoker, Access Role, chat identity, model-facing user profile
 
 **Chat Webhook Autowiring**:
 ViteHub-owned server wiring that exposes Chat Platform Adapter webhooks from the Chat Capability without app route code.
@@ -239,16 +247,16 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A **Rate Limit Capability** consumes one budget unit per Agent Invocation in the first version; token, cost, or weighted usage budgets need a separate future design.
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
 - A **Chat Capability** owns Chat History behavior for the current stack.
-- A **Chat Capability** may declare **Chat Platform Adapters** through a **Chat Adapter Callback**.
-- A **Chat Capability** carries trusted Chat Capability origins from its Chat Platform Adapter names.
-- A **Chat Capability** can provide a platform-scoped Agent Invoker default for Chat Platform Adapter messages when trusted chat identity is available.
+- A **Chat Capability** may declare **Chat Platforms** through a **Chat Platform Callback**.
+- A **Chat Capability** carries trusted Chat Capability origins from its Chat Platform names.
+- A **Chat Capability** can provide a platform-scoped Agent Invoker default from Chat Platform Actor Facts when trusted platform identity is available.
 - A **Chat Platform Adapter** may come from a **Chat Adapter Package** that remains an explicit optional application dependency.
 - The Agent Package should not generate exports for every **Chat Adapter Package**.
 - A **Chat Adapter Facade** is reserved for first-party-supported adapters where ViteHub owns the public compatibility surface.
-- A **Chat Capability** can contribute trusted chat actor identity as the Agent Invoker before later Capabilities resolve.
-- **Chat Platform Adapters** are platform integration adapters, not **Agent Model Execution**.
+- A **Chat Capability** can contribute trusted Chat Platform Actor Facts as the default Agent Invoker before later Capabilities resolve.
+- **Chat Platform Adapters** are platform ingress adapters, not **Agent Invoker** policy, **Access Role** policy, or **Agent Model Execution**.
 - **Chat Webhook Autowiring** is inferred from the Agent's attached **Chat Capability**; users do not attach a second Capability or call a webhook registration helper.
-- **Chat Webhook Autowiring** resolves the **Chat Adapter Callback** at request time so callbacks can read Server Env and other request-local server state.
+- **Chat Webhook Autowiring** resolves the **Chat Platform Callback** at request time so callbacks can read Server Env and other request-local server state.
 - **Transcription** is an input-phase Official Capability.
 - **Transcription Artifacts** consume an already-declared writable Workspace; they do not define, mutate, or replace the Agent's Workspace.
 - A **Transcript Workspace Path** is the canonical destination for persisted transcript artifacts; directory, stem, and extension are derived from that path instead of configured as separate public fields.
@@ -263,7 +271,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - An **Access Capability** can record the active Workspace Scope as an Agent Invocation Context Value for later callbacks and instructions.
 - An **Access Capability** owns both Workspace Scope selection and application, but keeps resolver logic separate from grants.
 - An **Access Capability** may consume `context.invoker` to select Workspace Scope without owning invoker resolution.
-- An **Access Capability** may consume normalized chat identity and request context from **Chat Webhook Autowiring** without repeating **Chat Capability** origins in Access configuration.
+- An **Access Capability** may consume the resolved Agent Invoker plus normalized chat and request context from **Chat Webhook Autowiring** without repeating **Chat Capability** origins in Access configuration.
 - An **Access Capability** can use static named Workspace Scopes or an inline Workspace Scope definition returned by its resolver.
 - An **Access Capability** must be ordered before other Capabilities so invocation access is applied before they read scoped runtime surfaces or expose tools.
 - An **Access Capability** provides tiny default **Access Roles** for the first version.
@@ -356,9 +364,11 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - Chat-specific helpers were considered for server-side trigger behavior - resolved: use **Capability Trigger Contribution** so Chat and future user-defined Capabilities register Agent Triggers from the Agent config source of truth.
 - Grouping trigger contributions under a `server` bucket was considered - resolved: keep triggers directly capability-owned because Agent Triggers are server-authoritative by default and no broader server contribution group has been proven yet.
 - Trigger handlers were considered for direct Agent execution - resolved: trigger contributions map input and run metadata, while the Agent Package executes the Agent Invocation through the standard lifecycle.
-- Public chat webhook registration helpers were considered for platform adapters - resolved: use **Chat Webhook Autowiring** from the **Chat Capability** so adapter configuration remains the only source of truth.
-- Build-time Chat Platform Adapter detection was considered - resolved: resolve the **Chat Adapter Callback** at request time because platform credentials and adapter construction can depend on Server Env.
-- Repeating Chat Capability origins in `access()` was considered - resolved: **Chat Capability** owns adapter/webhook origin configuration, while **Access Capability** consumes normalized chat identity and request context for chat admission.
+- Public chat webhook registration helpers were considered for platform adapters - resolved: use **Chat Webhook Autowiring** from the **Chat Capability** so Chat Platform configuration remains the only source of truth.
+- Build-time Chat Platform detection was considered - resolved: resolve the **Chat Platform Callback** at request time because platform credentials and adapter construction can depend on Server Env.
+- Public `chat({ adapters })` was considered for long-term Chat Capability configuration - resolved: use **Chat Platforms** as the public configuration language, while **Chat Platform Adapters** remain implementation objects behind each platform.
+- Public `chat({ identity })` was considered for chat caller identity policy - resolved: remove it because **Agent Invoker** is the trusted caller identity boundary; Chat Platforms may only provide Chat Platform Actor Facts for default invoker mapping.
+- Repeating Chat Capability origins in `access()` was considered - resolved: **Chat Capability** owns platform/webhook origin configuration, while **Access Capability** consumes the resolved Agent Invoker plus normalized chat and request context for chat admission.
 - Capability phases, contexts, hooks, and instruction slots were considered glossary terms - resolved: group that detail under **Capability Lifecycle** unless a feature needs a sharper term.
 - Capability tools and instructions were considered unconditional Agent inputs - resolved: use **Capability Driver Contribution** and filter driver-facing inputs by the selected Agent Driver.
 - Bare Capability id instruction slots such as `mcp` were considered - resolved: use `capabilities.<id>` without backwards compatibility aliases.

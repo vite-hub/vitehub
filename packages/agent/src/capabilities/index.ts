@@ -79,7 +79,6 @@ export {
 
 export type {
   AccessChatContext,
-  AccessChatIdentity,
   AccessChatOptions,
   AccessChatResolver,
   AccessCapabilityOptions,
@@ -109,18 +108,17 @@ export type {
   AgentEntryOptions,
 } from "./entry.ts"
 export type {
-  AgentChatAdapterResolver,
-  AgentChatAdaptersResolver,
   AgentChatAgentBindingOptions,
   AgentChatAgentHookArgs,
   AgentChatErrorHookArgs,
   AgentChatEventHookArgs,
   AgentChatEventHooks,
   AgentChatFinishExtension,
-  AgentChatIdentityResolver,
   AgentChatMessage,
   AgentChatMessageHookArgs,
   AgentChatOptions,
+  AgentChatPlatformResolver,
+  AgentChatPlatformsResolver,
   AgentChatSendMessage,
   AgentChatSessionOptions,
   AgentChatStateContext,

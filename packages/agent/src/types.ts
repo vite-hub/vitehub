@@ -1,5 +1,5 @@
 import type { Message, StreamEvent } from "./messages.ts"
-import type { Adapter, AdapterPostableMessage, IdentityResolver, StateAdapter, TranscriptsConfig } from "chat"
+import type { Adapter, AdapterPostableMessage, StateAdapter, TranscriptsConfig } from "chat"
 import type {
   MaybePromise,
   MaybeResolvable,
@@ -816,13 +816,11 @@ export interface AgentChatEventHooks<TRuntimeConfig extends AgentRuntimeConfig =
   onDirectMessage?: (args: { message: { text: string } } & AgentChatEventHookArgs<TRuntimeConfig>) => MaybePromise<void>
 }
 
-export type AgentChatAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+export type AgentChatPlatformResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   MaybeResolvable<Adapter, AgentCallbackContext<TRuntimeConfig>>
 
-export type AgentChatAdaptersResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  MaybeResolvable<Record<string, AgentChatAdapterResolver<TRuntimeConfig>>, AgentCallbackContext<TRuntimeConfig>>
-
-export type AgentChatIdentityResolver = IdentityResolver
+export type AgentChatPlatformsResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  MaybeResolvable<Record<string, AgentChatPlatformResolver<TRuntimeConfig>>, AgentCallbackContext<TRuntimeConfig>>
 
 export interface AgentChatStateContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentCallbackContext<TRuntimeConfig> {
@@ -846,7 +844,7 @@ export interface AgentChatFinishExtension {
 }
 
 export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
-  adapters?: AgentChatAdaptersResolver<TRuntimeConfig>
+  adapters?: never
   agent?: never
   event?: AgentChatAgentBindingOptions["event"]
   execution?: never
@@ -854,8 +852,9 @@ export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
   fallbackStreamingPlaceholderText?: string | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   history?: AgentChatAgentBindingOptions["history"]
   hooks?: AgentChatEventHooks<TRuntimeConfig>
-  identity?: AgentChatIdentityResolver
+  identity?: never
   lifecycleHooks?: Record<string, unknown>
+  platforms?: AgentChatPlatformsResolver<TRuntimeConfig>
   sessions?: boolean | AgentChatSessionOptions
   state?: AgentChatStateResolver<TRuntimeConfig>
   stream?: boolean

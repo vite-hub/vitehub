@@ -69,7 +69,7 @@ Runtime state created while an Agent Invocation is being processed.
 _Avoid_: Chat state, workflow state
 
 **Agent Run Origin**:
-Host-provided metadata naming where an Agent Invocation came from, such as `http`, `devtools`, or a Chat Platform Adapter name.
+Host-provided metadata naming where an Agent Invocation came from, such as `http`, `devtools`, or a Chat Platform name.
 _Avoid_: Platform, Agent Trigger, runtime
 
 **Chat History**:
@@ -86,7 +86,7 @@ _Avoid_: Agent Memory, Agent Run State, hidden slice
 
 **Agent Invoker**:
 The trusted caller identity for one Agent Invocation, exposed as `context.invoker` with a stable `id`, optional `kind`, optional display `label`, and application-owned `meta`.
-_Avoid_: Auth User, Agent Trigger, Access Role, model-facing user profile
+_Avoid_: Auth User, Agent Trigger, Access Role, Chat Platform Actor Facts, model-facing user profile
 
 **Agent Invoker Profile**:
 A static selectable Agent Invoker declared on an Agent Definition through `defineAgent({ invoker: { profiles } })`, mainly for development selection and trusted app routing.
@@ -185,7 +185,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - A **Chat History Window** is configured by the Agent Definition when the application wants bounded Chat History.
 - The Chat Capability can require state for **Chat History** through the Agent State Provider.
 - Every **Agent Invocation** has an **Agent Invoker**; when no trusted identity is supplied, ViteHub provides an origin-specific anonymous fallback.
-- The Chat Capability can produce an **Agent Invoker** from trusted Chat Platform Adapter identity before later Capabilities resolve.
+- The Chat Capability can produce a default **Agent Invoker** from trusted Chat Platform Actor Facts before later Capabilities resolve.
 - **Agent Invoker** is available through `context.invoker` and as the `invoker` Agent Invocation Context Value; it is not model-facing by default.
 - **Agent Invoker Profiles** are static objects in the first version.
 - **Agent Invoker Profile** ids must be unique per Agent Definition.
@@ -261,14 +261,15 @@ _Avoid_: Fake agent, dummy model, test bot
 - Route and gate results were considered for ad hoc input context or metadata - resolved: expose them as typed **Agent Invocation Context Values**.
 - Shared access-and-audience branching was considered for reusable Invocation Profiles - resolved: use **Agent Invoker** as the root Agent Definition concept, with static **Agent Invoker Profiles** and app-owned `invoker.meta` for V1.
 - Chat state was considered separate from Agent State Provider - resolved: Chat History state is satisfied through the Agent State Provider when available.
-- Chat actor identity was considered a chat-history-only detail - resolved: expose it as an **Agent Invoker** so other Capabilities can consume it.
+- Chat actor identity was considered a chat-history-only detail - resolved: Chat Platform Actor Facts may seed a default **Agent Invoker** so other Capabilities consume `context.invoker` rather than chat-specific identity.
 - Chat History was considered an implicit Chat Capability default - resolved: keep Chat History opt-in, aligned with Chat SDK-style application control.
 - Local and hosted state providers were considered equivalent - resolved: hosted production runtimes require a durable provider and a **Concurrent Invocation Guard**.
 - Model-free playground behavior was described as a dummy Agent - resolved: use **Mock Agent Adapter** for deterministic, cost-free Agent Invocations.
 - Callback runtime config was considered an Agent app configuration surface - resolved: app-owned Runtime Env belongs to Server Env, not Agent callback context.
 - Server-side chat integration was described as a chat adapter or client integration - resolved: use **Agent Trigger** for server-side behavior that starts Agent Invocations.
-- ChatSDK adapters were considered Agent Triggers - resolved: a Chat Platform Adapter receives platform webhook events, and generated Chat Webhook wiring bridges those events into the Chat Capability's Agent Trigger.
-- Agent run metadata used `platform` for both chat adapters and generic invocation sources - resolved: use **Agent Run Origin** for run metadata and reserve platform language for **Chat Platform Adapters**.
+- ChatSDK adapters were considered Agent Triggers - resolved: a Chat Platform Adapter receives platform events, and generated Chat Webhook wiring bridges those events into the Chat Capability's Agent Trigger.
+- Agent run metadata used `platform` for both chat ingress and generic invocation sources - resolved: use **Agent Run Origin** for run metadata and reserve platform language for **Chat Platforms**.
+- Public chat identity was considered beside Agent Invokers - resolved: remove chat-specific identity policy and use **Agent Invoker** as the only trusted caller identity boundary.
 - Agent Triggers were considered chat-only because chat is the first major use case - resolved: Chat can provide the first official Capability-owned trigger, but Agent Triggers remain general and do not require message-shaped input.
 - Chat helper APIs were considered the primary exposure path - resolved: Capability-owned trigger registration is the primary server-side path, with helpers only as optional callers or ergonomics around registered triggers.
 - Client-provided flags were considered Capability configuration - resolved: triggers may pass host or client intent with the Agent Invocation, while Capabilities remain server-configured Agent behavior and the exact input field name is not fixed yet.

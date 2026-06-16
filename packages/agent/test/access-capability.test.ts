@@ -157,7 +157,7 @@ describe("access capability", () => {
       capabilities: [
         access({
           chat: {
-            resolve: ({ identity }) => identity?.id === "123",
+            resolve: ({ invoker }) => invoker?.id === "123",
           },
         }),
       ],

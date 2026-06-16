@@ -188,17 +188,9 @@ export interface AccessWorkspaceOptions<
   scopes?: Record<string, AccessWorkspaceScopeDefinition<TSourceName>>
 }
 
-export interface AccessChatIdentity {
-  id?: string
-  metadata?: Record<string, unknown>
-  name?: string
-  provider: string
-  username?: string
-}
-
 export interface AccessChatContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentCallbackContext<TRuntimeConfig> {
-  identity?: AccessChatIdentity
+  invoker?: AgentInvoker
   input?: unknown
   provider: string
   request: Request
