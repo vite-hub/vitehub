@@ -11,7 +11,9 @@ import type { HubDevtoolsOptions } from "@vite-hub/devtools"
 import type { EnvIntegrationOptions } from "@vite-hub/env"
 import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
-import type { Plugin } from "vite"
+import type { PluginOption } from "vite"
+
+export { env } from "@vite-hub/env/vite"
 
 export interface ViteHubPresetOptions {
   agent?: false | AgentModuleOptions
@@ -22,7 +24,7 @@ export interface ViteHubPresetOptions {
   workspace?: false | WorkspaceModuleOptions
 }
 
-export function vitehub(options: ViteHubPresetOptions = {}): Plugin[] {
+export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
   const plugins: unknown[] = []
   if (options.env !== false) plugins.push(hubEnv(options.env))
   if (options.agent !== false) plugins.push(hubAgent(options.agent))
@@ -30,5 +32,5 @@ export function vitehub(options: ViteHubPresetOptions = {}): Plugin[] {
   if (options.workflow !== false) plugins.push(hubWorkflow(options.workflow))
   if (options.workspace !== false) plugins.push(hubWorkspace(options.workspace))
   if (options.devtools !== false) plugins.push(hubDevtools(options.devtools))
-  return plugins as Plugin[]
+  return plugins as PluginOption[]
 }

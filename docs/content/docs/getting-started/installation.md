@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: Add ViteHub packages to your app and register the Vite Integrations you use.
+description: Add ViteHub packages to your app and register the Vite Integrations or preset you use.
 navigation.order: 2
 icon: i-lucide-download
 ---
@@ -11,8 +11,8 @@ icon: i-lucide-download
 Install ViteHub in my app.
 
 - Choose whether I need server primitives, agents, or both.
-- Install only the packages I use.
-- Register each installed package in `vite.config.ts`.
+- Install the common ViteHub preset or only the packages I use.
+- Register the preset or package-owned integrations in `vite.config.ts`.
 - Keep host credentials in environment variables or deployment configuration.
 - Start with KV for a small server primitive, or start with Agent definitions for model-backed behavior.
 ```
@@ -86,6 +86,40 @@ export default defineConfig({
 ::tip
 Keep the installed set small. The docs show the complete primitive list so you can see the shape, but most apps should start with one or two packages.
 ::
+
+## Install the common ViteHub preset
+
+Use the ViteHub preset when the app needs the common agent runtime surface and you do not want to wire each package-owned Vite Integration by hand.
+
+```bash [Terminal]
+pnpm add @vite-hub/vite @ai-sdk/gateway
+```
+
+Register the preset as one Vite plugin entry.
+
+```ts [vite.config.ts]
+import { vitehub } from "@vite-hub/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [
+    vitehub(),
+  ],
+});
+```
+
+Disable package integrations the app does not use.
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [
+    vitehub({
+      database: false,
+      workflow: false,
+    }),
+  ],
+});
+```
 
 ## Install agents
 
