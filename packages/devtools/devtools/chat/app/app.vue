@@ -23,7 +23,13 @@ import { flattenFiles, sourceRootStates, syncExpandedFilePaths, type FileRow, ty
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
 type ChatMessage = UIMessage & { chat?: string }
+type ConfirmationResult = "cancelled" | "done" | "timeout" | "undelivered"
+type SendInput = { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }
 type IntegrationSectionId = "config" | "files" | "tools" | "instructions" | "meta"
+const sendConnectTimeout = 15_000
+const sendConfirmationTimeout = 60_000
+const sendDeliveryTimeout = 3_000
+const sendConfirmationInterval = 700
 type ConfigRow = {
   badge?: string
   icon: string
@@ -843,226 +849,147 @@ async function refreshFromBridge(chat?: string) {
   await refresh({ metadataRefreshEpoch: refreshEpoch })
 }
 
-async function pollFinalBridgeState(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }, signal: AbortSignal) {
-  while (!signal.aborted) {
-    await new Promise(resolve => setTimeout(resolve, 700))
-    if (signal.aborted) break
-
-    const next = await callBridgeState({
-      action: "get-state",
-      ...(input.chat ? { chat: input.chat } : {}),
-      ...(input.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
-      ...(input.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
-      ...(input.meta ? { meta: input.meta } : {}),
-    }, signal)
-    if (!next) continue
-
-    if (hasCurrentUserMessage(next, input.chat, input.text)) {
-      if (!signal.aborted) {
-        applyState(next)
-        error.value = undefined
-      }
-    }
-    if (hasCompletedResponse(next, input.chat, input.text)) {
-      return true
-    }
+function sendStateInput(input: SendInput) {
+  return {
+    action: "get-state",
+    ...(input.chat ? { chat: input.chat } : {}),
+    ...(input.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
+    ...(input.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
+    ...(input.meta ? { meta: input.meta } : {}),
   }
-
-  return false
 }
 
-async function recoverTimedOutBridgeSend(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }, signal: AbortSignal) {
+function sleep(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    const timeout = setTimeout(resolve, ms)
+    signal.addEventListener("abort", () => {
+      clearTimeout(timeout)
+      resolve()
+    }, { once: true })
+  })
+}
+
+async function waitForFinalState(
+  input: SendInput,
+  signal: AbortSignal,
+  getState: (body: ReturnType<typeof sendStateInput>, signal: AbortSignal) => Promise<ChatDevtoolsStateResult | undefined>,
+  timeout = sendConfirmationTimeout,
+): Promise<ConfirmationResult> {
   const startedAt = Date.now()
   let sawSubmittedMessage = false
 
-  while (!signal.aborted && Date.now() - startedAt < 60_000) {
-    await new Promise(resolve => setTimeout(resolve, 700))
-    if (signal.aborted) break
+  while (!signal.aborted && Date.now() - startedAt < timeout) {
+    await sleep(sendConfirmationInterval, signal)
+    if (signal.aborted) return "cancelled"
 
-    const next = await callBridgeState({
-      action: "get-state",
-      ...(input.chat ? { chat: input.chat } : {}),
-      ...(input.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
-      ...(input.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
-      ...(input.meta ? { meta: input.meta } : {}),
-    }, signal)
+    const next = await getState(sendStateInput(input), signal).catch(() => undefined)
     if (!next) continue
-
     if (hasCurrentUserMessage(next, input.chat, input.text)) {
       sawSubmittedMessage = true
       applyState(next)
       error.value = undefined
     }
     if (hasCompletedResponse(next, input.chat, input.text)) {
-      return true
-    }
-    if (!sawSubmittedMessage && Date.now() - startedAt > 3_000) {
-      return false
-    }
-  }
-
-  return false
-}
-
-async function pollFinalRpcState(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }, signal: AbortSignal) {
-  while (!signal.aborted) {
-    await new Promise(resolve => setTimeout(resolve, 700))
-    if (signal.aborted) break
-
-    try {
-      const next = await callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc, {
-        ...(input.chat ? { chat: input.chat } : {}),
-        ...(input.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
-        ...(input.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
-        ...(input.meta ? { meta: input.meta } : {}),
-      })
-      if (hasCurrentUserMessage(next, input.chat, input.text)) {
-        applyState(next)
-        error.value = undefined
-      }
-      if (hasCompletedResponse(next, input.chat, input.text)) {
-        return true
-      }
-    }
-    catch {
-      if (signal.aborted) break
-    }
-  }
-
-  return false
-}
-
-async function readDirectBridgeStream(input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }): Promise<boolean> {
-  const abortController = new AbortController()
-  currentReader = { cancel: () => abortController.abort() }
-
-  let response: Response | undefined
-  const connectTimeoutController = new AbortController()
-  let connectTimeout: ReturnType<typeof setTimeout> | undefined
-  try {
-    connectTimeout = setTimeout(() => connectTimeoutController.abort(), 15_000)
-    response = await fetch(localBridgeRoute(), {
-        method: "POST",
-        headers: { "content-type": "text/plain" },
-        body: JSON.stringify({ action: "send", ...input, stream: true }),
-        signal: AbortSignal.any([abortController.signal, connectTimeoutController.signal]),
-      })
-  }
-  catch {
-    if (abortController.signal.aborted) {
-      currentReader = undefined
-      return true
-    }
-    if (connectTimeoutController.signal.aborted) {
-      try {
-        if (await recoverTimedOutBridgeSend(input, abortController.signal)) {
-          return true
-        }
-        error.value = "Chat DevTools bridge timed out before confirming the message."
-        return true
-      }
-      finally {
-        abortController.abort()
-        currentReader = undefined
-      }
-    }
-
-    currentReader = undefined
-    return false
-  }
-  finally {
-    if (connectTimeout) clearTimeout(connectTimeout)
-  }
-
-  if (!response.ok || !response.body) {
-    currentReader = undefined
-    return false
-  }
-
-  connected.value = true
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let pending = ""
-
-  const readStream = async (): Promise<"done" | "error" | false> => {
-    try {
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        pending += decoder.decode(value, { stream: true })
-        const lines = pending.split("\n")
-        pending = lines.pop() || ""
-        for (const line of lines) {
-          if (!line.trim()) continue
-          const event = JSON.parse(line) as ChatDevtoolsStreamEvent
-          applyStreamEvent(event)
-          if (event.type === "error") return "error"
-          if (event.type === "done") return "done"
-        }
-      }
-
-      const tail = pending.trim()
-      if (tail) {
-        const event = JSON.parse(tail) as ChatDevtoolsStreamEvent
-        applyStreamEvent(event)
-        if (event.type === "error") return "error"
-        if (event.type === "done") return "done"
-      }
       return "done"
     }
-    catch {
-      return abortController.signal.aborted ? "done" : "interrupted"
+    if (!sawSubmittedMessage && Date.now() - startedAt > sendDeliveryTimeout) {
+      return "undelivered"
     }
   }
+  return signal.aborted ? "cancelled" : "timeout"
+}
+
+async function* readJsonLines<T>(body: ReadableStream<Uint8Array>): AsyncGenerator<T> {
+  const reader = body.pipeThrough(new TextDecoderStream()).getReader()
+  let pending = ""
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      pending += value
+      const lines = pending.split("\n")
+      pending = lines.pop() || ""
+      for (const line of lines) {
+        if (line.trim()) yield JSON.parse(line) as T
+      }
+    }
+    if (pending.trim()) yield JSON.parse(pending) as T
+  }
+  finally {
+    reader.releaseLock()
+  }
+}
+
+async function applyStreamEvents(events: AsyncIterable<ChatDevtoolsStreamEvent>): Promise<boolean> {
+  for await (const event of events) {
+    applyStreamEvent(event)
+    if (event.type === "error") return false
+    if (event.type === "done") return true
+  }
+  return false
+}
+
+async function readDirectBridgeStream(input: SendInput): Promise<boolean> {
+  const startedAt = Date.now()
+  const abortController = new AbortController()
+  currentReader = { cancel: () => abortController.abort() }
+  let timedOut = false
+  const timeout = setTimeout(() => {
+    timedOut = true
+    abortController.abort()
+  }, sendConnectTimeout)
 
   try {
-    const outcome = await Promise.race([
-      readStream(),
-      pollFinalBridgeState(input, abortController.signal),
-    ])
-    if (outcome === "error") {
+    const response = await fetch(localBridgeRoute(), {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({ action: "send", ...input, stream: true }),
+      signal: abortController.signal,
+    })
+    if (!response.ok || !response.body) {
+      return false
+    }
+    connected.value = true
+    if (await applyStreamEvents(readJsonLines<ChatDevtoolsStreamEvent>(response.body))) {
       return true
     }
-    if (outcome === "done") {
-      return true
-    }
-    if (outcome === "interrupted") {
-      if (await recoverTimedOutBridgeSend(input, abortController.signal)) {
-        return true
-      }
+    const result = await waitForFinalState(input, abortController.signal, callBridgeState)
+    if (result === "done" || result === "cancelled") return true
+    if (result === "timeout") {
       error.value = "Chat DevTools bridge stream disconnected before confirming the message."
       return true
     }
-    if (!outcome || hasCompletedResponse(state.value, input.chat, input.text)) {
-      return Boolean(outcome)
+    return false
+  }
+  catch {
+    if (abortController.signal.aborted) {
+      if (!timedOut) return true
+      const recoveryController = new AbortController()
+      currentReader = { cancel: () => recoveryController.abort() }
+      const remaining = Math.max(0, sendConfirmationTimeout - (Date.now() - startedAt))
+      const result = await waitForFinalState(input, recoveryController.signal, callBridgeState, remaining)
+      if (result === "done" || result === "cancelled") return true
+      error.value = "Chat DevTools bridge timed out before confirming the message."
+      return true
     }
-
-    return await pollFinalBridgeState(input, abortController.signal)
+    return false
   }
   finally {
+    clearTimeout(timeout)
     abortController.abort()
     currentReader = undefined
   }
 }
 
-async function readRpcStream(streamId: string, input: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }) {
+async function readRpcStream(streamId: string, input: SendInput) {
   const abortController = new AbortController()
   const reader = (rpcClient as { streaming?: { subscribe: <T>(channel: string, id: string, options?: Record<string, unknown>) => AsyncIterable<T> & { cancel: () => unknown } } } | undefined)?.streaming?.subscribe<ChatDevtoolsStreamEvent>(chatDevtoolsStreamChannel, streamId, {
     highWaterMark: 1024,
   })
   if (!reader) {
-    const timeout = setTimeout(() => abortController.abort(), 60_000)
-    try {
-      const completed = await pollFinalRpcState(input, abortController.signal)
-      if (!completed) {
-        throw new Error("Chat DevTools RPC polling timed out.")
-      }
-      return completed
-    }
-    finally {
-      clearTimeout(timeout)
-      abortController.abort()
-    }
+    const result = await waitForFinalState(input, abortController.signal, async body => await callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc, body))
+    if (result === "done" || result === "cancelled") return true
+    throw new Error("Chat DevTools RPC polling timed out.")
   }
 
   currentReader = {
@@ -1072,18 +999,12 @@ async function readRpcStream(streamId: string, input: { chat?: string, invokerFa
     },
   }
 
-  const readStream = async () => {
-    for await (const event of reader) {
-      applyStreamEvent(event)
-      if (event.type === "error") return "error"
-      if (event.type === "done") return "done"
-    }
-    return "done"
-  }
-
   try {
-    const outcome = await readStream()
-    return outcome !== "error"
+    if (await applyStreamEvents(reader)) {
+      return true
+    }
+    const result = await waitForFinalState(input, abortController.signal, async body => await callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc, body))
+    return result === "done" || result === "cancelled"
   }
   finally {
     abortController.abort()
@@ -1101,7 +1022,6 @@ async function send() {
   status.value = "submitted"
   error.value = undefined
   let chat: string | undefined
-  let shouldRefreshFinalState = false
 
   try {
     chat = selectedChat()?.name
@@ -1118,14 +1038,11 @@ async function send() {
       text,
     }
     if (!shouldPreferRpcBridge()) {
-      if (await readDirectBridgeStream(bridgeInput)) {
-        if (error.value) {
-          return
-        }
-        status.value = "ready"
-        await refreshFromBridge(chat)
-        return
+      if (!await readDirectBridgeStream(bridgeInput)) {
+        if (error.value) return
+        throw new Error("Chat DevTools bridge stream failed.")
       }
+      return
     }
 
     const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
@@ -1138,8 +1055,9 @@ async function send() {
       return
     }
 
-    if (await readRpcStream(result.streamId, bridgeInput)) {
-      shouldRefreshFinalState = true
+    if (!await readRpcStream(result.streamId, bridgeInput)) {
+      if (error.value) return
+      throw new Error("Chat DevTools RPC stream failed.")
     }
   }
   catch (cause) {
@@ -1150,11 +1068,10 @@ async function send() {
   }
   finally {
     currentReader = undefined
-    if (shouldRefreshFinalState) {
-      status.value = "ready"
+    status.value = "ready"
+    if (!error.value) {
       await refreshFromBridge(chat)
     }
-    status.value = "ready"
   }
 }
 

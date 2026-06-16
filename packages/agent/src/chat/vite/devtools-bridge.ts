@@ -17,13 +17,13 @@ import {
   type ChatDevtoolsMetadata,
   type ChatDevtoolsMetadataStatus,
   type ChatDevtoolsStateResult,
-  type ChatDevtoolsStreamEvent,
   chatDevtoolsBridgeRoute,
   chatDevtoolsClearRpc,
   chatDevtoolsGetStateRpc,
   chatDevtoolsMaterializeSourceRpc,
   chatDevtoolsSendRpc,
 } from "../devtools.ts"
+import { createChatDevtoolsStreamResponse } from "../devtools-stream.ts"
 import { createAgentRuntimeContext } from "../../runtime/context.ts"
 import { discoverAgentDefinitions } from "../../discovery.ts"
 
@@ -768,54 +768,6 @@ async function materializeDevtoolsSource(
   }
 
   return await serializeState(state, selected, requestedSelection)
-}
-
-function createChatDevtoolsStreamResponse(run: (emit: (event: ChatDevtoolsStreamEvent) => void, signal: AbortSignal) => Promise<void>): Response {
-  const encoder = new TextEncoder()
-  const abortController = new AbortController()
-  let closed = false
-
-  function emit(controller: ReadableStreamDefaultController<Uint8Array>, event: ChatDevtoolsStreamEvent): void {
-    if (closed || abortController.signal.aborted) return
-    try {
-      controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
-    }
-    catch {
-      closed = true
-      abortController.abort()
-    }
-  }
-
-  return new Response(new ReadableStream({
-    start(controller) {
-      run(event => emit(controller, event), abortController.signal)
-        .then(() => {
-          if (closed || abortController.signal.aborted) return
-          emit(controller, { type: "done" })
-          if (!closed) {
-            closed = true
-            controller.close()
-          }
-        })
-        .catch((cause) => {
-          if (closed || abortController.signal.aborted) return
-          emit(controller, {
-            message: cause instanceof Error ? cause.message : "Chat DevTools stream failed.",
-            type: "error",
-          })
-          if (!closed) {
-            closed = true
-            controller.close()
-          }
-        })
-    },
-    cancel() {
-      closed = true
-      abortController.abort()
-    },
-  }), {
-    headers: { "content-type": "application/x-ndjson" },
-  })
 }
 
 function parseChatDevtoolsBridgeBody(rawBody: string): ChatDevtoolsBridgeBody | undefined {

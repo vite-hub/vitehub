@@ -11,6 +11,7 @@ import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "./invoker.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
 import { toHttpErrorResponse } from "./http-error.ts"
+import { createChatDevtoolsStreamResponse } from "./chat/devtools-stream.ts"
 
 import type { AgentChatMessageTriggerInput } from "./chat-trigger.ts"
 import type {
@@ -40,7 +41,6 @@ import type {
   ChatDevtoolsMetadata,
   ChatDevtoolsMetadataStatus,
   ChatDevtoolsStateResult,
-  ChatDevtoolsStreamEvent,
 } from "@vite-hub/devtools/chat-shared"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import type { Adapter, Attachment, ChatConfig, Lock, Message as ChatSdkMessage, MessageContext, QueueEntry, StateAdapter, Thread, WebhookOptions } from "chat"
@@ -1379,54 +1379,6 @@ function materializedSourceKeys(metadata: ChatDevtoolsMetadata | undefined): str
     pending.push(...(file.children || []))
   }
   return [...sources]
-}
-
-function createChatDevtoolsStreamResponse(run: (emit: (event: ChatDevtoolsStreamEvent) => void, signal: AbortSignal) => Promise<void>): Response {
-  const encoder = new TextEncoder()
-  const abortController = new AbortController()
-  let closed = false
-
-  function emit(controller: ReadableStreamDefaultController<Uint8Array>, event: ChatDevtoolsStreamEvent): void {
-    if (closed || abortController.signal.aborted) return
-    try {
-      controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
-    }
-    catch {
-      closed = true
-      abortController.abort()
-    }
-  }
-
-  return new Response(new ReadableStream({
-    start(controller) {
-      run(event => emit(controller, event), abortController.signal)
-        .then(() => {
-          if (closed || abortController.signal.aborted) return
-          emit(controller, { type: "done" })
-          if (!closed) {
-            closed = true
-            controller.close()
-          }
-        })
-        .catch((cause) => {
-          if (closed || abortController.signal.aborted) return
-          emit(controller, {
-            message: cause instanceof Error ? cause.message : "Chat DevTools stream failed.",
-            type: "error",
-          })
-          if (!closed) {
-            closed = true
-            controller.close()
-          }
-        })
-    },
-    cancel() {
-      closed = true
-      abortController.abort()
-    },
-  }), {
-    headers: { "content-type": "application/x-ndjson" },
-  })
 }
 
 function parseChatDevtoolsBridgeBody(rawBody: string): AgentChatDevtoolsBridgeBody | undefined {
