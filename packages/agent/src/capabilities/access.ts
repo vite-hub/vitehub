@@ -329,9 +329,9 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
             },
             selectedWorkspaceScope: {
               all: scope.all,
+              name: scope.scope,
               paths: scope.paths,
               role: scope.role,
-              scope: scope.scope,
             },
           })
         : { definition: context.workspaceDefinition, workspace: context.workspace }

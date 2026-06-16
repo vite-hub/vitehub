@@ -177,10 +177,10 @@ async function resolveWorkspaceSource(
         selectedWorkspaceScope: options.selectedWorkspaceScope
           ? {
               all: options.selectedWorkspaceScope.all,
+              name: options.selectedWorkspaceScope.name,
               paths: options.selectedWorkspaceScope.paths,
               role: options.selectedWorkspaceScope.role,
-              scope: options.selectedWorkspaceScope.scope,
-        }
+            }
           : undefined,
       },
     },

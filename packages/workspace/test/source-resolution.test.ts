@@ -27,9 +27,9 @@ function scope(scope: string, paths: string[]): WorkspaceSourceResolutionOptions
     invocation,
     selectedWorkspaceScope: {
       all: false,
+      name: scope,
       paths,
       role: "viewer",
-      scope,
     },
   }
 }
@@ -37,7 +37,7 @@ function scope(scope: string, paths: string[]): WorkspaceSourceResolutionOptions
 function customerSource() {
   return source.custom({
     async resolve({ selectedWorkspaceScope }) {
-      const customer = selectedWorkspaceScope?.scope
+      const customer = selectedWorkspaceScope?.name
       if (!customer) return false
       return source.custom({
         fingerprint: { customer },
@@ -115,9 +115,9 @@ describe("Workspace Source Resolution", () => {
       source: { customer: "acme" },
       sourceResolution: {
         selectedWorkspaceScope: {
+          name: "acme",
           paths: ["ingestion/acme"],
           role: "viewer",
-          scope: "acme",
         },
       },
     })
@@ -148,10 +148,10 @@ describe("Workspace Source Resolution", () => {
 
   it("resolves fetch sources from source.fetch resolvers", async () => {
     const resolveFetch = vi.fn(({ selectedWorkspaceScope }) => ({
-      body: { customer: selectedWorkspaceScope?.scope },
+      body: { customer: selectedWorkspaceScope?.name },
       method: "POST" as const,
       request: {
-        headers: { "x-customer": selectedWorkspaceScope?.scope ?? "unknown" },
+        headers: { "x-customer": selectedWorkspaceScope?.name ?? "unknown" },
       },
       url: "https://portal.example.com/runtime/inventory-health",
     }))
@@ -167,7 +167,7 @@ describe("Workspace Source Resolution", () => {
     const resolvedSource = normalizeWorkspaceSources(resolved.sources).find(source => source.key === "inventoryHealthSummary")?.source
 
     expect(resolveFetch).toHaveBeenCalledWith(expect.objectContaining({
-      selectedWorkspaceScope: expect.objectContaining({ scope: "acme" }),
+      selectedWorkspaceScope: expect.objectContaining({ name: "acme" }),
       source: {
         key: "inventoryHealthSummary",
         mountPath: "inventoryHealthSummary",
@@ -283,7 +283,7 @@ describe("Workspace Source Resolution", () => {
       status: 200,
     }))
     const requestFactory = vi.fn(({ selectedWorkspaceScope }) => ({
-      headers: { "x-scope": selectedWorkspaceScope?.scope },
+      headers: { "x-scope": selectedWorkspaceScope?.name },
     }))
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const querySchema = {
@@ -331,7 +331,7 @@ describe("Workspace Source Resolution", () => {
     expect((init.headers as Headers).get("cookie")).toBe("auth_token=secret")
     expect((init.headers as Headers).get("x-scope")).toBe("support")
     expect(requestFactory).toHaveBeenCalledWith(expect.objectContaining({
-      selectedWorkspaceScope: expect.objectContaining({ scope: "support" }),
+      selectedWorkspaceScope: expect.objectContaining({ name: "support" }),
     }))
   })
 
