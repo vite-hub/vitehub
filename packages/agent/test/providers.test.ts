@@ -309,6 +309,45 @@ describe("server helpers", () => {
     }
   })
 
+  it("does not shadow named workspace references", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-runtime-workspace-"))
+    const sourceRoot = join(root, "registered", "workspace")
+    await mkdir(sourceRoot, { recursive: true })
+    await writeFile(join(sourceRoot, "AGENTS.md"), "# Registered\n")
+
+    try {
+      const { defineAgent } = await import("../src/index.ts")
+      const { registerWorkspaceAgent } = await import("../src/server.ts")
+      const { defineWorkspace, source, useWorkspace } = await import("@vite-hub/workspace")
+      const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
+      const workspaceName = "support-runtime-named-reference"
+      registerWorkspace(workspaceName, defineWorkspace({
+        sourceRootDir: sourceRoot,
+        store: { provider: "memory" },
+        sources: {
+          instructions: source.file("AGENTS.md"),
+        },
+      }))
+      const agent = defineAgent({
+        async run() {
+          return "ok"
+        },
+        workspace: workspaceName,
+      })
+
+      const preparedAgent = registerWorkspaceAgent(agent, {
+        sourceRootDir: join(root, "ignored", "workspace"),
+      })
+      const workspace = useWorkspace(workspaceName)
+
+      expect(preparedAgent.__vitehubWorkspaceAgentOptions.workspace).toBe(workspaceName)
+      expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Registered\n")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("serves hosted Chat DevTools state for an explicit agent handler", async () => {
     const { defineAgent, defineAgentInvoker } = await import("../src/index.ts")
     const { defineAgentChatDevtoolsFetchHandler } = await import("../src/server.ts")
