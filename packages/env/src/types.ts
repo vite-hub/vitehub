@@ -8,10 +8,16 @@ export interface EnvIntegrationOptions {
 }
 
 export interface EnvSourceContext {
+  build: {
+    timestamp: () => string
+  }
   env: Record<string, string | undefined>
   git: {
     branch: () => Promise<string>
     commit: (options?: { short?: boolean }) => Promise<string>
+    ref: () => Promise<string>
+    sha: (options?: { short?: boolean }) => Promise<string>
+    tag: () => Promise<string | undefined>
   }
   mode: EnvMode
   packageJson: () => Promise<Record<string, unknown>>
@@ -46,6 +52,27 @@ export type EnvSource =
     short?: boolean
   }
   | {
+    kind: "git-ref"
+    label: "git:ref"
+    serializable: true
+  }
+  | {
+    kind: "git-sha"
+    label: "git:sha"
+    serializable: true
+    short?: boolean
+  }
+  | {
+    kind: "git-tag"
+    label: "git:tag"
+    serializable: true
+  }
+  | {
+    kind: "build-timestamp"
+    label: "build:timestamp"
+    serializable: true
+  }
+  | {
     kind: "package-json"
     label: string
     path: string
@@ -74,8 +101,16 @@ export interface EnvVariableOptions {
   type?: string
 }
 
+export type EnvBuildStaticValue = null | string | number | boolean | EnvBuildStaticValue[]
+
+type EnvBuildConfigValue = EnvBuildConfigOptions | EnvBuildStaticValue | EnvVariableDeclaration
+
+export interface EnvBuildConfigOptions {
+  [key: string]: EnvBuildConfigValue
+}
+
 export interface EnvViteConfigOptions {
-  define?: Record<string, EnvVariableDeclaration>
+  define?: Record<string, EnvBuildConfigValue>
   public?: Record<string, EnvVariableDeclaration>
   server?: EnvRuntimeConfigOptions
 }

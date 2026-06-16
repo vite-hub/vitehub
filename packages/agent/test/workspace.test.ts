@@ -506,9 +506,9 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toBe([
       "Answer from the workspace.",
       [
-        "API-backed Sources with controlled curl access:",
-        "- inventoryHealthSummary: inspect `.vitehub/sources/inventoryHealthSummary.json` for method, URL, allowed query/body shape, workspace path behavior, and redacted credential names before using curl.",
-        "Use normal curl syntax; ViteHub validates the final request against the Source Request Shape and Source Network Grant.",
+        "API-backed Sources you can inspect with curl:",
+        "- inventoryHealthSummary: read `.vitehub/sources/inventoryHealthSummary.json` before using curl.",
+        "Use normal curl syntax that matches the descriptor.",
       ].join("\n"),
       "Keep replies short.",
     ].join("\n\n"))

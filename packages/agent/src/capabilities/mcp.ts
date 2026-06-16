@@ -117,8 +117,8 @@ export function mcp<
       if (options.instructions !== false) {
         const serverNames = Object.keys(options.servers)
         context.instructions.add(options.instructions || [
-          "MCP servers provide external model-facing tools.",
-          `Configured MCP servers: ${serverNames.length ? serverNames.join(", ") : "none"}.`,
+          `MCP tools are available from: ${serverNames.length ? serverNames.join(", ") : "none"}.`,
+          "Use them when they fit the request.",
         ].join("\n"))
       }
     },

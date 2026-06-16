@@ -68,8 +68,8 @@ describe("createWorkspaceTools", () => {
       exitCode: 0,
       stdout: "/workspace\ncustomers.sql\norders.sql\n",
     })
-    expect(tools.shell.description).toContain("Only the listed commands are available")
-    expect(tools.shell.description).toContain("Do not use unsupported helpers such as `xargs`")
+    expect(tools.shell.description).toContain("Use these commands")
+    expect(tools.shell.description).toContain("Skip unsupported helpers such as `xargs`")
     expect(tools.shell.description).not.toContain("controlled `curl`")
   })
 

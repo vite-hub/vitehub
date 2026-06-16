@@ -26,12 +26,12 @@ async function sourceRequestHint(context: AgentCapabilityContext): Promise<strin
   if (!descriptors.length) return false
 
   return [
-    "API-backed Sources with controlled curl access:",
+    "API-backed Sources you can inspect with curl:",
     ...descriptors.map((entry) => {
       const source = entry.path.slice(".vitehub/sources/".length, -".json".length)
-      return `- ${source}: inspect \`${entry.path}\` for method, URL, allowed query/body shape, workspace path behavior, and redacted credential names before using curl.`
+      return `- ${source}: read \`${entry.path}\` before using curl.`
     }),
-    "Use normal curl syntax; ViteHub validates the final request against the Source Request Shape and Source Network Grant.",
+    "Use normal curl syntax that matches the descriptor.",
   ].join("\n")
 }
 
