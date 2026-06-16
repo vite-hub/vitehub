@@ -56,14 +56,6 @@ export type ResolvedAgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfi
 export type AgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Omit<ResolvedAgentRuntimeContext<TRuntimeConfig>, "runtimeConfig">
 
-export interface AgentInvocationContextStore {
-  entries: () => IterableIterator<[string, unknown]>
-  get: <T = unknown>(id: string) => T | undefined
-  has: (id: string) => boolean
-  set: (id: string, value: unknown, options?: { overwrite?: boolean }) => void
-  toJSON: () => Record<string, unknown>
-}
-
 export type AgentInvokerMeta = Record<string, unknown>
 
 export interface AgentInvoker<TMeta extends AgentInvokerMeta = AgentInvokerMeta> {
@@ -75,12 +67,43 @@ export interface AgentInvoker<TMeta extends AgentInvokerMeta = AgentInvokerMeta>
 
 export type AgentInvokerProfile<TMeta extends AgentInvokerMeta = AgentInvokerMeta> = AgentInvoker<TMeta>
 
+export interface AgentAccessWorkspaceScopeContext<TScopeName extends string = string> {
+  all: boolean
+  paths: string[]
+  role: "viewer" | "admin" | (string & {})
+  scope: TScopeName
+}
+
+export interface AgentAccessInvocationContextValue<TScopeName extends string = string> {
+  workspaceScope?: AgentAccessWorkspaceScopeContext<TScopeName>
+}
+
+export interface AgentInvocationContextValues {
+  access: AgentAccessInvocationContextValue
+  invoker: AgentInvoker
+}
+
+export interface AgentInvocationContextStore<TValues extends object = AgentInvocationContextValues> {
+  entries: () => IterableIterator<[string, unknown]>
+  get: {
+    <TKey extends keyof TValues & string>(id: TKey): TValues[TKey] | undefined
+    <T = unknown>(id: string): T | undefined
+  }
+  has: (id: string) => boolean
+  set: {
+    <TKey extends keyof TValues & string>(id: TKey, value: TValues[TKey], options?: { overwrite?: boolean }): void
+    (id: string, value: unknown, options?: { overwrite?: boolean }): void
+  }
+  toJSON: () => Record<string, unknown>
+}
+
 export interface AgentInvokerResolveContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TContextValues extends object = AgentInvocationContextValues,
 > extends AgentCallbackContext<TRuntimeConfig> {
-  context: AgentInvocationContextStore
+  context: AgentInvocationContextStore<TContextValues>
   defaultInvoker: AgentInvoker
   input: AgentRunInput<CALL_OPTIONS>
   profiles: readonly TProfile[]
@@ -91,9 +114,10 @@ export interface AgentInvokerOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TContextValues extends object = AgentInvocationContextValues,
 > {
   profiles?: readonly TProfile[]
-  resolve?: (context: AgentInvokerResolveContext<TRuntimeConfig, CALL_OPTIONS, TProfile>) => MaybePromise<AgentInvoker | null | undefined>
+  resolve?: (context: AgentInvokerResolveContext<TRuntimeConfig, CALL_OPTIONS, TProfile, TContextValues>) => MaybePromise<AgentInvoker | null | undefined>
 }
 
 export interface AgentRunInput<
@@ -191,8 +215,9 @@ export interface ResolvedAgentTriggerDefinition<
 export interface AgentRunCallbackContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  TContextValues extends object = AgentInvocationContextValues,
 > extends AgentCallbackContext<TRuntimeConfig> {
-  context: AgentInvocationContextStore
+  context: AgentInvocationContextStore<TContextValues>
   input: AgentRunInput<CALL_OPTIONS>
   invoker: AgentInvoker
   run?: AgentRunMetadata
@@ -243,9 +268,10 @@ export interface AgentRunContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   Name extends WorkspaceName = WorkspaceName,
+  TContextValues extends object = AgentInvocationContextValues,
 > extends AgentCallbackContext<TRuntimeConfig> {
   adapter?: AgentAdapter<CALL_OPTIONS>
-  context: AgentInvocationContextStore
+  context: AgentInvocationContextStore<TContextValues>
   input: AgentRunInput<CALL_OPTIONS>
   invoker: AgentInvoker
   messages: Message[]
@@ -258,7 +284,8 @@ export interface AgentRunContext<
 export type AgentRunHandler<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
-> = (context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
+  TContextValues extends object = AgentInvocationContextValues,
+> = (context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>) => MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
 
 export type AgentToolResolver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -365,6 +392,7 @@ export interface AgentCapabilityRuntimeContext<
 
 export interface AgentCapabilityTypeContract {
   inputContext?: object
+  invocationContext?: object
   workspaceSources?: string
 }
 
@@ -486,9 +514,10 @@ export interface AgentHarnessCredentialSource {
 export type AgentHarnessSessionKey<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  TContextValues extends object = AgentInvocationContextValues,
 > =
   | string
-  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<string | undefined>)
+  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>) => MaybePromise<string | undefined>)
 
 export type AgentHarnessDriverInput =
   | object
@@ -497,9 +526,10 @@ export type AgentHarnessDriverInput =
 export type AgentHarnessSandboxInput<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  TContextValues extends object = AgentInvocationContextValues,
 > =
   | object
-  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<object | undefined>)
+  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>) => MaybePromise<object | undefined>)
 
 export interface AgentModelDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -520,6 +550,7 @@ export interface AgentModelDriver<
 export interface AgentHarnessDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  TContextValues extends object = AgentInvocationContextValues,
 > {
   credentials?: AgentHarnessCredentialSource
   execution?: never
@@ -529,13 +560,14 @@ export interface AgentHarnessDriver<
   permissionMode?: never
   permissions?: never
   run?: never
-  sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS>
-  sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
+  sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS, TContextValues>
 }
 
 export interface AgentRunDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  TContextValues extends object = AgentInvocationContextValues,
 > {
   credentials?: never
   execution?: never
@@ -544,7 +576,7 @@ export interface AgentRunDriver<
   model?: never
   permissionMode?: never
   permissions?: never
-  run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
+  run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   sandbox?: never
   sessionKey?: never
 }
@@ -552,20 +584,23 @@ export interface AgentRunDriver<
 export type AgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
+  TContextValues extends object = AgentInvocationContextValues,
 > =
   | AgentModelDriver<TRuntimeConfig, CALL_OPTIONS>
-  | AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS>
-  | AgentRunDriver<TRuntimeConfig, CALL_OPTIONS>
+  | AgentHarnessDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  | AgentRunDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
 
 type AgentSharedSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TContextValues extends object = AgentInvocationContextValues,
+  TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = AgentCapabilitiesList<TRuntimeConfig> | undefined,
 > = {
-  capabilities?: AgentCapabilitiesList<TRuntimeConfig>
+  capabilities?: TCapabilities
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig>
-  invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>
+  invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   runtime?: AgentRuntimeBinding
   title?: string
   version?: string
@@ -576,9 +611,11 @@ export type AgentSettings<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-> = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> & (
+  TContextValues extends object = AgentInvocationContextValues,
+  TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = AgentCapabilitiesList<TRuntimeConfig> | undefined,
+> = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities> & (
   | {
-    driver: AgentDriver<TRuntimeConfig, CALL_OPTIONS>
+    driver: AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
     instructions?: never
     model?: never
     modelExecution?: never
@@ -589,14 +626,14 @@ export type AgentSettings<
     instructions?: AgentAdapterInstructions<TRuntimeConfig>
     model?: never
     modelExecution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
-    run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
+    run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   }
   | {
     driver?: never
     instructions?: AgentAdapterInstructions<TRuntimeConfig>
     model: AgentModelResolver<TRuntimeConfig>
     modelExecution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
-    run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
+    run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   }
 )
 
@@ -604,15 +641,16 @@ export interface AgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+  TContextValues extends object = AgentInvocationContextValues,
 > {
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS>
-  invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>
+  invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   runtime?: AgentRuntimeBinding
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
-  run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
+  run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
   title?: string
   version?: string
   workspace?: WorkspaceAgentWorkspaceConfig

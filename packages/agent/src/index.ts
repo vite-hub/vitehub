@@ -64,6 +64,7 @@ import type {
   AgentInstructionBlock,
   AgentInvocationHooks,
   AgentInvocationContextStore,
+  AgentInvocationContextValues,
   AgentInvoker,
   AgentInvokerOptions,
   AgentInvokerProfile,
@@ -103,6 +104,8 @@ import type {
 import type { WorkflowHandle } from "@vite-hub/workflow"
 
 export type {
+  AgentAccessInvocationContextValue,
+  AgentAccessWorkspaceScopeContext,
   AgentAdapter,
   AgentAdapterFactory,
   AgentAdapterInstructions,
@@ -161,6 +164,7 @@ export type {
   AgentIntegrationOption,
   AgentInvocationExtensions,
   AgentInvocationContextStore,
+  AgentInvocationContextValues,
   AgentInvocationHooks,
   AgentIntegrationsOptions,
   AgentInvoker,
@@ -303,6 +307,27 @@ type ValidateAgentCapabilities<TCapabilities, TWorkspace> =
     : TCapabilities extends readonly (infer TCapability)[]
       ? ValidateAgentCapability<TCapability, TWorkspace>[]
       : TCapabilities
+
+type UnionToIntersection<T> =
+  (T extends unknown ? (value: T) => void : never) extends (value: infer TIntersection) => void
+    ? TIntersection
+    : never
+type CapabilityInvocationContextValues<TCapability> =
+  TCapability extends AgentCapabilityDefinition<any, any, infer TTypeContract>
+    ? TTypeContract extends AgentCapabilityTypeContract
+      ? TTypeContract["invocationContext"] extends object
+        ? TTypeContract["invocationContext"]
+        : unknown
+      : unknown
+    : unknown
+type AgentCapabilitiesInvocationContextValues<TCapabilities> =
+  AgentInvocationContextValues & UnionToIntersection<
+    TCapabilities extends readonly [unknown, ...unknown[]] | readonly []
+      ? CapabilityInvocationContextValues<TCapabilities[number]>
+      : TCapabilities extends readonly (infer TCapability)[]
+        ? CapabilityInvocationContextValues<TCapability>
+        : unknown
+  >
 type ValidateWorkspaceAgentOptions<TOptions> =
   TOptions extends { capabilities?: infer TCapabilities, workspace: infer TWorkspace }
     ? { capabilities?: ValidateAgentCapabilities<TCapabilities, TWorkspace> }
@@ -599,16 +624,38 @@ export interface DefineAgent {
     Name extends WorkspaceName = WorkspaceName,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
-    const TOptions extends WorkspaceAgentOptions<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile> = WorkspaceAgentOptions<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile>,
+    const TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined = AgentCapabilityDefinition<TRuntimeConfig, Name>[] | undefined,
+    const TOptions extends WorkspaceAgentOptions<
+      TRuntimeConfig,
+      Name,
+      CALL_OPTIONS,
+      TInvokerProfile,
+      AgentCapabilitiesInvocationContextValues<TCapabilities>,
+      TCapabilities
+    > = WorkspaceAgentOptions<
+      TRuntimeConfig,
+      Name,
+      CALL_OPTIONS,
+      TInvokerProfile,
+      AgentCapabilitiesInvocationContextValues<TCapabilities>,
+      TCapabilities
+    >,
   >(
-    options: TOptions & ValidateWorkspaceAgentOptions<TOptions>,
+    options: TOptions & { capabilities?: TCapabilities } & ValidateWorkspaceAgentOptions<TOptions>,
   ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
     const TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
+    const TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = AgentCapabilityDefinition<TRuntimeConfig>[] | undefined,
   >(
-    options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile> & { workspace?: never },
+    options: AgentSettings<
+      TRuntimeConfig,
+      CALL_OPTIONS,
+      TInvokerProfile,
+      AgentCapabilitiesInvocationContextValues<TCapabilities>,
+      TCapabilities
+    > & { capabilities?: TCapabilities, workspace?: never },
   ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
 }
 
@@ -863,7 +910,7 @@ async function createAgentInvocationContext<
   const activeWorkspace = capabilities.workspace || workspace
   const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
   const activeWorkspaceDefinition = sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
-  const workspaceScope = invocationContext.get<{ all?: boolean }>("access.workspaceScope")
+  const workspaceScope = invocationContext.get("access")?.workspaceScope
   const sourceInstructions = activeWorkspaceDefinition && activeWorkspace
     ? await resolveWorkspaceSourceInstructionBlock(
         activeWorkspaceDefinition,
