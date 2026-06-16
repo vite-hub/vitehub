@@ -150,6 +150,8 @@ describe("workspace types", () => {
     source.fetch({ url: "https://status.example.com/api/summary", validate: "request" })
     // @ts-expect-error source.fetch request factories cannot redefine query
     source.fetch({ url: "https://status.example.com/api/summary", request: () => ({ query: { region: "eu" } }) })
+    // @ts-expect-error source.fetch definitions are static; only request credentials may be dynamic
+    source.fetch(() => ({ url: "https://status.example.com/api/summary" }))
     defineWorkspace({
       // @ts-expect-error workspace names are inferred from definition filenames
       name: "typed",
