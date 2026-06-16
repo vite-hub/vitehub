@@ -5,9 +5,9 @@ import type {
   AgentCapabilityDefinition,
   AgentCapabilityTypeContract,
   AgentChatAgentHookArgs,
-  AgentChatAdapterResolver,
   AgentChatFinishExtension,
   AgentChatOptions,
+  AgentChatPlatformResolver,
   AgentChatWebhookRegistrationDefinition,
   AgentInvocationContextStore,
   AgentRunMetadata,
@@ -35,11 +35,11 @@ type ResolvedMaybeResolvable<T> =
       ? Awaited<TResult>
       : T
 
-type AgentChatAdapterOrigin<TAdapters> =
-  Extract<keyof NonNullable<ResolvedMaybeResolvable<TAdapters>>, string>
+type AgentChatPlatformOrigin<TPlatforms> =
+  Extract<keyof NonNullable<ResolvedMaybeResolvable<TPlatforms>>, string>
 
 type AgentChatKnownOrigin<TOptions> =
-  TOptions extends { adapters?: infer TAdapters } ? AgentChatAdapterOrigin<TAdapters> : never
+  TOptions extends { platforms?: infer TPlatforms } ? AgentChatPlatformOrigin<TPlatforms> : never
 
 export type AgentChatOptionsOrigin<TOptions> =
   [AgentChatKnownOrigin<TOptions>] extends [never]
@@ -125,7 +125,7 @@ function isResolvableObject(value: unknown): value is { resolve: (...args: never
     && typeof (value as { resolve?: unknown }).resolve === "function"
 }
 
-function isStaticAdapterMap(value: AgentChatOptions["adapters"]): value is Record<string, AgentChatAdapterResolver> {
+function isStaticPlatformMap(value: AgentChatOptions["platforms"]): value is Record<string, AgentChatPlatformResolver> {
   return typeof value === "object" && value !== null && !Array.isArray(value) && !isResolvableObject(value)
 }
 
@@ -155,8 +155,8 @@ function normalizeChatWebhookRegistrations(
 }
 
 function inferredChatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] {
-  if (!isStaticAdapterMap(options.adapters)) return []
-  return Object.keys(options.adapters)
+  if (!isStaticPlatformMap(options.platforms)) return []
+  return Object.keys(options.platforms)
     .filter(platform => !hasExplicitChatWebhook(options, platform))
     .flatMap(platform => normalizeChatWebhookRegistrations(platform, {}))
 }

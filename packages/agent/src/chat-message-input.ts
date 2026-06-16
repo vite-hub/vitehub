@@ -4,6 +4,7 @@ import type {
   AgentChatAgentHookArgs,
   AgentChatOptions,
   AgentChatSessionOptions,
+  AgentInvoker,
   AgentRunInput,
   AgentRunMetadata,
   AgentRuntimeConfig,
@@ -275,19 +276,18 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   const meta = Object.keys(userMeta).length || triggerInput?.meta
     ? { ...userMeta, ...triggerInput?.meta }
     : undefined
-  const identity = chatIdentity(triggerInput?.user, triggerInput?.run)
-  const invoker = identity
+  const invokerId = chatIdentity(triggerInput?.user, triggerInput?.run)
+  const invoker = invokerId
     ? {
-        id: identity,
+        id: invokerId,
         kind: triggerInput?.run?.origin === "devtools" ? "devtools" as const : "chat" as const,
         ...(meta ? { meta } : {}),
-      }
+      } satisfies AgentInvoker
     : undefined
   return {
     hookArgs,
     input: {
       context: {
-        ...(identity ? { "chat.identity": identity } : {}),
         ...(invoker ? { invoker } : {}),
         ...(triggerInput?.invokerProfileId ? { invokerProfileId: triggerInput.invokerProfileId } : {}),
         chat: {

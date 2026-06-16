@@ -406,7 +406,7 @@ describe("server helpers", () => {
     const { access, chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
     const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
     const adapter = createTestChatAdapter()
-    const admitChat = vi.fn(({ identity }) => identity?.id === "123")
+    const admitChat = vi.fn(({ invoker }) => invoker?.id === "telegram:123")
     const run = vi.fn(({ messages }) => {
       const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
       return {
@@ -429,7 +429,7 @@ describe("server helpers", () => {
           },
         }),
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -471,13 +471,15 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledTimes(1)
     expect(adapter.editMessage).not.toHaveBeenCalled()
     expect(admitChat).toHaveBeenCalledWith(expect.objectContaining({
-      identity: expect.objectContaining({
-        id: "123",
-        metadata: expect.objectContaining({
+      invoker: expect.objectContaining({
+        id: "telegram:123",
+        kind: "chat",
+        meta: expect.objectContaining({
           email: "maxi@example.com",
+          id: "123",
+          name: "Maxi",
+          username: "maxi",
         }),
-        provider: "telegram",
-        username: "maxi",
       }),
       input: expect.objectContaining({
         message: expect.objectContaining({
@@ -529,7 +531,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -583,7 +585,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -669,7 +671,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -752,7 +754,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           fallbackStreamingPlaceholderText: "Working on it...",
@@ -809,7 +811,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -857,7 +859,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           errorFallbackText: "No pude procesar ese mensaje.",
@@ -919,7 +921,7 @@ describe("server helpers", () => {
     const agent = {
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           stream: false,
@@ -968,7 +970,7 @@ describe("server helpers", () => {
     const agent = {
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           stream: false,
@@ -1043,7 +1045,7 @@ describe("server helpers", () => {
     const agent = {
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           stream: false,
@@ -1123,7 +1125,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           stream: false,
@@ -1201,7 +1203,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -1286,7 +1288,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           errorFallbackText: "Sorry, I couldn't process that message.",
@@ -1365,7 +1367,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           stream: false,
@@ -1436,7 +1438,7 @@ describe("server helpers", () => {
           },
         }),
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -1501,7 +1503,7 @@ describe("server helpers", () => {
     }))
   })
 
-  it("lets access() reject app-specific chat identities", async () => {
+  it("lets access() reject app-specific chat invokers", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { access, chat } = await import("../src/capabilities.ts")
     const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
@@ -1511,11 +1513,11 @@ describe("server helpers", () => {
       capabilities: [
         access({
           chat: {
-            resolve: ({ identity }) => identity?.id === "123",
+            resolve: ({ invoker }) => invoker?.id === "123",
           },
         }),
         chat({
-          adapters: { telegram: () => adapter as never },
+          platforms: { telegram: () => adapter as never },
           webhooks: {
             telegram: {},
           },
@@ -1553,7 +1555,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
         }),

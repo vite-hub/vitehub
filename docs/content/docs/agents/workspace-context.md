@@ -63,7 +63,7 @@ import { access, chat, workspaceShell } from '@vite-hub/agent/capabilities'
 import { source } from '@vite-hub/workspace'
 
 const supportChat = chat({
-  adapters: () => ({
+  platforms: () => ({
     teams: createTeamsAdapter({
       apiUrl: process.env.TEAMS_API_URL,
       appId: process.env.TEAMS_APP_ID!,

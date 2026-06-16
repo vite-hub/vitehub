@@ -518,7 +518,7 @@ describe("agent message protocol", () => {
     const agent = {
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             teams: () => ({}) as never,
             telegram: () => ({}) as never,
           },

@@ -6,7 +6,7 @@ import { createAgentDevtoolsMetadata, materializeAgentDevtoolsSourceMetadata, re
 import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { getAccessCapabilityOptions } from "./capabilities/access.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "./chat-trigger.ts"
-import { uiMessagesToAgentMessages } from "./chat-message-input.ts"
+import { createChatMessageTriggerInput, uiMessagesToAgentMessages } from "./chat-message-input.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
 import { toHttpErrorResponse } from "./http-error.ts"
 
@@ -19,6 +19,7 @@ import type {
   AgentChatMessage,
   AgentChatOptions,
   AgentInput,
+  AgentInvoker,
   AgentRunInput,
   AgentRunMetadata,
   AgentRuntimeConfig,
@@ -28,7 +29,6 @@ import type {
   AgentWebhookRegistrationDefinition,
   MaybeResolvable,
 } from "./types.ts"
-import type { AccessChatIdentity } from "./capabilities/access.ts"
 import type { AudioData, MessagePart } from "./messages.ts"
 import { workspaceNameFromOptions } from "./workspace-agent.ts"
 import type { WorkspaceAgentDefaults, WorkspaceAgentDefinition } from "./workspace-agent.ts"
@@ -271,7 +271,7 @@ async function resolveChatAdapters(
   context: ViteAgentRouteRuntimeContext,
 ): Promise<Record<string, Adapter>> {
   const adapters = await resolveMaybe(
-    options?.adapters as MaybeResolvable<Record<string, MaybeResolvable<Adapter, ViteAgentRouteRuntimeContext>>, ViteAgentRouteRuntimeContext> | undefined,
+    options?.platforms as MaybeResolvable<Record<string, MaybeResolvable<Adapter, ViteAgentRouteRuntimeContext>>, ViteAgentRouteRuntimeContext> | undefined,
     context,
   )
   const resolved: Record<string, Adapter> = {}
@@ -617,7 +617,6 @@ function createChatSdkConfig(
     concurrency: chatSdkOption<ChatConfig["concurrency"]>(options, "concurrency"),
     dedupeTtlMs: chatSdkOption<number>(options, "dedupeTtlMs"),
     fallbackStreamingPlaceholderText,
-    identity: options?.identity,
     lockScope: chatSdkOption<ChatConfig["lockScope"]>(options, "lockScope"),
     logger: chatSdkOption<ChatConfig["logger"]>(options, "logger"),
     messageHistory: chatSdkOption<ChatConfig["messageHistory"]>(options, "messageHistory"),
@@ -631,22 +630,6 @@ function createChatSdkConfig(
 
 function isoDate(value: unknown): string | undefined {
   return value instanceof Date ? value.toISOString() : undefined
-}
-
-function accessChatIdentity(provider: string, message: ChatSdkMessage): AccessChatIdentity {
-  const email = chatMessageAuthorEmail(message)
-  return objectWithoutUndefined({
-    id: message.author.userId,
-    metadata: objectWithoutUndefined({
-      email,
-      isBot: message.author.isBot,
-      isMe: message.author.isMe,
-      userKey: message.userKey,
-    }),
-    name: message.author.fullName,
-    provider,
-    username: message.author.userName,
-  })
 }
 
 function chatMessageAuthorEmail(message: ChatSdkMessage): string | undefined {
@@ -893,13 +876,16 @@ async function isChatMessageAuthorized(
   registration: AgentWebhookRegistrationDefinition,
   thread: Thread,
   message: ChatSdkMessage,
+  input: AgentChatMessageTriggerInput,
+  options: AgentChatOptions | undefined,
   messageContext?: MessageContext,
 ): Promise<boolean> {
+  const invoker = createChatMessageTriggerInput(options || {}, input).input.context?.invoker as AgentInvoker | undefined
   for (const options of getAccessCapabilityOptions(getAgentCapabilities(agent))) {
     if (!options.chat) continue
     const result = await options.chat.resolve({
       ...context,
-      identity: accessChatIdentity(registration.provider, message),
+      invoker,
       input: accessChatInput(thread, message, messageContext),
       provider: registration.provider,
       request: context.request,
@@ -926,7 +912,7 @@ async function handleChatSdkMessage(
     input = createChatTriggerInput(registration.provider, thread, message, messageContext)
     const firstMessage = input.messages[0]
     if (!firstMessage || !Array.isArray(firstMessage.parts) || firstMessage.parts.length === 0) return
-    if (!await isChatMessageAuthorized(agent, context, registration, thread, message, messageContext)) return
+    if (!await isChatMessageAuthorized(agent, context, registration, thread, message, input, options, messageContext)) return
 
     typing = options?.stream !== false ? startChatTypingRefresh(thread, context) : undefined
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)

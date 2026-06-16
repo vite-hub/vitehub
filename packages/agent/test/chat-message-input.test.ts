@@ -22,7 +22,7 @@ describe("chat message trigger input", () => {
       session: { id: "b" },
       user: { id: "user_1" },
     })
-    expect(result.input.context?.["chat.identity"]).toBe("user_1")
+    expect(result.input.context).not.toHaveProperty("chat.identity")
     expect(result.input.context?.invoker).toMatchObject({
       id: "user_1",
       kind: "chat",
@@ -48,7 +48,7 @@ describe("chat message trigger input", () => {
       user: { email: "support@example.com" },
     })
 
-    expect(result.input.context?.["chat.identity"]).toBe("support@example.com")
+    expect(result.input.context).not.toHaveProperty("chat.identity")
     expect(result.input.context?.invoker).toEqual({
       id: "support@example.com",
       kind: "chat",
@@ -59,7 +59,7 @@ describe("chat message trigger input", () => {
     })
   })
 
-  it("preserves Chat Trigger metadata without creating identity from metadata alone", () => {
+  it("preserves Chat Trigger metadata without creating an invoker from metadata alone", () => {
     const result = createChatMessageTriggerInput({}, {
       messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }],
       meta: { email: "support@example.com" },
@@ -68,7 +68,7 @@ describe("chat message trigger input", () => {
     expect(result.input.context?.chat).toMatchObject({
       meta: { email: "support@example.com" },
     })
-    expect(result.input.context?.["chat.identity"]).toBeUndefined()
+    expect(result.input.context).not.toHaveProperty("chat.identity")
     expect(result.input.context?.invoker).toBeUndefined()
   })
 
