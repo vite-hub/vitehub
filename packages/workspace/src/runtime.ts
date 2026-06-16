@@ -7,6 +7,7 @@ export {
   setWorkspaceHostedStoreLoader,
 } from "./runtime/hosted-store-loader.ts"
 export {
+  registerWorkspace,
   resetWorkspaceStoreCache,
   setWorkspaceRuntimeAssetsRegistry,
   setWorkspaceRuntimeRegistry,

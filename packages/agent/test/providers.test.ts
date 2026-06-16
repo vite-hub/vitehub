@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -325,6 +325,42 @@ describe("server helpers", () => {
     const { validateAgentChatRouteBody } = await import("../src/server.ts")
 
     expect(() => validateAgentChatRouteBody({})).toThrow("Agent chat route requires messages.")
+  })
+
+  it("registers workspace agents for app-owned routes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-runtime-workspace-"))
+    const sourceRoot = join(root, "support", "workspace")
+    await mkdir(sourceRoot, { recursive: true })
+    await writeFile(join(sourceRoot, "AGENTS.md"), "# Support\n")
+
+    try {
+      const { defineAgent } = await import("../src/index.ts")
+      const { registerWorkspaceAgent } = await import("../src/server.ts")
+      const { defineWorkspace, source, useWorkspace } = await import("@vite-hub/workspace")
+      const agent = defineAgent({
+        async run() {
+          return "ok"
+        },
+        workspace: defineWorkspace({
+          store: { provider: "memory" },
+          sources: {
+            instructions: source.file("AGENTS.md"),
+          },
+        }),
+      })
+
+      const preparedAgent = registerWorkspaceAgent(agent, {
+        sourceRootDir: sourceRoot,
+        workspace: "support-runtime",
+      })
+      const workspace = useWorkspace("support-runtime")
+
+      expect(preparedAgent.__vitehubWorkspaceAgentDefaults?.workspace).toBe("support-runtime")
+      expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Support\n")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("returns bad request from chat routes without messages", async () => {

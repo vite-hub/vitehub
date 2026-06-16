@@ -2,7 +2,7 @@ import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflar
 import { createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import { Chat, StreamingPlan } from "chat"
 
-import { createAgentDevtoolsMetadata, materializeAgentDevtoolsSourceMetadata, resolveAgentDevtoolsMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, runAgentTrigger, streamAgent, streamAgentTrigger } from "./index.ts"
+import { createAgentDevtoolsMetadata, materializeAgentDevtoolsSourceMetadata, resolveAgentDevtoolsMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, runAgentTrigger, streamAgent, streamAgentTrigger, withWorkspaceAgentDefaults } from "./index.ts"
 import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { getAccessCapabilityOptions } from "./capabilities/access.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "./chat-trigger.ts"
@@ -30,7 +30,8 @@ import type {
 } from "./types.ts"
 import type { AccessChatIdentity } from "./capabilities/access.ts"
 import type { AudioData, MessagePart } from "./messages.ts"
-import type { WorkspaceAgentDefaults } from "./workspace-agent.ts"
+import { workspaceNameFromOptions } from "./workspace-agent.ts"
+import type { WorkspaceAgentDefaults, WorkspaceAgentDefinition } from "./workspace-agent.ts"
 import type {
   ChatDevtoolsConversation,
   ChatDevtoolsMetadata,
@@ -38,8 +39,10 @@ import type {
   ChatDevtoolsStateResult,
   ChatDevtoolsStreamEvent,
 } from "@vite-hub/devtools/chat-shared"
+import type { WorkspaceName } from "@vite-hub/workspace"
 import type { Adapter, Attachment, ChatConfig, Lock, Message as ChatSdkMessage, MessageContext, QueueEntry, StateAdapter, Thread, WebhookOptions } from "chat"
 import type { UIMessage } from "ai"
+import { registerWorkspace } from "@vite-hub/workspace/runtime"
 import {
   chatDevtoolsClearRpc,
   chatDevtoolsGetStateRpc,
@@ -79,12 +82,33 @@ export interface AgentChatWebhookFetchOptions extends AgentRouteRuntimeOptions {
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
 }
 
+export interface RegisterWorkspaceAgentOptions<Name extends WorkspaceName = WorkspaceName> extends WorkspaceAgentDefaults<Name> {
+  sourceRootDir?: string
+}
+
 type AgentDefinitionWithCapabilities = {
   __vitehubWorkspaceAgentOptions?: {
     capabilities?: AgentCapabilityDefinition[]
   }
   capabilities?: AgentCapabilityDefinition[]
   chat?: AgentChatOptions
+}
+
+export function registerWorkspaceAgent<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  CALL_OPTIONS = unknown,
+>(
+  agent: WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>,
+  options: RegisterWorkspaceAgentOptions<Name> = {},
+): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS> {
+  const preparedAgent = withWorkspaceAgentDefaults(agent, options)
+  const workspaceName = workspaceNameFromOptions(preparedAgent.__vitehubWorkspaceAgentOptions as never, preparedAgent.__vitehubWorkspaceAgentDefaults)
+  registerWorkspace(workspaceName, {
+    ...preparedAgent,
+    sourceRootDir: preparedAgent.sourceRootDir ?? options.sourceRootDir,
+  } as never)
+  return preparedAgent
 }
 
 const defaultChatErrorFallbackText = "Sorry, I couldn't process that message."
