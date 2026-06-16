@@ -188,13 +188,11 @@ function describeShellCommands(commands: string[]) {
   ].filter(Boolean)
 
   return [
-    "Run a real Bash-compatible workspace shell command over files mounted at `/workspace`.",
-    `Available workspace commands include: ${available.join(", ")}.`,
-    "Only the listed commands are available; other executables are rejected before they run.",
-    "Pipes, redirects, chaining, quoted patterns, and multiline shell scripts are supported when they use available commands.",
-    "The workspace filesystem controls whether writes are allowed; read-only tools reject mutation commands at execution time.",
-    "Do not use unsupported helpers such as `xargs`, `awk`, `sed`, `sort`, `cut`, or `python`.",
-    "Do not use shell commands such as `echo` to compose assistant replies; answer conversational messages directly.",
+    "Inspect files in `/workspace` with a Bash-compatible shell.",
+    `Use these commands: ${available.join(", ")}.`,
+    "Pipes, redirects, chaining, quoted patterns, and multiline scripts are supported.",
+    "Skip unsupported helpers such as `xargs`, `awk`, `sed`, `sort`, `cut`, or `python`.",
+    "Answer conversational messages directly; do not use shell commands such as `echo` to compose replies.",
     examples.length && `Examples: ${examples.join("; ")}.`,
   ].filter(Boolean).join(" ")
 }
