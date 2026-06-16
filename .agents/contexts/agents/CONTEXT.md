@@ -187,6 +187,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - Every **Agent Invocation** has an **Agent Invoker**; when no trusted identity is supplied, ViteHub provides an origin-specific anonymous fallback.
 - The Chat Capability can produce a default **Agent Invoker** from trusted Chat Platform Actor Facts before later Capabilities resolve.
 - **Agent Invoker** is available through `context.invoker` and as the `invoker` Agent Invocation Context Value; it is not model-facing by default.
+- **Agent Invoker** resolution may read **Agent Run Origin** from first-class run metadata, but concrete authorization effects should flow through the resolved **Agent Invoker** rather than branching on origin later.
 - **Agent Invoker Profiles** are static objects in the first version.
 - **Agent Invoker Profile** ids must be unique per Agent Definition.
 - DevTools can select configured **Agent Invoker Profiles** before a new Chat Session starts, but does not switch invokers in the middle of one conversation.

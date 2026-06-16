@@ -151,7 +151,7 @@ export function withResolvedAgentInvokerInput<CALL_OPTIONS>(
   return {
     ...input,
     context: {
-      ...(input.context || {}),
+      ...input.context,
       [agentInvokerContextKey]: invoker,
       [resolvedAgentInvokerInputKey]: true,
     },
@@ -216,6 +216,7 @@ export async function resolveAgentInvoker<
     defaultInvoker,
     input,
     profiles,
+    ...(run ? { run } : {}),
     ...(selectedProfile ? { selectedProfile } : {}),
   })
   const invoker = resolved === undefined || resolved === null

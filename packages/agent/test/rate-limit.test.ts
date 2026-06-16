@@ -136,6 +136,30 @@ describe("rateLimit capability", () => {
     })
   })
 
+  it("passes Agent Run metadata to invoker resolution", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      invoker: {
+        resolve({ defaultInvoker, run }) {
+          return {
+            ...defaultInvoker,
+            id: `${run?.origin}:${run?.runId}:${defaultInvoker.id}`,
+          }
+        },
+      },
+      run: context => context.invoker,
+    })
+
+    await expect(runAgent(agent, runtime({
+      run: { origin: "portal", runId: "portal-run" },
+    }), {
+      context: { invoker: { id: "user_1", kind: "chat" } },
+    })).resolves.toEqual({
+      id: "portal:portal-run:user_1",
+      kind: "chat",
+    })
+  })
+
   it("keeps trusted invoker metadata when selecting a profile", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
