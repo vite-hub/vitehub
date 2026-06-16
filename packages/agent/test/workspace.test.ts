@@ -1338,6 +1338,28 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("adds controlled curl to resolved DevTools metadata when source request descriptors are visible", async () => {
+    list.mockImplementation(async path => path === ".vitehub/sources"
+      ? [{ path: ".vitehub/sources/inventoryHealthSummary.json", type: "file" }]
+      : [])
+    const { defineAgent, resolveAgentDevtoolsMetadata, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { workspaceShell } = await import("../src/capabilities.ts")
+    const agent = withWorkspaceAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+      capabilities: [workspaceShell()],
+    }), { workspace: "support" })
+
+    expect(await resolveAgentDevtoolsMetadata(agent)).toMatchObject({
+      tools: expect.arrayContaining([
+        expect.objectContaining({
+          commands: ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc", "curl"],
+          name: "workspaceShell",
+        }),
+      ]),
+    })
+  })
+
   it("resolves dynamic model metadata for DevTools", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const resolveModel = vi.fn((context: { invoker: { kind?: string } }) => ({
