@@ -356,6 +356,8 @@ describe("server helpers", () => {
       const workspace = useWorkspace("support-runtime")
 
       expect(preparedAgent.__vitehubWorkspaceAgentDefaults?.workspace).toBe("support-runtime")
+      expect(preparedAgent.sourceRootDir).toBe(sourceRoot)
+      expect((preparedAgent.__vitehubWorkspaceAgentOptions.workspace as { sourceRootDir?: string }).sourceRootDir).toBe(sourceRoot)
       expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Support\n")
     }
     finally {

@@ -103,10 +103,24 @@ export function registerWorkspaceAgent<
   options: RegisterWorkspaceAgentOptions<Name> = {},
 ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS> {
   const preparedAgent = withWorkspaceAgentDefaults(agent, options)
+  const sourceRootDir = preparedAgent.sourceRootDir ?? options.sourceRootDir
+  const workspaceOptions = preparedAgent.__vitehubWorkspaceAgentOptions
+  if (sourceRootDir !== undefined && typeof workspaceOptions.workspace !== "string") {
+    const workspace = {
+      ...workspaceOptions.workspace,
+      sourceRootDir: workspaceOptions.workspace.sourceRootDir ?? sourceRootDir,
+    }
+    Object.assign(preparedAgent, workspace, {
+      __vitehubWorkspaceAgentOptions: {
+        ...workspaceOptions,
+        workspace,
+      },
+    })
+  }
   const workspaceName = workspaceNameFromOptions(preparedAgent.__vitehubWorkspaceAgentOptions as never, preparedAgent.__vitehubWorkspaceAgentDefaults)
   registerWorkspace(workspaceName, {
     ...preparedAgent,
-    sourceRootDir: preparedAgent.sourceRootDir ?? options.sourceRootDir,
+    sourceRootDir,
   } as never)
   return preparedAgent
 }
