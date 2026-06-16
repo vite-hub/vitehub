@@ -59,6 +59,37 @@ describe("chat message trigger input", () => {
     })
   })
 
+  it("uses an explicit Chat Trigger invoker without lifting chat metadata into it", () => {
+    const result = createChatMessageTriggerInput({}, {
+      invoker: {
+        id: "portal:acme:user_1",
+        kind: "customerPortal",
+        meta: {
+          email: "support@example.com",
+          scope: "acme",
+        },
+      },
+      messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }],
+      meta: { portal: { activePage: "/orders" } },
+      run: { origin: "portal", runId: "portal-run" },
+      user: { email: "support@example.com" },
+    })
+
+    expect(result.input.context?.chat).toMatchObject({
+      meta: { portal: { activePage: "/orders" } },
+      run: { origin: "portal", runId: "portal-run" },
+      user: { email: "support@example.com" },
+    })
+    expect(result.input.context?.invoker).toEqual({
+      id: "portal:acme:user_1",
+      kind: "customerPortal",
+      meta: {
+        email: "support@example.com",
+        scope: "acme",
+      },
+    })
+  })
+
   it("preserves Chat Trigger metadata without creating an invoker from metadata alone", () => {
     const result = createChatMessageTriggerInput({}, {
       messages: [{ parts: [{ text: "hello", type: "text" }], role: "user" }],

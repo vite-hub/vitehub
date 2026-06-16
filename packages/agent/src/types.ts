@@ -107,6 +107,7 @@ export interface AgentInvokerResolveContext<
   defaultInvoker: AgentInvoker
   input: AgentRunInput<CALL_OPTIONS>
   profiles: readonly TProfile[]
+  run?: AgentRunMetadata
   selectedProfile?: TProfile
 }
 

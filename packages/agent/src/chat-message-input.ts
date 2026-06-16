@@ -1,4 +1,5 @@
 import { createMessage } from "./messages.ts"
+import { normalizeAgentInvoker } from "./invoker.ts"
 
 import type {
   AgentChatAgentHookArgs,
@@ -21,6 +22,7 @@ export type UIMessageLike = {
 
 export interface AgentChatMessageTriggerInput {
   history?: AgentChatOptions["history"]
+  invoker?: AgentInvoker
   invokerProfileId?: string
   meta?: Record<string, unknown>
   messages: UIMessageLike[]
@@ -277,13 +279,15 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
     ? { ...userMeta, ...triggerInput?.meta }
     : undefined
   const invokerId = chatIdentity(triggerInput?.user, triggerInput?.run)
-  const invoker = invokerId
-    ? {
-        id: invokerId,
-        kind: triggerInput?.run?.origin === "devtools" ? "devtools" as const : "chat" as const,
-        ...(meta ? { meta } : {}),
-      } satisfies AgentInvoker
-    : undefined
+  const invoker = triggerInput?.invoker
+    ? normalizeAgentInvoker(triggerInput.invoker, "chat.message input.invoker")
+    : invokerId
+      ? {
+          id: invokerId,
+          kind: triggerInput?.run?.origin === "devtools" ? "devtools" as const : "chat" as const,
+          ...(meta ? { meta } : {}),
+        } satisfies AgentInvoker
+      : undefined
   return {
     hookArgs,
     input: {

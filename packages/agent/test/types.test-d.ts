@@ -506,10 +506,12 @@ describe("agent public types", () => {
       },
       invoker: defineAgentInvoker({
         profiles: supportProfiles,
-        resolve({ defaultInvoker, input, profiles, selectedProfile }) {
+        resolve({ defaultInvoker, input, profiles, run, selectedProfile }) {
           expectTypeOf(defaultInvoker.id).toEqualTypeOf<string>()
           expectTypeOf(input.messages).toEqualTypeOf<AgentRunInput["messages"]>()
           expectTypeOf(profiles).toEqualTypeOf<typeof supportProfiles>()
+          expectTypeOf(run?.origin).toEqualTypeOf<string | undefined>()
+          expectTypeOf(run?.runId).toEqualTypeOf<string | undefined>()
           expectTypeOf(selectedProfile?.meta?.customer).toEqualTypeOf<"acme" | undefined>()
           return selectedProfile || defaultInvoker
         },
