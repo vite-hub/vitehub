@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, defineAgentInvoker, type AgentDriver, type AgentInvoker, type AgentRunInput, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
-import { access, blob, chat, chatTitle, db, entry, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "../src/capabilities.ts"
+import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
@@ -457,7 +457,6 @@ describe("agent public types", () => {
         retention: "30d",
       },
     })
-    const portalEntry = entry({ id: "portal", chat: { capability: supportChat, origin: "portal" } })
     const workspace = {
       sources: {
         docs: source.file("AGENTS.md"),
@@ -465,7 +464,7 @@ describe("agent public types", () => {
       },
     }
     type SupportInvoker = AgentInvoker<{ audience?: "support" | "technical", customer?: "acme" }>
-    type SupportInputContext = AgentChatRunContext<SupportMessageMetadata, SupportChatUser, "portal" | "teams"> & {
+    type SupportInputContext = AgentChatRunContext<SupportMessageMetadata, SupportChatUser, "teams"> & {
       invoker?: SupportInvoker
     }
     const supportProfiles: readonly AgentInvokerProfile<{ audience?: "technical", customer?: "acme" }>[] = [
@@ -478,7 +477,7 @@ describe("agent public types", () => {
       resolve({ input, invoker }) {
         const chat = input.get().context?.chat
         expectTypeOf(chat?.message?.metadata?.quiver?.customer).toEqualTypeOf<string | undefined>()
-        expectTypeOf(chat?.run?.origin).toEqualTypeOf<"portal" | "teams" | undefined>()
+        expectTypeOf(chat?.run?.origin).toEqualTypeOf<"teams" | undefined>()
         expectTypeOf(chat?.user?.email).toEqualTypeOf<string | undefined>()
         expectTypeOf(invoker.id).toEqualTypeOf<string>()
         expectTypeOf(invoker.meta?.customer).toEqualTypeOf<"acme" | undefined>()
@@ -514,7 +513,6 @@ describe("agent public types", () => {
           workspace: supportAccess,
         }),
         supportChat,
-        portalEntry,
       ],
       model: {} as never,
     })
