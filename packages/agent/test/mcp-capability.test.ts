@@ -53,7 +53,7 @@ describe("mcp capability", () => {
       },
       name: "mcp_docs_read_doc",
     })
-    expect(resolved.capabilityInstructions.at(-1)?.instructions).toContain("Configured MCP servers: docs.")
+    expect(resolved.capabilityInstructions.at(-1)?.instructions).toContain("MCP tools are available from: docs.")
 
     await resolved.close()
     expect(client.close).toHaveBeenCalledTimes(1)
