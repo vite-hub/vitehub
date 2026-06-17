@@ -14,6 +14,10 @@ import {
   reportWorkspaceMaterialization,
   withAgentToolStepReporting,
 } from "./tool-runtime.ts"
+import {
+  aiSdkTelemetryIntegration,
+  hasAgentTraceLog,
+} from "./trace.ts"
 
 import type {
   Agent,
@@ -526,6 +530,29 @@ function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapt
   }
 }
 
+function withViteHubTelemetry(settings: Record<string, unknown>, context: AgentAdapterRunContext): Record<string, unknown> {
+  if (!hasAgentTraceLog(context)) return settings
+  const existing = (settings.telemetry || settings.experimental_telemetry || {}) as { integrations?: unknown[], isEnabled?: boolean }
+  const integrations = Array.isArray(existing.integrations) ? existing.integrations : []
+  const telemetry = {
+    ...existing,
+    integrations: [...integrations, aiSdkTelemetryIntegration({
+      context: context.context,
+      input: context.input,
+      invoker: context.invoker,
+      run: context.runtime.run,
+      runtime: context.runtime,
+    })],
+    isEnabled: true,
+  }
+
+  return {
+    ...settings,
+    telemetry,
+    ...(settings.experimental_telemetry && !settings.telemetry ? { experimental_telemetry: telemetry } : {}),
+  }
+}
+
 async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRunContext) {
   const { ToolLoopAgent, stepCountIs } = await import("ai")
   const execution = options.execution ?? options.modelExecution
@@ -582,7 +609,7 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
 
   return {
     agent: new ToolLoopAgent({
-      ...withRunCallbacks(settings, context),
+      ...withRunCallbacks(withViteHubTelemetry(settings, context), context),
       instructions,
       model: instrumentedModel as never,
       stopWhen: ((settings as Record<string, unknown>).stopWhen ?? stepCountIs(stepLimit ?? 20)) as never,

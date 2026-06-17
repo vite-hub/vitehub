@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
+import { createTraceEventLog } from "@vite-hub/runtime"
 import { chat, chatTitle, schedule } from "../src/capabilities.ts"
 
 const harnessAgentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
@@ -47,6 +48,64 @@ describe("agent message protocol", () => {
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       prompt: "hello",
     }))
+  })
+
+  it("emits invocation Trace Events without persisting prompt content", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, { prompt: "secret prompt" })).resolves.toBe("ok")
+
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.invocation.finish",
+    ])
+    expect(traceLog.entries()[0]!.attributes).toMatchObject({
+      "input.hasPrompt": true,
+      "runtime.name": "unknown",
+    })
+    expect(JSON.stringify(traceLog.entries())).not.toContain("secret prompt")
+  })
+
+  it("emits stream milestone Trace Events without tracing text deltas", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      run: () => (async function* () {
+        yield { text: "secret text", type: "text-delta" }
+        yield { id: "tool-1", input: { query: "secret" }, name: "search", type: "tool-call" }
+        yield { id: "tool-1", name: "search", output: { result: "secret" }, type: "tool-result" }
+        yield { type: "usage", usageRecord: { usage: { totalTokens: 3 } } }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.tool.start",
+      "agent.tool.finish",
+      "agent.usage.recorded",
+      "agent.stream.finish",
+      "agent.invocation.finish",
+    ])
+    expect(JSON.stringify(traceLog.entries())).not.toContain("secret text")
+    expect(JSON.stringify(traceLog.entries())).not.toContain("secret")
   })
 
   it("runs harness Agent Drivers through AI SDK HarnessAgent", async () => {

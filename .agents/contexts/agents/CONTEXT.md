@@ -44,6 +44,10 @@ _Avoid_: Agent Invocation Lifecycle hooks, adapter middleware, provider wrapper
 One runtime request to an Agent.
 _Avoid_: Chat message, webhook call
 
+**Agent Invocation Stream**:
+The ordered structured event stream produced while one Agent Invocation runs and consumed by terminal, DevTools, HTTP clients, tests, or CI.
+_Avoid_: Agent Invocation Lifecycle, DevTools state, chat transcript, raw model stream
+
 **Agent Trigger**:
 Server-side host or integration behavior that starts an Agent Invocation for a specific product event.
 _Avoid_: Chat adapter, client integration, model adapter
@@ -162,6 +166,12 @@ _Avoid_: Fake agent, dummy model, test bot
 - Workspace plus Capability composition without an **Agent Driver** is not an **Agent Definition**.
 - Capabilities attach above the **Agent Driver** and may expose driver-specific **Capability Driver Contributions**.
 - An **Agent** receives zero or more **Agent Invocations**.
+- An **Agent Invocation Stream** belongs to one **Agent Invocation**.
+- An **Agent Invocation Stream** is not the **Agent Invocation Lifecycle**; lifecycle hooks observe runtime moments.
+- An **Agent Invocation Stream** is the client-facing Agent Invocation event stream; Runtime Package **Trace Events** are the local observability record and may observe the same invocation without becoming the stream contract.
+- Agent Invocation content can appear in the **Agent Invocation Stream** without being persisted into the Runtime Package **Trace Event Log**.
+- Text deltas and other high-frequency **Agent Invocation Stream** events are not Runtime Package **Trace Events** by default.
+- **Agent Model Execution Instrumentation** may feed Runtime Package **Trace Events**, but provider-specific telemetry should not become the Agent Package observability vocabulary.
 - An **Agent Trigger** starts one or more **Agent Invocations**.
 - An **Agent Trigger** prepares **Agent Run State** and **Chat History** when the product event needs them.
 - An **Agent Trigger** may provide message-shaped input, but message-shaped input is not required for every Agent Trigger.
