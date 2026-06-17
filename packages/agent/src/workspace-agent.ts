@@ -7,6 +7,7 @@ import {
 } from "./capability-runtime.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import {
+  defineWorkspace,
   getWorkspaceSourceRequestDescriptor,
   isWorkspaceSourceRequestOnly,
   workspaceSourceRequestDescriptorPath,
@@ -141,7 +142,11 @@ export function workspaceDefinitionFromOptions<
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
 ): WorkspaceAgentWorkspaceOptions {
-  return typeof options.workspace === "string" ? { mode: "read" } : options.workspace
+  if (typeof options.workspace === "string") return { mode: "read" }
+  const workspace = normalizeWorkspaceOptions(options.workspace)
+  const { mode: _mode, ...definition } = workspace
+  defineWorkspace(definition as never)
+  return workspace
 }
 
 function workspaceDefinitionWithNameFromOptions<

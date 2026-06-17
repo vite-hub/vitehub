@@ -226,6 +226,8 @@ describe("workspace types", () => {
     // @ts-expect-error runtime selection belongs in workspace config, not open options
     await writable.startSession({ runtime: "local" })
     expectTypeOf(session.exec).toBeFunction()
+    expectTypeOf(session.mkdir).toBeFunction()
+    expectTypeOf(session.rm).toBeFunction()
     expectTypeOf(session.commit).toBeFunction()
     expectTypeOf(session.close).toBeFunction()
     expectTypeOf(await readonly.fs.readFile("AGENTS.md")).toEqualTypeOf<string>()

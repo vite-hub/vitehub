@@ -95,6 +95,7 @@ _Avoid_: Root Agent Package export, generated adapter barrel, upstream package m
 - The **Agent Package** should allow harness-backed Agent Drivers to produce Agent Usage Records without token counts when the harness reports non-token usage details.
 - The **Agent Package** should preserve raw provider- or harness-reported usage details and the resolved Harness Credential Source label when available without exposing secrets.
 - The **Agent Package** coordinates scoped Workspace Session preparation for harness-backed Agent Drivers through the Workspace Package boundary.
+- The **Agent Package** does not copy Flue-style root `tools`, `skills`, or `sandbox` fields; harness sandbox setup stays under `driver`, and tools or Skills stay Capability-owned.
 - The **Agent Package** resolves explicit Harness Session Keys for harness-backed Agent Drivers and does not infer durable harness reuse from chat or thread metadata by default.
 - An **Agent Driver Boundary** is configured as one object on the Agent Definition, with exactly one concrete driver key such as `model`, `harness`, or `run`.
 - The concrete **Agent Driver Boundary** key holds the implementation value directly; driver-specific options are sibling fields on the same driver object.

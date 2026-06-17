@@ -10,6 +10,13 @@ import type {
 } from "./core/types.ts"
 import type { WorkspaceResolutionInput } from "./storage/provider.ts"
 
+const workspaceConfigKeys = new Set([
+  "assets",
+  "projectRoot",
+  "root",
+  "store",
+])
+
 export {
   MASKED_WORKSPACE_RUNTIME_VALUE,
   hasVercelWorkspaceBlobEnv,
@@ -31,6 +38,11 @@ export function normalizeWorkspaceOptions(
   }
 
   const resolvedOptions = (options || {}) as WorkspaceModuleOptions
+  const unsupported = Object.keys(resolvedOptions).filter(key => !workspaceConfigKeys.has(key))
+  if (unsupported.length) {
+    throw new TypeError(`[vitehub] workspace config does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.`)
+  }
+
   const rootDir = input.rootDir || process.cwd()
   const root = resolvedOptions.root || ".vitehub/workspaces"
   return {
