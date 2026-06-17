@@ -42,10 +42,10 @@ _Avoid_: Schedule Capability, provider client
 
 **Schedule Capability**:
 An Agent Capability that lets an Agent create or manage Runtime Schedules within developer-defined policy.
-_Avoid_: Scheduling as an Agent Capability, raw scheduler tools
+_Avoid_: Agent Schedule, Scheduling as an Agent Capability, raw scheduler tools
 
 **Agent Schedule**:
-A cron schedule declared through the Schedule Capability that starts the owning Agent.
+A developer-declared Schedule Target that starts an Agent Invocation.
 _Avoid_: Schedule Capability policy, Handler Target, Runtime Schedule
 
 **Self Schedule Permission**:
@@ -141,7 +141,7 @@ _Avoid_: Per-user timezone, local server time
 - `schedules` is the app-facing Schedule Runtime Helper name.
 - The first Schedule Runtime Helper operations are create, list, get, update, delete, enable, and disable.
 - A **Schedule Capability** is for Agent-controlled scheduling through Capability policy.
-- A **Schedule Capability** can declare **Agent Schedules** inline.
+- A **Schedule Capability** does not declare **Agent Schedules**; it exposes controlled Runtime Schedule operations to an Agent.
 - **Schedule Capability Mode** uses `mode: 'read' | 'write'` like official primitive Capabilities.
 - The Schedule Capability uses a **Schedule Capability Tool Surface** rather than one model-facing tool per Schedule Runtime Helper method.
 - Schedule write tools require `policy: 'require-approval'` by default unless the developer explicitly supplies a different **Schedule Tool Policy**.
@@ -151,11 +151,13 @@ _Avoid_: Per-user timezone, local server time
 - An **Agent Schedule** starts an independent Agent Invocation and does not require Chat History.
 - An **Agent Schedule** can omit id when ViteHub can derive stable identity from a normalized cron expression.
 - The `schedule` Capability helper uses `schedule(options)`.
-- Inline **Agent Schedules** are declared through `schedule({ schedules: [...] })`.
+- Inline **Agent Schedules** should not be declared through the **Schedule Capability** helper.
 - **Self Schedule Permission** is explicit and is not implied by `mode: 'write'`.
 - A **Schedule Runtime Helper** can create or manage **Recurring Runtime Schedules**.
 - One-time future execution is not part of Scheduling vocabulary in the first version.
 - A **Provider Wake** can drive Runtime Schedule execution without being the Runtime Schedule itself.
+- A **Provider Wake** may be required by platforms such as Cloudflare so Runtime Schedules have a provider event that wakes ViteHub schedule execution.
+- Long-running hosts such as Docker may drive Runtime Schedules without a source-declared Provider Wake.
 - Schedule Provider Wake may require host-specific Worker entrypoint wiring when a host owns the deployed Worker export. ADR 0051 allows `@vite-hub/schedule` to generate Nitro Cloudflare hook/config wiring as a narrow exception to the Vite-only Framework Integration rule.
 - A due **Schedule Definition** or **Runtime Schedule** creates a **Schedule Run**.
 - A **Schedule Run** can have one or more **Schedule Run Attempts**.
@@ -171,8 +173,10 @@ _Avoid_: Per-user timezone, local server time
 - A **Handler Target** and **Agent Target** are Schedule Target kinds.
 - An **Agent Target** starts an Agent Invocation but is not a Schedule Capability.
 - **Runtime Schedules** are dynamic timing data over static Schedule Targets.
+- Runtime Schedules may be created by an Agent through the **Schedule Capability**, but the due **Schedule Run** is schedule-owned runtime execution rather than the model acting as the runtime caller.
 - A Static Schedule Definition with stable identity can opt into exposing its handler as a Runtime Schedule Target.
 - **Overlap Policy**, **Retry Policy**, and **Dedupe Policy** belong to Schedule by default.
 - Naming a scheduling policy does not imply it is user-configurable in the first version.
 - `cron` can be public API/product language without making cron the umbrella domain term.
 - Schedule is runtime coordination and is not an Agent Capability.
+- Schedule is not a **Channel** or **Agent Invoker**.

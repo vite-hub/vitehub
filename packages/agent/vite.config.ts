@@ -19,6 +19,7 @@ export default defineConfig({
     entry: [
       "src/ai-sdk.ts",
       "src/capabilities.ts",
+      "src/channels.ts",
       "src/index.ts",
       "src/messages.ts",
       "src/mcp.ts",

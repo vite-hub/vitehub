@@ -543,6 +543,66 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("creates chat triggers from message-shaped channels", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { teams } = await import("../src/channels.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const adapter = () => ({}) as never
+    const agent = defineAgent({
+      channels: {
+        support: teams({
+          adapter,
+          webhooks: {
+            path: "/api/teams/support",
+          },
+        }),
+      },
+      messages: {
+        concurrency: "queue",
+        history: { maxMessages: 20, source: "thread" },
+        sessions: true,
+      },
+      run: () => "ok",
+    })
+
+    expect(agent.chat).toMatchObject({
+      concurrency: "queue",
+      history: { maxMessages: 20, source: "thread" },
+      sessions: true,
+      webhooks: {
+        support: {
+          id: "support",
+          path: "/api/teams/support",
+          provider: "teams",
+        },
+      },
+    })
+    expect(agent.chat?.platforms).toEqual({ support: adapter })
+    expect(agent.capabilities?.some(capability => capability.id === "chat")).toBe(true)
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "chat.message": {
+        webhooks: [{
+          id: "support",
+          method: "POST",
+          path: "/api/teams/support",
+          provider: "teams",
+        }],
+      },
+    })
+  })
+
+  it("rejects mixing channels with the legacy chat capability", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { webChat } = await import("../src/channels.ts")
+
+    expect(() => defineAgent({
+      capabilities: [chat()],
+      channels: { web: webChat() },
+      run: () => "ok",
+    })).toThrow("defineAgent({ channels }) cannot be combined with the chat() capability")
+  })
+
   it("runs agent finish hooks for custom object results after extensions are resolved", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

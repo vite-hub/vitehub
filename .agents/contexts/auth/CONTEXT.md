@@ -42,7 +42,7 @@ _Avoid_: Auth User, access role, login role
 - **Auth User** is not **Agent Invoker**.
 - **Auth Session** is not **Chat Session**.
 - An **Auth Agent Invoker Bridge** can produce an Agent Invoker without making Auth User and Agent Invoker the same concept.
-- An **Auth Agent Invoker Bridge** applies only where an Agent or Entry Surface opts into it; merely defining Auth does not make every Agent Invocation require Auth.
+- An **Auth Agent Invoker Bridge** applies only where an Agent or Channel opts into it; merely defining Auth does not make every Agent Invocation require Auth.
 - Client factory metadata can belong to an **Auth Definition** without becoming a separate discovered Definition.
 
 ## Example Dialogue
@@ -66,4 +66,4 @@ _Avoid_: Auth User, access role, login role
 - `server.auth.ts` was considered as a named auth identity source - resolved: it is only an alias for the singleton **Primary Auth Definition**.
 - Auth identity was considered as Agent identity - resolved: **Auth User** and **Agent Invoker** are separate concepts, with a future bridge able to map one into the other.
 - Requiring every app to write a custom Auth-to-Agent mapper was considered - resolved: the **Auth Agent Invoker Bridge** should provide a useful default mapping from Auth User to Agent Invoker, with custom mapping only for app-specific caller axes.
-- "Auth is installed" was considered equivalent to "all Agents require Auth" - resolved: Auth only affects Agent Invocations through an opted-in **Auth Agent Invoker Bridge** or another explicit Entry Surface gate.
+- "Auth is installed" was considered equivalent to "all Agents require Auth" - resolved: Auth only affects Agent Invocations through an opted-in **Auth Agent Invoker Bridge** or another explicit Channel gate.

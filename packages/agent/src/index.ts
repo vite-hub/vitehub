@@ -3,7 +3,8 @@ import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { getMessageText } from "./messages.ts"
 import { resolveRuntimeContext } from "@vite-hub/runtime"
 import { isAsyncIterable, streamAgentOutputToEvents, toAgentRunResult } from "./agent-output.ts"
-import { getChatCapabilityOptions } from "./chat-trigger.ts"
+import { chat as defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
+import { resolveAgentChannelChatOptions } from "./internal/channels.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import {
   normalizeAgentInvokerOptions,
@@ -51,6 +52,8 @@ import type {
   AgentAdapterRunContext,
   AgentAdapterResult,
   AgentCapabilitiesList,
+  AgentChannelDefinition,
+  AgentChannels,
   AgentCapabilityHooks,
   AgentCapabilityContext,
   AgentCapabilityDefinition,
@@ -68,6 +71,9 @@ import type {
   AgentInvoker,
   AgentInvokerOptions,
   AgentInvokerProfile,
+  AgentMessageChannelSettings,
+  AgentMessageConcurrency,
+  AgentMessageLockScope,
   AgentModelResolver,
   AgentRegistry,
   AgentRegistryModule,
@@ -139,6 +145,8 @@ export type {
   AgentChatPlatformsResolver,
   AgentChatSendMessage,
   AgentChatSessionOptions,
+  AgentChannelDefinition,
+  AgentChannels,
   AgentRequestBody,
   AgentDefinition,
   AgentDevtoolsConfigMetadata,
@@ -173,6 +181,9 @@ export type {
   AgentInvokerOptions,
   AgentInvokerProfile,
   AgentInvokerResolveContext,
+  AgentMessageChannelSettings,
+  AgentMessageConcurrency,
+  AgentMessageLockScope,
   AgentModelInput,
   AgentModelDriver,
   AgentModelExecutionInstrumentation,
@@ -556,11 +567,19 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const driver = normalizeAgentDriver(options)
-  const { capabilities, description, hooks, runtime, title, version, workspace } = options
+  const { capabilities, channels, description, hooks, messages, runtime, title, version, workspace } = options
   const run = driver.kind === "run" ? driver.run : (options as { run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS> }).run
-  const normalizedCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
+  const baseCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
-  const chat = getChatCapabilityOptions<TRuntimeConfig>(normalizedCapabilities)
+  const channelChat = resolveAgentChannelChatOptions<TRuntimeConfig>(channels, messages)
+  const chatCapability = getChatCapabilityOptions<TRuntimeConfig>(baseCapabilities)
+  if (chatCapability && channelChat) {
+    throw new TypeError("[vitehub] defineAgent({ channels }) cannot be combined with the chat() capability. Move chat options to defineAgent({ messages, channels }).")
+  }
+  const chat = chatCapability || channelChat
+  const normalizedCapabilities = channelChat
+    ? [...baseCapabilities, defineChatCapability(channelChat) as AgentCapabilityDefinition<TRuntimeConfig>]
+    : baseCapabilities
   validateNonWorkspaceCapabilities(normalizedCapabilities, !!workspace)
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
     const resolvedAdapter = driver.kind === "model"
@@ -584,10 +603,12 @@ function defineBaseAgent<
   const definition = {
     ...(driver.kind === "model" ? { [baseAgentModel]: driver.model } : {}),
     [baseAgentResolve]: resolveBaseAgent,
+    channels,
     chat,
     description,
     hooks,
     invoker,
+    messages,
     runtime,
     run,
     title,
