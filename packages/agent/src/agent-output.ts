@@ -41,6 +41,10 @@ function isUsageRecord(value: unknown): value is AgentUsageRecord {
   return typeof value === "object" && value !== null
 }
 
+function optionalMessageId(messageId: string | undefined): { messageId?: string } {
+  return messageId ? { messageId } : {}
+}
+
 export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, string>): StreamEvent | undefined {
   if (typeof chunk === "string") {
     return { text: chunk, type: "text-delta" }
@@ -51,27 +55,28 @@ export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, strin
 
   const value = chunk as Record<string, unknown>
   const type = String(value.type || "")
+  const messageId = typeof value.messageId === "string" ? value.messageId : undefined
   if (type === "text-delta" || type === "text") {
-    return { id: value.id as string | undefined, text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
+    return { id: value.id as string | undefined, ...optionalMessageId(messageId), ...(typeof value.role === "string" ? { role: value.role as never } : {}), text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
   }
   if (type === "data") {
-    return { data: value.data, id: value.id as string | undefined, messageId: value.messageId as string | undefined, type: "data" }
+    return { data: value.data, id: value.id as string | undefined, ...optionalMessageId(messageId), type: "data" }
   }
   if (type === "tool-input-start") {
     const id = String(value.id || value.toolCallId)
     const name = String(value.toolName || value.name || toolNames?.get(id) || "tool")
     toolNames?.set(id, name)
-    return { id, input: value.input, name, type: "tool-input-start" }
+    return { id, input: value.input, ...optionalMessageId(messageId), name, type: "tool-input-start" }
   }
   if (type === "tool-call" || type === "tool-input-available") {
     const id = String(value.toolCallId ?? value.id)
     const name = String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool")
     toolNames?.set(id, name)
-    return { id, input: value.input ?? value.args, name, type: "tool-call" }
+    return { id, input: value.input ?? value.args, ...optionalMessageId(messageId), name, type: "tool-call" }
   }
   if (type === "tool-result" || type === "tool-output-available") {
     const id = String(value.toolCallId ?? value.id)
-    return { error: typeof value.error === "string" ? value.error : undefined, id, name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
+    return { error: typeof value.error === "string" ? value.error : undefined, id, ...optionalMessageId(messageId), name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
   }
   if (type === "tool-error" || type === "tool-output-error") {
     const id = String(value.toolCallId ?? value.id)
@@ -80,20 +85,27 @@ export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, strin
       : typeof value.errorText === "string"
         ? value.errorText
         : String(value.error || "Unknown tool error")
-    return { error, id, name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
+    return { error, id, ...optionalMessageId(messageId), name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
+  }
+  if (type === "approval-request") {
+    return { id: String(value.id), input: value.input, ...optionalMessageId(messageId), name: String(value.name || "approval"), reason: typeof value.reason === "string" ? value.reason : undefined, type: "approval-request" }
+  }
+  if (type === "approval-decision") {
+    return { approved: value.approved === true, decidedAt: value.decidedAt as Date | string | undefined, id: String(value.id), ...optionalMessageId(messageId), reason: typeof value.reason === "string" ? value.reason : undefined, type: "approval-decision" }
   }
   if (type === "error") {
     if (value.error instanceof ApprovalRequiredError) {
       const { request } = value.error
-      return { id: request.id, input: request.input, name: request.capability || request.id, reason: request.reason, type: "approval-request" }
+      return { id: request.id, input: request.input, ...optionalMessageId(messageId), name: request.capability || request.id, reason: request.reason, type: "approval-request" }
     }
-    return { error: value.error instanceof Error ? value.error.message : String(value.error || "Unknown error"), type: "error" }
+    return { error: value.error instanceof Error ? value.error.message : String(value.error || "Unknown error"), ...(typeof value.id === "string" ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" }
   }
   if (type === "usage" && isUsageRecord(value.usageRecord)) {
-    return { messageId: value.messageId as string | undefined, type: "usage", usageRecord: value.usageRecord }
+    return { ...optionalMessageId(messageId), type: "usage", usageRecord: value.usageRecord }
   }
   if (type === "finish") {
-    return { reason: typeof value.finishReason === "string" ? value.finishReason : undefined, type: "finish" }
+    const reason = typeof value.finishReason === "string" ? value.finishReason : typeof value.reason === "string" ? value.reason : undefined
+    return { ...optionalMessageId(messageId), ...(reason ? { reason } : {}), type: "finish" }
   }
   return undefined
 }
