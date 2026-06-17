@@ -377,17 +377,23 @@ describe("agent public types", () => {
     defineAgent({
       channels: {
         portal: http({
-          messages: { sessions: false },
           path: "/api/support/chat",
         }),
         teams: teams({
           adapter: () => ({}) as never,
         }),
+        web: webChat(),
+      },
+      messages,
+      run: () => "ok",
+    })
+
+    defineAgent({
+      channels: {
         web: webChat({
           messages: { history: false },
         }),
       },
-      messages,
       run: () => "ok",
     })
 

@@ -591,6 +591,41 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("applies channel-local message settings for one message-shaped channel", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+
+    const agent = defineAgent({
+      channels: {
+        web: webChat({
+          messages: {
+            history: false,
+            sessions: false,
+          },
+        }),
+      },
+      run: () => "ok",
+    })
+
+    expect(agent.chat).toMatchObject({
+      history: false,
+      sessions: false,
+    })
+  })
+
+  it("rejects channel-local message settings across multiple message-shaped channels", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { teams, webChat } = await import("../src/channels.ts")
+
+    expect(() => defineAgent({
+      channels: {
+        teams: teams({ adapter: () => ({}) as never }),
+        web: webChat({ messages: { history: false } }),
+      },
+      run: () => "ok",
+    })).toThrow("Channel-local messages options are only supported when an Agent defines one message-shaped Channel")
+  })
+
   it("rejects mixing channels with the legacy chat capability", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")

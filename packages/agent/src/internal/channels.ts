@@ -20,6 +20,12 @@ function withChannelWebhookProvider<TRuntimeConfig extends AgentRuntimeConfig>(
   return Array.isArray(input) ? input.map(apply) : apply(input)
 }
 
+function hasMessageOverrides<TRuntimeConfig extends AgentRuntimeConfig>(
+  messages: false | AgentMessageChannelSettings<TRuntimeConfig> | undefined,
+): messages is AgentMessageChannelSettings<TRuntimeConfig> {
+  return !!messages && Object.keys(messages).length > 0
+}
+
 export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRuntimeConfig>(
   channels: AgentChannels<TRuntimeConfig> | undefined,
   messages: AgentMessageChannelSettings<TRuntimeConfig> | undefined,
@@ -31,13 +37,16 @@ export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRunti
   const webhooks: NonNullable<AgentChatOptions<TRuntimeConfig>["webhooks"]> = {}
   const options: AgentChatOptions<TRuntimeConfig> = { ...(messages || {}) }
   let hasMessageChannel = false
+  let messageChannelCount = 0
+  const channelMessageOverrides: AgentMessageChannelSettings<TRuntimeConfig>[] = []
 
   for (const [channelId, channelDefinition] of entries) {
     if (channelDefinition.messages === false) continue
     hasMessageChannel = true
-
-    // ponytail: one chat trigger still has one option bucket; split this when triggers become channel-scoped.
-    Object.assign(options, channelDefinition.messages)
+    messageChannelCount += 1
+    if (hasMessageOverrides(channelDefinition.messages)) {
+      channelMessageOverrides.push(channelDefinition.messages)
+    }
 
     if (channelDefinition.adapter) {
       platforms[channelId] = channelDefinition.adapter
@@ -55,6 +64,12 @@ export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRunti
   }
 
   if (!hasMessageChannel) return undefined
+  if (channelMessageOverrides.length) {
+    if (messageChannelCount > 1) {
+      throw new TypeError("[vitehub] Channel-local messages options are only supported when an Agent defines one message-shaped Channel. Move shared settings to defineAgent({ messages }) until Channel-scoped chat triggers land.")
+    }
+    Object.assign(options, channelMessageOverrides[0])
+  }
   if (Object.keys(platforms).length) options.platforms = platforms
   if (Object.keys(webhooks).length) options.webhooks = webhooks
   return options
