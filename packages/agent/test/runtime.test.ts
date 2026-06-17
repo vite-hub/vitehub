@@ -103,6 +103,34 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("records setup failures before invocation start", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: { run: () => "ok" },
+      invoker: {
+        resolve: () => {
+          throw new Error("setup failed")
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow("setup failed")
+
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.error",
+    ])
+    expect(traceLog.entries()[0]!.attributes).toMatchObject({
+      "agent.invoker.kind": "anonymous",
+      "error.message": "setup failed",
+    })
+  })
+
   it("emits stream milestone Trace Events without tracing text deltas", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()

@@ -6,6 +6,7 @@ import { isAsyncIterable, streamAgentOutputToEvents, toAgentRunResult } from "./
 import { getChatCapabilityOptions } from "./chat-trigger.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import {
+  createFallbackAgentInvoker,
   normalizeAgentInvokerOptions,
   resolveAgentInvoker,
 } from "./invoker.ts"
@@ -889,74 +890,86 @@ async function createAgentInvocationContext<
   const runtimeContext = resolvedContext.trace || !resolvedContext.traceLog ? resolvedContext : { ...resolvedContext, trace: { id: createTraceId(context.run) } }
   const callbackContext = createAgentCallbackContext(context)
   const invocationContext = createAgentInvocationContextStore(input.context)
-  const invoker = await resolveAgentInvoker(definition?.invoker, callbackContext, invocationContext, input, context.run)
-  const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
-  const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
-  const workspaceName = workspaceOptions
-    ? workspaceNameFromOptions(workspaceOptions, workspaceDefinition?.__vitehubWorkspaceAgentDefaults)
-    : workspaceDefinition?.__vitehubWorkspaceAgentDefaults?.workspace
-  const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
-  const resolvedWorkspaceDefinition = workspaceOptions && workspaceName
-    ? { ...workspaceDefinitionFromOptions(workspaceOptions), name: workspaceName }
-    : undefined
-  const workspace = workspaceName
-    ? workspaceMode === "write"
-      ? (await import("@vite-hub/workspace")).useWorkspace(workspaceName, { mode: "write" })
-      : (await import("@vite-hub/workspace")).useWorkspace(workspaceName)
-    : undefined
-  const capabilityOptions = workspaceOptions && workspace
-    ? { capabilities: workspaceOptions.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: workspaceOptions.hooks as never }
-    : definition?.capabilities?.length
-      ? { capabilities: definition.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: definition.hooks as never }
+  try {
+    const invoker = await resolveAgentInvoker(definition?.invoker, callbackContext, invocationContext, input, context.run)
+    const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
+    const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
+    const workspaceName = workspaceOptions
+      ? workspaceNameFromOptions(workspaceOptions, workspaceDefinition?.__vitehubWorkspaceAgentDefaults)
+      : workspaceDefinition?.__vitehubWorkspaceAgentDefaults?.workspace
+    const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
+    const resolvedWorkspaceDefinition = workspaceOptions && workspaceName
+      ? { ...workspaceDefinitionFromOptions(workspaceOptions), name: workspaceName }
       : undefined
-  const agentModel = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
-  const capabilities = await resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
-    context: invocationContext,
-    invoker,
-    model: agentModel as never,
-    workspaceDefinition: resolvedWorkspaceDefinition,
-  })
-  const transformedTools = await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
-  const tools = Object.keys(transformedTools || {}).length
-    ? withAgentToolStepReporting(applyAgentToolPolicies(transformedTools) || {}, context.devtools?.reportToolStep)
-    : undefined
-  const activeWorkspace = capabilities.workspace || workspace
-  const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
-  const activeWorkspaceDefinition = sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
-  const workspaceScope = invocationContext.get("access")?.workspaceScope
-  const sourceInstructions = activeWorkspaceDefinition && activeWorkspace
-    ? await resolveWorkspaceSourceInstructionBlock(
-        activeWorkspaceDefinition,
-        workspaceScope && !workspaceScope.all ? activeWorkspace as ReadonlyWorkspaceFacade : undefined,
-      )
-    : undefined
+    const workspace = workspaceName
+      ? workspaceMode === "write"
+        ? (await import("@vite-hub/workspace")).useWorkspace(workspaceName, { mode: "write" })
+        : (await import("@vite-hub/workspace")).useWorkspace(workspaceName)
+      : undefined
+    const capabilityOptions = workspaceOptions && workspace
+      ? { capabilities: workspaceOptions.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: workspaceOptions.hooks as never }
+      : definition?.capabilities?.length
+        ? { capabilities: definition.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: definition.hooks as never }
+        : undefined
+    const agentModel = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
+    const capabilities = await resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
+      context: invocationContext,
+      invoker,
+      model: agentModel as never,
+      workspaceDefinition: resolvedWorkspaceDefinition,
+    })
+    const transformedTools = await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
+    const tools = Object.keys(transformedTools || {}).length
+      ? withAgentToolStepReporting(applyAgentToolPolicies(transformedTools) || {}, context.devtools?.reportToolStep)
+      : undefined
+    const activeWorkspace = capabilities.workspace || workspace
+    const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
+    const activeWorkspaceDefinition = sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
+    const workspaceScope = invocationContext.get("access")?.workspaceScope
+    const sourceInstructions = activeWorkspaceDefinition && activeWorkspace
+      ? await resolveWorkspaceSourceInstructionBlock(
+          activeWorkspaceDefinition,
+          workspaceScope && !workspaceScope.all ? activeWorkspace as ReadonlyWorkspaceFacade : undefined,
+        )
+      : undefined
 
-  const invocation = {
-    ...callbackContext,
-    capabilityInstructions: capabilities.capabilityInstructions,
-    close: capabilities.close,
-    context: invocationContext,
-    devtools: context.devtools,
-    finishExtensionProviders: capabilities.registries.finishExtensionProviders,
-    finishHook: definition?.hooks?.["agent:finish"] as never,
-    hasCapabilityCleanup: capabilities.hasCloseCallbacks,
-    input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
-    invoker,
-    messages: capabilities.messages,
-    outputRenderers: capabilities.registries.outputRenderers,
-    prompt: typeof capabilities.input.prompt === "string" ? capabilities.input.prompt : undefined,
-    providerTools: capabilities.registries.providerTools,
-    run: context.run,
-    runtimeContext,
-    sourceInstructions,
-    startedAt,
-    tools,
-    workspace: activeWorkspace,
-    workspaceDefinition: activeWorkspaceDefinition,
-    workspaceMode,
+    const invocation = {
+      ...callbackContext,
+      capabilityInstructions: capabilities.capabilityInstructions,
+      close: capabilities.close,
+      context: invocationContext,
+      devtools: context.devtools,
+      finishExtensionProviders: capabilities.registries.finishExtensionProviders,
+      finishHook: definition?.hooks?.["agent:finish"] as never,
+      hasCapabilityCleanup: capabilities.hasCloseCallbacks,
+      input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
+      invoker,
+      messages: capabilities.messages,
+      outputRenderers: capabilities.registries.outputRenderers,
+      prompt: typeof capabilities.input.prompt === "string" ? capabilities.input.prompt : undefined,
+      providerTools: capabilities.registries.providerTools,
+      run: context.run,
+      runtimeContext,
+      sourceInstructions,
+      startedAt,
+      tools,
+      workspace: activeWorkspace,
+      workspaceDefinition: activeWorkspaceDefinition,
+      workspaceMode,
+    }
+    await traceAgentInvocationStart(toTraceContext(invocation))
+    return invocation
   }
-  await traceAgentInvocationStart(toTraceContext(invocation))
-  return invocation
+  catch (error) {
+    await traceAgentInvocationError({
+      context: invocationContext,
+      input,
+      invoker: createFallbackAgentInvoker(context.run),
+      run: context.run,
+      runtime: runtimeContext,
+    }, error)
+    throw error
+  }
 }
 
 type InvocationRunContext<
