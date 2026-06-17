@@ -226,6 +226,44 @@ describe("@vite-hub/runtime", () => {
     })
   })
 
+  it("prefers Agent Invocation run ids over shared trace ids", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      attributes: { "agent.run.id": "agent-run-1" },
+      name: "agent.invocation.start",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      trace: { id: "request-trace" },
+      type: "run",
+    })
+    await log.append({
+      attributes: { "agent.run.id": "agent-run-1" },
+      name: "agent.invocation.finish",
+      timestamp: "2026-01-01T00:00:00.010Z",
+      trace: { id: "request-trace" },
+      type: "run",
+    })
+    await log.append({
+      attributes: { "agent.run.id": "agent-run-2" },
+      name: "agent.invocation.start",
+      timestamp: "2026-01-01T00:00:00.020Z",
+      trace: { id: "request-trace" },
+      type: "run",
+    })
+    await log.append({
+      attributes: { "agent.run.id": "agent-run-2" },
+      name: "agent.invocation.finish",
+      timestamp: "2026-01-01T00:00:00.030Z",
+      trace: { id: "request-trace" },
+      type: "run",
+    })
+
+    const runs = deriveTraceRuns(log.entries()).map(run => ({ durationMs: run.durationMs, id: run.id, status: run.status }))
+    expect(runs).toEqual([
+      { durationMs: 10, id: "agent-run-1", status: "completed" },
+      { durationMs: 10, id: "agent-run-2", status: "completed" },
+    ])
+  })
+
   it("maps derived trace runs to span-shaped OpenTelemetry exports", async () => {
     const log = createTraceEventLog({ content: "content" })
     await log.append({

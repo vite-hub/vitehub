@@ -282,7 +282,7 @@ function firstString(...values: unknown[]): string | undefined {
 }
 
 function runId(event: TraceEventLogEntry): string {
-  return firstString(event.trace?.id, event.attributes?.["run.id"], event.attributes?.["agent.run.id"], event.attributes?.runId) || "default"
+  return firstString(event.attributes?.["agent.run.id"], event.attributes?.["run.id"], event.attributes?.runId, event.trace?.id) || "default"
 }
 
 function stepId(event: TraceEventLogEntry): string | undefined {
