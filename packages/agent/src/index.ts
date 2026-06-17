@@ -886,7 +886,7 @@ async function createAgentInvocationContext<
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
-  const runtimeContext = resolvedContext.trace ? resolvedContext : { ...resolvedContext, trace: { id: createTraceId(context.run) } }
+  const runtimeContext = resolvedContext.trace || !resolvedContext.traceLog ? resolvedContext : { ...resolvedContext, trace: { id: createTraceId(context.run) } }
   const callbackContext = createAgentCallbackContext(context)
   const invocationContext = createAgentInvocationContextStore(input.context)
   const invoker = await resolveAgentInvoker(definition?.invoker, callbackContext, invocationContext, input, context.run)
@@ -988,6 +988,13 @@ function toTraceContext<
     run: context.run,
     runtime: context.runtimeContext,
   }
+}
+
+function maybeTraceAgentStream<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(stream: AsyncIterable<StreamEvent>, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): AsyncIterable<StreamEvent> {
+  return context.runtimeContext.traceLog ? traceAgentStreamEvents(stream, toTraceContext(context)) : stream
 }
 
 function hasFinishWork<
@@ -1160,7 +1167,7 @@ export async function runAgentInline<
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
       return { finishResult: rendered, value: rendered }
     }, "[vitehub] Agent run failed and finish lifecycle also failed.", {
-      wrapStream: stream => traceAgentStreamEvents(stream as AsyncIterable<StreamEvent>, toTraceContext(runContext)),
+      wrapStream: stream => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, runContext),
     })
   }
 
@@ -1264,12 +1271,12 @@ export async function streamAgentInline<
         deferFinish: isStream && shouldWrapInvocationOutput(runContext),
         finishResult: rendered,
         value: isStream
-          ? traceAgentStreamEvents(rendered as AsyncIterable<StreamEvent>, toTraceContext(runContext))
+          ? maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, runContext)
           : rendered,
       }
     }, "[vitehub] Agent run failed and finish lifecycle also failed.", {
       finalizeRawStreams: output === "ui-message-stream",
-      wrapStream: stream => traceAgentStreamEvents(stream as AsyncIterable<StreamEvent>, toTraceContext(runContext)),
+      wrapStream: stream => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, runContext),
     })
   }
 
@@ -1300,7 +1307,7 @@ export async function streamAgentInline<
       return finalizeUiMessageStreamOutput(rendered, shouldWrapInvocationOutput(adapterContext), error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error))
     }
     const events = streamAgentOutputToEvents(rendered)
-    const tracedEvents = traceAgentStreamEvents(events, toTraceContext(adapterContext))
+    const tracedEvents = maybeTraceAgentStream(events, adapterContext)
     const shouldWrapOutput = shouldWrapInvocationOutput(adapterContext)
     return {
       deferFinish: shouldWrapOutput,

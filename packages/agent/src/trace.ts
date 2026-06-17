@@ -198,9 +198,9 @@ export function aiSdkTelemetryIntegration<TRuntimeConfig extends AgentRuntimeCon
     "model.call.id": firstString(valueFromPath(event, ["id"]), valueFromPath(event, ["callId"]), valueFromPath(event, ["requestId"])) || "model",
   })
   const toolAttributes = (event: unknown) => ({
-    "step.id": firstString(valueFromPath(event, ["toolCallId"]), valueFromPath(event, ["id"]), valueFromPath(event, ["tool", "id"])) || "tool",
-    "tool.id": firstString(valueFromPath(event, ["toolCallId"]), valueFromPath(event, ["id"]), valueFromPath(event, ["tool", "id"])),
-    "tool.name": firstString(valueFromPath(event, ["toolName"]), valueFromPath(event, ["name"]), valueFromPath(event, ["tool", "name"])),
+    "step.id": firstString(valueFromPath(event, ["toolCall", "toolCallId"]), valueFromPath(event, ["toolCallId"]), valueFromPath(event, ["id"]), valueFromPath(event, ["tool", "id"])) || "tool",
+    "tool.id": firstString(valueFromPath(event, ["toolCall", "toolCallId"]), valueFromPath(event, ["toolCallId"]), valueFromPath(event, ["id"]), valueFromPath(event, ["tool", "id"])),
+    "tool.name": firstString(valueFromPath(event, ["toolCall", "toolName"]), valueFromPath(event, ["toolName"]), valueFromPath(event, ["name"]), valueFromPath(event, ["tool", "name"])),
   })
 
   return {
@@ -219,14 +219,16 @@ export function aiSdkTelemetryIntegration<TRuntimeConfig extends AgentRuntimeCon
       })
     },
     async onToolExecutionEnd(event) {
-      const error = valueFromPath(event, ["error"])
+      const outputType = valueFromPath(event, ["toolOutput", "type"])
+      const error = valueFromPath(event, ["toolOutput", "error"]) ?? valueFromPath(event, ["error"])
+      const failed = outputType === "tool-error" || error !== undefined
       await traceAgentEvent(context, {
         attributes: {
           ...toolAttributes(event),
           "error.message": error instanceof Error ? error.message : typeof error === "string" ? error : undefined,
         },
-        name: error ? "agent.tool.error" : "agent.tool.finish",
-        type: error ? "error" : "run",
+        name: failed ? "agent.tool.error" : "agent.tool.finish",
+        type: failed ? "error" : "run",
       })
     },
     async onToolExecutionStart(event) {

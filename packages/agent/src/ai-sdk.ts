@@ -530,10 +530,23 @@ function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapt
   }
 }
 
+function arrayFrom(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value
+  return value === undefined ? [] : [value]
+}
+
 function withViteHubTelemetry(settings: Record<string, unknown>, context: AgentAdapterRunContext): Record<string, unknown> {
   if (!hasAgentTraceLog(context)) return settings
-  const existing = (settings.telemetry || settings.experimental_telemetry || {}) as { integrations?: unknown[], isEnabled?: boolean }
-  const integrations = Array.isArray(existing.integrations) ? existing.integrations : []
+  const existing = (settings.telemetry || settings.experimental_telemetry || {}) as {
+    integrations?: unknown
+    isEnabled?: boolean
+    recordInputs?: boolean
+    recordOutputs?: boolean
+  }
+  const globalIntegrations = Array.isArray((globalThis as { AI_SDK_TELEMETRY_INTEGRATIONS?: unknown[] }).AI_SDK_TELEMETRY_INTEGRATIONS)
+    ? (globalThis as { AI_SDK_TELEMETRY_INTEGRATIONS?: unknown[] }).AI_SDK_TELEMETRY_INTEGRATIONS!
+    : []
+  const integrations = existing.integrations === undefined ? globalIntegrations : arrayFrom(existing.integrations)
   const telemetry = {
     ...existing,
     integrations: [...integrations, aiSdkTelemetryIntegration({
@@ -543,13 +556,15 @@ function withViteHubTelemetry(settings: Record<string, unknown>, context: AgentA
       run: context.runtime.run,
       runtime: context.runtime,
     })],
-    isEnabled: true,
+    isEnabled: existing.isEnabled ?? true,
+    recordInputs: existing.recordInputs ?? false,
+    recordOutputs: existing.recordOutputs ?? false,
   }
 
   return {
     ...settings,
     telemetry,
-    ...(settings.experimental_telemetry && !settings.telemetry ? { experimental_telemetry: telemetry } : {}),
+    experimental_telemetry: telemetry,
   }
 }
 

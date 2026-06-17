@@ -108,6 +108,78 @@ describe("agent message protocol", () => {
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret")
   })
 
+  it("adds safe AI SDK telemetry for traced model-backed agents", async () => {
+    const aiGlobal = globalThis as typeof globalThis & { AI_SDK_TELEMETRY_INTEGRATIONS?: unknown[] }
+    const previousGlobalTelemetry = aiGlobal.AI_SDK_TELEMETRY_INTEGRATIONS
+    const globalIntegration = { onStart: vi.fn() }
+    const agentSettings: Record<string, unknown>[] = []
+    aiGlobal.AI_SDK_TELEMETRY_INTEGRATIONS = [globalIntegration]
+    vi.doMock("ai", () => ({
+      ToolLoopAgent: class {
+        settings: Record<string, unknown>
+
+        constructor(settings: Record<string, unknown>) {
+          this.settings = settings
+          agentSettings.push(settings)
+        }
+
+        async generate() {
+          const telemetry = this.settings.telemetry as { integrations: Array<Record<string, (event: unknown) => Promise<void>>> }
+          const viteHubTelemetry = telemetry.integrations.at(-1)!
+          await viteHubTelemetry.onToolExecutionStart?.({
+            toolCall: { toolCallId: "call-1", toolName: "search" },
+          })
+          await viteHubTelemetry.onToolExecutionEnd?.({
+            toolCall: { toolCallId: "call-1", toolName: "search" },
+            toolOutput: { error: new Error("lookup failed"), type: "tool-error" },
+          })
+          return { finishReason: "stop", text: "ok" }
+        }
+
+        async stream() {
+          return await this.generate()
+        }
+      },
+      stepCountIs: () => () => false,
+    }))
+
+    try {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const traceLog = createTraceEventLog()
+      const agent = defineAgent({ model: {} as never })
+
+      await expect(runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "unknown",
+        traceLog,
+        waitUntil: vi.fn(),
+      }, {})).resolves.toMatchObject({ finishReason: "stop", text: "ok" })
+
+      const telemetry = agentSettings[0]!.telemetry as { integrations: unknown[], recordInputs: boolean, recordOutputs: boolean }
+      expect(agentSettings[0]!.experimental_telemetry).toBe(telemetry)
+      expect(telemetry.integrations[0]).toBe(globalIntegration)
+      expect(telemetry.recordInputs).toBe(false)
+      expect(telemetry.recordOutputs).toBe(false)
+      expect(traceLog.entries().map(event => event.name)).toEqual([
+        "agent.invocation.start",
+        "agent.tool.start",
+        "agent.tool.error",
+        "agent.invocation.finish",
+      ])
+      expect(traceLog.entries().find(event => event.name === "agent.tool.error")?.attributes).toMatchObject({
+        "error.message": "lookup failed",
+        "step.id": "call-1",
+        "tool.id": "call-1",
+        "tool.name": "search",
+      })
+    }
+    finally {
+      if (previousGlobalTelemetry === undefined) delete aiGlobal.AI_SDK_TELEMETRY_INTEGRATIONS
+      else aiGlobal.AI_SDK_TELEMETRY_INTEGRATIONS = previousGlobalTelemetry
+      vi.doUnmock("ai")
+    }
+  })
+
   it("runs harness Agent Drivers through AI SDK HarnessAgent", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     harnessAgentSettings.length = 0

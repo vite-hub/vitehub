@@ -169,6 +169,7 @@ export interface RunLifecycleHooks<TContext extends RuntimeHostContext<any> = Ru
 }
 
 const contentAttributeKeys = new Set([
+  "args",
   "body",
   "data",
   "input",
@@ -184,6 +185,31 @@ const contentAttributeKeys = new Set([
   "text",
 ])
 
+function isContentAttributeKey(key: string): boolean {
+  if (key === "error.message") return false
+  if (contentAttributeKeys.has(key)) return true
+  return key.split(".").some((part, index) => index > 0 && contentAttributeKeys.has(part))
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype)
+}
+
+function metadataValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(metadataValue)
+  if (!isPlainRecord(value)) return value
+  const omitted: string[] = []
+  const next = Object.fromEntries(Object.entries(value).flatMap(([key, child]) => {
+    if (isContentAttributeKey(key)) {
+      omitted.push(key)
+      return []
+    }
+    return [[key, metadataValue(child)]]
+  }))
+  if (omitted.length) next["content.omitted"] = omitted
+  return next
+}
+
 function timestamp(value: Date | string | undefined): string {
   if (value instanceof Date) return value.toISOString()
   if (typeof value === "string") return value
@@ -193,10 +219,12 @@ function timestamp(value: Date | string | undefined): string {
 function metadataAttributes(attributes: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   if (!attributes) return undefined
   const omitted: string[] = []
-  const next = Object.fromEntries(Object.entries(attributes).filter(([key]) => {
-    const omit = contentAttributeKeys.has(key)
-    if (omit) omitted.push(key)
-    return !omit
+  const next = Object.fromEntries(Object.entries(attributes).flatMap(([key, value]) => {
+    if (isContentAttributeKey(key)) {
+      omitted.push(key)
+      return []
+    }
+    return [[key, metadataValue(value)]]
   }))
   if (omitted.length) next["content.omitted"] = omitted
   return Object.keys(next).length ? next : undefined
@@ -256,17 +284,25 @@ function runId(event: TraceEventLogEntry): string {
   return firstString(event.trace?.id, event.attributes?.["run.id"], event.attributes?.["agent.run.id"], event.attributes?.runId) || "default"
 }
 
-function stepId(event: TraceEventLogEntry): string {
+function stepId(event: TraceEventLogEntry): string | undefined {
   return firstString(
     event.attributes?.["step.id"],
     event.attributes?.["tool.id"],
     event.attributes?.["approval.id"],
     event.attributes?.["model.call.id"],
-  ) || event.name
+  )
 }
 
 function stepStatus(event: TraceEventLogEntry): TraceStepStatus {
   return event.type === "error" || event.name.endsWith(".error") ? "failed" : event.name.endsWith(".start") || event.name.endsWith(".request") ? "running" : "completed"
+}
+
+function isTraceRunFinish(event: TraceEventLogEntry): boolean {
+  return event.name === "agent.invocation.finish" || event.name === "run.finish"
+}
+
+function isTraceRunError(event: TraceEventLogEntry): boolean {
+  return event.name === "agent.invocation.error" || event.name === "run.error"
 }
 
 export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunView[] {
@@ -279,10 +315,10 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
   return [...groups.entries()].map(([id, group]) => {
     const sorted = group.slice().sort((a, b) => a.sequence - b.sequence)
     const first = sorted[0]!
-    const last = sorted.at(-1)!
     const steps = new Map<string, TraceStepView>()
     for (const event of sorted) {
       const id = stepId(event)
+      if (!id) continue
       const existing = steps.get(id)
       const status = stepStatus(event)
       if (!existing) {
@@ -307,12 +343,13 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
       }
     }
 
-    const status: TraceRunStatus = sorted.some(event => event.type === "error" || event.name.endsWith(".error"))
-      ? "failed"
-      : sorted.some(event => event.name.endsWith(".finish"))
-        ? "completed"
-        : "running"
-    const endTime = status === "running" ? undefined : last.timestamp
+    const terminal = sorted.slice().reverse().find(event => isTraceRunError(event) || isTraceRunFinish(event))
+    const status: TraceRunStatus = terminal
+      ? isTraceRunError(terminal)
+        ? "failed"
+        : "completed"
+      : "running"
+    const endTime = status === "running" ? undefined : terminal?.timestamp
     return {
       durationMs: durationMs(first.timestamp, endTime),
       endTime,

@@ -127,7 +127,7 @@ describe("@vite-hub/runtime", () => {
     })
 
     await emitTraceEvent(context, {
-      attributes: { input: { prompt: "secret" }, "step.id": "search-1", "tool.name": "search" },
+      attributes: { input: { prompt: "secret" }, nested: { request: { body: "secret" }, safe: true }, "step.id": "search-1", "tool.input": { query: "secret" }, "tool.name": "search" },
       name: "agent.tool.start",
       timestamp: "2026-01-01T00:00:00.000Z",
       type: "run",
@@ -141,7 +141,7 @@ describe("@vite-hub/runtime", () => {
 
     expect(log.entries()).toEqual([
       expect.objectContaining({
-        attributes: { "content.omitted": ["input"], "step.id": "search-1", "tool.name": "search" },
+        attributes: { "content.omitted": ["input", "tool.input"], nested: { "content.omitted": ["request"], safe: true }, "step.id": "search-1", "tool.name": "search" },
         name: "agent.tool.start",
         sequence: 1,
         trace: { id: "run-1" },
@@ -152,9 +152,32 @@ describe("@vite-hub/runtime", () => {
         sequence: 2,
       }),
     ])
+    expect(JSON.stringify(log.entries())).not.toContain("secret")
     expect(deriveTraceRuns(log.entries())).toEqual([
       expect.objectContaining({
-        durationMs: 25,
+        durationMs: undefined,
+        endTime: undefined,
+        id: "run-1",
+        status: "running",
+        steps: [
+          expect.objectContaining({
+            durationMs: 25,
+            name: "agent.tool",
+            status: "completed",
+          }),
+        ],
+      }),
+    ])
+
+    await emitTraceEvent(context, {
+      name: "agent.invocation.finish",
+      timestamp: "2026-01-01T00:00:00.030Z",
+      type: "run",
+    })
+    expect(deriveTraceRuns(log.entries())).toEqual([
+      expect.objectContaining({
+        durationMs: 30,
+        endTime: "2026-01-01T00:00:00.030Z",
         id: "run-1",
         status: "completed",
         steps: [
@@ -184,9 +207,16 @@ describe("@vite-hub/runtime", () => {
       trace: { id: "run-1" },
       type: "run",
     })
+    await log.append({
+      name: "agent.invocation.finish",
+      timestamp: "2026-01-01T00:00:00.020Z",
+      trace: { id: "run-1" },
+      type: "run",
+    })
 
     expect(traceEventsToOpenTelemetrySpans(log.entries())).toEqual([
       expect.objectContaining({
+        endTime: "2026-01-01T00:00:00.020Z",
         name: "vitehub.run",
         spanId: "run-1",
         status: { code: "OK" },
