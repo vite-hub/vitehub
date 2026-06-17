@@ -296,7 +296,7 @@ describe("agent chat capability discovery", () => {
     const plugin = (await import("../src/vite.ts")).hubAgent()
 
     await configurePluginServer(plugin, server)
-    expect(server.middlewares.use).toHaveBeenCalledTimes(1)
+    expect(server.middlewares.use).toHaveBeenCalledTimes(2)
 
     const state = await waitForMetadataState(handlers[0]!, { action: "get-state", invokerProfileId: "support-technical" })
     expect(state).toMatchObject({
@@ -389,6 +389,43 @@ describe("agent chat capability discovery", () => {
     expect(fallbackFinalState.invokerFallback).toBe(true)
     expect(fallbackFinalState.invokerProfileId).toBeUndefined()
     expect(textFromUiMessage(fallbackFinalState.uiMessages[1])).toBe("answered as devtools:maximo@quiver.dk with workspace")
+  })
+
+  it("serves Agent Invocation Stream events from the Vite endpoint", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      capabilities: [chat()],
+      run: () => "hello from stream",
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      messages: [{
+        id: "user-1",
+        parts: [{ text: "hello", type: "text" }],
+        role: "user",
+      }],
+    }, agentInvocationStreamRoute)
+    const events = response.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+
+    expect(events).toEqual([
+      expect.objectContaining({ agent: "support", trigger: "chat.message", type: "start" }),
+      { text: "hello from stream", type: "text-delta" },
+      { type: "finish" },
+      { type: "done" },
+    ])
   })
 
   it("serves initial chat devtools state while workspace metadata resolves", async () => {
@@ -728,7 +765,7 @@ describe("agent chat capability discovery", () => {
 
     const { server } = createFakeServer(await createTempRoot("vitehub-agent-devtools-disabled-"), {})
     await configurePluginServer(plugin, server)
-    expect(server.middlewares.use).not.toHaveBeenCalled()
+    expect(server.middlewares.use).toHaveBeenCalledTimes(1)
   })
 
 })

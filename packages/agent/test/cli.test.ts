@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { createAgentCliContributor, runAgentEvalCli } from "../src/cli.ts"
+import { createAgentCliContributor, runAgentDevCli, runAgentEvalCli } from "../src/cli.ts"
 import { createAgentEvaliteConfigPath, writeAgentEvaliteConfig } from "../src/internal/evalite-config.ts"
 
 function stream() {
@@ -18,13 +18,71 @@ function stream() {
   }
 }
 
+function ndjson(events: unknown[]): Response {
+  return new Response(`${events.map(event => JSON.stringify(event)).join("\n")}\n`, {
+    headers: { "content-type": "application/x-ndjson" },
+  })
+}
+
 describe("agent CLI", () => {
   it("contributes the agent eval feature", () => {
     expect(createAgentCliContributor()).toEqual({
       namespaces: [{
         description: "Agent development workflows.",
-        features: [expect.objectContaining({ name: "eval" })],
+        features: [
+          expect.objectContaining({ name: "eval" }),
+          expect.objectContaining({ name: "dev" }),
+        ],
         name: "agent",
+      }],
+    })
+  })
+
+  it("keeps the agent dev feature when eval is disabled", () => {
+    expect(createAgentCliContributor({ eval: false })).toEqual({
+      namespaces: [{
+        description: "Agent development workflows.",
+        features: [expect.objectContaining({ name: "dev" })],
+        name: "agent",
+      }],
+    })
+  })
+
+  it("streams a one-shot Agent Dev Loop message through the Vite endpoint", async () => {
+    const stdout = stream()
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "support", trigger: "chat.message", type: "start" },
+          { text: "hello from agent", type: "text-delta" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ name: "support", triggers: ["chat.message"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["hello", "agent"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr: stream(),
+      stdout,
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).toBe("hello from agent\n")
+    expect(fetchAgentStream).toHaveBeenCalledTimes(2)
+    const [, post] = fetchAgentStream.mock.calls
+    expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
+      agent: "support",
+      messages: [{
+        parts: [{ text: "hello agent", type: "text" }],
+        role: "user",
       }],
     })
   })
