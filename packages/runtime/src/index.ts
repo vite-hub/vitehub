@@ -363,27 +363,40 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
   })
 }
 
+function traceRunTraceId(run: TraceRunView): string {
+  return firstString(...run.events.map(event => event.trace?.id), run.id) || run.id
+}
+
+function traceRunParentId(run: TraceRunView): string | undefined {
+  return firstString(...run.events.map(event => event.trace?.parentId))
+}
+
 export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEntry>): OpenTelemetrySpanView[] {
-  return deriveTraceRuns(events).flatMap(run => [
-    {
-      endTime: run.endTime,
-      name: "vitehub.run",
-      spanId: run.id,
-      startTime: run.startTime,
-      status: { code: run.status === "failed" ? "ERROR" : "OK" },
-      traceId: run.id,
-    } satisfies OpenTelemetrySpanView,
-    ...run.steps.map(step => ({
-      attributes: step.attributes,
-      endTime: step.endTime,
-      name: step.name,
-      parentSpanId: run.id,
-      spanId: step.id,
-      startTime: step.startTime,
-      status: { code: step.status === "failed" ? "ERROR" : "OK" } as const,
-      traceId: run.id,
-    })),
-  ])
+  return deriveTraceRuns(events).flatMap((run) => {
+    const parentSpanId = traceRunParentId(run)
+    const traceId = traceRunTraceId(run)
+    return [
+      {
+        endTime: run.endTime,
+        name: "vitehub.run",
+        ...(parentSpanId ? { parentSpanId } : {}),
+        spanId: run.id,
+        startTime: run.startTime,
+        status: { code: run.status === "failed" ? "ERROR" : "OK" },
+        traceId,
+      } satisfies OpenTelemetrySpanView,
+      ...run.steps.map(step => ({
+        attributes: step.attributes,
+        endTime: step.endTime,
+        name: step.name,
+        parentSpanId: run.id,
+        spanId: step.id,
+        startTime: step.startTime,
+        status: { code: step.status === "failed" ? "ERROR" : "OK" } as const,
+        traceId,
+      })),
+    ]
+  })
 }
 
 export interface Lease {

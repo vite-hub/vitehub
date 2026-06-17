@@ -264,6 +264,51 @@ describe("@vite-hub/runtime", () => {
     ])
   })
 
+  it("preserves external trace ids in OpenTelemetry span exports", async () => {
+    const log = createTraceEventLog({ content: "content" })
+    await log.append({
+      attributes: { "agent.run.id": "agent-run-1" },
+      name: "agent.invocation.start",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      trace: { id: "request-trace", parentId: "request-parent" },
+      type: "run",
+    })
+    await log.append({
+      attributes: { "agent.run.id": "agent-run-1", "model.call.id": "model-1" },
+      name: "agent.model.call.start",
+      timestamp: "2026-01-01T00:00:00.010Z",
+      trace: { id: "request-trace", parentId: "request-parent" },
+      type: "run",
+    })
+    await log.append({
+      attributes: { "agent.run.id": "agent-run-1", "model.call.id": "model-1" },
+      name: "agent.model.call.finish",
+      timestamp: "2026-01-01T00:00:00.020Z",
+      trace: { id: "request-trace", parentId: "request-parent" },
+      type: "run",
+    })
+    await log.append({
+      attributes: { "agent.run.id": "agent-run-1" },
+      name: "agent.invocation.finish",
+      timestamp: "2026-01-01T00:00:00.030Z",
+      trace: { id: "request-trace", parentId: "request-parent" },
+      type: "run",
+    })
+
+    expect(traceEventsToOpenTelemetrySpans(log.entries())).toEqual([
+      expect.objectContaining({
+        parentSpanId: "request-parent",
+        spanId: "agent-run-1",
+        traceId: "request-trace",
+      }),
+      expect.objectContaining({
+        parentSpanId: "agent-run-1",
+        spanId: "model-1",
+        traceId: "request-trace",
+      }),
+    ])
+  })
+
   it("maps derived trace runs to span-shaped OpenTelemetry exports", async () => {
     const log = createTraceEventLog({ content: "content" })
     await log.append({
