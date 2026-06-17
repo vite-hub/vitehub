@@ -223,6 +223,42 @@ describe("agent message protocol", () => {
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret")
   })
 
+  it("derives yielded stream error Trace Events as failed runs", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      run: () => (async function* () {
+        yield { error: "stream failed", type: "error" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})
+    const events = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { error: "stream failed", type: "error" },
+      { type: "finish" },
+    ])
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.stream.error",
+      "agent.stream.finish",
+      "agent.invocation.finish",
+    ])
+    expect(deriveTraceRuns(traceLog.entries())).toMatchObject([
+      { status: "failed" },
+    ])
+  })
+
   it("adds safe AI SDK telemetry for traced model-backed agents", async () => {
     const aiGlobal = globalThis as typeof globalThis & { AI_SDK_TELEMETRY_INTEGRATIONS?: unknown[] }
     const previousGlobalTelemetry = aiGlobal.AI_SDK_TELEMETRY_INTEGRATIONS
@@ -1442,6 +1478,33 @@ describe("agent message protocol", () => {
       { data: { title: "Async title", type: "chat-title" }, type: "data-chat-title" },
     ])
     expect(messages.at(-1)?.parts.map(part => part.type).sort()).toEqual(["data-chat-title", "text"])
+  })
+
+  it("preserves failed tool results when async event streams become UI message streams", async () => {
+    const { readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      run: () => (async function* () {
+        yield { id: "tool-1", input: { query: "users" }, name: "search", type: "tool-call" }
+        yield { error: "lookup failed", id: "tool-1", name: "search", type: "tool-result" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      messages: [createMessage({ role: "user", text: "Explain availability" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    const toolPart = messages.at(-1)?.parts.find(part => typeof part.type === "string" && (part.type === "dynamic-tool" || part.type.startsWith("tool-")))
+    expect(toolPart).toMatchObject({
+      errorText: "lookup failed",
+      state: "output-error",
+      toolCallId: "tool-1",
+    })
   })
 
   it("renders custom async event streams returned from runAgent", async () => {

@@ -89,8 +89,12 @@ async function writeEventsToUiMessageStream(writer: { write: (event: never) => v
       continue
     }
     if (type === "tool-result") {
-      const tool = event as { id?: unknown, output?: unknown }
-      writer.write({ type: "tool-output-available", toolCallId: tool.id, output: tool.output } as never)
+      const tool = event as { error?: unknown, id?: unknown, name?: unknown, output?: unknown }
+      if (typeof tool.error === "string") {
+        writer.write({ type: "tool-output-error", toolCallId: tool.id, toolName: tool.name, errorText: tool.error } as never)
+        continue
+      }
+      writer.write({ type: "tool-output-available", toolCallId: tool.id, toolName: tool.name, output: tool.output } as never)
       continue
     }
     if (type === "data") {

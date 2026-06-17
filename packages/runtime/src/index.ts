@@ -171,6 +171,7 @@ export interface RunLifecycleHooks<TContext extends RuntimeHostContext<any> = Ru
 const contentAttributeKeys = new Set([
   "args",
   "body",
+  "content",
   "data",
   "input",
   "message",
@@ -302,7 +303,7 @@ function isTraceRunFinish(event: TraceEventLogEntry): boolean {
 }
 
 function isTraceRunError(event: TraceEventLogEntry): boolean {
-  return event.name === "agent.invocation.error" || event.name === "run.error"
+  return event.name === "agent.invocation.error" || event.name === "agent.stream.error" || event.name === "run.error"
 }
 
 export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunView[] {
@@ -344,11 +345,11 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
     }
 
     const terminal = sorted.slice().reverse().find(event => isTraceRunError(event) || isTraceRunFinish(event))
-    const status: TraceRunStatus = terminal
-      ? isTraceRunError(terminal)
-        ? "failed"
-        : "completed"
-      : "running"
+    const status: TraceRunStatus = sorted.some(isTraceRunError)
+      ? "failed"
+      : terminal
+        ? "completed"
+        : "running"
     const endTime = status === "running" ? undefined : terminal?.timestamp
     return {
       durationMs: durationMs(first.timestamp, endTime),

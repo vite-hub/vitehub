@@ -127,7 +127,7 @@ describe("@vite-hub/runtime", () => {
     })
 
     await emitTraceEvent(context, {
-      attributes: { input: { prompt: "secret" }, nested: { request: { body: "secret" }, safe: true }, "step.id": "search-1", "tool.input": { query: "secret" }, "tool.name": "search" },
+      attributes: { content: "secret content", input: { prompt: "secret" }, nested: { request: { body: "secret" }, safe: true }, "step.id": "search-1", "tool.input": { query: "secret" }, "tool.name": "search" },
       name: "agent.tool.start",
       timestamp: "2026-01-01T00:00:00.000Z",
       type: "run",
@@ -141,7 +141,7 @@ describe("@vite-hub/runtime", () => {
 
     expect(log.entries()).toEqual([
       expect.objectContaining({
-        attributes: { "content.omitted": ["input", "tool.input"], nested: { "content.omitted": ["request"], safe: true }, "step.id": "search-1", "tool.name": "search" },
+        attributes: { "content.omitted": ["content", "input", "tool.input"], nested: { "content.omitted": ["request"], safe: true }, "step.id": "search-1", "tool.name": "search" },
         name: "agent.tool.start",
         sequence: 1,
         trace: { id: "run-1" },
@@ -189,6 +189,41 @@ describe("@vite-hub/runtime", () => {
         ],
       }),
     ])
+  })
+
+  it("derives yielded stream errors as failed runs even when finish follows", async () => {
+    const log = createTraceEventLog()
+    await log.append({
+      name: "agent.invocation.start",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      trace: { id: "run-1" },
+      type: "run",
+    })
+    await log.append({
+      attributes: { "error.message": "stream failed" },
+      name: "agent.stream.error",
+      timestamp: "2026-01-01T00:00:00.010Z",
+      trace: { id: "run-1" },
+      type: "error",
+    })
+    await log.append({
+      name: "agent.invocation.finish",
+      timestamp: "2026-01-01T00:00:00.020Z",
+      trace: { id: "run-1" },
+      type: "run",
+    })
+
+    expect(deriveTraceRuns(log.entries())).toEqual([
+      expect.objectContaining({
+        durationMs: 20,
+        endTime: "2026-01-01T00:00:00.020Z",
+        id: "run-1",
+        status: "failed",
+      }),
+    ])
+    expect(traceEventsToOpenTelemetrySpans(log.entries())[0]).toMatchObject({
+      status: { code: "ERROR" },
+    })
   })
 
   it("maps derived trace runs to span-shaped OpenTelemetry exports", async () => {
