@@ -21,6 +21,7 @@ vi.mock("ai", () => ({
 }))
 
 vi.mock("@vite-hub/workspace", () => ({
+  defineWorkspace: vi.fn(definition => definition),
   useWorkspace: vi.fn(() => ({
     fs: { list, readFile },
     tools: {
