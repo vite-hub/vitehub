@@ -457,6 +457,7 @@ export async function resolveStaticCapabilityTools<
       fs: workspace?.fs,
       invoker,
       mode: capability.mode,
+      runtimeContext: runtime,
       workspace,
     } as unknown as AgentCapabilityContext<TRuntimeConfig, Name>
     const resolved = await resolveRuntimeValue(capability.tools as never, capabilityContext as never) as unknown

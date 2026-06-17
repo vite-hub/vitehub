@@ -346,6 +346,7 @@ interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   input: AgentRunInput<CALL_OPTIONS>
   run?: AgentRunMetadata
   runtime?: AgentRuntimeContext["runtime"]
+  runtimeConfig?: AgentRuntimeConfig
 }
 interface ScheduleRunContextLike {
   attemptId?: string
@@ -452,9 +453,11 @@ async function runAgentAsWorkflow<
   if (!binding) return undefined
 
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS>(agent, resolveAgentWorkflowName(binding))
+  const resolvedContext = createResolvedRuntimeContext(context)
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     input,
     runtime: context.runtime,
+    runtimeConfig: resolvedContext.runtimeConfig,
     ...(context.run ? { run: context.run } : {}),
   }
   const workflowEvent = {

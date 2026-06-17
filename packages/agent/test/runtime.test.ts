@@ -2026,6 +2026,56 @@ describe("agent message protocol", () => {
     expect(resolved).toEqual(expect.any(Object))
   })
 
+  it("resolves static subagent tools with the resolved runtime context", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const browserAgent = {
+      async resolve(context) {
+        return {
+          async generate({ runtime }) {
+            return {
+              raw: {
+                resolveRuntimeConfig: context.runtimeConfig,
+                runtimeConfig: runtime.runtimeConfig,
+              },
+              text: "browser report",
+            }
+          },
+          name: "browser",
+        }
+      },
+    } as ReturnType<typeof defineAgent>
+    const reviewerAgent = defineAgent({
+      capabilities: [
+        subagents({
+          agents: {
+            browser: {
+              agent: browserAgent,
+              description: "Collect browser evidence.",
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+    })
+
+    const resolved = await reviewerAgent.resolve({
+      memo: vi.fn(),
+      runtime: "unknown",
+      runtimeConfig: { region: "iad" },
+      waitUntil: vi.fn(),
+    }) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
+
+    await expect(resolved.tools.run_browser!.execute({ message: "Check the product card." })).resolves.toMatchObject({
+      raw: {
+        raw: {
+          resolveRuntimeConfig: { region: "iad" },
+          runtimeConfig: { region: "iad" },
+        },
+      },
+      text: "browser report",
+    })
+  })
+
   it("prevents denied tools from executing", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const execute = vi.fn()
@@ -2190,6 +2240,50 @@ describe("agent message protocol", () => {
       await Promise.all(waitUntilTasks)
       await expect(getWorkflowRun("support-agent", run.id)).resolves.toMatchObject({
         result: "received hello",
+        status: "completed",
+      })
+    })
+
+    it("passes runtimeConfig through Workflow Runs", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = {
+        runtime: workflow("configured-agent"),
+        async resolve(context) {
+          return {
+            async generate({ runtime }) {
+              return {
+                raw: {
+                  resolveRuntimeConfig: context.runtimeConfig,
+                  runtimeConfig: runtime.runtimeConfig,
+                },
+              }
+            },
+            name: "configured",
+          }
+        },
+      } as ReturnType<typeof defineAgent>
+      const run = await runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        runtimeConfig: { region: "iad" },
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("configured-agent", run.id)).resolves.toMatchObject({
+        result: {
+          raw: {
+            raw: {
+              resolveRuntimeConfig: { region: "iad" },
+              runtimeConfig: { region: "iad" },
+            },
+          },
+        },
         status: "completed",
       })
     })
