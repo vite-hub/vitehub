@@ -10,6 +10,7 @@ export function createBasicWorkspaceSession(workspace: Workspace): WorkspaceSess
   return {
     readFile: workspace.readFile,
     writeFile: workspace.writeFile,
+    mkdir: workspace.mkdir,
     rm: workspace.rm,
     list: workspace.list,
     glob: workspace.glob,

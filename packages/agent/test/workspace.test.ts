@@ -247,19 +247,38 @@ describe("defineAgent workspace option", () => {
     expect(useWorkspace).not.toHaveBeenCalled()
   })
 
+  it("rejects unknown colocated Workspace Definition options", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    expect(() => defineAgent({
+      model: {} as never,
+      workspace: {
+        stroe: { provider: "memory" },
+      } as never,
+    })).toThrow("[vitehub] defineWorkspace does not support option: stroe.")
+  })
+
   it("prepares Harness Workspace Sessions for workspace-backed harness Agent Drivers", async () => {
     const { defineAgent, runAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const harnessSession = { destroy: vi.fn() }
     const harnessWorkspaceSession = { close: vi.fn() }
     harnessCreateSession.mockResolvedValueOnce(harnessSession)
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+    exists.mockResolvedValue(true)
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       driver: {
         harness: { provider: "codex" },
         sandbox: { provider: "sandbox" },
       },
-      workspace: {},
+      workspace: {
+        sources: {
+          guide: {
+            instructions: "Use this guide for operating rules.",
+            path: "AGENTS.md",
+          },
+        },
+      },
     }), { workspace: "docs" })
 
     await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({

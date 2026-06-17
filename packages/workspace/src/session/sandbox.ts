@@ -191,6 +191,10 @@ export async function createSandboxWorkspaceSession(
       else
         mediaTypes.delete(workspacePath)
     },
+    async mkdir(path: string, options = {}) {
+      assertOpen()
+      await sandbox.mkdir(toSandboxPath(path), { recursive: options.recursive })
+    },
     async rm(path: string, _options?: RmOptions) {
       assertOpen()
       await sandbox.deleteFile(toSandboxPath(path))

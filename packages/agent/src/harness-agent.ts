@@ -51,7 +51,6 @@ function assertSupportedHarnessDriverContributions(context: AgentAdapterRunConte
     hasEntries(context.tools) ? "Capability tools" : undefined,
     context.providerTools?.length ? "provider tools" : undefined,
     context.capabilityInstructions?.length ? "Capability instructions" : undefined,
-    context.sourceInstructions ? "Workspace Source Instructions" : undefined,
   ].filter((value): value is string => Boolean(value))
 
   if (unsupported.length) {
