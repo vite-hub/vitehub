@@ -34,6 +34,20 @@ const agentStream = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ ful
     yield { text: "ok", type: "text-delta" }
   })(),
 })))
+const harnessAgentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
+const harnessSandboxSession = vi.hoisted(() => ({
+  readBinaryFile: vi.fn(),
+  run: vi.fn(),
+  writeBinaryFile: vi.fn(),
+}))
+const harnessCreateSession = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ destroy: () => unknown }>>(async () => ({ destroy: vi.fn() })))
+const harnessGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, text: string }>>(async () => ({ finishReason: "stop", text: "ok" })))
+const harnessStream = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ fullStream: AsyncIterable<unknown> }>>(async () => ({
+  fullStream: (async function* () {
+    yield { text: "ok", type: "text-delta" }
+  })(),
+})))
+const prepareHarnessWorkspaceSession = vi.fn()
 
 vi.mock("ai", () => ({
   generateText,
@@ -54,6 +68,33 @@ vi.mock("ai", () => ({
   },
 }))
 
+vi.mock("@ai-sdk/harness/agent", () => ({
+  HarnessAgent: class {
+    constructor(public settings: Record<string, unknown>) {
+      harnessAgentSettings.push(settings)
+    }
+
+    async createSession(...args: unknown[]) {
+      const session = await harnessCreateSession.apply(this, args)
+      const options = args[0] as { abortSignal?: AbortSignal } | undefined
+      await (this.settings.onSandboxSession as ((input: Record<string, unknown>) => Promise<void>) | undefined)?.({
+        abortSignal: options?.abortSignal,
+        session: harnessSandboxSession,
+        sessionWorkDir: "/workspace/codex-session",
+      })
+      return session
+    }
+
+    async generate(...args: unknown[]) {
+      return await harnessGenerate.apply(this, args)
+    }
+
+    async stream(...args: unknown[]) {
+      return await harnessStream.apply(this, args)
+    }
+  },
+}))
+
 vi.mock("@vite-hub/workspace", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@vite-hub/workspace")>()
   return {
@@ -62,6 +103,7 @@ vi.mock("@vite-hub/workspace", async (importOriginal) => {
     createWorkspaceTools,
     getWorkspaceSourceRequestDescriptor,
     isWorkspaceSourceRequestOnly,
+    prepareHarnessWorkspaceSession,
     resolveWorkspaceAutoCommit,
     workspaceSourceRequestDescriptorPath,
     useWorkspace,
@@ -92,6 +134,21 @@ function readonlyWorkspaceFacade(): ReadonlyWorkspaceFacade {
 describe("defineAgent workspace option", () => {
   beforeEach(() => {
     agentSettings.length = 0
+    harnessAgentSettings.length = 0
+    harnessCreateSession.mockReset()
+    harnessCreateSession.mockResolvedValue({ destroy: vi.fn() })
+    harnessGenerate.mockReset()
+    harnessGenerate.mockResolvedValue({ finishReason: "stop", text: "ok" })
+    harnessStream.mockReset()
+    harnessStream.mockResolvedValue({
+      fullStream: (async function* () {
+        yield { text: "ok", type: "text-delta" }
+      })(),
+    })
+    harnessSandboxSession.readBinaryFile.mockReset()
+    harnessSandboxSession.run.mockReset()
+    harnessSandboxSession.writeBinaryFile.mockReset()
+    prepareHarnessWorkspaceSession.mockReset()
     agentGenerate.mockReset()
     agentGenerate.mockResolvedValue({ finishReason: "stop", text: "ok" })
     agentStream.mockReset()
@@ -190,8 +247,12 @@ describe("defineAgent workspace option", () => {
     expect(useWorkspace).not.toHaveBeenCalled()
   })
 
-  it("rejects harness-backed workspace agents until Harness Workspace Sessions are available", async () => {
+  it("prepares Harness Workspace Sessions for workspace-backed harness Agent Drivers", async () => {
     const { defineAgent, runAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const harnessSession = { destroy: vi.fn() }
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(harnessSession)
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
 
     const agent = withWorkspaceAgentDefaults(defineAgent({
       driver: {
@@ -201,8 +262,28 @@ describe("defineAgent workspace option", () => {
       workspace: {},
     }), { workspace: "docs" })
 
-    await expect(runAgent(agent, context(), { prompt: "hello" })).rejects.toThrow("Harness Agent Drivers with workspace")
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
     expect(useWorkspace).toHaveBeenCalledWith("docs")
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
+    expect(harnessAgentSettings.at(-1)).toMatchObject({
+      harness: { provider: "codex" },
+      permissionMode: "allow-all",
+      sandbox: { provider: "sandbox" },
+    })
+    expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: "hello",
+      session: harnessSession,
+    }))
+    expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
+    expect(harnessSession.destroy).toHaveBeenCalledOnce()
   })
 
   it("auto-commits write-mode workspace changes when rules request it", async () => {

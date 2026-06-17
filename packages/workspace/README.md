@@ -97,6 +97,8 @@ export default defineConfig({
 
 Need the workspace to run generated code instead of only reading and writing files? Pair it with [`@vite-hub/sandbox`](../sandbox/README.md) so sessions can execute inside an isolated provider runtime.
 
+Harness-backed Agents use the Workspace Package to prepare Harness Workspace Sessions for `defineAgent({ driver: { harness }, workspace })`. The Agent Package keeps the harness inside the Agent Driver boundary, Capabilities keep tools and Skills opt-in, and Workspace owns materializing selected files plus write-mode sync back through Workspace rules.
+
 ## Vite Integration
 
 Use `hubWorkspace()` in Vite to discover workspace definitions, emit the workspace manifest for local development, and make the runtime store available to server code.

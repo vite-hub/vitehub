@@ -12,11 +12,19 @@ The Workspace is the file boundary. Capabilities decide which model-facing tools
 ## Colocate workspace context
 
 ```ts [server/agents/docs/config.ts]
+import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 import { workspaceShell } from '@vite-hub/agent/capabilities'
 import { source } from '@vite-hub/workspace'
 
 export default defineAgent({
+  driver: {
+    model: gateway('openai/gpt-5.1-mini'),
+    instructions: [
+      'Answer from the docs workspace. Say when the answer is not present.',
+      '{{ workspace.sources }}',
+    ],
+  },
   workspace: {
     sources: {
       docs: source.glob({
@@ -32,8 +40,6 @@ export default defineAgent({
   capabilities: [
     workspaceShell({ mode: 'read' }),
   ],
-  instructions: 'Answer from the docs workspace. Say when the answer is not present.',
-  model,
 })
 ```
 
@@ -50,6 +56,36 @@ Only visible sources render. When `access()` selects a Workspace Scope, hidden o
 Start with read mode. It gives the model enough visibility to inspect files without writing changes.
 
 Use write mode only when the Agent is explicitly supposed to mutate Workspace files and the Workspace rules allow the target paths.
+
+## Harness Workspace Sessions
+
+Harness-backed Agent Drivers receive Workspace state through a Harness Workspace Session instead of model-facing Workspace Tools by default.
+
+```ts [server/agents/review/config.ts]
+import { createCodex } from '@ai-sdk/harness-codex'
+import { defineAgent } from '@vite-hub/agent'
+import { skills } from '@vite-hub/agent/capabilities'
+import { source } from '@vite-hub/workspace'
+
+export default defineAgent({
+  driver: {
+    harness: createCodex({
+      model: 'gpt-5.5',
+    }),
+  },
+  workspace: {
+    mode: 'write',
+    sources: {
+      guide: source.file('AGENTS.md'),
+    },
+  },
+  capabilities: [
+    skills({ path: '.agents/skills/review' }),
+  ],
+})
+```
+
+Read mode materializes the selected Workspace into the harness sandbox and discards sandbox changes. Write mode syncs additions and updates back through Workspace rules. Keep Skills behind the `skills()` Capability; ViteHub does not add root `skills`, `tools`, or `sandbox` Agent Definition fields for harness-backed Agents. Put harness guidance in Workspace files such as `AGENTS.md`; model-facing Source Instructions are not forwarded to harness-backed Agent Drivers yet.
 
 ## Access scope
 
@@ -132,6 +168,14 @@ export default defineAgent({
       }),
     },
   },
+  driver: {
+    model: gateway('openai/gpt-5.1-mini'),
+    instructions: [
+      'Answer from the scoped customer workspace.',
+      '{{ capabilities.access.workspace }}',
+      '{{ workspace.sources }}',
+    ],
+  },
   capabilities: [
     access({
       workspace: {
@@ -164,12 +208,6 @@ export default defineAgent({
     workspaceShell({ mode: 'read' }),
     supportChat,
   ],
-  instructions: [
-    'Answer from the scoped customer workspace.',
-    '{{ capabilities.access.workspace }}',
-    '{{ workspace.sources }}',
-  ],
-  model: gateway('openai/gpt-5.1-mini'),
 })
 ```
 

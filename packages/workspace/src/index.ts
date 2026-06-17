@@ -15,6 +15,14 @@ export {
   attachWorkspaceSourceRequestExecution,
   getWorkspaceSourceRequestExecution,
 } from "./sources/request-execution.ts"
+export {
+  prepareHarnessWorkspaceSession,
+} from "./session/harness.ts"
+export type {
+  HarnessSandboxSession,
+  HarnessWorkspaceSession,
+  PrepareHarnessWorkspaceSessionOptions,
+} from "./session/harness.ts"
 export type {
   WorkspaceSourceResolutionFacade,
   WorkspaceSourceResolutionOptions,
