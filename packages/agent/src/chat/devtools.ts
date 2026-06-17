@@ -13,6 +13,7 @@ import {
   chatDevtoolsStreamChannel,
   chatDevtoolsTitle,
 } from "./devtools-shared.js"
+import { readChatDevtoolsStream } from "./devtools-stream.ts"
 
 import type { Adapter, AdapterPostableMessage, FormattedContent, Message as ChatMessage, RawMessage } from "chat"
 import type { Plugin } from "vite"
@@ -752,47 +753,31 @@ async function writeChatDevtoolsStream(
       throw new Error("Chat DevTools bridge did not return a stream.")
     }
 
-    const decoder = new TextDecoder()
-    const reader = response.body.getReader()
-    let pending = ""
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      pending += decoder.decode(value, { stream: true })
-      const lines = pending.split("\n")
-      pending = lines.pop() || ""
-      for (const line of lines) {
-        if (!line.trim()) continue
-        const event = JSON.parse(line) as ChatDevtoolsStreamEvent
-        if (event.type === "error") {
-          stream.write(event)
-          stream.close()
-          return
-        }
-        if (event.type === "done") {
-          const chat = "chat" in body && typeof body.chat === "string" ? body.chat : undefined
-          const invokerFallback = "invokerFallback" in body && body.invokerFallback === true
-          const invokerProfileId = "invokerProfileId" in body && typeof body.invokerProfileId === "string" ? body.invokerProfileId : undefined
-          const meta = optionalRecord((body as { meta?: unknown }).meta)
-          stream.write({
-            type: "state",
-            state: await postChatDevtoolsBridge(ctx, route, {
-              action: "get-state",
-              ...(chat ? { chat } : {}),
-              ...(invokerFallback ? { invokerFallback } : {}),
-              ...(invokerProfileId ? { invokerProfileId } : {}),
-              ...(meta ? { meta } : {}),
-            }),
-          })
-          stream.close()
-          return
-        }
+    for await (const event of readChatDevtoolsStream(response.body)) {
+      if (event.type === "error") {
         stream.write(event)
+        stream.close()
+        return
       }
-    }
-    const tail = pending.trim()
-    if (tail) {
-      stream.write(JSON.parse(tail) as ChatDevtoolsStreamEvent)
+      if (event.type === "done") {
+        const chat = "chat" in body && typeof body.chat === "string" ? body.chat : undefined
+        const invokerFallback = "invokerFallback" in body && body.invokerFallback === true
+        const invokerProfileId = "invokerProfileId" in body && typeof body.invokerProfileId === "string" ? body.invokerProfileId : undefined
+        const meta = optionalRecord((body as { meta?: unknown }).meta)
+        stream.write({
+          type: "state",
+          state: await postChatDevtoolsBridge(ctx, route, {
+            action: "get-state",
+            ...(chat ? { chat } : {}),
+            ...(invokerFallback ? { invokerFallback } : {}),
+            ...(invokerProfileId ? { invokerProfileId } : {}),
+            ...(meta ? { meta } : {}),
+          }),
+        })
+        stream.close()
+        return
+      }
+      stream.write(event)
     }
     stream.close()
   }
