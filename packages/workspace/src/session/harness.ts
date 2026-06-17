@@ -97,7 +97,8 @@ async function copySandboxChangesToWorkspace(
     throw new Error(`[vitehub] Failed to inspect Harness Workspace Session files: ${result.stderr || "find failed"}`)
   }
 
-  for (const path of pathsFromFindOutput(result.stdout)) {
+  const sandboxFiles = new Set(pathsFromFindOutput(result.stdout))
+  for (const path of sandboxFiles) {
     const content = await sandbox.readBinaryFile({
       abortSignal,
       path: sandboxPath(sessionWorkDir, path),
@@ -105,8 +106,10 @@ async function copySandboxChangesToWorkspace(
     if (!content || bytesEqual(initialFiles.get(path), content)) continue
     await session.writeFile(path, content)
   }
+  for (const path of initialFiles.keys()) {
+    if (!sandboxFiles.has(path)) await session.rm(path, { force: true })
+  }
 
-  // ponytail: deletions wait until WorkspaceSession exposes rm; additions and updates still commit through Workspace rules.
   const diff = await session.diff()
   if (diff.entries.length) await session.commit({ message: "harness-workspace-session" })
 }

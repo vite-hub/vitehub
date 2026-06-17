@@ -85,4 +85,45 @@ describe("Harness Workspace Session", () => {
     expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
     expect(workspaceSession.close).toHaveBeenCalledOnce()
   })
+
+  it("commits harness sandbox deletions through write-mode Workspace rules", async () => {
+    const workspaceSession = {
+      close: vi.fn(async () => {}),
+      commit: vi.fn(async () => {}),
+      diff: vi.fn(async () => ({
+        entries: [{ path: "old.txt", type: "removed" }],
+        to: "next",
+      })),
+      rm: vi.fn(async () => {}),
+      writeFile: vi.fn(async () => {}),
+    }
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: {
+        list: vi.fn(async () => [
+          { path: "README.md", type: "file" },
+          { path: "old.txt", type: "file" },
+        ]),
+        readFile: vi.fn(async (path: string) => bytes(path)),
+      },
+      startSession: vi.fn(async () => workspaceSession),
+      tools: {},
+    } as never, {
+      session: {
+        readBinaryFile: vi.fn(async ({ path }: { path: string }) => bytes(path)),
+        run: vi.fn(async () => ({
+          exitCode: 0,
+          stderr: "",
+          stdout: "./README.md\n",
+        })),
+        writeBinaryFile: vi.fn(async () => {}),
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    await session.close()
+
+    expect(workspaceSession.rm).toHaveBeenCalledWith("old.txt", { force: true })
+    expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
+  })
 })

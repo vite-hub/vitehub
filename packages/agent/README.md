@@ -88,7 +88,7 @@ export default defineAgent({
 })
 ```
 
-`driver.harness` is the AI SDK harness adapter instance. `driver.sandbox` can provide an AI SDK sandbox provider; when omitted, ViteHub uses the AI SDK Vercel Sandbox default for bridge-backed harnesses. Workspace-backed harness drivers receive a Harness Workspace Session prepared from the selected Workspace. Read mode materializes files and discards sandbox changes; write mode syncs additions and updates back through Workspace rules. V1 configures built-in harness permissions internally with the no-approval policy and does not expose a public permission option. Skills stay a Capability through `skills()` rather than becoming a root Agent Definition field. Put harness guidance in Workspace files such as `AGENTS.md`; model-facing Source Instructions are not forwarded to harness-backed Agent Drivers yet.
+`driver.harness` is the AI SDK harness adapter instance. `driver.sandbox` can provide an AI SDK sandbox provider; when omitted, ViteHub uses the AI SDK Vercel Sandbox default for bridge-backed harnesses. Workspace-backed harness drivers receive a Harness Workspace Session prepared from the selected Workspace. Read mode materializes files and discards sandbox changes; write mode syncs additions, updates, and deletions back through Workspace rules. V1 configures built-in harness permissions internally with the no-approval policy and does not expose a public permission option. Skills stay a Capability through `skills()` rather than becoming a root Agent Definition field. Put harness guidance in Workspace files such as `AGENTS.md`; model-facing Source Instructions are not forwarded to harness-backed Agent Drivers yet.
 
 ```ts
 // vite.config.ts

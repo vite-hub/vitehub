@@ -37,7 +37,7 @@ The Workspace Package authoring input that normalizes into a Workspace Source Bi
 _Avoid_: Source Definition, Source Loader options only, provider namespace
 
 **Harness Workspace Session Preparation**:
-The Workspace Package helper that materializes selected Workspace files into a harness sandbox and syncs write-mode additions or updates back through Workspace rules.
+The Workspace Package helper that materializes selected Workspace files into a harness sandbox and syncs write-mode additions, updates, or deletions back through Workspace rules.
 _Avoid_: Agent Package file copier, harness checkout, root sandbox config
 
 ## Relationships

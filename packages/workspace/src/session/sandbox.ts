@@ -7,6 +7,7 @@ import { createSnapshotFromEntries, diffSnapshots } from "../storage/utils.ts"
 import type {
   ReadFileOptions,
   ReadFileResult,
+  RmOptions,
   Workspace,
   WorkspaceContent,
   WorkspaceDefinition,
@@ -189,6 +190,11 @@ export async function createSandboxWorkspaceSession(
         mediaTypes.set(workspacePath, options.mediaType)
       else
         mediaTypes.delete(workspacePath)
+    },
+    async rm(path: string, _options?: RmOptions) {
+      assertOpen()
+      await sandbox.deleteFile(toSandboxPath(path))
+      mediaTypes.delete(normalizeWorkspacePath(path))
     },
     async list(path = "", options = {}) {
       assertOpen()
