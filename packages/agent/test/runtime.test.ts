@@ -75,6 +75,34 @@ describe("agent message protocol", () => {
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret prompt")
   })
 
+  it("records a failed invocation when Agent Finish Hooks fail", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: { run: () => "ok" },
+      hooks: {
+        "agent:finish": () => {
+          throw new Error("finish failed")
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow("finish failed")
+
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.invocation.error",
+    ])
+    expect(traceLog.entries()[1]!.attributes).toMatchObject({
+      "error.message": "finish failed",
+    })
+  })
+
   it("emits stream milestone Trace Events without tracing text deltas", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
@@ -1810,6 +1838,7 @@ describe("agent message protocol", () => {
   it("converts async stream events to AI SDK UI message streams", async () => {
     const { readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
     const agent = defineAgent({
       run: () => (async function* () {
         yield { data: { title: "Async title", type: "chat-title" }, type: "data" }
@@ -1820,7 +1849,7 @@ describe("agent message protocol", () => {
       })(),
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {
       messages: [createMessage({ role: "user", text: "hello" })],
     }, { output: "ui-message-stream" }) as ReadableStream<never>
     const messages = []
@@ -1833,6 +1862,13 @@ describe("agent message protocol", () => {
       data: { title: "Async title", type: "chat-title" },
       type: "data-chat-title",
     })
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.tool.start",
+      "agent.tool.finish",
+      "agent.stream.finish",
+      "agent.invocation.finish",
+    ])
   })
 
   it("selects chat history from the requested manual session", async () => {

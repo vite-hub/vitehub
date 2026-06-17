@@ -997,6 +997,13 @@ function maybeTraceAgentStream<
   return context.runtimeContext.traceLog ? traceAgentStreamEvents(stream, toTraceContext(context)) : stream
 }
 
+function maybeTraceUiMessageStreamOutput<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(rendered: unknown, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): unknown {
+  return isAsyncIterable(rendered) ? maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, context) : rendered
+}
+
 function hasFinishWork<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -1051,33 +1058,39 @@ async function finishAgentInvocation<
   result?: unknown,
   error?: unknown,
 ): Promise<void> {
-  await context.close()
-  if (error === undefined) await commitWorkspaceChanges(context)
   const durationMs = Date.now() - context.startedAt
-  if (error === undefined) {
-    await traceAgentInvocationFinish(toTraceContext(context), {
-      "invocation.durationMs": durationMs,
-      "result.hasValue": result !== undefined,
-    })
+  try {
+    await context.close()
+    if (error === undefined) await commitWorkspaceChanges(context)
+    if (hasFinishWork(context)) {
+      const eventBase = {
+        ...(error !== undefined ? { error } : {}),
+        input: context.input,
+        invoker: context.invoker,
+        invocation: {
+          durationMs,
+          ...(context.run ? { run: context.run } : {}),
+        },
+        ...(result !== undefined ? { result } : {}),
+        runtime: context.runtimeContext,
+      } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
+      const extensions = await createAgentInvocationExtensions(eventBase as never, context.finishExtensionProviders)
+      await context.finishHook?.({ ...eventBase, extensions })
+    }
+    if (error === undefined) {
+      await traceAgentInvocationFinish(toTraceContext(context), {
+        "invocation.durationMs": durationMs,
+        "result.hasValue": result !== undefined,
+      })
+    }
+    else {
+      await traceAgentInvocationError(toTraceContext(context), error)
+    }
   }
-  else {
-    await traceAgentInvocationError(toTraceContext(context), error)
+  catch (finishError) {
+    if (error === undefined) await traceAgentInvocationError(toTraceContext(context), finishError)
+    throw finishError
   }
-  if (!hasFinishWork(context)) return
-
-  const eventBase = {
-    ...(error !== undefined ? { error } : {}),
-    input: context.input,
-    invoker: context.invoker,
-    invocation: {
-      durationMs,
-      ...(context.run ? { run: context.run } : {}),
-    },
-    ...(result !== undefined ? { result } : {}),
-    runtime: context.runtimeContext,
-  } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
-  const extensions = await createAgentInvocationExtensions(eventBase as never, context.finishExtensionProviders)
-  await context.finishHook?.({ ...eventBase, extensions })
 }
 
 async function finishFailedAgentInvocation<
@@ -1264,7 +1277,7 @@ export async function streamAgentInline<
     return await finalizeAgentInvocationResult(runContext, result, async (result) => {
       const rendered = await applyOutputRenderers(result, runContext.outputRenderers)
       if (output === "ui-message-stream") {
-        return finalizeUiMessageStreamOutput(rendered, shouldWrapInvocationOutput(runContext), error => finishAgentInvocation(runContext, error === undefined ? rendered : undefined, error))
+        return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, runContext), shouldWrapInvocationOutput(runContext), error => finishAgentInvocation(runContext, error === undefined ? rendered : undefined, error))
       }
       const isStream = isAsyncIterable(rendered)
       return {
@@ -1304,7 +1317,7 @@ export async function streamAgentInline<
   return await finalizeAgentInvocationResult(adapterContext, result, async (result) => {
     const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers)
     if (output === "ui-message-stream") {
-      return finalizeUiMessageStreamOutput(rendered, shouldWrapInvocationOutput(adapterContext), error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error))
+      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, adapterContext), shouldWrapInvocationOutput(adapterContext), error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error))
     }
     const events = streamAgentOutputToEvents(rendered)
     const tracedEvents = maybeTraceAgentStream(events, adapterContext)
