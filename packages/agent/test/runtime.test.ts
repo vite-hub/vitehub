@@ -71,7 +71,7 @@ describe("agent message protocol", () => {
       message: "Check the product card.",
     })).resolves.toEqual({
       raw: {
-        context: { previewUrl: "https://preview.local" },
+        context: expect.objectContaining({ previewUrl: "https://preview.local" }),
         message: "Check the product card.",
         runId: "review-run",
       },
@@ -82,9 +82,10 @@ describe("agent message protocol", () => {
   it("registers subagent tools", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const browserAgent = defineAgent({
-      run: ({ input, messages, run }) => ({
+      run: ({ input, invoker, messages, run }) => ({
         raw: {
           context: input.context,
+          invokerId: invoker.id,
           message: getMessageText(messages[0]!),
           runId: run?.runId,
         },
@@ -117,11 +118,94 @@ describe("agent message protocol", () => {
       run: { runId: "review-run" },
       runtime: "unknown",
       waitUntil: vi.fn(),
-    }, { message: "Review the PR." })).resolves.toEqual({
+    }, {
+      context: {
+        invoker: { id: "github:onmax", kind: "github" },
+      },
+      message: "Review the PR.",
+    })).resolves.toEqual({
       raw: {
-        context: { previewUrl: "https://preview.local" },
+        context: expect.objectContaining({ previewUrl: "https://preview.local" }),
+        invokerId: "github:onmax",
         message: "Check the product card.",
         runId: expect.stringMatching(/^review-run:run_browser:/),
+      },
+      text: "browser report",
+    })
+  })
+
+  it("rejects duplicate generated subagent tool names", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    expect(() => subagents({
+      agents: {
+        "code-review": {
+          agent: defineAgent({ run: () => "ok" }),
+          description: "Review code.",
+        },
+        code_review: {
+          agent: defineAgent({ run: () => "ok" }),
+          description: "Review code again.",
+        },
+      },
+    })).toThrow('Duplicate subagent tool name "run_code_review"')
+  })
+
+  it("runs subagent tools with the resolved parent runtime context", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const browserAgent = {
+      async resolve(context) {
+        return {
+          async generate({ invoker, runtime }) {
+            return {
+              raw: {
+                invokerId: invoker.id,
+                resolveRuntimeConfig: context.runtimeConfig,
+                runtimeConfig: runtime.runtimeConfig,
+              },
+              text: "browser report",
+            }
+          },
+          name: "browser",
+        }
+      },
+    } as ReturnType<typeof defineAgent>
+    const reviewerAgent = defineAgent({
+      capabilities: [
+        subagents({
+          agents: {
+            browser: {
+              agent: browserAgent,
+              description: "Collect browser evidence.",
+            },
+          },
+        }),
+      ],
+      async run({ tools }) {
+        const tool = tools?.run_browser
+        if (!tool?.execute) throw new Error("Missing browser subagent tool.")
+        return await tool.execute({ message: "Check the product card." })
+      },
+    })
+
+    await expect(runAgent(reviewerAgent, {
+      memo: vi.fn(),
+      run: { runId: "review-run" },
+      runtime: "unknown",
+      runtimeConfig: { region: "iad" },
+      waitUntil: vi.fn(),
+    }, {
+      context: {
+        invoker: { id: "github:onmax", kind: "github" },
+      },
+      message: "Review the PR.",
+    })).resolves.toMatchObject({
+      raw: {
+        raw: {
+          invokerId: "github:onmax",
+          resolveRuntimeConfig: { region: "iad" },
+          runtimeConfig: { region: "iad" },
+        },
       },
       text: "browser report",
     })

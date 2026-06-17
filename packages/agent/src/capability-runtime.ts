@@ -282,6 +282,7 @@ export async function resolveAgentCapabilities<
         context: invocationContext,
         fs: currentWorkspace?.fs,
         invoker,
+        runtimeContext: runtime,
         workspace: currentWorkspace,
         workspaceDefinition: invocationOptions.workspaceDefinition,
       }

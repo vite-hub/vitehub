@@ -1,6 +1,8 @@
 import { defineCapability } from "../capability-runtime.ts"
+import { withResolvedAgentInvokerInput } from "../invoker.ts"
 
 import type {
+  AgentCapabilityContext,
   AgentCapabilityDefinition,
   AgentInput,
   AgentRunInput,
@@ -86,11 +88,15 @@ function normalizeAgents<TRuntimeConfig extends AgentRuntimeConfig>(
   if (!options?.agents || typeof options.agents !== "object" || Array.isArray(options.agents) || !Object.keys(options.agents).length) {
     throw new TypeError("[vitehub] subagents({ agents }) requires at least one subagent.")
   }
+  const toolNames = new Set<string>()
   return Object.entries(options.agents).map(([name, definition]) => {
     assertSubagentName(name)
     if (!definition?.agent) throw new TypeError(`[vitehub] subagents() "${name}" requires an agent.`)
     if (!definition.description?.trim()) throw new TypeError(`[vitehub] subagents() "${name}" requires a description.`)
-    return { definition, name, toolName: toolNameFor(name, definition) }
+    const toolName = toolNameFor(name, definition)
+    if (toolNames.has(toolName)) throw new TypeError(`[vitehub] Duplicate subagent tool name "${toolName}". Use explicit toolName values to disambiguate.`)
+    toolNames.add(toolName)
+    return { definition, name, toolName }
   })
 }
 
@@ -117,17 +123,18 @@ function childRunId(parentRunId: string | undefined, name: string, runId: string
 function createTool<TRuntimeConfig extends AgentRuntimeConfig>(
   definition: SubagentDefinition<TRuntimeConfig>,
   name: string,
-  parentContext: AgentRuntimeContext<TRuntimeConfig>,
+  parentContext: AgentCapabilityContext<TRuntimeConfig>,
 ): AgentToolDefinition {
   return {
     description: definition.description,
     async execute(input: unknown) {
       const { runAgent } = await import("../index.ts")
       const { runId, ...agentInput } = input as SubagentToolInput
-      const nextRunId = childRunId(parentContext.run?.runId, name, runId)
+      const runtimeContext = (parentContext.runtimeContext || parentContext) as AgentRuntimeContext<TRuntimeConfig>
+      const nextRunId = childRunId(runtimeContext.run?.runId, name, runId)
       return await runAgent(definition.agent, nextRunId
-        ? { ...parentContext, run: { ...parentContext.run, runId: nextRunId } }
-        : parentContext, agentInput as AgentRunInput)
+        ? { ...runtimeContext, run: { ...runtimeContext.run, runId: nextRunId } }
+        : runtimeContext, withResolvedAgentInvokerInput(agentInput as AgentRunInput, parentContext.invoker))
     },
     inputSchema: inputSchema(definition.description),
     name,
