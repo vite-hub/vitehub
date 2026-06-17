@@ -127,6 +127,7 @@ export interface AgentRunInput<
 > {
   abortSignal?: AbortSignal
   context?: TContext
+  message?: string | Message
   messages?: Message[]
   options?: CALL_OPTIONS
   prompt?: string | Message[]

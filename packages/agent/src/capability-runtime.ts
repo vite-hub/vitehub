@@ -1,6 +1,7 @@
 import { resolveRuntimeValue } from "@vite-hub/runtime"
 
 import { workspaceOverrideSymbol } from "./access-runtime.ts"
+import { createMessage } from "./messages.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import {
   createFallbackAgentInvoker,
@@ -153,7 +154,13 @@ function validateAccessCapabilityOrder(capabilities: AgentCapabilityDefinition[]
 function getRunMessages(input: AgentRunInput): Message[] {
   if (input.messages) return input.messages
   if (Array.isArray(input.prompt)) return input.prompt
+  if (input.message !== undefined) return [typeof input.message === "string" ? createMessage({ role: "user", text: input.message }) : input.message]
   return []
+}
+
+function normalizeRunInput(input: AgentRunInput): AgentRunInput {
+  if (input.messages || Array.isArray(input.prompt) || input.message === undefined) return input
+  return { ...input, messages: getRunMessages(input) }
 }
 
 function withMessages(input: AgentRunInput, messages: Message[]): AgentRunInput {
@@ -237,7 +244,7 @@ export async function resolveAgentCapabilities<
   ensureAgentInvokerContext(invocationContext, invoker)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   validateAccessCapabilityOrder(capabilities)
-  let currentInput = input
+  let currentInput = normalizeRunInput(input)
   let currentWorkspace = workspace as ReadonlyWorkspaceFacade<Name> | undefined
   let messages = getRunMessages(currentInput)
   let tools: AgentToolSet | undefined
@@ -297,7 +304,7 @@ export async function resolveAgentCapabilities<
           get: () => currentInput,
           messages: () => messages,
           set(value) {
-            currentInput = value
+            currentInput = normalizeRunInput(value)
             messages = getRunMessages(currentInput)
           },
           setMessages(value) {

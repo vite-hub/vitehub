@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
-import { chat, chatTitle, schedule } from "../src/capabilities.ts"
+import { chat, chatTitle, schedule, subagents } from "../src/capabilities.ts"
 
 const harnessAgentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const harnessCreateSession = vi.hoisted(() => vi.fn())
@@ -47,6 +47,84 @@ describe("agent message protocol", () => {
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       prompt: "hello",
     }))
+  })
+
+  it("runs agents with an initial message and structured context", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const run = vi.fn(({ input, messages, run }) => ({
+      raw: {
+        context: input.context,
+        message: getMessageText(messages[0]!),
+        runId: run?.runId,
+      },
+      text: "browser report",
+    }))
+    const agent = defineAgent({ run })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "review-run" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {
+      context: { previewUrl: "https://preview.local" },
+      message: "Check the product card.",
+    })).resolves.toEqual({
+      raw: {
+        context: { previewUrl: "https://preview.local" },
+        message: "Check the product card.",
+        runId: "review-run",
+      },
+      text: "browser report",
+    })
+  })
+
+  it("registers subagent tools", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const browserAgent = defineAgent({
+      run: ({ input, messages, run }) => ({
+        raw: {
+          context: input.context,
+          message: getMessageText(messages[0]!),
+          runId: run?.runId,
+        },
+        text: "browser report",
+      }),
+    })
+    const reviewerAgent = defineAgent({
+      capabilities: [
+        subagents({
+          agents: {
+            browser: {
+              agent: browserAgent,
+              description: "Collect browser evidence.",
+            },
+          },
+        }),
+      ],
+      async run({ tools }) {
+        const tool = tools?.run_browser
+        if (!tool?.execute) throw new Error("Missing browser subagent tool.")
+        return await tool.execute({
+          context: { previewUrl: "https://preview.local" },
+          message: "Check the product card.",
+        })
+      },
+    })
+
+    await expect(runAgent(reviewerAgent, {
+      memo: vi.fn(),
+      run: { runId: "review-run" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { message: "Review the PR." })).resolves.toEqual({
+      raw: {
+        context: { previewUrl: "https://preview.local" },
+        message: "Check the product card.",
+        runId: expect.stringMatching(/^review-run:run_browser:/),
+      },
+      text: "browser report",
+    })
   })
 
   it("runs harness Agent Drivers through AI SDK HarnessAgent", async () => {
