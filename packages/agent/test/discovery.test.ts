@@ -468,6 +468,50 @@ describe("agent chat capability discovery", () => {
     expect(response.statusCode).toBe(403)
   })
 
+  it("consumes Response outputs from the Agent Invocation Stream endpoint", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-response-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const finish = vi.fn()
+    const { handlers, server } = createFakeServer(root, {
+      default: defineAgent({
+        capabilities: [chat()],
+        hooks: { "agent:finish": finish },
+        run: () => new Response("hello from response"),
+      }),
+    })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      messages: [{
+        id: "user-1",
+        parts: [{ text: "hello", type: "text" }],
+        role: "user",
+      }],
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+    const events = response.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+
+    expect(events).toEqual([
+      expect.objectContaining({ agent: "support", trigger: "chat.message", type: "start" }),
+      { text: "hello from response", type: "text-delta" },
+      { type: "finish" },
+      { type: "done" },
+    ])
+    expect(finish).toHaveBeenCalledTimes(1)
+  })
+
   it("serves initial chat devtools state while workspace metadata resolves", async () => {
     const root = await createTempRoot("vitehub-agent-devtools-metadata-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

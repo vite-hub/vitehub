@@ -104,6 +104,12 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     yield { type: "finish" }
     return
   }
+  if (value instanceof Response) {
+    const text = await value.text()
+    if (text) yield { text, type: "text-delta" }
+    yield { type: "finish" }
+    return
+  }
   if (isAsyncIterable(value)) {
     const toolNames = new Map<string, string>()
     let finished = false
