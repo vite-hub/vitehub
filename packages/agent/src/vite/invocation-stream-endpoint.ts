@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url"
 
 import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/internal/runtime/state"
 
-import { agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
+import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
 import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { resolveAgentTriggers, streamAgentTrigger, withWorkspaceAgentDefaults } from "../index.ts"
@@ -68,6 +68,31 @@ function createRequest(server: ViteDevServer, req: IncomingMessage): Request {
     headers: headersFromNode(req.headers),
     method: req.method || "GET",
   })
+}
+
+function requestOrigin(server: ViteDevServer, req: IncomingMessage): string {
+  const host = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host
+  if (host) {
+    const fallback = server.resolvedUrls?.local?.[0] || "http://localhost/"
+    return new URL(`${new URL(fallback).protocol}//${host}`).origin
+  }
+  const base = server.resolvedUrls?.local?.[0] || `http://localhost:${server.config.server.port || 5173}/`
+  return new URL(base).origin
+}
+
+function validatePostRequest(server: ViteDevServer, req: IncomingMessage): Response | undefined {
+  const header = req.headers[agentInvocationStreamHeader]
+  if ((Array.isArray(header) ? header[0] : header) !== agentInvocationStreamHeaderValue) {
+    return new Response("Forbidden Agent Dev Loop request.", { status: 403 })
+  }
+  const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin
+  if (origin && origin !== requestOrigin(server, req)) {
+    return new Response("Forbidden Agent Dev Loop origin.", { status: 403 })
+  }
+  const contentType = Array.isArray(req.headers["content-type"]) ? req.headers["content-type"][0] : req.headers["content-type"]
+  if (!contentType?.toLowerCase().startsWith("application/json")) {
+    return new Response("Agent Dev Loop requests must use application/json.", { status: 415 })
+  }
 }
 
 function createRuntimeContext(server: ViteDevServer, req: IncomingMessage, run?: AgentRunMetadata): ViteAgentDevRuntimeContext {
@@ -222,19 +247,21 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
   const entry = selectedEntry(entries, body.agent)
   const run = body.run || devRun(entry.name)
   const context = createRuntimeContext(server, req, run)
-  const input: AgentChatMessageTriggerInput = {
-    messages: messagesFromBody(body),
-    run,
-    timeout: typeof body.timeout === "number" && Number.isFinite(body.timeout) ? body.timeout : 90_000,
-    user: {
-      id: "dev",
-      name: "ViteHub Dev Loop",
-    },
-    ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}),
-    ...(isRecord(body.meta) ? { meta: body.meta } : {}),
-  }
+  const messages = messagesFromBody(body)
 
   return createAgentInvocationStreamResponse(async (emit, signal) => {
+    const input: AgentChatMessageTriggerInput = {
+      abortSignal: signal,
+      messages,
+      run,
+      timeout: typeof body.timeout === "number" && Number.isFinite(body.timeout) ? body.timeout : 90_000,
+      user: {
+        id: "dev",
+        name: "ViteHub Dev Loop",
+      },
+      ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}),
+      ...(isRecord(body.meta) ? { meta: body.meta } : {}),
+    }
     const output = await streamAgentTrigger(entry.agent as never, context as never, "chat.message", input, {
       async onInvocation(invocation) {
         if (!signal.aborted) emit({ agent: entry.name, run: invocation.run, trigger: invocation.trigger.id, type: "start" })
@@ -263,16 +290,28 @@ async function writeResponse(res: ServerResponse, response: Response): Promise<v
   }
 
   const reader = response.body.getReader()
+  let closed = false
+  const cancel = () => {
+    if (!closed) void reader.cancel().catch(() => {})
+  }
+  res.once("close", cancel)
   try {
     for (;;) {
       const { done, value } = await reader.read()
       if (done) break
       res.write(value)
     }
+    closed = true
     res.end()
   }
   catch (error) {
+    closed = true
     res.destroy(error instanceof Error ? error : undefined)
+  }
+  finally {
+    closed = true
+    res.off("close", cancel)
+    reader.releaseLock()
   }
 }
 
@@ -292,6 +331,13 @@ export function registerAgentInvocationStreamEndpoint(server: ViteDevServer): vo
     if (req.method !== "GET" && req.method !== "POST") {
       void writeResponse(res, new Response("Method not allowed.", { status: 405 }))
       return
+    }
+    if (req.method === "POST") {
+      const blocked = validatePostRequest(server, req)
+      if (blocked) {
+        void writeResponse(res, blocked)
+        return
+      }
     }
 
     void handleAgentInvocationStreamRequest(server, req)

@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createAgentCliContributor, runAgentDevCli, runAgentEvalCli } from "../src/cli.ts"
 import { createAgentEvaliteConfigPath, writeAgentEvaliteConfig } from "../src/internal/evalite-config.ts"
+import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue } from "../src/invocation-stream.ts"
 
 function stream() {
   let value = ""
@@ -78,6 +79,10 @@ describe("agent CLI", () => {
     expect(stdout.output()).toBe("hello from agent\n")
     expect(fetchAgentStream).toHaveBeenCalledTimes(2)
     const [, post] = fetchAgentStream.mock.calls
+    expect(post?.[1]?.headers).toMatchObject({
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
     expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
       agent: "support",
       messages: [{

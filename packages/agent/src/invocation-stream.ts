@@ -1,6 +1,8 @@
 import type { StreamEvent } from "./messages.ts"
 
 export const agentInvocationStreamRoute = "/__vitehub/agent/invocation-stream"
+export const agentInvocationStreamHeader = "x-vitehub-agent-dev-loop"
+export const agentInvocationStreamHeaderValue = "1"
 
 export type AgentInvocationStreamEvent =
   | StreamEvent

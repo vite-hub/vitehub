@@ -1,5 +1,5 @@
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
-import { agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
+import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
 
 import type { AgentEvalOptions } from "./types.ts"
 import type { UIMessageLike } from "./chat-message-input.ts"
@@ -375,7 +375,10 @@ async function sendDevMessage(
       messages,
       ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
     }),
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    },
     method: "POST",
   })
   if (!response.ok) {

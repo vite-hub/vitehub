@@ -63,10 +63,11 @@ async function invokeMiddleware(
   handler: Connect.NextHandleFunction,
   body: Record<string, unknown>,
   url = "/__vitehub/agent/chat/devtools",
+  headers: IncomingMessage["headers"] = { "content-type": "text/plain" },
 ) {
   let output = ""
   const req = Readable.from([JSON.stringify(body)]) as IncomingMessage
-  req.headers = { "content-type": "text/plain" }
+  req.headers = headers
   req.method = "POST"
   req.url = url
 
@@ -83,6 +84,8 @@ async function invokeMiddleware(
       get statusCode() {
         return statusCode
       },
+      off: vi.fn(),
+      once: vi.fn(),
       set statusCode(value: number) {
         statusCode = value
       },
@@ -398,10 +401,14 @@ describe("agent chat capability discovery", () => {
 
     const { chat } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
-    const { agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    let abortSignal: AbortSignal | undefined
     const agent = defineAgent({
       capabilities: [chat()],
-      run: () => "hello from stream",
+      run: ({ input }: { input: { abortSignal?: AbortSignal } }) => {
+        abortSignal = input.abortSignal
+        return "hello from stream"
+      },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -414,7 +421,10 @@ describe("agent chat capability discovery", () => {
         parts: [{ text: "hello", type: "text" }],
         role: "user",
       }],
-    }, agentInvocationStreamRoute)
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
     const events = response.body
       .trim()
       .split("\n")
@@ -426,6 +436,36 @@ describe("agent chat capability discovery", () => {
       { type: "finish" },
       { type: "done" },
     ])
+    expect(abortSignal).toBeInstanceOf(AbortSignal)
+  })
+
+  it("blocks browser-safe POSTs to the Agent Invocation Stream endpoint", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-guard-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const { handlers, server } = createFakeServer(root, {
+      default: defineAgent({
+        capabilities: [chat()],
+        run: () => "unused",
+      }),
+    })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      messages: [{
+        id: "user-1",
+        parts: [{ text: "hello", type: "text" }],
+        role: "user",
+      }],
+    }, agentInvocationStreamRoute)
+
+    expect(response.statusCode).toBe(403)
   })
 
   it("serves initial chat devtools state while workspace metadata resolves", async () => {
