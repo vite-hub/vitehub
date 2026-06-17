@@ -43,6 +43,9 @@ export {
 export {
   skills,
 } from "./skills.ts"
+export type {
+  SkillsCapabilityOptions,
+} from "./skills.ts"
 export {
   audioBytes,
   getTranscriptionResults,
