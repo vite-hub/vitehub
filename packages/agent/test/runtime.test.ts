@@ -591,6 +591,55 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("keeps channel chat triggers on workspace agent options", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const agent = defineAgent({
+      capabilities: [{ id: "custom" }],
+      channels: { web: webChat() },
+      run: () => "ok",
+      workspace: {},
+    })
+
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "chat.message": {
+        capabilityId: "chat",
+      },
+    })
+  })
+
+  it("keeps generated webhook ids unique for channel webhook arrays", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const agent = defineAgent({
+      channels: {
+        support: http({
+          webhooks: [
+            { path: "/api/support/primary" },
+            { path: "/api/support/fallback" },
+          ],
+        }),
+      },
+      run: () => "ok",
+    })
+
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "chat.message": {
+        webhooks: [{
+          id: "support-1",
+          path: "/api/support/primary",
+          provider: "http",
+        }, {
+          id: "support-2",
+          path: "/api/support/fallback",
+          provider: "http",
+        }],
+      },
+    })
+  })
+
   it("applies channel-local message settings for one message-shaped channel", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")

@@ -12,12 +12,15 @@ function withChannelWebhookProvider<TRuntimeConfig extends AgentRuntimeConfig>(
   kind: string,
   input: AgentChatWebhookRegistrationDefinition<TRuntimeConfig> | AgentChatWebhookRegistrationDefinition<TRuntimeConfig>[],
 ): AgentChatWebhookRegistrationDefinition<TRuntimeConfig> | AgentChatWebhookRegistrationDefinition<TRuntimeConfig>[] {
-  const apply = (registration: AgentChatWebhookRegistrationDefinition<TRuntimeConfig>): AgentChatWebhookRegistrationDefinition<TRuntimeConfig> => ({
+  const apply = (
+    registration: AgentChatWebhookRegistrationDefinition<TRuntimeConfig>,
+    id?: string,
+  ): AgentChatWebhookRegistrationDefinition<TRuntimeConfig> => ({
     ...registration,
-    id: registration.id || channelId,
+    ...(registration.id || !id ? {} : { id }),
     provider: registration.provider || kind,
   })
-  return Array.isArray(input) ? input.map(apply) : apply(input)
+  return Array.isArray(input) ? input.map(registration => apply(registration)) : apply(input, channelId)
 }
 
 function hasMessageOverrides<TRuntimeConfig extends AgentRuntimeConfig>(

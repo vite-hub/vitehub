@@ -714,10 +714,13 @@ function createWorkspaceAgentDefinition<
     definition.run = Object.assign(run, { [syntheticWorkspaceRun]: true })
   }
 
+  const workspaceAgentOptions = definition.capabilities?.length
+    ? { ...options, capabilities: definition.capabilities }
+    : options
   Object.assign(definition, workspaceDefinition, {
     __vitehubWorkspaceAgent: true,
     __vitehubWorkspaceAgentDefaults: defaults,
-    __vitehubWorkspaceAgentOptions: options,
+    __vitehubWorkspaceAgentOptions: workspaceAgentOptions,
   })
   return definition
 }
