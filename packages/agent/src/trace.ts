@@ -7,9 +7,9 @@ import type {
   AgentRunInput,
   AgentRunMetadata,
   AgentRuntimeConfig,
-  MaybePromise,
   ResolvedAgentRuntimeContext,
 } from "./types.ts"
+import type { Telemetry } from "ai"
 import type { TraceEvent } from "@vite-hub/runtime"
 
 export interface AgentTraceContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
@@ -191,7 +191,7 @@ function firstString(...values: unknown[]): string | undefined {
 
 export function aiSdkTelemetryIntegration<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentTraceContext<TRuntimeConfig>,
-): Record<string, (event: unknown) => MaybePromise<void>> {
+): Telemetry {
   const modelAttributes = (event: unknown) => ({
     "model.id": firstString(valueFromPath(event, ["model", "modelId"]), valueFromPath(event, ["model", "id"]), valueFromPath(event, ["modelId"])),
     "model.provider": firstString(valueFromPath(event, ["model", "provider"]), valueFromPath(event, ["provider"])),
