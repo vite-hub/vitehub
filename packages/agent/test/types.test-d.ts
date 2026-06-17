@@ -71,6 +71,8 @@ describe("agent public types", () => {
           },
         }),
         skills(),
+        skills({ shellExecution: "read" }),
+        skills({ shellExecution: "write" }),
         sandbox({ commands: ["node"] }),
         schedule({ mode: "read", targets: ["daily-reports"] as const }),
         schedule({ allowSelfTarget: true, mode: "write", policy: "require-approval", selfTarget: "agent/digest", targets: ["agent/digest", "daily-reports"] as const }),
@@ -122,6 +124,9 @@ describe("agent public types", () => {
 
     // @ts-expect-error tool mode requires one explicit provider
     webSearch({ mode: "tool" })
+
+    // @ts-expect-error skills shell execution mode must be read or write
+    skills({ shellExecution: "allow" })
 
     const invocationContext: AgentInvocationContextStore = {
       entries: () => new Map<string, unknown>().entries(),

@@ -173,6 +173,28 @@ describe("defineAgent workspace option", () => {
     await expect(agent.run!(context())).resolves.toBe("ok")
   })
 
+  it("records opt-in skill shell execution mode", async () => {
+    const { skills } = await import("../src/capabilities.ts")
+
+    expect(skills().metadata).not.toHaveProperty("shellExecution")
+    expect(skills({ shellExecution: "read" }).metadata).toMatchObject({ shellExecution: "read" })
+    expect(skills({ shellExecution: "write" }).metadata).toMatchObject({ shellExecution: "write" })
+    expect(() => skills({ shellExecution: "execute" as never })).toThrow("skills({ shellExecution })")
+  })
+
+  it("requires writable workspace for write-mode skill shell execution", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [skills({ path: "agent-skills/support", shellExecution: "write" })],
+      model: {} as never,
+      workspace: { mode: "read" },
+    })
+
+    await expect(agent.run!(context())).rejects.toThrow("skills() requires workspace.mode: \"write\"")
+  })
+
   it("creates a workspace and agent definition without resolving workspace until run", async () => {
     const { useWorkspace } = await import("@vite-hub/workspace")
     const { defineAgent } = await import("../src/index.ts")
