@@ -888,7 +888,7 @@ async function createAgentInvocationContext<
   const startedAt = Date.now()
   const resolvedContext = createResolvedRuntimeContext(context)
   const runtimeContext = resolvedContext.trace || !resolvedContext.traceLog ? resolvedContext : { ...resolvedContext, trace: { id: createTraceId(context.run) } }
-  const callbackContext = createAgentCallbackContext(context)
+  const callbackContext = createAgentCallbackContext(runtimeContext)
   const invocationContext = createAgentInvocationContextStore(input.context)
   try {
     const invoker = await resolveAgentInvoker(definition?.invoker, callbackContext, invocationContext, input, context.run)
@@ -1101,7 +1101,7 @@ async function finishAgentInvocation<
     }
   }
   catch (finishError) {
-    if (error === undefined) await traceAgentInvocationError(toTraceContext(context), finishError)
+    await traceAgentInvocationError(toTraceContext(context), error === undefined ? finishError : error)
     throw finishError
   }
 }

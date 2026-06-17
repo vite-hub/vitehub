@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
-import { createTraceEventLog } from "@vite-hub/runtime"
+import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/runtime"
 import { chat, chatTitle, schedule } from "../src/capabilities.ts"
 
 const harnessAgentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
@@ -101,6 +101,65 @@ describe("agent message protocol", () => {
     expect(traceLog.entries()[1]!.attributes).toMatchObject({
       "error.message": "finish failed",
     })
+  })
+
+  it("records a failed invocation when failure cleanup also fails", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: {
+        run: () => {
+          throw new Error("run failed")
+        },
+      },
+      hooks: {
+        "agent:finish": () => {
+          throw new Error("finish failed")
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow("Agent run failed")
+
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.invocation.error",
+    ])
+    expect(deriveTraceRuns(traceLog.entries())).toMatchObject([
+      { status: "failed" },
+    ])
+  })
+
+  it("keeps custom Trace Events in the synthesized invocation trace", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: {
+        run: async context => {
+          await emitTraceEvent(context, {
+            attributes: { "step.id": "custom-step" },
+            name: "agent.custom.step",
+            type: "run",
+          })
+          return "ok"
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).resolves.toBe("ok")
+
+    expect(new Set(traceLog.entries().map(event => event.trace?.id)).size).toBe(1)
+    expect(deriveTraceRuns(traceLog.entries())).toHaveLength(1)
   })
 
   it("records setup failures before invocation start", async () => {
