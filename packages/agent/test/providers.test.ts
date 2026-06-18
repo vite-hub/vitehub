@@ -725,6 +725,44 @@ describe("server helpers", () => {
     }))
   })
 
+  it("routes channel webhook custom ids through the channel adapter", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(({ messages }) => {
+      const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
+      return `echo: ${text?.text}`
+    })
+    const agent = defineAgent({
+      channels: {
+        support: http({
+          adapter: () => adapter as never,
+          webhooks: { id: "custom-support" },
+        }),
+      },
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/custom-support", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          from: { id: 123, username: "maxi" },
+          message_id: 7,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "custom-support")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(run).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "echo: hello" })
+  })
+
   it("does not block chat webhook handling on typing status", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")

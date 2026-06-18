@@ -160,6 +160,7 @@ export type AgentWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig = 
   MaybeResolvable<string | false, AgentCallbackContext<TRuntimeConfig>>
 
 export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  adapter?: string
   id?: string
   method?: "POST" | (string & {})
   path?: string
@@ -870,6 +871,7 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   fallbackStreamingPlaceholderText?: string | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   history?: AgentChatAgentBindingOptions["history"]
+  identity?: IdentityResolver
   lockScope?: AgentMessageLockScope
   messageHistory?: unknown
   sessions?: boolean | AgentChatSessionOptions

@@ -17,6 +17,7 @@ function withChannelWebhookProvider<TRuntimeConfig extends AgentRuntimeConfig>(
     id?: string,
   ): AgentChatWebhookRegistrationDefinition<TRuntimeConfig> => ({
     ...registration,
+    adapter: registration.adapter || channelId,
     ...(registration.id || !id ? {} : { id }),
     provider: registration.provider || kind,
   })
@@ -41,6 +42,7 @@ export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRunti
   const options: AgentChatOptions<TRuntimeConfig> = { ...(messages || {}) }
   let hasMessageChannel = false
   let messageChannelCount = 0
+  const channelIdentities: NonNullable<AgentChatOptions<TRuntimeConfig>["identity"]>[] = []
   const channelMessageOverrides: AgentMessageChannelSettings<TRuntimeConfig>[] = []
 
   for (const [channelId, channelDefinition] of entries) {
@@ -49,6 +51,9 @@ export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRunti
     messageChannelCount += 1
     if (hasMessageOverrides(channelDefinition.messages)) {
       channelMessageOverrides.push(channelDefinition.messages)
+    }
+    if (channelDefinition.identity) {
+      channelIdentities.push(channelDefinition.identity)
     }
 
     if (channelDefinition.adapter) {
@@ -62,11 +67,15 @@ export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRunti
     else if (channelDefinition.webhooks && channelDefinition.webhooks !== true) {
       webhooks[channelId] = withChannelWebhookProvider(channelId, channelDefinition.kind, channelDefinition.webhooks)
     }
-
-    if (channelDefinition.identity) options.identity = channelDefinition.identity
   }
 
   if (!hasMessageChannel) return undefined
+  if (channelIdentities.length) {
+    if (messageChannelCount > 1) {
+      throw new TypeError("[vitehub] Channel-local identity resolvers are only supported when an Agent defines one message-shaped Channel. Move shared identity to defineAgent({ messages: { identity } }) until Channel-scoped chat triggers land.")
+    }
+    options.identity = channelIdentities[0]
+  }
   if (channelMessageOverrides.length) {
     if (messageChannelCount > 1) {
       throw new TypeError("[vitehub] Channel-local messages options are only supported when an Agent defines one message-shaped Channel. Move shared settings to defineAgent({ messages }) until Channel-scoped chat triggers land.")

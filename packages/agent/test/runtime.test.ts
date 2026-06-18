@@ -591,8 +591,8 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("keeps channel chat triggers on workspace agent options", async () => {
-    const { defineAgent } = await import("../src/index.ts")
+  it("keeps channel chat triggers discoverable for workspace agents", async () => {
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
     const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
     const agent = defineAgent({
@@ -601,8 +601,9 @@ describe("agent message protocol", () => {
       run: () => "ok",
       workspace: {},
     })
+    const registered = withWorkspaceAgentDefaults(agent as never, { workspace: "docs" })
 
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+    await expect(resolveAgentTriggers(registered, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "chat.message": {
         capabilityId: "chat",
       },
@@ -673,6 +674,22 @@ describe("agent message protocol", () => {
       },
       run: () => "ok",
     })).toThrow("Channel-local messages options are only supported when an Agent defines one message-shaped Channel")
+  })
+
+  it("rejects channel-local identity across multiple message-shaped channels", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { teams, webChat } = await import("../src/channels.ts")
+
+    expect(() => defineAgent({
+      channels: {
+        teams: teams({
+          adapter: () => ({}) as never,
+          identity: () => "team:user",
+        }),
+        web: webChat(),
+      },
+      run: () => "ok",
+    })).toThrow("Channel-local identity resolvers are only supported when an Agent defines one message-shaped Channel")
   })
 
   it("rejects mixing channels with the legacy chat capability", async () => {

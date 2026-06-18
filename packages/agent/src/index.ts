@@ -714,13 +714,10 @@ function createWorkspaceAgentDefinition<
     definition.run = Object.assign(run, { [syntheticWorkspaceRun]: true })
   }
 
-  const workspaceAgentOptions = definition.capabilities?.length
-    ? { ...options, capabilities: definition.capabilities }
-    : options
   Object.assign(definition, workspaceDefinition, {
     __vitehubWorkspaceAgent: true,
     __vitehubWorkspaceAgentDefaults: defaults,
-    __vitehubWorkspaceAgentOptions: workspaceAgentOptions,
+    __vitehubWorkspaceAgentOptions: options,
   })
   return definition
 }
@@ -916,10 +913,10 @@ async function createAgentInvocationContext<
       ? (await import("@vite-hub/workspace")).useWorkspace(workspaceName, { mode: "write" })
       : (await import("@vite-hub/workspace")).useWorkspace(workspaceName)
     : undefined
-  const capabilityOptions = workspaceOptions && workspace
-    ? { capabilities: workspaceOptions.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: workspaceOptions.hooks as never }
-    : definition?.capabilities?.length
-      ? { capabilities: definition.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: definition.hooks as never }
+  const capabilityOptions = definition?.capabilities?.length
+    ? { capabilities: definition.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: definition.hooks as never }
+    : workspaceOptions && workspace
+      ? { capabilities: workspaceOptions.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: workspaceOptions.hooks as never }
       : undefined
   const agentModel = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
   const capabilities = await resolveAgentCapabilities(capabilityOptions, resolvedContext, input, workspace as never, workspaceMode, {

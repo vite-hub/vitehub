@@ -302,6 +302,7 @@ async function resolveChatAdapters(
 }
 
 function resolveChatAdapterName(adapters: Record<string, Adapter>, registration: AgentWebhookRegistrationDefinition): string | undefined {
+  if (registration.adapter && adapters[registration.adapter]) return registration.adapter
   if (adapters[registration.provider]) return registration.provider
   if (registration.id && adapters[registration.id]) return registration.id
   return undefined
