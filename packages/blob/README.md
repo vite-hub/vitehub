@@ -80,14 +80,18 @@ MINIO_ROOT_PASSWORD=password
 BLOB_BUCKET_NAME=vitehub-blob
 ```
 
+The Files SDK native `MINIO_ACCESS_KEY_ID` and `MINIO_SECRET_ACCESS_KEY` env names are also accepted.
+
 You can also keep the config self-contained:
 
 ```ts
 blob: {
   driver: "minio",
+  accessKeyId: process.env.MINIO_ROOT_USER,
   bucket: "vitehub-blob",
   endpoint: "http://minio:9000",
   forcePathStyle: true,
+  secretAccessKey: process.env.MINIO_ROOT_PASSWORD,
 }
 ```
 

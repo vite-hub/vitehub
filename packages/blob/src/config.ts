@@ -28,6 +28,8 @@ export const MASKED_BLOB_RUNTIME_VALUE = "********"
 const DEFAULT_MINIO_BUCKET = "vitehub-blob"
 const DEFAULT_MINIO_ENDPOINT = "http://localhost:9000"
 const DEFAULT_MINIO_REGION = "us-east-1"
+const MINIO_ACCESS_KEY_ENV = ["MINIO_ACCESS_KEY_ID", "MINIO_ACCESS_KEY", "MINIO_ROOT_USER", "AWS_ACCESS_KEY_ID"] as const
+const MINIO_SECRET_KEY_ENV = ["MINIO_SECRET_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD", "AWS_SECRET_ACCESS_KEY"] as const
 
 function resolveFsStore(
   config: Partial<FsBlobStoreConfig> = {},
@@ -58,19 +60,29 @@ function resolveVercelStore(
   }
 }
 
+function resolveBuildRuntimeValue(
+  configValue: string | undefined,
+  env: Record<string, string | undefined>,
+  ...envNames: string[]
+): string | undefined {
+  const explicit = trimmed(configValue)
+  if (!explicit) return readEnv(env, ...envNames) ? MASKED_BLOB_RUNTIME_VALUE : undefined
+  return envNames.some(name => trimmed(env[name]) === explicit) ? MASKED_BLOB_RUNTIME_VALUE : explicit
+}
+
 function resolveMinioStore(
   config: Partial<MinioBlobStoreConfig> = {},
   env: Record<string, string | undefined> = process.env,
 ): ResolvedMinioBlobStoreConfig {
   return {
     ...config,
-    accessKeyId: trimmed(config.accessKeyId) ?? readEnv(env, "MINIO_ACCESS_KEY", "MINIO_ROOT_USER", "AWS_ACCESS_KEY_ID"),
+    accessKeyId: resolveBuildRuntimeValue(config.accessKeyId, env, ...MINIO_ACCESS_KEY_ENV),
     bucket: trimmed(config.bucket) ?? readEnv(env, "BLOB_BUCKET_NAME", "MINIO_BUCKET", "MINIO_BUCKET_NAME") ?? DEFAULT_MINIO_BUCKET,
     driver: "minio",
     endpoint: trimmed(config.endpoint) ?? readEnv(env, "MINIO_ENDPOINT") ?? DEFAULT_MINIO_ENDPOINT,
     forcePathStyle: config.forcePathStyle ?? true,
     region: trimmed(config.region) ?? readEnv(env, "MINIO_REGION", "AWS_REGION") ?? DEFAULT_MINIO_REGION,
-    secretAccessKey: trimmed(config.secretAccessKey) ?? readEnv(env, "MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD", "AWS_SECRET_ACCESS_KEY"),
+    secretAccessKey: resolveBuildRuntimeValue(config.secretAccessKey, env, ...MINIO_SECRET_KEY_ENV),
   }
 }
 
@@ -194,5 +206,31 @@ export function resolveRuntimeVercelBlobStore(
   return {
     ...config,
     token,
+  }
+}
+
+export function resolveRuntimeMinioBlobStore(
+  config: ResolvedMinioBlobStoreConfig,
+  env: Record<string, string | undefined>,
+): ResolvedMinioBlobStoreConfig {
+  const accessKeyId = isMaskedBlobRuntimeValue(config.accessKeyId)
+    ? readEnv(env, ...MINIO_ACCESS_KEY_ENV) || config.accessKeyId
+    : config.accessKeyId
+  const secretAccessKey = isMaskedBlobRuntimeValue(config.secretAccessKey)
+    ? readEnv(env, ...MINIO_SECRET_KEY_ENV) || config.secretAccessKey
+    : config.secretAccessKey
+
+  if (isMaskedBlobRuntimeValue(accessKeyId)) {
+    throw new Error("Missing runtime environment variable `MINIO_ACCESS_KEY_ID`, `MINIO_ACCESS_KEY`, `MINIO_ROOT_USER`, or `AWS_ACCESS_KEY_ID` for MinIO Blob.")
+  }
+
+  if (isMaskedBlobRuntimeValue(secretAccessKey)) {
+    throw new Error("Missing runtime environment variable `MINIO_SECRET_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_ROOT_PASSWORD`, or `AWS_SECRET_ACCESS_KEY` for MinIO Blob.")
+  }
+
+  return {
+    ...config,
+    accessKeyId,
+    secretAccessKey,
   }
 }

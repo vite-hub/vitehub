@@ -120,7 +120,7 @@ MINIO_ROOT_PASSWORD=password
 BLOB_BUCKET_NAME=vitehub-blob
 ```
 
-`driver: 'minio'` defaults to path-style S3 requests, `us-east-1`, `http://localhost:9000`, and the `vitehub-blob` bucket when those values are not provided. Production Docker deployments should use managed `s3` or a production-grade S3-compatible store rather than relying on a single-host Compose MinIO service.
+MinIO credentials are read from runtime env and stay masked in generated provider output. ViteHub accepts the Files SDK native `MINIO_ACCESS_KEY_ID` and `MINIO_SECRET_ACCESS_KEY` names plus Docker Compose aliases like `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`. `driver: 'minio'` defaults to path-style S3 requests, `us-east-1`, `http://localhost:9000`, and the `vitehub-blob` bucket when those values are not provided. Production Docker deployments should use managed `s3` or a production-grade S3-compatible store rather than relying on a single-host Compose MinIO service.
 
 ## Blob and agents
 

@@ -165,6 +165,10 @@ afterEach(() => {
   filesSdkMock.s3.mockClear()
   filesSdkMock.vercelBlob.mockClear()
   delete process.env.BLOB_READ_WRITE_TOKEN
+  delete process.env.MINIO_ACCESS_KEY_ID
+  delete process.env.MINIO_ROOT_PASSWORD
+  delete process.env.MINIO_ROOT_USER
+  delete process.env.MINIO_SECRET_ACCESS_KEY
   vi.restoreAllMocks()
 })
 
@@ -450,23 +454,29 @@ describe("blob runtime", () => {
   })
 
   it("loads MinIO through its provider-specific driver import", async () => {
+    process.env.MINIO_ROOT_PASSWORD = "password"
+    process.env.MINIO_ROOT_USER = "minio"
     setBlobRuntimeConfig({
       store: {
+        accessKeyId: "********",
         bucket: "assets",
         driver: "minio",
         endpoint: "http://minio:9000",
         forcePathStyle: true,
         region: "us-east-1",
+        secretAccessKey: "********",
       },
     })
 
     const list = await blob.list()
 
     expect(filesSdkMock.minio).toHaveBeenCalledWith(expect.objectContaining({
+      accessKeyId: "minio",
       bucket: "assets",
       driver: "minio",
       endpoint: "http://minio:9000",
       forcePathStyle: true,
+      secretAccessKey: "password",
     }))
     expect(list.blobs).toEqual([
       expect.objectContaining({
