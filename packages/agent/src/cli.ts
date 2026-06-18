@@ -342,10 +342,10 @@ async function readDiscovery(
     return { agent: agents[0]!, url }
   }
   if (!agents.length) {
-    context.stderr.write("No Agents expose the chat.message trigger.\n")
+    context.stderr.write("No Agents discovered.\n")
     return
   }
-  context.stderr.write(`Multiple Agents expose chat.message. Pass --agent ${agents.join("|")}.\n`)
+  context.stderr.write(`Multiple Agents discovered. Pass --agent ${agents.join("|")}.\n`)
 }
 
 function userMessage(text: string, index: number): UIMessageLike {
