@@ -1,5 +1,5 @@
-import { rm } from "node:fs/promises"
-import { relative, resolve } from "node:path"
+import { readFile, rm, stat } from "node:fs/promises"
+import { dirname, relative, resolve } from "node:path"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import {
@@ -119,7 +119,9 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       if (diagnosticsText) {
         config.logger.info(diagnosticsText)
       }
-      await refreshEnvGeneratedFiles(resolveViteHubProjectRoot(config.root, { projectRoot: options.projectRoot }), buildPublicConfig, serverRegistry)
+      const projectRoot = resolveViteHubProjectRoot(config.root, { projectRoot: options.projectRoot })
+      const packageRoot = await resolvePackageImportRoot(config.root, projectRoot)
+      await refreshEnvGeneratedFiles(projectRoot, packageRoot, buildPublicConfig, serverRegistry)
     },
     load(id) {
       if (id === RESOLVED_PUBLIC_ID) {
@@ -154,8 +156,17 @@ function legacyEnvAmbientTypesPaths(root: string) {
   ]
 }
 
-async function refreshEnvGeneratedFiles(root: string, publicConfig: Record<string, unknown>, serverRegistry: EnvRuntimeRegistry): Promise<void> {
+async function refreshEnvGeneratedFiles(
+  root: string,
+  packageRoot: string | undefined,
+  publicConfig: Record<string, unknown>,
+  serverRegistry: EnvRuntimeRegistry,
+): Promise<void> {
   await Promise.all([
+    ...(packageRoot ? [
+      syncEnvPackageImports(packageRoot),
+      ...(packageRoot === root ? [] : packageEnvModuleWrites(packageRoot, publicConfig, serverRegistry)),
+    ] : []),
     writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicConfig, serverRegistry)),
     writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicConfig)),
@@ -163,6 +174,76 @@ async function refreshEnvGeneratedFiles(root: string, publicConfig: Record<strin
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry)),
     ...legacyEnvAmbientTypesPaths(root).map(path => rm(path, { force: true })),
   ])
+}
+
+function packageEnvModuleWrites(root: string, publicConfig: Record<string, unknown>, serverRegistry: EnvRuntimeRegistry): Promise<void>[] {
+  return [
+    writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),
+    writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicConfig)),
+    writeFileIfChanged(viteHubEnvServerModulePath(root), createServerEnvModule(serverRegistry)),
+    writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry)),
+  ]
+}
+
+async function resolvePackageImportRoot(viteRoot: string, projectRoot: string): Promise<string | undefined> {
+  const stop = resolve(projectRoot)
+  let current = resolve(viteRoot)
+
+  while (true) {
+    if (await hasPackageManifest(current)) return current
+    if (current === stop) return undefined
+
+    const parent = dirname(current)
+    if (parent === current) return undefined
+    current = parent
+  }
+}
+
+async function hasPackageManifest(root: string): Promise<boolean> {
+  try {
+    return (await stat(resolve(root, "package.json"))).isFile()
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false
+    throw error
+  }
+}
+
+async function syncEnvPackageImports(root: string): Promise<void> {
+  const packageJsonPath = resolve(root, "package.json")
+  let source: string
+  try {
+    source = await readFile(packageJsonPath, "utf8")
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return
+    throw error
+  }
+
+  const manifest = JSON.parse(source) as Record<string, unknown>
+  const imports = isRecord(manifest.imports) ? { ...manifest.imports } : {}
+  const expectedImports = {
+    [ENV_PUBLIC_ID]: {
+      types: "./.vitehub/env/public.d.ts",
+      default: "./.vitehub/env/public.mjs",
+    },
+    [ENV_SERVER_ID]: {
+      types: "./.vitehub/env/server.d.ts",
+      default: "./.vitehub/env/server.mjs",
+    },
+  }
+
+  let changed = !isRecord(manifest.imports)
+  for (const [id, target] of Object.entries(expectedImports)) {
+    if (JSON.stringify(imports[id]) !== JSON.stringify(target)) {
+      imports[id] = target
+      changed = true
+    }
+  }
+  if (!changed) return
+
+  manifest.imports = imports
+  await writeFileIfChanged(packageJsonPath, `${JSON.stringify(manifest, null, 2)}\n`)
 }
 
 function createPublicEnvModule(publicConfig: Record<string, unknown>): string {

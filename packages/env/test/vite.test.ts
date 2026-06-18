@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { describe, expect, it, vi } from "vitest"
 
@@ -160,6 +161,18 @@ describe("Vite plugin", () => {
       root,
     } as never)
 
+    const packageJson = JSON.parse(await readFile(join(root, "package.json"), "utf8"))
+    expect(packageJson.imports).toMatchObject({
+      "#vitehub/env/public": {
+        types: "./.vitehub/env/public.d.ts",
+        default: "./.vitehub/env/public.mjs",
+      },
+      "#vitehub/env/server": {
+        types: "./.vitehub/env/server.d.ts",
+        default: "./.vitehub/env/server.mjs",
+      },
+    })
+
     const types = await readFile(join(root, ".vitehub/types/env.d.ts"), "utf8")
     expect(types).toContain("declare module \"#vitehub/env/public\"")
     expect(types).toContain("declare module \"#vitehub/env/server\"")
@@ -282,6 +295,66 @@ describe("Vite plugin", () => {
 
     await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("\"airtableToken\": SecretEnv<string>")
     await expect(readFile(join(root, "app", ".vitehub", "types", "env.d.ts"), "utf8")).rejects.toThrow()
+  })
+
+  it("writes package imports and local targets for nested package roots", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-nested-package-"))
+    const appRoot = join(root, "app")
+    await mkdir(join(appRoot, "src"), { recursive: true })
+    await mkdir(join(root, "server", "workspaces"), { recursive: true })
+    await writeFile(join(root, ".env.production"), "PUBLIC_APP_NAME=Quiver\n", "utf8")
+    await writeFile(join(appRoot, "package.json"), JSON.stringify({
+      imports: {
+        "#app/config": "./config.mjs",
+      },
+      name: "nested-app",
+      type: "module",
+    }), "utf8")
+
+    const plugin = hubEnv()
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+    await configHook({
+      env: {
+        public: {
+          appName: env({
+            mode: "build",
+            schema: stringSchema(),
+          }),
+        },
+      },
+      root: appRoot,
+    }, { command: "build", mode: "production" })
+
+    const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
+    await configResolvedHook({
+      logger: { info: vi.fn() },
+      root: appRoot,
+    } as never)
+
+    const packageJson = JSON.parse(await readFile(join(appRoot, "package.json"), "utf8"))
+    expect(packageJson.imports).toMatchObject({
+      "#app/config": "./config.mjs",
+      "#vitehub/env/public": {
+        types: "./.vitehub/env/public.d.ts",
+        default: "./.vitehub/env/public.mjs",
+      },
+      "#vitehub/env/server": {
+        types: "./.vitehub/env/server.d.ts",
+        default: "./.vitehub/env/server.mjs",
+      },
+    })
+    expect(JSON.stringify(packageJson.imports)).not.toContain("../.vitehub")
+    await expect(readFile(join(root, ".vitehub", "env", "public.mjs"), "utf8")).resolves.toContain("Quiver")
+    await expect(readFile(join(appRoot, ".vitehub", "env", "public.mjs"), "utf8")).resolves.toContain("Quiver")
+
+    const checkModule = join(appRoot, "src", "check.mjs")
+    await writeFile(checkModule, [
+      "import { usePublicEnv } from '#vitehub/env/public';",
+      "export const appName = usePublicEnv().appName;",
+      "",
+    ].join("\n"), "utf8")
+    const imported = await import(pathToFileURL(checkModule).href)
+    expect(imported.appName).toBe("Quiver")
   })
 
   it("keeps generated env files in project ViteHub state when Vite root is nested", async () => {
