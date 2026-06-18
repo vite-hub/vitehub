@@ -92,6 +92,10 @@ _Avoid_: Access Capability, Agent Actor resolution, user-visible feedback, model
 A Channel-owned platform-native effect that communicates delivery progress or state back on the external surface that triggered the Agent Invocation.
 _Avoid_: Channel Delivery Admission, Agent Finish Hook, Capability hook, result comment, model output
 
+**Channel Delivery Effect Intent**:
+A platform-neutral request for the current Channel delivery to apply a user-visible Channel Delivery Effect if the Channel supports it.
+_Avoid_: Platform API call, arbitrary Channel operation, generic Capability output, cross-delivery side effect
+
 **Custom Channel**:
 A Channel declared for an app-owned product event or bespoke transport when no official Channel fits.
 _Avoid_: Entry Capability, route helper, trigger helper, generic Capability
@@ -269,6 +273,10 @@ _Avoid_: Fake agent, dummy model, test bot
 - A **Channel** can resolve an **Agent Actor**, but it does not own identity; Auth, trusted app routing, subagents, schedules, or fallback runtime behavior may also seed the Agent Actor.
 - **Channel Delivery Admission** belongs to the **Channel** because protocol-level delivery acceptance, rejection, and retry semantics are owned by the external surface that triggered the Agent Invocation.
 - **Channel Delivery Effects** belong to the **Channel** because they communicate delivery progress or state back on the same external surface that triggered the Agent Invocation.
+- **Channel Delivery Effects** may use generic effect kinds such as reactions, replies, or statuses; platform-prefixed names belong to Channel implementation details or examples, not the shared effect vocabulary.
+- A Capability may contribute a **Channel Delivery Effect Intent** for the current delivery, but the active **Channel** owns whether and how that intent becomes a **Channel Delivery Effect**.
+- A **Channel Delivery Effect Intent** must not address arbitrary platform objects, call platform APIs directly, or assume the active **Channel** supports a requested effect kind.
+- Unsupported **Channel Delivery Effect Intents** are ignored with inspectable trace metadata rather than failing the **Agent Invocation**.
 - A **Custom Channel** is the root Agent Definition replacement for the old Entry Capability idea.
 - App-owned product events use **Custom Channels** when the concern is Agent reachability rather than a reusable Agent ability.
 - A **GitHub Channel** owns reusable GitHub delivery, verification, event facts, installation context, actor mapping, Channel Delivery Admission, and supported Channel Delivery Effects for triggering events; product-specific commands and artifacts stay app-owned.
@@ -281,6 +289,9 @@ _Avoid_: Fake agent, dummy model, test bot
 - The **ViteHub Hook System** applies across Agent, Channel, Capability, Runtime, and integration owners through shared machinery and conventions, not through one public writable hook bus.
 - Public hook registration stays scoped to the owner that controls the lifecycle and allowed effects.
 - A **Hook Observer** may inspect cross-owner hook activity, but it must not mutate Channel delivery, Agent Invocation input, Capability contributions, Runtime policy, or model output.
+- **Hook Observers** start as inspection and DevTools behavior; plugin observers may use the same read-only observer contract once the plugin boundary is clear.
+- **Hook Observer** failures are isolated and logged or traced; they never affect **Agent Invocation** control flow.
+- **Hook Observers** see structured, redacted hook facts by default; raw payloads require owner-provided debug serializers.
 - An **Agent Finish Hook** belongs to the **Agent Invocation Lifecycle**.
 - Capabilities can expose **Agent Invocation Extensions** on Agent Invocation Lifecycle events.
 - An **Agent Eval** runs an **Agent Definition** to create scored **Agent Invocations**.
@@ -376,6 +387,9 @@ _Avoid_: Fake agent, dummy model, test bot
 - Root `messages.concurrency` was considered too platform-specific - resolved: allow it for overlapping message turns, while platform delivery limits stay Channel-specific.
 - Start acknowledgements were considered one Channel delivery concept - resolved: split protocol-level **Channel Delivery Admission** from user-visible **Channel Delivery Effects**.
 - One global writable hook bus was considered for Agent, Channel, Capability, Runtime, and integration hooks - resolved: use one **ViteHub Hook System** with owner-scoped public mutation hooks and read-only **Hook Observers** for cross-owner inspection.
+- Platform-prefixed delivery effects such as GitHub reactions were considered shared public vocabulary - resolved: use generic **Channel Delivery Effect** kinds such as reactions, with platform-specific mapping owned by the active **Channel**.
+- Capability-owned Channel effects were considered as direct platform operations - resolved: Capabilities may contribute **Channel Delivery Effect Intents** for the current delivery, while Channels own execution and unsupported intents are traced and ignored.
+- **Hook Observer** failures were considered possible control-flow failures - resolved: observer failures are isolated to logging or tracing and never fail an **Agent Invocation**.
 - Hidden model-selected history slicing was considered - resolved: **Chat Session** selection is a host-visible boundary over preserved Chat History, not destructive message truncation.
 - Route and gate results were considered for ad hoc input context or metadata - resolved: expose them as typed **Agent Invocation Context Values**.
 - Shared access-and-audience branching was considered for reusable Invocation Profiles - resolved: use **Agent Actor** as the trusted identity concept, with legacy **Agent Invoker Profiles** and app-owned actor metadata for V1.

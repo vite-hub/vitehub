@@ -215,6 +215,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A model-backed **Agent Driver** may receive model-facing tools and model-facing instructions from **Capability Driver Contributions**.
 - A harness-backed **Agent Driver** receives only explicitly supported harness-compatible **Capability Driver Contributions**; model-facing prompt and tool assumptions must not be silently passed into the harness.
 - A custom-run-backed **Agent Driver** receives prepared invocation context and Capability runtime effects; custom `run` code decides which Capability outputs to consume.
+- A **Capability** may contribute **Agent Invocation Context Values** or Channel Delivery Effect Intents, but it does not execute Channel Delivery Effects or call platform-specific Channel APIs directly.
 - Capabilities model reusable Agent abilities; app-owned product reachability belongs to **Channels** unless the product event has earned a reusable Capability name.
 - The **Access Capability** may contribute **Workspace Scope Instructions** from a static Workspace Scope or Workspace Scope Resolver result.
 - **Workspace Scope Instructions** are developer-authored Capability Driver Contributions; they do not grant access or make the Selected Workspace Scope model-facing by default.
