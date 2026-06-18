@@ -1,7 +1,8 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineAgentInvoker, type AgentDriver, type AgentInvoker, type AgentRunInput, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, type AgentChannelDefinition, type AgentDriver, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
 import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, subagents, transcribe, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
+import { http, teams, webChat } from "../src/channels.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
@@ -362,6 +363,47 @@ describe("agent public types", () => {
     type _PublicAudioExtensionFor = CapabilityExports["audioExtensionFor"]
     // @ts-expect-error transcription context storage key is internal, not public capabilities API
     type _PublicTranscriptionContextKey = CapabilityExports["TRANSCRIPTION_RESULTS_CONTEXT_KEY"]
+  })
+
+  it("accepts message settings and channels from the Agent Definition", () => {
+    const messages: AgentMessageChannelSettings = {
+      concurrency: "queue",
+      history: { maxMessages: 20, source: "thread" },
+      sessions: true,
+    }
+    const channel: AgentChannelDefinition = teams()
+    expectTypeOf(channel.kind).toEqualTypeOf<string>()
+
+    defineAgent({
+      channels: {
+        portal: http({
+          adapter: () => ({}) as never,
+          webhooks: { path: "/api/support/chat" },
+        }),
+        teams: teams({
+          adapter: () => ({}) as never,
+        }),
+        web: webChat(),
+      },
+      messages,
+      run: () => "ok",
+    })
+
+    defineAgent({
+      channels: {
+        web: webChat({
+          messages: { history: false },
+        }),
+      },
+      run: () => "ok",
+    })
+
+    type RootAgentExports = typeof import("../src/index.ts")
+    // @ts-expect-error Channel Kind helpers are imported from @vite-hub/agent/channels, not the root entry.
+    type _RootTeams = RootAgentExports["teams"]
+
+    type ChannelExports = typeof import("../src/channels.ts")
+    type _PublicTeams = ChannelExports["teams"]
   })
 
   it("types access workspace source grants and chat run context", () => {

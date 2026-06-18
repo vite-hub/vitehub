@@ -709,6 +709,10 @@ describe("server helpers", () => {
         metadata: expect.objectContaining({
           chat: expect.objectContaining({
             messageId: "7",
+            platform: expect.objectContaining({
+              channelId: "telegram:456",
+              threadId: "telegram:456",
+            }),
             threadId: "telegram:456",
           }),
         }),
@@ -722,10 +726,119 @@ describe("server helpers", () => {
         ],
       })],
       run: expect.objectContaining({
+        channelId: "telegram:456",
         origin: "telegram",
         runId: "telegram:7",
       }),
     }))
+  })
+
+  it("routes channel webhook custom ids through the channel adapter", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(({ messages }) => {
+      const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
+      return `echo: ${text?.text}`
+    })
+    const agent = defineAgent({
+      channels: {
+        support: http({
+          adapter: () => adapter as never,
+          webhooks: { id: "custom-support" },
+        }),
+      },
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/custom-support", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          from: { id: 123, username: "maxi" },
+          message_id: 7,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "custom-support")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(run).toHaveBeenCalledOnce()
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      run: expect.objectContaining({
+        channelId: "support",
+        origin: "support",
+        runId: "support:7",
+      }),
+    }))
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "echo: hello" })
+  })
+
+  it("does not route channel webhook arrays by unsuffixed channel id", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const agent = defineAgent({
+      channels: {
+        support: http({
+          adapter: () => createTestChatAdapter() as never,
+          webhooks: [
+            { path: "/api/support/primary" },
+            { path: "/api/support/fallback" },
+          ],
+        }),
+      },
+      run: () => "ok",
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
+      body: "{}",
+      method: "POST",
+    }), "support")
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toMatchObject({ message: "Unknown ViteHub agent chat webhook.", status: 404 })
+  })
+
+  it("uses channel ids for same-kind channel webhook state", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const prefixes: string[] = []
+    const agent = defineAgent({
+      channels: {
+        sales: http({ adapter: () => createTestChatAdapter() as never }),
+        support: http({ adapter: () => createTestChatAdapter() as never }),
+      },
+      messages: {
+        state: ({ chat }) => {
+          prefixes.push(chat.stateKeyPrefix)
+          return undefined as never
+        },
+      },
+      run: () => "ok",
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+    const request = (webhook: string) => new Request(`https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`, {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          from: { id: 123, username: "maxi" },
+          message_id: 7,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    })
+
+    await expect(handler(request("support"), "support")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(request("sales"), "sales")).resolves.toMatchObject({ status: 200 })
+    expect(prefixes).toEqual(["chat:agent:support:", "chat:agent:sales:"])
   })
 
   it("does not block chat webhook handling on typing status", async () => {

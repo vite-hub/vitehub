@@ -28,10 +28,6 @@ _Avoid_: Chat helper, DevTools bridge, raw server route, server-only bucket
 A Capability-owned contribution that may feed the active Agent Driver, such as model-facing instructions, model-facing tools, or an explicitly supported harness-compatible input.
 _Avoid_: Raw tool, root instructions, implicit harness prompt, dynamic Capability
 
-**Entry Capability**:
-A small official Capability created by `entry()` that lets an Agent receive app-owned product events through Capability Trigger Contributions.
-_Avoid_: Chat App Capability, route helper, trigger helper
-
 **Capability Requirement**:
 A primitive, workspace mode, or workspace path that a Capability needs before it can be applied to an Agent.
 _Avoid_: Capability dependency, plugin dependency
@@ -64,28 +60,20 @@ _Avoid_: Implicit write permission, yolo mode
 The DB Capability rule that accepts one SQL statement per tool call and rejects multi-statement or transaction-shaped SQL.
 _Avoid_: Agent migration batch, SQL script
 
-**Chat Capability**:
-A Capability that gives an Agent chat-oriented runtime behavior, including Chat History for the current stack.
-_Avoid_: Chat History Capability, Agent Memory
-
-**Chat Platform**:
-A configured external chat ingress on the Chat Capability, keyed by a platform name and backed by a Chat Platform Adapter.
-_Avoid_: Adapter identity policy, Agent Invoker, Access Role, webhook-only config
-
 **Chat Platform Adapter**:
-The implementation object behind a Chat Platform that verifies and parses external chat platform events and provides platform actor facts.
-_Avoid_: Agent Invoker, Access Role, Agent Model Execution, Agent Trigger, public identity policy
+A ChatSDK adapter used by a message-shaped Channel for an external chat platform such as Teams.
+_Avoid_: Agent Model Execution, Agent Trigger, Nitro handler
 
 **Chat Adapter Package**:
-An optional integration package that constructs a Chat Platform Adapter or Chat Capability state backend, such as `@chat-adapter/teams` or `@chat-adapter/state-pg`.
+An optional integration package that constructs a Chat Platform Adapter or conversation state backend, such as `@chat-adapter/teams` or `@chat-adapter/state-pg`.
 _Avoid_: Built-in Capability, Agent Package dependency, generated adapter export
 
 **Chat Adapter Facade**:
 A narrow ViteHub-owned import subpath for a first-party-supported Chat Adapter Package when ViteHub owns a stable shim and missing-package diagnostics.
 _Avoid_: Adapter barrel, generated upstream re-export, root Agent Package export
 
-**Chat Platform Callback**:
-The lazy Chat Capability option that returns the current request's configured Chat Platforms.
+**Chat Adapter Callback**:
+The lazy Channel option that returns the current request's Chat Platform Adapters.
 _Avoid_: Webhook registration helper, adapter registry, build-time adapter scan
 
 **Chat Platform Actor Facts**:
@@ -93,7 +81,7 @@ Trusted platform-scoped actor or source facts extracted from verified Chat Platf
 _Avoid_: Auth User, Agent Invoker, Access Role, chat identity, model-facing user profile
 
 **Chat Webhook Autowiring**:
-ViteHub-owned server wiring that exposes Chat Platform Adapter webhooks from the Chat Capability without app route code.
+ViteHub-owned Channel wiring that exposes Chat Platform Adapter webhooks without app route code.
 _Avoid_: Public registration function, local Teams route, manual webhook route
 
 **Workspace Capability**:
@@ -208,10 +196,11 @@ _Avoid_: KV Store, hubKv, model-facing storage
 
 - An Agent attaches zero or more **Capabilities**.
 - Capabilities attach above the **Agent Driver** in the Agent Definition shape.
-- Official helpers such as `entry()`, `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `access()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, `llmGate()`, and `rateLimit()` create **Capability Definitions**.
+- Official helpers such as `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `access()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, `llmGate()`, and `rateLimit()` create **Capability Definitions**.
 - Official Capability factories and Capability-owned helper functions are imported from `@vite-hub/agent/capabilities`, not from the root `@vite-hub/agent` Agent Package entry.
+- Channel Kind helpers are not Capability factories and are imported from `@vite-hub/agent/channels`.
 - Official helpers should map to product abilities rather than implementation mechanisms.
-- An official **Capability Definition** may carry a narrow **Capability Type Contract** when it directly consumes typed Agent Definition inputs such as Source keys, trusted Chat Capability origins, or schema-validated invocation context.
+- An official **Capability Definition** may carry a narrow **Capability Type Contract** when it directly consumes typed Agent Definition inputs such as Source keys, trusted Channel origins, or schema-validated invocation context.
 - A **Capability Type Contract** checks developer configuration at Agent Definition time; it does not grant runtime authority or act as a generic invocation-context schema system.
 - A **Capability Definition** may provide a **Capability Trigger Contribution** when the ability needs to start Agent Invocations from a product event.
 - A **Capability Trigger Contribution** is composed from `defineAgent({ capabilities })`, not registered through a separate helper.
@@ -222,8 +211,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A model-backed **Agent Driver** may receive model-facing tools and model-facing instructions from **Capability Driver Contributions**.
 - A harness-backed **Agent Driver** receives only explicitly supported harness-compatible **Capability Driver Contributions**; model-facing prompt and tool assumptions must not be silently passed into the harness.
 - A custom-run-backed **Agent Driver** receives prepared invocation context and Capability runtime effects; custom `run` code decides which Capability outputs to consume.
-- An **Entry Capability** is the official small helper for app-owned product events when a full product-specific Capability has not earned a name yet.
-- An **Entry Capability** should stay focused on app-owned product event triggers and should not expose served chat routes.
+- Capabilities model reusable Agent abilities; app-owned product reachability belongs to **Channels** unless the product event has earned a reusable Capability name.
 - The **Access Capability** may contribute **Workspace Scope Instructions** from a static Workspace Scope or Workspace Scope Resolver result.
 - **Workspace Scope Instructions** are developer-authored Capability Driver Contributions; they do not grant access or make the Selected Workspace Scope model-facing by default.
 - A **Prompt Template** belongs to the Capability that renders it and should expose only the **Prompt Template Variables** that are stable for that Capability.
@@ -246,17 +234,18 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A **Rate Limit Store** owns persistence and coordination semantics for a Rate Limit Capability; model-facing storage tool surfaces do not become runtime enforcement APIs.
 - A **Rate Limit Capability** consumes one budget unit per Agent Invocation in the first version; token, cost, or weighted usage budgets need a separate future design.
 - Primitive storage helpers such as `kv()`, `blob()`, and `db()` are first-class official **Capabilities**, not sample raw-tool wrappers.
-- A **Chat Capability** owns Chat History behavior for the current stack.
-- A **Chat Capability** may declare **Chat Platforms** through a **Chat Platform Callback**.
-- A **Chat Capability** carries trusted Chat Capability origins from its Chat Platform names.
-- A **Chat Capability** can provide a platform-scoped Agent Invoker default from Chat Platform Actor Facts when trusted platform identity is available.
+- Chat History and Chat Session behavior belong to message-shaped **Channels**, not a public Chat Capability.
+- Shared message-shaped Channel behavior is configured through the Agent Definition's Message Channel Settings rather than a Capability.
+- A message-shaped **Channel** may declare **Chat Platform Adapters** through a **Chat Adapter Callback**.
+- A message-shaped **Channel** carries trusted origins from its Chat Platform Adapter names.
+- A message-shaped **Channel** can provide a platform-scoped Agent Invoker default for Chat Platform Adapter messages when trusted chat identity is available.
 - A **Chat Platform Adapter** may come from a **Chat Adapter Package** that remains an explicit optional application dependency.
 - The Agent Package should not generate exports for every **Chat Adapter Package**.
 - A **Chat Adapter Facade** is reserved for first-party-supported adapters where ViteHub owns the public compatibility surface.
-- A **Chat Capability** can contribute trusted Chat Platform Actor Facts as the default Agent Invoker before later Capabilities resolve.
-- **Chat Platform Adapters** are platform ingress adapters, not **Agent Invoker** policy, **Access Role** policy, or **Agent Model Execution**.
-- **Chat Webhook Autowiring** is inferred from the Agent's attached **Chat Capability**; users do not attach a second Capability or call a webhook registration helper.
-- **Chat Webhook Autowiring** resolves the **Chat Platform Callback** at request time so callbacks can read Server Env and other request-local server state.
+- A message-shaped **Channel** can contribute trusted chat actor identity as the Agent Invoker before later Capabilities resolve.
+- **Chat Platform Adapters** are platform integration adapters, not **Agent Model Execution**.
+- **Chat Webhook Autowiring** is inferred from the Agent's declared chat **Channel**; users do not attach a Capability or call a webhook registration helper for delivery wiring.
+- **Chat Webhook Autowiring** resolves the **Chat Adapter Callback** at request time so callbacks can read Server Env and other request-local server state.
 - **Transcription** is an input-phase Official Capability.
 - **Transcription Artifacts** consume an already-declared writable Workspace; they do not define, mutate, or replace the Agent's Workspace.
 - A **Transcript Workspace Path** is the canonical destination for persisted transcript artifacts; directory, stem, and extension are derived from that path instead of configured as separate public fields.
@@ -271,7 +260,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - An **Access Capability** can record the active Workspace Scope as an Agent Invocation Context Value for later callbacks and instructions.
 - An **Access Capability** owns both Workspace Scope selection and application, but keeps resolver logic separate from grants.
 - An **Access Capability** may consume `context.invoker` to select Workspace Scope without owning invoker resolution.
-- An **Access Capability** may consume the resolved Agent Invoker plus normalized chat and request context from **Chat Webhook Autowiring** without repeating **Chat Capability** origins in Access configuration.
+- An **Access Capability** may consume normalized chat identity and request context from a chat **Channel** without repeating Channel origins in Access configuration.
 - An **Access Capability** can use static named Workspace Scopes or an inline Workspace Scope definition returned by its resolver.
 - An **Access Capability** must be ordered before other Capabilities so invocation access is applied before they read scoped runtime surfaces or expose tools.
 - An **Access Capability** provides tiny default **Access Roles** for the first version.
@@ -297,7 +286,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - **Model Web Search Mode** is model-execution-gated; TanStack AI is not supported for model mode in the first version.
 - A tool search provider and **Web Search Mode** are separate axes; provider is only used by tool-based **Web Search Mode**.
 - Chat History is not a standalone **Capability** in the current stack.
-- Agent Memory is a separate Capability concern from the **Chat Capability**.
+- Agent Memory is separate from Chat History and Chat Sessions.
 - User-defined Capabilities use the same **Capability Definition** shape as official helpers.
 - A **Capability Definition** can contribute instructions, tools, policy, and metadata.
 - A **Capability Definition** uses `id` as its only capability-level identity and display label.
@@ -333,7 +322,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 > **Domain expert:** "No. Keep **Access Role** for scope-selection authority; model-facing style can be normal prompt behavior that reads **Agent Invoker** metadata."
 >
 > **Dev:** "Should Chat DevTools wire its own chat send helper?"
-> **Domain expert:** "No. The **Chat Capability** should provide a **Capability Trigger Contribution**, and DevTools should consume the resolved Agent Trigger."
+> **Domain expert:** "No. The message-shaped **Channel** should provide the trigger, and DevTools should consume the resolved Agent Trigger."
 >
 > **Dev:** "Should we expose a callback routing Capability?"
 > **Domain expert:** "No. Use a user-defined **Capability Definition** or hook to set a named invocation context value; the official route helper is the **LLM Route Capability**."
@@ -361,19 +350,19 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - Model-facing provider reachability was considered - resolved: keep provider reachability developer-facing in the first version.
 - `VITE_*` and `NITRO_*` provider credential names were considered - resolved: reject them for **Web Search Credential Sources**; `VITE_*` is browser-exposed Vite language, and `NITRO_*` is framework runtime-config language rather than Capability credential language.
 - Tool-first surfaces were considered the primary model - resolved: tools are one contribution of a **Capability Definition**.
-- Chat-specific helpers were considered for server-side trigger behavior - resolved: use **Capability Trigger Contribution** so Chat and future user-defined Capabilities register Agent Triggers from the Agent config source of truth.
+- Chat-specific helpers were considered for server-side trigger behavior - resolved: message-shaped **Channels** own chat trigger behavior, while reusable abilities still use **Capability Trigger Contributions**.
 - Grouping trigger contributions under a `server` bucket was considered - resolved: keep triggers directly capability-owned because Agent Triggers are server-authoritative by default and no broader server contribution group has been proven yet.
 - Trigger handlers were considered for direct Agent execution - resolved: trigger contributions map input and run metadata, while the Agent Package executes the Agent Invocation through the standard lifecycle.
-- Public chat webhook registration helpers were considered for platform adapters - resolved: use **Chat Webhook Autowiring** from the **Chat Capability** so Chat Platform configuration remains the only source of truth.
-- Build-time Chat Platform detection was considered - resolved: resolve the **Chat Platform Callback** at request time because platform credentials and adapter construction can depend on Server Env.
-- Public `chat({ adapters })` was considered for long-term Chat Capability configuration - resolved: use **Chat Platforms** as the public configuration language, while **Chat Platform Adapters** remain implementation objects behind each platform.
-- Public `chat({ identity })` was considered for chat caller identity policy - resolved: remove it because **Agent Invoker** is the trusted caller identity boundary; Chat Platforms may only provide Chat Platform Actor Facts for default invoker mapping.
-- Repeating Chat Capability origins in `access()` was considered - resolved: **Chat Capability** owns platform/webhook origin configuration, while **Access Capability** consumes the resolved Agent Invoker plus normalized chat and request context for chat admission.
+- Public chat webhook registration helpers were considered for platform adapters - resolved: use **Chat Webhook Autowiring** from the declared concrete **Channel Kind** so adapter configuration remains the only source of truth.
+- Build-time Chat Platform Adapter detection was considered - resolved: resolve the **Chat Adapter Callback** at request time because platform credentials and adapter construction can depend on Server Env.
+- Repeating Channel origins in `access()` was considered - resolved: the concrete **Channel Kind** owns adapter/webhook origin configuration, while **Access Capability** consumes normalized chat identity and request context for chat admission.
+- A generic `entry()` Capability was considered for app-owned product events - resolved: use root-level **Custom Channels** so reachability stays on the Agent Definition rather than inside Capabilities.
 - Capability phases, contexts, hooks, and instruction slots were considered glossary terms - resolved: group that detail under **Capability Lifecycle** unless a feature needs a sharper term.
 - Capability tools and instructions were considered unconditional Agent inputs - resolved: use **Capability Driver Contribution** and filter driver-facing inputs by the selected Agent Driver.
 - Bare Capability id instruction slots such as `mcp` were considered - resolved: use `capabilities.<id>` without backwards compatibility aliases.
-- Chat History was considered as a standalone Capability - resolved: keep Chat History inside the **Chat Capability** for this stack and revisit during a future Agent Memory pass.
-- Agent Memory was considered dependent on the Chat Capability - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate Capability concerns.
+- Chat History was considered as a standalone Capability - resolved: keep Chat History as message-shaped **Channel** conversation behavior for this stack and revisit during a future Agent Memory pass.
+- Shared message defaults were considered as a Capability or Channel helper concern - resolved: use Agent Definition Message Channel Settings, while Capabilities consume the resulting invocation context.
+- Agent Memory was considered dependent on chat behavior - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate concerns.
 - Workspace inspection was considered a hand-written raw tool contribution or Bash concern - resolved: expose it through a **Workspace Capability**.
 - Workspace Scope was considered as Workspace Definition mutation by a Capability - resolved: use an **Access Capability** to narrow an already-declared Workspace at invocation time instead of changing Sources or Workspace Rules.
 - `workspaceScope()` was considered as the public helper name - resolved: use `access()` for the Capability while preserving **Workspace Scope** for the Workspace-specific boundary.
@@ -408,6 +397,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - Storage Capability options were described as access levels in an older PR - resolved: official primitive Capabilities use `mode` for read/write exposure, while `access` is older proposal language.
 - Storage helpers were considered examples around raw tools - resolved: KV, Blob, and DB helpers are first-class official **Capabilities**.
 - Root Agent Package exports were considered convenient for official Capability factories - resolved: keep official Capability factories and their companion helpers on `@vite-hub/agent/capabilities` so the root entry stays focused on Agent Definition and invocation primitives.
+- Reusing `@vite-hub/agent/capabilities` for Channel helpers was considered - resolved: official Channel Kind helpers live on `@vite-hub/agent/channels` so Channels and Capabilities stay distinct.
 - Storage Capabilities were considered as direct primitive method proxies - resolved: official storage Capabilities should stay small with read/edit tools rather than method fanout.
 - DB storage permission was considered one mode - resolved: DB separates data `mode` from **Schema Mode** because data reads/writes and schema inspection/changes are different authorities.
 - Storage write mode was considered enough to allow immediate mutations - resolved: write exposure and approval policy are separate, so developers can opt into **Autonomous Storage Writes** explicitly.

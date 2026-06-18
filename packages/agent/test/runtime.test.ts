@@ -1027,6 +1027,231 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("creates chat triggers from message-shaped channels", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { teams } = await import("../src/channels.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const adapter = () => ({}) as never
+    const agent = defineAgent({
+      channels: {
+        support: teams({
+          adapter,
+          webhooks: {
+            path: "/api/teams/support",
+          },
+        }),
+      },
+      messages: {
+        concurrency: "queue",
+        history: { maxMessages: 20, source: "thread" },
+        sessions: true,
+      },
+      run: () => "ok",
+    })
+
+    expect(agent.chat).toMatchObject({
+      concurrency: "queue",
+      history: { maxMessages: 20, source: "thread" },
+      sessions: true,
+      webhooks: {
+        support: {
+          id: "support",
+          path: "/api/teams/support",
+          provider: "teams",
+        },
+      },
+    })
+    expect(agent.chat?.platforms).toEqual({ support: adapter })
+    expect(agent.capabilities?.some(capability => capability.id === "chat")).toBe(true)
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "chat.message": {
+        webhooks: [{
+          id: "support",
+          method: "POST",
+          path: "/api/teams/support",
+          provider: "teams",
+        }],
+      },
+    })
+  })
+
+  it("keeps channel chat triggers discoverable for workspace agents", async () => {
+    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const agent = defineAgent({
+      capabilities: [{ id: "custom" }],
+      channels: { web: webChat() },
+      run: () => "ok",
+      workspace: {},
+    })
+    const registered = withWorkspaceAgentDefaults(agent as never, { workspace: "docs" })
+
+    await expect(resolveAgentTriggers(registered, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "chat.message": {
+        capabilityId: "chat",
+      },
+    })
+  })
+
+  it("keeps generated webhook ids unique for channel webhook arrays", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const agent = defineAgent({
+      channels: {
+        support: http({
+          adapter: () => ({}) as never,
+          webhooks: [
+            { path: "/api/support/primary" },
+            { path: "/api/support/fallback" },
+          ],
+        }),
+      },
+      run: () => "ok",
+    })
+
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "chat.message": {
+        webhooks: [{
+          id: "support-1",
+          path: "/api/support/primary",
+          provider: "http",
+        }, {
+          id: "support-2",
+          path: "/api/support/fallback",
+          provider: "http",
+        }],
+      },
+    })
+  })
+
+  it("does not infer webhooks for channels with webhooks disabled", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { teams } = await import("../src/channels.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const agent = defineAgent({
+      channels: {
+        support: teams({
+          adapter: () => ({}) as never,
+          webhooks: false,
+        }),
+      },
+      run: () => "ok",
+    })
+
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "chat.message": {
+        webhooks: undefined,
+      },
+    })
+  })
+
+  it("rejects unwired HTTP channel paths", async () => {
+    const { http } = await import("../src/channels.ts")
+
+    expect(() => http({ path: "/api/support/chat" } as never)).toThrow("[vitehub] http({ path }) is not wired yet.")
+  })
+
+  it("rejects channel webhooks without an adapter", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+
+    expect(() => defineAgent({
+      channels: {
+        support: http({
+          webhooks: { path: "/api/support/chat" },
+        }),
+      },
+      run: () => "ok",
+    })).toThrow("[vitehub] Channel webhooks require an adapter-backed Channel.")
+  })
+
+  it("preserves channel ids for same-kind webhook registrations", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { teams } = await import("../src/channels.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const agent = defineAgent({
+      channels: {
+        sales: teams({ adapter: () => ({}) as never }),
+        support: teams({ adapter: () => ({}) as never }),
+      },
+      run: () => "ok",
+    })
+
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "chat.message": {
+        webhooks: expect.arrayContaining([
+          expect.objectContaining({ channelId: "sales", id: "sales", provider: "teams" }),
+          expect.objectContaining({ channelId: "support", id: "support", provider: "teams" }),
+        ]),
+      },
+    })
+  })
+
+  it("applies channel-local message settings for one message-shaped channel", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+
+    const agent = defineAgent({
+      channels: {
+        web: webChat({
+          messages: {
+            history: false,
+            sessions: false,
+          },
+        }),
+      },
+      run: () => "ok",
+    })
+
+    expect(agent.chat).toMatchObject({
+      history: false,
+      sessions: false,
+    })
+  })
+
+  it("rejects channel-local message settings across multiple message-shaped channels", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { teams, webChat } = await import("../src/channels.ts")
+
+    expect(() => defineAgent({
+      channels: {
+        teams: teams({ adapter: () => ({}) as never }),
+        web: webChat({ messages: { history: false } }),
+      },
+      run: () => "ok",
+    })).toThrow("Channel-local messages options are only supported when an Agent defines one message-shaped Channel")
+  })
+
+  it("rejects channel-local identity across multiple message-shaped channels", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { teams, webChat } = await import("../src/channels.ts")
+
+    expect(() => defineAgent({
+      channels: {
+        teams: teams({
+          adapter: () => ({}) as never,
+          identity: () => "team:user",
+        }),
+        web: webChat(),
+      },
+      run: () => "ok",
+    })).toThrow("Channel-local identity resolvers are only supported when an Agent defines one message-shaped Channel")
+  })
+
+  it("rejects mixing channels with the legacy chat capability", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { webChat } = await import("../src/channels.ts")
+
+    expect(() => defineAgent({
+      capabilities: [chat()],
+      channels: { web: webChat() },
+      run: () => "ok",
+    })).toThrow("defineAgent({ channels }) cannot be combined with the chat() capability")
+  })
+
   it("runs agent finish hooks for custom object results after extensions are resolved", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()

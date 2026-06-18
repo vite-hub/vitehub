@@ -161,6 +161,8 @@ export type AgentWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig = 
   MaybeResolvable<string | false, AgentCallbackContext<TRuntimeConfig>>
 
 export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  adapter?: string
+  channelId?: string
   id?: string
   method?: "POST" | (string & {})
   path?: string
@@ -602,9 +604,11 @@ type AgentSharedSettings<
   TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = AgentCapabilitiesList<TRuntimeConfig> | undefined,
 > = {
   capabilities?: TCapabilities
+  channels?: AgentChannels<TRuntimeConfig>
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
+  messages?: AgentMessageChannelSettings<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
   title?: string
   version?: string
@@ -648,10 +652,12 @@ export interface AgentDefinition<
   TContextValues extends object = AgentInvocationContextValues,
 > {
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig>[]
+  channels?: AgentChannels<TRuntimeConfig>
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
   hooks?: AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
+  messages?: AgentMessageChannelSettings<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
@@ -852,30 +858,58 @@ export type AgentChatMessage = AdapterPostableMessage | { text: string }
 
 export type AgentChatSendMessage = (message: AgentChatMessage) => Promise<void>
 
+export type AgentMessageConcurrency = "drop" | "parallel" | "queue" | "reject" | (string & {})
+
+export type AgentMessageLockScope = "agent" | "channel" | "thread" | (string & {})
+
 export interface AgentChatFinishExtension {
   provider?: string
   run?: Partial<AgentRunMetadata>
   sendMessage: AgentChatSendMessage
 }
 
-export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  concurrency?: AgentMessageConcurrency
+  dedupeTtlMs?: number
+  errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
+  fallbackStreamingPlaceholderText?: string | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
+  history?: AgentChatAgentBindingOptions["history"]
+  identity?: IdentityResolver
+  lockScope?: AgentMessageLockScope
+  messageHistory?: unknown
+  sessions?: boolean | AgentChatSessionOptions
+  state?: AgentChatStateResolver<TRuntimeConfig>
+  stream?: boolean
+  streamingUpdateIntervalMs?: number
+  threadHistory?: unknown
+  transcripts?: TranscriptsConfig
+  userName?: string
+  [key: string]: unknown
+}
+
+export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  adapter?: AgentChatPlatformResolver<TRuntimeConfig>
+  identity?: IdentityResolver
+  kind: string
+  messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
+  webhooks?: boolean | AgentChatWebhookRegistrationDefinition<TRuntimeConfig> | AgentChatWebhookRegistrationDefinition<TRuntimeConfig>[]
+  [key: string]: unknown
+}
+
+export type AgentChannels<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  Record<string, AgentChannelDefinition<TRuntimeConfig>>
+
+export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends AgentMessageChannelSettings<TRuntimeConfig> {
   adapters?: never
   agent?: never
   event?: AgentChatAgentBindingOptions["event"]
   execution?: never
-  errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
-  fallbackStreamingPlaceholderText?: string | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
-  history?: AgentChatAgentBindingOptions["history"]
   hooks?: AgentChatEventHooks<TRuntimeConfig>
   identity?: IdentityResolver
   lifecycleHooks?: Record<string, unknown>
   platforms?: AgentChatPlatformsResolver<TRuntimeConfig>
-  sessions?: boolean | AgentChatSessionOptions
-  state?: AgentChatStateResolver<TRuntimeConfig>
-  stream?: boolean
-  transcripts?: TranscriptsConfig
-  userName?: string
-  webhooks?: Record<string, AgentChatWebhookRegistrationDefinition<TRuntimeConfig> | AgentChatWebhookRegistrationDefinition<TRuntimeConfig>[]>
+  webhooks?: Record<string, false | AgentChatWebhookRegistrationDefinition<TRuntimeConfig> | AgentChatWebhookRegistrationDefinition<TRuntimeConfig>[]>
   workflow?: never
   [key: string]: unknown
 }

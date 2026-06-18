@@ -139,8 +139,9 @@ function hasExplicitChatWebhook(options: AgentChatOptions, platform: string): bo
 
 function normalizeChatWebhookRegistrations(
   platform: string,
-  input: AgentChatWebhookRegistrationDefinition | AgentChatWebhookRegistrationDefinition[],
+  input: false | AgentChatWebhookRegistrationDefinition | AgentChatWebhookRegistrationDefinition[],
 ): AgentWebhookRegistrationDefinition[] {
+  if (input === false) return []
   const defaults: Partial<AgentWebhookRegistrationDefinition> & { provider?: string } = isKnownChatWebhookPlatform(platform)
     ? CHAT_WEBHOOK_DEFAULTS[platform]
     : { provider: platform }

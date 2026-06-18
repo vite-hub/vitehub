@@ -282,7 +282,7 @@ async function findChatWebhookRegistration(
 ): Promise<AgentWebhookRegistrationDefinition | undefined> {
   const triggers = await resolveAgentTriggers(agent as never, context as never)
   const registrations = triggers["chat.message"]?.webhooks || []
-  return registrations.find(registration => registration.id === webhook || registration.provider === webhook)
+  return registrations.find(registration => registration.id === webhook || registration.provider === webhook || (registration.channelId === webhook && registration.id === registration.channelId))
 }
 
 async function resolveChatAdapters(
@@ -302,9 +302,15 @@ async function resolveChatAdapters(
 }
 
 function resolveChatAdapterName(adapters: Record<string, Adapter>, registration: AgentWebhookRegistrationDefinition): string | undefined {
+  if (registration.adapter && adapters[registration.adapter]) return registration.adapter
+  if (registration.channelId && adapters[registration.channelId]) return registration.channelId
   if (adapters[registration.provider]) return registration.provider
   if (registration.id && adapters[registration.id]) return registration.id
   return undefined
+}
+
+function chatRegistrationOrigin(registration: AgentWebhookRegistrationDefinition): string {
+  return registration.channelId || registration.provider
 }
 
 function objectWithoutUndefined<T extends Record<string, unknown>>(value: T): T {
@@ -606,17 +612,18 @@ async function resolveChatState(
   handlerOptions: AgentChatWebhookFetchOptions,
 ): Promise<StateAdapter> {
   const agentName = handlerOptions.agentName || "agent"
+  const origin = chatRegistrationOrigin(registration)
   const state = await resolveMaybe(
     (options?.state ?? handlerOptions.state) as AgentChatStateResolver<ViteAgentRouteRuntimeConfig> | undefined,
     {
       ...context,
       chat: {
         agentName,
-        stateKeyPrefix: `chat:${agentName}:${registration.provider}:`,
+        stateKeyPrefix: `chat:${agentName}:${origin}:`,
       },
     } as never,
   )
-  return state || getInMemoryChatState(`${agentName}:${registration.provider}`)
+  return state || getInMemoryChatState(`${agentName}:${origin}`)
 }
 
 function chatSdkOption<T>(options: AgentChatOptions | undefined, key: string): T | undefined {
@@ -720,13 +727,19 @@ function createChatTriggerInput(
   thread: Thread,
   message: ChatSdkMessage,
   messageContext?: MessageContext,
+  channelId?: string,
 ): AgentChatMessageTriggerInput {
+  const platformChannelId = thread.adapter.channelIdFromThreadId(message.threadId)
   const metadata = objectWithoutUndefined({
     chat: objectWithoutUndefined({
       edited: message.metadata.edited,
       editedAt: isoDate(message.metadata.editedAt),
       isMention: message.isMention,
       messageId: message.id,
+      platform: objectWithoutUndefined({
+        channelId: platformChannelId,
+        threadId: message.threadId,
+      }),
       skippedCount: messageContext?.skipped.length,
       threadId: message.threadId,
       totalSinceLastHandler: messageContext?.totalSinceLastHandler,
@@ -750,7 +763,7 @@ function createChatTriggerInput(
       role: "user",
     }],
     run: {
-      channelId: thread.adapter.channelIdFromThreadId(message.threadId),
+      channelId: channelId || platformChannelId,
       messageId: message.id,
       origin: provider,
       runId: `${provider}:${message.id}`,
@@ -859,7 +872,7 @@ function createChatFinishExtension(
   const messages: AgentChatMessage[] = []
   return {
     [chatFinishMessagesKey]: messages,
-    provider: registration.provider,
+    provider: chatRegistrationOrigin(registration),
     ...(input.run ? { run: input.run } : {}),
     sendMessage: async (message) => {
       messages.push(message)
@@ -914,7 +927,7 @@ async function isChatMessageAuthorized(
       ...context,
       invoker,
       input: accessChatInput(thread, message, messageContext),
-      provider: registration.provider,
+      provider: chatRegistrationOrigin(registration),
       request: context.request,
       webhook: registration,
     })
@@ -936,7 +949,7 @@ async function handleChatSdkMessage(
   let run: AgentRunMetadata | undefined
   let typing: ChatTypingRefresh | undefined
   try {
-    input = createChatTriggerInput(registration.provider, thread, message, messageContext)
+    input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, messageContext, registration.channelId)
     const firstMessage = input.messages[0]
     if (!firstMessage || !Array.isArray(firstMessage.parts) || firstMessage.parts.length === 0) return
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)

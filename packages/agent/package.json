@@ -36,6 +36,7 @@
     ".": "./dist/index.js",
     "./ai-sdk": "./dist/ai-sdk.js",
     "./capabilities": "./dist/capabilities.js",
+    "./channels": "./dist/channels.js",
     "./cli": "./dist/cli.js",
     "./cloudflare": "./dist/cloudflare.js",
     "./cloudflare/state": "./dist/cloudflare/state.js",
