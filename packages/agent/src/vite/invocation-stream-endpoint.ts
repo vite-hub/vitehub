@@ -7,7 +7,7 @@ import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/internal/runtim
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
 import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
-import { resolveAgentTriggers, streamAgentTrigger, withWorkspaceAgentDefaults } from "../index.ts"
+import { resolveAgentTriggers, streamAgentTrigger, withAgentDefaults, withWorkspaceAgentDefaults } from "../index.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
@@ -161,7 +161,7 @@ async function loadDiscoveredAgent(
   const defaults = workspaceDefaults(definition)
   return agent && defaults
     ? withWorkspaceAgentDefaults(agent as never, defaults as never) as AgentInput<ViteAgentDevRuntimeContext>
-    : agent
+    : withAgentDefaults(agent, { inferredName: definition.name })
 }
 
 async function discoverStreamAgents(server: ViteDevServer): Promise<AgentInvocationStreamEntry[]> {
