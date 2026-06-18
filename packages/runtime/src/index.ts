@@ -371,26 +371,59 @@ function traceRunParentId(run: TraceRunView): string | undefined {
   return firstString(...run.events.map(event => event.trace?.parentId))
 }
 
+function isOpenTelemetryId(value: string, length: number): boolean {
+  return value.length === length && /^[0-9a-f]+$/.test(value)
+}
+
+function openTelemetryId(value: string, length: 16 | 32): string {
+  const normalized = value.toLowerCase()
+  if (isOpenTelemetryId(normalized, length)) return normalized
+  let output = ""
+  for (let seed = 0; output.length < length; seed += 1) {
+    let hash = 2166136261
+    const input = `${value}:${seed}`
+    for (let index = 0; index < input.length; index += 1) {
+      hash ^= input.charCodeAt(index)
+      hash = Math.imul(hash, 16777619)
+    }
+    output += (hash >>> 0).toString(16).padStart(8, "0")
+  }
+  const id = output.slice(0, length)
+  return /^0+$/.test(id) ? `1${id.slice(1)}` : id
+}
+
 export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEntry>): OpenTelemetrySpanView[] {
   return deriveTraceRuns(events).flatMap((run) => {
-    const parentSpanId = traceRunParentId(run)
-    const traceId = traceRunTraceId(run)
+    const rawParentSpanId = traceRunParentId(run)
+    const rawTraceId = traceRunTraceId(run)
+    const parentSpanId = rawParentSpanId ? openTelemetryId(rawParentSpanId, 16) : undefined
+    const spanId = openTelemetryId(run.id, 16)
+    const traceId = openTelemetryId(rawTraceId, 32)
     return [
       {
+        attributes: {
+          "vitehub.run.id": run.id,
+          ...(rawParentSpanId ? { "vitehub.trace.parentId": rawParentSpanId } : {}),
+          "vitehub.trace.id": rawTraceId,
+        },
         endTime: run.endTime,
         name: "vitehub.run",
         ...(parentSpanId ? { parentSpanId } : {}),
-        spanId: run.id,
+        spanId,
         startTime: run.startTime,
         status: { code: run.status === "failed" ? "ERROR" : "OK" },
         traceId,
       } satisfies OpenTelemetrySpanView,
       ...run.steps.map(step => ({
-        attributes: step.attributes,
+        attributes: {
+          ...step.attributes,
+          "vitehub.run.id": run.id,
+          "vitehub.step.id": step.id,
+        },
         endTime: step.endTime,
         name: step.name,
-        parentSpanId: run.id,
-        spanId: `${run.id}:${step.id}`,
+        parentSpanId: spanId,
+        spanId: openTelemetryId(`${run.id}:${step.id}`, 16),
         startTime: step.startTime,
         status: { code: step.status === "failed" ? "ERROR" : "OK" } as const,
         traceId,

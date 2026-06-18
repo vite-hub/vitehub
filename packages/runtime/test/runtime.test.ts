@@ -264,7 +264,7 @@ describe("@vite-hub/runtime", () => {
     ])
   })
 
-  it("preserves external trace ids in OpenTelemetry span exports", async () => {
+  it("exports valid OpenTelemetry ids while preserving ViteHub trace attributes", async () => {
     const log = createTraceEventLog({ content: "content" })
     await log.append({
       attributes: { "agent.run.id": "agent-run-1" },
@@ -324,23 +324,34 @@ describe("@vite-hub/runtime", () => {
     })
 
     const spans = traceEventsToOpenTelemetrySpans(log.entries())
-    expect(spans).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        parentSpanId: "request-parent",
-        spanId: "agent-run-1",
-        traceId: "request-trace",
-      }),
-      expect.objectContaining({
-        parentSpanId: "agent-run-1",
-        spanId: "agent-run-1:model-1",
-        traceId: "request-trace",
-      }),
-      expect.objectContaining({
-        parentSpanId: "agent-run-2",
-        spanId: "agent-run-2:model-1",
-        traceId: "request-trace",
-      }),
-    ]))
+    for (const span of spans) {
+      expect(span.traceId).toMatch(/^[0-9a-f]{32}$/)
+      expect(span.spanId).toMatch(/^[0-9a-f]{16}$/)
+      if (span.parentSpanId) expect(span.parentSpanId).toMatch(/^[0-9a-f]{16}$/)
+    }
+    expect(new Set(spans.map(span => span.traceId)).size).toBe(1)
+    const run1 = spans.find(span => span.name === "vitehub.run" && span.attributes?.["vitehub.run.id"] === "agent-run-1")!
+    const run2 = spans.find(span => span.name === "vitehub.run" && span.attributes?.["vitehub.run.id"] === "agent-run-2")!
+    const run1Step = spans.find(span => span.name === "agent.model.call" && span.attributes?.["vitehub.run.id"] === "agent-run-1")!
+    const run2Step = spans.find(span => span.name === "agent.model.call" && span.attributes?.["vitehub.run.id"] === "agent-run-2")!
+    expect(run1.attributes).toMatchObject({
+      "vitehub.run.id": "agent-run-1",
+      "vitehub.trace.id": "request-trace",
+      "vitehub.trace.parentId": "request-parent",
+    })
+    expect(run2.attributes).toMatchObject({
+      "vitehub.run.id": "agent-run-2",
+      "vitehub.trace.id": "request-trace",
+      "vitehub.trace.parentId": "request-parent",
+    })
+    expect(run1Step).toMatchObject({
+      attributes: { "model.call.id": "model-1", "vitehub.step.id": "model-1" },
+      parentSpanId: run1.spanId,
+    })
+    expect(run2Step).toMatchObject({
+      attributes: { "model.call.id": "model-1", "vitehub.step.id": "model-1" },
+      parentSpanId: run2.spanId,
+    })
   })
 
   it("maps derived trace runs to span-shaped OpenTelemetry exports", async () => {
@@ -366,21 +377,33 @@ describe("@vite-hub/runtime", () => {
       type: "run",
     })
 
-    expect(traceEventsToOpenTelemetrySpans(log.entries())).toEqual([
+    const spans = traceEventsToOpenTelemetrySpans(log.entries())
+    expect(spans).toEqual([
       expect.objectContaining({
+        attributes: expect.objectContaining({
+          "vitehub.run.id": "run-1",
+          "vitehub.trace.id": "run-1",
+        }),
         endTime: "2026-01-01T00:00:00.020Z",
         name: "vitehub.run",
-        spanId: "run-1",
+        spanId: expect.stringMatching(/^[0-9a-f]{16}$/),
         status: { code: "OK" },
-        traceId: "run-1",
+        traceId: expect.stringMatching(/^[0-9a-f]{32}$/),
       }),
       expect.objectContaining({
+        attributes: expect.objectContaining({
+          "step.id": "model-1",
+          "vitehub.run.id": "run-1",
+          "vitehub.step.id": "model-1",
+        }),
         name: "agent.model.call",
-        parentSpanId: "run-1",
-        spanId: "run-1:model-1",
+        parentSpanId: expect.stringMatching(/^[0-9a-f]{16}$/),
+        spanId: expect.stringMatching(/^[0-9a-f]{16}$/),
         status: { code: "OK" },
-        traceId: "run-1",
+        traceId: expect.stringMatching(/^[0-9a-f]{32}$/),
       }),
     ])
+    expect(spans[1]!.parentSpanId).toBe(spans[0]!.spanId)
+    expect(spans[1]!.traceId).toBe(spans[0]!.traceId)
   })
 })
