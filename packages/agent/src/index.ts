@@ -1011,10 +1011,19 @@ function maybeTraceAgentStream<
   return context.runtimeContext.traceLog ? traceAgentStreamEvents(stream, toTraceContext(context)) : stream
 }
 
+function hasTraceableStreamResult(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false
+  const result = value as { fullStream?: unknown, stream?: unknown, textStream?: unknown }
+  return isAsyncIterable(result.fullStream) || isAsyncIterable(result.stream) || isAsyncIterable(result.textStream)
+}
+
 function maybeTraceUiMessageStreamOutput<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(rendered: unknown, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): unknown {
+  if (context.runtimeContext.traceLog && hasTraceableStreamResult(rendered)) {
+    return maybeTraceAgentStream(streamAgentOutputToEvents(rendered), context)
+  }
   return isAsyncIterable(rendered) ? maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, context) : rendered
 }
 

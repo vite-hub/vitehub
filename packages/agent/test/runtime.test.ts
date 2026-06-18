@@ -1495,6 +1495,54 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("traces fullStream results when UI message streams are requested", async () => {
+    const { createUIMessageStream, readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      run: () => ({
+        fullStream: (async function* () {
+          yield { input: { query: "users" }, toolCallId: "tool-1", toolName: "search", type: "tool-call" }
+          yield { output: "42", toolCallId: "tool-1", toolName: "search", type: "tool-result" }
+          yield { finishReason: "stop", type: "finish" }
+        })(),
+        toUIMessageStream() {
+          return createUIMessageStream({
+            execute({ writer }) {
+              writer.write({ type: "start", messageId: "assistant-1" })
+              writer.write({ type: "finish", finishReason: "stop" })
+            },
+          })
+        },
+      }),
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-1" },
+      runtime: "unknown",
+      trace: { id: "request-1" },
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {
+      messages: [createMessage({ role: "user", text: "Explain availability" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(messages.at(-1)?.parts.some(part => part.type === "tool-search")).toBe(true)
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.tool.start",
+      "agent.tool.finish",
+      "agent.stream.finish",
+      "agent.invocation.finish",
+    ])
+    expect(deriveTraceRuns(traceLog.entries()).map(run => run.id)).toEqual(["run-1"])
+  })
+
   it("emits one chat title data part when async event streams become UI message streams", async () => {
     const { readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
