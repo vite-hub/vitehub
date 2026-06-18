@@ -37,14 +37,36 @@ export function createAgentInvocationStreamResponse(
   const abortController = new AbortController()
   let closed = false
 
-  function emit(controller: ReadableStreamDefaultController<Uint8Array>, event: AgentInvocationStreamEvent): void {
-    if (closed || abortController.signal.aborted) return
+  function close(controller: ReadableStreamDefaultController<Uint8Array>): void {
+    closed = true
+    controller.close()
+  }
+
+  function fail(controller: ReadableStreamDefaultController<Uint8Array>, cause: unknown): void {
+    if (closed) return
+    abortController.abort()
     try {
-      controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+      controller.enqueue(encoder.encode(`${JSON.stringify({
+        error: cause instanceof Error ? cause.message : "Agent Invocation Stream event could not be serialized.",
+        type: "error",
+      })}\n${JSON.stringify({ type: "done" })}\n`))
+      close(controller)
     }
     catch {
       closed = true
-      abortController.abort()
+      controller.error(cause)
+    }
+  }
+
+  function emit(controller: ReadableStreamDefaultController<Uint8Array>, event: AgentInvocationStreamEvent): boolean {
+    if (closed || abortController.signal.aborted) return false
+    try {
+      controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+      return true
+    }
+    catch (cause) {
+      fail(controller, cause)
+      return false
     }
   }
 
@@ -53,9 +75,7 @@ export function createAgentInvocationStreamResponse(
       run(event => emit(controller, event), abortController.signal)
         .then(() => {
           if (closed || abortController.signal.aborted) return
-          emit(controller, { type: "done" })
-          closed = true
-          controller.close()
+          if (emit(controller, { type: "done" })) close(controller)
         })
         .catch((cause) => {
           if (closed || abortController.signal.aborted) return
@@ -63,9 +83,7 @@ export function createAgentInvocationStreamResponse(
             error: cause instanceof Error ? cause.message : "Agent Invocation Stream failed.",
             type: "error",
           })
-          emit(controller, { type: "done" })
-          closed = true
-          controller.close()
+          if (emit(controller, { type: "done" })) close(controller)
         })
     },
     cancel() {
