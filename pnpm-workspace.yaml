@@ -50,7 +50,7 @@ catalogs:
     sh-syntax: 0.5.8
   storage:
     "@upstash/redis": ^1.37.0
-    "@vercel/blob": ^2.4.0
+    "@vercel/blob": ^2.3.3
     files-sdk: ^1.9.0
     unstorage: ^2.0.0-alpha.7
   tooling:
