@@ -1,0 +1,58 @@
+import type {
+  AgentHookObserver,
+  AgentHookObserverEvent,
+  AgentHookObserverHooks,
+  MaybePromise,
+} from "./types.ts"
+
+function observerList(hooks?: AgentHookObserverHooks): AgentHookObserver[] {
+  const observers = hooks?.["hook:observe"]
+  if (!observers) return []
+  return typeof observers === "function" ? [observers] : [...observers]
+}
+
+function errorMetadata(error: unknown): AgentHookObserverEvent["error"] {
+  return error instanceof Error
+    ? { message: error.message, name: error.name }
+    : { message: String(error) }
+}
+
+export async function notifyAgentHookObservers(
+  hooks: AgentHookObserverHooks | undefined,
+  event: AgentHookObserverEvent,
+): Promise<void> {
+  for (const observe of observerList(hooks)) {
+    try {
+      await observe(Object.freeze({ ...event }))
+    }
+    catch (error) {
+      console.warn("[vitehub] Hook observer failed.", error)
+    }
+  }
+}
+
+export async function runObservedAgentHook<T>(
+  hooks: AgentHookObserverHooks | undefined,
+  event: Omit<AgentHookObserverEvent, "durationMs" | "error" | "outcome">,
+  run: () => MaybePromise<T>,
+): Promise<T> {
+  const startedAt = Date.now()
+  try {
+    const result = await run()
+    await notifyAgentHookObservers(hooks, {
+      ...event,
+      durationMs: Date.now() - startedAt,
+      outcome: "success",
+    })
+    return result
+  }
+  catch (error) {
+    await notifyAgentHookObservers(hooks, {
+      ...event,
+      durationMs: Date.now() - startedAt,
+      error: errorMetadata(error),
+      outcome: "error",
+    })
+    throw error
+  }
+}

@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineAgentInvoker, type AgentChannelDefinition, type AgentDriver, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, type AgentActor, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDefinition, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
 import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, subagents, transcribe, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, stream, teams, telegram, webChat } from "../src/channels.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
@@ -138,6 +138,7 @@ describe("agent public types", () => {
     }
     expectTypeOf(invocationContext.get("access")).toEqualTypeOf<AccessInvocationContextValue | undefined>()
     expectTypeOf(invocationContext.get("access")?.workspaceScope?.scope).toEqualTypeOf<string | undefined>()
+    expectTypeOf(invocationContext.get("actor")).toEqualTypeOf<AgentActor | undefined>()
     expectTypeOf(getTranscriptionResults(invocationContext)).toEqualTypeOf<TranscriptionResult[]>()
     expectTypeOf(getTranscriptionResults({ context: invocationContext })).toEqualTypeOf<TranscriptionResult[]>()
 
@@ -374,6 +375,12 @@ describe("agent public types", () => {
     const channel: AgentChannelDefinition = teams()
     expectTypeOf(channel.kind).toEqualTypeOf<string>()
     const custom = defineChannel("portal", {
+      effects: {
+        reaction(context) {
+          expectTypeOf(context.effect.kind).toEqualTypeOf<AgentChannelDeliveryEffectKind>()
+          expectTypeOf(context.effect).toEqualTypeOf<AgentChannelDeliveryEffectIntent>()
+        },
+      },
       messages: false,
       triggers: {
         event: {
@@ -389,6 +396,12 @@ describe("agent public types", () => {
     expectTypeOf(custom.kind).toEqualTypeOf<string>()
 
     defineAgent({
+      capabilities: [{
+        id: "feedback",
+        prepare(context) {
+          context.delivery.effect({ intent: "started", kind: "reaction" })
+        },
+      }],
       channels: {
         github: github({
           triggers: {
@@ -417,6 +430,11 @@ describe("agent public types", () => {
           },
         }),
         web: webChat(),
+      },
+      hooks: {
+        "hook:observe"(event) {
+          expectTypeOf(event).toEqualTypeOf<Readonly<AgentHookObserverEvent>>()
+        },
       },
       messages,
       run: () => "ok",
@@ -590,14 +608,15 @@ describe("agent public types", () => {
       },
     })
     const supportAccess: AccessWorkspaceOptionsFor<typeof workspace, SupportInputContext> = {
-      resolve({ input, invoker }) {
+      resolve({ actor, input, invoker }) {
         const chat = input.get().context?.chat
         expectTypeOf(chat?.message?.metadata?.quiver?.customer).toEqualTypeOf<string | undefined>()
         expectTypeOf(chat?.run?.origin).toEqualTypeOf<"teams" | undefined>()
         expectTypeOf(chat?.user?.email).toEqualTypeOf<string | undefined>()
+        expectTypeOf(actor.id).toEqualTypeOf<string>()
         expectTypeOf(invoker.id).toEqualTypeOf<string>()
         expectTypeOf(invoker.meta?.customer).toEqualTypeOf<"acme" | undefined>()
-        return invoker.meta?.customer || "customer"
+        return actor.meta?.customer || "customer"
       },
       scopes: {
         customer: {
@@ -648,8 +667,10 @@ describe("agent public types", () => {
           },
         }),
       ],
-      run({ context }) {
+      run({ actor, context }) {
         const accessContext = context.get("access")
+        expectTypeOf(actor.id).toEqualTypeOf<string>()
+        expectTypeOf(context.get("actor")).toEqualTypeOf<AgentActor | undefined>()
         expectTypeOf(accessContext).toMatchTypeOf<AccessInvocationContextValue<"demo" | "quiver"> | undefined>()
         expectTypeOf(accessContext?.workspaceScope?.scope).toEqualTypeOf<"demo" | "quiver" | undefined>()
         expectTypeOf(accessContext?.workspaceScope?.paths).toEqualTypeOf<string[] | undefined>()
@@ -677,7 +698,7 @@ describe("agent public types", () => {
     })
   })
 
-  it("types Agent Invoker consumers in access and lifecycle callbacks", () => {
+  it("types Agent Actor consumers in access and lifecycle callbacks", () => {
     defineAgent({
       invoker: {
         profiles: [
@@ -687,9 +708,10 @@ describe("agent public types", () => {
       capabilities: [
         access({
           workspace: {
-            resolve({ invoker }) {
+            resolve({ actor, invoker }) {
+              expectTypeOf(actor.kind).toEqualTypeOf<"anonymous" | "chat" | "devtools" | (string & {}) | undefined>()
               expectTypeOf(invoker.kind).toEqualTypeOf<"anonymous" | "chat" | "devtools" | (string & {}) | undefined>()
-              return invoker.kind === "quiverTechnical"
+              return actor.kind === "quiverTechnical"
                 ? { role: "admin", scope: "quiver" }
                 : { role: "viewer", scope: "acme" }
             },
@@ -701,14 +723,16 @@ describe("agent public types", () => {
         }),
         {
           id: "support-audience",
-          prepare({ instructions, invoker }) {
+          prepare({ actor, instructions, invoker }) {
+            expectTypeOf(actor.id).toEqualTypeOf<string>()
             expectTypeOf(invoker.id).toEqualTypeOf<string>()
-            instructions.add(invoker.kind === "quiverTechnical" ? "technical" : "customer")
+            instructions.add(actor.kind === "quiverTechnical" ? "technical" : "customer")
           },
         },
       ],
       hooks: {
-        "agent:finish"({ invoker }) {
+        "agent:finish"({ actor, invoker }) {
+          expectTypeOf(actor.meta).toEqualTypeOf<Record<string, unknown> | undefined>()
           expectTypeOf(invoker.meta).toEqualTypeOf<Record<string, unknown> | undefined>()
         },
       },

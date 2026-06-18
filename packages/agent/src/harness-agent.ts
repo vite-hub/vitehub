@@ -92,6 +92,7 @@ function toRunCallbackContext<
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   return {
     ...runtime,
+    actor: context.actor,
     context: context.context,
     input: context.input,
     invoker: context.invoker,

@@ -34,11 +34,13 @@ import {
 } from "./tool-runtime.ts"
 import {
   traceAgentInvocationError,
+  traceAgentChannelDeliveryEffect,
   traceAgentInvocationFinish,
   traceAgentInvocationStart,
   traceAgentStreamEvent,
   traceAgentStreamEvents,
 } from "./trace.ts"
+import { runObservedAgentHook } from "./hooks.ts"
 import {
   resolveAgentTriggerInvocation as resolveAgentTriggerInvocationWithResolvedContext,
   resolveAgentTriggers as resolveAgentTriggersWithResolvedContext,
@@ -69,6 +71,8 @@ import type {
   AgentCapabilityInput,
   AgentCapabilityMode,
   AgentCapabilityTypeContract,
+  AgentChannelDeliveryEffectHandler,
+  AgentChannelDeliveryEffectIntent,
   AgentDefinition,
   AgentFinishEvent,
   AgentChatOptions,
@@ -78,6 +82,7 @@ import type {
   AgentInvocationHooks,
   AgentInvocationContextStore,
   AgentInvocationContextValues,
+  AgentHookObserverHooks,
   AgentInvoker,
   AgentInvokerOptions,
   AgentInvokerProfile,
@@ -131,6 +136,7 @@ export type {
   AgentAdapterMetadataContext,
   AgentAdapterResult,
   AgentAdapterRunContext,
+  AgentActor,
   AgentCapabilities,
   AgentCapabilitiesList,
   AgentCallSettingsInstrumentation,
@@ -144,6 +150,11 @@ export type {
   AgentCapabilityMode,
   AgentCapabilityPhase,
   AgentCapabilityRuntimeContext,
+  AgentChannelDeliveryEffectContext,
+  AgentChannelDeliveryEffectHandler,
+  AgentChannelDeliveryEffectIntent,
+  AgentChannelDeliveryEffectKind,
+  AgentChannelDeliveryEffects,
   AgentChatAgentHookArgs,
   AgentChatErrorHookArgs,
   AgentChatEventHookArgs,
@@ -183,6 +194,11 @@ export type {
   AgentInput,
   AgentInstructionBlock,
   AgentIntegrationOption,
+  AgentHookObserver,
+  AgentHookObserverEvent,
+  AgentHookObserverHooks,
+  AgentHookOutcome,
+  AgentHookOwner,
   AgentInvocationExtensions,
   AgentInvocationContextStore,
   AgentInvocationContextValues,
@@ -518,6 +534,98 @@ function createAgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig>(
 ) {
   const { runtimeConfig: _runtimeConfig, ...callbackContext } = createResolvedRuntimeContext(context)
   return callbackContext
+}
+
+type AgentTriggerContextValue = {
+  channelId?: string
+  id?: string
+  name?: string
+  source?: "capability" | "channel"
+}
+
+function channelDeliveryEffectHandlers<TRuntimeConfig extends AgentRuntimeConfig>(
+  channel: AgentChannelDefinition<TRuntimeConfig>,
+  intent: AgentChannelDeliveryEffectIntent,
+): readonly AgentChannelDeliveryEffectHandler<TRuntimeConfig>[] {
+  const handlers = channel.effects?.[intent.kind]
+  if (!handlers) return []
+  return typeof handlers === "function" ? [handlers] : [...handlers]
+}
+
+function activeDeliveryChannel<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
+  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  context: AgentInvocationContextStore,
+  run?: AgentRunMetadata,
+) {
+  const trigger = context.get<AgentTriggerContextValue>("agent.trigger")
+  const channelId = run?.channelId || trigger?.channelId
+  const channel = channelId ? definition?.channels?.[channelId] : undefined
+  return channel && channelId ? { channel, channelId, trigger } : undefined
+}
+
+async function applyChannelDeliveryEffectIntents<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  intents: readonly AgentChannelDeliveryEffectIntent[],
+): Promise<void> {
+  if (!intents.length) return
+  const active = activeDeliveryChannel(definition, context.context, context.run)
+
+  for (const intent of intents) {
+    const handlers = active ? channelDeliveryEffectHandlers(active.channel, intent) : []
+    const metadata = {
+      "channel.effect.intent": intent.intent,
+      "channel.effect.kind": intent.kind,
+      "channel.effect.supported": handlers.length > 0,
+    }
+    if (!active || !handlers.length) {
+      await runObservedAgentHook(context.hooks, {
+        ids: { channelId: active?.channelId, runId: context.run?.runId },
+        metadata,
+        name: "channel:delivery-effect",
+        owner: "channel",
+        phase: "effect",
+      }, async () => {
+        await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, metadata)
+      })
+      continue
+    }
+
+    for (const handler of handlers) {
+      try {
+        await runObservedAgentHook(context.hooks, {
+          ids: { channelId: active.channelId, runId: context.run?.runId },
+          metadata,
+          name: "channel:delivery-effect",
+          owner: "channel",
+          phase: "effect",
+        }, async () => {
+          await handler({
+            ...context.runtimeContext,
+            channel: active.channel,
+            effect: intent,
+            input: context.input,
+            run: context.run,
+            trigger: {
+              channelId: active.channelId,
+              ...(active.trigger?.id ? { id: active.trigger.id } : {}),
+              ...(active.trigger?.name ? { name: active.trigger.name } : {}),
+            },
+          })
+          await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, metadata)
+        })
+      }
+      catch (error) {
+        await traceAgentChannelDeliveryEffect(toTraceContext(context), intent, {
+          ...metadata,
+          "error.message": error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+  }
 }
 
 function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<void>): (...args: TArgs) => Promise<void> {
@@ -907,14 +1015,17 @@ type AgentInvocationContext<
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
   capabilityInstructions: AgentInstructionBlock[]
   close: () => Promise<void>
+  deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finishHook?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS> extends infer TEvent ? (event: TEvent) => MaybePromise<void> : never
   hasCapabilityCleanup: boolean
+  hooks?: AgentHookObserverHooks
   outputRenderers: Array<(result: unknown) => MaybePromise<unknown>>
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
   sourceInstructions?: string
   startedAt: number
+  actor: AgentInvoker
   invoker: AgentInvoker
   workspace?: ReadonlyWorkspaceFacade<WorkspaceName> | WritableWorkspaceFacade<WorkspaceName>
   workspaceDefinition?: WorkspaceDefinition
@@ -994,13 +1105,16 @@ async function createAgentInvocationContext<
 
     const invocation = {
       ...callbackContext,
+      actor: invoker,
       capabilityInstructions: capabilities.capabilityInstructions,
       close: capabilities.close,
       context: invocationContext,
+      deliveryEffectIntents: capabilities.registries.deliveryEffectIntents,
       devtools: context.devtools,
       finishExtensionProviders: capabilities.registries.finishExtensionProviders,
       finishHook: definition?.hooks?.["agent:finish"] as never,
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
+      hooks: definition?.hooks as AgentHookObserverHooks | undefined,
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
       invoker,
       messages: capabilities.messages,
@@ -1017,6 +1131,7 @@ async function createAgentInvocationContext<
       workspaceMode,
     }
     await traceAgentInvocationStart(toTraceContext(invocation))
+    await applyChannelDeliveryEffectIntents(definition, invocation, invocation.deliveryEffectIntents)
     return invocation
   }
   catch (error) {
@@ -1037,9 +1152,12 @@ type InvocationRunContext<
 > = {
   close: () => Promise<void>
   context: AgentInvocationContextStore
+  deliveryEffectIntents?: readonly AgentChannelDeliveryEffectIntent[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finishHook?: (event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void>
+  hooks?: AgentHookObserverHooks
   input: AgentRunInput<CALL_OPTIONS>
+  actor: AgentInvoker
   invoker: AgentInvoker
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
   run?: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>["run"]
@@ -1204,6 +1322,7 @@ async function finishAgentInvocation<
     if (hasFinishWork(context)) {
       const eventBase = {
         ...(error !== undefined ? { error } : {}),
+        actor: context.actor,
         input: context.input,
         invoker: context.invoker,
         invocation: {
@@ -1214,7 +1333,14 @@ async function finishAgentInvocation<
         runtime: context.runtimeContext,
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       const extensions = await createAgentInvocationExtensions(eventBase as never, context.finishExtensionProviders)
-      await context.finishHook?.({ ...eventBase, extensions })
+      await runObservedAgentHook(context.hooks, {
+        ids: { runId: context.run?.runId },
+        name: "agent:finish",
+        owner: "agent",
+        phase: "finish",
+      }, async () => {
+        await context.finishHook?.({ ...eventBase, extensions })
+      })
     }
     if (error === undefined) {
       await traceAgentInvocationFinish(toTraceContext(context), {

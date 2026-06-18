@@ -137,6 +137,24 @@ describe("agent capability runtime", () => {
     })
   })
 
+  it("records Channel Delivery Effect Intents from capabilities", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "feedback",
+          prepare(context) {
+            context.delivery.effect({ intent: "started", kind: "reaction" })
+          },
+        }),
+      ],
+    }, runtime(), {})
+
+    expect(resolved.registries.deliveryEffectIntents).toEqual([{ intent: "started", kind: "reaction" }])
+    expect(resolved.input.context).toBeUndefined()
+  })
+
   it("rejects duplicate invocation context values", async () => {
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
 

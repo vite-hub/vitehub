@@ -495,6 +495,7 @@ function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapt
   } & Record<string, unknown>
   const callbackContext = {
     ...context.runtime,
+    actor: context.actor,
     context: context.context,
     input: context.input,
     invoker: context.invoker,
@@ -574,6 +575,7 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   const metadataContext = {
     ...runtime,
+    actor: context.actor,
     context: context.context,
     fs: context.workspace?.fs,
     invoker: context.invoker,
@@ -582,7 +584,7 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   const model = await resolveValue(options.model as never, metadataContext)
   const modelInstrumentation = execution?.instrumentation?.model
   const instrumentedModel = modelInstrumentation
-    ? await modelInstrumentation({ ...runtime, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
+    ? await modelInstrumentation({ ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
   const instructions = context.instructions
     ?? applyWorkspaceSourceInstructionSlot(
@@ -612,6 +614,7 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   const baseCallSettings = { ...(execution?.callSettings || {}) }
   const instrumentedCallSettings = await execution?.instrumentation?.callSettings?.({
     ...runtime,
+    actor: context.actor,
     callSettings: { ...baseCallSettings },
     context: context.context,
     input: context.input,

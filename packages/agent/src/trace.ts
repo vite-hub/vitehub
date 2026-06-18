@@ -3,6 +3,7 @@ import { emitTraceEvent } from "@vite-hub/runtime"
 import type { StreamEvent } from "./messages.ts"
 import type {
   AgentInvocationContextStore,
+  AgentChannelDeliveryEffectIntent,
   AgentInvoker,
   AgentRunInput,
   AgentRunMetadata,
@@ -139,6 +140,22 @@ export async function traceAgentInvocationError<TRuntimeConfig extends AgentRunt
     }),
     name: "agent.invocation.error",
     type: "error",
+  })
+}
+
+export async function traceAgentChannelDeliveryEffect<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentTraceContext<TRuntimeConfig>,
+  effect: AgentChannelDeliveryEffectIntent,
+  attributes: Record<string, unknown> = {},
+): Promise<void> {
+  await traceAgentEvent(context, {
+    attributes: invocationAttributes(context, {
+      "channel.effect.intent": effect.intent,
+      "channel.effect.kind": effect.kind,
+      ...attributes,
+    }),
+    name: "agent.channel.delivery.effect",
+    type: "run",
   })
 }
 

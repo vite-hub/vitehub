@@ -225,6 +225,66 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("exposes resolved Agent Actors alongside legacy invokers", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const prepare = vi.fn()
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [{
+        id: "seen",
+        prepare({ actor, context, invoker }) {
+          prepare({
+            actor,
+            contextActor: context.get("actor"),
+            contextInvoker: context.get("invoker"),
+            invoker,
+          })
+        },
+      }],
+      hooks: {
+        "agent:finish": finish,
+      },
+      invoker: {
+        resolve: () => ({ id: "tenant-1", kind: "tenant", meta: { tier: "pro" } }),
+      },
+      run: ({ actor, context, invoker }) => ({
+        raw: {
+          actor,
+          actorIsInvoker: actor === invoker,
+          contextActorIsActor: context.get("actor") === actor,
+          contextInvokerIsInvoker: context.get("invoker") === invoker,
+          invoker,
+        },
+        text: actor.id,
+      }),
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})).resolves.toEqual({
+      raw: {
+        actor: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
+        actorIsInvoker: true,
+        contextActorIsActor: true,
+        contextInvokerIsInvoker: true,
+        invoker: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
+      },
+      text: "tenant-1",
+    })
+    expect(prepare).toHaveBeenCalledWith({
+      actor: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
+      contextActor: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
+      contextInvoker: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
+      invoker: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
+    })
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      actor: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
+      invoker: { id: "tenant-1", kind: "tenant", meta: { tier: "pro" } },
+    }))
+  })
+
   it("emits stream milestone Trace Events without tracing text deltas", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
@@ -990,6 +1050,144 @@ describe("agent message protocol", () => {
       },
     })
     await expect(runAgentTrigger(agent, runtime, "portal.message", { text: "hello" })).resolves.toBe("channel:portal:hello")
+  })
+
+  it("lets Channels execute Capability-contributed delivery effect intents", async () => {
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const order: string[] = []
+    const effect = vi.fn((context) => {
+      order.push(`effect:${context.effect.kind}:${context.effect.intent}`)
+      expect(context.trigger).toMatchObject({ channelId: "portal", id: "portal.message", name: "message" })
+      expect(context.run).toMatchObject({ channelId: "portal", runId: "portal-run" })
+    })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "feedback",
+          prepare(context) {
+            context.delivery.effect({ intent: "started", kind: "reaction" })
+          },
+        }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reaction: effect },
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { prompt: "hello" },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+              }),
+            },
+          },
+        }),
+      },
+      run: () => {
+        order.push("run")
+        return "ok"
+      },
+    })
+    const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+
+    await expect(runAgentTrigger(agent, runtime, "portal.message", {})).resolves.toBe("ok")
+    expect(effect).toHaveBeenCalledOnce()
+    expect(order).toEqual(["effect:reaction:started", "run"])
+  })
+
+  it("ignores unsupported delivery effect intents with observer metadata", async () => {
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const observe = vi.fn()
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "feedback",
+          prepare(context) {
+            context.delivery.effect({ intent: "started", kind: "reaction" })
+          },
+        }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { prompt: "hello" },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+              }),
+            },
+          },
+        }),
+      },
+      hooks: {
+        "hook:observe": observe,
+      },
+      run: () => "ok",
+    })
+    const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+
+    await expect(runAgentTrigger(agent, runtime, "portal.message", {})).resolves.toBe("ok")
+    expect(observe).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({
+        "channel.effect.kind": "reaction",
+        "channel.effect.supported": false,
+      }),
+      name: "channel:delivery-effect",
+      outcome: "success",
+      owner: "channel",
+    }))
+  })
+
+  it("does not fail invocations when delivery effects or hook observers fail", async () => {
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "feedback",
+          prepare(context) {
+            context.delivery.effect({ intent: "started", kind: "reaction" })
+          },
+        }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          effects: {
+            reaction: () => {
+              throw new Error("reaction failed")
+            },
+          },
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { prompt: "hello" },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+              }),
+            },
+          },
+        }),
+      },
+      hooks: {
+        "hook:observe": () => {
+          throw new Error("observer failed")
+        },
+      },
+      run: () => "ok",
+    })
+    const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+
+    try {
+      await expect(runAgentTrigger(agent, runtime, "portal.message", {})).resolves.toBe("ok")
+      expect(warn).toHaveBeenCalled()
+    }
+    finally {
+      warn.mockRestore()
+    }
   })
 
   it("exposes chat webhook registration metadata through agent triggers", async () => {

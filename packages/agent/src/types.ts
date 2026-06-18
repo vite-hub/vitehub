@@ -65,6 +65,7 @@ export interface AgentInvoker<TMeta extends AgentInvokerMeta = AgentInvokerMeta>
   meta?: TMeta
 }
 
+export type AgentActor<TMeta extends AgentInvokerMeta = AgentInvokerMeta> = AgentInvoker<TMeta>
 export type AgentInvokerProfile<TMeta extends AgentInvokerMeta = AgentInvokerMeta> = AgentInvoker<TMeta>
 
 export interface AgentAccessWorkspaceScopeContext<TScopeName extends string = string> {
@@ -80,6 +81,8 @@ export interface AgentAccessInvocationContextValue<TScopeName extends string = s
 
 export interface AgentInvocationContextValues {
   access: AgentAccessInvocationContextValue
+  actor: AgentActor
+  "channel.delivery.effects": AgentChannelDeliveryEffectIntent[]
   invoker: AgentInvoker
 }
 
@@ -151,6 +154,39 @@ export interface AgentRunMetadata<TOrigin extends string = string> {
   threadId?: string
 }
 
+export type AgentChannelDeliveryEffectKind = "reaction" | "reply" | "status" | (string & {})
+
+export interface AgentChannelDeliveryEffectIntent<
+  TKind extends AgentChannelDeliveryEffectKind = AgentChannelDeliveryEffectKind,
+> {
+  intent?: string
+  kind: TKind
+  metadata?: Record<string, unknown>
+  payload?: unknown
+}
+
+export interface AgentChannelDeliveryEffectContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+> extends AgentCallbackContext<TRuntimeConfig> {
+  channel: AgentChannelDefinition<TRuntimeConfig>
+  effect: AgentChannelDeliveryEffectIntent
+  input: AgentRunInput
+  run?: AgentRunMetadata
+  trigger?: {
+    channelId: string
+    id?: string
+    name?: string
+  }
+}
+
+export type AgentChannelDeliveryEffectHandler<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+> = (context: AgentChannelDeliveryEffectContext<TRuntimeConfig>) => MaybePromise<void>
+
+export type AgentChannelDeliveryEffects<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+> = Partial<Record<AgentChannelDeliveryEffectKind, AgentChannelDeliveryEffectHandler<TRuntimeConfig> | readonly AgentChannelDeliveryEffectHandler<TRuntimeConfig>[]>>
+
 export interface AgentTriggerInvokeResult<CALL_OPTIONS = unknown> {
   input: AgentRunInput<CALL_OPTIONS>
   metadata?: Record<string, unknown>
@@ -180,6 +216,7 @@ export interface AgentTriggerContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentCallbackContext<TRuntimeConfig> {
+  actor?: AgentActor
   capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
   trigger: {
     capabilityId: string
@@ -192,6 +229,7 @@ export interface AgentTriggerContext<
 export interface AgentChannelTriggerContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 > extends AgentCallbackContext<TRuntimeConfig> {
+  actor?: AgentActor
   channel: AgentChannelDefinition<TRuntimeConfig>
   trigger: {
     channelId: string
@@ -238,6 +276,7 @@ export interface AgentRunCallbackContext<
   CALL_OPTIONS = unknown,
   TContextValues extends object = AgentInvocationContextValues,
 > extends AgentCallbackContext<TRuntimeConfig> {
+  actor: AgentActor
   context: AgentInvocationContextStore<TContextValues>
   input: AgentRunInput<CALL_OPTIONS>
   invoker: AgentInvoker
@@ -262,6 +301,7 @@ export interface AgentFinishEvent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > {
+  actor: AgentActor
   error?: unknown
   extensions: AgentInvocationExtensions
   input: AgentRunInput<CALL_OPTIONS>
@@ -286,6 +326,29 @@ export interface AgentInvocationHooks<
   "agent:finish"?: AgentFinishHook<TRuntimeConfig, CALL_OPTIONS>
 }
 
+export type AgentHookOwner = "agent" | "capability" | "channel" | "runtime" | "integration" | (string & {})
+export type AgentHookOutcome = "error" | "success"
+
+export interface AgentHookObserverEvent {
+  durationMs: number
+  error?: {
+    message: string
+    name?: string
+  }
+  ids?: Record<string, string | undefined>
+  metadata?: Record<string, unknown>
+  name: string
+  outcome: AgentHookOutcome
+  owner: AgentHookOwner
+  phase?: string
+}
+
+export type AgentHookObserver = (event: Readonly<AgentHookObserverEvent>) => MaybePromise<void>
+
+export interface AgentHookObserverHooks {
+  "hook:observe"?: AgentHookObserver | readonly AgentHookObserver[]
+}
+
 export interface AgentRunContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -293,6 +356,7 @@ export interface AgentRunContext<
   TContextValues extends object = AgentInvocationContextValues,
 > extends AgentCallbackContext<TRuntimeConfig> {
   adapter?: AgentAdapter<CALL_OPTIONS>
+  actor: AgentActor
   context: AgentInvocationContextStore<TContextValues>
   input: AgentRunInput<CALL_OPTIONS>
   invoker: AgentInvoker
@@ -392,6 +456,9 @@ export interface AgentCapabilityRuntimeContext<
     set: (input: AgentRunInput) => void
     setMessages: (messages: Message[]) => void
   }
+  delivery: {
+    effect: (intent: AgentChannelDeliveryEffectIntent) => void
+  }
   model: {
     resolve: (model?: AgentModelResolver<TRuntimeConfig, Name>) => Promise<AgentModelInput>
   }
@@ -480,6 +547,7 @@ export type AgentModelResolver<
 
 export interface AgentModelInstrumentationContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentCallbackContext<TRuntimeConfig> {
+  actor: AgentActor
   context: AgentInvocationContextStore
   invoker: AgentInvoker
   model: AgentModelInput
@@ -493,6 +561,7 @@ export interface AgentCallSettingsInstrumentationContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > extends AgentCallbackContext<TRuntimeConfig> {
+  actor: AgentActor
   callSettings: Readonly<Record<string, unknown>>
   context: AgentInvocationContextStore
   input: AgentRunInput<CALL_OPTIONS>
@@ -623,7 +692,7 @@ type AgentSharedSettings<
   capabilities?: TCapabilities
   channels?: AgentChannels<TRuntimeConfig>
   description?: string
-  hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentInvocationHooks<TRuntimeConfig>
+  hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
@@ -672,7 +741,7 @@ export interface AgentDefinition<
   channels?: AgentChannels<TRuntimeConfig>
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
-  hooks?: AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS>
+  hooks?: AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
@@ -906,6 +975,7 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
 
 export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapter?: AgentChatPlatformResolver<TRuntimeConfig>
+  effects?: AgentChannelDeliveryEffects<TRuntimeConfig>
   identity?: IdentityResolver
   kind: string
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
@@ -1090,6 +1160,7 @@ export interface AgentAdapterMetadataContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentCallbackContext<TRuntimeConfig> {
+  actor: AgentActor
   context: AgentInvocationContextStore
   fs: ReadonlyWorkspaceFacade<Name>["fs"]
   invoker: AgentInvoker
@@ -1101,6 +1172,7 @@ export interface AgentAdapterRunContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
+  actor: AgentActor
   capabilityInstructions?: AgentInstructionBlock[]
   close?: () => Promise<void>
   context: AgentInvocationContextStore

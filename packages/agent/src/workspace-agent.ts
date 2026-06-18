@@ -1048,6 +1048,7 @@ async function resolveWorkspaceMetadataCapabilityContext<
     definition: sourceResolvedDefinition || workspaceDefinition,
     metadataContext: {
       ...agentCallbackContext(runtime),
+      actor: invoker,
       context: invocationContext,
       fs: metadataWorkspace.fs,
       invoker,

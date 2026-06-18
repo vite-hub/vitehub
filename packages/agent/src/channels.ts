@@ -7,6 +7,11 @@ import type {
 import type { AgentChatFetchHandlerOptions } from "./server.ts"
 
 export type {
+  AgentChannelDeliveryEffectContext,
+  AgentChannelDeliveryEffectHandler,
+  AgentChannelDeliveryEffectIntent,
+  AgentChannelDeliveryEffectKind,
+  AgentChannelDeliveryEffects,
   AgentChannelDefinition,
   AgentChannels,
   AgentMessageChannelSettings,
@@ -14,6 +19,7 @@ export type {
 
 export interface AgentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapter?: AgentChannelDefinition<TRuntimeConfig>["adapter"]
+  effects?: AgentChannelDefinition<TRuntimeConfig>["effects"]
   identity?: AgentChannelDefinition<TRuntimeConfig>["identity"]
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   triggers?: AgentChannelDefinition<TRuntimeConfig>["triggers"]

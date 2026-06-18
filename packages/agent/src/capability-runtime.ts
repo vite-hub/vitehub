@@ -8,6 +8,7 @@ import {
   ensureAgentInvokerContext,
   resolveInputAgentInvoker,
 } from "./invoker.ts"
+import { runObservedAgentHook } from "./hooks.ts"
 import type {
   AgentAdapterInstructionsValue,
   AgentCallbackContext,
@@ -18,8 +19,10 @@ import type {
   AgentCapabilityHooks,
   AgentCapabilityMode,
   AgentCapabilityRuntimeContext,
+  AgentChannelDeliveryEffectIntent,
   AgentFinishEvent,
   AgentFinishExtensionProvider,
+  AgentHookObserverHooks,
   AgentInstructionBlock,
   AgentInvocationContextStore,
   AgentInvoker,
@@ -40,6 +43,7 @@ import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName } from
 
 type ResolvedAgentOutputRenderer = (result: unknown) => MaybePromise<unknown>
 const defaultCapabilityRuntimePhases = ["configure", "prepare", "bind", "input", "resolve", "output"] as const
+export const channelDeliveryEffectsContextKey = "channel.delivery.effects"
 type AgentCapabilityRuntimePhase = typeof defaultCapabilityRuntimePhases[number]
 
 export interface ResolvedAgentFinishExtensionProvider {
@@ -48,6 +52,7 @@ export interface ResolvedAgentFinishExtensionProvider {
 }
 
 export interface AgentCapabilityRegistries {
+  deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   outputRenderers: ResolvedAgentOutputRenderer[]
   providerTools: AgentProviderToolContribution[]
@@ -60,7 +65,7 @@ export interface AgentCapabilityOptions<
   Name extends WorkspaceName = WorkspaceName,
 > {
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig, Name>[]
-  hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
+  hooks?: AgentCapabilityHooks<TRuntimeConfig, Name> & AgentHookObserverHooks
 }
 
 export interface AgentCapabilityInvocationOptions<
@@ -176,10 +181,17 @@ async function callHooks<
 >(
   name: AgentCapabilityHookName,
   context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
-  agentHooks?: AgentCapabilityHooks<TRuntimeConfig, Name>,
+  agentHooks?: AgentCapabilityHooks<TRuntimeConfig, Name> & AgentHookObserverHooks,
 ) {
-  await context.capability.hooks?.[name]?.(context)
-  await agentHooks?.[name]?.(context)
+  await runObservedAgentHook(agentHooks, {
+    ids: { capabilityId: context.capability.id },
+    name,
+    owner: "capability",
+    phase: name.replace(/^capability:/, "").replace(/:after$/, ""),
+  }, async () => {
+    await context.capability.hooks?.[name]?.(context)
+    await agentHooks?.[name]?.(context)
+  })
 }
 
 function addInstructionBlock(
@@ -254,6 +266,7 @@ export async function resolveAgentCapabilities<
   let hasCloseWork = false
   const toolTransforms: AgentToolTransform[] = []
   const registries: AgentCapabilityRegistries = {
+    deliveryEffectIntents: [],
     finishExtensionProviders: [],
     outputRenderers: [],
     providerTools: [],
@@ -281,6 +294,7 @@ export async function resolveAgentCapabilities<
       const phases = invocationOptions.phases || defaultCapabilityRuntimePhases
       const metadataContext = {
         ...runtimeContext,
+        actor: invoker,
         context: invocationContext,
         fs: currentWorkspace?.fs,
         invoker,
@@ -313,6 +327,16 @@ export async function resolveAgentCapabilities<
           setMessages(value) {
             messages = value
             currentInput = withMessages(currentInput, messages)
+          },
+        },
+        delivery: {
+          effect(intent) {
+            if (!intent || typeof intent !== "object" || typeof intent.kind !== "string" || !intent.kind.trim()) {
+              throw new TypeError("[vitehub] delivery.effect() requires an effect intent with a non-empty kind.")
+            }
+            const next = [...registries.deliveryEffectIntents, intent]
+            registries.deliveryEffectIntents = next
+            invocationContext.set(channelDeliveryEffectsContextKey, next, { overwrite: true })
           },
         },
         model: {
@@ -374,6 +398,7 @@ export async function resolveAgentCapabilities<
           input: trigger.input,
           invoke: input => trigger.invoke({
             ...runtimeContext,
+            actor: invoker,
             capability,
             trigger: {
               capabilityId: capability.id,
@@ -460,6 +485,7 @@ export async function resolveStaticCapabilityTools<
 
     const capabilityContext = {
       ...runtimeContext,
+      actor: invoker,
       context: invocationContext,
       fs: workspace?.fs,
       invoker,
