@@ -270,6 +270,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - A **Channel** is where an **Agent Invocation** is triggered; an **Agent Actor** is who is trusted for that invocation.
 - A **Channel** may use an **Agent Trigger** to start an **Agent Invocation**, but it is not the trigger itself.
 - A **Channel** owns adapter and webhook wiring, delivery policies such as locks, dedupe, and concurrency, platform state, and Agent Actor mapping.
+- Channel webhook delivery can use generated Agent Package **Agent Webhook Routes** without making non-chat Channels message-shaped or Chat Platform Adapters.
 - A **Channel** can resolve an **Agent Actor**, but it does not own identity; Auth, trusted app routing, subagents, schedules, or fallback runtime behavior may also seed the Agent Actor.
 - **Channel Delivery Admission** belongs to the **Channel** because protocol-level delivery acceptance, rejection, and retry semantics are owned by the external surface that triggered the Agent Invocation.
 - **Channel Delivery Effects** belong to the **Channel** because they communicate delivery progress or state back on the same external surface that triggered the Agent Invocation.
@@ -280,6 +281,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - A **Custom Channel** is the root Agent Definition replacement for the old Entry Capability idea.
 - App-owned product events use **Custom Channels** when the concern is Agent reachability rather than a reusable Agent ability.
 - A **GitHub Channel** owns reusable GitHub delivery, verification, event facts, installation context, actor mapping, Channel Delivery Admission, and supported Channel Delivery Effects for triggering events; product-specific commands and artifacts stay app-owned.
+- A **GitHub Channel** trigger receives verified GitHub delivery facts from generated webhook routing; app code owns product-specific admission such as command filtering and trusted actor checks.
 - Official **Channel Kinds** should name concrete entry paths rather than a generic Chat Channel.
 - Official **Channel Kind** helpers are imported from `@vite-hub/agent/channels`, not from the Agent Package root or Capabilities entry.
 - A **Stream Channel** owns generated AI SDK UI-message stream route metadata and optional trusted input mapping for app-owned surfaces such as Portal Ask AI.
