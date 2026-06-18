@@ -116,33 +116,33 @@ function uiMessagePartsToAgentParts(message: UIMessageLike): Array<MessagePart |
     if (record.type === "text" && typeof record.text === "string") return [record.text]
     if (record.type === "audio") return uiAudioPartToAgentPart(record)
     if (record.type === "dynamic-tool" || (typeof record.type === "string" && record.type.startsWith("tool-"))) {
-      if (record.state !== "output-available" && record.state !== "output-denied" && record.output === undefined) {
+      const state = typeof record.state === "string" ? record.state : undefined
+      const errorText = typeof record.errorText === "string" ? record.errorText : undefined
+      const hasToolError = errorText !== undefined
+      const hasToolOutput = state === "output-available" || state === "output-denied" || state === "output-error" || record.output !== undefined || hasToolError
+      if (!hasToolOutput) {
         return []
       }
       const name = uiToolName(record)
       const id = uiToolId(record, name, index)
-      const state = typeof record.state === "string" ? record.state : undefined
       const call = {
         id,
         input: record.input,
         name,
-        state: state === "input-available" || state === "output-available" ? "proposed" : "running",
+        state: state === "input-available" || hasToolOutput ? "proposed" : "running",
         type: "tool-call",
       } satisfies MessagePart
-      if (state === "output-available" || state === "output-denied" || record.output !== undefined) {
-        return [
-          call,
-          {
-            id,
-            name,
-            output: record.output,
-            state: typeof record.errorText === "string" ? "failed" : "completed",
-            type: "tool-result",
-            ...(typeof record.errorText === "string" ? { error: record.errorText } : {}),
-          },
-        ]
-      }
-      return [call]
+      return [
+        call,
+        {
+          id,
+          name,
+          state: hasToolError ? "failed" : "completed",
+          type: "tool-result",
+          ...(hasToolError ? { error: errorText } : {}),
+          ...(record.output !== undefined ? { output: record.output } : {}),
+        },
+      ]
     }
     return []
   })
