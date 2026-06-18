@@ -157,7 +157,7 @@ Agent Definition settings shared by message-shaped Channels, such as Chat Histor
 _Avoid_: Channel defaults, runtime input messages, Agent Memory
 
 **Agent Actor**:
-The trusted principal for one Agent Invocation, exposed through the forward-looking `context.actor` shape with a stable `id`, optional `kind`, optional display `label`, and application-owned `meta`.
+The trusted principal for one Agent Invocation, shaped as a stable `id`, optional `kind`, optional display `label`, and application-owned `meta`. The future public callback field is `context.actor`; current code exposes the same identity through legacy `context.invoker`.
 _Avoid_: Auth User, Channel, Agent Trigger, Access Role, Chat Platform Caller Facts, model-facing user profile
 
 **Agent Invoker**:
@@ -308,7 +308,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - Message-shaped **Channels** can require state for **Chat History** through the Agent State Provider.
 - Every **Agent Invocation** has an **Agent Actor**; when no trusted identity is supplied, ViteHub provides an origin-specific anonymous fallback.
 - Message-shaped **Channels** can produce an **Agent Actor** from trusted Chat Platform Adapter identity before later Capabilities resolve.
-- **Agent Actor** is the forward-looking `context.actor` identity; legacy APIs expose the same identity through `context.invoker` and the `invoker` Agent Invocation Context Value.
+- **Agent Actor** is the trusted identity concept; current code exposes it through `context.invoker` and the `invoker` Agent Invocation Context Value until the `context.actor` API lands.
 - **Agent Actor** resolution may read **Agent Run Origin** from first-class run metadata, but concrete authorization effects should flow through the resolved **Agent Actor** rather than branching on origin later.
 - **Agent Invoker Profiles** are static objects in the first version.
 - **Agent Invoker Profile** ids must be unique per Agent Definition.
@@ -348,7 +348,7 @@ _Avoid_: Fake agent, dummy model, test bot
 > **Domain expert:** "No. Read it as an **Agent Invocation Context Value** produced by a Pre-Invocation Decision."
 >
 > **Dev:** "Should we put customer, staff, and technical-user branching into both `access()` and prompt instructions?"
-> **Domain expert:** "Keep the shared facts on the **Agent Actor**. Let `access()` map `context.actor` to Workspace Scope, and let any prompt Capability or instruction callback read the same actor metadata for model-facing text."
+> **Domain expert:** "Keep the shared facts on the **Agent Actor**. Let `access()` map the resolved identity to Workspace Scope, and let any prompt Capability or instruction callback read the same actor metadata for model-facing text. In current code, that identity is `context.invoker`."
 >
 > **Dev:** "Is a new Chat Session the same as Agent Memory reset?"
 > **Domain expert:** "No. A **Chat Session** changes which Chat History messages enter the Chat History Window; **Agent Memory** is durable knowledge across invocations."

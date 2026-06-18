@@ -266,7 +266,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - An **Access Capability** can apply **Workspace Scope** to narrow an already-declared Workspace.
 - An **Access Capability** can record the active Workspace Scope as an Agent Invocation Context Value for later callbacks and instructions.
 - An **Access Capability** owns both Workspace Scope selection and application, but keeps resolver logic separate from grants.
-- An **Access Capability** may consume `context.actor` to select Workspace Scope without owning actor resolution; current code may expose the same identity through legacy `context.invoker`.
+- An **Access Capability** may consume the resolved Agent Actor to select Workspace Scope without owning actor resolution; current code exposes that identity through legacy `context.invoker` until `context.actor` lands.
 - An **Access Capability** may consume normalized chat identity and request context from a chat **Channel** without repeating Channel origins in Access configuration.
 - An **Access Capability** can use static named Workspace Scopes or an inline Workspace Scope definition returned by its resolver.
 - An **Access Capability** must be ordered before other Capabilities so invocation access is applied before they read scoped runtime surfaces or expose tools.
