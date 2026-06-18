@@ -127,6 +127,7 @@ export interface AgentRunInput<
 > {
   abortSignal?: AbortSignal
   context?: TContext
+  message?: string | Message
   messages?: Message[]
   options?: CALL_OPTIONS
   prompt?: string | Message[]
@@ -317,6 +318,7 @@ export interface AgentCapabilityContext<
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
   mode?: AgentCapabilityMode
+  runtimeContext?: ResolvedAgentRuntimeContext
   workspaceDefinition?: WorkspaceDefinition
 }
 
