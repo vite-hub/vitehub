@@ -63,6 +63,7 @@ _Avoid_: Dummy bot, fake chat, mock page
 - Hosted delivery is the default behavior for the **ViteHub DevTools Client**.
 - Embedded DevTools client delivery is not a public integration mode.
 - A **DevTools Demo Agent** may exercise **Chat History**, tool-call visibility, and bridge behavior without being a production **Agent**.
+- A **DevTools Feature** may present run and step inspection views derived from the Runtime Package **Trace Event Log**; it does not own the telemetry source.
 
 ## Example Dialogue
 

@@ -13,12 +13,64 @@ export interface TraceContext {
   sampled?: boolean
 }
 
+export type TraceEventContentPolicy = "content" | "metadata"
+export type TraceRunStatus = "completed" | "failed" | "running"
+export type TraceStepStatus = "completed" | "failed" | "running"
+
 export interface TraceEvent {
   attributes?: Record<string, unknown>
   name: string
   timestamp?: Date | string
   trace?: TraceContext
   type: "approval" | "capability" | "error" | "lifecycle" | "policy" | "run"
+}
+
+export interface TraceEventLogEntry extends TraceEvent {
+  sequence: number
+  timestamp: string
+}
+
+export interface TraceEventLog {
+  append(event: TraceEvent): MaybePromise<TraceEventLogEntry>
+  entries(): readonly TraceEventLogEntry[]
+}
+
+export interface TraceEventLogOptions {
+  content?: TraceEventContentPolicy
+  onEntry?: (entry: TraceEventLogEntry) => MaybePromise<void>
+}
+
+export interface TraceStepView {
+  attributes?: Record<string, unknown>
+  durationMs?: number
+  endTime?: string
+  events: TraceEventLogEntry[]
+  id: string
+  name: string
+  startTime: string
+  status: TraceStepStatus
+  type: TraceEvent["type"]
+}
+
+export interface TraceRunView {
+  durationMs?: number
+  endTime?: string
+  events: TraceEventLogEntry[]
+  id: string
+  startTime: string
+  status: TraceRunStatus
+  steps: TraceStepView[]
+}
+
+export interface OpenTelemetrySpanView {
+  attributes?: Record<string, unknown>
+  endTime?: string
+  name: string
+  parentSpanId?: string
+  spanId: string
+  startTime: string
+  status: { code: "ERROR" | "OK", message?: string }
+  traceId: string
 }
 
 export interface RuntimeHostContext<TRuntimeConfig = Record<string, unknown>> {
@@ -35,6 +87,7 @@ export interface RuntimeHostContext<TRuntimeConfig = Record<string, unknown>> {
   runtime: string
   runtimeConfig?: TRuntimeConfig
   trace?: TraceContext
+  traceLog?: TraceEventLog
   vercel?: {
     waitUntil?: RuntimeWaitUntil
   }
@@ -113,6 +166,270 @@ export interface RunLifecycleHooks<TContext extends RuntimeHostContext<any> = Ru
   finish?: (context: TContext) => MaybePromise<void>
   request?: (context: TContext) => MaybePromise<void>
   trace?: (event: TraceEvent, context: TContext) => MaybePromise<void>
+}
+
+const contentAttributeKeys = new Set([
+  "args",
+  "body",
+  "content",
+  "data",
+  "input",
+  "message",
+  "messages",
+  "output",
+  "payload",
+  "prompt",
+  "raw",
+  "request",
+  "response",
+  "result",
+  "text",
+])
+
+function isContentAttributeKey(key: string): boolean {
+  if (key === "error.message") return false
+  if (contentAttributeKeys.has(key)) return true
+  return key.split(".").some((part, index) => index > 0 && contentAttributeKeys.has(part))
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype)
+}
+
+function metadataValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(metadataValue)
+  if (!isPlainRecord(value)) return value
+  const omitted: string[] = []
+  const next = Object.fromEntries(Object.entries(value).flatMap(([key, child]) => {
+    if (isContentAttributeKey(key)) {
+      omitted.push(key)
+      return []
+    }
+    return [[key, metadataValue(child)]]
+  }))
+  if (omitted.length) next["content.omitted"] = omitted
+  return next
+}
+
+function timestamp(value: Date | string | undefined): string {
+  if (value instanceof Date) return value.toISOString()
+  if (typeof value === "string") return value
+  return new Date().toISOString()
+}
+
+function metadataAttributes(attributes: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!attributes) return undefined
+  const omitted: string[] = []
+  const next = Object.fromEntries(Object.entries(attributes).flatMap(([key, value]) => {
+    if (isContentAttributeKey(key)) {
+      omitted.push(key)
+      return []
+    }
+    return [[key, metadataValue(value)]]
+  }))
+  if (omitted.length) next["content.omitted"] = omitted
+  return Object.keys(next).length ? next : undefined
+}
+
+function normalizeTraceEvent(event: TraceEvent, sequence: number, content: TraceEventContentPolicy): TraceEventLogEntry {
+  return {
+    ...event,
+    ...(content === "metadata" ? { attributes: metadataAttributes(event.attributes) } : {}),
+    sequence,
+    timestamp: timestamp(event.timestamp),
+  }
+}
+
+export async function emitTraceEvent<TContext extends RuntimeHostContext<any>>(
+  context: TContext,
+  event: TraceEvent,
+): Promise<TraceEventLogEntry | undefined> {
+  return await context.traceLog?.append({
+    ...event,
+    trace: event.trace || context.trace,
+  })
+}
+
+export function createTraceEventLog(options: TraceEventLogOptions = {}): TraceEventLog {
+  const content = options.content || "metadata"
+  const entries: TraceEventLogEntry[] = []
+  return {
+    async append(event) {
+      const entry = normalizeTraceEvent(event, entries.length + 1, content)
+      entries.push(entry)
+      await options.onEntry?.(entry)
+      return entry
+    },
+    entries() {
+      return entries.slice()
+    },
+  }
+}
+
+function millis(value: string): number {
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function durationMs(startTime: string, endTime: string | undefined): number | undefined {
+  if (!endTime) return undefined
+  const duration = millis(endTime) - millis(startTime)
+  return Number.isFinite(duration) && duration >= 0 ? duration : undefined
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === "string" && value.length > 0)
+}
+
+function runId(event: TraceEventLogEntry): string {
+  return firstString(event.attributes?.["agent.run.id"], event.attributes?.["run.id"], event.attributes?.runId, event.trace?.id) || "default"
+}
+
+function stepId(event: TraceEventLogEntry): string | undefined {
+  return firstString(
+    event.attributes?.["step.id"],
+    event.attributes?.["tool.id"],
+    event.attributes?.["approval.id"],
+    event.attributes?.["model.call.id"],
+  )
+}
+
+function stepStatus(event: TraceEventLogEntry): TraceStepStatus {
+  return event.type === "error" || event.name.endsWith(".error") ? "failed" : event.name.endsWith(".start") || event.name.endsWith(".request") ? "running" : "completed"
+}
+
+function isTraceRunFinish(event: TraceEventLogEntry): boolean {
+  return event.name === "agent.invocation.finish" || event.name === "run.finish"
+}
+
+function isTraceRunError(event: TraceEventLogEntry): boolean {
+  return event.name === "agent.invocation.error" || event.name === "agent.stream.error" || event.name === "run.error"
+}
+
+export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunView[] {
+  const groups = new Map<string, TraceEventLogEntry[]>()
+  for (const event of events) {
+    const id = runId(event)
+    groups.set(id, [...(groups.get(id) || []), event])
+  }
+
+  return [...groups.entries()].map(([id, group]) => {
+    const sorted = group.slice().sort((a, b) => a.sequence - b.sequence)
+    const first = sorted[0]!
+    const steps = new Map<string, TraceStepView>()
+    for (const event of sorted) {
+      const id = stepId(event)
+      if (!id) continue
+      const existing = steps.get(id)
+      const status = stepStatus(event)
+      if (!existing) {
+        steps.set(id, {
+          attributes: event.attributes,
+          endTime: status === "running" ? undefined : event.timestamp,
+          events: [event],
+          id,
+          name: event.name.replace(/\.(start|finish|end|error|request|decision|recorded)$/, ""),
+          startTime: event.timestamp,
+          status,
+          type: event.type,
+        })
+        continue
+      }
+      existing.events.push(event)
+      existing.attributes = { ...existing.attributes, ...event.attributes }
+      if (status !== "running") {
+        existing.endTime = event.timestamp
+        existing.status = status
+        existing.durationMs = durationMs(existing.startTime, existing.endTime)
+      }
+    }
+
+    const terminal = sorted.slice().reverse().find(event => isTraceRunError(event) || isTraceRunFinish(event))
+    const status: TraceRunStatus = sorted.some(isTraceRunError)
+      ? "failed"
+      : terminal
+        ? "completed"
+        : "running"
+    const endTime = status === "running" ? undefined : terminal?.timestamp
+    return {
+      durationMs: durationMs(first.timestamp, endTime),
+      endTime,
+      events: sorted,
+      id,
+      startTime: first.timestamp,
+      status,
+      steps: [...steps.values()],
+    }
+  })
+}
+
+function traceRunTraceId(run: TraceRunView): string {
+  return firstString(...run.events.map(event => event.trace?.id), run.id) || run.id
+}
+
+function traceRunParentId(run: TraceRunView): string | undefined {
+  return firstString(...run.events.map(event => event.trace?.parentId))
+}
+
+function isOpenTelemetryId(value: string, length: number): boolean {
+  return value.length === length && /^[0-9a-f]+$/.test(value)
+}
+
+function openTelemetryId(value: string, length: 16 | 32): string {
+  const normalized = value.toLowerCase()
+  if (isOpenTelemetryId(normalized, length)) return normalized
+  let output = ""
+  for (let seed = 0; output.length < length; seed += 1) {
+    let hash = 2166136261
+    const input = `${value}:${seed}`
+    for (let index = 0; index < input.length; index += 1) {
+      hash ^= input.charCodeAt(index)
+      hash = Math.imul(hash, 16777619)
+    }
+    output += (hash >>> 0).toString(16).padStart(8, "0")
+  }
+  const id = output.slice(0, length)
+  return /^0+$/.test(id) ? `1${id.slice(1)}` : id
+}
+
+export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEntry>): OpenTelemetrySpanView[] {
+  return deriveTraceRuns(events).flatMap((run) => {
+    const rawParentSpanId = traceRunParentId(run)
+    const rawTraceId = traceRunTraceId(run)
+    const parentSpanId = rawParentSpanId ? openTelemetryId(rawParentSpanId, 16) : undefined
+    const spanId = openTelemetryId(run.id, 16)
+    const traceId = openTelemetryId(rawTraceId, 32)
+    return [
+      {
+        attributes: {
+          "vitehub.run.id": run.id,
+          ...(rawParentSpanId ? { "vitehub.trace.parentId": rawParentSpanId } : {}),
+          "vitehub.trace.id": rawTraceId,
+        },
+        endTime: run.endTime,
+        name: "vitehub.run",
+        ...(parentSpanId ? { parentSpanId } : {}),
+        spanId,
+        startTime: run.startTime,
+        status: { code: run.status === "failed" ? "ERROR" : "OK" },
+        traceId,
+      } satisfies OpenTelemetrySpanView,
+      ...run.steps.map(step => ({
+        attributes: {
+          ...step.attributes,
+          "vitehub.run.id": run.id,
+          "vitehub.step.id": step.id,
+        },
+        endTime: step.endTime,
+        name: step.name,
+        parentSpanId: spanId,
+        spanId: openTelemetryId(`${run.id}:${step.id}`, 16),
+        startTime: step.startTime,
+        status: { code: step.status === "failed" ? "ERROR" : "OK" } as const,
+        traceId,
+      })),
+    ]
+  })
 }
 
 export interface Lease {

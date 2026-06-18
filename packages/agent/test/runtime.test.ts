@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
+import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/runtime"
 import { chat, chatTitle, schedule, subagents } from "../src/capabilities.ts"
 
 const harnessAgentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
@@ -47,6 +48,327 @@ describe("agent message protocol", () => {
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       prompt: "hello",
     }))
+  })
+
+  it("emits invocation Trace Events without persisting prompt content", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, { prompt: "secret prompt" })).resolves.toBe("ok")
+
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.invocation.finish",
+    ])
+    expect(traceLog.entries()[0]!.attributes).toMatchObject({
+      "input.hasPrompt": true,
+      "runtime.name": "unknown",
+    })
+    expect(JSON.stringify(traceLog.entries())).not.toContain("secret prompt")
+  })
+
+  it("records a failed invocation when Agent Finish Hooks fail", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: { run: () => "ok" },
+      hooks: {
+        "agent:finish": () => {
+          throw new Error("finish failed")
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow("finish failed")
+
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.invocation.error",
+    ])
+    expect(traceLog.entries()[1]!.attributes).toMatchObject({
+      "error.message": "finish failed",
+    })
+  })
+
+  it("records a failed invocation when failure cleanup also fails", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: {
+        run: () => {
+          throw new Error("run failed")
+        },
+      },
+      hooks: {
+        "agent:finish": () => {
+          throw new Error("finish failed")
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow("Agent run failed")
+
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.invocation.error",
+    ])
+    expect(deriveTraceRuns(traceLog.entries())).toMatchObject([
+      { status: "failed" },
+    ])
+  })
+
+  it("keeps custom Trace Events in the synthesized invocation trace", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: {
+        run: async context => {
+          await emitTraceEvent(context, {
+            attributes: { "step.id": "custom-step" },
+            name: "agent.custom.step",
+            type: "run",
+          })
+          return "ok"
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).resolves.toBe("ok")
+
+    expect(new Set(traceLog.entries().map(event => event.trace?.id)).size).toBe(1)
+    expect(deriveTraceRuns(traceLog.entries())).toHaveLength(1)
+  })
+
+  it("records setup failures before invocation start", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: { run: () => "ok" },
+      invoker: {
+        resolve: () => {
+          throw new Error("setup failed")
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow("setup failed")
+
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.error",
+    ])
+    expect(traceLog.entries()[0]!.attributes).toMatchObject({
+      "agent.invoker.kind": "anonymous",
+      "error.message": "setup failed",
+    })
+  })
+
+  it("preserves resolved invokers in setup failure Trace Events", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "setup",
+          resolve() {
+            throw new Error("capability setup failed")
+          },
+        }),
+      ],
+      driver: { run: () => "ok" },
+      invoker: {
+        resolve: () => ({ id: "tenant-1", kind: "tenant" }),
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow("capability setup failed")
+
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.error",
+    ])
+    expect(traceLog.entries()[0]!.attributes).toMatchObject({
+      "agent.invoker.id": "tenant-1",
+      "agent.invoker.kind": "tenant",
+      "error.message": "capability setup failed",
+    })
+  })
+
+  it("emits stream milestone Trace Events without tracing text deltas", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      run: () => (async function* () {
+        yield { text: "secret text", type: "text-delta" }
+        yield { id: "tool-1", input: { query: "secret" }, name: "search", type: "tool-call" }
+        yield { id: "tool-1", name: "search", output: { result: "secret" }, type: "tool-result" }
+        yield { type: "usage", usageRecord: { usage: { totalTokens: 3 } } }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-1" },
+      runtime: "unknown",
+      trace: { id: "request-1" },
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.tool.start",
+      "agent.tool.finish",
+      "agent.usage.recorded",
+      "agent.stream.finish",
+      "agent.invocation.finish",
+    ])
+    expect(new Set(traceLog.entries().map(event => event.attributes?.["agent.run.id"]))).toEqual(new Set(["run-1"]))
+    expect(new Set(traceLog.entries().map(event => event.trace?.id))).toEqual(new Set(["request-1"]))
+    expect(deriveTraceRuns(traceLog.entries()).map(run => run.id)).toEqual(["run-1"])
+    expect(JSON.stringify(traceLog.entries())).not.toContain("secret text")
+    expect(JSON.stringify(traceLog.entries())).not.toContain("secret")
+  })
+
+  it("derives yielded stream error Trace Events as failed runs", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      run: () => (async function* () {
+        yield { error: "stream failed", type: "error" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})
+    const events = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { error: "stream failed", type: "error" },
+      { type: "finish" },
+    ])
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.stream.error",
+      "agent.stream.finish",
+      "agent.invocation.finish",
+    ])
+    expect(deriveTraceRuns(traceLog.entries())).toMatchObject([
+      { status: "failed" },
+    ])
+  })
+
+  it("adds safe AI SDK telemetry for traced model-backed agents", async () => {
+    const aiGlobal = globalThis as typeof globalThis & { AI_SDK_TELEMETRY_INTEGRATIONS?: unknown[] }
+    const previousGlobalTelemetry = aiGlobal.AI_SDK_TELEMETRY_INTEGRATIONS
+    const globalIntegration = { onStart: vi.fn() }
+    const agentSettings: Record<string, unknown>[] = []
+    aiGlobal.AI_SDK_TELEMETRY_INTEGRATIONS = [globalIntegration]
+    vi.doMock("ai", () => ({
+      ToolLoopAgent: class {
+        settings: Record<string, unknown>
+
+        constructor(settings: Record<string, unknown>) {
+          this.settings = settings
+          agentSettings.push(settings)
+        }
+
+        async generate() {
+          const telemetry = this.settings.telemetry as { integrations: Array<Record<string, (event: unknown) => Promise<void>>> }
+          const viteHubTelemetry = telemetry.integrations.at(-1)!
+          await viteHubTelemetry.onToolExecutionStart?.({
+            toolCall: { toolCallId: "call-1", toolName: "search" },
+          })
+          await viteHubTelemetry.onToolExecutionEnd?.({
+            toolCall: { toolCallId: "call-1", toolName: "search" },
+            toolOutput: { error: new Error("lookup failed"), type: "tool-error" },
+          })
+          return { finishReason: "stop", text: "ok" }
+        }
+
+        async stream() {
+          return await this.generate()
+        }
+      },
+      stepCountIs: () => () => false,
+    }))
+
+    try {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const traceLog = createTraceEventLog()
+      const agent = defineAgent({ model: {} as never })
+
+      await expect(runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "unknown",
+        traceLog,
+        waitUntil: vi.fn(),
+      }, {})).resolves.toMatchObject({ finishReason: "stop", text: "ok" })
+
+      const telemetry = agentSettings[0]!.telemetry as { integrations: unknown[], recordInputs: boolean, recordOutputs: boolean }
+      expect(agentSettings[0]!.experimental_telemetry).toBe(telemetry)
+      expect(telemetry.integrations[0]).toBe(globalIntegration)
+      expect(telemetry.recordInputs).toBe(false)
+      expect(telemetry.recordOutputs).toBe(false)
+      expect(traceLog.entries().map(event => event.name)).toEqual([
+        "agent.invocation.start",
+        "agent.tool.start",
+        "agent.tool.error",
+        "agent.invocation.finish",
+      ])
+      expect(traceLog.entries().find(event => event.name === "agent.tool.error")?.attributes).toMatchObject({
+        "error.message": "lookup failed",
+        "step.id": "call-1",
+        "tool.id": "call-1",
+        "tool.name": "search",
+      })
+    }
+    finally {
+      if (previousGlobalTelemetry === undefined) delete aiGlobal.AI_SDK_TELEMETRY_INTEGRATIONS
+      else aiGlobal.AI_SDK_TELEMETRY_INTEGRATIONS = previousGlobalTelemetry
+      vi.doUnmock("ai")
+    }
   })
 
   it("runs agents with an initial message and structured context", async () => {
@@ -1333,6 +1655,118 @@ describe("agent message protocol", () => {
     expect(messages.at(-1)?.parts).toEqual([
       { providerMetadata: undefined, state: "done", text: "answer", type: "text" },
     ])
+  })
+
+  it("traces fullStream results when UI message streams are requested", async () => {
+    const { createUIMessageStream, readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      run: () => ({
+        fullStream: (async function* () {
+          yield { input: { query: "users" }, toolCallId: "tool-1", toolName: "search", type: "tool-call" }
+          yield { output: "42", toolCallId: "tool-1", toolName: "search", type: "tool-result" }
+          yield { finishReason: "stop", type: "finish" }
+        })(),
+        toUIMessageStream() {
+          return createUIMessageStream({
+            execute({ writer }) {
+              writer.write({ type: "start", messageId: "assistant-1" })
+              writer.write({ type: "text-start", id: "text-1" })
+              writer.write({ type: "text-delta", id: "text-1", delta: "native answer" })
+              writer.write({ type: "text-end", id: "text-1" })
+              writer.write({ input: { query: "users" }, toolCallId: "tool-1", toolName: "search", type: "tool-input-available" })
+              writer.write({ output: "42", toolCallId: "tool-1", type: "tool-output-available" })
+              writer.write({ type: "finish", finishReason: "stop" })
+            },
+          })
+        },
+      }),
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-1" },
+      runtime: "unknown",
+      trace: { id: "request-1" },
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {
+      messages: [createMessage({ role: "user", text: "Explain availability" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(messages.at(-1)?.parts).toContainEqual(expect.objectContaining({
+      text: "native answer",
+      type: "text",
+    }))
+    expect(messages.at(-1)?.parts.some(part => part.type === "tool-search")).toBe(true)
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.tool.start",
+      "agent.tool.finish",
+      "agent.stream.finish",
+      "agent.invocation.finish",
+    ])
+    expect(deriveTraceRuns(traceLog.entries()).map(run => run.id)).toEqual(["run-1"])
+  })
+
+  it("does not drain traced UI message streams ahead of the caller", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    let pulls = 0
+    let cancelReason: unknown
+    let releaseBlockedPull: (() => void) | undefined
+    const agent = defineAgent({
+      run: () => ({
+        fullStream: (async function* () {
+          yield { type: "finish" }
+        })(),
+        toUIMessageStream() {
+          return new ReadableStream({
+            pull(controller) {
+              pulls += 1
+              if (pulls === 1) {
+                controller.enqueue({ type: "start", messageId: "assistant-1" })
+                return
+              }
+              return new Promise<void>((resolve) => {
+                releaseBlockedPull = resolve
+              })
+            },
+            cancel(reason) {
+              cancelReason = reason
+              releaseBlockedPull?.()
+            },
+          })
+        },
+      }),
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-1" },
+      runtime: "unknown",
+      trace: { id: "request-1" },
+      traceLog: createTraceEventLog(),
+      waitUntil: vi.fn(),
+    }, {
+      messages: [createMessage({ role: "user", text: "Explain availability" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(pulls).toBeLessThanOrEqual(2)
+    const cancelResult = await Promise.race([
+      stream.cancel("client disconnected").then(() => "cancelled"),
+      new Promise(resolve => setTimeout(() => resolve("timeout"), 50)),
+    ])
+    releaseBlockedPull?.()
+
+    expect(cancelResult).toBe("cancelled")
+    expect(cancelReason).toBe("client disconnected")
   })
 
   it("emits one chat title data part when async event streams become UI message streams", async () => {

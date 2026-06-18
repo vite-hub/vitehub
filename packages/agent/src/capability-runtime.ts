@@ -251,6 +251,7 @@ export async function resolveAgentCapabilities<
   let tools: AgentToolSet | undefined
   const capabilityInstructions: AgentInstructionBlock[] = []
   const closeCallbacks: Array<() => MaybePromise<void>> = []
+  let hasCloseWork = false
   const toolTransforms: AgentToolTransform[] = []
   const registries: AgentCapabilityRegistries = {
     finishExtensionProviders: [],
@@ -385,11 +386,14 @@ export async function resolveAgentCapabilities<
         })
       }
 
-      closeCallbacks.push(async () => {
-        await callHooks("capability:close", capabilityContext, options?.hooks)
-        await capability.close?.(capabilityContext)
-        await callHooks("capability:close:after", capabilityContext, options?.hooks)
-      })
+      if (capability.close || options?.hooks?.["capability:close"] || options?.hooks?.["capability:close:after"]) {
+        hasCloseWork = true
+        closeCallbacks.push(async () => {
+          await callHooks("capability:close", capabilityContext, options?.hooks)
+          await capability.close?.(capabilityContext)
+          await callHooks("capability:close:after", capabilityContext, options?.hooks)
+        })
+      }
 
       for (const phase of phases) {
         await callHooks(`capability:${phase}`, capabilityContext, options?.hooks)
@@ -422,7 +426,7 @@ export async function resolveAgentCapabilities<
   return {
     capabilityInstructions,
     close: closeRegisteredCallbacks,
-    hasCloseCallbacks: closeCallbacks.length > 0,
+    hasCloseCallbacks: hasCloseWork,
     input: currentInput,
     messages,
     registries,

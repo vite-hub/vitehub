@@ -139,6 +139,27 @@ describe("chat message trigger input", () => {
     ])
   })
 
+  it("preserves failed UI tool calls", () => {
+    const result = createChatMessageTriggerInput({}, {
+      messages: [{
+        parts: [{
+          errorText: "lookup failed",
+          input: { query: "users" },
+          state: "output-error",
+          toolCallId: "tool-1",
+          toolName: "search",
+          type: "dynamic-tool",
+        }],
+        role: "assistant",
+      }],
+    })
+
+    expect(result.input.messages?.[0]?.parts).toEqual([
+      { id: "tool-1", input: { query: "users" }, name: "search", state: "proposed", type: "tool-call" },
+      { error: "lookup failed", id: "tool-1", name: "search", state: "failed", type: "tool-result" },
+    ])
+  })
+
   it("drops incomplete UI tool calls from follow-up history", () => {
     const result = createChatMessageTriggerInput({}, {
       messages: [
