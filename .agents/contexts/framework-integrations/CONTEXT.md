@@ -24,6 +24,10 @@ _Avoid_: Nitro module, runtime client
 A Vite Integration that composes package-owned Vite Integrations behind one explicit app config entry while preserving per-package enablement and Integration Options.
 _Avoid_: App workaround plugin, magic setup, framework module
 
+**Vite Development Server**:
+The Vite-owned local development server that ViteHub integrations may extend.
+_Avoid_: ViteHub dev server, Agent runtime, DevTools server
+
 **Runtime Registry**:
 A generated module that maps discovered names to lazy-loaded Definitions.
 _Avoid_: Definition list, route table
@@ -80,6 +84,7 @@ _Avoid_: Virtual module path, generated file path, framework import path
 - **Discovery Identity** is the framework discovery rule for all package-owned Discovered Definitions, not a package-specific rule.
 - A **Vite Integration** can discover Definitions and generate Provider Output.
 - A **Preset Vite Integration** can compose multiple package-owned **Vite Integrations**.
+- A **Vite Integration** can extend the **Vite Development Server**, but ViteHub does not own a separate development server.
 - A **Runtime Registry** contains Discovered Definitions.
 - **Integration Options** are resolved into Runtime Config when runtime code needs them.
 - **Definition Options** travel with one Definition.
@@ -106,6 +111,7 @@ _Avoid_: Virtual module path, generated file path, framework import path
 
 - "composable" was used for runtime calls - resolved: use **Runtime Helper** unless referring to a Nuxt or Vue composable.
 - Framework behavior was considered part of Definitions - resolved: Definitions stay portable; public framework behavior belongs to **Vite Integration**, and provider-specific wiring belongs to **Provider Output** or package-owned runtime helpers.
+- "ViteHub dev server" was considered as shorthand - resolved: use **Vite Development Server** for Vite's local server with ViteHub integration behavior installed.
 - Provider fields were considered runtime-call options - resolved: use **Provider Selection** for provider choices that affect generated output or deployment binding.
 - Framework virtual modules and generated file paths were treated as app-facing imports - resolved: use **Stable ViteHub Import Path** for app-facing imports, with framework-specific paths kept as integration details unless an ADR makes them public.
 - Inline Definition Options were considered valid sources for discovered names - resolved: use **Discovery Identity** from discovery location instead.

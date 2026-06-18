@@ -16,6 +16,7 @@ export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   input?: AgentRunInput<CALL_OPTIONS>
   run?: AgentRunMetadata
   runtime?: AgentRuntimeName
+  runtimeConfig?: AgentRuntimeConfig
 }
 
 export type AgentWorkflowRunner = (
@@ -52,6 +53,7 @@ export async function runAgentWorkflowDefinition<
       ? { run: payload.run || { origin: `workflow:${context.provider}`, runId: context.id! } }
       : {}),
     runtime: payload.runtime || agentRuntimeFromWorkflowProvider(context.provider),
+    runtimeConfig: (payload.runtimeConfig || {}) as TRuntimeConfig,
     waitUntil,
   } as never)
 

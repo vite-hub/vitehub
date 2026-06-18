@@ -41,7 +41,13 @@ export {
   schedule,
 } from "./schedule.ts"
 export {
+  subagents,
+} from "./subagents.ts"
+export {
   skills,
+} from "./skills.ts"
+export type {
+  SkillsCapabilityOptions,
 } from "./skills.ts"
 export {
   audioBytes,
@@ -192,6 +198,11 @@ export type {
   RuntimeScheduleCapabilityOptions,
   ScheduleCapabilityToolPolicy,
 } from "./schedule.ts"
+export type {
+  SubagentDefinition,
+  SubagentsOptions,
+  SubagentToolInput,
+} from "./subagents.ts"
 export type {
   TranscribeArtifactTemplateInput,
   TranscribeArtifactsOptions,

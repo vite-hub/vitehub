@@ -127,6 +127,7 @@ export interface AgentRunInput<
 > {
   abortSignal?: AbortSignal
   context?: TContext
+  message?: string | Message
   messages?: Message[]
   options?: CALL_OPTIONS
   prompt?: string | Message[]
@@ -317,6 +318,7 @@ export interface AgentCapabilityContext<
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
   mode?: AgentCapabilityMode
+  runtimeContext?: ResolvedAgentRuntimeContext
   workspaceDefinition?: WorkspaceDefinition
 }
 
@@ -713,6 +715,18 @@ export interface AgentEvalOptions {
 
 export type AgentCliOptions = Record<never, never>
 
+export type AgentRouteOption = boolean | string
+
+export interface AgentRoutesOptions {
+  chat?: AgentRouteOption
+  webhooks?: AgentRouteOption
+}
+
+export interface ResolvedAgentRoutesOptions {
+  chat: false | string
+  webhooks: false | string
+}
+
 export interface AgentModuleOptions {
   cli?: false | AgentCliOptions
   devtools?: false | { meta?: Record<string, unknown> }
@@ -721,8 +735,8 @@ export interface AgentModuleOptions {
   imports?: boolean
   integrations?: AgentIntegrationsOptions
   providers?: AgentProvidersOptions
+  routes?: AgentRoutesOptions
   runtime?: AgentRuntime
-  webhooks?: boolean | string
 }
 
 export interface ResolvedAgentModuleOptions {
@@ -734,8 +748,8 @@ export interface ResolvedAgentModuleOptions {
     scheduler: Required<AgentSchedulerProviderOptions>
     state: ResolvedAgentStateProviderOptions
   }
+  routes: ResolvedAgentRoutesOptions
   runtime: AgentRuntime
-  webhooks: false | string
 }
 
 export interface AgentHandlerOptions<TRuntimeContext extends AgentRuntimeContext = AgentRuntimeContext> {

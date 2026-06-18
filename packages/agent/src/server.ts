@@ -11,6 +11,7 @@ import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "./invoker.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
 import { toHttpErrorResponse } from "./http-error.ts"
+import { createChatDevtoolsStreamResponse } from "./chat/devtools-stream.ts"
 
 import type { AgentChatMessageTriggerInput } from "./chat-trigger.ts"
 import type {
@@ -30,6 +31,7 @@ import type {
   AgentRuntimeName,
   AgentWaitUntil,
   AgentWebhookRegistrationDefinition,
+  MaybePromise,
   MaybeResolvable,
 } from "./types.ts"
 import type { AudioData, MessagePart } from "./messages.ts"
@@ -40,7 +42,6 @@ import type {
   ChatDevtoolsMetadata,
   ChatDevtoolsMetadataStatus,
   ChatDevtoolsStateResult,
-  ChatDevtoolsStreamEvent,
 } from "@vite-hub/devtools/chat-shared"
 import type { WorkspaceName } from "@vite-hub/workspace"
 import type { Adapter, Attachment, ChatConfig, Lock, Message as ChatSdkMessage, MessageContext, QueueEntry, StateAdapter, Thread, WebhookOptions } from "chat"
@@ -71,6 +72,21 @@ interface AgentRouteRuntimeOptions {
 export interface AgentChatWebhookFetchOptions extends AgentRouteRuntimeOptions {
   agentName?: string
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
+}
+
+export interface AgentChatFetchOptions extends AgentRouteRuntimeOptions {
+  agentName?: string
+}
+
+export interface AgentChatFetchMapInputContext {
+  agentName: string
+  body: AgentChatFetchBody
+  input: AgentChatMessageTriggerInput
+  request: Request
+}
+
+export interface AgentChatFetchHandlerOptions {
+  mapInput?: (context: AgentChatFetchMapInputContext) => MaybePromise<Partial<AgentChatMessageTriggerInput> | undefined | void>
 }
 
 export interface RegisterWorkspaceAgentOptions<Name extends WorkspaceName = WorkspaceName> extends WorkspaceAgentDefaults<Name> {
@@ -997,7 +1013,22 @@ async function createChatWebhookHandler(
 }
 
 type AgentChatDevtoolsAction = "clear" | "get-state" | "materialize-source" | "send"
+type CreateUIMessageStreamResponse = typeof import("ai").createUIMessageStreamResponse
 type ReadUIMessageStream = typeof import("ai").readUIMessageStream
+
+export type AgentChatFetchBody = {
+  history?: AgentChatMessageTriggerInput["history"]
+  id?: string
+  invoker?: unknown
+  invokerProfileId?: unknown
+  messageId?: string
+  meta?: unknown
+  messages?: unknown
+  run?: unknown
+  session?: unknown
+  trigger?: string
+  user?: unknown
+}
 
 type AgentChatDevtoolsBridgeBody = {
   action?: string
@@ -1287,6 +1318,76 @@ function createUserUIMessage(text: string): UIMessage {
   }
 }
 
+function createHttpChatRunMetadata(agentName: string, body: AgentChatFetchBody, messages: UIMessage[]): AgentRunMetadata {
+  const chatId = optionalBodyString(body.id, "id") || "default"
+  const messageId = optionalBodyString(body.messageId, "messageId") || messages.at(-1)?.id || randomToken()
+  return {
+    channelId: `http:${agentName}`,
+    messageId,
+    origin: "http",
+    runId: globalThis.crypto?.randomUUID?.() || `http-run-${randomToken()}`,
+    threadId: `http:${agentName}:${chatId}`,
+  }
+}
+
+async function parseAgentChatFetchBody(request: Request): Promise<AgentChatFetchBody> {
+  const raw = await request.text()
+  if (!raw.trim()) throw createRouteBodyError("Missing agent chat payload.")
+  try {
+    const body = JSON.parse(raw) as AgentChatFetchBody
+    if (!isRecord(body)) throw createRouteBodyError("Agent chat payload must be a JSON object.")
+    return body
+  }
+  catch (error) {
+    if (error instanceof Error && "statusCode" in error) throw error
+    throw createRouteBodyError("Malformed agent chat payload.")
+  }
+}
+
+function optionalBodyRecord(value: unknown, label: string): Record<string, unknown> | undefined {
+  if (value === undefined) return undefined
+  if (!isRecord(value)) throw createRouteBodyError(`${label} must be an object when provided.`)
+  return { ...value }
+}
+
+function optionalBodyString(value: unknown, label: string): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== "string") throw createRouteBodyError(`${label} must be a string when provided.`)
+  const trimmed = value.trim()
+  return trimmed || undefined
+}
+
+function agentChatFetchInput(body: AgentChatFetchBody, agentName: string, allowTrustedInput = false): AgentChatMessageTriggerInput {
+  if (!Array.isArray(body.messages)) {
+    throw createRouteBodyError("Agent chat payload requires a messages array.")
+  }
+  if (!allowTrustedInput && ("invoker" in body || "invokerProfileId" in body || "meta" in body || "run" in body || "user" in body)) {
+    throw createRouteBodyError("Agent chat route identity must be derived server-side with defineAgent({ invoker }).")
+  }
+  const messages = body.messages as UIMessage[]
+  const session = optionalBodyRecord(body.session, "session") as AgentChatMessageTriggerInput["session"] | undefined
+  return {
+    ...(body.history !== undefined ? { history: body.history } : {}),
+    messages,
+    run: createHttpChatRunMetadata(agentName, body, messages),
+    ...(session ? { session } : {}),
+  }
+}
+
+function mergeAgentChatFetchInput(
+  input: AgentChatMessageTriggerInput,
+  patch: Partial<AgentChatMessageTriggerInput> | undefined | void,
+): AgentChatMessageTriggerInput {
+  if (patch === undefined) return input
+  if (!isRecord(patch)) throw createRouteBodyError("Agent chat route input mapper must return an object.")
+  return {
+    ...input,
+    ...patch,
+    ...(patch.run ? { run: { ...input.run, ...patch.run } } : {}),
+    ...(patch.session ? { session: { ...input.session, ...patch.session } } : {}),
+  }
+}
+
 function uiMessageMetadata(message: UIMessage): Record<string, unknown> | undefined {
   return optionalRecord(message.metadata)
 }
@@ -1379,54 +1480,6 @@ function materializedSourceKeys(metadata: ChatDevtoolsMetadata | undefined): str
     pending.push(...(file.children || []))
   }
   return [...sources]
-}
-
-function createChatDevtoolsStreamResponse(run: (emit: (event: ChatDevtoolsStreamEvent) => void, signal: AbortSignal) => Promise<void>): Response {
-  const encoder = new TextEncoder()
-  const abortController = new AbortController()
-  let closed = false
-
-  function emit(controller: ReadableStreamDefaultController<Uint8Array>, event: ChatDevtoolsStreamEvent): void {
-    if (closed || abortController.signal.aborted) return
-    try {
-      controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
-    }
-    catch {
-      closed = true
-      abortController.abort()
-    }
-  }
-
-  return new Response(new ReadableStream({
-    start(controller) {
-      run(event => emit(controller, event), abortController.signal)
-        .then(() => {
-          if (closed || abortController.signal.aborted) return
-          emit(controller, { type: "done" })
-          if (!closed) {
-            closed = true
-            controller.close()
-          }
-        })
-        .catch((cause) => {
-          if (closed || abortController.signal.aborted) return
-          emit(controller, {
-            message: cause instanceof Error ? cause.message : "Chat DevTools stream failed.",
-            type: "error",
-          })
-          if (!closed) {
-            closed = true
-            controller.close()
-          }
-        })
-    },
-    cancel() {
-      closed = true
-      abortController.abort()
-    },
-  }), {
-    headers: { "content-type": "application/x-ndjson" },
-  })
 }
 
 function parseChatDevtoolsBridgeBody(rawBody: string): AgentChatDevtoolsBridgeBody | undefined {
@@ -1687,6 +1740,55 @@ export function defineAgentChatDevtoolsFetchHandler(
     session: { uiMessages: [] },
   }
   return async (request, requestOptions = {}) => await handleAgentChatDevtoolsFetchRequest(agent, request, state, options, requestOptions)
+}
+
+async function toAgentChatFetchResponse(result: unknown): Promise<Response> {
+  if (result instanceof Response) return result
+  const { createUIMessageStreamResponse } = await import("ai") as { createUIMessageStreamResponse: CreateUIMessageStreamResponse }
+  return createUIMessageStreamResponse({ stream: readableStreamFromResult(result) as never })
+}
+
+function agentChatFetchErrorResponse(error: unknown): Response {
+  const response = toHttpErrorResponse(error)
+  if (response) return response
+  if (error instanceof TypeError) {
+    return createJsonErrorResponse(400, error.message)
+  }
+  return createJsonErrorResponse(500, error instanceof Error ? error.message : "Agent chat request failed.")
+}
+
+export function defineAgentChatFetchHandler(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  options: AgentChatFetchHandlerOptions = {},
+): (request: Request, options?: AgentChatFetchOptions) => Promise<Response> {
+  return async (request, handlerOptions = {}) => {
+    if (request.method !== "POST") {
+      return createJsonErrorResponse(405, "Agent chat route only accepts POST requests.")
+    }
+
+    try {
+      const body = await parseAgentChatFetchBody(request)
+      const agentName = handlerOptions.agentName || "agent"
+      const context = createRuntimeContext(
+        request,
+        undefined,
+        await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+        handlerOptions.cloudflare,
+      )
+      const baseInput = agentChatFetchInput(body, agentName, Boolean(options.mapInput))
+      const triggerInput = mergeAgentChatFetchInput(
+        baseInput,
+        await options.mapInput?.({ agentName, body, input: baseInput, request }),
+      )
+      const result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
+        output: "ui-message-stream",
+      }))
+      return await toAgentChatFetchResponse(result)
+    }
+    catch (error) {
+      return agentChatFetchErrorResponse(error)
+    }
+  }
 }
 
 export function defineAgentChatWebhookFetchHandler(

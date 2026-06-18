@@ -104,6 +104,24 @@ describe("agent output helpers", () => {
     })
   })
 
+  it("keeps approval events when converting normalized streams", async () => {
+    const output = (async function* () {
+      yield { id: "approval-1", input: { command: "write" }, messageId: "message-1", name: "workspace_write", reason: "Needs approval.", type: "approval-request" }
+      yield { approved: true, decidedAt: "2026-01-01T00:00:00.000Z", id: "approval-1", messageId: "message-1", reason: "Allowed.", type: "approval-decision" }
+    })()
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { id: "approval-1", input: { command: "write" }, messageId: "message-1", name: "workspace_write", reason: "Needs approval.", type: "approval-request" },
+      { approved: true, decidedAt: "2026-01-01T00:00:00.000Z", id: "approval-1", messageId: "message-1", reason: "Allowed.", type: "approval-decision" },
+      { type: "finish" },
+    ])
+  })
+
   it("converts text outputs into stream events", async () => {
     const events: unknown[] = []
     for await (const event of streamAgentOutputToEvents({ finishReason: "stop", text: "ok" })) {

@@ -7,6 +7,7 @@ import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatch
 
 import { chatDevTools } from "./chat/devtools.ts"
 import { registerChatDevtoolsBridge } from "./chat/vite/devtools-bridge.ts"
+import { registerAgentInvocationStreamEndpoint } from "./vite/invocation-stream-endpoint.ts"
 import {
   configureCloudflareAgentState,
   defaultCloudflareAgentStateBinding,
@@ -41,7 +42,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function shouldInstallCloudflareAgentState(options: false | ResolvedAgentModuleOptions): options is ResolvedAgentModuleOptions {
-  if (!options || !options.webhooks) return false
+  if (!options || !options.routes.webhooks) return false
   const provider = options.providers.state.provider
   return provider === "auto" || provider === "cloudflare" || provider === "cloudflare-agents"
 }
@@ -206,17 +207,25 @@ function generateAgentWebhookRouteHandler(definitions: DiscoveredAgentDefinition
       return `${JSON.stringify(definition.name)}: ${agentExpression}`
     })
     .join(",\n  ")
+  const agentModuleEntries = definitions
+    .map((definition, index) => `${JSON.stringify(definition.name)}: agent${index}`)
+    .join(",\n  ")
 
   return [
     "import { withWorkspaceAgentDefaults } from '@vite-hub/agent'",
     ...(options.cloudflareState ? ["import { createCloudflareAgentState } from '@vite-hub/agent/cloudflare'"] : []),
-    "import { defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server'",
+    "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server'",
     "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/internal/runtime/state'",
     "import { createError, defineEventHandler, getRequestHeaders, getRequestURL, getRouterParam, readRawBody } from 'h3'",
     imports,
     "",
     "function resolveAgentModule(module) {",
     "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
+    "}",
+    "",
+    "function resolveChatRouteOptions(module) {",
+    "  const chatRoute = module && typeof module === 'object' ? module.chatRoute : undefined",
+    "  return chatRoute && typeof chatRoute === 'object' ? chatRoute : undefined",
     "}",
     "",
     "async function toRequest(event) {",
@@ -237,19 +246,21 @@ function generateAgentWebhookRouteHandler(definitions: DiscoveredAgentDefinition
     `setWorkspaceRuntimeRegistry({${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}})`,
     "",
     `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
-    "const handlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, defineAgentChatWebhookFetchHandler(agent)]))",
+    `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
+    "const chatHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, defineAgentChatFetchHandler(agent, resolveChatRouteOptions(agentModules[name]))]))",
+    "const webhookHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, defineAgentChatWebhookFetchHandler(agent)]))",
     "",
     "export default defineEventHandler(async (event) => {",
     "  const agent = getRouterParam(event, 'agent')",
     "  const webhook = getRouterParam(event, 'webhook')",
-    "  const handler = agent ? handlers[agent] : undefined",
+    "  const handler = agent ? (webhook ? webhookHandlers[agent] : chatHandlers[agent]) : undefined",
     "  if (!handler) {",
     "    throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
     "  }",
     "  const cloudflare = cloudflareFromEvent(event)",
     options.cloudflareState
-      ? "  return await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, state: chatStateFromCloudflare(cloudflare), waitUntil: waitUntilFromEvent(event) })"
-      : "  return await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) })",
+      ? "  return webhook ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, state: chatStateFromCloudflare(cloudflare), waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) })"
+      : "  return webhook ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) })",
     "})",
     "",
   ].join("\n")
@@ -282,12 +293,15 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       if (agentDevtoolsEnabled(agent)) {
         registerChatDevtoolsBridge(server, { meta: agentDevtoolsMeta(agent) })
       }
+      if (agent !== false) {
+        registerAgentInvocationStreamEndpoint(server)
+      }
     },
     vitehub: {
       cli: async () => {
         const { createAgentCliContributor } = await import(/* @vite-ignore */ "./cli.js")
         if (agent === false || agent?.cli === false) return createAgentCliContributor(false)
-        return createAgentCliContributor(resolveAgentEvalOptions(agent?.eval))
+        return createAgentCliContributor({ eval: resolveAgentEvalOptions(agent?.eval) })
       },
     },
     config(config) {
@@ -295,10 +309,16 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const resolved = normalizeAgentOptions(agent)
       const installCloudflareState = shouldInstallCloudflareAgentState(resolved)
       const nitroHandlers = [
-        ...(resolved && resolved.webhooks
+        ...(resolved && resolved.routes.chat
           ? [{
               handler: generatedAgentWebhookRouteHandler,
-              route: normalizeNitroRoute(resolved.webhooks),
+              route: normalizeNitroRoute(resolved.routes.chat),
+            }]
+          : []),
+        ...(resolved && resolved.routes.webhooks
+          ? [{
+              handler: generatedAgentWebhookRouteHandler,
+              route: normalizeNitroRoute(resolved.routes.webhooks),
             }]
           : []),
       ]
@@ -324,7 +344,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       resolved = config
       agent = config.agent ?? agent
       const normalized = normalizeAgentOptions(agent)
-      if (normalized && normalized.webhooks) {
+      if (normalized && (normalized.routes.chat || normalized.routes.webhooks)) {
         await writeAgentWebhookRouteHandler(config.root, { cloudflareState: shouldInstallCloudflareAgentState(normalized) })
       }
       if (agent === false || agent?.eval === false) {

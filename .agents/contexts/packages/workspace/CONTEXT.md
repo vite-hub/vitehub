@@ -36,6 +36,10 @@ _Avoid_: Source Definition, Source Loader, provider adapter
 The Workspace Package authoring input that normalizes into a Workspace Source Binding.
 _Avoid_: Source Definition, Source Loader options only, provider namespace
 
+**Harness Workspace Session Preparation**:
+The Workspace Package helper that materializes selected Workspace files into a harness sandbox and syncs write-mode additions, updates, or deletions back through Workspace rules.
+_Avoid_: Agent Package file copier, harness checkout, root sandbox config
+
 ## Relationships
 
 - The **Workspace Package** owns **Workspace Definitions**.
@@ -54,6 +58,8 @@ _Avoid_: Source Definition, Source Loader options only, provider namespace
 - A Workspace Store can be backed by a **Workspace Provider Adapter**.
 - The **Workspace Runtime Surface** enforces Workspace Rules before writes reach the store.
 - The **Workspace Runtime Surface** may expose Source Sync without making normal Workspace reads run Source Sync.
+- The **Workspace Package** owns **Harness Workspace Session Preparation** for harness-backed Agent Drivers.
+- **Harness Workspace Session Preparation** is consumed by the Agent Package; it is not an app-level sandbox workflow surface.
 - Source Sync on the **Workspace Runtime Surface** requires explicit Source selection.
 - The **Workspace Runtime Surface** exposes Source Sync through the Workspace sync lifecycle rather than a separate public Source Sync method.
 - The Workspace sync lifecycle on the **Workspace Runtime Surface** requires explicit selection.
@@ -100,3 +106,4 @@ _Avoid_: Source Definition, Source Loader options only, provider namespace
 - Requiring Workspace authors to choose between a binding object and a Source helper call was considered - resolved: Workspace Source Binding Inputs may infer common Source Loaders from unambiguous plain objects and may still reference reusable or custom Source Definitions.
 - Allowing ambiguous Workspace Source Binding Inputs was considered - resolved: prevent ambiguity with strong TypeScript types and reject remaining ambiguity during runtime normalization.
 - Adding project-specific file consumers to the Workspace Package was considered - resolved: Workspace Package owns durable file-tree primitives, not downstream project consumption of those files.
+- Copying Flue's collapsed harness shape into the Workspace Package was considered - resolved: Workspace owns materialization and writeback only; Agent Driver and Capability shape stay with the Agent Package.

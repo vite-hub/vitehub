@@ -47,15 +47,10 @@ function hasEntries(value: unknown): value is Record<string, unknown> {
 }
 
 function assertSupportedHarnessDriverContributions(context: AgentAdapterRunContext) {
-  if (context.workspace) {
-    throw new Error("[vitehub] Harness Agent Drivers with workspace are not supported until ViteHub can prepare a Harness Workspace Session for the selected Workspace Scope.")
-  }
-
   const unsupported = [
     hasEntries(context.tools) ? "Capability tools" : undefined,
     context.providerTools?.length ? "provider tools" : undefined,
     context.capabilityInstructions?.length ? "Capability instructions" : undefined,
-    context.sourceInstructions ? "Workspace Source Instructions" : undefined,
   ].filter((value): value is string => Boolean(value))
 
   if (unsupported.length) {
@@ -152,12 +147,16 @@ async function createHarnessAgent<
 >(
   options: HarnessAgentAdapterOptions<TRuntimeConfig, CALL_OPTIONS>,
   context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
+  prepareWorkspaceSession: (session: unknown, sessionWorkDir: string, abortSignal: AbortSignal | undefined) => Promise<void>,
 ): Promise<HarnessAgentLike> {
   assertSupportedHarnessDriverContributions(context)
   const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
   const sandbox = await resolveHarnessSandbox(options.sandbox, context)
   return new HarnessAgent({
     harness: options.harness,
+    onSandboxSession: async ({ abortSignal, session, sessionWorkDir }: { abortSignal?: AbortSignal, session: unknown, sessionWorkDir: string }) => {
+      await prepareWorkspaceSession(session, sessionWorkDir, abortSignal)
+    },
     permissionMode: "allow-all",
     sandbox,
   })
@@ -242,7 +241,11 @@ export function createHarnessAgentAdapter<
   const resumeStates = getResumeStates(options)
   const usageMetadata = createHarnessUsageMetadata(options.credentials)
 
-  async function createSession(agent: HarnessAgentLike, context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) {
+  async function createSession(
+    agent: HarnessAgentLike,
+    context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
+    getWorkspaceSession: () => { close: (error?: unknown) => MaybePromise<void> } | undefined,
+  ) {
     const sessionId = await resolveHarnessSessionKey(options.sessionKey, context)
     const resumeFrom = sessionId ? resumeStates.get(sessionId) : undefined
     const session = await agent.createSession(sessionId
@@ -252,9 +255,17 @@ export function createHarnessAgentAdapter<
         }
       : undefined)
     const cleanup = async (error?: unknown) => {
-      if (!sessionId || error) {
+      let closeError = error
+      try {
+        await getWorkspaceSession()?.close(error)
+      }
+      catch (nextError) {
+        closeError = nextError
+      }
+      if (!sessionId || closeError) {
         if (sessionId) resumeStates.delete(sessionId)
         await destroySession(session)
+        if (closeError !== error) throw closeError
         return
       }
       if (!hasDetach(session)) {
@@ -264,13 +275,32 @@ export function createHarnessAgentAdapter<
       }
       resumeStates.set(sessionId, await session.detach())
     }
-    return { cleanup, session }
+    return {
+      cleanup,
+      session,
+    }
+  }
+
+  async function createAgentAndSession(context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>) {
+    let workspaceSession: { close: (error?: unknown) => MaybePromise<void> } | undefined
+    const agent = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal) => {
+      if (!context.workspace) return
+      const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
+      workspaceSession = await prepareHarnessWorkspaceSession(context.workspace, {
+        abortSignal,
+        session: session as never,
+        sessionWorkDir,
+      })
+    })
+    return {
+      agent,
+      ...await createSession(agent, context, () => workspaceSession),
+    }
   }
 
   return {
     async generate(context) {
-      const agent = await createHarnessAgent(options, context)
-      const { cleanup, session } = await createSession(agent, context)
+      const { agent, cleanup, session } = await createAgentAndSession(context)
       try {
         const result = defineAgentUsageMetadata(await agent.generate({
           ...toHarnessCallInput(context),
@@ -286,8 +316,7 @@ export function createHarnessAgentAdapter<
     },
     name: "ai-sdk-harness",
     async stream(context) {
-      const agent = await createHarnessAgent(options, context)
-      const { cleanup, session } = await createSession(agent, context)
+      const { agent, cleanup, session } = await createAgentAndSession(context)
       try {
         const result = defineAgentUsageMetadata(await agent.stream({
           ...toHarnessCallInput(context),

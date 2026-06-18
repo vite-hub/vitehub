@@ -21,6 +21,7 @@ export type UIMessageLike = {
 }
 
 export interface AgentChatMessageTriggerInput {
+  abortSignal?: AbortSignal
   history?: AgentChatOptions["history"]
   invoker?: AgentInvoker
   invokerProfileId?: string
@@ -291,6 +292,7 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   return {
     hookArgs,
     input: {
+      abortSignal: triggerInput?.abortSignal,
       context: {
         ...(invoker ? { invoker } : {}),
         ...(triggerInput?.invokerProfileId ? { invokerProfileId: triggerInput.invokerProfileId } : {}),

@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, defineAgentInvoker, type AgentDriver, type AgentInvoker, type AgentRunInput, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
-import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, transcribe, webSearch, workspaceShell } from "../src/capabilities.ts"
+import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, subagents, transcribe, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
@@ -71,6 +71,8 @@ describe("agent public types", () => {
           },
         }),
         skills(),
+        skills({ shellExecution: "read" }),
+        skills({ shellExecution: "write" }),
         sandbox({ commands: ["node"] }),
         schedule({ mode: "read", targets: ["daily-reports"] as const }),
         schedule({ allowSelfTarget: true, mode: "write", policy: "require-approval", selfTarget: "agent/digest", targets: ["agent/digest", "daily-reports"] as const }),
@@ -122,6 +124,9 @@ describe("agent public types", () => {
 
     // @ts-expect-error tool mode requires one explicit provider
     webSearch({ mode: "tool" })
+
+    // @ts-expect-error skills shell execution mode must be read or write
+    skills({ shellExecution: "allow" })
 
     const invocationContext: AgentInvocationContextStore = {
       entries: () => new Map<string, unknown>().entries(),
@@ -476,6 +481,29 @@ describe("agent public types", () => {
     ]
     expectTypeOf(supportProfiles[0]?.meta?.customer).toEqualTypeOf<"acme" | undefined>()
     expectTypeOf({} as AgentRunInput<unknown, SupportInputContext>["context"]).toEqualTypeOf<SupportInputContext | undefined>()
+    type BrowserSubagentContext = { previewUrl: string }
+    const browserAgentInput: AgentRunInput<{ mode: "fast" }, BrowserSubagentContext> = {
+      context: { previewUrl: "https://preview.local" },
+      message: "Check the product card.",
+      options: { mode: "fast" },
+    }
+    expectTypeOf(browserAgentInput.context?.previewUrl).toEqualTypeOf<string | undefined>()
+    expectTypeOf(browserAgentInput.options?.mode).toEqualTypeOf<"fast" | undefined>()
+    const browserToolInput: SubagentToolInput<{ mode: "fast" }, BrowserSubagentContext> = {
+      context: { previewUrl: "https://preview.local" },
+      message: "Check the product card.",
+      options: { mode: "fast" },
+      runId: "review-run:browser",
+    }
+    expectTypeOf(browserToolInput.runId).toEqualTypeOf<string | undefined>()
+    subagents({
+      agents: {
+        browser: {
+          agent: defineAgent({ run: () => "ok" }),
+          description: "Collect browser evidence.",
+        },
+      },
+    })
     const supportAccess: AccessWorkspaceOptionsFor<typeof workspace, SupportInputContext> = {
       resolve({ input, invoker }) {
         const chat = input.get().context?.chat

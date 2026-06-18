@@ -48,6 +48,14 @@ _Avoid_: Chat message, webhook call
 The ordered structured event stream produced while one Agent Invocation runs and consumed by terminal, DevTools, HTTP clients, tests, or CI.
 _Avoid_: Agent Invocation Lifecycle, DevTools state, chat transcript, raw model stream
 
+**Agent Invocation Stream Endpoint**:
+The development-server HTTP surface that exposes Agent Invocation Stream events to development clients.
+_Avoid_: DevTools Bridge, chat state endpoint, webhook
+
+**Agent Invocation Stream Format**:
+The wire format used by an Agent Invocation Stream Endpoint to deliver Agent Invocation Stream events.
+_Avoid_: DevTools state format, raw model stream format, trace log format
+
 **Agent Trigger**:
 Server-side host or integration behavior that starts an Agent Invocation for a specific product event.
 _Avoid_: Chat adapter, client integration, model adapter
@@ -167,6 +175,10 @@ _Avoid_: Fake agent, dummy model, test bot
 - Capabilities attach above the **Agent Driver** and may expose driver-specific **Capability Driver Contributions**.
 - An **Agent** receives zero or more **Agent Invocations**.
 - An **Agent Invocation Stream** belongs to one **Agent Invocation**.
+- An **Agent Invocation Stream Endpoint** exposes an **Agent Invocation Stream** without becoming a **DevTools Bridge**.
+- The V1 **Agent Invocation Stream Endpoint** uses the legacy **Agent Trigger** request shape until Channels become the active Agent reachability contract.
+- The V1 **Agent Invocation Stream Format** is newline-delimited JSON.
+- The Agent Package owns the **Agent Invocation Stream Format** helpers used by development clients.
 - An **Agent Invocation Stream** is not the **Agent Invocation Lifecycle**; lifecycle hooks observe runtime moments.
 - An **Agent Invocation Stream** is the client-facing Agent Invocation event stream; Runtime Package **Trace Events** are the local observability record and may observe the same invocation without becoming the stream contract.
 - Agent Invocation content can appear in the **Agent Invocation Stream** without being persisted into the Runtime Package **Trace Event Log**.
@@ -244,6 +256,7 @@ _Avoid_: Fake agent, dummy model, test bot
 ## Flagged Ambiguities
 
 - Raw tools were considered as top-level Agent Definition fields - resolved: tools are contributed by Capabilities.
+- Flue-style root `tools`, `skills`, and `sandbox` fields were considered for harness-backed Agents - resolved: keep `sandbox` under the harness-backed **Agent Driver**, and keep tools or Skills behind Capabilities.
 - Multi-adapter support was considered part of Agent Definition shape - resolved: use one **Agent Driver** boundary rather than public adapter selectors.
 - Top-level `model` and `harness` selectors were considered part of Agent Definition shape - resolved: select model-backed or harness-backed execution through **Agent Driver**.
 - Driver factory wrappers such as `modelDriver()` and `harnessDriver()` were considered for explicitness - resolved: configure the **Agent Driver** as a single object variant and distinguish variants by exclusive keys.
