@@ -17,6 +17,30 @@ _Avoid_: Evalite wrapper, agent eval product
 The ViteHub CLI responsibility that runs Agent Evals with ViteHub defaults.
 _Avoid_: Evalite CLI, benchmark runner
 
+**Agent Dev Loop**:
+The Agent Package CLI Feature for talking to a discovered Agent from a terminal during development.
+_Avoid_: Chat DevTools CLI, standalone agent shell, product CLI, full-screen TUI
+
+**Agent Dev Loop Transcript**:
+The scrollback terminal record of user input, Agent output, and selected Agent Invocation status in the Agent Dev Loop.
+_Avoid_: Vite server logs, DevTools state, trace store
+
+**Agent Dev Loop Chat History**:
+The in-memory Chat History held by the Agent Dev Loop client while a terminal session is running.
+_Avoid_: Server-side Chat Session, Agent Memory, persisted transcript
+
+**Agent Dev Loop Target**:
+The discovered Agent selected for one Agent Dev Loop terminal session.
+_Avoid_: Eval target, DevTools selected chat, default bot
+
+**Agent Dev Loop Control**:
+A terminal control handled by the Agent Dev Loop client without becoming Agent input.
+_Avoid_: Input Command, slash command, model tool
+
+**Compatible Vite Development Server**:
+A running Vite Development Server for the same project root that exposes the Agent Invocation Stream required by the Agent Dev Loop.
+_Avoid_: Open Vite port, ViteHub dev server, arbitrary localhost server
+
 **Domain-Owned Command**:
 A ViteHub CLI command grouped by the domain or package that owns the workflow.
 _Avoid_: Frequency-owned command, flat command, shortcut-first command
@@ -75,6 +99,23 @@ _Avoid_: Secrets file, env file, GitHub output
 - `vitehub agent eval` is the canonical **Domain-Owned Command** for the **Agent Eval Runner**.
 - `agent` is the Agent Package's **CLI Command Namespace**.
 - `eval` is the first Agent Package **CLI Feature**.
+- The **Agent Dev Loop** belongs in the Agent Package's **CLI Command Namespace**.
+- The **Agent Dev Loop** consumes Agent Package invocation surfaces rather than owning a second runtime.
+- The **Agent Dev Loop** is a scrollback terminal experience, not a full-screen terminal app.
+- The **Agent Dev Loop Transcript** is not the Vite Development Server log stream.
+- The **Agent Dev Loop Chat History** is client-held state for the terminal session.
+- The **Agent Dev Loop Target** defaults to the only compatible discovered Agent and must be explicit when multiple compatible Agents exist.
+- An **Agent Dev Loop Target** must expose the `chat.message` Agent Trigger in V1.
+- **Agent Dev Loop Controls** are host behavior and do not consume the Input Command namespace.
+- `Ctrl+C` is the V1 **Agent Dev Loop Control** for aborting an active request or exiting when idle.
+- The **Agent Dev Loop** consumes an **Agent Invocation Stream Endpoint** exposed through the **Vite Development Server** instead of invoking Agents inside the CLI process.
+- The **Agent Dev Loop** attaches to a **Compatible Vite Development Server**; it does not own the Vite Development Server process.
+- The **Agent Dev Loop** fails fast when no **Compatible Vite Development Server** is available.
+- The **Agent Dev Loop** exits when its attached **Compatible Vite Development Server** is no longer available.
+- The **Agent Dev Loop** treats request or stream failure as the Vite Development Server liveness signal; it does not require an idle heartbeat.
+- The **Agent Dev Loop** may present run and step inspection views derived from the Runtime Package **Trace Event Log**; it does not own a separate telemetry store.
+- The **Agent Dev Loop** is the primary V1 local debugging surface for Agent telemetry.
+- DevTools and OpenTelemetry are explicit follow-on surfaces for Agent telemetry, not the default **Agent Dev Loop** experience.
 - The **Agent Eval Runner** runs all discovered Agent Evals when no **Agent Eval Target** is provided.
 - An **Agent Eval Target** identifies Agent Eval files by path filter.
 - **Agent Eval Output Mode** defaults to concise human output and can be changed to script-friendly structured output.

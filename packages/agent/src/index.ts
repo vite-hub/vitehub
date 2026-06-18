@@ -504,6 +504,12 @@ export { defineCapability } from "./capability-runtime.ts"
 export { verifyAgentWebhookRequest } from "./trigger-runtime.ts"
 export type { AgentWebhookVerificationResult, ResolvedAgentTriggerInvocation } from "./trigger-runtime.ts"
 export * from "./messages.ts"
+export {
+  agentInvocationStreamRoute,
+  createAgentInvocationStreamResponse,
+  readAgentInvocationStream,
+} from "./invocation-stream.ts"
+export type { AgentInvocationStreamEvent } from "./invocation-stream.ts"
 
 function validateSandboxCommands(commands: unknown): string[] {
   if (!Array.isArray(commands) || !commands.length) {
