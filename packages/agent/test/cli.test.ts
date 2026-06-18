@@ -78,7 +78,11 @@ describe("agent CLI", () => {
     expect(exitCode).toBe(0)
     expect(stdout.output()).toBe("hello from agent\n")
     expect(fetchAgentStream).toHaveBeenCalledTimes(2)
-    const [, post] = fetchAgentStream.mock.calls
+    const [get, post] = fetchAgentStream.mock.calls
+    expect(get?.[1]?.headers).toMatchObject({
+      accept: "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
     expect(post?.[1]?.headers).toMatchObject({
       "content-type": "application/json",
       [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
@@ -90,6 +94,36 @@ describe("agent CLI", () => {
         role: "user",
       }],
     })
+  })
+
+  it("surfaces Agent Dev Loop approval requests", async () => {
+    const stderr = stream()
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "support", trigger: "chat.message", type: "start" },
+          { id: "approval-1", name: "workspace_write", reason: "Needs write access.", type: "approval-request" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ name: "support", triggers: ["chat.message"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["hello"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr,
+      stdout: stream(),
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toContain("[approval required] workspace_write: Needs write access.")
   })
 
   it("runs Evalite through the Node runner with ViteHub defaults", async () => {

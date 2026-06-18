@@ -309,7 +309,12 @@ async function readDiscovery(
   }
   let response: Response
   try {
-    response = await fetchImpl(url, { headers: { accept: "application/json" } })
+    response = await fetchImpl(url, {
+      headers: {
+        accept: "application/json",
+        [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      },
+    })
   }
   catch {
     context.stderr.write(`No Compatible Vite Development Server found at ${parsed.url}.\n`)
@@ -391,6 +396,7 @@ async function sendDevMessage(
   }
 
   let output = ""
+  let needsApproval = false
   for await (const event of readAgentInvocationStream(response.body)) {
     if (event.type === "text-delta") {
       context.stdout.write(event.text)
@@ -401,12 +407,22 @@ async function sendDevMessage(
       context.stderr.write(`\n[tool] ${event.name}\n`)
       continue
     }
+    if (event.type === "approval-request") {
+      context.stderr.write(`\n[approval required] ${event.name}${event.reason ? `: ${event.reason}` : ""}\n`)
+      needsApproval = true
+      continue
+    }
+    if (event.type === "approval-decision") {
+      context.stderr.write(`\n[approval ${event.approved ? "approved" : "rejected"}]${event.reason ? ` ${event.reason}` : ""}\n`)
+      continue
+    }
     if (event.type === "error") {
       context.stderr.write(`\n${event.error}\n`)
       return
     }
   }
   context.stdout.write("\n")
+  if (!output && needsApproval) return
   return [...messages, assistantMessage(output, messages.length)]
 }
 

@@ -80,7 +80,7 @@ function requestOrigin(server: ViteDevServer, req: IncomingMessage): string {
   return new URL(base).origin
 }
 
-function validatePostRequest(server: ViteDevServer, req: IncomingMessage): Response | undefined {
+function validateDevLoopRequest(server: ViteDevServer, req: IncomingMessage): Response | undefined {
   const header = req.headers[agentInvocationStreamHeader]
   if ((Array.isArray(header) ? header[0] : header) !== agentInvocationStreamHeaderValue) {
     return new Response("Forbidden Agent Dev Loop request.", { status: 403 })
@@ -89,6 +89,7 @@ function validatePostRequest(server: ViteDevServer, req: IncomingMessage): Respo
   if (origin && origin !== requestOrigin(server, req)) {
     return new Response("Forbidden Agent Dev Loop origin.", { status: 403 })
   }
+  if (req.method !== "POST") return
   const contentType = Array.isArray(req.headers["content-type"]) ? req.headers["content-type"][0] : req.headers["content-type"]
   if (!contentType?.toLowerCase().startsWith("application/json")) {
     return new Response("Agent Dev Loop requests must use application/json.", { status: 415 })
@@ -332,12 +333,10 @@ export function registerAgentInvocationStreamEndpoint(server: ViteDevServer): vo
       void writeResponse(res, new Response("Method not allowed.", { status: 405 }))
       return
     }
-    if (req.method === "POST") {
-      const blocked = validatePostRequest(server, req)
-      if (blocked) {
-        void writeResponse(res, blocked)
-        return
-      }
+    const blocked = validateDevLoopRequest(server, req)
+    if (blocked) {
+      void writeResponse(res, blocked)
+      return
     }
 
     void handleAgentInvocationStreamRequest(server, req)

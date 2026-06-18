@@ -64,11 +64,12 @@ async function invokeMiddleware(
   body: Record<string, unknown>,
   url = "/__vitehub/agent/chat/devtools",
   headers: IncomingMessage["headers"] = { "content-type": "text/plain" },
+  method = "POST",
 ) {
   let output = ""
   const req = Readable.from([JSON.stringify(body)]) as IncomingMessage
   req.headers = headers
-  req.method = "POST"
+  req.method = method
   req.url = url
 
   const result = await new Promise<{ body: string, statusCode: number }>((resolve, reject) => {
@@ -466,6 +467,30 @@ describe("agent chat capability discovery", () => {
     }, agentInvocationStreamRoute)
 
     expect(response.statusCode).toBe(403)
+  })
+
+  it("blocks Agent Invocation Stream discovery before loading agents", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-get-guard-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const { handlers, server } = createFakeServer(root, {
+      default: defineAgent({
+        capabilities: [chat()],
+        run: () => "unused",
+      }),
+    })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {}, agentInvocationStreamRoute, {}, "GET")
+
+    expect(response.statusCode).toBe(403)
+    expect(server.ssrLoadModule).not.toHaveBeenCalled()
   })
 
   it("consumes Response outputs from the Agent Invocation Stream endpoint", async () => {
