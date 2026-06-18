@@ -190,6 +190,41 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("preserves resolved invokers in setup failure Trace Events", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "setup",
+          resolve() {
+            throw new Error("capability setup failed")
+          },
+        }),
+      ],
+      driver: { run: () => "ok" },
+      invoker: {
+        resolve: () => ({ id: "tenant-1", kind: "tenant" }),
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {})).rejects.toThrow("capability setup failed")
+
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.error",
+    ])
+    expect(traceLog.entries()[0]!.attributes).toMatchObject({
+      "agent.invoker.id": "tenant-1",
+      "agent.invoker.kind": "tenant",
+      "error.message": "capability setup failed",
+    })
+  })
+
   it("emits stream milestone Trace Events without tracing text deltas", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
@@ -205,7 +240,9 @@ describe("agent message protocol", () => {
 
     const stream = await streamAgent(agent, {
       memo: vi.fn(),
+      run: { runId: "run-1" },
       runtime: "unknown",
+      trace: { id: "request-1" },
       traceLog,
       waitUntil: vi.fn(),
     }, {})
@@ -219,6 +256,9 @@ describe("agent message protocol", () => {
       "agent.stream.finish",
       "agent.invocation.finish",
     ])
+    expect(new Set(traceLog.entries().map(event => event.attributes?.["agent.run.id"]))).toEqual(new Set(["run-1"]))
+    expect(new Set(traceLog.entries().map(event => event.trace?.id))).toEqual(new Set(["request-1"]))
+    expect(deriveTraceRuns(traceLog.entries()).map(run => run.id)).toEqual(["run-1"])
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret text")
     expect(JSON.stringify(traceLog.entries())).not.toContain("secret")
   })

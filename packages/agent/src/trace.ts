@@ -93,8 +93,12 @@ export async function traceAgentEvent<TRuntimeConfig extends AgentRuntimeConfig>
   event: TraceEvent,
 ): Promise<void> {
   try {
+    const attributes = context.run?.runId
+      ? { "agent.run.id": context.run.runId, ...event.attributes }
+      : event.attributes
     await emitTraceEvent(context.runtime, {
       ...event,
+      ...(attributes ? { attributes } : {}),
       trace: event.trace || context.runtime.trace,
     })
   }

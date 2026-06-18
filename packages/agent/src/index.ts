@@ -890,8 +890,9 @@ async function createAgentInvocationContext<
   const runtimeContext = resolvedContext.trace || !resolvedContext.traceLog ? resolvedContext : { ...resolvedContext, trace: { id: createTraceId(context.run) } }
   const callbackContext = createAgentCallbackContext(runtimeContext)
   const invocationContext = createAgentInvocationContextStore(input.context)
+  let invoker = createFallbackAgentInvoker(context.run)
   try {
-    const invoker = await resolveAgentInvoker(definition?.invoker, callbackContext, invocationContext, input, context.run)
+    invoker = await resolveAgentInvoker(definition?.invoker, callbackContext, invocationContext, input, context.run)
     const workspaceDefinition = definition as Partial<WorkspaceAgentDefinition<TRuntimeConfig>> | undefined
     const workspaceOptions = workspaceDefinition?.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<AgentRuntimeConfig> | undefined
     const workspaceName = workspaceOptions
@@ -964,7 +965,7 @@ async function createAgentInvocationContext<
     await traceAgentInvocationError({
       context: invocationContext,
       input,
-      invoker: createFallbackAgentInvoker(context.run),
+      invoker,
       run: context.run,
       runtime: runtimeContext,
     }, error)
