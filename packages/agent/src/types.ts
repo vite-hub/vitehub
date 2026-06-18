@@ -167,6 +167,7 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
   method?: "POST" | (string & {})
   path?: string
   provider: string
+  signature?: "github-sha256" | (string & {})
   secretHeader?: string
   secretToken?: AgentWebhookSecretToken<TRuntimeConfig>
   url?: string
@@ -184,6 +185,19 @@ export interface AgentTriggerContext<
     capabilityId: string
     id: `${string}.${string}`
     name: string
+    source: "capability"
+  }
+}
+
+export interface AgentChannelTriggerContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+> extends AgentCallbackContext<TRuntimeConfig> {
+  channel: AgentChannelDefinition<TRuntimeConfig>
+  trigger: {
+    channelId: string
+    id: `${string}.${string}`
+    name: string
+    source: "channel"
   }
 }
 
@@ -192,10 +206,11 @@ export interface AgentTriggerDefinition<
   Name extends WorkspaceName = WorkspaceName,
   TInput = unknown,
   CALL_OPTIONS = unknown,
+  TContext extends AgentCallbackContext<TRuntimeConfig> = AgentTriggerContext<TRuntimeConfig, Name>,
 > {
   devtools?: boolean | Record<string, unknown>
   input?: unknown
-  invoke: (context: AgentTriggerContext<TRuntimeConfig, Name>, input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
+  invoke: (context: TContext, input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   output?: "events" | "ui-message-stream" | (string & {})
   webhooks?: AgentWebhookRegistrationDefinition<TRuntimeConfig>[]
 }
@@ -205,7 +220,8 @@ export interface ResolvedAgentTriggerDefinition<
   TInput = unknown,
   CALL_OPTIONS = unknown,
 > {
-  capabilityId: string
+  capabilityId?: string
+  channelId?: string
   definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS>
   devtools?: boolean | Record<string, unknown>
   id: `${string}.${string}`
@@ -213,6 +229,7 @@ export interface ResolvedAgentTriggerDefinition<
   invoke: (input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
   name: string
   output?: "events" | "ui-message-stream" | (string & {})
+  source: "capability" | "channel"
   webhooks?: AgentWebhookRegistrationDefinition<TRuntimeConfig>[]
 }
 
@@ -892,6 +909,8 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
   identity?: IdentityResolver
   kind: string
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
+  route?: unknown
+  triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, any, any, AgentChannelTriggerContext<TRuntimeConfig>>>
   webhooks?: boolean | AgentChatWebhookRegistrationDefinition<TRuntimeConfig> | AgentChatWebhookRegistrationDefinition<TRuntimeConfig>[]
   [key: string]: unknown
 }

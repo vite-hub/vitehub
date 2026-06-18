@@ -73,7 +73,7 @@ _Avoid_: Source callback, dynamic source, provider options
 
 **Invocation-Scoped Source Resolution**:
 Source Resolution that narrows a Source for one Agent Invocation from trusted invocation context, usually the Selected Workspace Scope.
-_Avoid_: Invoker-aware source, prompt filter, per-user source
+_Avoid_: Agent Actor-aware source, prompt filter, per-user source
 
 **Materialized Source**:
 A Source whose items are written into the Workspace Store.
@@ -359,7 +359,7 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - A **Workspace Scope** contains **Workspace Scope Grants**.
 - A **Workspace Scope Grant** can target a Source key, a Workspace path prefix, or a path prefix within a Source.
 - A **Workspace Scope** may have **Workspace Scope Instructions**.
-- **Workspace Scope Instructions** are explicit developer-authored guidance; ViteHub does not infer them from grants, role, invoker metadata, or Source metadata.
+- **Workspace Scope Instructions** are explicit developer-authored guidance; ViteHub does not infer them from grants, role, Agent Actor metadata, or Source metadata.
 - **Workspace Scope Instructions** may be declared on a static Workspace Scope or returned by a Workspace Scope Resolver for the selected invocation.
 - **Workspace Scope Instructions** do not grant access, broaden visibility, or replace Workspace Scope enforcement.
 - A Source-key **Workspace Scope Grant** fails closed for unknown Sources and root-mounted Sources; root-mounted Sources require explicit path grants.
@@ -378,7 +378,7 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - A **Harness Workspace Session** starts after the **Selected Workspace Scope** is resolved, so harness-backed Agent Drivers see only scoped Workspace state.
 - A **Harness Workspace Session** is invocation-scoped by default.
 - A **Harness Workspace Session** is reused across Agent Invocations only when a driver option or Capability provides an explicit **Harness Session Key**.
-- A **Harness Session Key** is not inferred from Chat Session, Chat History, Agent Run thread id, or Agent Invoker by default.
+- A **Harness Session Key** is not inferred from Chat Session, Chat History, Agent Run thread id, or Agent Actor by default.
 - Harness-backed Agent Drivers receive Workspace state through a **Harness Workspace Session** or equivalent materialized filesystem, not model-facing **Workspace Tools** by default.
 
 ## Example Dialogue
@@ -427,7 +427,7 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - Static pre-registration for every customer scope was considered necessary - resolved: use inline Workspace Scope definitions from the **Workspace Scope Resolver** when grants are derived from trusted invocation context.
 - Automatically rendering Workspace Scope into prompt text was considered - resolved: expose only explicit **Workspace Scope Instructions** so scope metadata is not model-facing by default.
 - Source materialization under scoped access was considered for the first version - resolved: disable generic materialization for scoped V1 to avoid source metadata leakage, with **Harness Workspace Session** as the narrow harness-backed Agent Driver exception.
-- Source-level narrowing was considered as direct invoker access - resolved: use **Invocation-Scoped Source Resolution** from trusted invocation context and the **Selected Workspace Scope**, not raw model-facing metadata or duplicate authorization logic inside a Source.
+- Source-level narrowing was considered as direct Agent Actor access - resolved: use **Invocation-Scoped Source Resolution** from trusted invocation context and the **Selected Workspace Scope**, not raw model-facing metadata or duplicate authorization logic inside a Source.
 - Source Instructions were considered as network policy for shell `curl` - resolved: use **Source Network Grants** for authority and **Source Instructions** only for model guidance.
 - OpenAPI operations were considered as the first public request language for API-backed Sources - resolved: use **Source Request Shape** for the Source-owned boundary, with OpenAPI left as a possible future import/export format.
 - Plain examples were considered for Source Request Shapes - resolved: require Standard Schema-compatible schemas so request enforcement has a validation boundary.

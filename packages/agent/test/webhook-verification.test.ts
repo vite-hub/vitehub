@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
 import { chat } from "../src/capabilities.ts"
@@ -19,6 +20,10 @@ function chatInput() {
       role: "user",
     }],
   }
+}
+
+function githubSignature(secret: string, body: string) {
+  return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
 }
 
 describe("agent webhook verification", () => {
@@ -161,5 +166,58 @@ describe("agent webhook verification", () => {
 
     await expect(runAgentTrigger(agent, runtime(), "chat.message", chatInput())).resolves.toBe("ok")
     expect(invoked).toHaveBeenCalledTimes(1)
+  })
+
+  it("verifies GitHub channel trigger signatures", async () => {
+    const { github } = await import("../src/channels.ts")
+    const invoked = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({ input: { prompt: "github" } }),
+            },
+          },
+          webhooks: { secretToken: "secret-token" },
+        }),
+      },
+      run: invoked,
+    })
+    const body = JSON.stringify({ action: "opened" })
+
+    await expect(runAgentTrigger(agent, runtime(new Request("https://example.com", {
+      body,
+      headers: { "x-hub-signature-256": githubSignature("secret-token", body) },
+      method: "POST",
+    })), "github.webhook", {})).resolves.toBe("ok")
+    expect(invoked).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects invalid GitHub channel trigger signatures", async () => {
+    const { github } = await import("../src/channels.ts")
+    const invoked = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({ input: { prompt: "github" } }),
+            },
+          },
+          webhooks: { secretToken: "secret-token" },
+        }),
+      },
+      run: invoked,
+    })
+
+    await expect(runAgentTrigger(agent, runtime(new Request("https://example.com", {
+      body: JSON.stringify({ action: "opened" }),
+      headers: { "x-hub-signature-256": "sha256=wrong" },
+      method: "POST",
+    })), "github.webhook", {}))
+      .rejects
+      .toMatchObject({ message: "[vitehub] Webhook secret verification failed.", statusCode: 401 })
+    expect(invoked).not.toHaveBeenCalled()
   })
 })

@@ -17,7 +17,7 @@ The removal of public chat Definition Boundary Helpers, chat framework modules, 
 _Avoid_: Chat definition migration, compatibility shim, chat module
 
 **Chat Identity Removal**:
-The removal of public Chat Capability caller configuration in favor of Agent Invoker resolution.
+The removal of public Chat Capability caller configuration in favor of Agent Actor resolution.
 _Avoid_: Chat identity migration, adapter identity, compatibility alias
 
 **Agent Route Owner**:
@@ -66,7 +66,7 @@ _Avoid_: User route handler, adapter registration API, Chat Capability definitio
 
 **Chat Platform Public Configuration**:
 The Chat Capability public configuration surface that names external chat ingress by platform, such as Teams.
-_Avoid_: Adapter map, Chat Invoker policy, webhook registration helper
+_Avoid_: Adapter map, chat identity policy, webhook registration helper
 
 **Chat Adapter Facade**:
 A narrow Agent Package subpath for a first-party-supported Chat Platform Adapter or chat state backend when ViteHub owns a stable compatibility shim.
@@ -109,7 +109,7 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - The **Agent Package** does not pass model-facing instructions to harness-backed Agent Drivers by default.
 - The **Agent Package** owns the **Agent Trigger API** that resolves trigger contributions from Agent Capabilities.
 - An **Agent Trigger Consumer** uses the **Agent Trigger API** and does not create a parallel chat-specific behavior surface.
-- An **Agent Trigger Consumer** may pass a trusted Agent Invoker through trigger input when it has already authenticated or resolved caller identity; trigger metadata should not become a parallel identity boundary.
+- An **Agent Trigger Consumer** may pass a trusted Agent Actor through trigger input when it has already authenticated or resolved caller identity; trigger metadata should not become a parallel identity boundary.
 - A **Channel** may be implemented by an **Agent Trigger Consumer**, but Channel is the framework term for Agent reachability.
 - Generated routes and DevTools use Channel identity when exposing channel-owned entry paths.
 - The Agent Invocation Stream Endpoint is a V1 **Agent Trigger Consumer** for development clients.
@@ -123,7 +123,7 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - The root `@vite-hub/agent` entry exports Agent Definition, invocation, message, and generic composition primitives; official Capability factories live on `@vite-hub/agent/capabilities`.
 - Official Channel Kind helpers live on `@vite-hub/agent/channels`.
 - Channel object keys in Agent Definitions are configured Channel IDs; Channel helper names describe Channel Kinds.
-- The root `@vite-hub/agent` entry exports Agent Invoker types as Agent Definition and Agent Invocation composition primitives.
+- The root `@vite-hub/agent` entry currently exports legacy Agent Invoker types as Agent Definition and Agent Invocation composition primitives.
 - The root `@vite-hub/agent` entry does not export optional Chat Platform Adapter factories.
 - The **Agent Package** may expose a **Chat Adapter Facade** only for a first-party-supported adapter with a stable shim and clear missing-package diagnostics.
 - The **Agent Package** should not mirror every upstream `@chat-adapter/*` package as public ViteHub API.
@@ -182,12 +182,12 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - App-owned Teams webhook files and public webhook registration helpers were considered for ChatSDK adapters - resolved: the Agent Package owns automatic **Chat Webhook Routes** that consume concrete Channel adapter configuration.
 - Provider-only webhook route identity was considered - resolved: generated **Chat Webhook Routes** include configured Channel ID rather than only provider or Channel Kind.
 - Treating Chat as an official Capability factory was considered for quickstart convenience - resolved: Chat is a Channel, not a Capability.
-- Root-exporting Invocation Profile helpers was considered alongside Capability factories - resolved: replace that path with the root Agent Definition `invoker` option and `context.invoker`, so ViteHub maintains one trusted caller identity concept.
+- Root-exporting Invocation Profile helpers was considered alongside Capability factories - resolved: replace that path with the Agent Definition actor configuration surface, currently exposed through the legacy `invoker` option and `context.invoker`, so ViteHub maintains one trusted caller identity concept.
 - A separate client chat route Capability was considered for app UIs - resolved: app UIs should own their HTTP route and consume the shared `chat.message` trigger directly when they need one.
 - "Endpoint has an Agent Trigger" was used for route exposure - resolved: Capabilities contribute **Agent Triggers**, while public endpoints are **Agent Trigger Consumers**.
 - "Nuxt UI adapter" was considered for application chat UIs - resolved: application chat UIs are app-owned trigger consumers, while Chat Platforms remain for external chat ingress.
 - Public `chat({ adapters })` was considered for Chat Capability platform configuration - resolved: use **Chat Platform Public Configuration** instead so the public API does not make adapter implementation objects look like the caller identity boundary.
-- Public `chat({ identity })` and `AgentChatIdentityResolver` were considered for chat caller identity - resolved: remove them through **Chat Identity Removal** and keep **Agent Invoker** as the single trusted caller identity policy.
-- Public `chat.identity` invocation context was considered for convenience - resolved: remove it because callers should use `context.invoker` or Chat context values instead of a parallel identity string.
-- `AccessChatIdentity` was considered for chat admission - resolved: Access should consume the resolved Agent Invoker plus chat/request facts rather than owning a separate chat identity shape.
+- Public `chat({ identity })` and `AgentChatIdentityResolver` were considered for chat caller identity - resolved: remove them through **Chat Identity Removal** and keep **Agent Actor** as the single trusted caller identity policy.
+- Public `chat.identity` invocation context was considered for convenience - resolved: remove it because callers should use `context.actor` or Chat context values instead of a parallel identity string.
+- `AccessChatIdentity` was considered for chat admission - resolved: Access should consume the resolved Agent Actor plus chat/request facts rather than owning a separate chat identity shape.
 - Source Instruction prompt rendering was considered Workspace Package ownership - resolved: Agent Package composes visible Source Instructions into model-backed driver instructions while Workspace Package exposes Source Instruction metadata.

@@ -17,7 +17,7 @@
 - [Schedule](./contexts/schedule/CONTEXT.md) - names future and recurring runtime work.
 - [Verification](./contexts/verification/CONTEXT.md) - names how the workspace proves primitives work, from offline output contracts to scheduled live smoke.
 - [Agent Package](./contexts/packages/agent/CONTEXT.md) - names ownership boundaries for `@vite-hub/agent`.
-- [Auth](./contexts/auth/CONTEXT.md) - names authentication primitives, users, sessions, and their boundary with Agent Invokers.
+- [Auth](./contexts/auth/CONTEXT.md) - names authentication primitives, users, sessions, and their boundary with Agent Actors.
 - [Auth Package](./contexts/packages/auth/CONTEXT.md) - names ownership boundaries for `@vite-hub/auth`.
 - [Blob Package](./contexts/packages/blob/CONTEXT.md) - names ownership boundaries for `@vite-hub/blob`.
 - [Database Package](./contexts/packages/database/CONTEXT.md) - names ownership boundaries for `@vite-hub/database`.
@@ -40,7 +40,7 @@
 - **Capabilities -> Agents**: Agents attach Capabilities to expose user-shareable abilities.
 - **CLI -> Packages**: The ViteHub CLI can expose package-owned workflows without making each workflow a separate product.
 - **Agents -> Workspace**: Agents can reference Workspaces for persistent file-tree state.
-- **Auth -> Agents**: Auth can identify an application user and session, while Agents consume Agent Invokers; future bridges may map Auth state into Agent Invokers without merging the concepts.
+- **Auth -> Agents**: Auth can identify an application user and session, while Agents consume Agent Actors; future bridges may map Auth state into Agent Actors without merging the concepts.
 - **Auth Package -> Database Package**: Auth Database Placement uses the Database Package; the default co-locates Auth tables through a Package Database Contribution, while a dedicated Auth database remains explicit.
 - **Auth Package -> KV Package**: Auth Secondary Storage uses KV Store Selection and remains opt-in even when the KV Package is installed.
 - **Schedule -> Agents**: Schedule Targets can start Agent Invocations, but Schedule is not an Agent Capability.

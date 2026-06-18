@@ -17,6 +17,7 @@ import type { AgentChatMessageTriggerInput } from "./chat-trigger.ts"
 import type {
   AgentChatStateResolver,
   AgentCapabilityDefinition,
+  AgentChannelDefinition,
   AgentChatErrorHookArgs,
   AgentChatFinishExtension,
   AgentChatMessage,
@@ -85,8 +86,14 @@ export interface AgentChatFetchMapInputContext {
   request: Request
 }
 
+type AgentChatFetchInputPatch = Omit<Partial<AgentChatMessageTriggerInput>, "run"> & {
+  run?: Partial<AgentRunMetadata>
+}
+
 export interface AgentChatFetchHandlerOptions {
-  mapInput?: (context: AgentChatFetchMapInputContext) => MaybePromise<Partial<AgentChatMessageTriggerInput> | undefined | void>
+  channelId?: string
+  mapInput?: (context: AgentChatFetchMapInputContext) => MaybePromise<AgentChatFetchInputPatch | undefined | void>
+  origin?: string
 }
 
 export interface RegisterWorkspaceAgentOptions<Name extends WorkspaceName = WorkspaceName> extends WorkspaceAgentDefaults<Name> {
@@ -1331,15 +1338,22 @@ function createUserUIMessage(text: string): UIMessage {
   }
 }
 
-function createHttpChatRunMetadata(agentName: string, body: AgentChatFetchBody, messages: UIMessage[]): AgentRunMetadata {
+function createHttpChatRunMetadata(
+  agentName: string,
+  body: AgentChatFetchBody,
+  messages: UIMessage[],
+  options: Pick<AgentChatFetchHandlerOptions, "channelId" | "origin"> = {},
+): AgentRunMetadata {
   const chatId = optionalBodyString(body.id, "id") || "default"
   const messageId = optionalBodyString(body.messageId, "messageId") || messages.at(-1)?.id || randomToken()
+  const channelId = options.channelId || `http:${agentName}`
+  const origin = options.origin || "http"
   return {
-    channelId: `http:${agentName}`,
+    channelId,
     messageId,
-    origin: "http",
-    runId: globalThis.crypto?.randomUUID?.() || `http-run-${randomToken()}`,
-    threadId: `http:${agentName}:${chatId}`,
+    origin,
+    runId: globalThis.crypto?.randomUUID?.() || `${origin}-run-${randomToken()}`,
+    threadId: `${channelId}:${chatId}`,
   }
 }
 
@@ -1370,7 +1384,12 @@ function optionalBodyString(value: unknown, label: string): string | undefined {
   return trimmed || undefined
 }
 
-function agentChatFetchInput(body: AgentChatFetchBody, agentName: string, allowTrustedInput = false): AgentChatMessageTriggerInput {
+function agentChatFetchInput(
+  body: AgentChatFetchBody,
+  agentName: string,
+  allowTrustedInput = false,
+  options: Pick<AgentChatFetchHandlerOptions, "channelId" | "origin"> = {},
+): AgentChatMessageTriggerInput {
   if (!Array.isArray(body.messages)) {
     throw createRouteBodyError("Agent chat payload requires a messages array.")
   }
@@ -1382,22 +1401,64 @@ function agentChatFetchInput(body: AgentChatFetchBody, agentName: string, allowT
   return {
     ...(body.history !== undefined ? { history: body.history } : {}),
     messages,
-    run: createHttpChatRunMetadata(agentName, body, messages),
+    run: createHttpChatRunMetadata(agentName, body, messages, options),
     ...(session ? { session } : {}),
+  }
+}
+
+function agentChannelRouteOptions(channelId: string, channel: AgentChannelDefinition): AgentChatFetchHandlerOptions | undefined {
+  if (channel.route === undefined || channel.route === false) return undefined
+  if (channel.route === true) {
+    return {
+      channelId,
+      origin: channel.kind,
+    }
+  }
+  if (isRecord(channel.route) && !Array.isArray(channel.route)) {
+    return {
+      channelId,
+      origin: channel.kind,
+      ...channel.route,
+    } as AgentChatFetchHandlerOptions
+  }
+  throw new TypeError(`[vitehub] Channel "${channelId}" route must be true or an agent chat route options object.`)
+}
+
+function resolveAgentChatFetchHandlerOptions(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  options: AgentChatFetchHandlerOptions = {},
+): AgentChatFetchHandlerOptions {
+  const channels = isRecord(agent) && isRecord(agent.channels) && !Array.isArray(agent.channels)
+    ? agent.channels as Record<string, AgentChannelDefinition>
+    : {}
+  const routeEntries = Object.entries(channels)
+    .map(([channelId, channel]) => [channelId, agentChannelRouteOptions(channelId, channel)] as const)
+    .filter((entry): entry is readonly [string, AgentChatFetchHandlerOptions] => entry[1] !== undefined)
+
+  if (routeEntries.length > 1) {
+    throw new TypeError("[vitehub] defineAgentChatFetchHandler() found multiple route-enabled Channels. Keep one route-enabled Channel per generated chat route.")
+  }
+
+  const channelOptions = routeEntries[0]?.[1]
+  return {
+    ...channelOptions,
+    ...options,
+    mapInput: options.mapInput ?? channelOptions?.mapInput,
   }
 }
 
 function mergeAgentChatFetchInput(
   input: AgentChatMessageTriggerInput,
-  patch: Partial<AgentChatMessageTriggerInput> | undefined | void,
+  patch: AgentChatFetchInputPatch | undefined | void,
 ): AgentChatMessageTriggerInput {
   if (patch === undefined) return input
   if (!isRecord(patch)) throw createRouteBodyError("Agent chat route input mapper must return an object.")
+  const { run, session, ...rest } = patch
   return {
     ...input,
-    ...patch,
-    ...(patch.run ? { run: { ...input.run, ...patch.run } } : {}),
-    ...(patch.session ? { session: { ...input.session, ...patch.session } } : {}),
+    ...rest,
+    ...(run ? { run: { ...input.run, ...run } as AgentRunMetadata } : {}),
+    ...(session ? { session: { ...input.session, ...session } } : {}),
   }
 }
 
@@ -1774,6 +1835,7 @@ export function defineAgentChatFetchHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   options: AgentChatFetchHandlerOptions = {},
 ): (request: Request, options?: AgentChatFetchOptions) => Promise<Response> {
+  const routeOptions = resolveAgentChatFetchHandlerOptions(agent, options)
   return async (request, handlerOptions = {}) => {
     if (request.method !== "POST") {
       return createJsonErrorResponse(405, "Agent chat route only accepts POST requests.")
@@ -1788,10 +1850,10 @@ export function defineAgentChatFetchHandler(
         await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
         handlerOptions.cloudflare,
       )
-      const baseInput = agentChatFetchInput(body, agentName, Boolean(options.mapInput))
+      const baseInput = agentChatFetchInput(body, agentName, Boolean(routeOptions.mapInput), routeOptions)
       const triggerInput = mergeAgentChatFetchInput(
         baseInput,
-        await options.mapInput?.({ agentName, body, input: baseInput, request }),
+        await routeOptions.mapInput?.({ agentName, body, input: baseInput, request }),
       )
       const result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
         output: "ui-message-stream",

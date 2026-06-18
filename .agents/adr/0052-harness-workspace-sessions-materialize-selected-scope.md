@@ -9,7 +9,7 @@ This narrowly supersedes ADR 0033's deferral of scoped Source materialization fo
 - Reusing model-facing Workspace Tools for harness-backed drivers was rejected because Codex and Claude Code-style harnesses expect a filesystem, shell/session behavior, and workspace-local instructions such as `AGENTS.md`.
 - Letting harness adapters perform raw checkouts was rejected because Workspace Scope, Workspace Rules, persistence, and auditability must remain ViteHub-owned.
 - Reopening generic scoped Source materialization was rejected because harness-backed execution has a narrower, explicit session boundary while generic materialization can still leak source-level metadata.
-- Reusing durable harness sessions implicitly from chat sessions, thread ids, or invokers was rejected because session state, filesystem residue, approval history, compaction, and cost should not survive across Agent Invocations without an explicit **Harness Session Key**.
+- Reusing durable harness sessions implicitly from chat sessions, thread ids, or Agent Actors was rejected because session state, filesystem residue, approval history, compaction, and cost should not survive across Agent Invocations without an explicit **Harness Session Key**.
 
 ## Consequences
 

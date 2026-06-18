@@ -379,10 +379,12 @@ export async function resolveAgentCapabilities<
               capabilityId: capability.id,
               id,
               name,
+              source: "capability",
             },
           }, input as never),
           name,
           output: trigger.output,
+          source: "capability",
         })
       }
 

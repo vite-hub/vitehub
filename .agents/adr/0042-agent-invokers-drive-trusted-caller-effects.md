@@ -1,5 +1,9 @@
 # Agent Invokers Drive Trusted Caller Effects
 
+## Status
+
+Superseded by ADR 0064. This ADR remains as historical context for the legacy Invoker API and current compatibility surface.
+
 ViteHub will use Agent Invokers as the single trusted caller identity for Agent Invocations. Agent Definitions can declare static selectable profiles through `defineAgent({ invoker: { profiles } })`, the runtime exposes the resolved value as `context.invoker`, and every invocation receives an origin-specific fallback when no trusted identity is supplied.
 
 Capabilities consume `context.invoker` for concrete effects. `access()` can map invoker metadata to Workspace Scope, `rateLimit()` consumes invoker identity by default, and prompt behavior can read the same invoker metadata through normal Agent or Capability callbacks. App-specific axes such as customer, audience, tenant, and support role belong in `invoker.meta`; they do not become required top-level Agent Invoker fields.

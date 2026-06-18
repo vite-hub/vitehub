@@ -2,7 +2,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, defineAgentInvoker, type AgentChannelDefinition, type AgentDriver, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
 import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, subagents, transcribe, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
-import { http, teams, webChat } from "../src/channels.ts"
+import { defineChannel, github, http, stream, teams, telegram, webChat } from "../src/channels.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
@@ -373,15 +373,48 @@ describe("agent public types", () => {
     }
     const channel: AgentChannelDefinition = teams()
     expectTypeOf(channel.kind).toEqualTypeOf<string>()
+    const custom = defineChannel("portal", {
+      messages: false,
+      triggers: {
+        event: {
+          invoke(context, input: { text: string }) {
+            expectTypeOf(context.channel.kind).toEqualTypeOf<string>()
+            expectTypeOf(context.trigger.channelId).toEqualTypeOf<string>()
+            expectTypeOf(input.text).toEqualTypeOf<string>()
+            return { input: { prompt: input.text } }
+          },
+        },
+      },
+    })
+    expectTypeOf(custom.kind).toEqualTypeOf<string>()
 
     defineAgent({
       channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({ input: { prompt: "github" } }),
+            },
+          },
+        }),
         portal: http({
           adapter: () => ({}) as never,
           webhooks: { path: "/api/support/chat" },
         }),
         teams: teams({
           adapter: () => ({}) as never,
+        }),
+        telegram: telegram({
+          adapter: () => ({}) as never,
+        }),
+        portalStream: stream({
+          route: {
+            mapInput({ body, request }) {
+              expectTypeOf(body.messages).toEqualTypeOf<unknown>()
+              expectTypeOf(request).toEqualTypeOf<Request>()
+              return { meta: body.meta as Record<string, unknown> }
+            },
+          },
         }),
         web: webChat(),
       },
@@ -401,8 +434,18 @@ describe("agent public types", () => {
     type RootAgentExports = typeof import("../src/index.ts")
     // @ts-expect-error Channel Kind helpers are imported from @vite-hub/agent/channels, not the root entry.
     type _RootTeams = RootAgentExports["teams"]
+    // @ts-expect-error defineChannel is imported from @vite-hub/agent/channels, not the root entry.
+    type _RootDefineChannel = RootAgentExports["defineChannel"]
+    // @ts-expect-error Channel Kind helpers are imported from @vite-hub/agent/channels, not the root entry.
+    type _RootTelegram = RootAgentExports["telegram"]
+    // @ts-expect-error Channel Kind helpers are imported from @vite-hub/agent/channels, not the root entry.
+    type _RootStream = RootAgentExports["stream"]
 
     type ChannelExports = typeof import("../src/channels.ts")
+    type _PublicDefineChannel = ChannelExports["defineChannel"]
+    type _PublicGithub = ChannelExports["github"]
+    type _PublicStream = ChannelExports["stream"]
+    type _PublicTelegram = ChannelExports["telegram"]
     type _PublicTeams = ChannelExports["teams"]
   })
 

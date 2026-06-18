@@ -488,6 +488,66 @@ describe("server helpers", () => {
     }))
   })
 
+  it("serves stream Channel chat routes with channel-owned trusted input mapping", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { stream } = await import("../src/channels.ts")
+    const { defineAgentChatFetchHandler } = await import("../src/server.ts")
+    const run = vi.fn(({ context, invoker, run }) => {
+      const chatContext = context.get("chat") as { meta?: { audience?: string }, user?: { email?: string } } | undefined
+      return `portal ${run.channelId} ${run.origin} ${run.threadId} ${invoker.id} ${chatContext?.user?.email} ${chatContext?.meta?.audience}`
+    })
+    const handler = defineAgentChatFetchHandler(defineAgent({
+      channels: {
+        portal: stream({
+          route: {
+            mapInput({ body, request }) {
+              if (request.headers.get("x-quiver-chat-token") !== "trusted") {
+                throw new Error("Invalid Quiver Chat token.")
+              }
+              return {
+                invokerProfileId: "customer:acme",
+                meta: body.meta as Record<string, unknown>,
+                run: { origin: "portal" },
+                user: body.user as Record<string, unknown>,
+              }
+            },
+          },
+        }),
+      },
+      invoker: {
+        profiles: [{
+          id: "customer:acme",
+          kind: "customerPortal",
+          meta: { scope: "acme" },
+        }],
+      },
+      run,
+    }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        id: "portal-thread",
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+        meta: { audience: "technical", customer: "acme", source: "portal" },
+        user: { email: "user@example.com" },
+      }),
+      headers: {
+        "content-type": "application/json",
+        "x-quiver-chat-token": "trusted",
+      },
+      method: "POST",
+    }), { agentName: "support" })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
+    await expect(response.text()).resolves.toContain("portal portal portal portal:portal-thread customer:acme user@example.com technical")
+    expect(run).toHaveBeenCalled()
+  })
+
   it("returns a validation error for malformed AI SDK chat requests", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")

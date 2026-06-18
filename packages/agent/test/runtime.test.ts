@@ -954,6 +954,44 @@ describe("agent message protocol", () => {
     await expect(runAgentTrigger(agent, runtime, "portal.message", { text: "hello" })).resolves.toBe("received hello")
   })
 
+  it("creates custom trigger channels with defineChannel()", async () => {
+    const { defineAgent, resolveAgentTriggers, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const agent = defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          messages: false,
+          triggers: {
+            message: {
+              invoke: (context, input: { text: string }) => ({
+                input: {
+                  context: { channelKind: context.channel.kind },
+                  messages: [createMessage({ role: "user", text: input.text })],
+                },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+              }),
+            },
+          },
+        }),
+      },
+      run: (context) => {
+        const trigger = context.context.get<{ source?: string }>("agent.trigger")
+        return `${trigger?.source}:${context.context.get("channelKind")}:${getMessageText(context.messages[0]!)}`
+      },
+    })
+    const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+
+    await expect(resolveAgentTriggers(agent, runtime)).resolves.toMatchObject({
+      "portal.message": {
+        channelId: "portal",
+        id: "portal.message",
+        name: "message",
+        source: "channel",
+      },
+    })
+    await expect(runAgentTrigger(agent, runtime, "portal.message", { text: "hello" })).resolves.toBe("channel:portal:hello")
+  })
+
   it("exposes chat webhook registration metadata through agent triggers", async () => {
     const { chat } = await import("../src/chat-trigger.ts")
     const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
@@ -1070,6 +1108,75 @@ describe("agent message protocol", () => {
           method: "POST",
           path: "/api/teams/support",
           provider: "teams",
+        }],
+      },
+    })
+  })
+
+  it("creates Telegram message channels with Telegram webhook defaults", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const adapter = () => ({}) as never
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter,
+          webhooks: {
+            path: "/api/telegram/support",
+            secretToken: "secret-token",
+          },
+        }),
+      },
+      run: () => "ok",
+    })
+
+    expect(agent.chat?.platforms).toEqual({ telegram: adapter })
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "chat.message": {
+        webhooks: [{
+          id: "telegram",
+          method: "POST",
+          path: "/api/telegram/support",
+          provider: "telegram",
+          secretHeader: "x-telegram-bot-api-secret-token",
+          secretToken: "secret-token",
+        }],
+      },
+    })
+  })
+
+  it("adds GitHub webhook defaults to channel-owned triggers", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({ input: { prompt: "github" } }),
+            },
+          },
+          webhooks: { path: "/api/github/webhook", secretToken: "secret-token" },
+        }),
+      },
+      run: () => "ok",
+    })
+
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "github.webhook": {
+        channelId: "github",
+        source: "channel",
+        webhooks: [{
+          channelId: "github",
+          id: "github",
+          method: "POST",
+          path: "/api/github/webhook",
+          provider: "github",
+          secretHeader: "x-hub-signature-256",
+          secretToken: "secret-token",
+          signature: "github-sha256",
         }],
       },
     })
