@@ -100,6 +100,14 @@ _Avoid_: Entry Capability, route helper, trigger helper, generic Capability
 The ordered runtime moments that occur while one Agent Invocation is processed.
 _Avoid_: Capability Lifecycle, chat event hooks, request middleware
 
+**ViteHub Hook System**:
+The shared hook machinery, naming conventions, and inspection model used by owner-scoped Agent, Channel, Capability, Runtime, and integration hooks.
+_Avoid_: Global mutation bus, arbitrary event bus, Capability Lifecycle replacement
+
+**Hook Observer**:
+A read-only listener for inspectable hook activity across ViteHub owners.
+_Avoid_: Channel hook, Capability hook, Agent Finish Hook, Trace Event
+
 **Agent Finish Hook**:
 The final Agent Invocation Lifecycle hook for observing the completed invocation outcome.
 _Avoid_: onUsage, onRecord, afterRun
@@ -270,6 +278,9 @@ _Avoid_: Fake agent, dummy model, test bot
 - A **Stream Channel** can supply generated chat route options through `stream({ route })`; sibling `chatRoute` exports are compatibility overrides, not the preferred Channel API.
 - Message-shaped **Channel Kinds** keep the existing chat delivery behavior, including Chat Platform Adapters, webhook wiring, locks, dedupe, concurrency, platform state, and identity mapping.
 - An **Agent Invocation** follows one **Agent Invocation Lifecycle**.
+- The **ViteHub Hook System** applies across Agent, Channel, Capability, Runtime, and integration owners through shared machinery and conventions, not through one public writable hook bus.
+- Public hook registration stays scoped to the owner that controls the lifecycle and allowed effects.
+- A **Hook Observer** may inspect cross-owner hook activity, but it must not mutate Channel delivery, Agent Invocation input, Capability contributions, Runtime policy, or model output.
 - An **Agent Finish Hook** belongs to the **Agent Invocation Lifecycle**.
 - Capabilities can expose **Agent Invocation Extensions** on Agent Invocation Lifecycle events.
 - An **Agent Eval** runs an **Agent Definition** to create scored **Agent Invocations**.
@@ -364,6 +375,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - Identity mapping was considered for **Message Channel Settings** - resolved: keep it on concrete **Channels** because each Channel trusts different actor data.
 - Root `messages.concurrency` was considered too platform-specific - resolved: allow it for overlapping message turns, while platform delivery limits stay Channel-specific.
 - Start acknowledgements were considered one Channel delivery concept - resolved: split protocol-level **Channel Delivery Admission** from user-visible **Channel Delivery Effects**.
+- One global writable hook bus was considered for Agent, Channel, Capability, Runtime, and integration hooks - resolved: use one **ViteHub Hook System** with owner-scoped public mutation hooks and read-only **Hook Observers** for cross-owner inspection.
 - Hidden model-selected history slicing was considered - resolved: **Chat Session** selection is a host-visible boundary over preserved Chat History, not destructive message truncation.
 - Route and gate results were considered for ad hoc input context or metadata - resolved: expose them as typed **Agent Invocation Context Values**.
 - Shared access-and-audience branching was considered for reusable Invocation Profiles - resolved: use **Agent Actor** as the trusted identity concept, with legacy **Agent Invoker Profiles** and app-owned actor metadata for V1.
