@@ -18,6 +18,7 @@ function withChannelWebhookProvider<TRuntimeConfig extends AgentRuntimeConfig>(
   ): AgentChatWebhookRegistrationDefinition<TRuntimeConfig> => ({
     ...registration,
     adapter: registration.adapter || channelId,
+    channelId: registration.channelId || channelId,
     ...(registration.id || !id ? {} : { id }),
     provider: registration.provider || kind,
   })
@@ -60,8 +61,11 @@ export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRunti
       platforms[channelId] = channelDefinition.adapter
       if (channelDefinition.webhooks !== false) {
         webhooks[channelId] = channelDefinition.webhooks === true || channelDefinition.webhooks === undefined
-          ? { id: channelId, provider: channelDefinition.kind }
+          ? { adapter: channelId, channelId, id: channelId, provider: channelDefinition.kind }
           : withChannelWebhookProvider(channelId, channelDefinition.kind, channelDefinition.webhooks)
+      }
+      else {
+        webhooks[channelId] = false
       }
     }
     else if (channelDefinition.webhooks && channelDefinition.webhooks !== true) {

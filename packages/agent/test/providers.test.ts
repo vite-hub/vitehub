@@ -760,7 +760,49 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(run).toHaveBeenCalledOnce()
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      run: expect.objectContaining({
+        origin: "support",
+        runId: "support:7",
+      }),
+    }))
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "echo: hello" })
+  })
+
+  it("uses channel ids for same-kind channel webhook state", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const prefixes: string[] = []
+    const agent = defineAgent({
+      channels: {
+        sales: http({ adapter: () => createTestChatAdapter() as never }),
+        support: http({ adapter: () => createTestChatAdapter() as never }),
+      },
+      messages: {
+        state: ({ chat }) => {
+          prefixes.push(chat.stateKeyPrefix)
+          return undefined as never
+        },
+      },
+      run: () => "ok",
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+    const request = (webhook: string) => new Request(`https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`, {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          from: { id: 123, username: "maxi" },
+          message_id: 7,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    })
+
+    await expect(handler(request("support"), "support")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(request("sales"), "sales")).resolves.toMatchObject({ status: 200 })
+    expect(prefixes).toEqual(["chat:agent:support:", "chat:agent:sales:"])
   })
 
   it("does not block chat webhook handling on typing status", async () => {

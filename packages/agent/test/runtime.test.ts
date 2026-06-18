@@ -641,6 +641,49 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("does not infer webhooks for channels with webhooks disabled", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { teams } = await import("../src/channels.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const agent = defineAgent({
+      channels: {
+        support: teams({
+          adapter: () => ({}) as never,
+          webhooks: false,
+        }),
+      },
+      run: () => "ok",
+    })
+
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "chat.message": {
+        webhooks: undefined,
+      },
+    })
+  })
+
+  it("preserves channel ids for same-kind webhook registrations", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { teams } = await import("../src/channels.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const agent = defineAgent({
+      channels: {
+        sales: teams({ adapter: () => ({}) as never }),
+        support: teams({ adapter: () => ({}) as never }),
+      },
+      run: () => "ok",
+    })
+
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "chat.message": {
+        webhooks: expect.arrayContaining([
+          expect.objectContaining({ channelId: "sales", id: "sales", provider: "teams" }),
+          expect.objectContaining({ channelId: "support", id: "support", provider: "teams" }),
+        ]),
+      },
+    })
+  })
+
   it("applies channel-local message settings for one message-shaped channel", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")

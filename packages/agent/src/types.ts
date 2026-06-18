@@ -161,6 +161,7 @@ export type AgentWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig = 
 
 export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapter?: string
+  channelId?: string
   id?: string
   method?: "POST" | (string & {})
   path?: string
@@ -907,7 +908,7 @@ export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
   identity?: IdentityResolver
   lifecycleHooks?: Record<string, unknown>
   platforms?: AgentChatPlatformsResolver<TRuntimeConfig>
-  webhooks?: Record<string, AgentChatWebhookRegistrationDefinition<TRuntimeConfig> | AgentChatWebhookRegistrationDefinition<TRuntimeConfig>[]>
+  webhooks?: Record<string, false | AgentChatWebhookRegistrationDefinition<TRuntimeConfig> | AgentChatWebhookRegistrationDefinition<TRuntimeConfig>[]>
   workflow?: never
   [key: string]: unknown
 }
