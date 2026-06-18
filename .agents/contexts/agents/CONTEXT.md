@@ -44,6 +44,18 @@ _Avoid_: Agent Invocation Lifecycle hooks, adapter middleware, provider wrapper
 One runtime request to an Agent.
 _Avoid_: Chat message, webhook call
 
+**Agent Invocation Stream**:
+The ordered structured event stream produced while one Agent Invocation runs and consumed by terminal, DevTools, HTTP clients, tests, or CI.
+_Avoid_: Agent Invocation Lifecycle, DevTools state, chat transcript, raw model stream
+
+**Agent Invocation Stream Endpoint**:
+The development-server HTTP surface that exposes Agent Invocation Stream events to development clients.
+_Avoid_: DevTools Bridge, chat state endpoint, webhook
+
+**Agent Invocation Stream Format**:
+The wire format used by an Agent Invocation Stream Endpoint to deliver Agent Invocation Stream events.
+_Avoid_: DevTools state format, raw model stream format, trace log format
+
 **Agent Trigger**:
 The lower-level server-side primitive that maps a product event into an Agent Invocation.
 _Avoid_: Channel, Chat adapter, client integration, model adapter
@@ -190,6 +202,16 @@ _Avoid_: Fake agent, dummy model, test bot
 - Workspace plus Capability composition without an **Agent Driver** is not an **Agent Definition**.
 - Capabilities attach above the **Agent Driver** and may expose driver-specific **Capability Driver Contributions**.
 - An **Agent** receives zero or more **Agent Invocations**.
+- An **Agent Invocation Stream** belongs to one **Agent Invocation**.
+- An **Agent Invocation Stream Endpoint** exposes an **Agent Invocation Stream** without becoming a **DevTools Bridge**.
+- The V1 **Agent Invocation Stream Endpoint** uses the legacy **Agent Trigger** request shape until Channels become the active Agent reachability contract.
+- The V1 **Agent Invocation Stream Format** is newline-delimited JSON.
+- The Agent Package owns the **Agent Invocation Stream Format** helpers used by development clients.
+- An **Agent Invocation Stream** is not the **Agent Invocation Lifecycle**; lifecycle hooks observe runtime moments.
+- An **Agent Invocation Stream** is the client-facing Agent Invocation event stream; Runtime Package **Trace Events** are the local observability record and may observe the same invocation without becoming the stream contract.
+- Agent Invocation content can appear in the **Agent Invocation Stream** without being persisted into the Runtime Package **Trace Event Log**.
+- Text deltas and other high-frequency **Agent Invocation Stream** events are not Runtime Package **Trace Events** by default.
+- **Agent Model Execution Instrumentation** may feed Runtime Package **Trace Events**, but provider-specific telemetry should not become the Agent Package observability vocabulary.
 - An **Agent Trigger** starts one or more **Agent Invocations** as the lower-level invocation primitive behind Channels and Capability-owned product events.
 - An **Agent Trigger** prepares **Agent Run State** and **Chat History** when the product event needs them.
 - An **Agent Trigger** may provide message-shaped input, but message-shaped input is not required for every Agent Trigger.

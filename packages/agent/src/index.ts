@@ -357,6 +357,7 @@ interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   input: AgentRunInput<CALL_OPTIONS>
   run?: AgentRunMetadata
   runtime?: AgentRuntimeContext["runtime"]
+  runtimeConfig?: AgentRuntimeConfig
 }
 interface ScheduleRunContextLike {
   attemptId?: string
@@ -463,9 +464,11 @@ async function runAgentAsWorkflow<
   if (!binding) return undefined
 
   const handle = await getAgentWorkflowHandle<TRuntimeConfig, CALL_OPTIONS>(agent, resolveAgentWorkflowName(binding))
+  const resolvedContext = createResolvedRuntimeContext(context)
   const payload: AgentWorkflowInvocationPayload<CALL_OPTIONS> = {
     input,
     runtime: context.runtime,
+    runtimeConfig: resolvedContext.runtimeConfig,
     ...(context.run ? { run: context.run } : {}),
   }
   const workflowEvent = {
@@ -515,6 +518,12 @@ export { defineCapability } from "./capability-runtime.ts"
 export { verifyAgentWebhookRequest } from "./trigger-runtime.ts"
 export type { AgentWebhookVerificationResult, ResolvedAgentTriggerInvocation } from "./trigger-runtime.ts"
 export * from "./messages.ts"
+export {
+  agentInvocationStreamRoute,
+  createAgentInvocationStreamResponse,
+  readAgentInvocationStream,
+} from "./invocation-stream.ts"
+export type { AgentInvocationStreamEvent } from "./invocation-stream.ts"
 
 function validateSandboxCommands(commands: unknown): string[] {
   if (!Array.isArray(commands) || !commands.length) {

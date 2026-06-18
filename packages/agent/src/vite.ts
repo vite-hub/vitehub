@@ -7,6 +7,7 @@ import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatch
 
 import { chatDevTools } from "./chat/devtools.ts"
 import { registerChatDevtoolsBridge } from "./chat/vite/devtools-bridge.ts"
+import { registerAgentInvocationStreamEndpoint } from "./vite/invocation-stream-endpoint.ts"
 import {
   configureCloudflareAgentState,
   defaultCloudflareAgentStateBinding,
@@ -292,12 +293,15 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       if (agentDevtoolsEnabled(agent)) {
         registerChatDevtoolsBridge(server, { meta: agentDevtoolsMeta(agent) })
       }
+      if (agent !== false) {
+        registerAgentInvocationStreamEndpoint(server)
+      }
     },
     vitehub: {
       cli: async () => {
         const { createAgentCliContributor } = await import(/* @vite-ignore */ "./cli.js")
         if (agent === false || agent?.cli === false) return createAgentCliContributor(false)
-        return createAgentCliContributor(resolveAgentEvalOptions(agent?.eval))
+        return createAgentCliContributor({ eval: resolveAgentEvalOptions(agent?.eval) })
       },
     },
     config(config) {
