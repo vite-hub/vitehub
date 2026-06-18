@@ -294,8 +294,37 @@ describe("@vite-hub/runtime", () => {
       trace: { id: "request-trace", parentId: "request-parent" },
       type: "run",
     })
+    await log.append({
+      attributes: { "agent.run.id": "agent-run-2" },
+      name: "agent.invocation.start",
+      timestamp: "2026-01-01T00:00:00.040Z",
+      trace: { id: "request-trace", parentId: "request-parent" },
+      type: "run",
+    })
+    await log.append({
+      attributes: { "agent.run.id": "agent-run-2", "model.call.id": "model-1" },
+      name: "agent.model.call.start",
+      timestamp: "2026-01-01T00:00:00.050Z",
+      trace: { id: "request-trace", parentId: "request-parent" },
+      type: "run",
+    })
+    await log.append({
+      attributes: { "agent.run.id": "agent-run-2", "model.call.id": "model-1" },
+      name: "agent.model.call.finish",
+      timestamp: "2026-01-01T00:00:00.060Z",
+      trace: { id: "request-trace", parentId: "request-parent" },
+      type: "run",
+    })
+    await log.append({
+      attributes: { "agent.run.id": "agent-run-2" },
+      name: "agent.invocation.finish",
+      timestamp: "2026-01-01T00:00:00.070Z",
+      trace: { id: "request-trace", parentId: "request-parent" },
+      type: "run",
+    })
 
-    expect(traceEventsToOpenTelemetrySpans(log.entries())).toEqual([
+    const spans = traceEventsToOpenTelemetrySpans(log.entries())
+    expect(spans).toEqual(expect.arrayContaining([
       expect.objectContaining({
         parentSpanId: "request-parent",
         spanId: "agent-run-1",
@@ -303,10 +332,15 @@ describe("@vite-hub/runtime", () => {
       }),
       expect.objectContaining({
         parentSpanId: "agent-run-1",
-        spanId: "model-1",
+        spanId: "agent-run-1:model-1",
         traceId: "request-trace",
       }),
-    ])
+      expect.objectContaining({
+        parentSpanId: "agent-run-2",
+        spanId: "agent-run-2:model-1",
+        traceId: "request-trace",
+      }),
+    ]))
   })
 
   it("maps derived trace runs to span-shaped OpenTelemetry exports", async () => {
@@ -343,7 +377,7 @@ describe("@vite-hub/runtime", () => {
       expect.objectContaining({
         name: "agent.model.call",
         parentSpanId: "run-1",
-        spanId: "model-1",
+        spanId: "run-1:model-1",
         status: { code: "OK" },
         traceId: "run-1",
       }),

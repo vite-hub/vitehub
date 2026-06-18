@@ -390,7 +390,7 @@ export function traceEventsToOpenTelemetrySpans(events: Iterable<TraceEventLogEn
         endTime: step.endTime,
         name: step.name,
         parentSpanId: run.id,
-        spanId: step.id,
+        spanId: `${run.id}:${step.id}`,
         startTime: step.startTime,
         status: { code: step.status === "failed" ? "ERROR" : "OK" } as const,
         traceId,

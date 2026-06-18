@@ -1510,6 +1510,11 @@ describe("agent message protocol", () => {
           return createUIMessageStream({
             execute({ writer }) {
               writer.write({ type: "start", messageId: "assistant-1" })
+              writer.write({ type: "text-start", id: "text-1" })
+              writer.write({ type: "text-delta", id: "text-1", delta: "native answer" })
+              writer.write({ type: "text-end", id: "text-1" })
+              writer.write({ input: { query: "users" }, toolCallId: "tool-1", toolName: "search", type: "tool-input-available" })
+              writer.write({ output: "42", toolCallId: "tool-1", type: "tool-output-available" })
               writer.write({ type: "finish", finishReason: "stop" })
             },
           })
@@ -1532,6 +1537,10 @@ describe("agent message protocol", () => {
       messages.push(message)
     }
 
+    expect(messages.at(-1)?.parts).toContainEqual(expect.objectContaining({
+      text: "native answer",
+      type: "text",
+    }))
     expect(messages.at(-1)?.parts.some(part => part.type === "tool-search")).toBe(true)
     expect(traceLog.entries().map(event => event.name)).toEqual([
       "agent.invocation.start",

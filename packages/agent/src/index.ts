@@ -25,7 +25,7 @@ import {
 } from "./capability-runtime.ts"
 import type { ResolvedAgentFinishExtensionProvider } from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
-import { finalizeUiMessageStreamOutput } from "./stream-output.ts"
+import { finalizeUiMessageStreamOutput, isUIMessageStreamResult, withReadableStreamCleanup } from "./stream-output.ts"
 import { createHarnessAgentAdapter } from "./harness-agent.ts"
 import {
   applyAgentToolPolicies,
@@ -1017,11 +1017,44 @@ function hasTraceableStreamResult(value: unknown): boolean {
   return isAsyncIterable(result.fullStream) || isAsyncIterable(result.stream) || isAsyncIterable(result.textStream)
 }
 
+async function traceStreamResult<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(events: AsyncIterable<unknown>, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): Promise<void> {
+  try {
+    for await (const _event of traceAgentStreamEvents(streamAgentOutputToEvents(events), toTraceContext(context))) {}
+  }
+  catch {}
+}
+
+async function* readableStreamEvents(stream: ReadableStream<unknown>): AsyncIterable<unknown> {
+  const reader = stream.getReader()
+  try {
+    while (true) {
+      const result = await reader.read()
+      if (result.done) return
+      yield result.value
+    }
+  }
+  finally {
+    reader.releaseLock()
+  }
+}
+
 function maybeTraceUiMessageStreamOutput<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(rendered: unknown, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): unknown {
   if (context.runtimeContext.traceLog && hasTraceableStreamResult(rendered)) {
+    if (isUIMessageStreamResult(rendered)) {
+      return {
+        toUIMessageStream: () => {
+          const [stream, traceStream] = rendered.toUIMessageStream().tee()
+          const trace = traceStreamResult(readableStreamEvents(traceStream), context)
+          return withReadableStreamCleanup(stream, () => trace)
+        },
+      }
+    }
     return maybeTraceAgentStream(streamAgentOutputToEvents(rendered), context)
   }
   return isAsyncIterable(rendered) ? maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, context) : rendered
