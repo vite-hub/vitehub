@@ -634,13 +634,23 @@ function withAgentWorkflowRuntimeName(runtime: AgentRuntimeBinding | undefined, 
   return { ...runtime, name }
 }
 
+function cloneAgentDefinitionWithRuntime<TContext extends AgentRuntimeContext>(
+  agent: AgentInput<TContext>,
+  runtime: AgentRuntimeBinding,
+): AgentInput<TContext> {
+  const clone = Object.create(Object.getPrototypeOf(agent)) as AgentDefinition
+  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
+  clone.runtime = runtime
+  return clone as AgentInput<TContext>
+}
+
 export function withAgentDefaults<TContext extends AgentRuntimeContext>(
   agent: AgentInput<TContext> | undefined,
   options: AgentHandlerOptions = {},
 ): AgentInput<TContext> | undefined {
   if (!agent || !hasAgentDefinition(agent)) return agent
   const runtime = withAgentWorkflowRuntimeName(agent.runtime, options.inferredName)
-  return runtime === agent.runtime ? agent : { ...agent, runtime } as AgentInput<TContext>
+  return !runtime || runtime === agent.runtime ? agent : cloneAgentDefinitionWithRuntime(agent, runtime)
 }
 
 export interface DefineAgent {

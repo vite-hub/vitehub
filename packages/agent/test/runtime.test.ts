@@ -2268,6 +2268,23 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("preserves Agent Definition metadata when applying discovered defaults", async () => {
+      const { createAgentDevtoolsMetadata, defineAgent, withAgentDefaults, workflow } = await import("../src/index.ts")
+      const agent = withAgentDefaults(defineAgent({
+        model: { id: "test-model" } as never,
+        runtime: workflow(),
+      }), { inferredName: "browser" })
+
+      expect(createAgentDevtoolsMetadata(agent!)).toMatchObject({
+        config: {
+          driver: {
+            kind: "model",
+            model: { id: "test-model" },
+          },
+        },
+      })
+    })
+
     it("uses workspace Agent defaults for unnamed workflow runtime bindings", async () => {
       const { defineAgent, runAgent, withWorkspaceAgentDefaults, workflow } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
