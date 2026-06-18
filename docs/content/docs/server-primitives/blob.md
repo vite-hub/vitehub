@@ -97,6 +97,31 @@ export default defineConfig({
 })
 ```
 
+## MinIO object storage
+
+Use MinIO when you want Docker Compose or local staging to exercise object-storage semantics instead of a mounted filesystem.
+
+```bash
+pnpm add files-sdk @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
+```
+
+```ts [vite.config.ts]
+export default defineConfig({
+  blob: {
+    driver: 'minio',
+  },
+})
+```
+
+```env [.env]
+MINIO_ENDPOINT=http://minio:9000
+MINIO_ROOT_USER=minio
+MINIO_ROOT_PASSWORD=password
+BLOB_BUCKET_NAME=vitehub-blob
+```
+
+`driver: 'minio'` defaults to path-style S3 requests, `us-east-1`, `http://localhost:9000`, and the `vitehub-blob` bucket when those values are not provided. Production Docker deployments should use managed `s3` or a production-grade S3-compatible store rather than relying on a single-host Compose MinIO service.
+
 ## Blob and agents
 
 Attach the Blob Capability only when a model should inspect or edit object storage. Keep prefixes narrow and make write behavior explicit.

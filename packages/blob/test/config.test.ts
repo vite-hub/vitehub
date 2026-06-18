@@ -69,6 +69,56 @@ describe("blob config", () => {
     })
   })
 
+  it("resolves MinIO config from Docker-friendly env", () => {
+    expect(normalizeBlobOptions({ driver: "minio" }, {
+      env: {
+        BLOB_BUCKET_NAME: "assets",
+        MINIO_ENDPOINT: "http://minio:9000",
+        MINIO_ROOT_PASSWORD: "password",
+        MINIO_ROOT_USER: "minio",
+      },
+    })).toEqual({
+      store: {
+        accessKeyId: "minio",
+        bucket: "assets",
+        driver: "minio",
+        endpoint: "http://minio:9000",
+        forcePathStyle: true,
+        region: "us-east-1",
+        secretAccessKey: "password",
+      },
+    })
+  })
+
+  it("keeps explicit MinIO config over env defaults", () => {
+    expect(normalizeBlobOptions({
+      accessKeyId: "configured-user",
+      bucket: "configured-assets",
+      driver: "minio",
+      endpoint: "http://configured-minio:9000",
+      forcePathStyle: false,
+      region: "eu-west-1",
+      secretAccessKey: "configured-password",
+    }, {
+      env: {
+        BLOB_BUCKET_NAME: "env-assets",
+        MINIO_ENDPOINT: "http://env-minio:9000",
+        MINIO_ROOT_PASSWORD: "env-password",
+        MINIO_ROOT_USER: "env-user",
+      },
+    })).toEqual({
+      store: {
+        accessKeyId: "configured-user",
+        bucket: "configured-assets",
+        driver: "minio",
+        endpoint: "http://configured-minio:9000",
+        forcePathStyle: false,
+        region: "eu-west-1",
+        secretAccessKey: "configured-password",
+      },
+    })
+  })
+
   it("throws on non-object config", () => {
     expect(() => normalizeBlobOptions("blob" as never)).toThrow("`blob` must be a plain object.")
   })

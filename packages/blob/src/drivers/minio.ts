@@ -1,9 +1,11 @@
 import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { createFilesSdkDriver } from "./files-sdk.ts"
 
-import type { BlobDriverAdapter, MinioBlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, ResolvedMinioBlobStoreConfig } from "../types.ts"
 
-export function createDriver(options: MinioBlobStoreConfig): BlobDriverAdapter<MinioBlobStoreConfig> {
+const minioInstall = "files-sdk @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner"
+
+export function createDriver(options: ResolvedMinioBlobStoreConfig): BlobDriverAdapter<ResolvedMinioBlobStoreConfig> {
   return createFilesSdkDriver(options, async (options) =>
-    (await importOptionalPeer<typeof import("files-sdk/minio")>("files-sdk/minio", options.driver, "files-sdk")).minio(options))
+    (await importOptionalPeer<typeof import("files-sdk/minio")>("files-sdk/minio", options.driver, minioInstall)).minio(options))
 }

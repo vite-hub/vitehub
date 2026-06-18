@@ -10,9 +10,11 @@ import type {
   BlobStoresConfig,
   CloudflareR2BlobStoreConfig,
   FsBlobStoreConfig,
+  MinioBlobStoreConfig,
   ResolvedBlobModuleOptions,
   ResolvedCloudflareR2BlobStoreConfig,
   ResolvedFsBlobStoreConfig,
+  ResolvedMinioBlobStoreConfig,
   ResolvedVercelBlobStoreConfig,
   VercelBlobStoreConfig,
 } from "./types.ts"
@@ -23,6 +25,9 @@ export interface BlobResolutionInput {
 }
 
 export const MASKED_BLOB_RUNTIME_VALUE = "********"
+const DEFAULT_MINIO_BUCKET = "vitehub-blob"
+const DEFAULT_MINIO_ENDPOINT = "http://localhost:9000"
+const DEFAULT_MINIO_REGION = "us-east-1"
 
 function resolveFsStore(
   config: Partial<FsBlobStoreConfig> = {},
@@ -53,6 +58,22 @@ function resolveVercelStore(
   }
 }
 
+function resolveMinioStore(
+  config: Partial<MinioBlobStoreConfig> = {},
+  env: Record<string, string | undefined> = process.env,
+): ResolvedMinioBlobStoreConfig {
+  return {
+    ...config,
+    accessKeyId: trimmed(config.accessKeyId) ?? readEnv(env, "MINIO_ACCESS_KEY", "MINIO_ROOT_USER", "AWS_ACCESS_KEY_ID"),
+    bucket: trimmed(config.bucket) ?? readEnv(env, "BLOB_BUCKET_NAME", "MINIO_BUCKET", "MINIO_BUCKET_NAME") ?? DEFAULT_MINIO_BUCKET,
+    driver: "minio",
+    endpoint: trimmed(config.endpoint) ?? readEnv(env, "MINIO_ENDPOINT") ?? DEFAULT_MINIO_ENDPOINT,
+    forcePathStyle: config.forcePathStyle ?? true,
+    region: trimmed(config.region) ?? readEnv(env, "MINIO_REGION", "AWS_REGION") ?? DEFAULT_MINIO_REGION,
+    secretAccessKey: trimmed(config.secretAccessKey) ?? readEnv(env, "MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD", "AWS_SECRET_ACCESS_KEY"),
+  }
+}
+
 function resolveExplicitStore(
   store: BlobStoreConfig,
   env: Record<string, string | undefined>,
@@ -62,6 +83,8 @@ function resolveExplicitStore(
       return resolveCloudflareStore(store, env)
     case "fs":
       return resolveFsStore(store)
+    case "minio":
+      return resolveMinioStore(store, env)
     case "vercel-blob":
       return resolveVercelStore(store)
     case "akamai":
@@ -72,7 +95,6 @@ function resolveExplicitStore(
     case "gcs":
     case "google-drive":
     case "hetzner":
-    case "minio":
     case "netlify-blobs":
     case "onedrive":
     case "s3":

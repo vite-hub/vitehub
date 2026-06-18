@@ -29,6 +29,7 @@ export type {
   ResolvedBlobStoreConfig,
   ResolvedCloudflareR2BlobStoreConfig,
   ResolvedFsBlobStoreConfig,
+  ResolvedMinioBlobStoreConfig,
   ResolvedVercelBlobStoreConfig,
   S3BlobStoreConfig,
   StorjBlobStoreConfig,

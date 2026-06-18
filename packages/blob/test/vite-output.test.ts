@@ -82,6 +82,10 @@ vi.mock("files-sdk/vercel-blob", () => ({
   vercelBlob: (options: unknown) => ({ options, provider: "vercel-blob" }),
 }))
 
+vi.mock("files-sdk/minio", () => ({
+  minio: (options: unknown) => ({ options, provider: "minio" }),
+}))
+
 async function createWorkspaceTempDir(prefix: string) {
   const baseDir = join(playgroundDir, ".vitest-tmp")
   await mkdir(baseDir, { recursive: true })
@@ -297,5 +301,27 @@ describe("Vite provider outputs", () => {
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
     expect(runtimeContents).toContain("store: storeName => createGeneratedBlobStorage(storeName)")
     expect(runtimeContents).toContain("export const blob = createGeneratedBlobStorage()")
+  })
+
+  it("generates MinIO driver reachability for selected stores", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-minio-runtime-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+
+    await generateProviderOutputs({
+      blob: {
+        driver: "minio",
+      },
+      clientOutDir: "dist",
+      rootDir,
+    })
+
+    const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
+
+    expect(runtimeContents).toContain("drivers/minio")
+    expect(runtimeContents).toContain("\"driver\": \"minio\"")
+    expect(runtimeContents).toContain("\"endpoint\": \"http://localhost:9000\"")
+    expect(runtimeContents).not.toContain("drivers/s3")
   })
 })

@@ -59,6 +59,7 @@ const filesSdkMock = vi.hoisted(() => ({
       },
     ],
   })),
+  minio: vi.fn(() => ({ provider: "minio" })),
   s3: vi.fn(() => ({ provider: "s3" })),
   vercelBlob: vi.fn((options: unknown) => ({ options, provider: "vercel-blob" })),
 }))
@@ -142,6 +143,10 @@ vi.mock("files-sdk/s3", () => ({
   s3: filesSdkMock.s3,
 }))
 
+vi.mock("files-sdk/minio", () => ({
+  minio: filesSdkMock.minio,
+}))
+
 vi.mock("files-sdk/vercel-blob", () => ({
   vercelBlob: filesSdkMock.vercelBlob,
 }))
@@ -156,6 +161,7 @@ afterEach(() => {
   vercelBlobMock.list.mockClear()
   vercelBlobMock.put.mockClear()
   filesSdkMock.list.mockClear()
+  filesSdkMock.minio.mockClear()
   filesSdkMock.s3.mockClear()
   filesSdkMock.vercelBlob.mockClear()
   delete process.env.BLOB_READ_WRITE_TOKEN
@@ -436,6 +442,32 @@ describe("blob runtime", () => {
     const list = await blob.list()
 
     expect(filesSdkMock.s3).toHaveBeenCalledWith(expect.objectContaining({ driver: "s3" }))
+    expect(list.blobs).toEqual([
+      expect.objectContaining({
+        pathname: "notes/hello.txt",
+      }),
+    ])
+  })
+
+  it("loads MinIO through its provider-specific driver import", async () => {
+    setBlobRuntimeConfig({
+      store: {
+        bucket: "assets",
+        driver: "minio",
+        endpoint: "http://minio:9000",
+        forcePathStyle: true,
+        region: "us-east-1",
+      },
+    })
+
+    const list = await blob.list()
+
+    expect(filesSdkMock.minio).toHaveBeenCalledWith(expect.objectContaining({
+      bucket: "assets",
+      driver: "minio",
+      endpoint: "http://minio:9000",
+      forcePathStyle: true,
+    }))
     expect(list.blobs).toEqual([
       expect.objectContaining({
         pathname: "notes/hello.txt",
