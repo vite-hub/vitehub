@@ -961,6 +961,66 @@ describe("server helpers", () => {
     expect(run).toHaveBeenCalledOnce()
   })
 
+  it("lets signed GitHub channel webhooks return a handled response without running the agent", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const triggerInputs: unknown[] = []
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => {
+                triggerInputs.push(input)
+                return Response.json({ ignored: true }, { status: 202 })
+              },
+            },
+          },
+          webhooks: { path: "/api/github/webhook", secretToken: "secret-token" },
+        }),
+      },
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+    const body = JSON.stringify({
+      action: "edited",
+      comment: { body: "not a command", id: 12 },
+      installation: { id: 4075547 },
+    })
+    const request = (signature: string) => new Request("https://example.com/api/github/webhook", {
+      body,
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-ignored",
+        "x-github-event": "issue_comment",
+        "x-hub-signature-256": signature,
+      },
+      method: "POST",
+    })
+
+    const response = await handler(request(githubSignature("secret-token", body)))
+
+    expect(response.status).toBe(202)
+    await expect(response.json()).resolves.toEqual({ ignored: true })
+    expect(triggerInputs).toHaveLength(1)
+    expect(triggerInputs[0]).toMatchObject({
+      github: {
+        deliveryId: "delivery-ignored",
+        event: "issue_comment",
+        installationId: 4075547,
+      },
+    })
+    expect(run).not.toHaveBeenCalled()
+
+    const rejected = await handler(request("sha256=wrong"))
+
+    expect(rejected.status).toBe(401)
+    await expect(rejected.json()).resolves.toEqual({ error: "[vitehub] Webhook secret verification failed." })
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it("does not route channel webhook arrays by unsuffixed channel id", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { http } = await import("../src/channels.ts")

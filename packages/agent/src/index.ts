@@ -111,7 +111,7 @@ import type {
 } from "./types.ts"
 import type { Message, StreamEvent } from "./messages.ts"
 import type { AgentTraceContext } from "./trace.ts"
-import type { ResolvedAgentTriggerInvocation } from "./trigger-runtime.ts"
+import type { ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
 import type {
   WorkspaceAgentDefinition,
   WorkspaceAgentDefaults,
@@ -255,6 +255,7 @@ export type {
   AgentTriggerContext,
   AgentTriggerDefinition,
   AgentTriggerInvokeResult,
+  AgentTriggerRunInvokeResult,
   AgentToolResolver,
   AgentToolStep,
   AgentWaitUntil,
@@ -639,8 +640,8 @@ function once<TArgs extends unknown[]>(callback: (...args: TArgs) => Promise<voi
 
 export { applyAgentToolPolicies, withAgentToolStepReporting } from "./tool-runtime.ts"
 export { defineCapability } from "./capability-runtime.ts"
-export { verifyAgentWebhookRequest } from "./trigger-runtime.ts"
-export type { AgentWebhookVerificationResult, ResolvedAgentTriggerInvocation } from "./trigger-runtime.ts"
+export { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "./trigger-runtime.ts"
+export type { AgentWebhookVerificationResult, ResolvedAgentTriggerHandledInvocation, ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
 export * from "./messages.ts"
 export {
   agentInvocationStreamRoute,
@@ -962,7 +963,7 @@ export async function resolveAgentTriggerInvocation<
   context: AgentRuntimeContext<TRuntimeConfig>,
   triggerId: string,
   input: TInput,
-): Promise<ResolvedAgentTriggerInvocation<TRuntimeConfig, CALL_OPTIONS>> {
+): Promise<ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>> {
   return await resolveAgentTriggerInvocationWithResolvedContext<TRuntimeConfig, TInput, CALL_OPTIONS>(
     agent,
     createResolvedRuntimeContext(context),

@@ -11,3 +11,5 @@ ViteHub will treat generated webhook routes as Agent Package Agent Trigger Consu
 ## Consequences
 
 Apps can declare Channel-owned webhooks such as GitHub without adding app-level route files for HMAC verification and dispatch. App code still owns product-specific Channel Delivery Admission and behavior, such as command filtering, trusted actor checks, artifacts, reactions, replies, and result publication. Direct generated webhook paths without an agent route parameter are only unambiguous for single-Agent route handlers; multi-Agent apps should keep an agent parameter or otherwise use distinct generated route configuration.
+
+A non-chat Channel trigger may complete Channel Delivery Admission by returning a `Response` from `invoke`; the Agent Webhook Handler returns that response without starting an Agent Invocation.

@@ -11,6 +11,7 @@ import type {
   AgentRunResult,
   AgentRuntimeConfig,
   AgentRuntimeContext,
+  AgentTriggerRunInvokeResult,
   AgentWebhookRegistrationDefinition,
   MaybePromise,
   MaybeResolvable,
@@ -174,6 +175,30 @@ export interface ResolvedAgentTriggerInvocation<
   trigger: ResolvedAgentTriggerDefinition<TRuntimeConfig, unknown, CALL_OPTIONS>
 }
 
+export interface ResolvedAgentTriggerHandledInvocation<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> {
+  response: Response
+  trigger: ResolvedAgentTriggerDefinition<TRuntimeConfig, unknown, CALL_OPTIONS>
+}
+
+export type ResolvedAgentTriggerInvocationResult<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> =
+  | ResolvedAgentTriggerInvocation<TRuntimeConfig, CALL_OPTIONS>
+  | ResolvedAgentTriggerHandledInvocation<TRuntimeConfig, CALL_OPTIONS>
+
+export function isResolvedAgentTriggerHandledInvocation<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+>(
+  invocation: ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>,
+): invocation is ResolvedAgentTriggerHandledInvocation<TRuntimeConfig, CALL_OPTIONS> {
+  return "response" in invocation && invocation.response instanceof Response
+}
+
 export interface AgentWebhookVerificationResult {
   registration?: AgentWebhookRegistrationDefinition
   verified: boolean
@@ -318,7 +343,7 @@ export async function resolveAgentTriggerInvocation<
   context: ResolvedAgentRuntimeContext<TRuntimeConfig>,
   triggerId: string,
   input: TInput,
-): Promise<ResolvedAgentTriggerInvocation<TRuntimeConfig, CALL_OPTIONS>> {
+): Promise<ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>> {
   const triggers = await resolveAgentTriggers(agent, context)
   const trigger = triggers[triggerId] as ResolvedAgentTriggerDefinition<TRuntimeConfig, TInput, CALL_OPTIONS> | undefined
   if (!trigger) {
@@ -328,10 +353,17 @@ export async function resolveAgentTriggerInvocation<
     await verifyAgentWebhookRequest(trigger.webhooks, context.request, createAgentCallbackContext(context))
   }
   const invocation = await trigger.invoke(input)
+  if (invocation instanceof Response) {
+    return {
+      response: invocation,
+      trigger: trigger as never,
+    }
+  }
+  const runInvocation = invocation as AgentTriggerRunInvokeResult<CALL_OPTIONS>
   return {
-    input: withAgentTriggerContext(invocation.input, trigger),
-    metadata: invocation.metadata,
-    run: invocation.run,
+    input: withAgentTriggerContext(runInvocation.input, trigger),
+    metadata: runInvocation.metadata,
+    run: runInvocation.run,
     trigger: trigger as never,
   }
 }
@@ -348,6 +380,7 @@ export async function runAgentTriggerWith<
   input: TInput,
 ): Promise<Response | AgentRunResult | unknown> {
   const invocation = await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input)
+  if (isResolvedAgentTriggerHandledInvocation(invocation)) return invocation.response
   return await executor(agent, { ...context, ...(invocation.run ? { run: invocation.run } : {}) }, invocation.input)
 }
 
@@ -367,6 +400,7 @@ export async function streamAgentTriggerWith<
   } = {},
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
   const invocation = await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input)
+  if (isResolvedAgentTriggerHandledInvocation(invocation)) return invocation.response
   await options.onInvocation?.(invocation)
   const output = options.output || (invocation.trigger.output === "ui-message-stream" ? "ui-message-stream" : "events")
   return await executor(agent, { ...context, ...(invocation.run ? { run: invocation.run } : {}) }, invocation.input, { output })

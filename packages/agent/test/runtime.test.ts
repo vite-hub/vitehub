@@ -2765,6 +2765,7 @@ describe("agent message protocol", () => {
       ],
     })
 
+    if ("response" in invocation) throw new Error("Expected chat trigger invocation input.")
     expect(invocation.input.messages?.map(message => message.parts
       .filter((part): part is { text: string, type: "text" } => part.type === "text")
       .map(part => part.text)
@@ -2796,6 +2797,7 @@ describe("agent message protocol", () => {
       }],
     })
 
+    if ("response" in invocation) throw new Error("Expected chat trigger invocation input.")
     expect(invocation.input.messages?.[0]?.parts).toEqual([
       { id: "tool-1", input: { query: "users" }, name: "search", state: "proposed", type: "tool-call" },
       { id: "tool-1", name: "search", output: "42", state: "completed", type: "tool-result" },
@@ -2853,6 +2855,7 @@ describe("agent message protocol", () => {
       user: { id: "user_1" },
     })
 
+    if ("response" in invocation) throw new Error("Expected chat trigger invocation input.")
     expect(invocation.input.context?.chat).toMatchObject({
       session: { id: "b" },
       user: { id: "user_1" },

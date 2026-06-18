@@ -10,6 +10,7 @@ import { uiMessagesToAgentMessages } from "./chat-message-input.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "./invoker.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
+import { isResolvedAgentTriggerHandledInvocation } from "./trigger-runtime.ts"
 import { toHttpErrorResponse } from "./http-error.ts"
 import { toAgentFetchResponse } from "./http-response.ts"
 import { createChatDevtoolsStreamResponse } from "./chat/devtools-stream.ts"
@@ -1044,6 +1045,7 @@ async function handleChatSdkMessage(
     const firstMessage = input.messages[0]
     if (!firstMessage || !Array.isArray(firstMessage.parts) || firstMessage.parts.length === 0) return
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
+    if (isResolvedAgentTriggerHandledInvocation(invocation)) return
     const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, invocation.input as AgentRunInput, invocation.run, messageContext)
     if (!invoker) return
 
@@ -1980,6 +1982,10 @@ export function defineAgentChatWebhookFetchHandler(
         try {
           const input = await createAgentWebhookTriggerInput(request, registration)
           const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, trigger.id, input)
+          if (isResolvedAgentTriggerHandledInvocation(invocation)) {
+            await context.flushWaitUntil?.()
+            return invocation.response
+          }
           const result = await runAgentInline(agent as never, {
             ...context,
             ...(invocation.run ? { run: invocation.run } : {}),

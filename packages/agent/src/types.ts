@@ -187,11 +187,15 @@ export type AgentChannelDeliveryEffects<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 > = Partial<Record<AgentChannelDeliveryEffectKind, AgentChannelDeliveryEffectHandler<TRuntimeConfig> | readonly AgentChannelDeliveryEffectHandler<TRuntimeConfig>[]>>
 
-export interface AgentTriggerInvokeResult<CALL_OPTIONS = unknown> {
+export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
   input: AgentRunInput<CALL_OPTIONS>
   metadata?: Record<string, unknown>
   run?: AgentRunMetadata
 }
+
+export type AgentTriggerInvokeResult<CALL_OPTIONS = unknown> =
+  | AgentTriggerRunInvokeResult<CALL_OPTIONS>
+  | Response
 
 export type AgentWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   MaybeResolvable<string | false, AgentCallbackContext<TRuntimeConfig>>
