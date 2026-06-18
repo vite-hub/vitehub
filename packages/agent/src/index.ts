@@ -60,6 +60,7 @@ import type {
   AgentDefinition,
   AgentFinishEvent,
   AgentChatOptions,
+  AgentHandlerOptions,
   AgentInput,
   AgentInstructionBlock,
   AgentInvocationHooks,
@@ -628,6 +629,30 @@ export function workflow(name?: string): AgentWorkflowRuntimeBinding {
   }
 }
 
+function withAgentWorkflowRuntimeName(runtime: AgentRuntimeBinding | undefined, name: string | undefined): AgentRuntimeBinding | undefined {
+  if (!name || runtime?.kind !== "workflow" || runtime.name) return runtime
+  return { ...runtime, name }
+}
+
+function cloneAgentDefinitionWithRuntime<TContext extends AgentRuntimeContext>(
+  agent: AgentInput<TContext>,
+  runtime: AgentRuntimeBinding,
+): AgentInput<TContext> {
+  const clone = Object.create(Object.getPrototypeOf(agent)) as AgentDefinition
+  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
+  clone.runtime = runtime
+  return clone as AgentInput<TContext>
+}
+
+export function withAgentDefaults<TContext extends AgentRuntimeContext>(
+  agent: AgentInput<TContext> | undefined,
+  options: AgentHandlerOptions = {},
+): AgentInput<TContext> | undefined {
+  if (!agent || !hasAgentDefinition(agent)) return agent
+  const runtime = withAgentWorkflowRuntimeName(agent.runtime, options.inferredName)
+  return !runtime || runtime === agent.runtime ? agent : cloneAgentDefinitionWithRuntime(agent, runtime)
+}
+
 export interface DefineAgent {
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -685,7 +710,7 @@ function createWorkspaceAgentDefinition<
     description: options.description,
     hooks: options.hooks,
     run: options.run,
-    runtime: options.runtime,
+    runtime: withAgentWorkflowRuntimeName(options.runtime, defaults.name),
     version: options.version,
     workspace: workspaceDefinition,
   } as never) as WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>
@@ -772,7 +797,7 @@ export async function getAgentFromRegistry<TContext extends AgentRuntimeContext>
     throw new Error(`[vitehub] Agent "${name}" did not export a valid default agent.`)
   }
 
-  return agent
+  return withAgentDefaults(agent, { inferredName: name }) as AgentInput<TContext>
 }
 
 export async function resolveAgentTriggers<

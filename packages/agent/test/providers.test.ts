@@ -262,6 +262,8 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-routes-"))
     try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ routes: { chat: true, webhooks: true } })
       if (typeof plugin.configResolved === "function") {
         await plugin.configResolved.call({} as never, { root } as never)
@@ -270,6 +272,7 @@ describe("agent Vite plugin", () => {
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
       expect(webhookRoute).toContain("defineAgentChatFetchHandler")
+      expect(webhookRoute).toContain("withAgentDefaults(resolveAgentModule")
       expect(webhookRoute).toContain("import { createCloudflareAgentState } from '@vite-hub/agent/cloudflare'")
       expect(webhookRoute).toContain("async function toRequest(event)")
       expect(webhookRoute).toContain("function waitUntilFromEvent(event)")

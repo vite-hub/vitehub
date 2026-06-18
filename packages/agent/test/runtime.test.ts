@@ -2244,6 +2244,89 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("uses discovered Agent identity for unnamed workflow runtime bindings", async () => {
+      const { defineAgent, runAgent, withAgentDefaults, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = withAgentDefaults(defineAgent({
+        runtime: workflow(),
+        run: context => `received ${context.prompt}`,
+      }), { inferredName: "browser" })
+      const run = await runAgent(agent!, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("browser", run.id)).resolves.toMatchObject({
+        result: "received hello",
+        status: "completed",
+      })
+    })
+
+    it("preserves Agent Definition metadata when applying discovered defaults", async () => {
+      const { createAgentDevtoolsMetadata, defineAgent, withAgentDefaults, workflow } = await import("../src/index.ts")
+      const agent = withAgentDefaults(defineAgent({
+        model: { id: "test-model" } as never,
+        runtime: workflow(),
+      }), { inferredName: "browser" })
+
+      expect(createAgentDevtoolsMetadata(agent!)).toMatchObject({
+        config: {
+          driver: {
+            kind: "model",
+            model: { id: "test-model" },
+          },
+        },
+      })
+    })
+
+    it("uses workspace Agent defaults for unnamed workflow runtime bindings", async () => {
+      const { defineAgent, runAgent, withWorkspaceAgentDefaults, workflow } = await import("../src/index.ts")
+      const { getWorkflowRun } = await import("@vite-hub/workflow")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      const waitUntilTasks: Array<Promise<unknown>> = []
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = withWorkspaceAgentDefaults(defineAgent({
+        runtime: workflow(),
+        run: context => `received ${context.prompt}`,
+        workspace: {},
+      }), { name: "reviewer", workspace: "reviewer" })
+      const run = await runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, { prompt: "hello" }) as { id: string }
+
+      await Promise.all(waitUntilTasks)
+      await expect(getWorkflowRun("reviewer", run.id)).resolves.toMatchObject({
+        result: "received hello",
+        status: "completed",
+      })
+    })
+
+    it("requires direct unnamed workflow runtime bindings to provide a name", async () => {
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+      const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+
+      const agent = defineAgent({
+        runtime: workflow(),
+        run: () => "ok",
+      })
+
+      await expect(runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        waitUntil: vi.fn(),
+      }, { prompt: "hello" })).rejects.toThrow("requires a name")
+    })
+
     it("passes runtimeConfig through Workflow Runs", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")

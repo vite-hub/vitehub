@@ -10,6 +10,7 @@ import {
   resolveAgentDevtoolsMetadata,
   resolveAgentTriggers,
   streamAgentTrigger,
+  withAgentDefaults,
   withWorkspaceAgentDefaults,
 } from "../../index.ts"
 import {
@@ -175,7 +176,7 @@ async function loadDiscoveredAgent(
   const defaults = workspaceDefaults(definition)
   return agent && defaults
     ? withWorkspaceAgentDefaults(agent as never, defaults as never) as AgentInput<ViteAgentDevtoolsRuntimeContext>
-    : agent
+    : withAgentDefaults(agent, { inferredName: definition.name })
 }
 
 function createDevtoolsDiscoveryContext(): ViteAgentDevtoolsRuntimeContext {
