@@ -68,8 +68,8 @@ export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRunti
         webhooks[channelId] = false
       }
     }
-    else if (channelDefinition.webhooks && channelDefinition.webhooks !== true) {
-      webhooks[channelId] = withChannelWebhookProvider(channelId, channelDefinition.kind, channelDefinition.webhooks)
+    else if (channelDefinition.webhooks) {
+      throw new TypeError("[vitehub] Channel webhooks require an adapter-backed Channel. Add adapter or invoke the Agent from an app-owned route.")
     }
   }
 

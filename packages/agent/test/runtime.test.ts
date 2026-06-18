@@ -779,6 +779,7 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       channels: {
         support: http({
+          adapter: () => ({}) as never,
           webhooks: [
             { path: "/api/support/primary" },
             { path: "/api/support/fallback" },
@@ -828,6 +829,20 @@ describe("agent message protocol", () => {
     const { http } = await import("../src/channels.ts")
 
     expect(() => http({ path: "/api/support/chat" } as never)).toThrow("[vitehub] http({ path }) is not wired yet.")
+  })
+
+  it("rejects channel webhooks without an adapter", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+
+    expect(() => defineAgent({
+      channels: {
+        support: http({
+          webhooks: { path: "/api/support/chat" },
+        }),
+      },
+      run: () => "ok",
+    })).toThrow("[vitehub] Channel webhooks require an adapter-backed Channel.")
   })
 
   it("preserves channel ids for same-kind webhook registrations", async () => {

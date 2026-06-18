@@ -377,6 +377,7 @@ describe("agent public types", () => {
     defineAgent({
       channels: {
         portal: http({
+          adapter: () => ({}) as never,
           webhooks: { path: "/api/support/chat" },
         }),
         teams: teams({
