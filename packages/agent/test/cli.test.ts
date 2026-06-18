@@ -87,6 +87,7 @@ describe("agent CLI", () => {
       "content-type": "application/json",
       [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
     })
+    expect(post?.[1]?.signal).toBeInstanceOf(AbortSignal)
     expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
       agent: "support",
       messages: [{

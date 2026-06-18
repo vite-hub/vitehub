@@ -372,20 +372,32 @@ async function sendDevMessage(
   parsed: ParsedDevArgs,
   context: AgentCliContext,
   fetchImpl: typeof fetch,
+  signal?: AbortSignal,
 ): Promise<UIMessageLike[] | undefined> {
   const messages = [...history, userMessage(text, history.length)]
-  const response = await fetchImpl(url, {
-    body: JSON.stringify({
-      agent,
-      messages,
-      ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
-    }),
-    headers: {
-      "content-type": "application/json",
-      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
-    },
-    method: "POST",
-  })
+  let response: Response
+  try {
+    response = await fetchImpl(url, {
+      body: JSON.stringify({
+        agent,
+        messages,
+        ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
+      }),
+      headers: {
+        "content-type": "application/json",
+        [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      },
+      method: "POST",
+      signal,
+    })
+  }
+  catch (error) {
+    if (signal?.aborted || error instanceof DOMException && error.name === "AbortError") {
+      context.stderr.write("\n[aborted]\n")
+      return history
+    }
+    throw error
+  }
   if (!response.ok) {
     context.stderr.write(`${await response.text()}\n`)
     return
@@ -397,29 +409,38 @@ async function sendDevMessage(
 
   let output = ""
   let needsApproval = false
-  for await (const event of readAgentInvocationStream(response.body)) {
-    if (event.type === "text-delta") {
-      context.stdout.write(event.text)
-      output += event.text
-      continue
+  try {
+    for await (const event of readAgentInvocationStream(response.body)) {
+      if (event.type === "text-delta") {
+        context.stdout.write(event.text)
+        output += event.text
+        continue
+      }
+      if (event.type === "tool-call") {
+        context.stderr.write(`\n[tool] ${event.name}\n`)
+        continue
+      }
+      if (event.type === "approval-request") {
+        context.stderr.write(`\n[approval required] ${event.name}${event.reason ? `: ${event.reason}` : ""}\n`)
+        needsApproval = true
+        continue
+      }
+      if (event.type === "approval-decision") {
+        context.stderr.write(`\n[approval ${event.approved ? "approved" : "rejected"}]${event.reason ? ` ${event.reason}` : ""}\n`)
+        continue
+      }
+      if (event.type === "error") {
+        context.stderr.write(`\n${event.error}\n`)
+        return
+      }
     }
-    if (event.type === "tool-call") {
-      context.stderr.write(`\n[tool] ${event.name}\n`)
-      continue
+  }
+  catch (error) {
+    if (signal?.aborted || error instanceof DOMException && error.name === "AbortError") {
+      context.stderr.write("\n[aborted]\n")
+      return history
     }
-    if (event.type === "approval-request") {
-      context.stderr.write(`\n[approval required] ${event.name}${event.reason ? `: ${event.reason}` : ""}\n`)
-      needsApproval = true
-      continue
-    }
-    if (event.type === "approval-decision") {
-      context.stderr.write(`\n[approval ${event.approved ? "approved" : "rejected"}]${event.reason ? ` ${event.reason}` : ""}\n`)
-      continue
-    }
-    if (event.type === "error") {
-      context.stderr.write(`\n${event.error}\n`)
-      return
-    }
+    throw error
   }
   context.stdout.write("\n")
   if (!output && needsApproval) return
@@ -435,18 +456,43 @@ async function runInteractiveDevLoop(
   const { createInterface } = await import("node:readline/promises")
   const readline = createInterface({ input: process.stdin, output: process.stdout })
   let history: UIMessageLike[] = []
+  let activeRequest: AbortController | undefined
+  let exit = false
+  const onSigint = () => {
+    if (activeRequest) {
+      activeRequest.abort()
+      return
+    }
+    exit = true
+    readline.close()
+  }
+  readline.on("SIGINT", onSigint)
   context.stdout.write(`Connected to ${target.agent} at ${parsed.url}\n`)
   try {
     for (;;) {
-      const text = (await readline.question("> ")).trim()
+      let text: string
+      try {
+        text = (await readline.question("> ")).trim()
+      }
+      catch (error) {
+        if (exit) return 0
+        throw error
+      }
       if (!text) continue
       if (text === ".exit" || text === "exit") return 0
-      const nextHistory = await sendDevMessage(target.url, target.agent, text, history, parsed, context, fetchImpl)
-      if (!nextHistory) return 1
-      history = nextHistory
+      activeRequest = new AbortController()
+      try {
+        const nextHistory = await sendDevMessage(target.url, target.agent, text, history, parsed, context, fetchImpl, activeRequest.signal)
+        if (!nextHistory) return 1
+        history = nextHistory
+      }
+      finally {
+        activeRequest = undefined
+      }
     }
   }
   finally {
+    readline.off("SIGINT", onSigint)
     readline.close()
   }
 }
@@ -475,7 +521,7 @@ export async function runAgentDevCli(
   if (!target) return 1
 
   if (parsed.message) {
-    return await sendDevMessage(target.url, target.agent, parsed.message, [], parsed, context, fetchImpl) ? 0 : 1
+    return await sendDevMessage(target.url, target.agent, parsed.message, [], parsed, context, fetchImpl, new AbortController().signal) ? 0 : 1
   }
   if (!process.stdin.isTTY) {
     context.stderr.write("Pass a message or run in an interactive terminal.\n")
