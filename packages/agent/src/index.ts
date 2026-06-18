@@ -2,7 +2,7 @@ import agentRegistry from "#vitehub/agent/registry"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { getMessageText } from "./messages.ts"
 import { resolveRuntimeContext } from "@vite-hub/runtime"
-import { isAsyncIterable, streamAgentOutputToEvents, toAgentRunResult } from "./agent-output.ts"
+import { isAsyncIterable, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
 import { getChatCapabilityOptions } from "./chat-trigger.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import {
@@ -25,7 +25,7 @@ import {
 } from "./capability-runtime.ts"
 import type { ResolvedAgentFinishExtensionProvider } from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
-import { finalizeUiMessageStreamOutput, isUIMessageStreamResult, withReadableStreamCleanup } from "./stream-output.ts"
+import { finalizeUiMessageStreamOutput, isUIMessageStreamResult } from "./stream-output.ts"
 import { createHarnessAgentAdapter } from "./harness-agent.ts"
 import {
   applyAgentToolPolicies,
@@ -35,6 +35,7 @@ import {
   traceAgentInvocationError,
   traceAgentInvocationFinish,
   traceAgentInvocationStart,
+  traceAgentStreamEvent,
   traceAgentStreamEvents,
 } from "./trace.ts"
 import {
@@ -1026,27 +1027,58 @@ function hasTraceableStreamResult(value: unknown): boolean {
   return isAsyncIterable(result.fullStream) || isAsyncIterable(result.stream) || isAsyncIterable(result.textStream)
 }
 
-async function traceStreamResult<
+function traceUiMessageStream<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
->(events: AsyncIterable<unknown>, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): Promise<void> {
-  try {
-    for await (const _event of traceAgentStreamEvents(streamAgentOutputToEvents(events), toTraceContext(context))) {}
+>(stream: ReadableStream<unknown>, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): ReadableStream<unknown> {
+  const reader = stream.getReader()
+  const toolNames = new Map<string, string>()
+  let finished = false
+  let released = false
+  const release = () => {
+    if (released) return
+    released = true
+    reader.releaseLock()
   }
-  catch {}
+  return new ReadableStream<unknown>({
+    async pull(controller) {
+      try {
+        const result = await reader.read()
+        if (result.done) {
+          if (!finished) await traceAgentStreamEvent(toTraceContext(context), { type: "finish" })
+          release()
+          controller.close()
+          return
+        }
+        const event = toAgentStreamEvent(result.value, toolNames)
+        if (event) {
+          if (event.type === "finish") finished = true
+          await traceAgentStreamEvent(toTraceContext(context), event)
+        }
+        controller.enqueue(result.value)
+      }
+      catch (error) {
+        release()
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason)
+      }
+      finally {
+        release()
+      }
+    },
+  })
 }
 
-async function* readableStreamEvents(stream: ReadableStream<unknown>): AsyncIterable<unknown> {
-  const reader = stream.getReader()
-  try {
-    while (true) {
-      const result = await reader.read()
-      if (result.done) return
-      yield result.value
-    }
-  }
-  finally {
-    reader.releaseLock()
+function maybeTraceUiMessageStreamResult<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(rendered: { toUIMessageStream: () => ReadableStream<unknown> }, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>) {
+  return {
+    toUIMessageStream: () => traceUiMessageStream(rendered.toUIMessageStream(), context),
   }
 }
 
@@ -1056,13 +1088,7 @@ function maybeTraceUiMessageStreamOutput<
 >(rendered: unknown, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): unknown {
   if (context.runtimeContext.traceLog && hasTraceableStreamResult(rendered)) {
     if (isUIMessageStreamResult(rendered)) {
-      return {
-        toUIMessageStream: () => {
-          const [stream, traceStream] = rendered.toUIMessageStream().tee()
-          const trace = traceStreamResult(readableStreamEvents(traceStream), context)
-          return withReadableStreamCleanup(stream, () => trace)
-        },
-      }
+      return maybeTraceUiMessageStreamResult(rendered, context)
     }
     return maybeTraceAgentStream(streamAgentOutputToEvents(rendered), context)
   }

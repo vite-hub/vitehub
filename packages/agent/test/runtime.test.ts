@@ -1714,6 +1714,61 @@ describe("agent message protocol", () => {
     expect(deriveTraceRuns(traceLog.entries()).map(run => run.id)).toEqual(["run-1"])
   })
 
+  it("does not drain traced UI message streams ahead of the caller", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    let pulls = 0
+    let cancelReason: unknown
+    let releaseBlockedPull: (() => void) | undefined
+    const agent = defineAgent({
+      run: () => ({
+        fullStream: (async function* () {
+          yield { type: "finish" }
+        })(),
+        toUIMessageStream() {
+          return new ReadableStream({
+            pull(controller) {
+              pulls += 1
+              if (pulls === 1) {
+                controller.enqueue({ type: "start", messageId: "assistant-1" })
+                return
+              }
+              return new Promise<void>((resolve) => {
+                releaseBlockedPull = resolve
+              })
+            },
+            cancel(reason) {
+              cancelReason = reason
+              releaseBlockedPull?.()
+            },
+          })
+        },
+      }),
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-1" },
+      runtime: "unknown",
+      trace: { id: "request-1" },
+      traceLog: createTraceEventLog(),
+      waitUntil: vi.fn(),
+    }, {
+      messages: [createMessage({ role: "user", text: "Explain availability" })],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(pulls).toBeLessThanOrEqual(2)
+    const cancelResult = await Promise.race([
+      stream.cancel("client disconnected").then(() => "cancelled"),
+      new Promise(resolve => setTimeout(() => resolve("timeout"), 50)),
+    ])
+    releaseBlockedPull?.()
+
+    expect(cancelResult).toBe("cancelled")
+    expect(cancelReason).toBe("client disconnected")
+  })
+
   it("emits one chat title data part when async event streams become UI message streams", async () => {
     const { readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
