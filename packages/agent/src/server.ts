@@ -282,7 +282,7 @@ async function findChatWebhookRegistration(
 ): Promise<AgentWebhookRegistrationDefinition | undefined> {
   const triggers = await resolveAgentTriggers(agent as never, context as never)
   const registrations = triggers["chat.message"]?.webhooks || []
-  return registrations.find(registration => registration.id === webhook || registration.channelId === webhook || registration.provider === webhook)
+  return registrations.find(registration => registration.id === webhook || registration.provider === webhook || (registration.channelId === webhook && registration.id === registration.channelId))
 }
 
 async function resolveChatAdapters(

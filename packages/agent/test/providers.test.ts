@@ -775,6 +775,33 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "echo: hello" })
   })
 
+  it("does not route channel webhook arrays by unsuffixed channel id", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const agent = defineAgent({
+      channels: {
+        support: http({
+          adapter: () => createTestChatAdapter() as never,
+          webhooks: [
+            { path: "/api/support/primary" },
+            { path: "/api/support/fallback" },
+          ],
+        }),
+      },
+      run: () => "ok",
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
+      body: "{}",
+      method: "POST",
+    }), "support")
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toMatchObject({ message: "Unknown ViteHub agent chat webhook.", status: 404 })
+  })
+
   it("uses channel ids for same-kind channel webhook state", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { http } = await import("../src/channels.ts")
