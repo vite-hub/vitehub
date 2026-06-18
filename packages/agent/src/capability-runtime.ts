@@ -160,7 +160,8 @@ function getRunMessages(input: AgentRunInput): Message[] {
 
 function normalizeRunInput(input: AgentRunInput): AgentRunInput {
   if (input.messages || Array.isArray(input.prompt) || input.message === undefined) return input
-  return { ...input, messages: getRunMessages(input) }
+  const { message: _message, ...next } = input
+  return { ...next, messages: getRunMessages(input) }
 }
 
 function withMessages(input: AgentRunInput, messages: Message[]): AgentRunInput {

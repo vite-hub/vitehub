@@ -44,6 +44,7 @@ describe("inputCommands", () => {
     }, runtime(), { message: "/review auth changes" })
 
     expect(resolved.input.messages?.map(message => getMessageText(message))).toEqual(["Review this: auth changes"])
+    expect(resolved.input.message).toBeUndefined()
   })
 
   it("replaces command text in the latest user message", async () => {
