@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -10,6 +11,10 @@ import type { Adapter, ChatInstance, StreamChunk, WebhookOptions } from "chat"
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
   copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
 }))
+
+function githubSignature(secret: string, body: string) {
+  return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
+}
 
 function createTestChatAdapter(options: { deferMessageProcessing?: boolean, secret?: string } = {}) {
   let chatInstance: ChatInstance | undefined
@@ -284,7 +289,30 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("const chatHandlers")
       expect(webhookRoute).toContain("defineAgentChatFetchHandler(agent, resolveChatRouteOptions(agentModules[name]))")
       expect(webhookRoute).toContain("const webhookHandlers")
-      expect(webhookRoute).toContain("return webhook ? await handler(await toRequest(event), webhook")
+      expect(webhookRoute).toContain("const webhookRoutePattern")
+      expect(webhookRoute).toContain("const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)")
+      expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("writes generated Nitro webhook handlers for direct single-agent webhook routes", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-direct-webhook-route-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const plugin = hubAgent({ routes: { webhooks: "/api/github/webhook" } })
+      if (typeof plugin.configResolved === "function") {
+        await plugin.configResolved.call({} as never, { root } as never)
+      }
+
+      const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+
+      expect(webhookRoute).toContain("const webhookRoutePattern = new RegExp(\"^/api/github/webhook$\")")
+      expect(webhookRoute).toContain("const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -838,6 +866,101 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "echo: hello" })
   })
 
+  it("handles signed GitHub channel webhooks without a chat adapter", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const triggerInputs: unknown[] = []
+    const run = vi.fn(({ input, run }) => ({
+      raw: { context: input.context, run },
+      text: "accepted",
+    }))
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => {
+                triggerInputs.push(input)
+                const deliveryId = (input as { github?: { deliveryId?: string } }).github?.deliveryId || "unknown"
+                return {
+                  input: {
+                    context: { delivery: input },
+                    prompt: "github delivery",
+                  },
+                  run: {
+                    channelId: "github",
+                    origin: "github",
+                    runId: `github:${deliveryId}`,
+                  },
+                }
+              },
+            },
+          },
+          webhooks: { path: "/api/github/webhook", secretToken: "secret-token" },
+        }),
+      },
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+    const payload = {
+      action: "created",
+      comment: { body: "/review", id: 12 },
+      installation: { id: 4075547 },
+      repository: { full_name: "acme/app" },
+      sender: { login: "maxi" },
+    }
+    const body = JSON.stringify(payload)
+    const request = (signature: string) => new Request("https://example.com/api/github/webhook", {
+      body,
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-1",
+        "x-github-event": "issue_comment",
+        "x-hub-signature-256": signature,
+      },
+      method: "POST",
+    })
+
+    const response = await handler(request(githubSignature("secret-token", body)))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ text: "accepted" })
+    expect(triggerInputs).toHaveLength(1)
+    expect(triggerInputs[0]).toMatchObject({
+      github: {
+        deliveryId: "delivery-1",
+        event: "issue_comment",
+        installationId: 4075547,
+      },
+      payload,
+      provider: "github",
+      request: {
+        method: "POST",
+        url: "https://example.com/api/github/webhook",
+      },
+      webhook: {
+        channelId: "github",
+        id: "github",
+        path: "/api/github/webhook",
+        provider: "github",
+      },
+    })
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      run: expect.objectContaining({
+        channelId: "github",
+        origin: "github",
+        runId: "github:delivery-1",
+      }),
+    }))
+
+    const rejected = await handler(request("sha256=wrong"))
+
+    expect(rejected.status).toBe(401)
+    await expect(rejected.json()).resolves.toEqual({ error: "[vitehub] Webhook secret verification failed." })
+    expect(run).toHaveBeenCalledOnce()
+  })
+
   it("does not route channel webhook arrays by unsuffixed channel id", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { http } = await import("../src/channels.ts")
@@ -862,7 +985,7 @@ describe("server helpers", () => {
     }), "support")
 
     expect(response.status).toBe(404)
-    await expect(response.json()).resolves.toMatchObject({ message: "Unknown ViteHub agent chat webhook.", status: 404 })
+    await expect(response.json()).resolves.toMatchObject({ message: "Unknown ViteHub agent webhook.", status: 404 })
   })
 
   it("uses channel ids for same-kind channel webhook state", async () => {

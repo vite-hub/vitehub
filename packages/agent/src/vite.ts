@@ -145,6 +145,15 @@ function normalizeNitroRoute(route: string): string {
   return normalized.replace(/\[([^\]]+)\]/g, ":$1")
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function routeRegexSource(route: false | string | undefined): string {
+  if (!route) return "(?!)"
+  return `^${normalizeNitroRoute(route).split("/").map(part => part.startsWith(":") ? "[^/]+" : escapeRegExp(part)).join("/")}$`
+}
+
 function resolveWorkspaceSourceRoot(file: string): string {
   const workspaceDirectory = join(dirname(file), "workspace")
   return existsSync(workspaceDirectory) && statSync(workspaceDirectory).isDirectory()
@@ -189,7 +198,11 @@ function generatedCloudflareChatStateHelper(): string[] {
   ]
 }
 
-function generateAgentWebhookRouteHandler(definitions: DiscoveredAgentDefinition[], handlerPath: string, options: { cloudflareState?: boolean } = {}): string {
+function generateAgentWebhookRouteHandler(
+  definitions: DiscoveredAgentDefinition[],
+  handlerPath: string,
+  options: { chatRoute?: false | string, cloudflareState?: boolean, webhookRoute?: false | string } = {},
+): string {
   const imports = definitions
     .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
     .join("\n")
@@ -249,24 +262,32 @@ function generateAgentWebhookRouteHandler(definitions: DiscoveredAgentDefinition
     `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
     "const chatHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, defineAgentChatFetchHandler(agent, resolveChatRouteOptions(agentModules[name]))]))",
     "const webhookHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, defineAgentChatWebhookFetchHandler(agent)]))",
+    "const agentNames = Object.keys(agents)",
+    `const chatRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.chatRoute))})`,
+    `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))})`,
     "",
     "export default defineEventHandler(async (event) => {",
-    "  const agent = getRouterParam(event, 'agent')",
+    "  const pathname = getRequestURL(event).pathname",
+    "  const isWebhookRoute = webhookRoutePattern.test(pathname)",
+    "  const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)",
     "  const webhook = getRouterParam(event, 'webhook')",
-    "  const handler = agent ? (webhook ? webhookHandlers[agent] : chatHandlers[agent]) : undefined",
+    "  const handler = agent ? (isWebhookRoute ? webhookHandlers[agent] : chatHandlers[agent]) : undefined",
     "  if (!handler) {",
     "    throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
     "  }",
     "  const cloudflare = cloudflareFromEvent(event)",
     options.cloudflareState
-      ? "  return webhook ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, state: chatStateFromCloudflare(cloudflare), waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) })"
-      : "  return webhook ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) })",
+      ? "  return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, state: chatStateFromCloudflare(cloudflare), waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) })"
+      : "  return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) })",
     "})",
     "",
   ].join("\n")
 }
 
-async function writeAgentWebhookRouteHandler(root: string, options: { cloudflareState?: boolean } = {}): Promise<void> {
+async function writeAgentWebhookRouteHandler(
+  root: string,
+  options: { chatRoute?: false | string, cloudflareState?: boolean, webhookRoute?: false | string } = {},
+): Promise<void> {
   const handlerPath = join(root, generatedAgentWebhookRouteHandler)
   const definitions = discoverAgentDefinitions({
     mode: "server-agents",
@@ -345,7 +366,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       agent = config.agent ?? agent
       const normalized = normalizeAgentOptions(agent)
       if (normalized && (normalized.routes.chat || normalized.routes.webhooks)) {
-        await writeAgentWebhookRouteHandler(config.root, { cloudflareState: shouldInstallCloudflareAgentState(normalized) })
+        await writeAgentWebhookRouteHandler(config.root, {
+          chatRoute: normalized.routes.chat,
+          cloudflareState: shouldInstallCloudflareAgentState(normalized),
+          webhookRoute: normalized.routes.webhooks,
+        })
       }
       if (agent === false || agent?.eval === false) {
         return
