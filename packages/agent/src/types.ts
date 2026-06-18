@@ -890,7 +890,6 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
   identity?: IdentityResolver
   kind: string
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
-  path?: string
   webhooks?: boolean | AgentChatWebhookRegistrationDefinition<TRuntimeConfig> | AgentChatWebhookRegistrationDefinition<TRuntimeConfig>[]
   [key: string]: unknown
 }

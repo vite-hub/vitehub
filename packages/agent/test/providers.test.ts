@@ -706,6 +706,10 @@ describe("server helpers", () => {
         metadata: expect.objectContaining({
           chat: expect.objectContaining({
             messageId: "7",
+            platform: expect.objectContaining({
+              channelId: "telegram:456",
+              threadId: "telegram:456",
+            }),
             threadId: "telegram:456",
           }),
         }),
@@ -719,6 +723,7 @@ describe("server helpers", () => {
         ],
       })],
       run: expect.objectContaining({
+        channelId: "telegram:456",
         origin: "telegram",
         runId: "telegram:7",
       }),
@@ -762,6 +767,7 @@ describe("server helpers", () => {
     expect(run).toHaveBeenCalledOnce()
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       run: expect.objectContaining({
+        channelId: "support",
         origin: "support",
         runId: "support:7",
       }),

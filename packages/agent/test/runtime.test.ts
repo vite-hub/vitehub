@@ -662,6 +662,12 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("rejects unwired HTTP channel paths", async () => {
+    const { http } = await import("../src/channels.ts")
+
+    expect(() => http({ path: "/api/support/chat" } as never)).toThrow("[vitehub] http({ path }) is not wired yet.")
+  })
+
   it("preserves channel ids for same-kind webhook registrations", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { teams } = await import("../src/channels.ts")

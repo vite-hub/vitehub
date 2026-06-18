@@ -727,13 +727,19 @@ function createChatTriggerInput(
   thread: Thread,
   message: ChatSdkMessage,
   messageContext?: MessageContext,
+  channelId?: string,
 ): AgentChatMessageTriggerInput {
+  const platformChannelId = thread.adapter.channelIdFromThreadId(message.threadId)
   const metadata = objectWithoutUndefined({
     chat: objectWithoutUndefined({
       edited: message.metadata.edited,
       editedAt: isoDate(message.metadata.editedAt),
       isMention: message.isMention,
       messageId: message.id,
+      platform: objectWithoutUndefined({
+        channelId: platformChannelId,
+        threadId: message.threadId,
+      }),
       skippedCount: messageContext?.skipped.length,
       threadId: message.threadId,
       totalSinceLastHandler: messageContext?.totalSinceLastHandler,
@@ -757,7 +763,7 @@ function createChatTriggerInput(
       role: "user",
     }],
     run: {
-      channelId: thread.adapter.channelIdFromThreadId(message.threadId),
+      channelId: channelId || platformChannelId,
       messageId: message.id,
       origin: provider,
       runId: `${provider}:${message.id}`,
@@ -943,7 +949,7 @@ async function handleChatSdkMessage(
   let run: AgentRunMetadata | undefined
   let typing: ChatTypingRefresh | undefined
   try {
-    input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, messageContext)
+    input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, messageContext, registration.channelId)
     const firstMessage = input.messages[0]
     if (!firstMessage || !Array.isArray(firstMessage.parts) || firstMessage.parts.length === 0) return
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)

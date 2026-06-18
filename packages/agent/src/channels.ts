@@ -18,11 +18,6 @@ export interface AgentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
   [key: string]: unknown
 }
 
-export interface AgentHttpChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
-  extends AgentChannelOptions<TRuntimeConfig> {
-  path?: string
-}
-
 function channel<TRuntimeConfig extends AgentRuntimeConfig>(
   kind: string,
   options: AgentChannelOptions<TRuntimeConfig> = {},
@@ -43,8 +38,11 @@ export function discord<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntime
 }
 
 export function http<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  options: AgentHttpChannelOptions<TRuntimeConfig> = {},
+  options: AgentChannelOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
+  if ("path" in options) {
+    throw new TypeError("[vitehub] http({ path }) is not wired yet. Use webhooks.path for webhook routes.")
+  }
   return channel("http", options)
 }
 
