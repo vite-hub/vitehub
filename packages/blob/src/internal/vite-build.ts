@@ -83,6 +83,17 @@ const driverModules = {
   "vercel-blob": "drivers/vercel",
 } satisfies Record<NonNullable<ResolvedBlobModuleOptions["store"]>["driver"], string>
 
+function getRuntimeBlobStoreResolver(driver: string | undefined) {
+  switch (driver) {
+    case "minio":
+      return "resolveRuntimeMinioBlobStore"
+    case "vercel-blob":
+      return "resolveRuntimeVercelBlobStore"
+    default:
+      return undefined
+  }
+}
+
 function isCloudflareR2StoreWithBucket(store: ResolvedBlobModuleOptions["store"]): store is ResolvedCloudflareR2BlobStoreConfig & { bucketName: string } {
   return store.driver === "cloudflare-r2" && Boolean(store.bucketName)
 }
@@ -131,14 +142,15 @@ function renderProviderEntry(
     imports.push(`import { createBlobStorage } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("storage")))}`)
     imports.push(`import { createDriver } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(driverModule)))}`)
   }
-  if (blobConfig && blobConfig.store.driver === "vercel-blob") {
-    imports.push(`import { resolveRuntimeVercelBlobStore } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("config")))}`)
+  const runtimeStoreResolver = getRuntimeBlobStoreResolver(blobConfig ? blobConfig.store.driver : undefined)
+  if (runtimeStoreResolver) {
+    imports.push(`import { ${runtimeStoreResolver} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule("config")))}`)
   }
 
   const storageExpression = !blobConfig
     ? undefined
-    : blobConfig.store.driver === "vercel-blob"
-      ? "createBlobStorage(createDriver(resolveRuntimeVercelBlobStore(blobConfig.store, process.env)))"
+    : runtimeStoreResolver
+      ? `createBlobStorage(createDriver(${runtimeStoreResolver}(blobConfig.store, process.env)))`
       : "createBlobStorage(createDriver(blobConfig.store))"
 
   const lines = [
@@ -174,14 +186,16 @@ function renderBlobRuntimeModule(file: string, blobConfig: false | ResolvedBlobM
     const driverImport = driverImports[driverModule]
     imports.push(`import { createDriver as ${driverImport} } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(driverModule)))}`)
   }
-  if (stores.some(store => store.driver === "vercel-blob")) {
-    imports.push(`import { resolveRuntimeVercelBlobStore } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("config")))}`)
+  const runtimeStoreResolvers = [...new Set(stores.map(store => getRuntimeBlobStoreResolver(store.driver)).filter(Boolean))]
+  if (runtimeStoreResolvers.length > 0) {
+    imports.push(`import { ${runtimeStoreResolvers.join(", ")} } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("config")))}`)
   }
 
   const createDriverCases = Object.entries(driverModules).map(([driver, driverModule]) => {
       const driverImport = driverImports[driverModule]
       if (!driverImport) return undefined
-      const storeExpression = driver === "vercel-blob" ? "resolveRuntimeVercelBlobStore(store, process.env)" : "store"
+      const runtimeStoreResolver = getRuntimeBlobStoreResolver(driver)
+      const storeExpression = runtimeStoreResolver ? `${runtimeStoreResolver}(store, process.env)` : "store"
       return `    case ${JSON.stringify(driver)}: return ${driverImport}(${storeExpression})`
     }).filter(Boolean)
 

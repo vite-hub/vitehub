@@ -37,6 +37,16 @@ describe("types", () => {
     expectTypeOf(config.blob).toMatchTypeOf<BlobModuleOptions | undefined>()
   })
 
+  it("allows MinIO to resolve common Docker env defaults", () => {
+    const config: UserConfig = {
+      blob: {
+        driver: "minio",
+      },
+    }
+
+    expectTypeOf(config.blob).toMatchTypeOf<BlobModuleOptions | undefined>()
+  })
+
   it("exposes the intended Blob runtime surface", () => {
     expectTypeOf(blob.get).returns.toEqualTypeOf<Promise<Blob | null>>()
     expectTypeOf(blob.list).toBeFunction()

@@ -1,5 +1,5 @@
 import { createBlobStorage } from "../storage.ts"
-import { resolveRuntimeVercelBlobStore } from "../config.ts"
+import { resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
 
 import { getBlobRuntimeConfig, getNamedBlobRuntimeStorage, setNamedBlobRuntimeStorage } from "./state.ts"
 
@@ -37,13 +37,21 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
   return module.createDriver(config)
 }
 
+function resolveRuntimeBlobStore(store: ResolvedBlobStoreConfig): ResolvedBlobStoreConfig {
+  if (store.driver === "minio") {
+    return resolveRuntimeMinioBlobStore(store, process.env)
+  }
+  if (store.driver === "vercel-blob") {
+    return resolveRuntimeVercelBlobStore(store, process.env)
+  }
+  return store
+}
+
 async function createConfiguredBlobStorage(config: ResolvedBlobModuleOptions): Promise<BlobStorage> {
-  const resolvedConfig = config.store.driver === "vercel-blob"
-    ? {
-        ...config,
-        store: resolveRuntimeVercelBlobStore(config.store, process.env),
-      }
-    : config
+  const resolvedConfig = {
+    ...config,
+    store: resolveRuntimeBlobStore(config.store),
+  }
   const driver = await importRuntimeDriver(resolvedConfig.store)
   return createBlobStorage(driver)
 }
