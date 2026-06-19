@@ -295,10 +295,7 @@ function normalizeWebhookPath(path: string): string {
   return normalized.length > 1 ? normalized.replace(/\/+$/, "") : normalized
 }
 
-function webhookRegistrationMatches(request: Request, registration: AgentWebhookRegistrationDefinition, webhook?: string): boolean {
-  if (webhook && (registration.id === webhook || registration.provider === webhook || (registration.channelId === webhook && registration.id === registration.channelId))) {
-    return true
-  }
+function webhookRegistrationPathMatches(request: Request, registration: AgentWebhookRegistrationDefinition): boolean {
   return typeof registration.path === "string"
     && normalizeWebhookPath(new URL(request.url).pathname) === normalizeWebhookPath(registration.path)
 }
@@ -315,12 +312,25 @@ async function findAgentWebhookRegistration(
     for (const registration of trigger.webhooks || []) {
       const match = { registration, trigger: trigger as ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig> }
       registrations.push(match)
-      if (webhookRegistrationMatches(request, registration, webhook)) {
-        return match
-      }
     }
   }
-  return webhook === "" && registrations.length === 1 ? registrations[0] : undefined
+  const pathMatch = registrations.find(match => webhookRegistrationPathMatches(request, match.registration))
+  if (pathMatch) return pathMatch
+  if (webhook === "" && registrations.length === 1) return registrations[0]
+  if (!webhook) return undefined
+  const directMatches = registrations.filter(({ registration }) =>
+    registration.id === webhook || (registration.channelId === webhook && registration.id === registration.channelId))
+  if (directMatches.length === 1) return directMatches[0]
+  if (directMatches.length > 1) return undefined
+  const providerMatches = registrations.filter(({ registration }) => registration.provider === webhook)
+  return providerMatches.length === 1 ? providerMatches[0] : undefined
+}
+
+async function matchedWebhookRegistrationRequiresVerification(
+  registration: AgentWebhookRegistrationDefinition,
+  context: ViteAgentRouteRuntimeContext,
+): Promise<boolean> {
+  return Boolean(await resolveMaybe(registration.secretToken, context))
 }
 
 function parseWebhookPayload(body: string): unknown {
@@ -1982,9 +1992,19 @@ export function defineAgentChatWebhookFetchHandler(
       }
 
       const { registration, trigger } = match
-      if (trigger.id !== "chat.message") {
+      if (await matchedWebhookRegistrationRequiresVerification(registration, context)) {
         try {
           await verifyAgentWebhookRequest([registration], request, context, { requireSecretHeader: true })
+        }
+        catch (error) {
+          const response = toHttpErrorResponse(error)
+          if (response) return response
+          throw error
+        }
+      }
+
+      if (trigger.id !== "chat.message") {
+        try {
           const input = await createAgentWebhookTriggerInput(request, registration)
           const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, trigger.id, input)
           if (isResolvedAgentTriggerHandledInvocation(invocation)) {
