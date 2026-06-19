@@ -19,6 +19,9 @@ export {
   fetch,
 } from "./fetch.ts"
 export {
+  git,
+} from "./git.ts"
+export {
   inputCommands,
 } from "./input-commands.ts"
 export {
@@ -157,6 +160,10 @@ export type {
   FetchCapabilityToolOptions,
   FetchCapabilityToolRequest,
 } from "./fetch.ts"
+export type {
+  GitCapabilityOptions,
+  GitCapabilityToolPolicy,
+} from "./git.ts"
 export type {
   InputCommand,
   InputCommandRunInput,

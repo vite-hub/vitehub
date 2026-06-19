@@ -160,6 +160,18 @@ _Avoid_: Second transcript path, provider audio output
 A Workspace Capability that exposes shell-shaped Workspace inspection and optional structured Workspace mutation tools.
 _Avoid_: Bash, sandbox, raw workspace tools
 
+**Git Capability**:
+An official Capability that gives an Agent bounded Git source-history access and local Workspace Session git state selection.
+_Avoid_: Workspace Shell Capability, unrestricted shell, remote publication
+
+**Local Git State Change**:
+A Workspace Session-local change to Git metadata, refs, index, or working tree used to inspect source history or select a local review state.
+_Avoid_: Remote Git Publication, git history publication, git commit
+
+**Remote Git Publication**:
+A Git operation that creates, rewrites, deletes, or publishes commits, branches, tags, or remote refs outside the local Workspace Session.
+_Avoid_: git write mode, fetch, local checkout
+
 **MCP Capability**:
 A Capability that connects an Agent to external MCP servers and exposes their model-facing tools.
 _Avoid_: MCP server implementation, MCP Resource Source
