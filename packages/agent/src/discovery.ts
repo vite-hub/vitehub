@@ -34,9 +34,15 @@ function isWorkspaceAgentConfig(source: string): boolean {
   return /\bdefineAgent\s*\(\s*\{[\s\S]*?\bworkspace\s*:/.test(stripComments(source))
 }
 
+function isAgentDefinitionSource(source: string): boolean {
+  const stripped = stripComments(source)
+  return /\bdefineAgent\s*\(/.test(stripped) || /\bexport\s+default\b/.test(stripped)
+}
+
 function isInsideConfiguredAgent(file: string, configuredAgentDirs: Set<string>): boolean {
   const directory = dirname(file)
   if (configuredAgentDirs.has(directory) && indexDefinitionPattern.test(basename(file))) return false
+  if (isAgentDefinitionSource(readFileSync(file, "utf8"))) return false
   for (const agentDir of configuredAgentDirs) {
     const path = relative(agentDir, directory)
     if (path === "" || (!path.startsWith("..") && path !== "..")) return true
