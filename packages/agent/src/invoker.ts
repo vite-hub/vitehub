@@ -10,6 +10,7 @@ import type {
 } from "./types.ts"
 
 export const agentInvokerContextKey = "invoker"
+const agentActorContextKey = "actor"
 const resolvedAgentInvokerInputKey = Symbol.for("vitehub.resolvedAgentInvokerInput")
 
 export function defineAgentInvoker<
@@ -131,16 +132,18 @@ export function createFallbackAgentInvoker(run?: AgentRunMetadata): AgentInvoker
 }
 
 export function resolveInputAgentInvoker(inputContext: object | undefined): AgentInvoker | undefined {
-  const value = contextRecord(inputContext)[agentInvokerContextKey]
+  const context = contextRecord(inputContext)
+  const value = context[agentInvokerContextKey] ?? context[agentActorContextKey]
   return value === undefined
     ? undefined
-    : normalizeAgentInvoker(value, "input.context.invoker")
+    : normalizeAgentInvoker(value, context[agentInvokerContextKey] === undefined ? "input.context.actor" : "input.context.invoker")
 }
 
 export function ensureAgentInvokerContext(
   context: AgentInvocationContextStore,
   invoker: AgentInvoker,
 ): void {
+  context.set(agentActorContextKey, invoker, { overwrite: true })
   context.set(agentInvokerContextKey, invoker, { overwrite: true })
 }
 
@@ -152,6 +155,7 @@ export function withResolvedAgentInvokerInput<CALL_OPTIONS>(
     ...input,
     context: {
       ...input.context,
+      [agentActorContextKey]: invoker,
       [agentInvokerContextKey]: invoker,
       [resolvedAgentInvokerInputKey]: true,
     },

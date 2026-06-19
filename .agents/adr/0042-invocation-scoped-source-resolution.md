@@ -5,7 +5,7 @@ ViteHub will allow Workspace Sources to resolve their concrete origin, Mount, an
 ## Considered Options
 
 - Keep Source Instructions and source options fully static: rejected because scoped support agents need the Source itself to describe and expose only the customer-specific material available in that invocation.
-- Let Sources read arbitrary invoker metadata directly: rejected because it duplicates authorization logic and makes cache, fingerprint, and visibility semantics depend on opaque caller metadata.
+- Let Sources read arbitrary Agent Actor metadata directly: rejected because it duplicates authorization logic and makes cache, fingerprint, and visibility semantics depend on opaque caller metadata.
 - Let `access()` mutate Workspace Definitions: rejected because Workspace Sources, rules, and write policy must remain visible at the Workspace boundary.
 - Rely on prompt-only scoping: rejected because prompt instructions cannot be the authority for Source-Backed Path visibility.
 

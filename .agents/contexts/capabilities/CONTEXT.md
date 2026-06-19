@@ -72,13 +72,17 @@ _Avoid_: Built-in Capability, Agent Package dependency, generated adapter export
 A narrow ViteHub-owned import subpath for a first-party-supported Chat Adapter Package when ViteHub owns a stable shim and missing-package diagnostics.
 _Avoid_: Adapter barrel, generated upstream re-export, root Agent Package export
 
+**Official Chat Adapter Support**:
+ViteHub support for official Chat SDK platform adapters through concrete Channel Kinds, setup diagnostics, and webhook wiring while keeping the adapter package as an explicit application dependency.
+_Avoid_: Bundled adapter dependency, generated adapter export, community adapter support by default
+
 **Chat Adapter Callback**:
 The lazy Channel option that returns the current request's Chat Platform Adapters.
 _Avoid_: Webhook registration helper, adapter registry, build-time adapter scan
 
-**Chat Platform Actor Facts**:
-Trusted platform-scoped actor or source facts extracted from verified Chat Platform traffic before Agent Invoker mapping.
-_Avoid_: Auth User, Agent Invoker, Access Role, chat identity, model-facing user profile
+**Chat Platform Caller Facts**:
+Trusted platform-scoped caller or source facts extracted from verified Chat Platform traffic before Agent Actor mapping.
+_Avoid_: Auth User, Agent Actor, Access Role, chat identity, model-facing user profile
 
 **Chat Webhook Autowiring**:
 ViteHub-owned Channel wiring that exposes Chat Platform Adapter webhooks without app route code.
@@ -172,6 +176,18 @@ _Avoid_: Second transcript path, provider audio output
 A Workspace Capability that exposes shell-shaped Workspace inspection and optional structured Workspace mutation tools.
 _Avoid_: Bash, sandbox, raw workspace tools
 
+**Git Capability**:
+An official Capability that gives an Agent bounded Git source-history access and local Workspace Session git state selection.
+_Avoid_: Workspace Shell Capability, unrestricted shell, remote publication
+
+**Local Git State Change**:
+A Workspace Session-local change to Git metadata, refs, index, or working tree used to inspect source history or select a local review state.
+_Avoid_: Remote Git Publication, git history publication, git commit
+
+**Remote Git Publication**:
+A Git operation that creates, rewrites, deletes, or publishes commits, branches, tags, or remote refs outside the local Workspace Session.
+_Avoid_: git write mode, fetch, local checkout
+
 **MCP Capability**:
 A Capability that connects an Agent to external MCP servers and exposes their model-facing tools.
 _Avoid_: MCP server implementation, MCP Resource Source
@@ -227,6 +243,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A model-backed **Agent Driver** may receive model-facing tools and model-facing instructions from **Capability Driver Contributions**.
 - A harness-backed **Agent Driver** receives only explicitly supported harness-compatible **Capability Driver Contributions**; model-facing prompt and tool assumptions must not be silently passed into the harness.
 - A custom-run-backed **Agent Driver** receives prepared invocation context and Capability runtime effects; custom `run` code decides which Capability outputs to consume.
+- A **Capability** may contribute **Agent Invocation Context Values** or Channel Delivery Effect Intents, but it does not execute Channel Delivery Effects or call platform-specific Channel APIs directly.
 - Capabilities model reusable Agent abilities; app-owned product reachability belongs to **Channels** unless the product event has earned a reusable Capability name.
 - The **Access Capability** may contribute **Workspace Scope Instructions** from a static Workspace Scope or Workspace Scope Resolver result.
 - **Workspace Scope Instructions** are developer-authored Capability Driver Contributions; they do not grant access or make the Selected Workspace Scope model-facing by default.
@@ -245,7 +262,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - An **LLM Gate Capability** chooses one developer-defined allow or reject category through an LLM and may reject before the main Agent Invocation.
 - Deterministic or callback-based routing is not an official Capability in V1; users can define inline Capabilities or hooks that set named invocation context values.
 - A **Rate Limit Capability** records a typed **Agent Invocation Context Value** with the checked or consumed budget result when an invocation is allowed or rejected.
-- A **Rate Limit Capability** consumes trusted identity from the Agent Invoker by default, including Agent Invoker kind, or from stable Agent Run metadata, trusted IP headers, or a developer callback when explicitly configured.
+- A **Rate Limit Capability** consumes trusted identity from the Agent Actor by default, including Agent Actor kind, or from stable Agent Run metadata, trusted IP headers, or a developer callback when explicitly configured.
 - A **Rate Limit Capability** uses an explicit **Rate Limit Store** contract with non-consuming checks and consuming budget operations; model-facing storage Capabilities are not the runtime enforcement mechanism, and hosted runtimes require an explicit store choice.
 - A **Rate Limit Store** owns persistence and coordination semantics for a Rate Limit Capability; model-facing storage tool surfaces do not become runtime enforcement APIs.
 - A **Rate Limit Capability** consumes one budget unit per Agent Invocation in the first version; token, cost, or weighted usage budgets need a separate future design.
@@ -254,11 +271,13 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - Shared message-shaped Channel behavior is configured through the Agent Definition's Message Channel Settings rather than a Capability.
 - A message-shaped **Channel** may declare **Chat Platform Adapters** through a **Chat Adapter Callback**.
 - A message-shaped **Channel** carries trusted origins from its Chat Platform Adapter names.
-- A message-shaped **Channel** can provide a platform-scoped Agent Invoker default for Chat Platform Adapter messages when trusted chat identity is available.
+- A message-shaped **Channel** can provide a platform-scoped Agent Actor default for Chat Platform Adapter messages when trusted chat identity is available.
 - A **Chat Platform Adapter** may come from a **Chat Adapter Package** that remains an explicit optional application dependency.
 - The Agent Package should not generate exports for every **Chat Adapter Package**.
 - A **Chat Adapter Facade** is reserved for first-party-supported adapters where ViteHub owns the public compatibility surface.
-- A message-shaped **Channel** can contribute trusted chat actor identity as the Agent Invoker before later Capabilities resolve.
+- **Official Chat Adapter Support** applies to official Vercel-maintained Chat SDK platform adapters; community and vendor adapters stay explicit **Custom Channel** or adapter-callback integrations until promoted.
+- **Official Chat Adapter Support** means Channel support, diagnostics, and webhook wiring, not bundling or re-exporting every adapter factory.
+- A message-shaped **Channel** can contribute trusted chat platform identity facts as the Agent Actor before later Capabilities resolve.
 - **Chat Platform Adapters** are platform integration adapters, not **Agent Model Execution**.
 - **Chat Webhook Autowiring** is inferred from the Agent's declared chat **Channel**; users do not attach a Capability or call a webhook registration helper for delivery wiring.
 - **Chat Webhook Autowiring** resolves the **Chat Adapter Callback** at request time so callbacks can read Server Env and other request-local server state.
@@ -275,7 +294,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - An **Access Capability** can apply **Workspace Scope** to narrow an already-declared Workspace.
 - An **Access Capability** can record the active Workspace Scope as an Agent Invocation Context Value for later callbacks and instructions.
 - An **Access Capability** owns both Workspace Scope selection and application, but keeps resolver logic separate from grants.
-- An **Access Capability** may consume `context.invoker` to select Workspace Scope without owning invoker resolution.
+- An **Access Capability** may consume `context.actor` to select Workspace Scope without owning actor resolution; `context.invoker` remains a compatibility alias.
 - An **Access Capability** may consume normalized chat identity and request context from a chat **Channel** without repeating Channel origins in Access configuration.
 - An **Access Capability** can use static named Workspace Scopes or an inline Workspace Scope definition returned by its resolver.
 - An **Access Capability** must be ordered before other Capabilities so invocation access is applied before they read scoped runtime surfaces or expose tools.
@@ -340,7 +359,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 > **Domain expert:** "No. Use only the Prompt Template Variables exposed by that Capability, or provide a callback when the prompt needs custom runtime data."
 >
 > **Dev:** "Should technical-user answer style be an Access Role?"
-> **Domain expert:** "No. Keep **Access Role** for scope-selection authority; model-facing style can be normal prompt behavior that reads **Agent Invoker** metadata."
+> **Domain expert:** "No. Keep **Access Role** for scope-selection authority; model-facing style can be normal prompt behavior that reads **Agent Actor** metadata."
 >
 > **Dev:** "Should Chat DevTools wire its own chat send helper?"
 > **Domain expert:** "No. The message-shaped **Channel** should provide the trigger, and DevTools should consume the resolved Agent Trigger."
@@ -389,7 +408,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - `workspaceScope()` was considered as the public helper name - resolved: use `access()` for the Capability while preserving **Workspace Scope** for the Workspace-specific boundary.
 - `organization()` was considered as the public helper name - resolved: reject it because access decisions may come from organizations, customer domains, local config, or other trusted invocation context.
 - Pre-registering every customer Workspace Scope was considered necessary - resolved: an Access Capability resolver may return an inline Workspace Scope definition for invocation-specific grants.
-- Prompt audience was considered part of the **Access Capability** because it may use the same trusted identity facts - resolved: keep prompt instructions as normal Capability or Agent behavior that reads **Agent Invoker** metadata when shared selection is needed.
+- Prompt audience was considered part of the **Access Capability** because it may use the same trusted identity facts - resolved: keep prompt instructions as normal Capability or Agent behavior that reads **Agent Actor** metadata when shared selection is needed.
 - Prompt audience variants were considered as roles - resolved: reserve **Access Role** for access authority and use audience language for model-facing instructions.
 - "audio input", "voice input", and "voice transcription" were considered as names for spoken user messages - resolved: use **Transcription** for the capability.
 - `transcribe({ workspace })` was considered for persisted transcript and audio artifacts - resolved: use **Transcription Artifacts** so the option does not masquerade as a Workspace Definition.
@@ -407,7 +426,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A generic `decisionPolicy()` helper and request-refinement Capability were considered - resolved: defer them until **LLM Route Capability**, **LLM Gate Capability**, and Chat Sessions prove the internal primitive.
 - App-level rate-limit middleware was considered for agent chat entry points - resolved: use a **Rate Limit Capability** so invocation budgets compose through Agent Definitions and can run before model execution on every Agent Invocation path.
 - Plain KV `get`/`set` counters were considered for **Rate Limit Capability** storage - resolved: rate limiting needs an explicit consume contract because distributed enforcement depends on atomic store behavior.
-- Client-provided app-route user/run fields were considered for **Rate Limit Capability** defaults - resolved: do not trust them as budget identity; official chat triggers should produce an Agent Invoker from trusted server-side inputs.
+- Client-provided app-route user/run fields were considered for **Rate Limit Capability** defaults - resolved: do not trust them as budget identity; official chat triggers should produce an Agent Actor from trusted server-side inputs.
 - Forwarded request headers were considered for default IP identity - resolved: require explicit trusted header names because proxy trust is deployment-specific.
 - Exposing `hubKv` as a **Rate Limit Capability** option was considered - resolved: keep `store` as the Rate Limit Store boundary and let provider-specific KV handles live inside adapters or future helpers.
 - Weighted rate-limit costs were considered for the first version - resolved: use one Agent Invocation as the budget unit and defer token, cost, and usage quotas until Agent Usage requirements prove the shape.

@@ -15,6 +15,7 @@ import type {
   AgentCallbackContext,
   AgentAccessInvocationContextValue,
   AgentAccessWorkspaceScopeContext,
+  AgentActor,
   AgentCapabilityDefinition,
   AgentCapabilityRuntimeContext,
   AgentCapabilityTypeContract,
@@ -161,7 +162,8 @@ export type AccessWorkspaceResolverContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   TInputContext extends object = Record<string, unknown>,
-> = Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, "input" | "invoker"> & {
+> = Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>, "actor" | "input" | "invoker"> & {
+  actor: AccessInputContextInvoker<TInputContext>
   invoker: AccessInputContextInvoker<TInputContext>
   input: Omit<AgentCapabilityRuntimeContext<TRuntimeConfig, Name>["input"], "get"> & {
     get: () => AgentRunInput<unknown, TInputContext>
@@ -190,6 +192,7 @@ export interface AccessWorkspaceOptions<
 
 export interface AccessChatContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentCallbackContext<TRuntimeConfig> {
+  actor?: AgentActor
   invoker?: AgentInvoker
   input?: unknown
   provider: string

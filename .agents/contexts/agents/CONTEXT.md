@@ -9,7 +9,7 @@ A named server-side actor that receives inputs, is driven by an Agent Driver, an
 _Avoid_: Bot, chat definition, workflow
 
 **Agent Definition**:
-The code declaration that names an Agent and configures its Channels, Workspace, Capabilities, Agent Invoker, and Agent Driver.
+The code declaration that names an Agent and configures its Channels, Workspace, Capabilities, Agent Actor, and Agent Driver.
 _Avoid_: Chat definition, server route
 
 **Agent Driver**:
@@ -61,16 +61,40 @@ The lower-level server-side primitive that maps a product event into an Agent In
 _Avoid_: Channel, Chat adapter, client integration, model adapter
 
 **Channel**:
-A host or integration entry surface through which Agent Invocations are triggered, such as HTTP, Slack, Teams, Discord, CLI, DevTools, or web chat. It owns delivery coordination and caller mapping for that surface.
-_Avoid_: Agent Invoker, Agent Trigger, Chat Platform Adapter, Auth User
+A host or integration entry surface through which Agent Invocations are triggered, such as HTTP, Stream, Slack, Teams, Telegram, Discord, CLI, DevTools, or Web Chat. It owns delivery coordination and caller mapping for that surface.
+_Avoid_: Agent Actor, Agent Trigger, Chat Platform Adapter, Auth User
 
 **Channel ID**:
 The stable id for one Channel declared on an Agent Definition.
-_Avoid_: Agent name, Agent Invoker id, Agent Run Origin, thread id, platform id
+_Avoid_: Agent name, Agent Actor id, Agent Run Origin, thread id, platform id
 
 **Channel Kind**:
-The reusable Channel family named by what reaches the Agent, such as Slack, Teams, Discord, Web Chat, HTTP, CLI, or DevTools.
+The reusable Channel family named by what reaches the Agent, such as GitHub, Slack, Teams, Telegram, Discord, Stream, Web Chat, HTTP, CLI, or DevTools.
 _Avoid_: Channel ID, Chat Channel, Chat Platform Adapter, product lane
+
+**Channel Definition Helper**:
+A helper, such as `defineChannel()`, that returns a Channel Definition for use inside `defineAgent({ channels })`, including custom Channel helpers built by application or integration code.
+_Avoid_: Filesystem channel registration, Capability factory, route helper
+
+**GitHub Channel**:
+An official Channel Kind for verified GitHub App or webhook delivery into Agent Invocations, plus reusable pull-request delivery facts and write-back effects.
+_Avoid_: Quiver Review behavior, browser review command, GitHub Capability
+
+**Stream Channel**:
+An official Channel Kind for app-owned HTTP UI-message stream entry into an Agent, such as Portal Ask AI.
+_Avoid_: sibling chat route helper, Web Chat, Chat Platform Adapter
+
+**Channel Delivery Admission**:
+The Channel-owned protocol acceptance or rejection of an incoming delivery before or while it is mapped into an Agent Invocation.
+_Avoid_: Access Capability, Agent Actor resolution, user-visible feedback, model output
+
+**Channel Delivery Effect**:
+A Channel-owned platform-native effect that communicates delivery progress, state, or final output back on the external surface that triggered the Agent Invocation.
+_Avoid_: Channel Delivery Admission, Agent Finish Hook, Capability hook, result comment, model output
+
+**Channel Delivery Effect Intent**:
+A platform-neutral request for the current Channel delivery to apply a user-visible Channel Delivery Effect if the Channel supports it.
+_Avoid_: Platform API call, arbitrary Channel operation, generic Capability output, cross-delivery side effect
 
 **Custom Channel**:
 A Channel declared for an app-owned product event or bespoke transport when no official Channel fits.
@@ -79,6 +103,14 @@ _Avoid_: Entry Capability, route helper, trigger helper, generic Capability
 **Agent Invocation Lifecycle**:
 The ordered runtime moments that occur while one Agent Invocation is processed.
 _Avoid_: Capability Lifecycle, chat event hooks, request middleware
+
+**ViteHub Hook System**:
+The shared hook machinery, naming conventions, and inspection model used by owner-scoped Agent, Channel, Capability, Runtime, and integration hooks.
+_Avoid_: Global mutation bus, arbitrary event bus, Capability Lifecycle replacement
+
+**Hook Observer**:
+A read-only listener for inspectable hook activity across ViteHub owners.
+_Avoid_: Channel hook, Capability hook, Agent Finish Hook, Trace Event
 
 **Agent Finish Hook**:
 The final Agent Invocation Lifecycle hook for observing the completed invocation outcome.
@@ -106,7 +138,7 @@ _Avoid_: Platform channel id, thread id, Agent Run Origin
 
 **Agent Run Platform Context**:
 Agent Run metadata for platform-native conversation and event identifiers, such as Slack channel ids, Teams conversation ids, Discord interaction ids, or Telegram chat ids.
-_Avoid_: Channel ID, Agent Invoker, Agent Run Origin
+_Avoid_: Channel ID, Agent Actor, Agent Run Origin
 
 **Chat History**:
 Ordered conversational messages for one chat interaction with an Agent.
@@ -124,12 +156,16 @@ _Avoid_: Agent Memory, Agent Run State, hidden slice
 Agent Definition settings shared by message-shaped Channels, such as Chat History, Chat Session, and overlapping message delivery behavior.
 _Avoid_: Channel defaults, runtime input messages, Agent Memory
 
+**Agent Actor**:
+The trusted principal for one Agent Invocation, shaped as a stable `id`, optional `kind`, optional display `label`, and application-owned `meta`, exposed to callbacks as `context.actor`.
+_Avoid_: Auth User, Channel, Agent Trigger, Access Role, Chat Platform Caller Facts, model-facing user profile
+
 **Agent Invoker**:
-The trusted caller identity for one Agent Invocation, exposed as `context.invoker` with a stable `id`, optional `kind`, optional display `label`, and application-owned `meta`.
-_Avoid_: Auth User, Agent Trigger, Access Role, Chat Platform Actor Facts, model-facing user profile
+The legacy name for Agent Actor, currently visible through `context.invoker`, `defineAgent({ invoker })`, and related compatibility APIs while the public language migrates.
+_Avoid_: New public identity language, Channel Actor, Agent Trigger, Auth User
 
 **Agent Invoker Profile**:
-A static selectable Agent Invoker declared on an Agent Definition through `defineAgent({ invoker: { profiles } })`, mainly for development selection and trusted app routing.
+A static selectable Agent Actor profile currently declared through the legacy `defineAgent({ invoker: { profiles } })` API, mainly for development selection and trusted app routing.
 _Avoid_: Invocation Profile, Access Role, dynamic profile Capability
 
 **Agent Invocation Context Value**:
@@ -216,26 +252,49 @@ _Avoid_: Fake agent, dummy model, test bot
 - An **Agent Trigger** prepares **Agent Run State** and **Chat History** when the product event needs them.
 - An **Agent Trigger** may provide message-shaped input, but message-shaped input is not required for every Agent Trigger.
 - An **Agent Trigger** may pass host or client intent with the Agent Invocation, but it does not grant Capabilities dynamically.
-- An **Agent Trigger** is registered by a Capability when the trigger belongs to a Capability-owned product ability.
+- An **Agent Trigger** is registered by a Channel when the trigger belongs to reachability, or by a Capability when it belongs to a Capability-owned product ability.
+- Channels use one generic Agent Trigger contract; message-shaped Channels add Message Channel Settings on top instead of using a separate trigger contract.
 - An **Agent Trigger** is not **Agent Model Execution**.
 - An **Agent Trigger** is not a **Chat Platform Adapter**; Chat Platform Adapters receive platform events, while Agent Triggers start Agent Invocations.
 - An **Agent Definition** declares the **Channels** through which its **Agent Invocations** can be triggered.
 - **Channel IDs** are unique within one **Agent Definition** and stable enough for generated routes, DevTools, Agent Run metadata, admission, rate limits, and identity mapping.
 - A **Channel ID** names one configured Channel; a **Channel Kind** names what kind of entry path reaches the Agent.
 - In `defineAgent({ channels })`, object keys are **Channel IDs** and helper functions identify **Channel Kinds**.
+- Channels are declared from the **Agent Definition**; ViteHub does not use filesystem channel registration as the primary Channel API.
+- `defineChannel()` is the public **Channel Definition Helper** for custom Channels.
+- Official **Channel Kind** helpers are thin wrappers around the same Channel Definition shape that `defineChannel()` returns.
 - `defineAgent({ messages })` configures **Message Channel Settings** shared by message-shaped Channels; it does not declare runtime invocation messages.
 - Per-Channel message-shaped overrides live under that Channel's own `messages` option.
-- **Message Channel Settings** do not configure identity mapping; each concrete **Channel** maps trusted caller data into an **Agent Invoker**.
+- **Message Channel Settings** do not configure identity mapping; each concrete **Channel** maps trusted caller data into an **Agent Actor**.
 - **Message Channel Settings** may configure a default overlapping-message concurrency policy; platform rate limits, webhook retries, and provider delivery quotas stay on concrete **Channels**.
-- A **Channel** is where an **Agent Invocation** is triggered; an **Agent Invoker** is who is trusted for that invocation.
+- A **Channel** is where an **Agent Invocation** is triggered; an **Agent Actor** is who is trusted for that invocation.
 - A **Channel** may use an **Agent Trigger** to start an **Agent Invocation**, but it is not the trigger itself.
-- A **Channel** owns adapter and webhook wiring, delivery policies such as locks, dedupe, and concurrency, platform state, and platform identity mapping.
+- A **Channel** owns adapter and webhook wiring, delivery policies such as locks, dedupe, and concurrency, platform state, and Agent Actor mapping.
+- Channel webhook delivery can use generated Agent Package **Agent Webhook Routes** without making non-chat Channels message-shaped or Chat Platform Adapters.
+- A **Channel** can resolve an **Agent Actor**, but it does not own identity; Auth, trusted app routing, subagents, schedules, or fallback runtime behavior may also seed the Agent Actor.
+- **Channel Delivery Admission** belongs to the **Channel** because protocol-level delivery acceptance, rejection, and retry semantics are owned by the external surface that triggered the Agent Invocation.
+- **Channel Delivery Effects** belong to the **Channel** because they communicate delivery progress or state back on the same external surface that triggered the Agent Invocation.
+- **Channel Delivery Effects** may use generic effect kinds such as reactions, replies, or statuses; platform-prefixed names belong to Channel implementation details or examples, not the shared effect vocabulary.
+- A Capability may contribute a **Channel Delivery Effect Intent** for the current delivery, but the active **Channel** owns whether and how that intent becomes a **Channel Delivery Effect**.
+- A **Channel Delivery Effect Intent** must not address arbitrary platform objects, call platform APIs directly, or assume the active **Channel** supports a requested effect kind.
+- Unsupported **Channel Delivery Effect Intents** are ignored with inspectable trace metadata rather than failing the **Agent Invocation**.
 - A **Custom Channel** is the root Agent Definition replacement for the old Entry Capability idea.
 - App-owned product events use **Custom Channels** when the concern is Agent reachability rather than a reusable Agent ability.
+- A **GitHub Channel** owns reusable GitHub delivery, verification, event facts, installation context, actor mapping, Channel Delivery Admission, and supported Channel Delivery Effects for triggering events; product-specific commands and artifacts stay app-owned.
+- A **GitHub Channel** trigger receives verified GitHub delivery facts from generated webhook routing. App code owns product-specific admission such as command filtering and trusted actor checks, while first-party helpers may parse pull-request comment command facts without deciding whether the Agent should run.
+- GitHub pull-request write-back should use generic **Channel Delivery Effects** such as reactions, replies, and statuses instead of GitHub-prefixed Capability APIs.
 - Official **Channel Kinds** should name concrete entry paths rather than a generic Chat Channel.
 - Official **Channel Kind** helpers are imported from `@vite-hub/agent/channels`, not from the Agent Package root or Capabilities entry.
+- A **Stream Channel** owns generated AI SDK UI-message stream route metadata and optional trusted input mapping for app-owned surfaces such as Portal Ask AI.
+- A **Stream Channel** can supply generated chat route options through `stream({ route })`; sibling `chatRoute` exports are compatibility overrides, not the preferred Channel API.
 - Message-shaped **Channel Kinds** keep the existing chat delivery behavior, including Chat Platform Adapters, webhook wiring, locks, dedupe, concurrency, platform state, and identity mapping.
 - An **Agent Invocation** follows one **Agent Invocation Lifecycle**.
+- The **ViteHub Hook System** applies across Agent, Channel, Capability, Runtime, and integration owners through shared machinery and conventions, not through one public writable hook bus.
+- Public hook registration stays scoped to the owner that controls the lifecycle and allowed effects.
+- A **Hook Observer** may inspect cross-owner hook activity, but it must not mutate Channel delivery, Agent Invocation input, Capability contributions, Runtime policy, or model output.
+- **Hook Observers** start as inspection and DevTools behavior; plugin observers may use the same read-only observer contract once the plugin boundary is clear.
+- **Hook Observer** failures are isolated and logged or traced; they never affect **Agent Invocation** control flow.
+- **Hook Observers** see structured, redacted hook facts by default; raw payloads require owner-provided debug serializers.
 - An **Agent Finish Hook** belongs to the **Agent Invocation Lifecycle**.
 - Capabilities can expose **Agent Invocation Extensions** on Agent Invocation Lifecycle events.
 - An **Agent Eval** runs an **Agent Definition** to create scored **Agent Invocations**.
@@ -250,10 +309,10 @@ _Avoid_: Fake agent, dummy model, test bot
 - Message-shaped **Channels** resolve the active **Chat Session** before applying the **Chat History Window**.
 - A **Chat History Window** is configured by the Agent Definition when the application wants bounded Chat History.
 - Message-shaped **Channels** can require state for **Chat History** through the Agent State Provider.
-- Every **Agent Invocation** has an **Agent Invoker**; when no trusted identity is supplied, ViteHub provides an origin-specific anonymous fallback.
-- Message-shaped **Channels** can produce an **Agent Invoker** from trusted Chat Platform Adapter identity before later Capabilities resolve.
-- **Agent Invoker** is available through `context.invoker` and as the `invoker` Agent Invocation Context Value; it is not model-facing by default.
-- **Agent Invoker** resolution may read **Agent Run Origin** from first-class run metadata, but concrete authorization effects should flow through the resolved **Agent Invoker** rather than branching on origin later.
+- Every **Agent Invocation** has an **Agent Actor**; when no trusted identity is supplied, ViteHub provides an origin-specific anonymous fallback.
+- Message-shaped **Channels** can produce an **Agent Actor** from trusted Chat Platform Adapter identity before later Capabilities resolve.
+- **Agent Actor** is exposed through `context.actor`; legacy APIs expose the same identity through `context.invoker` and the `invoker` Agent Invocation Context Value.
+- **Agent Actor** resolution may read **Agent Run Origin** from first-class run metadata, but concrete authorization effects should flow through the resolved **Agent Actor** rather than branching on origin later.
 - **Agent Invoker Profiles** are static objects in the first version.
 - **Agent Invoker Profile** ids must be unique per Agent Definition.
 - DevTools can select configured **Agent Invoker Profiles** before a new Chat Session starts, but does not switch invokers in the middle of one conversation.
@@ -292,7 +351,7 @@ _Avoid_: Fake agent, dummy model, test bot
 > **Domain expert:** "No. Read it as an **Agent Invocation Context Value** produced by a Pre-Invocation Decision."
 >
 > **Dev:** "Should we put customer, staff, and technical-user branching into both `access()` and prompt instructions?"
-> **Domain expert:** "Keep the shared facts on the **Agent Invoker**. Let `access()` map `context.invoker` to Workspace Scope, and let any prompt Capability or instruction callback read the same invoker metadata for model-facing text."
+> **Domain expert:** "Keep the shared facts on the **Agent Actor**. Let `access()` map `context.actor` to Workspace Scope, and let any prompt Capability or instruction callback read the same actor metadata for model-facing text. `context.invoker` remains a compatibility alias."
 >
 > **Dev:** "Is a new Chat Session the same as Agent Memory reset?"
 > **Domain expert:** "No. A **Chat Session** changes which Chat History messages enter the Chat History Window; **Agent Memory** is durable knowledge across invocations."
@@ -329,11 +388,16 @@ _Avoid_: Fake agent, dummy model, test bot
 - Flat per-Channel message overrides were considered - resolved: nest them under the Channel's own `messages` option so route, adapter, identity, and message behavior do not collapse into one option bag.
 - Identity mapping was considered for **Message Channel Settings** - resolved: keep it on concrete **Channels** because each Channel trusts different actor data.
 - Root `messages.concurrency` was considered too platform-specific - resolved: allow it for overlapping message turns, while platform delivery limits stay Channel-specific.
+- Start acknowledgements were considered one Channel delivery concept - resolved: split protocol-level **Channel Delivery Admission** from user-visible **Channel Delivery Effects**.
+- One global writable hook bus was considered for Agent, Channel, Capability, Runtime, and integration hooks - resolved: use one **ViteHub Hook System** with owner-scoped public mutation hooks and read-only **Hook Observers** for cross-owner inspection.
+- Platform-prefixed delivery effects such as GitHub reactions were considered shared public vocabulary - resolved: use generic **Channel Delivery Effect** kinds such as reactions, with platform-specific mapping owned by the active **Channel**.
+- Capability-owned Channel effects were considered as direct platform operations - resolved: Capabilities may contribute **Channel Delivery Effect Intents** for the current delivery, while Channels own execution and unsupported intents are traced and ignored.
+- **Hook Observer** failures were considered possible control-flow failures - resolved: observer failures are isolated to logging or tracing and never fail an **Agent Invocation**.
 - Hidden model-selected history slicing was considered - resolved: **Chat Session** selection is a host-visible boundary over preserved Chat History, not destructive message truncation.
 - Route and gate results were considered for ad hoc input context or metadata - resolved: expose them as typed **Agent Invocation Context Values**.
-- Shared access-and-audience branching was considered for reusable Invocation Profiles - resolved: use **Agent Invoker** as the root Agent Definition concept, with static **Agent Invoker Profiles** and app-owned `invoker.meta` for V1.
+- Shared access-and-audience branching was considered for reusable Invocation Profiles - resolved: use **Agent Actor** as the trusted identity concept, with legacy **Agent Invoker Profiles** and app-owned actor metadata for V1.
 - Chat state was considered separate from Agent State Provider - resolved: Chat History state is satisfied through the Agent State Provider when available.
-- Chat actor identity was considered a chat-history-only detail - resolved: expose it as an **Agent Invoker** so other Capabilities can consume it.
+- Chat actor identity was considered a chat-history-only detail - resolved: expose it as an **Agent Actor** so other Capabilities can consume it.
 - Chat History was considered an implicit chat default - resolved: keep Chat History opt-in, aligned with Chat SDK-style application control.
 - Local and hosted state providers were considered equivalent - resolved: hosted production runtimes require a durable provider and a **Concurrent Invocation Guard**.
 - Model-free playground behavior was described as a dummy Agent - resolved: use **Mock Agent Adapter** for deterministic, cost-free Agent Invocations.
@@ -343,5 +407,5 @@ _Avoid_: Fake agent, dummy model, test bot
 - Agent run metadata used `platform` for both chat adapters and generic invocation sources - resolved: use **Agent Run Origin** for run metadata and reserve platform language for **Chat Platform Adapters**.
 - `run.channelId` was considered for both configured Channel IDs and platform conversation ids - resolved: use **Agent Run Channel** for configured ViteHub Channel identity and **Agent Run Platform Context** for platform-native ids.
 - Agent Triggers were considered chat-only because chat is the first major use case - resolved: message-shaped **Channels** can provide official triggers, but Agent Triggers remain general and do not require message-shaped input.
-- Chat helper APIs were considered the primary exposure path - resolved: Channel-owned trigger registration is the primary server-side path, with helpers only as optional callers or ergonomics around registered triggers.
+- Chat helper APIs were considered the primary exposure path - resolved: declared Channel delivery paths are the primary server-side path, with helpers only as optional callers or ergonomics around registered triggers.
 - Client-provided flags were considered Capability configuration - resolved: triggers may pass host or client intent with the Agent Invocation, while Capabilities remain server-configured Agent behavior and the exact input field name is not fixed yet.

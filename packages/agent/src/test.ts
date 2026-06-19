@@ -211,12 +211,13 @@ export function createAgentTestRunner<
     registerWorkspace(options.workspace, agent)
   }
 
-  const preparedAgent = options.workspace
+  const instrumentedAgent = withTestModelInstrumentation(agent, options.instrumentModel)
+  const preparedAgent: AgentInput<AgentRuntimeContext<TRuntimeConfig>> = options.workspace
     ? withAgentDefaults(
-        withTestModelInstrumentation(agent, options.instrumentModel) as never,
+        instrumentedAgent,
         { inferredName: options.name, workspace: options.workspace },
-      )
-    : withTestModelInstrumentation(agent, options.instrumentModel)
+      ) as AgentInput<AgentRuntimeContext<TRuntimeConfig>>
+    : instrumentedAgent
 
   return {
     async run(input) {

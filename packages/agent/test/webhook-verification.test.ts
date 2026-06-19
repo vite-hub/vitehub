@@ -1,7 +1,8 @@
+import { createHmac } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
 import { chat } from "../src/capabilities.ts"
-import { defineAgent, runAgentTrigger } from "../src/index.ts"
+import { defineAgent, runAgentTrigger, verifyAgentWebhookRequest } from "../src/index.ts"
 
 function runtime(request?: Request) {
   return {
@@ -19,6 +20,10 @@ function chatInput() {
       role: "user",
     }],
   }
+}
+
+function githubSignature(secret: string, body: string) {
+  return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
 }
 
 describe("agent webhook verification", () => {
@@ -114,6 +119,19 @@ describe("agent webhook verification", () => {
     expect(invoked).not.toHaveBeenCalled()
   })
 
+  it("fails closed when a generated route requires a secret header but the registration has only a secret token", async () => {
+    await expect(verifyAgentWebhookRequest([{
+      id: "custom",
+      provider: "custom",
+      secretToken: "secret-token",
+    }], new Request("https://example.com", { method: "POST" }), runtime(), { requireSecretHeader: true }))
+      .rejects
+      .toMatchObject({
+        message: "[vitehub] Webhook registration \"custom\" declares secretToken but no secretHeader is configured. Set secretHeader or secretToken: false to explicitly disable verification.",
+        statusCode: 401,
+      })
+  })
+
   it("allows explicit unverified webhook registrations", async () => {
     const invoked = vi.fn(() => "ok")
     const agent = defineAgent({
@@ -161,5 +179,58 @@ describe("agent webhook verification", () => {
 
     await expect(runAgentTrigger(agent, runtime(), "chat.message", chatInput())).resolves.toBe("ok")
     expect(invoked).toHaveBeenCalledTimes(1)
+  })
+
+  it("verifies GitHub delivery signatures", async () => {
+    const { github } = await import("../src/channels.ts")
+    const invoked = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({ input: { prompt: "github" } }),
+            },
+          },
+          webhooks: { secretToken: "secret-token" },
+        }),
+      },
+      run: invoked,
+    })
+    const body = JSON.stringify({ action: "opened" })
+
+    await expect(runAgentTrigger(agent, runtime(new Request("https://example.com", {
+      body,
+      headers: { "x-hub-signature-256": githubSignature("secret-token", body) },
+      method: "POST",
+    })), "github.webhook", {})).resolves.toBe("ok")
+    expect(invoked).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects invalid GitHub delivery signatures", async () => {
+    const { github } = await import("../src/channels.ts")
+    const invoked = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({ input: { prompt: "github" } }),
+            },
+          },
+          webhooks: { secretToken: "secret-token" },
+        }),
+      },
+      run: invoked,
+    })
+
+    await expect(runAgentTrigger(agent, runtime(new Request("https://example.com", {
+      body: JSON.stringify({ action: "opened" }),
+      headers: { "x-hub-signature-256": "sha256=wrong" },
+      method: "POST",
+    })), "github.webhook", {}))
+      .rejects
+      .toMatchObject({ message: "[vitehub] Webhook secret verification failed.", statusCode: 401 })
+    expect(invoked).not.toHaveBeenCalled()
   })
 })

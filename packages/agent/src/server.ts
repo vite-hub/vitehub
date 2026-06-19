@@ -10,13 +10,16 @@ import { uiMessagesToAgentMessages } from "./chat-message-input.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "./invoker.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
+import { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "./trigger-runtime.ts"
 import { toHttpErrorResponse } from "./http-error.ts"
+import { toAgentFetchResponse } from "./http-response.ts"
 import { createChatDevtoolsStreamResponse } from "./chat/devtools-stream.ts"
 
 import type { AgentChatMessageTriggerInput } from "./chat-trigger.ts"
 import type {
   AgentChatStateResolver,
   AgentCapabilityDefinition,
+  AgentChannelDefinition,
   AgentChatErrorHookArgs,
   AgentChatFinishExtension,
   AgentChatMessage,
@@ -33,6 +36,7 @@ import type {
   AgentWebhookRegistrationDefinition,
   MaybePromise,
   MaybeResolvable,
+  ResolvedAgentTriggerDefinition,
 } from "./types.ts"
 import type { AudioData, MessagePart } from "./messages.ts"
 import { workspaceNameFromOptions } from "./workspace-agent.ts"
@@ -85,8 +89,14 @@ export interface AgentChatFetchMapInputContext {
   request: Request
 }
 
+type AgentChatFetchInputPatch = Omit<Partial<AgentChatMessageTriggerInput>, "run"> & {
+  run?: Partial<AgentRunMetadata>
+}
+
 export interface AgentChatFetchHandlerOptions {
-  mapInput?: (context: AgentChatFetchMapInputContext) => MaybePromise<Partial<AgentChatMessageTriggerInput> | undefined | void>
+  channelId?: string
+  mapInput?: (context: AgentChatFetchMapInputContext) => MaybePromise<AgentChatFetchInputPatch | undefined | void>
+  origin?: string
 }
 
 export interface RegisterWorkspaceAgentOptions<Name extends WorkspaceName = WorkspaceName> extends WorkspaceAgentDefaults<Name> {
@@ -278,14 +288,112 @@ function getAgentChatOptions(agent: unknown): AgentChatOptions | undefined {
   return getChatCapabilityOptions(getAgentCapabilities(agent)) || definition.chat
 }
 
-async function findChatWebhookRegistration(
+interface AgentWebhookRegistrationMatch {
+  registration: AgentWebhookRegistrationDefinition
+  trigger: ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig>
+}
+
+function normalizeWebhookPath(path: string): string {
+  const normalized = path.startsWith("/") ? path : `/${path}`
+  return normalized.length > 1 ? normalized.replace(/\/+$/, "") : normalized
+}
+
+function webhookRegistrationPathMatches(request: Request, registration: AgentWebhookRegistrationDefinition): boolean {
+  return typeof registration.path === "string"
+    && normalizeWebhookPath(new URL(request.url).pathname) === normalizeWebhookPath(registration.path)
+}
+
+async function findAgentWebhookRegistration(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   context: ViteAgentRouteRuntimeContext,
-  webhook: string,
-): Promise<AgentWebhookRegistrationDefinition | undefined> {
+  request: Request,
+  webhook?: string,
+): Promise<AgentWebhookRegistrationMatch | undefined> {
   const triggers = await resolveAgentTriggers(agent as never, context as never)
-  const registrations = triggers["chat.message"]?.webhooks || []
-  return registrations.find(registration => registration.id === webhook || registration.provider === webhook || (registration.channelId === webhook && registration.id === registration.channelId))
+  const registrations: AgentWebhookRegistrationMatch[] = []
+  for (const trigger of Object.values(triggers)) {
+    for (const registration of trigger.webhooks || []) {
+      const match = { registration, trigger: trigger as ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig> }
+      registrations.push(match)
+    }
+  }
+  const pathMatches = registrations.filter(match => webhookRegistrationPathMatches(request, match.registration))
+  if (pathMatches.length === 1) return pathMatches[0]
+  if (pathMatches.length > 1) return undefined
+  if (webhook === "" && registrations.length === 1) return registrations[0]
+  if (!webhook) return undefined
+  const directMatches = registrations.filter(({ registration }) =>
+    registration.id === webhook || (registration.channelId === webhook && registration.id === registration.channelId))
+  if (directMatches.length === 1) return directMatches[0]
+  if (directMatches.length > 1) return undefined
+  const providerMatches = registrations.filter(({ registration }) => registration.provider === webhook)
+  return providerMatches.length === 1 ? providerMatches[0] : undefined
+}
+
+async function matchedWebhookRegistrationRequiresVerification(
+  registration: AgentWebhookRegistrationDefinition,
+  context: ViteAgentRouteRuntimeContext,
+  requireConfiguredSecret: boolean,
+): Promise<boolean> {
+  if (registration.secretToken !== undefined) return await resolveMaybe(registration.secretToken, context) !== false
+  return requireConfiguredSecret && registration.secretHeader !== undefined
+}
+
+function parseWebhookPayload(body: string): unknown {
+  if (!body) return undefined
+  try {
+    return JSON.parse(body)
+  }
+  catch {
+    return undefined
+  }
+}
+
+function requestHeaders(request: Request): Record<string, string> {
+  return Object.fromEntries(request.headers.entries())
+}
+
+function githubInstallationId(payload: unknown): number | undefined {
+  if (!payload || typeof payload !== "object") return
+  const installation = (payload as { installation?: unknown }).installation
+  if (!installation || typeof installation !== "object") return
+  const id = (installation as { id?: unknown }).id
+  return typeof id === "number" ? id : undefined
+}
+
+async function createAgentWebhookTriggerInput(request: Request, registration: AgentWebhookRegistrationDefinition): Promise<Record<string, unknown>> {
+  const body = await request.clone().text()
+  const payload = parseWebhookPayload(body)
+  const headers = requestHeaders(request)
+  const webhook = {
+    ...(registration.channelId ? { channelId: registration.channelId } : {}),
+    ...(registration.id ? { id: registration.id } : {}),
+    ...(registration.path ? { path: registration.path } : {}),
+    provider: registration.provider,
+  }
+  return {
+    body,
+    payload,
+    provider: registration.provider,
+    request: {
+      headers,
+      method: request.method,
+      url: request.url,
+    },
+    webhook,
+    ...(registration.provider === "github"
+      ? {
+          github: {
+            ...(headers["x-github-delivery"] ? { deliveryId: headers["x-github-delivery"] } : {}),
+            ...(headers["x-github-event"] ? { event: headers["x-github-event"] } : {}),
+            ...(headers["x-github-hook-id"] ? { hookId: headers["x-github-hook-id"] } : {}),
+            ...(headers["x-github-hook-installation-target-id"] ? { hookInstallationTargetId: headers["x-github-hook-installation-target-id"] } : {}),
+            ...(headers["x-github-hook-installation-target-type"] ? { hookInstallationTargetType: headers["x-github-hook-installation-target-type"] } : {}),
+            ...(githubInstallationId(payload) ? { installationId: githubInstallationId(payload) } : {}),
+          },
+        }
+      : {}),
+  }
 }
 
 async function resolveChatAdapters(
@@ -928,6 +1036,7 @@ async function isChatMessageAuthorized(
     if (!accessOptions.chat) continue
     const result = await accessOptions.chat.resolve({
       ...context,
+      actor: invoker,
       invoker,
       input: accessChatInput(thread, message, messageContext),
       provider: chatRegistrationOrigin(registration),
@@ -956,6 +1065,7 @@ async function handleChatSdkMessage(
     const firstMessage = input.messages[0]
     if (!firstMessage || !Array.isArray(firstMessage.parts) || firstMessage.parts.length === 0) return
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
+    if (isResolvedAgentTriggerHandledInvocation(invocation)) return
     const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, invocation.input as AgentRunInput, invocation.run, messageContext)
     if (!invoker) return
 
@@ -1334,15 +1444,22 @@ function createUserUIMessage(text: string): UIMessage {
   }
 }
 
-function createHttpChatRunMetadata(agentName: string, body: AgentChatFetchBody, messages: UIMessage[]): AgentRunMetadata {
+function createHttpChatRunMetadata(
+  agentName: string,
+  body: AgentChatFetchBody,
+  messages: UIMessage[],
+  options: Pick<AgentChatFetchHandlerOptions, "channelId" | "origin"> = {},
+): AgentRunMetadata {
   const chatId = optionalBodyString(body.id, "id") || "default"
   const messageId = optionalBodyString(body.messageId, "messageId") || messages.at(-1)?.id || randomToken()
+  const channelId = options.channelId || `http:${agentName}`
+  const origin = options.origin || "http"
   return {
-    channelId: `http:${agentName}`,
+    channelId,
     messageId,
-    origin: "http",
-    runId: globalThis.crypto?.randomUUID?.() || `http-run-${randomToken()}`,
-    threadId: `http:${agentName}:${chatId}`,
+    origin,
+    runId: globalThis.crypto?.randomUUID?.() || `${origin}-run-${randomToken()}`,
+    threadId: `${channelId}:${chatId}`,
   }
 }
 
@@ -1373,7 +1490,12 @@ function optionalBodyString(value: unknown, label: string): string | undefined {
   return trimmed || undefined
 }
 
-function agentChatFetchInput(body: AgentChatFetchBody, agentName: string, allowTrustedInput = false): AgentChatMessageTriggerInput {
+function agentChatFetchInput(
+  body: AgentChatFetchBody,
+  agentName: string,
+  allowTrustedInput = false,
+  options: Pick<AgentChatFetchHandlerOptions, "channelId" | "origin"> = {},
+): AgentChatMessageTriggerInput {
   if (!Array.isArray(body.messages)) {
     throw createRouteBodyError("Agent chat payload requires a messages array.")
   }
@@ -1385,22 +1507,64 @@ function agentChatFetchInput(body: AgentChatFetchBody, agentName: string, allowT
   return {
     ...(body.history !== undefined ? { history: body.history } : {}),
     messages,
-    run: createHttpChatRunMetadata(agentName, body, messages),
+    run: createHttpChatRunMetadata(agentName, body, messages, options),
     ...(session ? { session } : {}),
+  }
+}
+
+function agentChannelRouteOptions(channelId: string, channel: AgentChannelDefinition): AgentChatFetchHandlerOptions | undefined {
+  if (channel.route === undefined || channel.route === false) return undefined
+  if (channel.route === true) {
+    return {
+      channelId,
+      origin: channel.kind,
+    }
+  }
+  if (isRecord(channel.route) && !Array.isArray(channel.route)) {
+    return {
+      channelId,
+      origin: channel.kind,
+      ...channel.route,
+    } as AgentChatFetchHandlerOptions
+  }
+  throw new TypeError(`[vitehub] Channel "${channelId}" route must be true or an agent chat route options object.`)
+}
+
+function resolveAgentChatFetchHandlerOptions(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  options: AgentChatFetchHandlerOptions = {},
+): AgentChatFetchHandlerOptions {
+  const channels = isRecord(agent) && isRecord(agent.channels) && !Array.isArray(agent.channels)
+    ? agent.channels as Record<string, AgentChannelDefinition>
+    : {}
+  const routeEntries = Object.entries(channels)
+    .map(([channelId, channel]) => [channelId, agentChannelRouteOptions(channelId, channel)] as const)
+    .filter((entry): entry is readonly [string, AgentChatFetchHandlerOptions] => entry[1] !== undefined)
+
+  if (routeEntries.length > 1) {
+    throw new TypeError("[vitehub] defineAgentChatFetchHandler() found multiple route-enabled Channels. Keep one route-enabled Channel per generated chat route.")
+  }
+
+  const channelOptions = routeEntries[0]?.[1]
+  return {
+    ...channelOptions,
+    ...options,
+    mapInput: options.mapInput ?? channelOptions?.mapInput,
   }
 }
 
 function mergeAgentChatFetchInput(
   input: AgentChatMessageTriggerInput,
-  patch: Partial<AgentChatMessageTriggerInput> | undefined | void,
+  patch: AgentChatFetchInputPatch | undefined | void,
 ): AgentChatMessageTriggerInput {
   if (patch === undefined) return input
   if (!isRecord(patch)) throw createRouteBodyError("Agent chat route input mapper must return an object.")
+  const { run, session, ...rest } = patch
   return {
     ...input,
-    ...patch,
-    ...(patch.run ? { run: { ...input.run, ...patch.run } } : {}),
-    ...(patch.session ? { session: { ...input.session, ...patch.session } } : {}),
+    ...rest,
+    ...(run ? { run: { ...input.run, ...run } as AgentRunMetadata } : {}),
+    ...(session ? { session: { ...input.session, ...session } } : {}),
   }
 }
 
@@ -1777,6 +1941,7 @@ export function defineAgentChatFetchHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   options: AgentChatFetchHandlerOptions = {},
 ): (request: Request, options?: AgentChatFetchOptions) => Promise<Response> {
+  const routeOptions = resolveAgentChatFetchHandlerOptions(agent, options)
   return async (request, handlerOptions = {}) => {
     if (request.method !== "POST") {
       return createJsonErrorResponse(405, "Agent chat route only accepts POST requests.")
@@ -1791,10 +1956,10 @@ export function defineAgentChatFetchHandler(
         await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
         handlerOptions.cloudflare,
       )
-      const baseInput = agentChatFetchInput(body, agentName, Boolean(options.mapInput))
+      const baseInput = agentChatFetchInput(body, agentName, Boolean(routeOptions.mapInput), routeOptions)
       const triggerInput = mergeAgentChatFetchInput(
         baseInput,
-        await options.mapInput?.({ agentName, body, input: baseInput, request }),
+        await routeOptions.mapInput?.({ agentName, body, input: baseInput, request }),
       )
       const result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
         output: "ui-message-stream",
@@ -1812,12 +1977,12 @@ export function defineAgentChatWebhookFetchHandler(
 ): (request: Request, webhook?: string, options?: AgentChatWebhookFetchOptions) => Promise<Response> {
   return async (request, webhook, handlerOptions = {}) => {
     if (request.method !== "POST") {
-      return createJsonErrorResponse(405, "Agent chat webhook route only accepts POST requests.")
+      return createJsonErrorResponse(405, "Agent webhook route only accepts POST requests.")
     }
 
-    const webhookId = webhook || fallbackWebhookFromRequest(request)
-    if (!webhookId) {
-      return createBadRequest("Agent chat webhook route requires a webhook id.")
+    const webhookId = webhook === undefined ? fallbackWebhookFromRequest(request) : webhook
+    if (webhookId === undefined) {
+      return createBadRequest("Agent webhook route requires a webhook id.")
     }
 
     const context = createRuntimeContext(
@@ -1827,9 +1992,43 @@ export function defineAgentChatWebhookFetchHandler(
       handlerOptions.cloudflare,
     )
     return await runWithRuntimeCloudflareEnv(context, async () => {
-      const registration = await findChatWebhookRegistration(agent, context, webhookId)
-      if (!registration) {
-        return createJsonErrorResponse(404, "Unknown ViteHub agent chat webhook.")
+      const match = await findAgentWebhookRegistration(agent, context, request, webhookId)
+      if (!match) {
+        return createJsonErrorResponse(404, "Unknown ViteHub agent webhook.")
+      }
+
+      const { registration, trigger } = match
+      if (await matchedWebhookRegistrationRequiresVerification(registration, context, trigger.id !== "chat.message")) {
+        try {
+          await verifyAgentWebhookRequest([registration], request, context, { requireSecretHeader: true })
+        }
+        catch (error) {
+          const response = toHttpErrorResponse(error)
+          if (response) return response
+          throw error
+        }
+      }
+
+      if (trigger.id !== "chat.message") {
+        try {
+          const input = await createAgentWebhookTriggerInput(request, registration)
+          const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, trigger.id, input)
+          if (isResolvedAgentTriggerHandledInvocation(invocation)) {
+            await context.flushWaitUntil?.()
+            return invocation.response
+          }
+          const result = await runAgentInline(agent as never, {
+            ...context,
+            ...(invocation.run ? { run: invocation.run } : {}),
+          } as never, invocation.input as never)
+          await context.flushWaitUntil?.()
+          return toAgentFetchResponse(result, false)
+        }
+        catch (error) {
+          const response = toHttpErrorResponse(error)
+          if (response) return response
+          throw error
+        }
       }
 
       const chatOptions = getAgentChatOptions(agent)

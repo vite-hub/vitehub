@@ -1,5 +1,9 @@
 # Chat Platforms Seed Agent Invokers
 
+## Status
+
+Superseded by ADR 0064. This ADR remains as historical context for Chat Platform Adapter identity removal and webhook autowiring.
+
 ViteHub will use Chat Platform language for the public Chat Capability configuration and keep Chat Platform Adapters as implementation objects behind each configured platform. Public chat caller identity surfaces such as `chat({ identity })`, `AgentChatIdentityResolver`, and `chat.identity` should be removed; Chat Platforms may verify and parse platform events into Chat Platform Actor Facts, but `defineAgent({ invoker })` remains the public trusted caller identity policy boundary.
 
 ## Considered Options

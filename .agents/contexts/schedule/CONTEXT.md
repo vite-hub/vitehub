@@ -179,4 +179,4 @@ _Avoid_: Per-user timezone, local server time
 - Naming a scheduling policy does not imply it is user-configurable in the first version.
 - `cron` can be public API/product language without making cron the umbrella domain term.
 - Schedule is runtime coordination and is not an Agent Capability.
-- Schedule is not a **Channel** or **Agent Invoker**.
+- Schedule is not a **Channel** or **Agent Actor**, though a schedule-owned Agent Invocation may seed a system or configured Agent Actor.

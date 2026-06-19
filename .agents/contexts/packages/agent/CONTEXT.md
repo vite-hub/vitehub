@@ -17,7 +17,7 @@ The removal of public chat Definition Boundary Helpers, chat framework modules, 
 _Avoid_: Chat definition migration, compatibility shim, chat module
 
 **Chat Identity Removal**:
-The removal of public Chat Capability caller configuration in favor of Agent Invoker resolution.
+The removal of public Chat Capability caller configuration in favor of Agent Actor resolution.
 _Avoid_: Chat identity migration, adapter identity, compatibility alias
 
 **Agent Route Owner**:
@@ -49,24 +49,36 @@ The resolved credential and billing identity source for a harness-backed Agent D
 _Avoid_: Required credential object, hidden cost owner, provider-specific env helper
 
 **Agent Trigger API**:
-The Agent Package public surface that composes Capability-owned Agent Trigger behavior from Agent Definitions.
+The Agent Package public surface that composes Agent Trigger behavior from Agent Definitions, including Capability-owned product abilities and Channel-owned delivery paths.
 _Avoid_: Chat adapter API, DevTools bridge API, client SDK
 
 **Agent Trigger Consumer**:
 The Agent Package implementation role that invokes a resolved Agent Trigger on behalf of a Channel, DevTools bridge, webhook, app route, or generated route.
 _Avoid_: Channel, chat handler, trigger definition, capability config
 
+**Agent Webhook Route**:
+The Agent Package generated POST route that receives Channel webhook deliveries for discovered Agents and dispatches them through webhook-backed Agent Triggers.
+_Avoid_: App route, provider-specific webhook file, chat-only webhook route
+
+**Agent Webhook Handler**:
+The Agent Package runtime handler behind Agent Webhook Routes that matches webhook registrations, verifies configured secrets or signatures, and invokes the resolved trigger path.
+_Avoid_: User route handler, Channel Definition, adapter registration API
+
+**Agent Webhook Registration**:
+A Channel or trigger-owned webhook descriptor containing provider, route identity, request method, path, and verification options for an Agent Webhook Handler.
+_Avoid_: Route Definition, adapter configuration, app endpoint file
+
 **Chat Webhook Route**:
-The Agent Package generated POST route that receives platform webhooks for chat-capable Agents.
-_Avoid_: App route, Teams route, public registration helper
+The message-shaped Channel use of an Agent Webhook Route for Chat Platform Adapter webhooks.
+_Avoid_: Generic webhook route, app route, Teams route, public registration helper
 
 **Chat Webhook Handler**:
-The Agent Package runtime handler behind the Chat Webhook Route that resolves the Agent's message-shaped Channel options, invokes the platform webhook, and starts the resolved chat Agent Trigger.
-_Avoid_: User route handler, adapter registration API, Chat Capability definition
+The chat-specific branch of the Agent Webhook Handler that resolves message-shaped Channel options, invokes the platform webhook adapter, and starts the resolved chat Agent Trigger.
+_Avoid_: Generic webhook handler, user route handler, adapter registration API, Chat Capability definition
 
 **Chat Platform Public Configuration**:
 The Chat Capability public configuration surface that names external chat ingress by platform, such as Teams.
-_Avoid_: Adapter map, Chat Invoker policy, webhook registration helper
+_Avoid_: Adapter map, chat identity policy, webhook registration helper
 
 **Chat Adapter Facade**:
 A narrow Agent Package subpath for a first-party-supported Chat Platform Adapter or chat state backend when ViteHub owns a stable compatibility shim.
@@ -107,23 +119,26 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - The **Agent Package** owns filtering Capability Driver Contributions for the selected Agent Driver.
 - The **Agent Package** owns composing visible Workspace Source Instructions into final model instructions for model-backed Agent Drivers.
 - The **Agent Package** does not pass model-facing instructions to harness-backed Agent Drivers by default.
-- The **Agent Package** owns the **Agent Trigger API** that resolves trigger contributions from Agent Capabilities.
+- The **Agent Package** owns the **Agent Trigger API** that resolves trigger contributions from Agent Capabilities and declared Channel delivery paths.
 - An **Agent Trigger Consumer** uses the **Agent Trigger API** and does not create a parallel chat-specific behavior surface.
-- An **Agent Trigger Consumer** may pass a trusted Agent Invoker through trigger input when it has already authenticated or resolved caller identity; trigger metadata should not become a parallel identity boundary.
+- An **Agent Trigger Consumer** may pass a trusted Agent Actor through trigger input when it has already authenticated or resolved caller identity; trigger metadata should not become a parallel identity or command-admission boundary.
 - A **Channel** may be implemented by an **Agent Trigger Consumer**, but Channel is the framework term for Agent reachability.
-- Generated routes and DevTools use Channel identity when exposing channel-owned entry paths.
+- Generated routes and DevTools use Channel identity when exposing delivery entry paths.
 - The Agent Invocation Stream Endpoint is a V1 development client surface that invokes plain discovered **Agent Definitions** directly and remains an **Agent Trigger Consumer** for message-shaped Channels.
 - The Agent Invocation Stream Endpoint is installed by the Agent Package Vite Integration independently of DevTools.
-- A **Chat Webhook Route** is an **Agent Trigger Consumer** generated by the Agent Package for discovered Agents with a message-shaped Channel.
+- An **Agent Webhook Route** is an **Agent Trigger Consumer** generated by the Agent Package for discovered Agents with webhook-backed Channel or Capability triggers.
+- An **Agent Webhook Handler** matches generated route parameters or an **Agent Webhook Registration** path, verifies registration secrets or signatures, and dispatches to the resolved Agent Trigger.
+- For non-chat Channel webhooks, the **Agent Webhook Handler** passes provider-neutral request, body, payload, and webhook facts plus provider-specific facts supplied by concrete Channel helpers.
+- A **Chat Webhook Route** is the message-shaped Channel branch of an **Agent Webhook Route**.
 - A **Chat Webhook Handler** consumes resolved message-shaped Channel options and platform adapters; it does not declare Chat Capability behavior itself.
-- A **Chat Webhook Route** is automatic for discovered chat-capable Agents and does not require a public registration helper or app-owned route file.
-- Generated **Chat Webhook Route** paths include the configured Channel ID so multiple Channels with the same Channel Kind do not collide.
+- An **Agent Webhook Route** is automatic for declared Channel webhooks and does not require a public registration helper or app-owned route file.
+- Generated **Agent Webhook Route** paths include the configured Channel ID or registration id when the route exposes a webhook parameter so multiple Channels with the same Channel Kind do not collide.
 - A public endpoint consumes an **Agent Trigger**; it does not own, declare, or attach the trigger.
 - The **Agent Package** owns Agent capability composition.
 - The root `@vite-hub/agent` entry exports Agent Definition, invocation, message, and generic composition primitives; official Capability factories live on `@vite-hub/agent/capabilities`.
 - Official Channel Kind helpers live on `@vite-hub/agent/channels`.
 - Channel object keys in Agent Definitions are configured Channel IDs; Channel helper names describe Channel Kinds.
-- The root `@vite-hub/agent` entry exports Agent Invoker types as Agent Definition and Agent Invocation composition primitives.
+- The root `@vite-hub/agent` entry currently exports legacy Agent Invoker types as Agent Definition and Agent Invocation composition primitives.
 - The root `@vite-hub/agent` entry does not export optional Chat Platform Adapter factories.
 - The **Agent Package** may expose a **Chat Adapter Facade** only for a first-party-supported adapter with a stable shim and clear missing-package diagnostics.
 - The **Agent Package** should not mirror every upstream `@chat-adapter/*` package as public ViteHub API.
@@ -179,15 +194,16 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - Requiring explicit chat discovery configuration after **Chat Definition Removal** was considered - resolved: discover Agent Definitions only, then infer chat exposure from their declared message-shaped Channels.
 - Rebuilding DevTools as a chat-specific integration was considered - resolved: DevTools should consume Agent Triggers immediately, with chat as the first demonstrated trigger.
 - Full multi-agent chat selection in DevTools was deferred during **Chat Definition Removal** - resolved: the first cleanup can support the first discovered Agent with a `chat.message` trigger to keep the new pattern small.
-- App-owned Teams webhook files and public webhook registration helpers were considered for ChatSDK adapters - resolved: the Agent Package owns automatic **Chat Webhook Routes** that consume concrete Channel adapter configuration.
-- Provider-only webhook route identity was considered - resolved: generated **Chat Webhook Routes** include configured Channel ID rather than only provider or Channel Kind.
+- App-owned Teams webhook files and public webhook registration helpers were considered for ChatSDK adapters - resolved: the Agent Package owns automatic **Agent Webhook Routes** that consume concrete Channel adapter configuration.
+- Provider-only webhook route identity was considered - resolved: generated **Agent Webhook Routes** include configured Channel ID or registration id rather than only provider or Channel Kind.
+- Routing non-chat provider webhooks through Chat Platform Adapter abstractions was considered - resolved: **Agent Webhook Routes** dispatch verified non-chat Channel deliveries directly, while chat adapter behavior stays in the **Chat Webhook Handler** branch.
 - Treating Chat as an official Capability factory was considered for quickstart convenience - resolved: Chat is a Channel, not a Capability.
-- Root-exporting Invocation Profile helpers was considered alongside Capability factories - resolved: replace that path with the root Agent Definition `invoker` option and `context.invoker`, so ViteHub maintains one trusted caller identity concept.
+- Root-exporting Invocation Profile helpers was considered alongside Capability factories - resolved: replace that path with the Agent Definition actor configuration surface, exposed through `context.actor` with the legacy `invoker` option and `context.invoker` kept as compatibility surfaces, so ViteHub maintains one trusted caller identity concept.
 - A separate client chat route Capability was considered for app UIs - resolved: app UIs should own their HTTP route and consume the shared `chat.message` trigger directly when they need one.
 - "Endpoint has an Agent Trigger" was used for route exposure - resolved: Capabilities contribute **Agent Triggers**, while public endpoints are **Agent Trigger Consumers**.
 - "Nuxt UI adapter" was considered for application chat UIs - resolved: application chat UIs are app-owned trigger consumers, while Chat Platforms remain for external chat ingress.
 - Public `chat({ adapters })` was considered for Chat Capability platform configuration - resolved: use **Chat Platform Public Configuration** instead so the public API does not make adapter implementation objects look like the caller identity boundary.
-- Public `chat({ identity })` and `AgentChatIdentityResolver` were considered for chat caller identity - resolved: remove them through **Chat Identity Removal** and keep **Agent Invoker** as the single trusted caller identity policy.
-- Public `chat.identity` invocation context was considered for convenience - resolved: remove it because callers should use `context.invoker` or Chat context values instead of a parallel identity string.
-- `AccessChatIdentity` was considered for chat admission - resolved: Access should consume the resolved Agent Invoker plus chat/request facts rather than owning a separate chat identity shape.
+- Public `chat({ identity })` and `AgentChatIdentityResolver` were considered for chat caller identity - resolved: remove them through **Chat Identity Removal** and keep **Agent Actor** as the single trusted caller identity policy.
+- Public `chat.identity` invocation context was considered for convenience - resolved: remove it because callers should use `context.actor`, with `context.invoker` as a compatibility alias, or Chat context values instead of a parallel identity string.
+- `AccessChatIdentity` was considered for chat admission - resolved: Access should consume the resolved Agent Actor plus chat/request facts rather than owning a separate chat identity shape.
 - Source Instruction prompt rendering was considered Workspace Package ownership - resolved: Agent Package composes visible Source Instructions into model-backed driver instructions while Workspace Package exposes Source Instruction metadata.
