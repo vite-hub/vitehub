@@ -56,6 +56,14 @@ describe("repositoryHost capability", () => {
       operation: "changeRequest",
       target: { id: 12, owner: "vite-hub", repository: "vitehub" },
     })
+    await expect(tools.repository_host_read!.execute?.({
+      operation: "changeRequestFiles",
+      target: { id: 12, owner: "vite-hub", repository: "vitehub" },
+    })).resolves.toMatchObject({
+      request: {
+        operation: "changeRequestFiles",
+      },
+    })
   })
 
   it("uses runtime primitive clients", async () => {

@@ -1,6 +1,6 @@
 # Repository Host Capability
 
-ViteHub adds a **Repository Host Capability** through `repositoryHost()` for provider-hosted repository collaboration objects: repository metadata, issues, Change Requests, comments, and read-only check/status signals. The capability is not raw git, not `gh`, not Source retrieval, not MCP, and not raw provider API passthrough; write mode starts with narrow comment and reaction effects behind normal tool policy while approvals, merges, branch updates, status/check writes, issue edits, repository settings, content, secrets, workflows, and arbitrary provider mutations stay out of this first boundary.
+ViteHub adds a **Repository Host Capability** through `repositoryHost()` for provider-hosted repository collaboration objects: repository metadata, issues, Change Requests, Change Request file metadata, comments, and read-only check/status signals. The capability is not raw git, not `gh`, not Source retrieval, not MCP, and not raw provider API passthrough; write mode starts with narrow comment and reaction effects behind normal tool policy while approvals, merges, branch updates, status/check writes, issue edits, repository settings, content, secrets, workflows, and arbitrary provider mutations stay out of this first boundary.
 
 ## Considered Options
 
@@ -10,4 +10,4 @@ ViteHub adds a **Repository Host Capability** through `repositoryHost()` for pro
 
 ## Consequences
 
-`repositoryHost()` lives on `@vite-hub/agent/capabilities` and may use an app-owned or runtime-provided Repository Host Client. Provider adapters should preserve native ids, URLs, and raw metadata while exposing ViteHub's normalized repository, issue, Change Request, comment, and check/status read vocabulary.
+`repositoryHost()` lives on `@vite-hub/agent/capabilities` and may use an app-owned or runtime-provided Repository Host Client. Provider adapters should preserve native ids, URLs, and raw metadata while exposing ViteHub's normalized repository, issue, Change Request, Change Request file-list, comment, and check/status read vocabulary.

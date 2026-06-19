@@ -137,7 +137,7 @@ An allowed origin for a Web Search Capability provider credential.
 _Avoid_: Vite env var, Nitro env var, browser env
 
 **Repository Host Capability**:
-An Official Capability created by `repositoryHost()` for provider-hosted repository collaboration objects such as repository metadata, issues, Change Requests, comments, and read-only check/status signals.
+An Official Capability created by `repositoryHost()` for provider-hosted repository collaboration objects such as repository metadata, issues, Change Requests, Change Request file metadata, comments, and read-only check/status signals.
 _Avoid_: gh, Git Capability, Source, Workspace Source, Forge Capability, SCM Capability
 
 **Repository Host Provider**:
@@ -303,6 +303,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A tool search provider and **Web Search Mode** are separate axes; provider is only used by tool-based **Web Search Mode**.
 - The **Repository Host Capability** is for provider-hosted collaboration objects and externally visible collaboration effects, not raw git checkout/history, `gh` command execution, repository file Source retrieval, or arbitrary provider API passthrough.
 - A **Repository Host Client** preserves provider-native ids, URLs, and raw metadata behind normalized Repository Host Capability requests.
+- **Change Request** file-list reads are Repository Host reads; repository source diffs and git history still belong to Source, Workspace Source, or Git-aware capabilities.
 - **Change Request** is the cross-provider term for pull-request and merge-request shaped objects; provider-native names stay in provider metadata.
 - Repository Host Capability write mode starts with narrow comment and reaction effects; approval, merge, branch update, status/check write, issue edit, repository settings, content, secrets, workflow, and raw API mutations need separate future design.
 - Chat History is not a standalone **Capability** in the current stack.

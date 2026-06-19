@@ -18,7 +18,7 @@ import type {
 
 export type RepositoryHostProvider = "github" | "gitlab" | "bitbucket" | (string & {})
 export type RepositoryHostTargetKind = "repository" | "changeRequest" | "issue" | "comment"
-export type RepositoryHostReadOperation = "repository" | "changeRequests" | "changeRequest" | "issues" | "issue" | "comments" | "checks" | "statuses"
+export type RepositoryHostReadOperation = "repository" | "changeRequests" | "changeRequest" | "changeRequestFiles" | "issues" | "issue" | "comments" | "checks" | "statuses"
 export type RepositoryHostWriteOperation = "comment" | "reaction"
 export type RepositoryHostToolPolicy = AgentToolPolicyDecision | ((context: AgentToolPolicyContext) => MaybePromise<AgentToolPolicyDecision>)
 
@@ -56,7 +56,7 @@ export interface RepositoryHostOptions {
   provider?: RepositoryHostProvider
 }
 
-const readOperations = new Set<RepositoryHostReadOperation>(["repository", "changeRequests", "changeRequest", "issues", "issue", "comments", "checks", "statuses"])
+const readOperations = new Set<RepositoryHostReadOperation>(["repository", "changeRequests", "changeRequest", "changeRequestFiles", "issues", "issue", "comments", "checks", "statuses"])
 const writeOperations = new Set<RepositoryHostWriteOperation>(["comment", "reaction"])
 
 const repositoryHostTargetSchema = jsonObjectSchema({
@@ -121,7 +121,7 @@ function repositoryHostTools(mode: AgentCapabilityMode, options: RepositoryHostO
     const client = await resolveRepositoryHostClient(options, context as never)
     const tools: AgentToolSet = {
       repository_host_read: createTool<RepositoryHostReadRequest>({
-        description: "Read repository-hosted metadata for repositories, Change Requests, issues, comments, checks, or statuses.",
+        description: "Read repository-hosted metadata for repositories, Change Requests, Change Request files, issues, comments, checks, or statuses.",
         execute: input => client.read(assertReadRequest(input)),
         inputSchema: repositoryHostReadInputSchema,
         name: "repository_host_read",

@@ -77,7 +77,7 @@ describe("agent public types", () => {
             return {
               provider: "github",
               read(request) {
-                expectTypeOf(request.operation).toEqualTypeOf<"repository" | "changeRequests" | "changeRequest" | "issues" | "issue" | "comments" | "checks" | "statuses">()
+                expectTypeOf(request.operation).toEqualTypeOf<"repository" | "changeRequests" | "changeRequest" | "changeRequestFiles" | "issues" | "issue" | "comments" | "checks" | "statuses">()
                 expectTypeOf(request.target.repository).toEqualTypeOf<string>()
                 return request
               },
