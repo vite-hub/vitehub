@@ -959,6 +959,20 @@ describe("server helpers", () => {
     expect(rejected.status).toBe(401)
     await expect(rejected.json()).resolves.toEqual({ error: "[vitehub] Webhook secret verification failed." })
     expect(run).toHaveBeenCalledOnce()
+
+    const unsigned = await handler(new Request("https://example.com/api/github/webhook", {
+      body,
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-unsigned",
+        "x-github-event": "issue_comment",
+      },
+      method: "POST",
+    }))
+
+    expect(unsigned.status).toBe(401)
+    await expect(unsigned.json()).resolves.toEqual({ error: "[vitehub] Webhook secret header \"x-hub-signature-256\" is required." })
+    expect(run).toHaveBeenCalledOnce()
   })
 
   it("lets signed GitHub channel webhooks return a handled response without running the agent", async () => {

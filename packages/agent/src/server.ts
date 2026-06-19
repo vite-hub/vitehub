@@ -10,7 +10,7 @@ import { uiMessagesToAgentMessages } from "./chat-message-input.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import { resolveAgentInvoker, withResolvedAgentInvokerInput } from "./invoker.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
-import { isResolvedAgentTriggerHandledInvocation } from "./trigger-runtime.ts"
+import { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "./trigger-runtime.ts"
 import { toHttpErrorResponse } from "./http-error.ts"
 import { toAgentFetchResponse } from "./http-response.ts"
 import { createChatDevtoolsStreamResponse } from "./chat/devtools-stream.ts"
@@ -1980,6 +1980,7 @@ export function defineAgentChatWebhookFetchHandler(
       const { registration, trigger } = match
       if (trigger.id !== "chat.message") {
         try {
+          await verifyAgentWebhookRequest([registration], request, context, { requireSecretHeader: true })
           const input = await createAgentWebhookTriggerInput(request, registration)
           const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, trigger.id, input)
           if (isResolvedAgentTriggerHandledInvocation(invocation)) {

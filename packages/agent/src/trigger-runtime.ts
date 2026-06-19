@@ -264,10 +264,33 @@ function webhookVerificationError(message: string): Error & { statusCode: number
   return Object.assign(new Error(message), { statusCode: 401 })
 }
 
+export interface AgentWebhookVerificationOptions {
+  requireSecretHeader?: boolean
+}
+
+async function verifyRequiredWebhookHeaders<TRuntimeConfig extends AgentRuntimeConfig>(
+  registrations: AgentWebhookRegistrationDefinition<TRuntimeConfig>[],
+  context: AgentCallbackContext<TRuntimeConfig>,
+): Promise<AgentWebhookVerificationResult> {
+  for (const registration of registrations) {
+    if (!registration.secretHeader) continue
+    const secretToken = await resolveMaybe(registration.secretToken, context)
+    if (secretToken === false) {
+      return { registration, verified: true }
+    }
+    if (!secretToken) {
+      throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretHeader "${registration.secretHeader}" but no secretToken is configured. Set secretToken (from Server Env) or secretToken: false to explicitly disable verification.`)
+    }
+    throw webhookVerificationError(`[vitehub] Webhook secret header "${registration.secretHeader}" is required.`)
+  }
+  return { verified: true }
+}
+
 export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   registrations: AgentWebhookRegistrationDefinition<TRuntimeConfig>[],
   request: Request,
   context?: AgentCallbackContext<TRuntimeConfig>,
+  options: AgentWebhookVerificationOptions = {},
 ): Promise<AgentWebhookVerificationResult> {
   const verificationContext = context ?? ({ runtime: "unknown" } as AgentCallbackContext<TRuntimeConfig>)
   const targeted = registrations
@@ -277,7 +300,11 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     }))
     .filter((entry): entry is { headerValue: string, registration: AgentWebhookRegistrationDefinition } => entry.headerValue !== null)
 
-  if (!targeted.length) return { verified: true }
+  if (!targeted.length) {
+    return options.requireSecretHeader
+      ? await verifyRequiredWebhookHeaders(registrations, verificationContext)
+      : { verified: true }
+  }
 
   for (const { headerValue, registration } of targeted) {
     const secretToken = await resolveMaybe(registration.secretToken, verificationContext)
