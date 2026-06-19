@@ -73,3 +73,4 @@ _Avoid_: Global browsing, object tree
 - "bundling" was used for provider dependency behavior - resolved: use **Driver Reachability** for whether a **Provider Output** can import a selected Blob Store driver.
 - Direct Blob access was considered equivalent to Workspace file access - resolved: Workspace is the default agent-facing file-tree boundary, while **Blob Capability** is for direct object storage use cases.
 - Blob listings were considered as a separate tree tool - resolved: keep scoped prefix listing inside the Blob read tool rather than adding a standalone discovery tool.
+- Docker was considered as a possible Blob Store - resolved: Docker is a Provider Output context, not a Blob Store; Docker-hosted apps should use existing stores such as `fs`, `minio`, or `s3`.

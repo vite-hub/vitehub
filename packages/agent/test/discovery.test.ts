@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { listViteHubDevtoolsFeatures } from "@vite-hub/devtools"
 import { discoverAgentDefinitions } from "../src/discovery.ts"
+import { getMessageText } from "../src/messages.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Connect } from "vite"
@@ -437,6 +438,50 @@ describe("agent chat capability discovery", () => {
       { type: "finish" },
       { type: "done" },
     ])
+    expect(abortSignal).toBeInstanceOf(AbortSignal)
+  })
+
+  it("serves plain Agent Definitions from the Agent Invocation Stream endpoint", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-plain-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "ping.ts"), "export default {}", "utf8")
+
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    let abortSignal: AbortSignal | undefined
+    const agent = defineAgent({
+      run: ({ input }) => {
+        abortSignal = input.abortSignal
+        return { text: `plain ${input.messages?.[0] ? getMessageText(input.messages[0]) : ""}` }
+      },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      messages: [{
+        id: "user-1",
+        parts: [{ text: "ping", type: "text" }],
+        role: "user",
+      }],
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+    const events = response.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+
+    expect(events).toEqual([
+      expect.objectContaining({ agent: "ping", type: "start" }),
+      { text: "plain ping", type: "text-delta" },
+      { type: "finish" },
+      { type: "done" },
+    ])
+    expect(events[0]).not.toHaveProperty("trigger")
     expect(abortSignal).toBeInstanceOf(AbortSignal)
   })
 

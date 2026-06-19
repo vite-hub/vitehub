@@ -168,7 +168,7 @@ interface S3CompatibleBlobStoreConfig {
   accessKeyId?: string
   bucket: string
   defaultUrlExpiresIn?: number
-  driver: "akamai" | "digitalocean-spaces" | "hetzner" | "minio" | "storj"
+  driver: "akamai" | "digitalocean-spaces" | "hetzner" | "storj"
   endpoint?: string
   forcePathStyle?: boolean
   publicBaseUrl?: string
@@ -257,7 +257,17 @@ export type BlobStoreConfig =
 export type AkamaiBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "akamai", region: string }
 export type DigitalOceanSpacesBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "digitalocean-spaces", region: string }
 export type HetznerBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "hetzner", region: string }
-export type MinioBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "minio", endpoint: string }
+export interface MinioBlobStoreConfig {
+  accessKeyId?: string
+  bucket?: string
+  defaultUrlExpiresIn?: number
+  driver: "minio"
+  endpoint?: string
+  forcePathStyle?: boolean
+  publicBaseUrl?: string
+  region?: string
+  secretAccessKey?: string
+}
 export type StorjBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "storj" }
 
 export interface ResolvedCloudflareR2BlobStoreConfig extends CloudflareR2BlobStoreConfig {
@@ -273,10 +283,18 @@ export interface ResolvedVercelBlobStoreConfig extends VercelBlobStoreConfig {
   token: string
 }
 
+export interface ResolvedMinioBlobStoreConfig extends MinioBlobStoreConfig {
+  bucket: string
+  endpoint: string
+  forcePathStyle: boolean
+  region: string
+}
+
 export type ResolvedBlobStoreConfig =
-  | Exclude<BlobStoreConfig, CloudflareR2BlobStoreConfig | FsBlobStoreConfig | VercelBlobStoreConfig>
+  | Exclude<BlobStoreConfig, CloudflareR2BlobStoreConfig | FsBlobStoreConfig | MinioBlobStoreConfig | VercelBlobStoreConfig>
   | ResolvedCloudflareR2BlobStoreConfig
   | ResolvedFsBlobStoreConfig
+  | ResolvedMinioBlobStoreConfig
   | ResolvedVercelBlobStoreConfig
 
 export type BlobStoreName = "default" | (string & {})

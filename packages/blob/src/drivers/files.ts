@@ -18,6 +18,7 @@ import type { Adapter, Files, StoredFile, UploadResult } from "files-sdk"
 
 type FilesCtor = typeof import("files-sdk").Files
 type FilesInstance = Files<Adapter>
+const s3PeerInstall = "files-sdk @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner"
 
 async function loadFiles(): Promise<FilesCtor> {
   return (await importOptionalPeer<typeof import("files-sdk")>("files-sdk", "files")).Files
@@ -104,13 +105,13 @@ async function createAdapter(options: ResolvedBlobStoreConfig, putOptions: BlobP
     case "hetzner":
       return (await importOptionalPeer<typeof import("files-sdk/hetzner")>("files-sdk/hetzner", options.driver, "files-sdk")).hetzner(options)
     case "minio":
-      return (await importOptionalPeer<typeof import("files-sdk/minio")>("files-sdk/minio", options.driver, "files-sdk")).minio(options)
+      return (await importOptionalPeer<typeof import("files-sdk/minio")>("files-sdk/minio", options.driver, s3PeerInstall)).minio(options)
     case "netlify-blobs":
       return (await importOptionalPeer<typeof import("files-sdk/netlify-blobs")>("files-sdk/netlify-blobs", options.driver, "files-sdk")).netlifyBlobs(options)
     case "onedrive":
       return (await importOptionalPeer<typeof import("files-sdk/onedrive")>("files-sdk/onedrive", options.driver, "files-sdk")).onedrive(options)
     case "s3":
-      return (await importOptionalPeer<typeof import("files-sdk/s3")>("files-sdk/s3", options.driver, "files-sdk")).s3(options)
+      return (await importOptionalPeer<typeof import("files-sdk/s3")>("files-sdk/s3", options.driver, s3PeerInstall)).s3(options)
     case "storj":
       return (await importOptionalPeer<typeof import("files-sdk/storj")>("files-sdk/storj", options.driver, "files-sdk")).storj(options)
     case "supabase":

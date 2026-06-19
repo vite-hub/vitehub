@@ -59,6 +59,7 @@ const filesSdkMock = vi.hoisted(() => ({
       },
     ],
   })),
+  minio: vi.fn(() => ({ provider: "minio" })),
   s3: vi.fn(() => ({ provider: "s3" })),
   vercelBlob: vi.fn((options: unknown) => ({ options, provider: "vercel-blob" })),
 }))
@@ -142,6 +143,10 @@ vi.mock("files-sdk/s3", () => ({
   s3: filesSdkMock.s3,
 }))
 
+vi.mock("files-sdk/minio", () => ({
+  minio: filesSdkMock.minio,
+}))
+
 vi.mock("files-sdk/vercel-blob", () => ({
   vercelBlob: filesSdkMock.vercelBlob,
 }))
@@ -156,9 +161,14 @@ afterEach(() => {
   vercelBlobMock.list.mockClear()
   vercelBlobMock.put.mockClear()
   filesSdkMock.list.mockClear()
+  filesSdkMock.minio.mockClear()
   filesSdkMock.s3.mockClear()
   filesSdkMock.vercelBlob.mockClear()
   delete process.env.BLOB_READ_WRITE_TOKEN
+  delete process.env.MINIO_ACCESS_KEY_ID
+  delete process.env.MINIO_ROOT_PASSWORD
+  delete process.env.MINIO_ROOT_USER
+  delete process.env.MINIO_SECRET_ACCESS_KEY
   vi.restoreAllMocks()
 })
 
@@ -436,6 +446,38 @@ describe("blob runtime", () => {
     const list = await blob.list()
 
     expect(filesSdkMock.s3).toHaveBeenCalledWith(expect.objectContaining({ driver: "s3" }))
+    expect(list.blobs).toEqual([
+      expect.objectContaining({
+        pathname: "notes/hello.txt",
+      }),
+    ])
+  })
+
+  it("loads MinIO through its provider-specific driver import", async () => {
+    process.env.MINIO_ROOT_PASSWORD = "password"
+    process.env.MINIO_ROOT_USER = "minio"
+    setBlobRuntimeConfig({
+      store: {
+        accessKeyId: "********",
+        bucket: "assets",
+        driver: "minio",
+        endpoint: "http://minio:9000",
+        forcePathStyle: true,
+        region: "us-east-1",
+        secretAccessKey: "********",
+      },
+    })
+
+    const list = await blob.list()
+
+    expect(filesSdkMock.minio).toHaveBeenCalledWith(expect.objectContaining({
+      accessKeyId: "minio",
+      bucket: "assets",
+      driver: "minio",
+      endpoint: "http://minio:9000",
+      forcePathStyle: true,
+      secretAccessKey: "password",
+    }))
     expect(list.blobs).toEqual([
       expect.objectContaining({
         pathname: "notes/hello.txt",
