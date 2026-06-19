@@ -1567,6 +1567,59 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("attaches same-kind GitHub channel webhook defaults to matching command triggers", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { githubPullRequestCommands } = await import("../src/capabilities.ts")
+    const { github } = await import("../src/channels.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const agent = defineAgent({
+      capabilities: [
+        githubPullRequestCommands({
+          commands: {
+            review: {
+              command: "/review",
+              invoke: ({ command }) => ({ input: { prompt: command.args } }),
+            },
+          },
+        }),
+      ],
+      channels: {
+        internal: github({
+          app: { webhookSecret: "internal-secret" },
+          webhooks: { path: "/api/github/internal" },
+        }),
+        public: github({
+          app: { webhookSecret: "public-secret" },
+          webhooks: { path: "/api/github/public" },
+        }),
+      },
+      run: () => "ok",
+    })
+
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "github.webhook": {
+        capabilityId: "github",
+        source: "capability",
+        webhooks: expect.arrayContaining([
+          expect.objectContaining({
+            channelId: "internal",
+            id: "internal",
+            path: "/api/github/internal",
+            provider: "github",
+            secretToken: "internal-secret",
+          }),
+          expect.objectContaining({
+            channelId: "public",
+            id: "public",
+            path: "/api/github/public",
+            provider: "github",
+            secretToken: "public-secret",
+          }),
+        ]),
+      },
+    })
+  })
+
   it("supports GitHub PR comment command admission and write-back effects", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { githubPullRequestCommands } = await import("../src/capabilities.ts")
@@ -1696,6 +1749,60 @@ describe("agent message protocol", () => {
         method: "POST",
       }),
     )
+  })
+
+  it("handles unauthorized GitHub PR comment commands without running the agent", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { githubPullRequestCommands } = await import("../src/capabilities.ts")
+    const { github } = await import("../src/channels.ts")
+    const invoke = vi.fn(() => ({ input: { prompt: "unexpected" } }))
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      capabilities: [githubPullRequestCommands({
+        commands: {
+          review: {
+            authorize: ({ command }) => command.actor.association === "MEMBER",
+            command: "/review",
+            invoke,
+          },
+        },
+      })],
+      channels: {
+        github: github({
+          app: { webhookSecret: false },
+        }),
+      },
+      run,
+    })
+    const input = {
+      github: { deliveryId: "delivery-unauthorized", event: "issue_comment", installationId: 123 },
+      payload: {
+        action: "created",
+        comment: {
+          author_association: "CONTRIBUTOR",
+          body: "/review please",
+          id: 100,
+          user: { login: "contributor", type: "User" },
+        },
+        issue: {
+          number: 42,
+          pull_request: { url: "https://api.github.test/repos/vite-hub/vitehub/pulls/42" },
+        },
+        repository: {
+          full_name: "vite-hub/vitehub",
+          name: "vitehub",
+          owner: { login: "vite-hub" },
+        },
+      },
+    }
+
+    const response = await runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", input)
+
+    expect(response).toBeInstanceOf(Response)
+    expect((response as Response).status).toBe(200)
+    await expect((response as Response).json()).resolves.toEqual({ accepted: false, ok: true, reason: "unauthorized" })
+    expect(invoke).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
   })
 
   it("keeps channel chat triggers discoverable for workspace agents", async () => {

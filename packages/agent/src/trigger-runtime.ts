@@ -150,8 +150,11 @@ export async function resolveAgentTriggers<
   for (const [channelId, channel] of Object.entries(agentChannelOptions(agent))) {
     const channelWebhooks = normalizeChannelWebhookRegistrations(channelId, channel.kind, channel.webhooks)
     const capabilityWebhookTrigger = capabilityWebhookTriggerForChannel(triggers, channelId, channel.kind)
-    if (capabilityWebhookTrigger && channelWebhooks?.length && !capabilityWebhookTrigger.webhooks?.length) {
-      capabilityWebhookTrigger.webhooks = channelWebhooks
+    if (capabilityWebhookTrigger && channelWebhooks?.length) {
+      capabilityWebhookTrigger.webhooks = [
+        ...(capabilityWebhookTrigger.webhooks || []),
+        ...channelWebhooks,
+      ]
     }
     for (const [name, trigger] of Object.entries(channel.triggers || {})) {
       assertTriggerName(name, `Channel "${channelId}"`)
