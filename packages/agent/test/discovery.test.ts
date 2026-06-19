@@ -12,6 +12,8 @@ import { getMessageText } from "../src/messages.ts"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Connect } from "vite"
 
+const { withAgentDefaults } = await import("../src/index.ts")
+
 async function createTempRoot(prefix: string) {
   return await mkdtemp(join(tmpdir(), prefix))
 }
@@ -263,10 +265,10 @@ describe("agent chat capability discovery", () => {
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
 
     const { access, chat } = await import("../src/capabilities.ts")
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const devtoolsMeta = { email: "maximo@quiver.dk" }
     const technicalEmails = new Set(["maximo@quiver.dk"])
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       invoker: {
         profiles: [
           { id: "support-customer", kind: "customer", label: "Customer", meta: { audience: "customer", scope: "customer" } },
@@ -588,13 +590,13 @@ describe("agent chat capability discovery", () => {
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
 
     const { chat } = await import("../src/capabilities.ts")
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     let resolveInstructions!: (value: string) => void
     const instructionsReady = new Promise<string>((resolve) => {
       resolveInstructions = resolve
     })
     const readInstructions = vi.fn(async () => await instructionsReady)
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       capabilities: [chat()],
       instructions: readInstructions,
       model: {} as never,
@@ -636,10 +638,10 @@ describe("agent chat capability discovery", () => {
     await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default {}", "utf8")
 
     const { chat } = await import("../src/capabilities.ts")
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { source } = await import("@vite-hub/workspace")
     const { registerWorkspace } = await import("@vite-hub/workspace/test")
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       capabilities: [chat()],
       instructions: "Answer from the workspace.",
       model: {} as never,
@@ -723,10 +725,10 @@ describe("agent chat capability discovery", () => {
     await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default {}", "utf8")
 
     const { chat } = await import("../src/capabilities.ts")
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { source } = await import("@vite-hub/workspace")
     const { registerWorkspace } = await import("@vite-hub/workspace/test")
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       capabilities: [chat()],
       instructions: "Answer from the workspace.",
       model: {} as never,

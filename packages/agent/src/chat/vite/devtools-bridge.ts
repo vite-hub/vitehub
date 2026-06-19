@@ -11,7 +11,6 @@ import {
   resolveAgentTriggers,
   streamAgentTrigger,
   withAgentDefaults,
-  withWorkspaceAgentDefaults,
 } from "../../index.ts"
 import {
   type ChatDevtoolsConversation,
@@ -173,10 +172,7 @@ async function loadDiscoveredAgent(
 ): Promise<AgentInput<ViteAgentDevtoolsRuntimeContext> | undefined> {
   const module = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
   const agent = resolveAgentModule(module)
-  const defaults = workspaceDefaults(definition)
-  return agent && defaults
-    ? withWorkspaceAgentDefaults(agent as never, defaults as never) as AgentInput<ViteAgentDevtoolsRuntimeContext>
-    : withAgentDefaults(agent, { inferredName: definition.name })
+  return withAgentDefaults(agent, { inferredName: definition.name, workspace: definition.workspace }) as AgentInput<ViteAgentDevtoolsRuntimeContext>
 }
 
 function createDevtoolsDiscoveryContext(): ViteAgentDevtoolsRuntimeContext {
