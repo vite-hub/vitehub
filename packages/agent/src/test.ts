@@ -1,7 +1,7 @@
 import {
   defineAgent,
   runAgent,
-  withWorkspaceAgentDefaults,
+  withAgentDefaults,
 } from "./index.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
 import { registerWorkspace } from "@vite-hub/workspace/test"
@@ -211,12 +211,13 @@ export function createAgentTestRunner<
     registerWorkspace(options.workspace, agent)
   }
 
-  const preparedAgent = options.workspace
-    ? withWorkspaceAgentDefaults(
-        withTestModelInstrumentation(agent, options.instrumentModel) as WorkspaceAgentDefinition<TRuntimeConfig>,
-        { name: options.name, workspace: options.workspace },
-      )
-    : withTestModelInstrumentation(agent, options.instrumentModel)
+  const instrumentedAgent = withTestModelInstrumentation(agent, options.instrumentModel)
+  const preparedAgent: AgentInput<AgentRuntimeContext<TRuntimeConfig>> = options.workspace
+    ? withAgentDefaults(
+        instrumentedAgent,
+        { inferredName: options.name, workspace: options.workspace },
+      ) as AgentInput<AgentRuntimeContext<TRuntimeConfig>>
+    : instrumentedAgent
 
   return {
     async run(input) {

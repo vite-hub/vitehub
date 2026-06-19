@@ -861,6 +861,7 @@ export interface ResolvedAgentModuleOptions {
 export interface AgentHandlerOptions<TRuntimeContext extends AgentRuntimeContext = AgentRuntimeContext> {
   inferredName?: string
   lifecycleHooks?: AgentRuntimeHooks<TRuntimeContext>
+  workspace?: WorkspaceName
 }
 
 export interface AgentRegistryHandlerOptions<TRuntimeContext extends AgentRuntimeContext = AgentRuntimeContext> {

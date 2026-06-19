@@ -782,23 +782,68 @@ function withAgentWorkflowRuntimeName(runtime: AgentRuntimeBinding | undefined, 
   return { ...runtime, name }
 }
 
-function cloneAgentDefinitionWithRuntime<TContext extends AgentRuntimeContext>(
+function createSyntheticWorkspaceRun<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS>,
+): NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> {
+  const run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> = async (context) => {
+    const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, context)
+    const invocationContext = await createAgentInvocationContext(definition as never, context as never, context.input)
+    const result = await adapter.generate(toAgentAdapterRunContext(invocationContext) as never)
+    return typeof result === "object" && result && "text" in result && typeof (result as { text?: unknown }).text === "string"
+      ? (result as { text: string }).text
+      : result
+  }
+  return Object.assign(run, { [syntheticWorkspaceRun]: true })
+}
+
+function cloneAgentDefinitionWithDefaults<TContext extends AgentRuntimeContext>(
   agent: AgentInput<TContext>,
-  runtime: AgentRuntimeBinding,
+  defaults: WorkspaceAgentDefaults | undefined,
+  runtime: AgentRuntimeBinding | undefined,
 ): AgentInput<TContext> {
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentDefinition
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
-  clone.runtime = runtime
+  if (defaults) {
+    (clone as Partial<WorkspaceAgentDefinition>).__vitehubWorkspaceAgentDefaults = defaults
+  }
+  if (runtime) {
+    clone.runtime = runtime
+  }
+  if (clone.run && syntheticWorkspaceRun in clone.run) {
+    clone.run = createSyntheticWorkspaceRun(clone as never) as typeof clone.run
+  }
   return clone as AgentInput<TContext>
 }
 
 export function withAgentDefaults<TContext extends AgentRuntimeContext>(
+  agent: AgentInput<TContext>,
+  options?: AgentHandlerOptions<TContext>,
+): AgentInput<TContext>
+export function withAgentDefaults<TContext extends AgentRuntimeContext>(
   agent: AgentInput<TContext> | undefined,
-  options: AgentHandlerOptions = {},
+  options?: AgentHandlerOptions<TContext>,
+): AgentInput<TContext> | undefined
+export function withAgentDefaults<TContext extends AgentRuntimeContext>(
+  agent: AgentInput<TContext> | undefined,
+  options: AgentHandlerOptions<TContext> = {},
 ): AgentInput<TContext> | undefined {
   if (!agent || !hasAgentDefinition(agent)) return agent
+  const workspaceDefinition = agent as Partial<WorkspaceAgentDefinition>
+  const existingWorkspaceDefaults = workspaceDefinition.__vitehubWorkspaceAgentDefaults
+  const workspaceDefaults = workspaceDefinition.__vitehubWorkspaceAgent && (options.inferredName || options.workspace)
+    ? {
+        ...existingWorkspaceDefaults,
+        ...(options.inferredName ? { name: options.inferredName } : {}),
+        ...(options.workspace ? { workspace: options.workspace } : {}),
+      }
+    : undefined
   const runtime = withAgentWorkflowRuntimeName(agent.runtime, options.inferredName)
-  return !runtime || runtime === agent.runtime ? agent : cloneAgentDefinitionWithRuntime(agent, runtime)
+  return !workspaceDefaults && (!runtime || runtime === agent.runtime)
+    ? agent
+    : cloneAgentDefinitionWithDefaults(agent, workspaceDefaults, runtime === agent.runtime ? undefined : runtime)
 }
 
 export interface DefineAgent {
@@ -864,15 +909,7 @@ function createWorkspaceAgentDefinition<
   } as never) as WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>
 
   if (!definition.run) {
-    const run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> = async (context) => {
-      const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, context)
-      const invocationContext = await createAgentInvocationContext(definition as never, context as never, context.input)
-      const result = await adapter.generate(toAgentAdapterRunContext(invocationContext) as never)
-      return typeof result === "object" && result && "text" in result && typeof (result as { text?: unknown }).text === "string"
-        ? (result as { text: string }).text
-        : result
-    }
-    definition.run = Object.assign(run, { [syntheticWorkspaceRun]: true })
+    definition.run = createSyntheticWorkspaceRun(definition)
   }
 
   Object.assign(definition, workspaceDefinition, {
@@ -881,18 +918,6 @@ function createWorkspaceAgentDefinition<
     __vitehubWorkspaceAgentOptions: options,
   })
   return definition
-}
-
-export function withWorkspaceAgentDefaults<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
-  CALL_OPTIONS = unknown,
->(
-  definition: WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>,
-  defaults: WorkspaceAgentDefaults<Name>,
-): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS> {
-  if (!definition?.__vitehubWorkspaceAgent) return definition
-  return createWorkspaceAgentDefinition(definition.__vitehubWorkspaceAgentOptions, defaults)
 }
 
 export const defineAgent: DefineAgent = ((options: unknown) => {

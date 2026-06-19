@@ -214,9 +214,7 @@ function generateAgentWebhookRouteHandler(
     .join(",\n  ")
   const agentEntries = definitions
     .map((definition, index) => {
-      const agentExpression = definition.workspace
-        ? `withWorkspaceAgentDefaults(resolveAgentModule(agent${index}), ${JSON.stringify({ name: definition.name, workspace: definition.workspace })})`
-        : `withAgentDefaults(resolveAgentModule(agent${index}), ${JSON.stringify({ inferredName: definition.name })})`
+      const agentExpression = `withAgentDefaults(resolveAgentModule(agent${index}), ${JSON.stringify({ inferredName: definition.name, workspace: definition.workspace })})`
       return `${JSON.stringify(definition.name)}: ${agentExpression}`
     })
     .join(",\n  ")
@@ -227,7 +225,7 @@ function generateAgentWebhookRouteHandler(
   const webhookSelector = webhookRoute.includes("[webhook]") ? "getRouterParam(event, 'webhook')" : "''"
 
   return [
-    "import { withAgentDefaults, withWorkspaceAgentDefaults } from '@vite-hub/agent'",
+    "import { withAgentDefaults } from '@vite-hub/agent'",
     ...(options.cloudflareState ? ["import { createCloudflareAgentState } from '@vite-hub/agent/cloudflare'"] : []),
     "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server'",
     "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/internal/runtime/state'",

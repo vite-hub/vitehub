@@ -110,6 +110,8 @@ vi.mock("@vite-hub/workspace", async (importOriginal) => {
   }
 })
 
+const { withAgentDefaults } = await import("../src/index.ts")
+
 function context(runtimeConfig: Record<string, unknown> = {}) {
   return {
     input: { messages: [] },
@@ -294,14 +296,14 @@ describe("defineAgent workspace option", () => {
   })
 
   it("prepares Harness Workspace Sessions for workspace-backed harness Agent Drivers", async () => {
-    const { defineAgent, runAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
     const harnessSession = { destroy: vi.fn() }
     const harnessWorkspaceSession = { close: vi.fn() }
     harnessCreateSession.mockResolvedValueOnce(harnessSession)
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
     exists.mockResolvedValue(true)
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       driver: {
         harness: { provider: "codex" },
         sandbox: { provider: "sandbox" },
@@ -349,9 +351,9 @@ describe("defineAgent workspace option", () => {
       message: "chore: archive audio",
       paths: ["inbox/audio.md"],
     })
-    const { defineAgent, runAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {
         mode: "write",
         rules: {
@@ -386,9 +388,9 @@ describe("defineAgent workspace option", () => {
       message: "chore: archive stream",
       paths: ["inbox/stream.md"],
     })
-    const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {
         mode: "write",
         rules: {
@@ -419,9 +421,9 @@ describe("defineAgent workspace option", () => {
       message: "chore: archive response",
       paths: ["inbox/response.md"],
     })
-    const { defineAgent, runAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {
         mode: "write",
         rules: {
@@ -442,9 +444,9 @@ describe("defineAgent workspace option", () => {
   })
 
   it("uses string instructions", async () => {
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       instructions: "Use workspace sources.",
       model: {} as never,
@@ -455,10 +457,23 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toBe("Use workspace sources.")
   })
 
-  it("joins array instructions", async () => {
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+  it("rebinds synthetic workspace runs when applying discovered defaults", async () => {
+    const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(useWorkspace).toHaveBeenCalledWith("docs")
+  })
+
+  it("joins array instructions", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       instructions: [" First ", "", "Second"],
       model: {} as never,
@@ -471,9 +486,9 @@ describe("defineAgent workspace option", () => {
 
   it("joins mixed static and callback instructions", async () => {
     readFile.mockResolvedValueOnce("Workspace instructions")
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       instructions: [
         "Use workspace sources.",
@@ -490,9 +505,9 @@ describe("defineAgent workspace option", () => {
 
   it("uses callback instructions with workspace fs", async () => {
     readFile.mockResolvedValueOnce("Workspace instructions")
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       instructions: async ({ fs }) => await fs.readFile("AGENTS.md"),
       model: {} as never,
@@ -505,9 +520,9 @@ describe("defineAgent workspace option", () => {
   })
 
   it("appends visible source instructions by default", async () => {
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {
         sources: {
           docs: { instructions: "Use docs for product behavior.", name: "docs" } as never,
@@ -528,10 +543,10 @@ describe("defineAgent workspace option", () => {
   })
 
   it("applies model Agent Driver instructions and execution settings", async () => {
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const model = { id: "driver-model" }
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       driver: {
         execution: {
           callSettings: {
@@ -564,9 +579,9 @@ describe("defineAgent workspace option", () => {
   })
 
   it("places source instructions in the workspace sources slot", async () => {
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {
         sources: {
           docs: {
@@ -597,9 +612,9 @@ describe("defineAgent workspace option", () => {
   })
 
   it("replaces the workspace sources slot with empty instructions when no source instructions are visible", async () => {
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {
         sources: {
           docs: { name: "docs" } as never,
@@ -622,10 +637,10 @@ describe("defineAgent workspace option", () => {
     list.mockImplementation(async path => path === ".vitehub/sources"
       ? [{ path: ".vitehub/sources/inventoryHealthSummary.json", type: "file" }]
       : [])
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { workspaceShell } = await import("../src/capabilities.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       capabilities: [workspaceShell()],
       instructions: [
@@ -652,10 +667,10 @@ describe("defineAgent workspace option", () => {
   it("filters source instructions through Access-scoped workspace visibility", async () => {
     exists.mockResolvedValue(true)
     useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { access } = await import("../src/capabilities.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {
         sources: {
           private: { instructions: "Use private source.", name: "private" } as never,
@@ -688,10 +703,10 @@ describe("defineAgent workspace option", () => {
   it("omits root-mounted source instructions when only another scoped source is visible", async () => {
     exists.mockImplementation(async path => path === "public")
     useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { access } = await import("../src/capabilities.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {
         sources: {
           guide: {
@@ -741,10 +756,10 @@ describe("defineAgent workspace option", () => {
     isWorkspaceSourceRequestOnly.mockImplementation(source => source === privateSource)
     exists.mockImplementation(async path => path === "" || path === "public")
     useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { access } = await import("../src/capabilities.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {
         sources: {
           private: privateSource as never,
@@ -777,10 +792,10 @@ describe("defineAgent workspace option", () => {
   it("includes root-mounted source instructions when a source path is visible", async () => {
     exists.mockImplementation(async path => path === "AGENTS.md")
     useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { access } = await import("../src/capabilities.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {
         sources: {
           guide: {
@@ -815,7 +830,7 @@ describe("defineAgent workspace option", () => {
   })
 
   it("synthesizes an answer when tool loop stops without text after tool results", async () => {
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     agentGenerate.mockResolvedValueOnce({
       finishReason: "stop",
       steps: [
@@ -828,7 +843,7 @@ describe("defineAgent workspace option", () => {
       text: "",
     })
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       model: {} as never,
     }), { workspace: "docs" })
@@ -840,7 +855,7 @@ describe("defineAgent workspace option", () => {
   })
 
   it("synthesizes streamed answers when tool loops stop without text after AI SDK tool outputs", async () => {
-    const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
     agentStream.mockResolvedValueOnce({
       fullStream: (async function* () {
         yield {
@@ -851,7 +866,7 @@ describe("defineAgent workspace option", () => {
       })(),
     })
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       model: {} as never,
     }), { workspace: "docs" })
@@ -869,7 +884,7 @@ describe("defineAgent workspace option", () => {
   })
 
   it("emits streamed workspace fallback text before finish events", async () => {
-    const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
     agentStream.mockResolvedValueOnce({
       fullStream: (async function* () {
         yield {
@@ -881,7 +896,7 @@ describe("defineAgent workspace option", () => {
       })(),
     })
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       model: {} as never,
     }), { workspace: "docs" })
@@ -900,7 +915,7 @@ describe("defineAgent workspace option", () => {
   })
 
   it("emits streamed workspace fallback text before abort events", async () => {
-    const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
     agentStream.mockResolvedValueOnce({
       fullStream: (async function* () {
         yield {
@@ -912,7 +927,7 @@ describe("defineAgent workspace option", () => {
       })(),
     })
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       model: {} as never,
     }), { workspace: "docs" })
@@ -931,7 +946,7 @@ describe("defineAgent workspace option", () => {
   })
 
   it("preserves stream result methods when wrapping workspace fallback streams", async () => {
-    const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
     class StreamResult {
       fullStream = (async function* () {
         yield {
@@ -957,7 +972,7 @@ describe("defineAgent workspace option", () => {
     }
     agentStream.mockResolvedValueOnce(new StreamResult())
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       model: {} as never,
     }), { workspace: "docs" })
@@ -975,12 +990,12 @@ describe("defineAgent workspace option", () => {
   })
 
   it("passes AI SDK tool loop settings through workspace agents", async () => {
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const stopWhen = { custom: true }
     const onStepFinish = vi.fn()
     const experimental_telemetry = { integrations: [], isEnabled: true }
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       modelExecution: {
         callSettings: {
@@ -1009,9 +1024,9 @@ describe("defineAgent workspace option", () => {
 
   it("passes provider-defined capability tools to AI SDK agents", async () => {
     const { webSearch } = await import("../src/capabilities.ts")
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       capabilities: [webSearch({ mode: "model" })],
       model: {} as never,
@@ -1030,12 +1045,12 @@ describe("defineAgent workspace option", () => {
   })
 
   it("uses custom run for workspace agents on the streaming path", async () => {
-    const { defineAgent, streamAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
     const stream = (async function* () {
       yield { text: "ok", type: "text-delta" }
     })()
     const run = vi.fn(async () => stream)
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       run,
       workspace: {},
     }), { workspace: "docs" })
@@ -1045,12 +1060,12 @@ describe("defineAgent workspace option", () => {
   })
 
   it("wraps workspace agent models with runtime instrumentation", async () => {
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const baseModel = { id: "base" }
     const wrappedModel = { id: "wrapped" }
     const instrumentModel = vi.fn(() => wrappedModel as never)
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       modelExecution: {
         callSettings: {
@@ -1092,10 +1107,10 @@ describe("defineAgent workspace option", () => {
     inspectTools.mockReturnValueOnce({
       shell: { execute },
     })
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const model = { id: "base" }
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       modelExecution: {
         callSettings: {
@@ -1142,10 +1157,10 @@ describe("defineAgent workspace option", () => {
       observedTemperatures.push(callSettings.temperature)
       ;(callSettings as Record<string, unknown>).temperature = 0.8
     })
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const settingsStart = agentSettings.length
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       modelExecution: {
         callSettings: {
@@ -1175,9 +1190,9 @@ describe("defineAgent workspace option", () => {
     const experimental_onToolCallFinish = vi.fn()
     const onRunToolCallStart = vi.fn()
     const onRunToolCallFinish = vi.fn()
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       modelExecution: {
         callSettings: {
@@ -1218,9 +1233,9 @@ describe("defineAgent workspace option", () => {
   })
 
   it("passes workspace to callback instructions", async () => {
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       instructions: ({ fs, workspace }) => {
         expect(fs).toBe(workspace.fs)
@@ -1236,9 +1251,9 @@ describe("defineAgent workspace option", () => {
 
   it("does not load AGENTS.md as implicit instructions", async () => {
     readFile.mockResolvedValueOnce("Workspace instructions")
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       model: {} as never,
     }), { workspace: "docs" })
@@ -1251,9 +1266,9 @@ describe("defineAgent workspace option", () => {
 
   it("throws when explicit callback instructions fail", async () => {
     readFile.mockRejectedValueOnce(new Error("missing"))
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       instructions: ({ fs }) => fs.readFile("MISSING.md"),
       model: {} as never,
@@ -1263,9 +1278,9 @@ describe("defineAgent workspace option", () => {
   })
 
   it("does not attach workspace tools unless explicitly requested", async () => {
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       model: {} as never,
     }), { workspace: "docs" })
@@ -1278,14 +1293,14 @@ describe("defineAgent workspace option", () => {
   })
 
   it("passes workspace facade to workspace tool resolvers", async () => {
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const shell = { execute: vi.fn(), inputSchema: {} }
     const toolResolver = vi.fn(({ workspace }) => {
       expect(workspace.fs).toEqual(expect.objectContaining({ readFile }))
       return { shell }
     })
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       model: {} as never,
       capabilities: [{ id: "workspace-tools", tools: toolResolver as never }],
@@ -1309,9 +1324,9 @@ describe("defineAgent workspace option", () => {
       await this.settings.tools.shell.execute({ command: "rg defineAgent" })
       return { finishReason: "stop", text: "ok" }
     })
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
@@ -1345,9 +1360,9 @@ describe("defineAgent workspace option", () => {
       await this.settings.tools.shell.execute({ command: "rg PLC forecasting-engine | head -n 20" })
       return { finishReason: "stop", text: "ok" }
     })
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
@@ -1381,9 +1396,9 @@ describe("defineAgent workspace option", () => {
     inspectTools.mockReturnValueOnce({
       materialize_sources: { execute: materialize },
     })
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
       model: {} as never,
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
@@ -1402,9 +1417,9 @@ describe("defineAgent workspace option", () => {
     inspectTools.mockReturnValueOnce({
       materialize_sources: { execute: materialize },
     })
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
 
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
       model: {} as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
@@ -1425,9 +1440,9 @@ describe("defineAgent workspace option", () => {
   })
 
   it("derives DevTools metadata from workspace agents", async () => {
-    const { createAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { createAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const model = { modelId: "openai/gpt-test", provider: "openai" }
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {
         sources: {
           docs: { name: "docs" } as never,
@@ -1477,9 +1492,9 @@ describe("defineAgent workspace option", () => {
     list.mockImplementation(async path => path === ".vitehub/sources"
       ? [{ path: ".vitehub/sources/inventoryHealthSummary.json", type: "file" }]
       : [])
-    const { defineAgent, resolveAgentDevtoolsMetadata, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent, resolveAgentDevtoolsMetadata } = await import("../src/index.ts")
     const { workspaceShell } = await import("../src/capabilities.ts")
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       model: {} as never,
       capabilities: [workspaceShell()],
@@ -1496,12 +1511,12 @@ describe("defineAgent workspace option", () => {
   })
 
   it("resolves dynamic model metadata for DevTools", async () => {
-    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const resolveModel = vi.fn((context: { invoker: { kind?: string } }) => ({
       modelId: `test/${context.invoker.kind || "unknown"}`,
       provider: "test",
     }))
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       model: resolveModel as never,
     }), { workspace: "support" })
@@ -1531,9 +1546,9 @@ describe("defineAgent workspace option", () => {
   })
 
   it("marks dynamic DevTools instruction metadata without resolving it", async () => {
-    const { createAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { createAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const readInstructions = vi.fn(async () => "Workspace instructions")
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       instructions: readInstructions,
       model: {} as never,
@@ -1545,11 +1560,11 @@ describe("defineAgent workspace option", () => {
   })
 
   it("resolves dynamic DevTools instruction metadata", async () => {
-    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const readInstructions = vi.fn(async ({ fs }) => await fs.readFile("AGENTS.md"))
     readFile.mockResolvedValue("# Workspace instructions\n")
     list.mockResolvedValue([{ path: "AGENTS.md", type: "file" }])
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       instructions: readInstructions,
       model: {} as never,
@@ -1568,11 +1583,11 @@ describe("defineAgent workspace option", () => {
   })
 
   it("renders static capability instruction slots in resolved DevTools metadata", async () => {
-    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const readInstructions = vi.fn(async ({ fs }) => await fs.readFile("AGENTS.md"))
     readFile.mockResolvedValue("# Workspace instructions\n\n{{ capabilities.audience }}\n")
     list.mockResolvedValue([{ path: "AGENTS.md", type: "file" }])
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {},
       instructions: readInstructions,
       model: {} as never,
@@ -1589,14 +1604,14 @@ describe("defineAgent workspace option", () => {
   })
 
   it("resolves prepare-scoped capability instructions while resolving DevTools metadata", async () => {
-    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const phase = vi.fn()
     const toolResolver = vi.fn(() => ({}))
     const invokerResolve = vi.fn(() => ({ id: "resolved" }))
     exists.mockResolvedValue(true)
     list.mockResolvedValue([{ path: "docs/guide.md", type: "file" }])
     readFile.mockResolvedValue("# Workspace instructions\n\n{{ capabilities.tracked }}")
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       invoker: {
         profiles: [{ id: "support", kind: "support", label: "Support" }],
         resolve: invokerResolve,
@@ -1646,12 +1661,12 @@ describe("defineAgent workspace option", () => {
   })
 
   it("resolves recursive DevTools file metadata for lazy source entries", async () => {
-    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     list.mockResolvedValue([
       { path: "docs/guides", type: "directory" },
       { path: "docs/guides/start.md", type: "file" },
     ])
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {
         sources: {
           docs: { cache: { maxAge: 60 }, mount: "docs", name: "docs" } as never,
@@ -1688,7 +1703,7 @@ describe("defineAgent workspace option", () => {
   })
 
   it("applies Access-scoped workspace visibility during DevTools metadata resolution", async () => {
-    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const { access } = await import("../src/capabilities.ts")
     const resolveScope = vi.fn(({ invoker }) => {
       return invoker.meta?.scope === "support"
@@ -1704,7 +1719,7 @@ describe("defineAgent workspace option", () => {
       { path: "customers/globex/orders.sql", type: "file" },
       { path: "portal", type: "directory" },
     ])
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       invoker: {
         profiles: [
           { id: "customer", kind: "customer", label: "Customer", meta: { scope: "customer" } },
@@ -1745,11 +1760,11 @@ describe("defineAgent workspace option", () => {
   })
 
   it("renders static Source Instructions after Access source resolution for DevTools metadata", async () => {
-    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const { access } = await import("../src/capabilities.ts")
     useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
     exists.mockImplementation(async path => path === "ingestion/acme")
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {
         sources: {
           ingestion: {
@@ -1784,7 +1799,7 @@ describe("defineAgent workspace option", () => {
   })
 
   it("flattens virtual workspace AGENTS.md while keeping sibling instruction files", async () => {
-    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     list.mockResolvedValue([
       { path: "forecasting-engine", type: "directory" },
       { path: "ingestion", type: "directory" },
@@ -1792,7 +1807,7 @@ describe("defineAgent workspace option", () => {
       { path: "instructions/AGENTS.md", type: "file" },
       { path: "instructions/private.md", type: "file" },
     ])
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {
         sources: {
           "forecasting-engine": { name: "forecasting-engine" } as never,
@@ -1822,11 +1837,11 @@ describe("defineAgent workspace option", () => {
   })
 
   it("marks listed lazy source files as materialized when stored metadata is present", async () => {
-    const { resolveAgentDevtoolsMetadata, defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     list.mockResolvedValue([
       { mtime: 1710000000000, path: "docs/guides/start.md", size: 128, type: "file" },
     ])
-    const agent = withWorkspaceAgentDefaults(defineAgent({
+    const agent = withAgentDefaults(defineAgent({
       workspace: {
         sources: {
           docs: { cache: { maxAge: 60 }, mount: "docs", name: "docs" } as never,
