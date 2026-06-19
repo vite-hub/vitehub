@@ -8,7 +8,7 @@ import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInv
 import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
-import { resolveAgentTriggers, streamAgent, streamAgentTrigger, withAgentDefaults, withWorkspaceAgentDefaults } from "../index.ts"
+import { resolveAgentTriggers, streamAgent, streamAgentTrigger, withAgentDefaults } from "../index.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
@@ -20,7 +20,6 @@ import type {
   AgentRuntimeConfig,
   AgentRuntimeContext,
   DiscoveredAgentDefinition,
-  WorkspaceAgentDefaults,
 } from "../index.ts"
 
 interface ViteAgentDevRuntimeConfig extends AgentRuntimeConfig {
@@ -123,12 +122,6 @@ function resolveAgentModule(module: unknown): AgentInput<ViteAgentDevRuntimeCont
   return module as AgentInput<ViteAgentDevRuntimeContext> | undefined
 }
 
-function workspaceDefaults(definition: DiscoveredAgentDefinition): WorkspaceAgentDefaults | undefined {
-  return definition.workspace
-    ? { name: definition.name, workspace: definition.workspace }
-    : undefined
-}
-
 function resolveWorkspaceSourceRoot(file: string): string {
   const workspaceDirectory = join(dirname(file), "workspace")
   return existsSync(workspaceDirectory) && statSync(workspaceDirectory).isDirectory()
@@ -160,10 +153,7 @@ async function loadDiscoveredAgent(
 ): Promise<AgentInput<ViteAgentDevRuntimeContext> | undefined> {
   const module = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
   const agent = resolveAgentModule(module)
-  const defaults = workspaceDefaults(definition)
-  return agent && defaults
-    ? withWorkspaceAgentDefaults(agent as never, defaults as never) as AgentInput<ViteAgentDevRuntimeContext>
-    : withAgentDefaults(agent, { inferredName: definition.name })
+  return withAgentDefaults(agent, { inferredName: definition.name, workspace: definition.workspace }) as AgentInput<ViteAgentDevRuntimeContext>
 }
 
 async function discoverStreamAgents(server: ViteDevServer): Promise<AgentInvocationStreamEntry[]> {

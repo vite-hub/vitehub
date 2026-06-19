@@ -679,10 +679,22 @@ function cloneAgentDefinitionWithRuntime<TContext extends AgentRuntimeContext>(
 }
 
 export function withAgentDefaults<TContext extends AgentRuntimeContext>(
+  agent: AgentInput<TContext>,
+  options?: AgentHandlerOptions<TContext>,
+): AgentInput<TContext>
+export function withAgentDefaults<TContext extends AgentRuntimeContext>(
   agent: AgentInput<TContext> | undefined,
-  options: AgentHandlerOptions = {},
+  options?: AgentHandlerOptions<TContext>,
+): AgentInput<TContext> | undefined
+export function withAgentDefaults<TContext extends AgentRuntimeContext>(
+  agent: AgentInput<TContext> | undefined,
+  options: AgentHandlerOptions<TContext> = {},
 ): AgentInput<TContext> | undefined {
   if (!agent || !hasAgentDefinition(agent)) return agent
+  const workspaceDefinition = agent as Partial<WorkspaceAgentDefinition>
+  if (workspaceDefinition.__vitehubWorkspaceAgent && (options.inferredName || options.workspace)) {
+    workspaceDefinition.__vitehubWorkspaceAgentDefaults = { name: options.inferredName, workspace: options.workspace }
+  }
   const runtime = withAgentWorkflowRuntimeName(agent.runtime, options.inferredName)
   return !runtime || runtime === agent.runtime ? agent : cloneAgentDefinitionWithRuntime(agent, runtime)
 }
@@ -767,18 +779,6 @@ function createWorkspaceAgentDefinition<
     __vitehubWorkspaceAgentOptions: options,
   })
   return definition
-}
-
-export function withWorkspaceAgentDefaults<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  Name extends WorkspaceName = WorkspaceName,
-  CALL_OPTIONS = unknown,
->(
-  definition: WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>,
-  defaults: WorkspaceAgentDefaults<Name>,
-): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS> {
-  if (!definition?.__vitehubWorkspaceAgent) return definition
-  return createWorkspaceAgentDefinition(definition.__vitehubWorkspaceAgentOptions, defaults)
 }
 
 export const defineAgent: DefineAgent = ((options: unknown) => {

@@ -2,7 +2,7 @@ import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflar
 import { createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import { Chat, StreamingPlan } from "chat"
 
-import { createAgentDevtoolsMetadata, materializeAgentDevtoolsSourceMetadata, resolveAgentDevtoolsMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent, streamAgentTrigger, withWorkspaceAgentDefaults } from "./index.ts"
+import { createAgentDevtoolsMetadata, materializeAgentDevtoolsSourceMetadata, resolveAgentDevtoolsMetadata, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent, streamAgentTrigger, withAgentDefaults } from "./index.ts"
 import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { getAccessCapabilityOptions } from "./capabilities/access.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "./chat-trigger.ts"
@@ -101,7 +101,10 @@ export function registerWorkspaceAgent<
   agent: WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>,
   options: RegisterWorkspaceAgentOptions<Name> = {},
 ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS> {
-  const preparedAgent = withWorkspaceAgentDefaults(agent, options)
+  const preparedAgent = withAgentDefaults(agent as never, {
+    inferredName: options.name,
+    workspace: options.workspace,
+  }) as WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>
   const workspaceOptions = preparedAgent.__vitehubWorkspaceAgentOptions
   if (typeof workspaceOptions.workspace === "string") return preparedAgent
   const sourceRootDir = preparedAgent.sourceRootDir ?? options.sourceRootDir

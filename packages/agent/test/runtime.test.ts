@@ -29,6 +29,8 @@ vi.mock("@ai-sdk/harness/agent", () => ({
   },
 }))
 
+const { withAgentDefaults } = await import("../src/index.ts")
+
 afterEach(() => {
   harnessAgentSettings.length = 0
   harnessCreateSession.mockReset()
@@ -1076,7 +1078,7 @@ describe("agent message protocol", () => {
   })
 
   it("keeps channel chat triggers discoverable for workspace agents", async () => {
-    const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
     const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
     const agent = defineAgent({
@@ -1085,7 +1087,7 @@ describe("agent message protocol", () => {
       run: () => "ok",
       workspace: {},
     })
-    const registered = withWorkspaceAgentDefaults(agent as never, { workspace: "docs" })
+    const registered = withAgentDefaults(agent as never, { workspace: "docs" })
 
     await expect(resolveAgentTriggers(registered, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "chat.message": {
@@ -2945,17 +2947,17 @@ describe("agent message protocol", () => {
     })
 
     it("uses workspace Agent defaults for unnamed workflow runtime bindings", async () => {
-      const { defineAgent, runAgent, withWorkspaceAgentDefaults, workflow } = await import("../src/index.ts")
+      const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
       const { setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
       const waitUntilTasks: Array<Promise<unknown>> = []
       setWorkflowRuntimeConfig({ provider: "vercel" })
 
-      const agent = withWorkspaceAgentDefaults(defineAgent({
+      const agent = withAgentDefaults(defineAgent({
         runtime: workflow(),
         run: context => `received ${context.prompt}`,
         workspace: {},
-      }), { name: "reviewer", workspace: "reviewer" })
+      }), { inferredName: "reviewer", workspace: "reviewer" })
       const run = await runAgent(agent, {
         memo: vi.fn(),
         runtime: "vercel",
