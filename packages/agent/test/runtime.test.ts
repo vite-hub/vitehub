@@ -1395,13 +1395,13 @@ describe("agent message protocol", () => {
       payload: {
         action: "created",
         comment: {
+          author_association: "MEMBER",
           body: "/review please",
           id: 99,
           node_id: "comment-node",
           user: { id: 1, login: "onmax", type: "User" },
         },
         issue: {
-          author_association: "MEMBER",
           number: 42,
           pull_request: { url: "https://api.github.test/repos/vite-hub/vitehub/pulls/42" },
         },

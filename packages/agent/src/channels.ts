@@ -71,6 +71,7 @@ export interface GitHubPullRequestEffectsOptions<TRuntimeConfig extends AgentRun
 type GitHubIssueCommentPayload = {
   action?: unknown
   comment?: {
+    author_association?: unknown
     body?: unknown
     id?: unknown
     node_id?: unknown
@@ -146,10 +147,11 @@ export function githubPullRequestCommand(input: unknown, options: GitHubPullRequ
   const commentId = maybeNumber(payload.comment?.id)
   const pullRequestUrl = maybeString(payload.issue.pull_request.url)
   if (!repository || !owner || !repo || !login || !issueNumber || !commentId || !pullRequestUrl) return
+  const association = maybeString(payload.comment?.author_association) || maybeString(payload.issue.author_association)
   return {
     action: "created",
     actor: {
-      ...(maybeString(payload.issue.author_association) ? { association: maybeString(payload.issue.author_association) } : {}),
+      ...(association ? { association } : {}),
       ...(maybeNumber(payload.comment?.user?.id) ? { id: maybeNumber(payload.comment?.user?.id) } : {}),
       login,
       ...(maybeString(payload.comment?.user?.type) ? { type: maybeString(payload.comment?.user?.type) } : {}),
