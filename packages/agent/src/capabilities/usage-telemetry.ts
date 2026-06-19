@@ -236,11 +236,18 @@ function formatUsageNumber(value: number): string {
 function formatUsageTokens(usage: AgentUsageRecord["usage"]): string | undefined {
   const input = finiteUsageNumber(usage?.inputTokens)
   const output = finiteUsageNumber(usage?.outputTokens)
-  const total = finiteUsageNumber(usage?.totalTokens) ?? (input !== undefined || output !== undefined ? (input || 0) + (output || 0) : undefined)
-  if (total === undefined) return
+  const total = finiteUsageNumber(usage?.totalTokens) ?? (input !== undefined && output !== undefined ? input + output : undefined)
+  if (total === undefined) {
+    if (input !== undefined) return `${formatUsageNumber(input)} input tokens`
+    if (output !== undefined) return `${formatUsageNumber(output)} output tokens`
+    return
+  }
   const totalText = `${formatUsageNumber(total)} tokens`
   if (input === undefined && output === undefined) return totalText
-  return `${totalText}: ${formatUsageNumber(input || 0)} in / ${formatUsageNumber(output || 0)} out`
+  const splitInput = input ?? (output !== undefined && total >= output ? total - output : undefined)
+  const splitOutput = output ?? (input !== undefined && total >= input ? total - input : undefined)
+  if (splitInput === undefined || splitOutput === undefined) return totalText
+  return `${totalText}: ${formatUsageNumber(splitInput)} in / ${formatUsageNumber(splitOutput)} out`
 }
 
 function formatUsageCost(cost: AgentUsageRecord["cost"]): string | undefined {

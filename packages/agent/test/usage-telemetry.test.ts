@@ -141,6 +141,45 @@ describe("usage telemetry", () => {
     })
   })
 
+  it("summarizes partial token splits without rendering missing counts as zero", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const finish = vi.fn()
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry({
+          summary: { subject: "Review run" },
+        }),
+      ],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({
+        text: "ok",
+        totalUsage: {
+          inputTokens: 1000,
+          totalTokens: 1250,
+        },
+      }),
+    })
+
+    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
+      text: "ok",
+      usageRecord: {
+        usage: {
+          inputTokens: 1000,
+          totalTokens: 1250,
+        },
+      },
+    })
+    expect(finish).toHaveBeenCalledTimes(1)
+    const usageRecord = finish.mock.calls[0]![0].extensions.get("usage-telemetry")
+    expect(usageRecord).toMatchObject({
+      summary: expect.stringMatching(/^Review run used 1,250 tokens: 1,000 in \/ 250 out in \d+\.\ds\.$/),
+    })
+  })
+
   it("emits usage records from streamed finish chunks", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const { streamAgentOutputToEvents } = await import("../src/agent-output.ts")
