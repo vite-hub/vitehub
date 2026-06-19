@@ -177,6 +177,7 @@ describe("agent discovery", () => {
     await writeFile(join(root, "server", "agents", "chat", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
     await writeFile(join(root, "server", "agents", "chat", "access.ts"), "export const access = {}", "utf8")
     await writeFile(join(root, "server", "agents", "chat", "audience.test.ts"), "export const test = {}", "utf8")
+    await writeFile(join(root, "server", "agents", "chat", "prompts.ts"), "export default { system: 'help' }", "utf8")
     await writeFile(join(root, "server", "agents", "chat", "workspace", "config.ts"), "export const sources = {}", "utf8")
     await writeFile(join(root, "server", "agents", "review", "config.ts"), "export default defineAgent({ model })", "utf8")
 

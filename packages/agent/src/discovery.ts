@@ -35,8 +35,7 @@ function isWorkspaceAgentConfig(source: string): boolean {
 }
 
 function isAgentDefinitionSource(source: string): boolean {
-  const stripped = stripComments(source)
-  return /\bdefineAgent\s*\(/.test(stripped) || /\bexport\s+default\b/.test(stripped)
+  return /\bdefineAgent\s*\(/.test(stripComments(source))
 }
 
 function isInsideConfiguredAgent(file: string, configuredAgentDirs: Set<string>): boolean {
