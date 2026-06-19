@@ -33,6 +33,19 @@ function isWorkspaceAgentConfig(source: string): boolean {
   return /\bdefineAgent\s*\(\s*\{[\s\S]*?\bworkspace\s*:/.test(stripComments(source))
 }
 
+function isInsideConfiguredAgent(file: string, configuredAgentDirs: Set<string>): boolean {
+  const directory = dirname(file)
+  for (const agentDir of configuredAgentDirs) {
+    const path = relative(agentDir, directory)
+    if (path === "" || (!path.startsWith("..") && path !== "..")) return true
+  }
+  return false
+}
+
+function isWorkspaceSourceConfig(agent: string): boolean {
+  return agent.split("/").slice(1).includes("workspace")
+}
+
 function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefinition[] {
   const definitions: DiscoveredAgentDefinition[] = []
 
@@ -57,6 +70,7 @@ function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefin
       const source = readFileSync(file, "utf8")
       const agent = relative(agentsRoot, dirname(file)).replace(/\\/g, "/")
       if (!agent || agent === ".") continue
+      if (isWorkspaceSourceConfig(agent)) continue
       const workspace = isWorkspaceAgentConfig(source)
       definitions.push({
         handler: file,
@@ -79,10 +93,13 @@ export function discoverAgentDefinitions(options:
   | { mode: "server-agents", scanDirs: string[] }
 ): DiscoveredAgentDefinition[] {
   if (options.mode === "server-agents") {
+    const configDefinitions = discoverDirectoryAgentConfigs(options.scanDirs)
+    const configuredAgentDirs = new Set(configDefinitions.map(definition => dirname(definition.handler)))
     const directoryDefinitions = discoverDefinitions("agent", [
       createDirectoryDefinitionSource<DiscoveredAgentDefinition>("server-agents", options.scanDirs, "agents", {
         normalizeName(directory, file) {
           if (configPattern.test(basename(file)) || isEvalDefinitionFile(file)) return
+          if (isInsideConfiguredAgent(file, configuredAgentDirs)) return
           return relative(directory, file).replace(/\.(?:c|m)?[jt]s$/i, "").replace(/\/index$/i, "")
         },
         createDefinition({ file, name }) {
@@ -94,9 +111,8 @@ export function discoverAgentDefinitions(options:
         },
       }),
     ])
-    const workspaceDefinitions = discoverDirectoryAgentConfigs(options.scanDirs)
 
-    return mergeDefinitions("agent", directoryDefinitions, workspaceDefinitions)
+    return mergeDefinitions("agent", directoryDefinitions, configDefinitions)
   }
 
   const roots = new Set([options.rootDir, ...(options.scanDirs || [])].filter(Boolean))

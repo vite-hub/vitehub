@@ -170,6 +170,25 @@ describe("agent discovery", () => {
     ])
   })
 
+  it("ignores helper files inside configured server agents", async () => {
+    const root = await createTempRoot("vitehub-agent-server-helpers-")
+    await mkdir(join(root, "server", "agents", "chat", "workspace"), { recursive: true })
+    await mkdir(join(root, "server", "agents", "review"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "chat", "access.ts"), "export const access = {}", "utf8")
+    await writeFile(join(root, "server", "agents", "chat", "audience.test.ts"), "export const test = {}", "utf8")
+    await writeFile(join(root, "server", "agents", "chat", "workspace", "config.ts"), "export const sources = {}", "utf8")
+    await writeFile(join(root, "server", "agents", "review", "config.ts"), "export default defineAgent({ model })", "utf8")
+
+    expect(discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toEqual([
+      expect.objectContaining({ name: "chat", source: "server-agent-workspace", workspace: "chat" }),
+      expect.objectContaining({ name: "review", source: "server-agents" }),
+    ])
+  })
+
   it("uses folder identity for colocated workspace agents", async () => {
     const root = await createTempRoot("vitehub-agent-workspace-name-")
     await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
