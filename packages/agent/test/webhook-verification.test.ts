@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
 import { chat } from "../src/capabilities.ts"
-import { defineAgent, runAgentTrigger } from "../src/index.ts"
+import { defineAgent, runAgentTrigger, verifyAgentWebhookRequest } from "../src/index.ts"
 
 function runtime(request?: Request) {
   return {
@@ -117,6 +117,19 @@ describe("agent webhook verification", () => {
         statusCode: 401,
       })
     expect(invoked).not.toHaveBeenCalled()
+  })
+
+  it("fails closed when a generated route requires a secret header but the registration has only a secret token", async () => {
+    await expect(verifyAgentWebhookRequest([{
+      id: "custom",
+      provider: "custom",
+      secretToken: "secret-token",
+    }], new Request("https://example.com", { method: "POST" }), runtime(), { requireSecretHeader: true }))
+      .rejects
+      .toMatchObject({
+        message: "[vitehub] Webhook registration \"custom\" declares secretToken but no secretHeader is configured. Set secretHeader or secretToken: false to explicitly disable verification.",
+        statusCode: 401,
+      })
   })
 
   it("allows explicit unverified webhook registrations", async () => {

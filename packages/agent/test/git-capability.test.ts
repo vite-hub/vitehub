@@ -67,6 +67,39 @@ describe("git capability", () => {
     expect(session.exec).toHaveBeenCalledWith("git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace", timeout: undefined }))
   })
 
+  it("keeps workspace sessions scoped to each tool resolution", async () => {
+    const capability = git()
+    if (typeof capability.tools !== "function") throw new Error("git capability must expose tool resolver")
+    const firstSession = gitSession()
+    const secondSession = gitSession()
+    const firstStartSession = vi.fn(async () => firstSession)
+    const secondStartSession = vi.fn(async () => secondSession)
+    const firstContext = { workspace: { startSession: firstStartSession } }
+    const secondContext = { workspace: { startSession: secondStartSession } }
+
+    const firstTools = await capability.tools(firstContext as never) as AgentToolSet
+    const secondTools = await capability.tools(secondContext as never) as AgentToolSet
+
+    await expect(firstTools.git_read!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
+      stdout: "ok\n",
+    })
+    await expect(secondTools.git_read!.execute?.({ command: "git log --oneline -n 1" })).resolves.toMatchObject({
+      stdout: "ok\n",
+    })
+
+    expect(firstStartSession).toHaveBeenCalledOnce()
+    expect(secondStartSession).toHaveBeenCalledOnce()
+    expect(firstSession.exec).toHaveBeenCalledWith("git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace" }))
+    expect(secondSession.exec).toHaveBeenCalledWith("git", ["log", "--oneline", "-n", "1"], expect.objectContaining({ cwd: "/workspace" }))
+
+    await capability.close?.(firstContext as never)
+    expect(firstSession.close).toHaveBeenCalledOnce()
+    expect(secondSession.close).not.toHaveBeenCalled()
+
+    await capability.close?.(secondContext as never)
+    expect(secondSession.close).toHaveBeenCalledOnce()
+  })
+
   it("blocks git read options that escape inspection boundaries", async () => {
     const { tools } = await capabilityTools()
 

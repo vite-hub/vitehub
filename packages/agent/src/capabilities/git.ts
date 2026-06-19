@@ -37,6 +37,10 @@ interface GitCommandResult {
   stdout: string
 }
 
+interface GitSessionState {
+  sessionPromise?: Promise<WorkspaceSession>
+}
+
 const readSubcommands = new Set([
   "blame",
   "cat-file",
@@ -332,17 +336,38 @@ function gitInputSchema(commandDescription: string) {
 export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefinition {
   const mode = normalizeMode(options.mode, "Git")
   const maxOutputLength = options.maxOutputLength ?? defaultMaxOutputLength
-  let sessionPromise: Promise<WorkspaceSession> | undefined
+  const sessionStates = new WeakMap<object, GitSessionState>()
 
-  async function getSession(workspace: unknown): Promise<WorkspaceSession> {
-    if (!isGitSessionWorkspace(workspace)) {
-      throw new Error("[vitehub] git() requires a git-capable workspace session.")
+  function sessionState(context: object): GitSessionState {
+    let state = sessionStates.get(context)
+    if (!state) {
+      state = {}
+      sessionStates.set(context, state)
     }
-    sessionPromise ??= workspace.startSession().catch((error) => {
-      sessionPromise = undefined
-      throw error
-    })
-    return await sessionPromise
+    return state
+  }
+
+  function getSessionResolver(context: { workspace?: unknown }): () => Promise<WorkspaceSession> {
+    return async () => {
+      const workspace = context.workspace
+      if (!isGitSessionWorkspace(workspace)) {
+        throw new Error("[vitehub] git() requires a git-capable workspace session.")
+      }
+      const state = sessionState(context)
+      state.sessionPromise ??= workspace.startSession().catch((error) => {
+        state.sessionPromise = undefined
+        throw error
+      })
+      return await state.sessionPromise
+    }
+  }
+
+  async function closeSession(context: object): Promise<void> {
+    const state = sessionStates.get(context)
+    sessionStates.delete(context)
+    const session = await state?.sessionPromise
+    if (state) state.sessionPromise = undefined
+    await session?.close()
   }
 
   return defineCapability({
@@ -354,11 +379,7 @@ export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefiniti
       maxOutputLength,
       policy: options.policy,
       timeout: options.timeout,
-    }, () => getSession(context.workspace)),
-    async close() {
-      const session = await sessionPromise
-      sessionPromise = undefined
-      await session?.close()
-    },
+    }, getSessionResolver(context)),
+    close: closeSession,
   })
 }

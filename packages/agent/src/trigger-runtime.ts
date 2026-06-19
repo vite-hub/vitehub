@@ -273,8 +273,14 @@ async function verifyRequiredWebhookHeaders<TRuntimeConfig extends AgentRuntimeC
   context: AgentCallbackContext<TRuntimeConfig>,
 ): Promise<AgentWebhookVerificationResult> {
   for (const registration of registrations) {
-    if (!registration.secretHeader) continue
     const secretToken = await resolveMaybe(registration.secretToken, context)
+    if (!registration.secretHeader) {
+      if (secretToken === false) return { registration, verified: true }
+      if (secretToken) {
+        throw webhookVerificationError(`[vitehub] Webhook registration "${registration.id || registration.provider}" declares secretToken but no secretHeader is configured. Set secretHeader or secretToken: false to explicitly disable verification.`)
+      }
+      continue
+    }
     if (secretToken === false) {
       return { registration, verified: true }
     }
