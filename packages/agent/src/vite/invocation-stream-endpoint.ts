@@ -20,6 +20,7 @@ import type {
   AgentRuntimeConfig,
   AgentRuntimeContext,
   DiscoveredAgentDefinition,
+  ResolvedAgentTriggerDefinition,
 } from "../index.ts"
 
 interface ViteAgentDevRuntimeConfig extends AgentRuntimeConfig {
@@ -34,18 +35,21 @@ interface ViteAgentDevRuntimeContext extends AgentRuntimeContext<ViteAgentDevRun
 
 interface AgentInvocationStreamBody {
   agent?: string
+  input?: unknown
   invokerProfileId?: string
   messages?: AgentChatMessageTriggerInput["messages"]
   meta?: Record<string, unknown>
   run?: AgentRunMetadata
+  sample?: string
   text?: string
   timeout?: number
+  trigger?: string
 }
 
 interface AgentInvocationStreamEntry {
   agent: AgentInput<ViteAgentDevRuntimeContext>
   name: string
-  trigger?: "chat.message"
+  triggers: Record<string, ResolvedAgentTriggerDefinition<ViteAgentDevRuntimeContext>>
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -168,7 +172,7 @@ async function discoverStreamAgents(server: ViteDevServer): Promise<AgentInvocat
     const agent = await loadDiscoveredAgent(server, definition)
     if (!agent) continue
     const triggers = await resolveAgentTriggers(agent as never, context as never)
-    entries.push({ agent, name: definition.name, ...(triggers["chat.message"] ? { trigger: "chat.message" as const } : {}) })
+    entries.push({ agent, name: definition.name, triggers })
   }
   return entries
 }
@@ -197,6 +201,51 @@ function messagesFromBody(body: AgentInvocationStreamBody): AgentChatMessageTrig
   const text = typeof body.text === "string" ? body.text.trim() : ""
   if (text) return [messageFromText(text)]
   throw new Response("Missing Agent Dev Loop message text.", { status: 400 })
+}
+
+function sampleNames(trigger: ResolvedAgentTriggerDefinition): string[] {
+  return Object.keys(trigger.dev?.samples || {})
+}
+
+function selectedTrigger(entry: AgentInvocationStreamEntry, body: AgentInvocationStreamBody): ResolvedAgentTriggerDefinition | undefined {
+  if (typeof body.trigger === "string" && body.trigger.trim()) {
+    const trigger = entry.triggers[body.trigger]
+    if (!trigger) throw new Response(`Unknown Agent Trigger: ${body.trigger}`, { status: 404 })
+    return trigger
+  }
+  if (typeof body.sample === "string" && body.sample.trim()) {
+    const matches = Object.values(entry.triggers).filter(trigger => sampleNames(trigger).includes(body.sample!))
+    if (matches.length === 1) return matches[0]
+    if (!matches.length) throw new Response(`Unknown Agent Dev Sample: ${body.sample}`, { status: 404 })
+    throw new Response(`Ambiguous Agent Dev Sample: ${body.sample}. Pass trigger.`, { status: 400 })
+  }
+  return entry.triggers["chat.message"]
+}
+
+function triggerInput(trigger: ResolvedAgentTriggerDefinition, body: AgentInvocationStreamBody, signal: AbortSignal, run: AgentRunMetadata, timeout: number): unknown {
+  if (typeof body.sample === "string" && body.sample.trim()) {
+    const samples = trigger.dev?.samples || {}
+    if (!Object.prototype.hasOwnProperty.call(samples, body.sample)) {
+      throw new Response(`Unknown Agent Dev Sample: ${body.sample}`, { status: 404 })
+    }
+    return samples[body.sample]
+  }
+  if ("input" in body) return body.input
+  if (trigger.id !== "chat.message") {
+    throw new Response("Missing Agent Trigger input. Pass input or sample.", { status: 400 })
+  }
+  return {
+    abortSignal: signal,
+    messages: messagesFromBody(body),
+    run,
+    timeout,
+    user: {
+      id: "dev",
+      name: "ViteHub Dev Loop",
+    },
+    ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}),
+    ...(isRecord(body.meta) ? { meta: body.meta } : {}),
+  } satisfies AgentChatMessageTriggerInput
 }
 
 function parseBody(rawBody: string): AgentInvocationStreamBody {
@@ -229,7 +278,12 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
   const entries = await discoverStreamAgents(server)
   if (req.method === "GET") {
     return Response.json({
-      agents: entries.map(entry => ({ name: entry.name, triggers: entry.trigger ? [entry.trigger] : [] })),
+      agents: entries.map(entry => ({
+        name: entry.name,
+        samples: Object.fromEntries(Object.entries(entry.triggers)
+          .flatMap(([id, trigger]) => sampleNames(trigger).map(sample => [`${id}.${sample}`, { sample, trigger: id }]))),
+        triggers: Object.keys(entry.triggers),
+      })),
       root: server.config.root,
     })
   }
@@ -238,25 +292,13 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
   const entry = selectedEntry(entries, body.agent)
   const run = body.run || devRun(entry.name)
   const context = createRuntimeContext(server, req, run)
-  const messages = messagesFromBody(body)
   const timeout = typeof body.timeout === "number" && Number.isFinite(body.timeout) ? body.timeout : 90_000
 
   return createAgentInvocationStreamResponse(async (emit, signal) => {
     let output: Awaited<ReturnType<typeof streamAgent>>
-    if (entry.trigger) {
-      const input = {
-        abortSignal: signal,
-        messages,
-        run,
-        timeout,
-        user: {
-          id: "dev",
-          name: "ViteHub Dev Loop",
-        },
-        ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}),
-        ...(isRecord(body.meta) ? { meta: body.meta } : {}),
-      } satisfies AgentChatMessageTriggerInput
-      output = await streamAgentTrigger(entry.agent as never, context as never, entry.trigger, input, {
+    const trigger = selectedTrigger(entry, body)
+    if (trigger) {
+      output = await streamAgentTrigger(entry.agent as never, context as never, trigger.id, triggerInput(trigger, body, signal, run, timeout), {
         async onInvocation(invocation) {
           if (!signal.aborted) emit({ agent: entry.name, run: invocation.run, trigger: invocation.trigger.id, type: "start" })
         },
@@ -264,6 +306,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
       })
     }
     else {
+      const messages = messagesFromBody(body)
       if (!signal.aborted) emit({ agent: entry.name, run, type: "start" })
       output = await streamAgent(entry.agent as never, context as never, {
         abortSignal: signal,

@@ -443,6 +443,74 @@ describe("agent chat capability discovery", () => {
     expect(abortSignal).toBeInstanceOf(AbortSignal)
   })
 
+  it("replays Agent Invocation Stream dev samples from message-shaped channels", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-sample-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { webChat } = await import("../src/channels.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const headers = {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    }
+    const agent = defineAgent({
+      channels: {
+        portal: webChat({
+          dev: {
+            samples: {
+              purchaseOrderQuestion: {
+                messages: [{
+                  id: "sample-user-1",
+                  parts: [{ text: "Review purchase order 42", type: "text" }],
+                  role: "user",
+                }],
+              },
+            },
+          },
+        }),
+      },
+      run: ({ messages }) => `sample ${getMessageText(messages[0]!)}`,
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const discovery = await invokeMiddleware(handlers[0]!, {}, agentInvocationStreamRoute, {
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    }, "GET")
+    expect(JSON.parse(discovery.body)).toMatchObject({
+      agents: [{
+        name: "support",
+        samples: {
+          "chat.message.purchaseOrderQuestion": {
+            sample: "purchaseOrderQuestion",
+            trigger: "chat.message",
+          },
+        },
+        triggers: ["chat.message"],
+      }],
+    })
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "support",
+      sample: "purchaseOrderQuestion",
+    }, agentInvocationStreamRoute, headers)
+    const events = response.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+
+    expect(events).toEqual([
+      expect.objectContaining({ agent: "support", trigger: "chat.message", type: "start" }),
+      { text: "sample Review purchase order 42", type: "text-delta" },
+      { type: "finish" },
+      { type: "done" },
+    ])
+  })
+
   it("serves plain Agent Definitions from the Agent Invocation Stream endpoint", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-plain-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

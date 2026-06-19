@@ -97,6 +97,40 @@ describe("agent CLI", () => {
     })
   })
 
+  it("replays an Agent Trigger dev sample without chat text", async () => {
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "review", trigger: "github.webhook", type: "start" },
+          { text: "summary", type: "text-delta" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ name: "review", samples: { "github.webhook.summaryComment": { sample: "summaryComment", trigger: "github.webhook" } }, triggers: ["github.webhook"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["--agent", "review", "--trigger", "github.webhook", "--sample", "summaryComment"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr: stream(),
+      stdout: stream(),
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(0)
+    const post = fetchAgentStream.mock.calls.find(([, init]) => init?.method === "POST")
+    expect(JSON.parse(String(post?.[1]?.body))).toEqual({
+      agent: "review",
+      sample: "summaryComment",
+      trigger: "github.webhook",
+    })
+  })
+
   it("surfaces Agent Dev Loop approval requests", async () => {
     const stderr = stream()
     const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {

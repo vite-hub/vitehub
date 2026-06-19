@@ -72,6 +72,7 @@ export async function resolveAgentTriggers<
       triggers[id] = {
         capabilityId: capability.id,
         definition: trigger as never,
+        dev: trigger.dev,
         devtools: trigger.devtools,
         id,
         input: trigger.input,
