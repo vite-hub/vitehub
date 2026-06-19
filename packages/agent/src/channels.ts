@@ -12,6 +12,7 @@ export type {
 
 export interface AgentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapter?: AgentChannelDefinition<TRuntimeConfig>["adapter"]
+  dev?: AgentChannelDefinition<TRuntimeConfig>["dev"]
   identity?: AgentChannelDefinition<TRuntimeConfig>["identity"]
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   webhooks?: AgentChannelDefinition<TRuntimeConfig>["webhooks"]

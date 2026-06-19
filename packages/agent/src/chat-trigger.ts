@@ -176,6 +176,9 @@ function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
   options: AgentChatOptions<TRuntimeConfig> = {},
 ): AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, AgentChatMessageTriggerInput> {
   return {
+    ...(options.dev?.samples
+      ? { dev: { samples: options.dev.samples as Record<string, AgentChatMessageTriggerInput> } }
+      : {}),
     devtools: true,
     input: "ui-message[]",
     output: "ui-message-stream",

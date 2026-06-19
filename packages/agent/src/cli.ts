@@ -55,8 +55,11 @@ interface ParsedEvalArgs {
 interface ParsedDevArgs {
   agent?: string
   help: boolean
+  input?: unknown
   message?: string
+  sample?: string
   timeout?: number
+  trigger?: string
   url: string
 }
 
@@ -65,7 +68,7 @@ interface AgentDevCliOptions {
 }
 
 interface AgentDevDiscovery {
-  agents?: Array<{ name?: unknown }>
+  agents?: Array<{ name?: unknown, samples?: unknown, triggers?: unknown }>
   root?: unknown
 }
 
@@ -91,15 +94,18 @@ function writeEvalUsage(context: AgentCliContext): void {
 
 function writeDevUsage(context: AgentCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent dev [message...] [--agent <name>] [--url <url>] [--timeout <ms>]",
+    "Usage: vitehub agent dev [message...] [--agent <name>] [--trigger <id>] [--sample <name>] [--input <json>] [--url <url>] [--timeout <ms>]",
     "",
     "Talk to a discovered Agent through a running Vite Development Server.",
     "",
     "Options:",
-    "  --agent <name>  Agent Dev Loop Target. Required when multiple Agents are compatible.",
-    "  --url <url>     Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
-    "  --timeout <ms>  Agent Invocation timeout. Defaults to 90000.",
-    "  -h, --help      Show this help.",
+    "  --agent <name>   Agent Dev Loop Target. Required when multiple Agents are compatible.",
+    "  --trigger <id>   Agent Trigger to invoke. Defaults to chat.message when available.",
+    "  --sample <name>  Agent Trigger dev sample to replay.",
+    "  --input <json>   Raw Agent Trigger input JSON for one-shot invocations.",
+    "  --url <url>      Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
+    "  --timeout <ms>   Agent Invocation timeout. Defaults to 90000.",
+    "  -h, --help       Show this help.",
     "",
   ].join("\n"))
 }
@@ -257,6 +263,33 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
       parsed.agent = arg.slice("--agent=".length)
       continue
     }
+    if (arg === "--trigger") {
+      parsed.trigger = readOptionValue(args, index, arg)
+      index++
+      continue
+    }
+    if (arg.startsWith("--trigger=")) {
+      parsed.trigger = arg.slice("--trigger=".length)
+      continue
+    }
+    if (arg === "--sample") {
+      parsed.sample = readOptionValue(args, index, arg)
+      index++
+      continue
+    }
+    if (arg.startsWith("--sample=")) {
+      parsed.sample = arg.slice("--sample=".length)
+      continue
+    }
+    if (arg === "--input") {
+      parsed.input = JSON.parse(readOptionValue(args, index, arg))
+      index++
+      continue
+    }
+    if (arg.startsWith("--input=")) {
+      parsed.input = JSON.parse(arg.slice("--input=".length))
+      continue
+    }
     if (arg === "--url" || arg === "--server") {
       parsed.url = readOptionValue(args, index, arg)
       index++
@@ -374,14 +407,17 @@ async function sendDevMessage(
   fetchImpl: typeof fetch,
   signal?: AbortSignal,
 ): Promise<UIMessageLike[] | undefined> {
-  const messages = [...history, userMessage(text, history.length)]
+  const messages = text ? [...history, userMessage(text, history.length)] : history
   let response: Response
   try {
     response = await fetchImpl(url, {
       body: JSON.stringify({
         agent,
-        messages,
+        ...(messages.length ? { messages } : {}),
+        ...("input" in parsed ? { input: parsed.input } : {}),
+        ...(parsed.sample ? { sample: parsed.sample } : {}),
         ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
+        ...(parsed.trigger ? { trigger: parsed.trigger } : {}),
       }),
       headers: {
         "content-type": "application/json",
@@ -444,7 +480,7 @@ async function sendDevMessage(
   }
   context.stdout.write("\n")
   if (!output && needsApproval) return
-  return [...messages, assistantMessage(output, messages.length)]
+  return messages.length || output ? [...messages, assistantMessage(output, messages.length)] : []
 }
 
 async function runInteractiveDevLoop(
@@ -520,8 +556,8 @@ export async function runAgentDevCli(
   const target = await readDiscovery(parsed, context, fetchImpl)
   if (!target) return 1
 
-  if (parsed.message) {
-    return await sendDevMessage(target.url, target.agent, parsed.message, [], parsed, context, fetchImpl, new AbortController().signal) ? 0 : 1
+  if (parsed.message || parsed.sample || "input" in parsed) {
+    return await sendDevMessage(target.url, target.agent, parsed.message || "", [], parsed, context, fetchImpl, new AbortController().signal) ? 0 : 1
   }
   if (!process.stdin.isTTY) {
     context.stderr.write("Pass a message or run in an interactive terminal.\n")
