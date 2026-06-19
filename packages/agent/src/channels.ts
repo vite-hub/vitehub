@@ -9,6 +9,7 @@ import type {
   AgentChannelDeliveryFinishEffect,
   AgentChatWebhookRegistrationDefinition,
   AgentFinishEvent,
+  AgentRunInput,
   AgentTriggerDefinition,
   AgentMessageChannelSettings,
   AgentTriggerInvokeResult,
@@ -162,7 +163,36 @@ export interface GitHubPullRequestRunContext {
   }
 }
 
+export interface GitHubPullRequestCommentCommandContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends AgentCallbackContext<TRuntimeConfig> {
+  command: GitHubPullRequestCommand
+  input: unknown
+  payload: GitHubIssueCommentPayload
+  pullRequest: GitHubPullRequestRunContext
+}
+
+export type GitHubPullRequestCommentCommandResult =
+  | Partial<AgentRunInput>
+  | Response
+  | boolean
+  | void
+
+export type GitHubPullRequestCommentCommandHandler<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> = (
+  context: GitHubPullRequestCommentCommandContext<TRuntimeConfig>,
+) => MaybePromise<GitHubPullRequestCommentCommandResult>
+
+export type GitHubPullRequestCommentCommands<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  Record<string, true | GitHubPullRequestCommentCommandHandler<TRuntimeConfig>>
+
+declare global {
+  interface ViteHubWorkspaceSourceResolutionContextMap {
+    github: GitHubPullRequestCommand
+    pullRequest: GitHubPullRequestRunContext
+  }
+}
+
 export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  commands?: GitHubPullRequestCommentCommands<TRuntimeConfig>
   dev?: AgentTriggerDefinition<TRuntimeConfig>["dev"]
   ignored?: (reason: string) => Response
   origin?: string
@@ -344,6 +374,53 @@ function githubPullRequestRunContext(
           }
         : {}),
     },
+  }
+}
+
+function pullRequestCommandName(command: GitHubPullRequestCommand): string {
+  const normalized = command.command.toLowerCase()
+  return normalized.startsWith("/") ? normalized.slice(1) : normalized
+}
+
+async function resolvePullRequestCommentCommand<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentCallbackContext<TRuntimeConfig>,
+  input: unknown,
+  payload: GitHubIssueCommentPayload,
+  command: GitHubPullRequestCommand,
+  pullRequest: GitHubPullRequestRunContext,
+  options: GitHubPullRequestCommentEventOptions<TRuntimeConfig>,
+): Promise<GitHubPullRequestCommentCommandResult> {
+  const commands = options.commands
+  if (!commands) return true
+  const name = pullRequestCommandName(command)
+  const handler = commands[name] || commands[`/${name}`] || commands[command.command]
+  if (!handler) return options.ignored?.("not_command") || ignored("not_command")
+  if (handler === true) return true
+  return await handler({
+    ...context,
+    command,
+    input,
+    payload,
+    pullRequest,
+  })
+}
+
+function mergePullRequestCommandInput(
+  command: GitHubPullRequestCommand,
+  pullRequest: GitHubPullRequestRunContext,
+  result: GitHubPullRequestCommentCommandResult,
+): AgentRunInput {
+  const input = isRecord(result) && !(result instanceof Response) ? result as Partial<AgentRunInput> : {}
+  return {
+    ...input,
+    context: {
+      ...(isRecord(input.context) ? input.context : {}),
+      github: command,
+      pullRequest,
+    },
+    prompt: input.prompt === undefined && input.message === undefined && input.messages === undefined
+      ? command.body
+      : input.prompt,
   }
 }
 
@@ -727,7 +804,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
   return {
     webhook: {
       ...(options.dev ? { dev: options.dev } : {}),
-      invoke(context, input): AgentTriggerInvokeResult {
+      async invoke(context, input): Promise<AgentTriggerInvokeResult> {
         const payload = inputPayloadOrBody(input)
         const command = githubPullRequestCommandFromInput(isRecord(input) ? { ...input, payload } : { payload })
         if (!payload) return options.ignored?.("missing_payload") || ignored("missing_payload")
@@ -736,16 +813,13 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           ...options,
           threadId: options.threadId || maybeString(payload.issue?.pull_request?.html_url) || maybeString(payload.issue?.html_url),
         }, payload)
+        const commandResult = await resolvePullRequestCommentCommand(context, input, payload, command, pullRequest, options)
+        if (commandResult instanceof Response) return commandResult
+        if (commandResult === false) return options.ignored?.("command_rejected") || ignored("command_rejected")
         const finishEffects = githubPullRequestCommentFinishEffects(options)
         return {
           ...(finishEffects ? { delivery: { finishEffects } } : {}),
-          input: {
-            context: {
-              github: command,
-              pullRequest,
-            },
-            prompt: command.body,
-          },
+          input: mergePullRequestCommandInput(command, pullRequest, commandResult),
           run: {
             ...pullRequest.run,
             channelId: context.trigger.channelId,

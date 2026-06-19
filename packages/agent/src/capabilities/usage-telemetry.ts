@@ -42,8 +42,18 @@ export interface UsageTelemetryOptions {
 }
 
 export interface UsageTelemetrySummaryOptions {
+  format?: UsageTelemetrySummaryFormatter
   subject?: string
 }
+
+export interface UsageTelemetrySummaryFormatContext {
+  subject: string
+}
+
+export type UsageTelemetrySummaryFormatter = (
+  record: AgentUsageRecord,
+  context: UsageTelemetrySummaryFormatContext,
+) => MaybePromise<string | null | undefined>
 
 export interface StaticModelPrice {
   currency?: string
@@ -267,8 +277,12 @@ function normalizeUsageSummaryOptions(summary: UsageTelemetryOptions["summary"])
   return typeof summary === "object" && summary !== null ? summary : {}
 }
 
-function formatUsageSummary(record: AgentUsageRecord, options: UsageTelemetrySummaryOptions = {}): string | undefined {
+async function formatUsageSummary(record: AgentUsageRecord, options: UsageTelemetrySummaryOptions = {}): Promise<string | undefined> {
   const subject = typeof options.subject === "string" && options.subject.trim() ? options.subject.trim() : "This invocation"
+  if (options.format) {
+    const summary = await options.format(record, { subject })
+    return summary || undefined
+  }
   const cost = formatUsageCost(record.cost)
   const tokens = formatUsageTokens(record.usage)
   const model = record.model?.id
@@ -279,11 +293,11 @@ function formatUsageSummary(record: AgentUsageRecord, options: UsageTelemetrySum
   if (run) return `${subject} ran ${run}.`
 }
 
-function usageRecordForFinish(
+async function usageRecordForFinish(
   record: unknown,
   event: AgentFinishEvent,
   options: UsageTelemetryOptions,
-): AgentUsageRecord | undefined {
+): Promise<AgentUsageRecord | undefined> {
   if (!isRecord(record)) return
   const usageRecord = record as AgentUsageRecord
   const summaryOptions = normalizeUsageSummaryOptions(options.summary)
@@ -298,7 +312,7 @@ function usageRecordForFinish(
           durationMs,
         },
       }
-  const summary = formatUsageSummary(withDuration, summaryOptions)
+  const summary = await formatUsageSummary(withDuration, summaryOptions)
   return summary ? { ...withDuration, summary } : withDuration
 }
 

@@ -2,7 +2,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, defineAgentInvoker, type AgentActor, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDefinition, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
 import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
-import { defineChannel, github, http, stream, teams, telegram, webChat } from "../src/channels.ts"
+import { defineChannel, github, http, stream, teams, telegram, webChat, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
@@ -108,6 +108,15 @@ describe("agent public types", () => {
         }),
         usageTelemetry({ summary: true }),
         usageTelemetry({ summary: { subject: "Review run" } satisfies UsageTelemetrySummaryOptions }),
+        usageTelemetry({
+          summary: {
+            format(record, { subject }) {
+              expectTypeOf(record.usage?.totalTokens).toEqualTypeOf<number | undefined>()
+              expectTypeOf(subject).toEqualTypeOf<string>()
+              return "usage"
+            },
+          },
+        }),
         chatTitle({
           model: () => ({}),
           template({ fallback, maxLength, text, trigger }) {
@@ -451,6 +460,14 @@ describe("agent public types", () => {
           app: true,
           events: {
             pullRequestComments: {
+              commands: {
+                summary({ command, pullRequest }) {
+                  expectTypeOf(command.args).toEqualTypeOf<string>()
+                  expectTypeOf(command.issueNumber).toEqualTypeOf<number>()
+                  expectTypeOf(pullRequest).toEqualTypeOf<GitHubPullRequestRunContext>()
+                  return { prompt: `Summarize PR #${pullRequest.pullRequest.number}: ${command.args}` }
+                },
+              },
               dev: { samples: { review: { github: { event: "issue_comment" } } } },
               origin: "github-review",
             },
@@ -518,6 +535,16 @@ describe("agent public types", () => {
       sources: {
         docs: source.file("AGENTS.md"),
         forecastingEngine: source.github({ repo: "acme/forecasting-engine" }),
+        pullRequest: source.github(({ invocation }) => {
+          const pullRequest = invocation.context.get("pullRequest")
+          expectTypeOf(pullRequest).toEqualTypeOf<GitHubPullRequestRunContext | undefined>()
+          if (!pullRequest) return false
+          return {
+            repo: pullRequest.pullRequest.source.repo,
+            ref: pullRequest.pullRequest.source.ref,
+            mount: pullRequest.pullRequest.source.mount,
+          }
+        }),
       },
     }
     type ChatContext = AgentChatRunContext<
