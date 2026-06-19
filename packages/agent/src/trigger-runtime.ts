@@ -103,6 +103,14 @@ function normalizeChannelWebhookRegistrations<TRuntimeConfig extends AgentRuntim
   }))
 }
 
+function capabilityWebhookTriggerForChannel<TRuntimeConfig extends AgentRuntimeConfig>(
+  triggers: Record<string, ResolvedAgentTriggerDefinition<TRuntimeConfig>>,
+  channelId: string,
+  kind: string,
+) {
+  return triggers[`${channelId}.webhook`] || (kind !== channelId ? triggers[`${kind}.webhook`] : undefined)
+}
+
 export async function resolveAgentTriggers<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 >(
@@ -140,6 +148,11 @@ export async function resolveAgentTriggers<
     }
   }
   for (const [channelId, channel] of Object.entries(agentChannelOptions(agent))) {
+    const channelWebhooks = normalizeChannelWebhookRegistrations(channelId, channel.kind, channel.webhooks)
+    const capabilityWebhookTrigger = capabilityWebhookTriggerForChannel(triggers, channelId, channel.kind)
+    if (capabilityWebhookTrigger && channelWebhooks?.length && !capabilityWebhookTrigger.webhooks?.length) {
+      capabilityWebhookTrigger.webhooks = channelWebhooks
+    }
     for (const [name, trigger] of Object.entries(channel.triggers || {})) {
       assertTriggerName(name, `Channel "${channelId}"`)
       const id = `${channelId}.${name}` as const
@@ -165,7 +178,7 @@ export async function resolveAgentTriggers<
         name,
         output: trigger.output,
         source: "channel",
-        webhooks: trigger.webhooks || normalizeChannelWebhookRegistrations(channelId, channel.kind, channel.webhooks),
+        webhooks: trigger.webhooks || channelWebhooks,
       }
     }
   }

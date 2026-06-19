@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, defineAgentInvoker, type AgentActor, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDefinition, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
-import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
+import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, githubPullRequestCommands, inputCommands, kv, mcp, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, stream, teams, telegram, webChat } from "../src/channels.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -434,22 +434,23 @@ describe("agent public types", () => {
           context.delivery.effect({ intent: "started", kind: "reaction" })
           context.delivery.finishEffect(event => ({ kind: "reply", payload: event.result }))
         },
-      }],
+      }, githubPullRequestCommands({
+        commands: {
+          review: {
+            command: "/review",
+            invoke({ command, payload, pullRequest, run }) {
+              expectTypeOf(command.args).toEqualTypeOf<string>()
+              expectTypeOf(payload.action).toEqualTypeOf<unknown>()
+              expectTypeOf(pullRequest.pullRequest.number).toEqualTypeOf<number>()
+              expectTypeOf(run.channelId).toEqualTypeOf<string | undefined>()
+              return { input: { prompt: command.args }, run }
+            },
+          },
+        },
+      })],
       channels: {
         github: github({
           app: true,
-          commands: {
-            review: {
-              command: "/review",
-              invoke({ command, payload, pullRequest, run }) {
-                expectTypeOf(command.args).toEqualTypeOf<string>()
-                expectTypeOf(payload.action).toEqualTypeOf<unknown>()
-                expectTypeOf(pullRequest.pullRequest.number).toEqualTypeOf<number>()
-                expectTypeOf(run.channelId).toEqualTypeOf<string | undefined>()
-                return { input: { prompt: command.args }, run }
-              },
-            },
-          },
         }),
         portal: http({
           adapter: () => ({}) as never,

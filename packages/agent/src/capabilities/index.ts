@@ -25,6 +25,9 @@ export {
   inputCommands,
 } from "./input-commands.ts"
 export {
+  githubPullRequestCommands,
+} from "./github-pull-request-commands.ts"
+export {
   LlmGateRejectedError,
   llmGate,
 } from "./llm-gate.ts"
@@ -137,6 +140,16 @@ export type {
   AgentChatStateResolver,
   AgentChatWebhookRegistrationDefinition,
 } from "../types.ts"
+export type {
+  GitHubIssueCommentPayload,
+  GitHubPullRequestCommand,
+  GitHubPullRequestCommandInvokeContext,
+  GitHubPullRequestCommandOptions,
+  GitHubPullRequestCommandsOptions,
+  GitHubPullRequestCommandTriggerOptions,
+  GitHubPullRequestRunContext,
+  GitHubPullRequestRunContextOptions,
+} from "./github-pull-request-commands.ts"
 export type {
   ChatSummaryCommandOptions,
   ChatSummaryExecuteInput,
