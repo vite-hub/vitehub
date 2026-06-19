@@ -951,6 +951,31 @@ describe("server helpers", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it("rejects generated GitHub webhooks without configured secrets", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: { webhook: { invoke: () => ({ input: { prompt: "github delivery" } }) } },
+        }),
+      },
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/github", {
+      body: "{}",
+      method: "POST",
+    }), "github")
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toEqual({ error: "[vitehub] Webhook registration \"github\" declares secretHeader \"x-hub-signature-256\" but no secretToken is configured. Set secretToken (from Server Env) or secretToken: false to explicitly disable verification." })
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it("handles signed GitHub channel webhooks without a chat adapter", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
@@ -1201,6 +1226,36 @@ describe("server helpers", () => {
       body: "{}",
       method: "POST",
     }), "http")
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toMatchObject({ message: "Unknown ViteHub agent webhook.", status: 404 })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("does not route ambiguous webhook paths", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        primary: github({
+          triggers: { webhook: { invoke: () => ({ input: { prompt: "primary" } }) } },
+          webhooks: { id: "primary", path: "/api/github/webhook", secretToken: false },
+        }),
+        fallback: github({
+          triggers: { webhook: { invoke: () => ({ input: { prompt: "fallback" } }) } },
+          webhooks: { id: "fallback", path: "/api/github/webhook", secretToken: false },
+        }),
+      },
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/github/webhook", {
+      body: "{}",
+      method: "POST",
+    }))
 
     expect(response.status).toBe(404)
     await expect(response.json()).resolves.toMatchObject({ message: "Unknown ViteHub agent webhook.", status: 404 })
