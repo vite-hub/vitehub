@@ -136,6 +136,22 @@ _Avoid_: Model-selected read provider, search provider requirement
 An allowed origin for a Web Search Capability provider credential.
 _Avoid_: Vite env var, Nitro env var, browser env
 
+**Repository Host Capability**:
+An Official Capability created by `repositoryHost()` for provider-hosted repository collaboration objects such as repository metadata, issues, Change Requests, comments, and read-only check/status signals.
+_Avoid_: gh, Git Capability, Source, Workspace Source, Forge Capability, SCM Capability
+
+**Repository Host Provider**:
+The configured repository hosting service behind a Repository Host Capability, such as GitHub, GitLab, Bitbucket, Forgejo, Gitea, Gerrit, SourceHut, or Azure DevOps.
+_Avoid_: Git provider, SCM provider, platform
+
+**Repository Host Client**:
+The app-owned or runtime-provided adapter that executes normalized Repository Host Capability read and write requests against one Repository Host Provider.
+_Avoid_: Provider SDK passthrough, raw API client, gh wrapper
+
+**Change Request**:
+A provider-hosted proposed repository change, called a pull request by GitHub and Bitbucket and a merge request by GitLab.
+_Avoid_: PR as canonical term, MR as canonical term, change
+
 **Transcription**:
 An Official Capability that turns audio input parts into transcript text before an Agent runs.
 _Avoid_: Voice Input, audio support, voice plugin
@@ -196,7 +212,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 
 - An Agent attaches zero or more **Capabilities**.
 - Capabilities attach above the **Agent Driver** in the Agent Definition shape.
-- Official helpers such as `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `access()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `llmRoute()`, `llmGate()`, and `rateLimit()` create **Capability Definitions**.
+- Official helpers such as `skills()`, `transcribe()`, `mcp()`, `workspaceShell()`, `access()`, `sandbox()`, `kv()`, `blob()`, `db()`, `webSearch()`, `repositoryHost()`, `llmRoute()`, `llmGate()`, and `rateLimit()` create **Capability Definitions**.
 - Official Capability factories and Capability-owned helper functions are imported from `@vite-hub/agent/capabilities`, not from the root `@vite-hub/agent` Agent Package entry.
 - Channel Kind helpers are not Capability factories and are imported from `@vite-hub/agent/channels`.
 - Official helpers should map to product abilities rather than implementation mechanisms.
@@ -285,6 +301,10 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A **Web Read Result** defaults to normalized Markdown content, with plain text available when requested.
 - **Model Web Search Mode** is model-execution-gated; TanStack AI is not supported for model mode in the first version.
 - A tool search provider and **Web Search Mode** are separate axes; provider is only used by tool-based **Web Search Mode**.
+- The **Repository Host Capability** is for provider-hosted collaboration objects and externally visible collaboration effects, not raw git checkout/history, `gh` command execution, repository file Source retrieval, or arbitrary provider API passthrough.
+- A **Repository Host Client** preserves provider-native ids, URLs, and raw metadata behind normalized Repository Host Capability requests.
+- **Change Request** is the cross-provider term for pull-request and merge-request shaped objects; provider-native names stay in provider metadata.
+- Repository Host Capability write mode starts with narrow comment and reaction effects; approval, merge, branch update, status/check write, issue edit, repository settings, content, secrets, workflow, and raw API mutations need separate future design.
 - Chat History is not a standalone **Capability** in the current stack.
 - Agent Memory is separate from Chat History and Chat Sessions.
 - User-defined Capabilities use the same **Capability Definition** shape as official helpers.

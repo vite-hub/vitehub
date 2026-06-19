@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, defineAgentInvoker, type AgentChannelDefinition, type AgentDriver, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
-import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, subagents, transcribe, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
+import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, inputCommands, kv, mcp, repositoryHost, sandbox, schedule, skills, subagents, transcribe, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { http, teams, webChat } from "../src/channels.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -9,7 +9,7 @@ import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentUsageRecord } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import { source } from "@vite-hub/workspace"
-import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatPlatformResolver, AgentChatRunContext, FetchCapabilityToolOptions, TranscriptionResult } from "../src/capabilities.ts"
+import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatPlatformResolver, AgentChatRunContext, FetchCapabilityToolOptions, RepositoryHostClient, TranscriptionResult } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
@@ -70,6 +70,26 @@ describe("agent public types", () => {
             remote: remoteMcpServer({ url: "https://example.com/mcp" }),
             stdio: stdioMcpServer({ command: "node", args: ["server.js"] }),
           },
+        }),
+        repositoryHost({
+          client: ({ invoker }) => {
+            expectTypeOf(invoker.id).toEqualTypeOf<string>()
+            return {
+              provider: "github",
+              read(request) {
+                expectTypeOf(request.operation).toEqualTypeOf<"repository" | "changeRequests" | "changeRequest" | "issues" | "issue" | "comments" | "checks" | "statuses">()
+                expectTypeOf(request.target.repository).toEqualTypeOf<string>()
+                return request
+              },
+              write(request) {
+                expectTypeOf(request.operation).toEqualTypeOf<"comment" | "reaction">()
+                return request
+              },
+            } satisfies RepositoryHostClient
+          },
+          mode: "write",
+          policy: "require-approval",
+          provider: "github",
         }),
         skills(),
         skills({ shellExecution: "read" }),
