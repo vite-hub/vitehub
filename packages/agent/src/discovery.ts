@@ -36,9 +36,9 @@ function isWorkspaceAgentConfig(source: string): boolean {
 
 function isInsideConfiguredAgent(file: string, configuredAgentDirs: Set<string>): boolean {
   const directory = dirname(file)
+  if (configuredAgentDirs.has(directory) && indexDefinitionPattern.test(basename(file))) return false
   for (const agentDir of configuredAgentDirs) {
     const path = relative(agentDir, directory)
-    if (path === "" && indexDefinitionPattern.test(basename(file))) return false
     if (path === "" || (!path.startsWith("..") && path !== "..")) return true
   }
   return false
