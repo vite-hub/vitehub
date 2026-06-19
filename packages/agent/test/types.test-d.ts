@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, defineAgentInvoker, type AgentActor, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDefinition, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
-import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, inputCommands, kv, mcp, sandbox, schedule, skills, subagents, transcribe, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
+import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, sandbox, schedule, skills, subagents, transcribe, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, stream, teams, telegram, webChat } from "../src/channels.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -54,6 +54,9 @@ describe("agent public types", () => {
             } satisfies FetchCapabilityToolOptions<{ region: string }, { status: string }, string>,
           },
         }),
+        git(),
+        git({ mode: "read" }),
+        git({ mode: "write", policy: "require-approval" }),
         inputCommands({
           commands: {
             review: {
@@ -128,6 +131,9 @@ describe("agent public types", () => {
 
     // @ts-expect-error skills shell execution mode must be read or write
     skills({ shellExecution: "allow" })
+
+    // @ts-expect-error git mode must be read or write
+    git({ mode: "remote-write" })
 
     const invocationContext: AgentInvocationContextStore = {
       entries: () => new Map<string, unknown>().entries(),
