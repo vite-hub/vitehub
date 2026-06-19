@@ -450,6 +450,8 @@ describe("agent public types", () => {
             run({ args, input }) {
               expectTypeOf(args).toEqualTypeOf<string>()
               expectTypeOf(input.context?.github).toEqualTypeOf<unknown>()
+              const pullRequest = input.context?.pullRequest as GitHubPullRequestRunContext | undefined
+              expectTypeOf(pullRequest).toEqualTypeOf<GitHubPullRequestRunContext | undefined>()
               return { prompt: args }
             },
           },
@@ -460,14 +462,6 @@ describe("agent public types", () => {
           app: true,
           events: {
             pullRequestComments: {
-              commands: {
-                summary({ command, pullRequest }) {
-                  expectTypeOf(command.args).toEqualTypeOf<string>()
-                  expectTypeOf(command.issueNumber).toEqualTypeOf<number>()
-                  expectTypeOf(pullRequest).toEqualTypeOf<GitHubPullRequestRunContext>()
-                  return { prompt: `Summarize PR #${pullRequest.pullRequest.number}: ${command.args}` }
-                },
-              },
               dev: { samples: { review: { github: { event: "issue_comment" } } } },
               origin: "github-review",
             },

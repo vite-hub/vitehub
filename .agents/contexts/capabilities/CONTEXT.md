@@ -254,7 +254,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - Standard Schema validation is the preferred runtime boundary for app-owned invocation metadata that an official **Capability** directly consumes.
 - An **Input Command** is a **Capability** concern resolved before model-facing Agent behavior.
 - An **Input Command** owns command admission and input shaping, not model-facing task instructions.
-- Command-only **Channel Delivery Admission** should reject unsupported command-shaped delivery before the main **Agent Invocation** instead of changing generic **Input Command** unmatched defaults.
+- Command-shaped **Channel Delivery Admission** should preserve the explicit input and let configured **Input Commands** accept, reject, or reshape it before **Agent Driver** execution.
 - A **Host Command** is not an **Input Command** and is outside the Capability Lifecycle.
 - A **Pre-Invocation Decision** is an internal primitive used by Capabilities before the main Agent Invocation.
 - A **Pre-Invocation Decision** can expose a typed invocation context value, reject the invocation, record an inspectable decision, or select Chat Session behavior.

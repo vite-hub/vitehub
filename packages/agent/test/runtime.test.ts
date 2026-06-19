@@ -1591,8 +1591,9 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("supports GitHub PR comment command admission and write-back effects", async () => {
+  it("feeds GitHub PR comment commands through input commands and write-back effects", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
     const { github } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
@@ -1646,6 +1647,47 @@ describe("agent message protocol", () => {
           context.delivery.effect({ kind: "reply", payload: "Review queued." })
           context.delivery.effect({ intent: "completed", kind: "status", metadata: { description: "Review completed." } })
         },
+      }), inputCommands({
+        commands: {
+          review: {
+            description: "Review a pull request.",
+            run({ args, input }) {
+              const command = input.context?.github as Record<string, unknown>
+              const pullRequest = input.context?.pullRequest as Record<string, unknown>
+              expect(command.actor).toMatchObject({ association: "MEMBER" })
+              expect(pullRequest).toMatchObject({
+                pullRequest: {
+                  htmlUrl: "https://github.test/vite-hub/vitehub/pull/42",
+                  labels: ["agent"],
+                  number: 42,
+                  source: {
+                    mount: "vitehub",
+                    ref: "refs/pull/42/head",
+                    repo: "vite-hub/vitehub",
+                  },
+                  title: "Improve review commands",
+                },
+                run: {
+                  messageId: "99",
+                  origin: "github-review",
+                  runId: "delivery-1",
+                  threadId: "https://github.test/vite-hub/vitehub/pull/42",
+                },
+                trigger: {
+                  comment: {
+                    body: "/review please",
+                    htmlUrl: "https://github.test/vite-hub/vitehub/pull/42#issuecomment-99",
+                  },
+                  event: "issue_comment",
+                  sender: { login: "onmax" },
+                },
+              })
+              return {
+                prompt: `Review PR #${command.issueNumber}: ${args}`,
+              }
+            },
+          },
+        },
       })],
       channels: {
         github: github({
@@ -1659,41 +1701,6 @@ describe("agent message protocol", () => {
           },
           events: {
             pullRequestComments: {
-              commands: {
-                review({ command, pullRequest }) {
-                  expect(command.actor.association).toBe("MEMBER")
-                  expect(pullRequest).toMatchObject({
-                    pullRequest: {
-                      htmlUrl: "https://github.test/vite-hub/vitehub/pull/42",
-                      labels: ["agent"],
-                      number: 42,
-                      source: {
-                        mount: "vitehub",
-                        ref: "refs/pull/42/head",
-                        repo: "vite-hub/vitehub",
-                      },
-                      title: "Improve review commands",
-                    },
-                    run: {
-                      messageId: "99",
-                      origin: "github-review",
-                      runId: "delivery-1",
-                      threadId: "https://github.test/vite-hub/vitehub/pull/42",
-                    },
-                    trigger: {
-                      comment: {
-                        body: "/review please",
-                        htmlUrl: "https://github.test/vite-hub/vitehub/pull/42#issuecomment-99",
-                      },
-                      event: "issue_comment",
-                      sender: { login: "onmax" },
-                    },
-                  })
-                  return {
-                    prompt: `Review PR #${command.issueNumber}: ${command.args}`,
-                  }
-                },
-              },
               origin: "github-review",
             },
           },
@@ -1749,24 +1756,28 @@ describe("agent message protocol", () => {
 
   it("handles unauthorized GitHub PR comment commands without running the agent", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
     const { github } = await import("../src/channels.ts")
-    const commandRun = vi.fn(({ command }) => {
-      return command.actor.association === "MEMBER"
+    const commandRun = vi.fn(({ input }) => {
+      const pullRequest = input.context?.pullRequest as { trigger?: { actor?: { association?: string } } } | undefined
+      return pullRequest?.trigger?.actor?.association === "MEMBER"
         ? { prompt: "unexpected" }
         : Response.json({ accepted: false, ok: true, reason: "unauthorized" })
     })
     const run = vi.fn(() => "unexpected")
     const agent = defineAgent({
+      capabilities: [inputCommands({
+        commands: {
+          review: {
+            description: "Review a pull request.",
+            run: commandRun,
+          },
+        },
+      })],
       channels: {
         github: github({
           app: { webhookSecret: false },
-          events: {
-            pullRequestComments: {
-              commands: {
-                review: commandRun,
-              },
-            },
-          },
+          events: { pullRequestComments: true },
         }),
       },
       run,
@@ -1804,19 +1815,23 @@ describe("agent message protocol", () => {
 
   it("ignores unsupported GitHub PR comment commands without running the agent", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
     const { github } = await import("../src/channels.ts")
     const run = vi.fn(() => "unexpected")
     const agent = defineAgent({
+      capabilities: [inputCommands({
+        commands: {
+          summary: {
+            description: "Summarize a pull request.",
+            run: () => "unexpected",
+          },
+        },
+        unmatched: () => Response.json({ accepted: false, ok: true, reason: "not_command" }),
+      })],
       channels: {
         github: github({
           app: { webhookSecret: false },
-          events: {
-            pullRequestComments: {
-              commands: {
-                summary: true,
-              },
-            },
-          },
+          events: { pullRequestComments: true },
         }),
       },
       run,
