@@ -202,6 +202,19 @@ describe("agent discovery", () => {
     ])
   })
 
+  it("discovers nested agents named workspace when no parent agent owns the source root", async () => {
+    const root = await createTempRoot("vitehub-agent-nested-workspace-")
+    await mkdir(join(root, "server", "agents", "team", "workspace"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "team", "workspace", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+
+    expect(discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toEqual([
+      expect.objectContaining({ name: "team/workspace", source: "server-agent-workspace", workspace: "team/workspace" }),
+    ])
+  })
+
   it("throws on duplicate server agent names", async () => {
     const root = await createTempRoot("vitehub-agent-duplicate-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

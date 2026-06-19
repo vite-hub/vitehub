@@ -44,12 +44,18 @@ function isInsideConfiguredAgent(file: string, configuredAgentDirs: Set<string>)
   return false
 }
 
-function isWorkspaceSourceConfig(agent: string): boolean {
-  return agent.split("/").slice(1).includes("workspace")
+function isWorkspaceSourceConfig(file: string, configuredAgentDirs: Set<string>): boolean {
+  const directory = dirname(file)
+  for (const agentDir of configuredAgentDirs) {
+    const path = relative(agentDir, directory).replace(/\\/g, "/")
+    if (!path || path.startsWith("../") || path === "..") continue
+    if (path.split("/")[0] === "workspace") return true
+  }
+  return false
 }
 
 function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefinition[] {
-  const definitions: DiscoveredAgentDefinition[] = []
+  const candidates: DiscoveredAgentDefinition[] = []
 
   const walk = (agentsRoot: string, current: string) => {
     let entries
@@ -72,9 +78,8 @@ function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefin
       const source = readFileSync(file, "utf8")
       const agent = relative(agentsRoot, dirname(file)).replace(/\\/g, "/")
       if (!agent || agent === ".") continue
-      if (isWorkspaceSourceConfig(agent)) continue
       const workspace = isWorkspaceAgentConfig(source)
-      definitions.push({
+      candidates.push({
         handler: file,
         name: agent,
         source: workspace ? "server-agent-workspace" : "server-agents",
@@ -87,7 +92,8 @@ function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefin
     walk(resolve(scanDir, "agents"), resolve(scanDir, "agents"))
   }
 
-  return definitions
+  const configuredAgentDirs = new Set(candidates.map(definition => dirname(definition.handler)))
+  return candidates.filter(definition => !isWorkspaceSourceConfig(definition.handler, configuredAgentDirs))
 }
 
 export function discoverAgentDefinitions(options:
