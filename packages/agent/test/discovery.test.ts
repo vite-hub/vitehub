@@ -250,6 +250,25 @@ describe("agent discovery", () => {
     ]))
   })
 
+  it("discovers nested re-exported file agents below configured agents", async () => {
+    const root = await createTempRoot("vitehub-agent-nested-reexport-agent-")
+    await mkdir(join(root, "server", "agents", "team"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "team", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "prompts.ts"), "export default { system: 'help' }", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "review.ts"), "export { default } from './review-agent'", "utf8")
+
+    const definitions = discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })
+
+    expect(definitions).toHaveLength(2)
+    expect(definitions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "team", source: "server-agent-workspace", workspace: "team" }),
+      expect.objectContaining({ name: "team/review", source: "server-agents" }),
+    ]))
+  })
+
   it("throws on duplicate server agent names", async () => {
     const root = await createTempRoot("vitehub-agent-duplicate-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
