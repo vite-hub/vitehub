@@ -652,7 +652,7 @@ describe("agent chat capability discovery", () => {
   it("refreshes chat devtools workspace metadata after source materialization", async () => {
     const root = await createTempRoot("vitehub-agent-devtools-materialized-source-")
     await mkdir(join(root, "server", "agents", "support"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default {}", "utf8")
+    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
 
     const { chat } = await import("../src/capabilities.ts")
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
@@ -739,7 +739,7 @@ describe("agent chat capability discovery", () => {
   it("materializes resolver-backed lazy sources from the chat devtools file tree", async () => {
     const root = await createTempRoot("vitehub-agent-devtools-click-source-")
     await mkdir(join(root, "server", "agents", "support"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default {}", "utf8")
+    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
 
     const { chat } = await import("../src/capabilities.ts")
     const { defineAgent, withWorkspaceAgentDefaults } = await import("../src/index.ts")
