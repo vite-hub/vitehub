@@ -9,7 +9,7 @@ import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentUsageRecord } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import { source } from "@vite-hub/workspace"
-import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatPlatformResolver, AgentChatRunContext, FetchCapabilityToolOptions, TranscriptionResult } from "../src/capabilities.ts"
+import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatPlatformResolver, AgentChatRunContext, FetchCapabilityToolOptions, TranscriptionResult, UsageTelemetrySummaryOptions } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
@@ -86,6 +86,8 @@ describe("agent public types", () => {
             return "transcript"
           },
         }),
+        usageTelemetry({ summary: true }),
+        usageTelemetry({ summary: { subject: "Review run" } satisfies UsageTelemetrySummaryOptions }),
         chatTitle({
           model: () => ({}),
           template({ fallback, maxLength, text, trigger }) {
@@ -225,11 +227,6 @@ describe("agent public types", () => {
           expectTypeOf(event.extensions.get<AgentUsageRecord>("usage-telemetry")).toEqualTypeOf<AgentUsageRecord | undefined>()
         },
       },
-    })
-
-    usageTelemetry({
-      // @ts-expect-error usage telemetry exposes structured usage only; callers format it in hooks or delivery effects
-      summary: { subject: "This run" },
     })
 
     defineAgent({
