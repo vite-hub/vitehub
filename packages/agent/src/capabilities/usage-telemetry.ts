@@ -38,11 +38,6 @@ export interface UsageTelemetryOptions {
   includeRaw?: boolean
   onUsage?: UsageTelemetryCallback
   pricing?: AgentUsagePricing
-  summary?: boolean | UsageTelemetrySummaryOptions
-}
-
-export interface UsageTelemetrySummaryOptions {
-  subject?: string
 }
 
 export interface StaticModelPrice {
@@ -225,71 +220,6 @@ function removeRawUsage(usage: AgentUsage): AgentUsage {
   return rest
 }
 
-function finiteUsageNumber(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : undefined
-}
-
-function formatUsageNumber(value: number) {
-  return new Intl.NumberFormat("en-US").format(value)
-}
-
-function formatUsageTokens(usage: AgentUsage | undefined) {
-  const input = finiteUsageNumber(usage?.inputTokens)
-  const output = finiteUsageNumber(usage?.outputTokens)
-  const total = finiteUsageNumber(usage?.totalTokens) ?? (input !== undefined || output !== undefined ? (input || 0) + (output || 0) : undefined)
-  if (total === undefined) return
-
-  const totalText = `${formatUsageNumber(total)} tokens`
-  if (input === undefined && output === undefined) return totalText
-  return `${totalText}: ${formatUsageNumber(input || 0)} in / ${formatUsageNumber(output || 0)} out`
-}
-
-function formatUsageCost(cost: AgentUsageCost | undefined) {
-  if (!cost?.amount) return
-  const amount = cost.amount.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "")
-  return cost.currency === "USD" ? `$${amount}` : `${amount} ${cost.currency}`
-}
-
-function formatUsageDuration(durationMs: unknown) {
-  const finite = finiteUsageNumber(durationMs)
-  if (finite === undefined) return
-  return `${(finite / 1000).toFixed(1)}s`
-}
-
-function normalizeUsageSummaryOptions(summary: UsageTelemetryOptions["summary"]): UsageTelemetrySummaryOptions | undefined {
-  if (!summary) return
-  return typeof summary === "object" && summary !== null ? summary : {}
-}
-
-function formatUsageSummary(record: AgentUsageRecord, options: UsageTelemetrySummaryOptions = {}) {
-  const subject = typeof options.subject === "string" && options.subject.trim() ? options.subject.trim() : "This invocation"
-  const cost = formatUsageCost(record.cost)
-  const tokens = formatUsageTokens(record.usage)
-  const model = record.model?.id
-  const duration = formatUsageDuration(record.latency?.durationMs)
-  const run = [model ? `using ${model}` : undefined, duration ? `in ${duration}` : undefined].filter(Boolean).join(" ")
-  if (cost) return `${subject} cost ${record.cost?.estimated ? "about " : ""}${cost}${run ? ` ${run}` : ""}${tokens ? ` (${tokens})` : ""}.`
-  if (tokens) return `${subject} used ${tokens}${run ? ` ${run}` : ""}.`
-  if (run) return `${subject} ran ${run}.`
-}
-
-function usageRecordForFinish(record: AgentUsageRecord | undefined, event: AgentFinishEvent, options: UsageTelemetryOptions): AgentUsageRecord | undefined {
-  if (!record) return
-  const summaryOptions = normalizeUsageSummaryOptions(options.summary)
-  if (!summaryOptions) return record
-
-  const durationMs = finiteUsageNumber(record.latency?.durationMs) ?? finiteUsageNumber(event.invocation.durationMs)
-  const withDuration = durationMs === undefined ? record : {
-    ...record,
-    latency: {
-      ...(isRecord(record.latency) ? record.latency : {}),
-      durationMs,
-    },
-  }
-  const summary = formatUsageSummary(withDuration, summaryOptions)
-  return summary ? { ...withDuration, summary } : withDuration
-}
-
 async function recordUsage(
   result: UnknownRecord,
   options: UsageTelemetryOptions,
@@ -385,7 +315,7 @@ export function usageTelemetry(options: UsageTelemetryOptions = {}): AgentCapabi
     } satisfies UsageTelemetryCapabilityMetadata,
     output(context) {
       context.finish.provide((event: AgentFinishEvent) => isRecord(event.result)
-        ? usageRecordForFinish(event.result.usageRecord as AgentUsageRecord | undefined, event, options)
+        ? event.result.usageRecord as AgentUsageRecord | undefined
         : undefined)
       context.output.render(async (result) => {
         if (isAsyncIterable(result)) return withUsageTelemetryStream(result, options, context.run)
