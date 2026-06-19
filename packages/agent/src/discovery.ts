@@ -92,7 +92,9 @@ function discoverDirectoryAgentConfigs(scanDirs: string[]): DiscoveredAgentDefin
     walk(resolve(scanDir, "agents"), resolve(scanDir, "agents"))
   }
 
-  const configuredAgentDirs = new Set(candidates.map(definition => dirname(definition.handler)))
+  const configuredAgentDirs = new Set(candidates
+    .filter(definition => definition.source === "server-agent-workspace")
+    .map(definition => dirname(definition.handler)))
   return candidates.filter(definition => !isWorkspaceSourceConfig(definition.handler, configuredAgentDirs))
 }
 
