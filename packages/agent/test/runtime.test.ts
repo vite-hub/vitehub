@@ -1278,6 +1278,40 @@ describe("agent message protocol", () => {
     }
   })
 
+  it("exposes Agent Trigger dev samples", async () => {
+    const { entry } = await import("../src/capabilities.ts")
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const agent = {
+      capabilities: [entry({
+        id: "github",
+        triggers: {
+          webhook: {
+            dev: {
+              samples: {
+                summaryComment: { body: "/summary", deliveryId: "delivery-1" },
+              },
+            },
+            invoke: (_context, input: { body: string, deliveryId: string }) => ({
+              input: { prompt: input.body },
+              run: { origin: "github", runId: input.deliveryId },
+            }),
+          },
+        },
+      })],
+      resolve: vi.fn(),
+    }
+
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "github.webhook": {
+        dev: {
+          samples: {
+            summaryComment: { body: "/summary", deliveryId: "delivery-1" },
+          },
+        },
+      },
+    })
+  })
+
   it("exposes chat webhook registration metadata through agent triggers", async () => {
     const { chat } = await import("../src/chat-trigger.ts")
     const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
@@ -1360,6 +1394,16 @@ describe("agent message protocol", () => {
       channels: {
         support: teams({
           adapter,
+          dev: {
+            samples: {
+              supportThread: {
+                messages: [{
+                  parts: [{ text: "Need help with an invoice", type: "text" }],
+                  role: "user",
+                }],
+              },
+            },
+          },
           webhooks: {
             path: "/api/teams/support",
           },
@@ -1389,6 +1433,16 @@ describe("agent message protocol", () => {
     expect(agent.capabilities?.some(capability => capability.id === "chat")).toBe(true)
     await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "chat.message": {
+        dev: {
+          samples: {
+            supportThread: {
+              messages: [{
+                parts: [{ text: "Need help with an invoice", type: "text" }],
+                role: "user",
+              }],
+            },
+          },
+        },
         webhooks: [{
           id: "support",
           method: "POST",

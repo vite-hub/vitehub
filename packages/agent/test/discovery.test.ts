@@ -172,6 +172,26 @@ describe("agent discovery", () => {
     ])
   })
 
+  it("ignores helper files inside configured server agents", async () => {
+    const root = await createTempRoot("vitehub-agent-server-helpers-")
+    await mkdir(join(root, "server", "agents", "chat", "workspace"), { recursive: true })
+    await mkdir(join(root, "server", "agents", "review"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "chat", "access.ts"), "export const access = {}", "utf8")
+    await writeFile(join(root, "server", "agents", "chat", "audience.test.ts"), "export const test = {}", "utf8")
+    await writeFile(join(root, "server", "agents", "chat", "prompts.ts"), "export default { system: 'help' }", "utf8")
+    await writeFile(join(root, "server", "agents", "chat", "workspace", "config.ts"), "export const sources = {}", "utf8")
+    await writeFile(join(root, "server", "agents", "review", "config.ts"), "export default defineAgent({ model })", "utf8")
+
+    expect(discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toEqual([
+      expect.objectContaining({ name: "chat", source: "server-agent-workspace", workspace: "chat" }),
+      expect.objectContaining({ name: "review", source: "server-agents" }),
+    ])
+  })
+
   it("uses folder identity for colocated workspace agents", async () => {
     const root = await createTempRoot("vitehub-agent-workspace-name-")
     await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
@@ -185,11 +205,102 @@ describe("agent discovery", () => {
     ])
   })
 
+  it("discovers nested agents named workspace when no parent agent owns the source root", async () => {
+    const root = await createTempRoot("vitehub-agent-nested-workspace-")
+    await mkdir(join(root, "server", "agents", "team", "workspace"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "team", "workspace", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+
+    expect(discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toEqual([
+      expect.objectContaining({ name: "team/workspace", source: "server-agent-workspace", workspace: "team/workspace" }),
+    ])
+  })
+
+  it("discovers nested agents named workspace below plain config agents", async () => {
+    const root = await createTempRoot("vitehub-agent-plain-parent-workspace-")
+    await mkdir(join(root, "server", "agents", "team", "workspace"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "team", "config.ts"), "export default defineAgent({ run: () => 'ok' })", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "workspace", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+
+    expect(discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toEqual([
+      expect.objectContaining({ name: "team", source: "server-agents", workspace: undefined }),
+      expect.objectContaining({ name: "team/workspace", source: "server-agent-workspace", workspace: "team/workspace" }),
+    ])
+  })
+
+  it("discovers nested file agents below configured agents", async () => {
+    const root = await createTempRoot("vitehub-agent-nested-file-agent-")
+    await mkdir(join(root, "server", "agents", "team"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "team", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "access.ts"), "export const access = {}", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "review.ts"), "export default defineAgent({ model })", "utf8")
+
+    const definitions = discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })
+
+    expect(definitions).toHaveLength(2)
+    expect(definitions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "team", source: "server-agent-workspace", workspace: "team" }),
+      expect.objectContaining({ name: "team/review", source: "server-agents" }),
+    ]))
+  })
+
+  it("discovers nested re-exported file agents below configured agents", async () => {
+    const root = await createTempRoot("vitehub-agent-nested-reexport-agent-")
+    await mkdir(join(root, "server", "agents", "team"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "team", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "prompts.ts"), "export default { system: 'help' }", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "review.ts"), "export { default } from './review-agent'", "utf8")
+
+    const definitions = discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })
+
+    expect(definitions).toHaveLength(2)
+    expect(definitions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "team", source: "server-agent-workspace", workspace: "team" }),
+      expect.objectContaining({ name: "team/review", source: "server-agents" }),
+    ]))
+  })
+
   it("throws on duplicate server agent names", async () => {
     const root = await createTempRoot("vitehub-agent-duplicate-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
     await writeFile(join(root, "server", "agents", "support.js"), "export default {}", "utf8")
+
+    expect(() => discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toThrow("Duplicate agent name")
+  })
+
+  it("throws when a configured server agent also has an index definition", async () => {
+    const root = await createTempRoot("vitehub-agent-config-index-duplicate-")
+    await mkdir(join(root, "server", "agents", "support"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "support", "index.ts"), "export default defineAgent({ model })", "utf8")
+
+    expect(() => discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toThrow("Duplicate agent name")
+  })
+
+  it("throws when a nested configured server agent also has an index definition", async () => {
+    const root = await createTempRoot("vitehub-agent-nested-config-index-duplicate-")
+    await mkdir(join(root, "server", "agents", "team", "review"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "team", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "review", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "review", "index.ts"), "export default defineAgent({ model })", "utf8")
 
     expect(() => discoverAgentDefinitions({
       mode: "server-agents",
@@ -443,6 +554,74 @@ describe("agent chat capability discovery", () => {
     expect(abortSignal).toBeInstanceOf(AbortSignal)
   })
 
+  it("replays Agent Invocation Stream dev samples from message-shaped channels", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-sample-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { webChat } = await import("../src/channels.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const headers = {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    }
+    const agent = defineAgent({
+      channels: {
+        portal: webChat({
+          dev: {
+            samples: {
+              purchaseOrderQuestion: {
+                messages: [{
+                  id: "sample-user-1",
+                  parts: [{ text: "Review purchase order 42", type: "text" }],
+                  role: "user",
+                }],
+              },
+            },
+          },
+        }),
+      },
+      run: ({ messages }) => `sample ${getMessageText(messages[0]!)}`,
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const discovery = await invokeMiddleware(handlers[0]!, {}, agentInvocationStreamRoute, {
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    }, "GET")
+    expect(JSON.parse(discovery.body)).toMatchObject({
+      agents: [{
+        name: "support",
+        samples: {
+          "chat.message.purchaseOrderQuestion": {
+            sample: "purchaseOrderQuestion",
+            trigger: "chat.message",
+          },
+        },
+        triggers: ["chat.message"],
+      }],
+    })
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "support",
+      sample: "purchaseOrderQuestion",
+    }, agentInvocationStreamRoute, headers)
+    const events = response.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+
+    expect(events).toEqual([
+      expect.objectContaining({ agent: "support", trigger: "chat.message", type: "start" }),
+      { text: "sample Review purchase order 42", type: "text-delta" },
+      { type: "finish" },
+      { type: "done" },
+    ])
+  })
+
   it("serves plain Agent Definitions from the Agent Invocation Stream endpoint", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-plain-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -635,7 +814,7 @@ describe("agent chat capability discovery", () => {
   it("refreshes chat devtools workspace metadata after source materialization", async () => {
     const root = await createTempRoot("vitehub-agent-devtools-materialized-source-")
     await mkdir(join(root, "server", "agents", "support"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default {}", "utf8")
+    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
 
     const { chat } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
@@ -722,7 +901,7 @@ describe("agent chat capability discovery", () => {
   it("materializes resolver-backed lazy sources from the chat devtools file tree", async () => {
     const root = await createTempRoot("vitehub-agent-devtools-click-source-")
     await mkdir(join(root, "server", "agents", "support"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default {}", "utf8")
+    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
 
     const { chat } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
