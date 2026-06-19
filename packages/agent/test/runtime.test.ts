@@ -1468,7 +1468,7 @@ describe("agent message protocol", () => {
 
   it("supports GitHub PR comment command admission and write-back effects", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { github, githubPullRequestCommand, githubPullRequestEffects } = await import("../src/channels.ts")
+    const { github, githubPullRequestCommand, githubPullRequestEffects, githubPullRequestRunContext } = await import("../src/channels.ts")
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const href = String(url)
       if (href.endsWith("/pulls/42")) {
@@ -1522,12 +1522,29 @@ describe("agent message protocol", () => {
                 if (!command || command.actor.association !== "MEMBER") {
                   return new Response(null, { status: 204 })
                 }
+                const runContext = githubPullRequestRunContext(command, { origin: "github-review" })
+                expect(runContext).toMatchObject({
+                  pullRequest: {
+                    number: 42,
+                    source: {
+                      mount: "vitehub",
+                      ref: "refs/pull/42/head",
+                      repo: "vite-hub/vitehub",
+                    },
+                  },
+                  run: {
+                    messageId: "99",
+                    origin: "github-review",
+                    runId: "delivery-1",
+                    threadId: "https://api.github.test/repos/vite-hub/vitehub/pulls/42",
+                  },
+                })
                 return {
                   input: {
-                    context: { github: command },
+                    context: { github: command, pullRequest: runContext },
                     prompt: `Review PR #${command.issueNumber}: ${command.args}`,
                   },
-                  run: { channelId: context.trigger.channelId, origin: "github", runId: command.deliveryId || "github-delivery" },
+                  run: { ...runContext.run, channelId: context.trigger.channelId },
                 }
               },
             },

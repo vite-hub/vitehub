@@ -61,6 +61,49 @@ export interface GitHubPullRequestCommandOptions {
   command: `/${string}` | (string & {})
 }
 
+export interface GitHubPullRequestRunContextOptions {
+  origin?: string
+  runId?: string
+  sourceMount?: string
+  sourceRef?: string
+  threadId?: string
+}
+
+export interface GitHubPullRequestRunContext {
+  pullRequest: {
+    apiUrl: string
+    number: number
+    source: {
+      mount: string
+      ref: string
+      repo: string
+    }
+  }
+  repository: {
+    fullName: string
+    name: string
+    owner: string
+  }
+  run: {
+    messageId: string
+    origin: string
+    runId: string
+    threadId: string
+  }
+  trigger: {
+    action: GitHubPullRequestCommand["action"]
+    actor: GitHubPullRequestCommand["actor"]
+    args: string
+    command: string
+    comment: {
+      id: number
+      nodeId?: string
+    }
+    deliveryId?: string
+    installationId?: number
+  }
+}
+
 export interface GitHubPullRequestEffectsOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   apiBaseUrl?: string
   fetch?: typeof fetch
@@ -168,6 +211,47 @@ export function githubPullRequestCommand(input: unknown, options: GitHubPullRequ
     pullRequestUrl,
     repo,
     repository,
+  }
+}
+
+export function githubPullRequestRunContext(
+  command: GitHubPullRequestCommand,
+  options: GitHubPullRequestRunContextOptions = {},
+): GitHubPullRequestRunContext {
+  const runId = options.runId || command.deliveryId || `github:${command.repository}#${command.issueNumber}:comment:${command.commentId}`
+  return {
+    pullRequest: {
+      apiUrl: command.pullRequestUrl,
+      number: command.issueNumber,
+      source: {
+        mount: options.sourceMount || command.repo,
+        ref: options.sourceRef || `refs/pull/${command.issueNumber}/head`,
+        repo: command.repository,
+      },
+    },
+    repository: {
+      fullName: command.repository,
+      name: command.repo,
+      owner: command.owner,
+    },
+    run: {
+      messageId: String(command.commentId),
+      origin: options.origin || "github-pull-request",
+      runId,
+      threadId: options.threadId || command.pullRequestUrl,
+    },
+    trigger: {
+      action: command.action,
+      actor: command.actor,
+      args: command.args,
+      command: command.command,
+      comment: {
+        id: command.commentId,
+        ...(command.commentNodeId ? { nodeId: command.commentNodeId } : {}),
+      },
+      ...(command.deliveryId ? { deliveryId: command.deliveryId } : {}),
+      ...(command.installationId ? { installationId: command.installationId } : {}),
+    },
   }
 }
 
