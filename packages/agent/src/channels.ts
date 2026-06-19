@@ -15,6 +15,7 @@ export type {
   AgentChannelDeliveryEffectIntent,
   AgentChannelDeliveryEffectKind,
   AgentChannelDeliveryEffects,
+  AgentChannelDeliveryFinishEffect,
   AgentChannelDefinition,
   AgentChannels,
   AgentMessageChannelSettings,
@@ -203,7 +204,9 @@ function githubCommandFromUnknown(value: unknown): GitHubPullRequestCommand | un
   }
 }
 
-function githubCommandFromEffect(context: AgentChannelDeliveryEffectContext): GitHubPullRequestCommand | undefined {
+function githubCommandFromEffect<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+): GitHubPullRequestCommand | undefined {
   const effectPayload = isRecord(context.effect.payload) ? context.effect.payload : undefined
   const effectMetadata = context.effect.metadata
   return githubCommandFromUnknown(effectPayload?.github)
@@ -238,7 +241,9 @@ async function githubApi(fetcher: typeof fetch, url: string, init: RequestInit):
   return response
 }
 
-function reactionContent(context: AgentChannelDeliveryEffectContext): string {
+function reactionContent<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+): string {
   if (typeof context.effect.payload === "string") return context.effect.payload
   if (isRecord(context.effect.payload) && typeof context.effect.payload.content === "string") return context.effect.payload.content
   if (context.effect.intent === "completed") return "hooray"
@@ -246,13 +251,18 @@ function reactionContent(context: AgentChannelDeliveryEffectContext): string {
   return "eyes"
 }
 
-function replyBody(context: AgentChannelDeliveryEffectContext): string | undefined {
+function replyBody<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+): string | undefined {
   if (typeof context.effect.payload === "string") return context.effect.payload
   if (isRecord(context.effect.payload) && typeof context.effect.payload.body === "string") return context.effect.payload.body
   if (typeof context.effect.metadata?.body === "string") return context.effect.metadata.body
 }
 
-function statusPayload(context: AgentChannelDeliveryEffectContext, defaultContext: string): GitHubPullRequestStatusPayload {
+function statusPayload<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+  defaultContext: string,
+): GitHubPullRequestStatusPayload {
   const payload = isRecord(context.effect.payload) ? context.effect.payload : {}
   return {
     context: payload.context || context.effect.metadata?.context || defaultContext,

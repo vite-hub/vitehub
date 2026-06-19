@@ -1,9 +1,15 @@
-import { normalizeCapabilities } from "./capability-runtime.ts"
+import {
+  channelDeliveryEffectsContextKey,
+  channelDeliveryFinishEffectsContextKey,
+  normalizeCapabilities,
+} from "./capability-runtime.ts"
 
 import type {
   AgentCallbackContext,
   AgentCapabilityDefinition,
   AgentChannelDefinition,
+  AgentChannelDeliveryEffectIntent,
+  AgentChannelDeliveryFinishEffect,
   AgentChannels,
   AgentInput,
   AgentRunInput,
@@ -299,11 +305,17 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
 function withAgentTriggerContext<CALL_OPTIONS>(
   input: AgentRunInput<CALL_OPTIONS>,
   trigger: Pick<ResolvedAgentTriggerDefinition, "capabilityId" | "channelId" | "id" | "name" | "source">,
+  delivery?: AgentTriggerRunInvokeResult<CALL_OPTIONS>["delivery"],
 ): AgentRunInput<CALL_OPTIONS> {
+  const context = { ...input.context }
+  const effects = delivery?.effects ? Array.isArray(delivery.effects) ? delivery.effects : [delivery.effects] : undefined
+  const finishEffects = delivery?.finishEffects ? Array.isArray(delivery.finishEffects) ? delivery.finishEffects : [delivery.finishEffects] : undefined
+  if (effects?.length) context[channelDeliveryEffectsContextKey] = effects as AgentChannelDeliveryEffectIntent[]
+  if (finishEffects?.length) context[channelDeliveryFinishEffectsContextKey] = finishEffects as AgentChannelDeliveryFinishEffect[]
   return {
     ...input,
     context: {
-      ...input.context,
+      ...context,
       [agentTriggerContextKey]: {
         ...(trigger.capabilityId ? { capabilityId: trigger.capabilityId } : {}),
         ...(trigger.channelId ? { channelId: trigger.channelId } : {}),
@@ -361,7 +373,7 @@ export async function resolveAgentTriggerInvocation<
   }
   const runInvocation = invocation as AgentTriggerRunInvokeResult<CALL_OPTIONS>
   return {
-    input: withAgentTriggerContext(runInvocation.input, trigger),
+    input: withAgentTriggerContext(runInvocation.input, trigger, runInvocation.delivery),
     metadata: runInvocation.metadata,
     run: runInvocation.run,
     trigger: trigger as never,

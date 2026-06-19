@@ -89,7 +89,7 @@ The Channel-owned protocol acceptance or rejection of an incoming delivery befor
 _Avoid_: Access Capability, Agent Actor resolution, user-visible feedback, model output
 
 **Channel Delivery Effect**:
-A Channel-owned platform-native effect that communicates delivery progress or state back on the external surface that triggered the Agent Invocation.
+A Channel-owned platform-native effect that communicates delivery progress, state, or final output back on the external surface that triggered the Agent Invocation.
 _Avoid_: Channel Delivery Admission, Agent Finish Hook, Capability hook, result comment, model output
 
 **Channel Delivery Effect Intent**:

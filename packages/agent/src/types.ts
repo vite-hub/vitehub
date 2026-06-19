@@ -83,6 +83,7 @@ export interface AgentInvocationContextValues {
   access: AgentAccessInvocationContextValue
   actor: AgentActor
   "channel.delivery.effects": AgentChannelDeliveryEffectIntent[]
+  "channel.delivery.finishEffects": AgentChannelDeliveryFinishEffect[]
   invoker: AgentInvoker
 }
 
@@ -170,6 +171,7 @@ export interface AgentChannelDeliveryEffectContext<
 > extends AgentCallbackContext<TRuntimeConfig> {
   channel: AgentChannelDefinition<TRuntimeConfig>
   effect: AgentChannelDeliveryEffectIntent
+  finish?: AgentFinishEvent<TRuntimeConfig>
   input: AgentRunInput
   run?: AgentRunMetadata
   trigger?: {
@@ -186,8 +188,15 @@ export type AgentChannelDeliveryEffectHandler<
 export type AgentChannelDeliveryEffects<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 > = Partial<Record<AgentChannelDeliveryEffectKind, AgentChannelDeliveryEffectHandler<TRuntimeConfig> | readonly AgentChannelDeliveryEffectHandler<TRuntimeConfig>[]>>
+export type AgentChannelDeliveryFinishEffect =
+  | AgentChannelDeliveryEffectIntent
+  | ((event: AgentFinishEvent) => MaybePromise<AgentChannelDeliveryEffectIntent | false | null | undefined>)
 
 export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
+  delivery?: {
+    effects?: AgentChannelDeliveryEffectIntent | readonly AgentChannelDeliveryEffectIntent[]
+    finishEffects?: AgentChannelDeliveryFinishEffect | readonly AgentChannelDeliveryFinishEffect[]
+  }
   input: AgentRunInput<CALL_OPTIONS>
   metadata?: Record<string, unknown>
   run?: AgentRunMetadata
@@ -462,6 +471,7 @@ export interface AgentCapabilityRuntimeContext<
   }
   delivery: {
     effect: (intent: AgentChannelDeliveryEffectIntent) => void
+    finishEffect: (effect: AgentChannelDeliveryFinishEffect) => void
   }
   model: {
     resolve: (model?: AgentModelResolver<TRuntimeConfig, Name>) => Promise<AgentModelInput>

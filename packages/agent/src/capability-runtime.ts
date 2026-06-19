@@ -20,6 +20,7 @@ import type {
   AgentCapabilityMode,
   AgentCapabilityRuntimeContext,
   AgentChannelDeliveryEffectIntent,
+  AgentChannelDeliveryFinishEffect,
   AgentFinishEvent,
   AgentFinishExtensionProvider,
   AgentHookObserverHooks,
@@ -44,6 +45,7 @@ import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName } from
 type ResolvedAgentOutputRenderer = (result: unknown) => MaybePromise<unknown>
 const defaultCapabilityRuntimePhases = ["configure", "prepare", "bind", "input", "resolve", "output"] as const
 export const channelDeliveryEffectsContextKey = "channel.delivery.effects"
+export const channelDeliveryFinishEffectsContextKey = "channel.delivery.finishEffects"
 type AgentCapabilityRuntimePhase = typeof defaultCapabilityRuntimePhases[number]
 
 export interface ResolvedAgentFinishExtensionProvider {
@@ -53,6 +55,7 @@ export interface ResolvedAgentFinishExtensionProvider {
 
 export interface AgentCapabilityRegistries {
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
+  finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   outputRenderers: ResolvedAgentOutputRenderer[]
   providerTools: AgentProviderToolContribution[]
@@ -265,8 +268,11 @@ export async function resolveAgentCapabilities<
   const closeCallbacks: Array<() => MaybePromise<void>> = []
   let hasCloseWork = false
   const toolTransforms: AgentToolTransform[] = []
+  const initialDeliveryEffectIntents = invocationContext.get<AgentChannelDeliveryEffectIntent[]>(channelDeliveryEffectsContextKey) || []
+  const initialFinishDeliveryEffectProviders = invocationContext.get<AgentChannelDeliveryFinishEffect[]>(channelDeliveryFinishEffectsContextKey) || []
   const registries: AgentCapabilityRegistries = {
-    deliveryEffectIntents: [],
+    deliveryEffectIntents: [...initialDeliveryEffectIntents],
+    finishDeliveryEffectProviders: [...initialFinishDeliveryEffectProviders],
     finishExtensionProviders: [],
     outputRenderers: [],
     providerTools: [],
@@ -337,6 +343,14 @@ export async function resolveAgentCapabilities<
             const next = [...registries.deliveryEffectIntents, intent]
             registries.deliveryEffectIntents = next
             invocationContext.set(channelDeliveryEffectsContextKey, next, { overwrite: true })
+          },
+          finishEffect(effect) {
+            if (typeof effect !== "function" && (!effect || typeof effect !== "object" || typeof effect.kind !== "string" || !effect.kind.trim())) {
+              throw new TypeError("[vitehub] delivery.finishEffect() requires an effect intent or resolver.")
+            }
+            const next = [...registries.finishDeliveryEffectProviders, effect]
+            registries.finishDeliveryEffectProviders = next
+            invocationContext.set(channelDeliveryFinishEffectsContextKey, next, { overwrite: true })
           },
         },
         model: {

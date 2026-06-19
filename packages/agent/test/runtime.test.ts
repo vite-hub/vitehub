@@ -1096,6 +1096,92 @@ describe("agent message protocol", () => {
     expect(order).toEqual(["effect:reaction:started", "run"])
   })
 
+  it("lets Channel triggers expose finish delivery effects", async () => {
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const order: string[] = []
+    const effect = vi.fn((context) => {
+      order.push(`effect:${context.effect.payload}`)
+      expect(context.finish?.result).toBe("ok")
+      expect(context.finish?.extensions.get("marker")).toEqual({ value: "done" })
+    })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "marker",
+          output(context) {
+            context.finish.provide({ value: "done" })
+          },
+        }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reply: effect },
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                delivery: {
+                  finishEffects: event => ({
+                    kind: "reply",
+                    payload: `result:${event.result}:${(event.extensions.get("marker") as { value?: string } | undefined)?.value}`,
+                  }),
+                },
+                input: { prompt: "hello" },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+              }),
+            },
+          },
+        }),
+      },
+      run: () => {
+        order.push("run")
+        return "ok"
+      },
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
+    expect(effect).toHaveBeenCalledOnce()
+    expect(order).toEqual(["run", "effect:result:ok:done"])
+  })
+
+  it("lets Capabilities expose finish delivery effects", async () => {
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const effect = vi.fn((context) => {
+      expect(context.effect).toMatchObject({ kind: "reply", payload: "done:ok" })
+      expect(context.finish?.result).toBe("ok")
+    })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "feedback",
+          prepare(context) {
+            context.delivery.finishEffect(event => ({ kind: "reply", payload: `done:${event.result}` }))
+          },
+        }),
+      ],
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reply: effect },
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                input: { prompt: "hello" },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+              }),
+            },
+          },
+        }),
+      },
+      run: () => "ok",
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
+    expect(effect).toHaveBeenCalledOnce()
+  })
+
   it("ignores unsupported delivery effect intents with observer metadata", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")

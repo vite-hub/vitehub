@@ -394,7 +394,12 @@ describe("agent public types", () => {
             expectTypeOf(context.channel.kind).toEqualTypeOf<string>()
             expectTypeOf(context.trigger.channelId).toEqualTypeOf<string>()
             expectTypeOf(input.text).toEqualTypeOf<string>()
-            return { input: { prompt: input.text } }
+            return {
+              delivery: {
+                finishEffects: event => ({ kind: "reply", payload: event.result }),
+              },
+              input: { prompt: input.text },
+            }
           },
         },
       },
@@ -406,6 +411,7 @@ describe("agent public types", () => {
         id: "feedback",
         prepare(context) {
           context.delivery.effect({ intent: "started", kind: "reaction" })
+          context.delivery.finishEffect(event => ({ kind: "reply", payload: event.result }))
         },
       }],
       channels: {
