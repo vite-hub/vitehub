@@ -1522,9 +1522,10 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("supports GitHub PR comment command admission and write-back effects", async () => {
+  it("supports GitHub PR comment commands through input commands and write-back effects", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { github, githubPullRequestCommand, githubPullRequestEffects, githubPullRequestRunContext } = await import("../src/channels.ts")
+    const { githubPullRequestCommand, inputCommands } = await import("../src/capabilities.ts")
+    const { github, githubPullRequestEffects } = await import("../src/channels.ts")
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const href = String(url)
       if (href.endsWith("/pulls/42")) {
@@ -1555,14 +1556,45 @@ describe("agent message protocol", () => {
       },
     }
     const agent = defineAgent({
-      capabilities: [defineCapability({
-        id: "review-feedback",
-        prepare(context) {
-          context.delivery.effect({ intent: "started", kind: "reaction" })
-          context.delivery.effect({ kind: "reply", payload: "Review queued." })
-          context.delivery.effect({ intent: "completed", kind: "status", metadata: { description: "Review completed." } })
-        },
-      })],
+      capabilities: [
+        inputCommands({
+          commands: {
+            review: githubPullRequestCommand({
+              description: "Review a GitHub pull request.",
+              run: ({ args, github: command, pullRequest }) => {
+                expect(pullRequest).toMatchObject({
+                  pullRequest: {
+                    number: 42,
+                    source: {
+                      mount: "vitehub",
+                      ref: "refs/pull/42/head",
+                      repo: "vite-hub/vitehub",
+                    },
+                  },
+                  run: {
+                    messageId: "99",
+                    origin: "github-pull-request",
+                    runId: "delivery-1",
+                    threadId: "https://api.github.test/repos/vite-hub/vitehub/pulls/42",
+                  },
+                })
+                return {
+                  context: { github: command, pullRequest },
+                  prompt: `Review PR #${command.issueNumber}: ${args}`,
+                }
+              },
+            }),
+          },
+        }),
+        defineCapability({
+          id: "review-feedback",
+          prepare(context) {
+            context.delivery.effect({ intent: "started", kind: "reaction" })
+            context.delivery.effect({ kind: "reply", payload: "Review queued." })
+            context.delivery.effect({ intent: "completed", kind: "status", metadata: { description: "Review completed." } })
+          },
+        }),
+      ],
       channels: {
         github: github({
           effects: githubPullRequestEffects({
@@ -1574,33 +1606,19 @@ describe("agent message protocol", () => {
           triggers: {
             webhook: {
               invoke: (context, rawInput: typeof input) => {
-                const command = githubPullRequestCommand(rawInput, { command: "/review" })
-                if (!command || command.actor.association !== "MEMBER") {
+                if (rawInput.github.event !== "issue_comment" || rawInput.payload.action !== "created" || !rawInput.payload.issue.pull_request) {
                   return new Response(null, { status: 204 })
                 }
-                const runContext = githubPullRequestRunContext(command, { origin: "github-review" })
-                expect(runContext).toMatchObject({
-                  pullRequest: {
-                    number: 42,
-                    source: {
-                      mount: "vitehub",
-                      ref: "refs/pull/42/head",
-                      repo: "vite-hub/vitehub",
-                    },
-                  },
-                  run: {
-                    messageId: "99",
-                    origin: "github-review",
-                    runId: "delivery-1",
-                    threadId: "https://api.github.test/repos/vite-hub/vitehub/pulls/42",
-                  },
-                })
                 return {
                   input: {
-                    context: { github: command, pullRequest: runContext },
-                    prompt: `Review PR #${command.issueNumber}: ${command.args}`,
+                    context: { github: rawInput },
+                    prompt: rawInput.payload.comment.body,
                   },
-                  run: { ...runContext.run, channelId: context.trigger.channelId },
+                  run: {
+                    channelId: context.trigger.channelId,
+                    origin: "github",
+                    runId: rawInput.github.deliveryId,
+                  },
                 }
               },
             },

@@ -8,6 +8,7 @@ import type {
   MaybeResolvable,
 } from "./types.ts"
 import type { AgentChatFetchHandlerOptions } from "./server.ts"
+import type { GitHubPullRequestCommand } from "./capabilities/input-commands.ts"
 
 export type {
   AgentChannelDeliveryEffectContext,
@@ -37,102 +38,12 @@ export interface AgentStreamChannelOptions<TRuntimeConfig extends AgentRuntimeCo
   route?: true | AgentChatFetchHandlerOptions
 }
 
-export interface GitHubPullRequestCommand {
-  action: "created"
-  actor: {
-    association?: string
-    id?: number
-    login: string
-    type?: string
-  }
-  args: string
-  command: string
-  commentId: number
-  commentNodeId?: string
-  deliveryId?: string
-  installationId?: number
-  issueNumber: number
-  owner: string
-  pullRequestUrl: string
-  repo: string
-  repository: string
-}
-
-export interface GitHubPullRequestCommandOptions {
-  command: `/${string}` | (string & {})
-}
-
-export interface GitHubPullRequestRunContextOptions {
-  origin?: string
-  runId?: string
-  sourceMount?: string
-  sourceRef?: string
-  threadId?: string
-}
-
-export interface GitHubPullRequestRunContext {
-  pullRequest: {
-    apiUrl: string
-    number: number
-    source: {
-      mount: string
-      ref: string
-      repo: string
-    }
-  }
-  repository: {
-    fullName: string
-    name: string
-    owner: string
-  }
-  run: {
-    messageId: string
-    origin: string
-    runId: string
-    threadId: string
-  }
-  trigger: {
-    action: GitHubPullRequestCommand["action"]
-    actor: GitHubPullRequestCommand["actor"]
-    args: string
-    command: string
-    comment: {
-      id: number
-      nodeId?: string
-    }
-    deliveryId?: string
-    installationId?: number
-  }
-}
-
 export interface GitHubPullRequestEffectsOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   apiBaseUrl?: string
   fetch?: typeof fetch
   statusContext?: string
   token: MaybeResolvable<string, AgentChannelDeliveryEffectContext<TRuntimeConfig>>
   userAgent?: string
-}
-
-type GitHubIssueCommentPayload = {
-  action?: unknown
-  comment?: {
-    author_association?: unknown
-    body?: unknown
-    id?: unknown
-    node_id?: unknown
-    user?: { id?: unknown, login?: unknown, type?: unknown }
-  }
-  installation?: { id?: unknown }
-  issue?: {
-    author_association?: unknown
-    number?: unknown
-    pull_request?: { url?: unknown }
-  }
-  repository?: {
-    full_name?: unknown
-    name?: unknown
-    owner?: { login?: unknown }
-  }
 }
 
 type GitHubPullRequestStatusPayload = {
@@ -153,107 +64,6 @@ function maybeString(value: unknown): string | undefined {
 
 function maybeNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
-}
-
-function inputPayload(input: unknown): GitHubIssueCommentPayload | undefined {
-  if (!isRecord(input)) return
-  return isRecord(input.payload) ? input.payload as GitHubIssueCommentPayload : undefined
-}
-
-function inputGithubFacts(input: unknown): Record<string, unknown> | undefined {
-  if (!isRecord(input)) return
-  return isRecord(input.github) ? input.github : undefined
-}
-
-function matchCommand(body: string, command: string): string | undefined {
-  const text = body.trim()
-  if (text === command) return ""
-  if (text.startsWith(`${command} `) || text.startsWith(`${command}\n`)) return text.slice(command.length).trim()
-  return undefined
-}
-
-export function githubPullRequestCommand(input: unknown, options: GitHubPullRequestCommandOptions): GitHubPullRequestCommand | undefined {
-  const command = options.command.trim()
-  if (!command.startsWith("/")) {
-    throw new TypeError("[vitehub] githubPullRequestCommand({ command }) requires slash command text such as \"/review\".")
-  }
-  const payload = inputPayload(input)
-  const facts = inputGithubFacts(input)
-  if (!payload || facts?.event !== "issue_comment" || payload.action !== "created") return
-  if (!payload.issue?.pull_request) return
-  const body = maybeString(payload.comment?.body)
-  if (!body) return
-  const args = matchCommand(body, command)
-  if (args === undefined) return
-  const repository = maybeString(payload.repository?.full_name)
-  const [owner, repo] = repository?.split("/") || []
-  const login = maybeString(payload.comment?.user?.login)
-  const issueNumber = maybeNumber(payload.issue?.number)
-  const commentId = maybeNumber(payload.comment?.id)
-  const pullRequestUrl = maybeString(payload.issue.pull_request.url)
-  if (!repository || !owner || !repo || !login || !issueNumber || !commentId || !pullRequestUrl) return
-  const association = maybeString(payload.comment?.author_association) || maybeString(payload.issue.author_association)
-  return {
-    action: "created",
-    actor: {
-      ...(association ? { association } : {}),
-      ...(maybeNumber(payload.comment?.user?.id) ? { id: maybeNumber(payload.comment?.user?.id) } : {}),
-      login,
-      ...(maybeString(payload.comment?.user?.type) ? { type: maybeString(payload.comment?.user?.type) } : {}),
-    },
-    args,
-    command,
-    commentId,
-    ...(maybeString(payload.comment?.node_id) ? { commentNodeId: maybeString(payload.comment?.node_id) } : {}),
-    ...(maybeString(facts?.deliveryId) ? { deliveryId: maybeString(facts?.deliveryId) } : {}),
-    ...(maybeNumber(facts?.installationId) ? { installationId: maybeNumber(facts?.installationId) } : {}),
-    issueNumber,
-    owner,
-    pullRequestUrl,
-    repo,
-    repository,
-  }
-}
-
-export function githubPullRequestRunContext(
-  command: GitHubPullRequestCommand,
-  options: GitHubPullRequestRunContextOptions = {},
-): GitHubPullRequestRunContext {
-  const runId = options.runId || command.deliveryId || `github:${command.repository}#${command.issueNumber}:comment:${command.commentId}`
-  return {
-    pullRequest: {
-      apiUrl: command.pullRequestUrl,
-      number: command.issueNumber,
-      source: {
-        mount: options.sourceMount || command.repo,
-        ref: options.sourceRef || `refs/pull/${command.issueNumber}/head`,
-        repo: command.repository,
-      },
-    },
-    repository: {
-      fullName: command.repository,
-      name: command.repo,
-      owner: command.owner,
-    },
-    run: {
-      messageId: String(command.commentId),
-      origin: options.origin || "github-pull-request",
-      runId,
-      threadId: options.threadId || command.pullRequestUrl,
-    },
-    trigger: {
-      action: command.action,
-      actor: command.actor,
-      args: command.args,
-      command: command.command,
-      comment: {
-        id: command.commentId,
-        ...(command.commentNodeId ? { nodeId: command.commentNodeId } : {}),
-      },
-      ...(command.deliveryId ? { deliveryId: command.deliveryId } : {}),
-      ...(command.installationId ? { installationId: command.installationId } : {}),
-    },
-  }
 }
 
 function githubCommandFromUnknown(value: unknown): GitHubPullRequestCommand | undefined {

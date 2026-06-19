@@ -55,6 +55,103 @@ export interface InputCommandTextReplacement {
   start: number
 }
 
+export interface GitHubPullRequestCommand {
+  action: "created"
+  actor: {
+    association?: string
+    id?: number
+    login: string
+    type?: string
+  }
+  args: string
+  command: string
+  commentId: number
+  commentNodeId?: string
+  deliveryId?: string
+  installationId?: number
+  issueNumber: number
+  owner: string
+  pullRequestUrl: string
+  repo: string
+  repository: string
+}
+
+export interface GitHubPullRequestRunContextOptions {
+  origin?: string
+  runId?: string
+  sourceMount?: string
+  sourceRef?: string
+  threadId?: string
+}
+
+export interface GitHubPullRequestRunContext {
+  pullRequest: {
+    apiUrl: string
+    number: number
+    source: {
+      mount: string
+      ref: string
+      repo: string
+    }
+  }
+  repository: {
+    fullName: string
+    name: string
+    owner: string
+  }
+  run: {
+    messageId: string
+    origin: string
+    runId: string
+    threadId: string
+  }
+  trigger: {
+    action: GitHubPullRequestCommand["action"]
+    actor: GitHubPullRequestCommand["actor"]
+    args: string
+    command: string
+    comment: {
+      id: number
+      nodeId?: string
+    }
+    deliveryId?: string
+    installationId?: number
+  }
+}
+
+export interface GitHubPullRequestInputCommandRunInput extends InputCommandRunInput {
+  github: GitHubPullRequestCommand
+  pullRequest: GitHubPullRequestRunContext
+}
+
+export interface GitHubPullRequestInputCommandOptions {
+  description: string
+  run?: (input: GitHubPullRequestInputCommandRunInput) => MaybePromise<Partial<AgentRunInput> | string | void>
+  runContext?: GitHubPullRequestRunContextOptions | ((input: InputCommandRunInput & { github: GitHubPullRequestCommand }) => MaybePromise<GitHubPullRequestRunContextOptions>)
+}
+
+type GitHubIssueCommentPayload = {
+  action?: unknown
+  comment?: {
+    author_association?: unknown
+    body?: unknown
+    id?: unknown
+    node_id?: unknown
+    user?: { id?: unknown, login?: unknown, type?: unknown }
+  }
+  installation?: { id?: unknown }
+  issue?: {
+    author_association?: unknown
+    number?: unknown
+    pull_request?: { url?: unknown }
+  }
+  repository?: {
+    full_name?: unknown
+    name?: unknown
+    owner?: { login?: unknown }
+  }
+}
+
 export function assertInputCommandName(name: string): void {
   if (!/^[a-z][a-z0-9_-]*$/.test(name)) {
     throw new TypeError(`[vitehub] Input command "${name}" must be a lowercase stable identifier.`)
@@ -99,6 +196,83 @@ function trimEndIndex(text: string, start: number, end: number): number {
   let index = end
   while (index > start && /\s/.test(text[index - 1]!)) index--
   return index
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function maybeString(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined
+}
+
+function maybeNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+function inputPayload(input: unknown): GitHubIssueCommentPayload | undefined {
+  if (!isRecord(input)) return
+  return isRecord(input.payload) ? input.payload as GitHubIssueCommentPayload : undefined
+}
+
+function inputGithubFacts(input: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(input)) return
+  return isRecord(input.github) ? input.github : undefined
+}
+
+function githubPullRequestCommandFromInput(
+  input: AgentRunInput,
+  name: string,
+  args: string,
+  text: string,
+): GitHubPullRequestCommand | undefined {
+  const delivery = isRecord(input.context) ? input.context.github : undefined
+  const payload = inputPayload(delivery)
+  const facts = inputGithubFacts(delivery)
+  if (!payload || facts?.event !== "issue_comment" || payload.action !== "created") return
+  if (!payload.issue?.pull_request) return
+  const repository = maybeString(payload.repository?.full_name)
+  const [owner, repo] = repository?.split("/") || []
+  const login = maybeString(payload.comment?.user?.login)
+  const issueNumber = maybeNumber(payload.issue?.number)
+  const commentId = maybeNumber(payload.comment?.id)
+  const pullRequestUrl = maybeString(payload.issue.pull_request.url)
+  if (!repository || !owner || !repo || !login || !issueNumber || !commentId || !pullRequestUrl) return
+  const association = maybeString(payload.comment?.author_association) || maybeString(payload.issue.author_association)
+  return {
+    action: "created",
+    actor: {
+      ...(association ? { association } : {}),
+      ...(maybeNumber(payload.comment?.user?.id) ? { id: maybeNumber(payload.comment?.user?.id) } : {}),
+      login,
+      ...(maybeString(payload.comment?.user?.type) ? { type: maybeString(payload.comment?.user?.type) } : {}),
+    },
+    args,
+    command: text.trim().split(/\s+/, 1)[0] || `/${name}`,
+    commentId,
+    ...(maybeString(payload.comment?.node_id) ? { commentNodeId: maybeString(payload.comment?.node_id) } : {}),
+    ...(maybeString(facts?.deliveryId) ? { deliveryId: maybeString(facts?.deliveryId) } : {}),
+    ...(maybeNumber(facts?.installationId) ? { installationId: maybeNumber(facts?.installationId) } : {}),
+    issueNumber,
+    owner,
+    pullRequestUrl,
+    repo,
+    repository,
+  }
+}
+
+function mergeGithubCommandContext(
+  input: GitHubPullRequestInputCommandRunInput,
+): void {
+  const current = input.context.input.get()
+  input.context.input.set({
+    ...current,
+    context: {
+      ...current.context,
+      github: input.github,
+      pullRequest: input.pullRequest,
+    },
+  })
 }
 
 export function findInputCommandInvocation(
@@ -218,6 +392,70 @@ export function replaceTargetText(
   const next = { ...input, messages }
   if (typeof next.prompt === "string") delete next.prompt
   return next
+}
+
+export function githubPullRequestRunContext(
+  command: GitHubPullRequestCommand,
+  options: GitHubPullRequestRunContextOptions = {},
+): GitHubPullRequestRunContext {
+  const runId = options.runId || command.deliveryId || `github:${command.repository}#${command.issueNumber}:comment:${command.commentId}`
+  return {
+    pullRequest: {
+      apiUrl: command.pullRequestUrl,
+      number: command.issueNumber,
+      source: {
+        mount: options.sourceMount || command.repo,
+        ref: options.sourceRef || `refs/pull/${command.issueNumber}/head`,
+        repo: command.repository,
+      },
+    },
+    repository: {
+      fullName: command.repository,
+      name: command.repo,
+      owner: command.owner,
+    },
+    run: {
+      messageId: String(command.commentId),
+      origin: options.origin || "github-pull-request",
+      runId,
+      threadId: options.threadId || command.pullRequestUrl,
+    },
+    trigger: {
+      action: command.action,
+      actor: command.actor,
+      args: command.args,
+      command: command.command,
+      comment: {
+        id: command.commentId,
+        ...(command.commentNodeId ? { nodeId: command.commentNodeId } : {}),
+      },
+      ...(command.deliveryId ? { deliveryId: command.deliveryId } : {}),
+      ...(command.installationId ? { installationId: command.installationId } : {}),
+    },
+  }
+}
+
+export function githubPullRequestCommand(options: GitHubPullRequestInputCommandOptions): InputCommand {
+  if (!options || typeof options !== "object") {
+    throw new TypeError("[vitehub] githubPullRequestCommand() requires options.")
+  }
+  if (typeof options.description !== "string" || !options.description.trim()) {
+    throw new TypeError("[vitehub] githubPullRequestCommand({ description }) is required.")
+  }
+  return {
+    description: options.description,
+    async run(input) {
+      const command = githubPullRequestCommandFromInput(input.input, input.name, input.args, input.text)
+      if (!command) return
+      const runContextOptions = typeof options.runContext === "function"
+        ? await options.runContext({ ...input, github: command })
+        : options.runContext
+      const pullRequest = githubPullRequestRunContext(command, runContextOptions)
+      const commandInput = { ...input, github: command, pullRequest }
+      mergeGithubCommandContext(commandInput)
+      return await options.run?.(commandInput)
+    },
+  }
 }
 
 function mergeInputCommandResult(input: AgentRunInput, result: Partial<AgentRunInput>): AgentRunInput {

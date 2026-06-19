@@ -22,7 +22,16 @@ export {
   git,
 } from "./git.ts"
 export {
+  githubPullRequestCommand,
+  githubPullRequestRunContext,
   inputCommands,
+} from "./input-commands.ts"
+export type {
+  GitHubPullRequestCommand,
+  GitHubPullRequestInputCommandOptions,
+  GitHubPullRequestInputCommandRunInput,
+  GitHubPullRequestRunContext,
+  GitHubPullRequestRunContextOptions,
 } from "./input-commands.ts"
 export {
   LlmGateRejectedError,
