@@ -428,6 +428,16 @@ function githubWebhookDefaults<TRuntimeConfig extends AgentRuntimeConfig>(
   return Array.isArray(webhooks) ? webhooks.map(apply) : apply(webhooks)
 }
 
+function telegramWebhookDefaults<TRuntimeConfig extends AgentRuntimeConfig>(
+  webhooks: AgentChannelDefinition<TRuntimeConfig>["webhooks"],
+): AgentChannelDefinition<TRuntimeConfig>["webhooks"] {
+  const defaults = { secretHeader: "x-telegram-bot-api-secret-token" }
+  if (webhooks === undefined || webhooks === true) return defaults
+  if (webhooks === false) return false
+  const apply = (webhook: AgentChatWebhookRegistrationDefinition<TRuntimeConfig>) => ({ ...defaults, ...webhook })
+  return Array.isArray(webhooks) ? webhooks.map(apply) : apply(webhooks)
+}
+
 export function defineChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   kind: string,
   options: AgentChannelOptions<TRuntimeConfig> = {},
@@ -493,7 +503,10 @@ export function stream<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeC
 export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: AgentChannelOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
-  return defineChannel("telegram", options)
+  return defineChannel("telegram", {
+    ...options,
+    webhooks: telegramWebhookDefaults(options.webhooks),
+  })
 }
 
 export function webChat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(

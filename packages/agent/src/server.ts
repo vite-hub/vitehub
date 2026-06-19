@@ -333,7 +333,8 @@ async function matchedWebhookRegistrationRequiresVerification(
   registration: AgentWebhookRegistrationDefinition,
   context: ViteAgentRouteRuntimeContext,
 ): Promise<boolean> {
-  return Boolean(await resolveMaybe(registration.secretToken, context))
+  return registration.secretToken !== undefined
+    && await resolveMaybe(registration.secretToken, context) !== false
 }
 
 function parseWebhookPayload(body: string): unknown {
