@@ -146,6 +146,8 @@ describe("git capability", () => {
     await expect(tools.git_write!.execute?.({ command: "git fetch --upload-pack=\"sh -c whoami\" origin" })).rejects.toThrow("not available through git_write")
     await expect(tools.git_write!.execute?.({ command: "git fetch --upload-pack sh origin" })).rejects.toThrow("not available through git_write")
     await expect(tools.git_write!.execute?.({ command: "git fetch --tags origin" })).rejects.toThrow("not available through git_write")
+    await expect(tools.git_write!.execute?.({ command: "git fetch -P origin" })).rejects.toThrow("not available through git_write")
+    await expect(tools.git_write!.execute?.({ command: "git fetch -u origin" })).rejects.toThrow("not available through git_write")
   })
 
   it("rejects dirty write commands and remote publication commands", async () => {
