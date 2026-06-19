@@ -310,13 +310,17 @@ async function findAgentWebhookRegistration(
   webhook?: string,
 ): Promise<AgentWebhookRegistrationMatch | undefined> {
   const triggers = await resolveAgentTriggers(agent as never, context as never)
+  const registrations: AgentWebhookRegistrationMatch[] = []
   for (const trigger of Object.values(triggers)) {
     for (const registration of trigger.webhooks || []) {
+      const match = { registration, trigger: trigger as ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig> }
+      registrations.push(match)
       if (webhookRegistrationMatches(request, registration, webhook)) {
-        return { registration, trigger: trigger as ResolvedAgentTriggerDefinition<ViteAgentRouteRuntimeConfig> }
+        return match
       }
     }
   }
+  return webhook === "" && registrations.length === 1 ? registrations[0] : undefined
 }
 
 function parseWebhookPayload(body: string): unknown {
@@ -1960,8 +1964,8 @@ export function defineAgentChatWebhookFetchHandler(
       return createJsonErrorResponse(405, "Agent webhook route only accepts POST requests.")
     }
 
-    const webhookId = webhook || fallbackWebhookFromRequest(request)
-    if (!webhookId) {
+    const webhookId = webhook === undefined ? fallbackWebhookFromRequest(request) : webhook
+    if (webhookId === undefined) {
       return createBadRequest("Agent webhook route requires a webhook id.")
     }
 

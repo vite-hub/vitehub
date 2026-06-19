@@ -223,6 +223,8 @@ function generateAgentWebhookRouteHandler(
   const agentModuleEntries = definitions
     .map((definition, index) => `${JSON.stringify(definition.name)}: agent${index}`)
     .join(",\n  ")
+  const webhookRoute = typeof options.webhookRoute === "string" ? options.webhookRoute : ""
+  const webhookSelector = webhookRoute.includes("[webhook]") ? "getRouterParam(event, 'webhook')" : "''"
 
   return [
     "import { withAgentDefaults, withWorkspaceAgentDefaults } from '@vite-hub/agent'",
@@ -270,7 +272,7 @@ function generateAgentWebhookRouteHandler(
     "  const pathname = getRequestURL(event).pathname",
     "  const isWebhookRoute = webhookRoutePattern.test(pathname)",
     "  const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)",
-    "  const webhook = getRouterParam(event, 'webhook')",
+    `  const webhook = ${webhookSelector}`,
     "  const handler = agent ? (isWebhookRoute ? webhookHandlers[agent] : chatHandlers[agent]) : undefined",
     "  if (!handler) {",
     "    throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",

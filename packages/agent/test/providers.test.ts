@@ -313,6 +313,7 @@ describe("agent Vite plugin", () => {
 
       expect(webhookRoute).toContain("const webhookRoutePattern = new RegExp(\"^/api/github/webhook$\")")
       expect(webhookRoute).toContain("const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)")
+      expect(webhookRoute).toContain("const webhook = ''")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -972,6 +973,42 @@ describe("server helpers", () => {
 
     expect(unsigned.status).toBe(401)
     await expect(unsigned.json()).resolves.toEqual({ error: "[vitehub] Webhook secret header \"x-hub-signature-256\" is required." })
+    expect(run).toHaveBeenCalledOnce()
+  })
+
+  it("handles direct single-agent GitHub channel webhook routes", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const run = vi.fn(() => "accepted")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({ input: { prompt: "github delivery" } }),
+            },
+          },
+          webhooks: { secretToken: "secret-token" },
+        }),
+      },
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+    const body = JSON.stringify({ action: "opened" })
+    const response = await handler(new Request("https://example.com/api/github/webhook", {
+      body,
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-direct",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": githubSignature("secret-token", body),
+      },
+      method: "POST",
+    }), "")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toBe("accepted")
     expect(run).toHaveBeenCalledOnce()
   })
 
