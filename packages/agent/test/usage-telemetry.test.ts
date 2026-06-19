@@ -89,6 +89,46 @@ describe("usage telemetry", () => {
     expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(usageRecord)
   })
 
+  it("adds a concise usage summary to the finish extension when requested", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const finish = vi.fn()
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry({
+          pricing: staticModelPricing({
+            "openai/gpt-test": {
+              input: "0.00000010",
+              output: "0.00000020",
+            },
+          }),
+          summary: { subject: "This summary" },
+        }),
+      ],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({
+        durationMs: 1200,
+        response: {
+          modelId: "openai/gpt-test",
+        },
+        text: "ok",
+        totalUsage: {
+          inputTokens: 10,
+          outputTokens: 5,
+        },
+      }),
+    })
+
+    await runAgent(agent, runtime(), {})
+
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry", "summary")).toBe(
+      "This summary cost about $0.000002 using openai/gpt-test in 1.2s (15 tokens: 10 in / 5 out).",
+    )
+  })
+
   it("emits usage records from streamed finish chunks", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const { streamAgentOutputToEvents } = await import("../src/agent-output.ts")

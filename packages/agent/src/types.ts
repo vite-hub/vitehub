@@ -1157,6 +1157,7 @@ export interface AgentUsageRecord {
     timestamp?: Date | string
   }
   run?: Partial<AgentRunMetadata>
+  summary?: string
   usage?: AgentUsage
 }
 
