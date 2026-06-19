@@ -6,7 +6,7 @@ export const agentInvocationStreamHeaderValue = "1"
 
 export type AgentInvocationStreamEvent =
   | StreamEvent
-  | { agent: string, run?: unknown, trigger: string, type: "start" }
+  | { agent: string, run?: unknown, trigger?: string, type: "start" }
   | { type: "done" }
 
 export async function* readAgentInvocationStream(body: ReadableStream<Uint8Array>): AsyncGenerator<AgentInvocationStreamEvent> {

@@ -204,7 +204,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - An **Agent** receives zero or more **Agent Invocations**.
 - An **Agent Invocation Stream** belongs to one **Agent Invocation**.
 - An **Agent Invocation Stream Endpoint** exposes an **Agent Invocation Stream** without becoming a **DevTools Bridge**.
-- The V1 **Agent Invocation Stream Endpoint** uses the legacy **Agent Trigger** request shape until Channels become the active Agent reachability contract.
+- The V1 **Agent Invocation Stream Endpoint** can invoke plain discovered **Agent Definitions** directly and can still consume the legacy `chat.message` **Agent Trigger** for message-shaped Channels.
 - The V1 **Agent Invocation Stream Format** is newline-delimited JSON.
 - The Agent Package owns the **Agent Invocation Stream Format** helpers used by development clients.
 - An **Agent Invocation Stream** is not the **Agent Invocation Lifecycle**; lifecycle hooks observe runtime moments.

@@ -6,8 +6,9 @@ import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/internal/runtim
 
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
 import { streamAgentOutputToEvents } from "../agent-output.ts"
+import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
-import { resolveAgentTriggers, streamAgentTrigger, withAgentDefaults, withWorkspaceAgentDefaults } from "../index.ts"
+import { resolveAgentTriggers, streamAgent, streamAgentTrigger, withAgentDefaults, withWorkspaceAgentDefaults } from "../index.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
@@ -45,6 +46,7 @@ interface AgentInvocationStreamBody {
 interface AgentInvocationStreamEntry {
   agent: AgentInput<ViteAgentDevRuntimeContext>
   name: string
+  trigger?: "chat.message"
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -176,9 +178,7 @@ async function discoverStreamAgents(server: ViteDevServer): Promise<AgentInvocat
     const agent = await loadDiscoveredAgent(server, definition)
     if (!agent) continue
     const triggers = await resolveAgentTriggers(agent as never, context as never)
-    if (triggers["chat.message"]) {
-      entries.push({ agent, name: definition.name })
-    }
+    entries.push({ agent, name: definition.name, ...(triggers["chat.message"] ? { trigger: "chat.message" as const } : {}) })
   }
   return entries
 }
@@ -190,8 +190,8 @@ function selectedEntry(entries: AgentInvocationStreamEntry[], name: string | und
     return entry
   }
   if (entries.length === 1) return entries[0]!
-  if (entries.length === 0) throw new Response("No Agents expose the chat.message trigger.", { status: 404 })
-  throw new Response(`Multiple Agents expose chat.message. Pass --agent ${entries.map(item => item.name).join("|")}.`, { status: 400 })
+  if (entries.length === 0) throw new Response("No Agents discovered.", { status: 404 })
+  throw new Response(`Multiple Agents discovered. Pass --agent ${entries.map(item => item.name).join("|")}.`, { status: 400 })
 }
 
 function messageFromText(text: string): AgentChatMessageTriggerInput["messages"][number] {
@@ -239,7 +239,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
   const entries = await discoverStreamAgents(server)
   if (req.method === "GET") {
     return Response.json({
-      agents: entries.map(entry => ({ name: entry.name, triggers: ["chat.message"] })),
+      agents: entries.map(entry => ({ name: entry.name, triggers: entry.trigger ? [entry.trigger] : [] })),
       root: server.config.root,
     })
   }
@@ -249,26 +249,39 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
   const run = body.run || devRun(entry.name)
   const context = createRuntimeContext(server, req, run)
   const messages = messagesFromBody(body)
+  const timeout = typeof body.timeout === "number" && Number.isFinite(body.timeout) ? body.timeout : 90_000
 
   return createAgentInvocationStreamResponse(async (emit, signal) => {
-    const input: AgentChatMessageTriggerInput = {
-      abortSignal: signal,
-      messages,
-      run,
-      timeout: typeof body.timeout === "number" && Number.isFinite(body.timeout) ? body.timeout : 90_000,
-      user: {
-        id: "dev",
-        name: "ViteHub Dev Loop",
-      },
-      ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}),
-      ...(isRecord(body.meta) ? { meta: body.meta } : {}),
+    let output: Awaited<ReturnType<typeof streamAgent>>
+    if (entry.trigger) {
+      const input = {
+        abortSignal: signal,
+        messages,
+        run,
+        timeout,
+        user: {
+          id: "dev",
+          name: "ViteHub Dev Loop",
+        },
+        ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}),
+        ...(isRecord(body.meta) ? { meta: body.meta } : {}),
+      } satisfies AgentChatMessageTriggerInput
+      output = await streamAgentTrigger(entry.agent as never, context as never, entry.trigger, input, {
+        async onInvocation(invocation) {
+          if (!signal.aborted) emit({ agent: entry.name, run: invocation.run, trigger: invocation.trigger.id, type: "start" })
+        },
+        output: "events",
+      })
     }
-    const output = await streamAgentTrigger(entry.agent as never, context as never, "chat.message", input, {
-      async onInvocation(invocation) {
-        if (!signal.aborted) emit({ agent: entry.name, run: invocation.run, trigger: invocation.trigger.id, type: "start" })
-      },
-      output: "events",
-    })
+    else {
+      if (!signal.aborted) emit({ agent: entry.name, run, type: "start" })
+      output = await streamAgent(entry.agent as never, context as never, {
+        abortSignal: signal,
+        ...(typeof body.invokerProfileId === "string" ? { context: { invokerProfileId: body.invokerProfileId } } : {}),
+        messages: uiMessagesToAgentMessages(messages),
+        timeout,
+      }, { output: "events" })
+    }
     for await (const event of streamAgentOutputToEvents(output)) {
       if (signal.aborted) return
       emit(event)
