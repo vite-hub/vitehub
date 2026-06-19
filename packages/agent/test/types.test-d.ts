@@ -437,9 +437,17 @@ describe("agent public types", () => {
       }],
       channels: {
         github: github({
-          triggers: {
-            webhook: {
-              invoke: () => ({ input: { prompt: "github" } }),
+          app: true,
+          commands: {
+            review: {
+              command: "/review",
+              invoke({ command, payload, pullRequest, run }) {
+                expectTypeOf(command.args).toEqualTypeOf<string>()
+                expectTypeOf(payload.action).toEqualTypeOf<unknown>()
+                expectTypeOf(pullRequest.pullRequest.number).toEqualTypeOf<number>()
+                expectTypeOf(run.channelId).toEqualTypeOf<string | undefined>()
+                return { input: { prompt: command.args }, run }
+              },
             },
           },
         }),

@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
@@ -1493,12 +1494,13 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       channels: {
         github: github({
+          app: { webhookSecret: "secret-token" },
           triggers: {
             webhook: {
               invoke: () => ({ input: { prompt: "github" } }),
             },
           },
-          webhooks: { path: "/api/github/webhook", secretToken: "secret-token" },
+          webhooks: { path: "/api/github/webhook" },
         }),
       },
       run: () => "ok",
@@ -1524,9 +1526,14 @@ describe("agent message protocol", () => {
 
   it("supports GitHub PR comment command admission and write-back effects", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { github, githubPullRequestCommand, githubPullRequestEffects, githubPullRequestRunContext } = await import("../src/channels.ts")
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const href = String(url)
+      if (href.endsWith("/app/installations/123/access_tokens")) {
+        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
       if (href.endsWith("/pulls/42")) {
         return Response.json({ head: { sha: "abc123" } })
       }
@@ -1565,21 +1572,20 @@ describe("agent message protocol", () => {
       })],
       channels: {
         github: github({
-          effects: githubPullRequestEffects({
+          app: {
             apiBaseUrl: "https://api.github.test",
+            appId: "1",
             fetch: fetcher as typeof fetch,
+            installationId: 123,
+            privateKey: privateKeyPem,
             statusContext: "ViteHub Review",
-            token: "github-token",
-          }),
-          triggers: {
-            webhook: {
-              invoke: (context, rawInput: typeof input) => {
-                const command = githubPullRequestCommand(rawInput, { command: "/review" })
-                if (!command || command.actor.association !== "MEMBER") {
-                  return new Response(null, { status: 204 })
-                }
-                const runContext = githubPullRequestRunContext(command, { origin: "github-review" })
-                expect(runContext).toMatchObject({
+          },
+          commands: {
+            review: {
+              authorize: ({ command }) => command.actor.association === "MEMBER",
+              command: "/review",
+              invoke: ({ command, pullRequest }) => {
+                expect(pullRequest).toMatchObject({
                   pullRequest: {
                     number: 42,
                     source: {
@@ -1597,12 +1603,11 @@ describe("agent message protocol", () => {
                 })
                 return {
                   input: {
-                    context: { github: command, pullRequest: runContext },
                     prompt: `Review PR #${command.issueNumber}: ${command.args}`,
                   },
-                  run: { ...runContext.run, channelId: context.trigger.channelId },
                 }
               },
+              origin: "github-review",
             },
           },
         }),
@@ -1613,9 +1618,17 @@ describe("agent message protocol", () => {
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", input)).resolves.toBe("Review PR #42: please")
 
     expect(fetcher).toHaveBeenCalledWith(
+      "https://api.github.test/app/installations/123/access_tokens",
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: expect.stringMatching(/^Bearer [^.]+\.[^.]+\.[^.]+$/) }),
+        method: "POST",
+      }),
+    )
+    expect(fetcher).toHaveBeenCalledWith(
       "https://api.github.test/repos/vite-hub/vitehub/issues/comments/99/reactions",
       expect.objectContaining({
         body: JSON.stringify({ content: "eyes" }),
+        headers: expect.objectContaining({ authorization: "Bearer installation-token" }),
         method: "POST",
       }),
     )
