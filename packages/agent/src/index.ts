@@ -1058,6 +1058,7 @@ type AgentInvocationContext<
   startedAt: number
   actor: AgentInvoker
   invoker: AgentInvoker
+  handledResponse?: Response
   workspace?: ReadonlyWorkspaceFacade<WorkspaceName> | WritableWorkspaceFacade<WorkspaceName>
   workspaceDefinition?: WorkspaceDefinition
   workspaceMode: AgentCapabilityMode
@@ -1147,6 +1148,7 @@ async function createAgentInvocationContext<
       finishExtensionProviders: capabilities.registries.finishExtensionProviders,
       finishHook: definition?.hooks?.["agent:finish"] as never,
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
+      handledResponse: capabilities.response,
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
       invoker,
@@ -1483,6 +1485,9 @@ export async function runAgentInline<
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const runContext = await createAgentInvocationContext(agent, context, input)
     runContext.close = once(runContext.close)
+    if (runContext.handledResponse) {
+      return await finalizeAgentInvocationResult(runContext, runContext.handledResponse, async result => ({ finishResult: result, value: result }), "[vitehub] Agent run failed and finish lifecycle also failed.")
+    }
     let result: unknown
     try {
       result = await agent.run(runContext)
@@ -1510,6 +1515,9 @@ export async function runAgentInline<
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAgentInvocationContext(definition, context, input)
   adapterContext.close = once(adapterContext.close)
+  if (adapterContext.handledResponse) {
+    return await finalizeAgentInvocationResult(adapterContext, adapterContext.handledResponse, async result => ({ finishResult: result, value: result }), "[vitehub] Agent run failed and finish lifecycle also failed.")
+  }
   let result: unknown
   try {
     result = await resolved.generate(toAgentAdapterRunContext(adapterContext) as never)
@@ -1581,6 +1589,9 @@ export async function streamAgentInline<
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const runContext = await createAgentInvocationContext(agent, context, input)
     runContext.close = once(runContext.close)
+    if (runContext.handledResponse) {
+      return await finalizeAgentInvocationResult(runContext, runContext.handledResponse, async result => ({ finishResult: result, value: result }), "[vitehub] Agent stream failed and finish lifecycle also failed.")
+    }
     let result: unknown
     try {
       result = await agent.run(runContext)
@@ -1619,6 +1630,9 @@ export async function streamAgentInline<
   const definition = hasAgentDefinition(agent) ? agent as unknown as AgentDefinition<TRuntimeConfig, CALL_OPTIONS> : undefined
   const adapterContext = await createAgentInvocationContext(definition, context, input)
   adapterContext.close = once(adapterContext.close)
+  if (adapterContext.handledResponse) {
+    return await finalizeAgentInvocationResult(adapterContext, adapterContext.handledResponse, async result => ({ finishResult: result, value: result }), "[vitehub] Agent stream failed and finish lifecycle also failed.")
+  }
   let result: unknown
   try {
     result = resolved.stream

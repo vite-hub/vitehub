@@ -517,7 +517,7 @@ export interface AgentCapabilityDefinition<
   configure?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
   id: string
-  input?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
+  input?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<Response | void>
   instructions?:
     | AgentAdapterInstructions<TRuntimeConfig, Name>
     | false

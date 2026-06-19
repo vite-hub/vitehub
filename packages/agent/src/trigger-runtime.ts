@@ -165,6 +165,7 @@ export async function resolveAgentTriggers<
       triggers[id] = {
         channelId,
         definition: trigger as never,
+        dev: trigger.dev,
         devtools: trigger.devtools,
         id,
         input: trigger.input,
