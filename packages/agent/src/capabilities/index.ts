@@ -256,6 +256,7 @@ export type {
   UsageTelemetryCallback,
   UsageTelemetryContext,
   UsageTelemetryOptions,
+  UsageTelemetrySummaryOptions,
   VercelAiGatewayPricingOptions,
 } from "./usage-telemetry.ts"
 export type {
