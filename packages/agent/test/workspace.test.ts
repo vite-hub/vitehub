@@ -252,12 +252,12 @@ describe("defineAgent workspace option", () => {
     await expect(agent.run!(context())).rejects.toThrow("skills() requires workspace.mode: \"write\"")
   })
 
-  it("requires writable workspace for write-mode git commands", async () => {
+  it("requires writable workspace for git commands", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { git } = await import("../src/capabilities.ts")
 
     const agent = defineAgent({
-      capabilities: [git({ mode: "write" })],
+      capabilities: [git()],
       model: {} as never,
       workspace: { mode: "read" },
     })

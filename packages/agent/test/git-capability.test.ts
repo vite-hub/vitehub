@@ -44,7 +44,7 @@ describe("git capability", () => {
       id: "git",
       metadata: { mode: "read" },
       mode: "read",
-      requires: [{ workspace: { mode: "read", required: true } }],
+      requires: [{ workspace: { mode: "write", required: true } }],
     })
     expect(git({ mode: "write" })).toMatchObject({
       metadata: { mode: "write" },
@@ -110,6 +110,8 @@ describe("git capability", () => {
     await expect(tools.git_write!.execute?.({ command: "git fetch origin pull/123/head:review" })).rejects.toThrow("cannot update local ref destinations")
     await expect(tools.git_write!.execute?.({ command: "git fetch origin +pull/123/head" })).rejects.toThrow("cannot update local ref destinations")
     await expect(tools.git_write!.execute?.({ command: "git fetch --refmap=refs/*:refs/* origin pull/123/head" })).rejects.toThrow("not available through git_write")
+    await expect(tools.git_write!.execute?.({ command: "git fetch --upload-pack=\"sh -c whoami\" origin" })).rejects.toThrow("not available through git_write")
+    await expect(tools.git_write!.execute?.({ command: "git fetch --upload-pack sh origin" })).rejects.toThrow("not available through git_write")
     await expect(tools.git_write!.execute?.({ command: "git fetch --tags origin" })).rejects.toThrow("not available through git_write")
   })
 

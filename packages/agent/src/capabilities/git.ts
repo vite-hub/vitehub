@@ -58,7 +58,7 @@ const writeSubcommands = new Set(["checkout", "fetch", "switch"])
 const blockedSubcommands = new Set(["commit", "push", "reset", "rebase", "tag"])
 const blockedReadOptions = new Set(["--contents", "--ext-diff", "--no-index", "--open-files-in-pager", "--textconv"])
 const blockedCheckoutOptions = new Set(["--force", "--merge", "--orphan", "--patch", "-B", "-b", "-f", "-m", "-p"])
-const blockedFetchOptions = new Set(["--force", "--prune-tags", "--refmap", "--tags", "--update-head-ok", "-f", "-t"])
+const blockedFetchOptions = new Set(["--force", "--prune-tags", "--refmap", "--tags", "--update-head-ok", "--upload-pack", "-f", "-t"])
 const fetchOptionsWithValue = new Set(["--deepen", "--depth", "--filter", "--jobs", "--negotiation-tip", "--refmap", "--recurse-submodules", "--server-option", "--shallow-exclude", "--shallow-since", "--upload-pack"])
 const blockedSwitchOptions = new Set(["--create", "--discard-changes", "--force", "--force-create", "--guess", "--merge", "--orphan", "--track", "-C", "-c", "-f", "-m", "-t"])
 const defaultMaxOutputLength = 30_000
@@ -349,7 +349,7 @@ export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefiniti
     id: "git",
     mode,
     metadata: { mode },
-    requires: [{ primitive: "workspace", workspace: { mode, required: true } }],
+    requires: [{ primitive: "workspace", workspace: { mode: "write", required: true } }],
     tools: context => gitTools(mode, {
       maxOutputLength,
       policy: options.policy,
