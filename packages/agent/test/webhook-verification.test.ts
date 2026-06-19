@@ -168,7 +168,7 @@ describe("agent webhook verification", () => {
     expect(invoked).toHaveBeenCalledTimes(1)
   })
 
-  it("verifies GitHub channel trigger signatures", async () => {
+  it("verifies GitHub delivery signatures", async () => {
     const { github } = await import("../src/channels.ts")
     const invoked = vi.fn(() => "ok")
     const agent = defineAgent({
@@ -194,7 +194,7 @@ describe("agent webhook verification", () => {
     expect(invoked).toHaveBeenCalledTimes(1)
   })
 
-  it("rejects invalid GitHub channel trigger signatures", async () => {
+  it("rejects invalid GitHub delivery signatures", async () => {
     const { github } = await import("../src/channels.ts")
     const invoked = vi.fn(() => "ok")
     const agent = defineAgent({

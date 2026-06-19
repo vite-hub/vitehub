@@ -1344,7 +1344,7 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("adds GitHub webhook defaults to channel-owned triggers", async () => {
+  it("adds GitHub webhook defaults to delivery triggers", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
     const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
@@ -1378,6 +1378,107 @@ describe("agent message protocol", () => {
         }],
       },
     })
+  })
+
+  it("supports GitHub PR comment command admission and write-back effects", async () => {
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
+    const { github, githubPullRequestCommand, githubPullRequestEffects } = await import("../src/channels.ts")
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const href = String(url)
+      if (href.endsWith("/pulls/42")) {
+        return Response.json({ head: { sha: "abc123" } })
+      }
+      return Response.json({ ok: true }, { status: init?.method === "POST" ? 201 : 200 })
+    })
+    const input = {
+      github: { deliveryId: "delivery-1", event: "issue_comment", installationId: 123 },
+      payload: {
+        action: "created",
+        comment: {
+          body: "/review please",
+          id: 99,
+          node_id: "comment-node",
+          user: { id: 1, login: "onmax", type: "User" },
+        },
+        issue: {
+          author_association: "MEMBER",
+          number: 42,
+          pull_request: { url: "https://api.github.test/repos/vite-hub/vitehub/pulls/42" },
+        },
+        repository: {
+          full_name: "vite-hub/vitehub",
+          name: "vitehub",
+          owner: { login: "vite-hub" },
+        },
+      },
+    }
+    const agent = defineAgent({
+      capabilities: [defineCapability({
+        id: "review-feedback",
+        prepare(context) {
+          context.delivery.effect({ intent: "started", kind: "reaction" })
+          context.delivery.effect({ kind: "reply", payload: "Review queued." })
+          context.delivery.effect({ intent: "completed", kind: "status", metadata: { description: "Review completed." } })
+        },
+      })],
+      channels: {
+        github: github({
+          effects: githubPullRequestEffects({
+            apiBaseUrl: "https://api.github.test",
+            fetch: fetcher as typeof fetch,
+            statusContext: "ViteHub Review",
+            token: "github-token",
+          }),
+          triggers: {
+            webhook: {
+              invoke: (context, rawInput: typeof input) => {
+                const command = githubPullRequestCommand(rawInput, { command: "/review" })
+                if (!command || command.actor.association !== "MEMBER") {
+                  return new Response(null, { status: 204 })
+                }
+                return {
+                  input: {
+                    context: { github: command },
+                    prompt: `Review PR #${command.issueNumber}: ${command.args}`,
+                  },
+                  run: { channelId: context.trigger.channelId, origin: "github", runId: command.deliveryId || "github-delivery" },
+                }
+              },
+            },
+          },
+        }),
+      },
+      run: context => context.prompt,
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", input)).resolves.toBe("Review PR #42: please")
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://api.github.test/repos/vite-hub/vitehub/issues/comments/99/reactions",
+      expect.objectContaining({
+        body: JSON.stringify({ content: "eyes" }),
+        method: "POST",
+      }),
+    )
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://api.github.test/repos/vite-hub/vitehub/issues/42/comments",
+      expect.objectContaining({
+        body: JSON.stringify({ body: "Review queued." }),
+        method: "POST",
+      }),
+    )
+    expect(fetcher).toHaveBeenCalledWith("https://api.github.test/repos/vite-hub/vitehub/pulls/42", expect.objectContaining({ method: "GET" }))
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://api.github.test/repos/vite-hub/vitehub/statuses/abc123",
+      expect.objectContaining({
+        body: JSON.stringify({
+          context: "ViteHub Review",
+          description: "Review completed.",
+          state: "success",
+        }),
+        method: "POST",
+      }),
+    )
   })
 
   it("keeps channel chat triggers discoverable for workspace agents", async () => {

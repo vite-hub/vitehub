@@ -77,7 +77,7 @@ A helper, such as `defineChannel()`, that returns a Channel Definition for use i
 _Avoid_: Filesystem channel registration, Capability factory, route helper
 
 **GitHub Channel**:
-An official Channel Kind for verified GitHub App or webhook delivery into Agent Invocations.
+An official Channel Kind for verified GitHub App or webhook delivery into Agent Invocations, plus reusable pull-request delivery facts and write-back effects.
 _Avoid_: Quiver Review behavior, browser review command, GitHub Capability
 
 **Stream Channel**:
@@ -281,7 +281,8 @@ _Avoid_: Fake agent, dummy model, test bot
 - A **Custom Channel** is the root Agent Definition replacement for the old Entry Capability idea.
 - App-owned product events use **Custom Channels** when the concern is Agent reachability rather than a reusable Agent ability.
 - A **GitHub Channel** owns reusable GitHub delivery, verification, event facts, installation context, actor mapping, Channel Delivery Admission, and supported Channel Delivery Effects for triggering events; product-specific commands and artifacts stay app-owned.
-- A **GitHub Channel** trigger receives verified GitHub delivery facts from generated webhook routing; app code owns product-specific admission such as command filtering and trusted actor checks.
+- A **GitHub Channel** trigger receives verified GitHub delivery facts from generated webhook routing. App code owns product-specific admission such as command filtering and trusted actor checks, while first-party helpers may parse pull-request comment command facts without deciding whether the Agent should run.
+- GitHub pull-request write-back should use generic **Channel Delivery Effects** such as reactions, replies, and statuses instead of GitHub-prefixed Capability APIs.
 - Official **Channel Kinds** should name concrete entry paths rather than a generic Chat Channel.
 - Official **Channel Kind** helpers are imported from `@vite-hub/agent/channels`, not from the Agent Package root or Capabilities entry.
 - A **Stream Channel** owns generated AI SDK UI-message stream route metadata and optional trusted input mapping for app-owned surfaces such as Portal Ask AI.
@@ -406,5 +407,5 @@ _Avoid_: Fake agent, dummy model, test bot
 - Agent run metadata used `platform` for both chat adapters and generic invocation sources - resolved: use **Agent Run Origin** for run metadata and reserve platform language for **Chat Platform Adapters**.
 - `run.channelId` was considered for both configured Channel IDs and platform conversation ids - resolved: use **Agent Run Channel** for configured ViteHub Channel identity and **Agent Run Platform Context** for platform-native ids.
 - Agent Triggers were considered chat-only because chat is the first major use case - resolved: message-shaped **Channels** can provide official triggers, but Agent Triggers remain general and do not require message-shaped input.
-- Chat helper APIs were considered the primary exposure path - resolved: Channel-owned trigger registration is the primary server-side path, with helpers only as optional callers or ergonomics around registered triggers.
+- Chat helper APIs were considered the primary exposure path - resolved: declared Channel delivery paths are the primary server-side path, with helpers only as optional callers or ergonomics around registered triggers.
 - Client-provided flags were considered Capability configuration - resolved: triggers may pass host or client intent with the Agent Invocation, while Capabilities remain server-configured Agent behavior and the exact input field name is not fixed yet.
