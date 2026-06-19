@@ -1,5 +1,4 @@
 import { createSign } from "node:crypto"
-import { readFile } from "node:fs/promises"
 
 import type {
   AgentCallbackContext,
@@ -58,7 +57,6 @@ export interface GitHubAppOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
   fetch?: typeof fetch
   installationId?: GitHubAppValue<number | string | undefined, TRuntimeConfig>
   privateKey?: GitHubAppValue<string | { unseal: () => string } | undefined, TRuntimeConfig>
-  privateKeyPath?: GitHubAppValue<string | undefined, TRuntimeConfig>
   statusContext?: string
   userAgent?: string
   webhookSecret?: GitHubAppValue<false | string | { unseal: () => string } | undefined, TRuntimeConfig>
@@ -429,7 +427,6 @@ async function githubEnv(event?: unknown): Promise<Record<string, unknown>> {
         appId: process.env.GITHUB_APP_ID,
         appInstallationId: process.env.GITHUB_APP_INSTALLATION_ID,
         appPrivateKey: process.env.GITHUB_APP_PRIVATE_KEY,
-        appPrivateKeyPath: process.env.GITHUB_APP_PRIVATE_KEY_PATH,
         webhookSecret: process.env.GITHUB_WEBHOOK_SECRET,
       }
     : {}
@@ -481,9 +478,7 @@ async function githubAppPrivateKey<TRuntimeConfig extends AgentRuntimeConfig>(
 ) {
   const inline = cleanSecret(await githubAppSetting(options, env, "privateKey", "appPrivateKey", context))
   if (inline) return inline.replace(/\\n/g, "\n")
-  const path = cleanSecret(await githubAppSetting(options, env, "privateKeyPath", "appPrivateKeyPath", context))
-  if (path) return await readFile(path, "utf8")
-  throw new Error("[vitehub] Missing GitHub App privateKey. Set github.appPrivateKey, github.appPrivateKeyPath, GITHUB_APP_PRIVATE_KEY, or GITHUB_APP_PRIVATE_KEY_PATH.")
+  throw new Error("[vitehub] Missing GitHub App privateKey. Set github.appPrivateKey or GITHUB_APP_PRIVATE_KEY.")
 }
 
 function base64url(value: string | Buffer) {
