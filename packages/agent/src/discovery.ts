@@ -13,6 +13,7 @@ import type { DiscoveredAgentDefinition } from "./types.ts"
 const agentSuffixPattern = /\.agent\.(?:c|m)?[jt]s$/i
 const configPattern = /^config\.(?:c|m)?[jt]s$/i
 const evalDefinitionPattern = /^(?:.+\.)?eval\.(?:c|m)?[jt]s$/i
+const indexDefinitionPattern = /^index\.(?:c|m)?[jt]s$/i
 
 function isEvalDefinitionFile(file: string): boolean {
   return evalDefinitionPattern.test(basename(file))
@@ -37,6 +38,7 @@ function isInsideConfiguredAgent(file: string, configuredAgentDirs: Set<string>)
   const directory = dirname(file)
   for (const agentDir of configuredAgentDirs) {
     const path = relative(agentDir, directory)
+    if (path === "" && indexDefinitionPattern.test(basename(file))) return false
     if (path === "" || (!path.startsWith("..") && path !== "..")) return true
   }
   return false

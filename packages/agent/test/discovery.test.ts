@@ -213,6 +213,18 @@ describe("agent discovery", () => {
       scanDirs: [join(root, "server")],
     })).toThrow("Duplicate agent name")
   })
+
+  it("throws when a configured server agent also has an index definition", async () => {
+    const root = await createTempRoot("vitehub-agent-config-index-duplicate-")
+    await mkdir(join(root, "server", "agents", "support"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "support", "index.ts"), "export default defineAgent({ model })", "utf8")
+
+    expect(() => discoverAgentDefinitions({
+      mode: "server-agents",
+      scanDirs: [join(root, "server")],
+    })).toThrow("Duplicate agent name")
+  })
 })
 
 describe("agent chat capability discovery", () => {
