@@ -34,6 +34,9 @@ export {
   rateLimit,
 } from "./rate-limit.ts"
 export {
+  repositoryHost,
+} from "./repository-host.ts"
+export {
   llmRoute,
 } from "./llm-route.ts"
 export {
@@ -193,6 +196,18 @@ export type {
   RateLimitStoreResult,
   RateLimitWindow,
 } from "./rate-limit.ts"
+export type {
+  RepositoryHostClient,
+  RepositoryHostOptions,
+  RepositoryHostProvider,
+  RepositoryHostReadOperation,
+  RepositoryHostReadRequest,
+  RepositoryHostTarget,
+  RepositoryHostTargetKind,
+  RepositoryHostToolPolicy,
+  RepositoryHostWriteOperation,
+  RepositoryHostWriteRequest,
+} from "./repository-host.ts"
 export type {
   LlmRouteDecision,
   LlmRouteOptions,
