@@ -698,8 +698,13 @@ export function withAgentDefaults<TContext extends AgentRuntimeContext>(
 ): AgentInput<TContext> | undefined {
   if (!agent || !hasAgentDefinition(agent)) return agent
   const workspaceDefinition = agent as Partial<WorkspaceAgentDefinition>
+  const existingWorkspaceDefaults = workspaceDefinition.__vitehubWorkspaceAgentDefaults
   const workspaceDefaults = workspaceDefinition.__vitehubWorkspaceAgent && (options.inferredName || options.workspace)
-    ? { name: options.inferredName, workspace: options.workspace }
+    ? {
+        ...existingWorkspaceDefaults,
+        ...(options.inferredName ? { name: options.inferredName } : {}),
+        ...(options.workspace ? { workspace: options.workspace } : {}),
+      }
     : undefined
   const runtime = withAgentWorkflowRuntimeName(agent.runtime, options.inferredName)
   return !workspaceDefaults && (!runtime || runtime === agent.runtime)

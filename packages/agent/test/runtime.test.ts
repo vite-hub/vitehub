@@ -2965,6 +2965,21 @@ describe("agent message protocol", () => {
       expect(defaults(supportAgent)).toEqual({ name: "support-agent", workspace: "support" })
     })
 
+    it("preserves existing workspace defaults when applying an inferred registry name", async () => {
+      const { defineAgent } = await import("../src/index.ts")
+      const defaults = (agent: unknown) => (agent as { __vitehubWorkspaceAgentDefaults?: { name?: string, workspace?: string } }).__vitehubWorkspaceAgentDefaults
+      const agent = defineAgent({
+        run: () => "ok",
+        workspace: {},
+      })
+
+      const preparedAgent = withAgentDefaults(agent, { inferredName: "support-agent", workspace: "support" })
+      const registryAgent = withAgentDefaults(preparedAgent, { inferredName: "registry-support" })
+
+      expect(registryAgent).not.toBe(preparedAgent)
+      expect(defaults(registryAgent)).toEqual({ name: "registry-support", workspace: "support" })
+    })
+
     it("uses workspace Agent defaults for unnamed workflow runtime bindings", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")
