@@ -2946,6 +2946,25 @@ describe("agent message protocol", () => {
       })
     })
 
+    it("keeps workspace defaults scoped to each prepared Agent Definition", async () => {
+      const { defineAgent } = await import("../src/index.ts")
+      const defaults = (agent: unknown) => (agent as { __vitehubWorkspaceAgentDefaults?: { name?: string, workspace?: string } }).__vitehubWorkspaceAgentDefaults
+      const agent = defineAgent({
+        run: () => "ok",
+        workspace: {},
+      })
+
+      const docsAgent = withAgentDefaults(agent, { inferredName: "docs-agent", workspace: "docs" })
+      const supportAgent = withAgentDefaults(agent, { inferredName: "support-agent", workspace: "support" })
+
+      expect(docsAgent).not.toBe(agent)
+      expect(supportAgent).not.toBe(agent)
+      expect(docsAgent).not.toBe(supportAgent)
+      expect(defaults(agent)).toEqual({})
+      expect(defaults(docsAgent)).toEqual({ name: "docs-agent", workspace: "docs" })
+      expect(defaults(supportAgent)).toEqual({ name: "support-agent", workspace: "support" })
+    })
+
     it("uses workspace Agent defaults for unnamed workflow runtime bindings", async () => {
       const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
       const { getWorkflowRun } = await import("@vite-hub/workflow")

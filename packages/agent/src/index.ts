@@ -668,13 +668,19 @@ function withAgentWorkflowRuntimeName(runtime: AgentRuntimeBinding | undefined, 
   return { ...runtime, name }
 }
 
-function cloneAgentDefinitionWithRuntime<TContext extends AgentRuntimeContext>(
+function cloneAgentDefinitionWithDefaults<TContext extends AgentRuntimeContext>(
   agent: AgentInput<TContext>,
-  runtime: AgentRuntimeBinding,
+  defaults: WorkspaceAgentDefaults | undefined,
+  runtime: AgentRuntimeBinding | undefined,
 ): AgentInput<TContext> {
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentDefinition
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
-  clone.runtime = runtime
+  if (defaults) {
+    (clone as Partial<WorkspaceAgentDefinition>).__vitehubWorkspaceAgentDefaults = defaults
+  }
+  if (runtime) {
+    clone.runtime = runtime
+  }
   return clone as AgentInput<TContext>
 }
 
@@ -692,11 +698,13 @@ export function withAgentDefaults<TContext extends AgentRuntimeContext>(
 ): AgentInput<TContext> | undefined {
   if (!agent || !hasAgentDefinition(agent)) return agent
   const workspaceDefinition = agent as Partial<WorkspaceAgentDefinition>
-  if (workspaceDefinition.__vitehubWorkspaceAgent && (options.inferredName || options.workspace)) {
-    workspaceDefinition.__vitehubWorkspaceAgentDefaults = { name: options.inferredName, workspace: options.workspace }
-  }
+  const workspaceDefaults = workspaceDefinition.__vitehubWorkspaceAgent && (options.inferredName || options.workspace)
+    ? { name: options.inferredName, workspace: options.workspace }
+    : undefined
   const runtime = withAgentWorkflowRuntimeName(agent.runtime, options.inferredName)
-  return !runtime || runtime === agent.runtime ? agent : cloneAgentDefinitionWithRuntime(agent, runtime)
+  return !workspaceDefaults && (!runtime || runtime === agent.runtime)
+    ? agent
+    : cloneAgentDefinitionWithDefaults(agent, workspaceDefaults, runtime === agent.runtime ? undefined : runtime)
 }
 
 export interface DefineAgent {
