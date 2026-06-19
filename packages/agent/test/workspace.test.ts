@@ -444,6 +444,19 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toBe("Use workspace sources.")
   })
 
+  it("rebinds synthetic workspace runs when applying discovered defaults", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(useWorkspace).toHaveBeenCalledWith("docs")
+  })
+
   it("joins array instructions", async () => {
     const { defineAgent } = await import("../src/index.ts")
 

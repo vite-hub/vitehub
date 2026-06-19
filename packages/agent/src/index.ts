@@ -668,6 +668,23 @@ function withAgentWorkflowRuntimeName(runtime: AgentRuntimeBinding | undefined, 
   return { ...runtime, name }
 }
 
+function createSyntheticWorkspaceRun<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  definition: AgentDefinition<TRuntimeConfig, CALL_OPTIONS>,
+): NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> {
+  const run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> = async (context) => {
+    const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, context)
+    const invocationContext = await createAgentInvocationContext(definition as never, context as never, context.input)
+    const result = await adapter.generate(toAgentAdapterRunContext(invocationContext) as never)
+    return typeof result === "object" && result && "text" in result && typeof (result as { text?: unknown }).text === "string"
+      ? (result as { text: string }).text
+      : result
+  }
+  return Object.assign(run, { [syntheticWorkspaceRun]: true })
+}
+
 function cloneAgentDefinitionWithDefaults<TContext extends AgentRuntimeContext>(
   agent: AgentInput<TContext>,
   defaults: WorkspaceAgentDefaults | undefined,
@@ -680,6 +697,9 @@ function cloneAgentDefinitionWithDefaults<TContext extends AgentRuntimeContext>(
   }
   if (runtime) {
     clone.runtime = runtime
+  }
+  if (clone.run && syntheticWorkspaceRun in clone.run) {
+    clone.run = createSyntheticWorkspaceRun(clone as never) as typeof clone.run
   }
   return clone as AgentInput<TContext>
 }
@@ -775,15 +795,7 @@ function createWorkspaceAgentDefinition<
   } as never) as WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>
 
   if (!definition.run) {
-    const run: NonNullable<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>["run"]> = async (context) => {
-      const adapter = await resolveAgentForRun<TRuntimeConfig, CALL_OPTIONS>(definition as never, context)
-      const invocationContext = await createAgentInvocationContext(definition as never, context as never, context.input)
-      const result = await adapter.generate(toAgentAdapterRunContext(invocationContext) as never)
-      return typeof result === "object" && result && "text" in result && typeof (result as { text?: unknown }).text === "string"
-        ? (result as { text: string }).text
-        : result
-    }
-    definition.run = Object.assign(run, { [syntheticWorkspaceRun]: true })
+    definition.run = createSyntheticWorkspaceRun(definition)
   }
 
   Object.assign(definition, workspaceDefinition, {
