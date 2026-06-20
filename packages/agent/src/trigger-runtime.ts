@@ -172,13 +172,14 @@ export async function resolveAgentTriggers<
         invoke: input => trigger.invoke({
           ...runtimeContext,
           channel,
+          capabilities: capabilities as never,
           trigger: {
             channelId,
             id,
             name,
             source: "channel",
           },
-        }, input as never),
+        } as never, input as never),
         name,
         output: trigger.output,
         source: "channel",

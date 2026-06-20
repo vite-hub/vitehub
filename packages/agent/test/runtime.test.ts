@@ -1651,9 +1651,9 @@ describe("agent message protocol", () => {
         commands: {
           review: {
             description: "Review a pull request.",
-            run({ args, input }) {
-              const command = input.context?.github
-              const pullRequest = input.context?.pullRequest
+            run({ input }) {
+              const command = input.context?.github as Record<string, unknown> | undefined
+              const pullRequest = input.context?.pullRequest as Record<string, unknown> | undefined
               if (!command || !pullRequest) throw new Error("Missing GitHub pull request context.")
               expect(command.actor).toMatchObject({ association: "MEMBER" })
               expect(pullRequest).toMatchObject({
@@ -1683,9 +1683,6 @@ describe("agent message protocol", () => {
                   sender: { login: "onmax" },
                 },
               })
-              return {
-                prompt: `Review PR #${command.issueNumber}: ${args}`,
-              }
             },
           },
         },
@@ -1707,10 +1704,13 @@ describe("agent message protocol", () => {
           },
         }),
       },
-      run: context => context.prompt,
+      run: (context) => {
+        expect(context.prompt).toBe("")
+        return "Review completed."
+      },
     })
 
-    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", input)).resolves.toBe("Review PR #42: please")
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", input)).resolves.toBe("Review completed.")
 
     expect(fetcher).toHaveBeenCalledWith(
       "https://api.github.test/app/installations/123/access_tokens",
@@ -1737,7 +1737,7 @@ describe("agent message protocol", () => {
     expect(fetcher).toHaveBeenCalledWith(
       "https://api.github.test/repos/vite-hub/vitehub/issues/42/comments",
       expect.objectContaining({
-        body: JSON.stringify({ body: "Review PR #42: please" }),
+        body: JSON.stringify({ body: "Review completed." }),
         method: "POST",
       }),
     )
@@ -1760,7 +1760,7 @@ describe("agent message protocol", () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { github } = await import("../src/channels.ts")
     const commandRun = vi.fn(({ input }) => {
-      const pullRequest = input.context?.pullRequest
+      const pullRequest = input.context?.pullRequest as { trigger?: { actor?: { association?: string } } } | undefined
       return pullRequest?.trigger?.actor?.association === "MEMBER"
         ? { prompt: "unexpected" }
         : Response.json({ accepted: false, ok: true, reason: "unauthorized" })
@@ -1818,16 +1818,16 @@ describe("agent message protocol", () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { inputCommands } = await import("../src/capabilities.ts")
     const { github } = await import("../src/channels.ts")
+    const summaryRun = vi.fn(() => "unexpected")
     const run = vi.fn(() => "unexpected")
     const agent = defineAgent({
       capabilities: [inputCommands({
         commands: {
           summary: {
             description: "Summarize a pull request.",
-            run: () => "unexpected",
+            run: summaryRun,
           },
         },
-        unmatched: () => Response.json({ accepted: false, ok: true, reason: "not_command" }),
       })],
       channels: {
         github: github({
@@ -1861,6 +1861,7 @@ describe("agent message protocol", () => {
 
     expect(response).toBeInstanceOf(Response)
     await expect((response as Response).json()).resolves.toEqual({ accepted: false, ok: true, reason: "not_command" })
+    expect(summaryRun).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
   })
 

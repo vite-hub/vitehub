@@ -2,6 +2,7 @@ import { createSign } from "node:crypto"
 
 import type {
   AgentCallbackContext,
+  AgentCapabilityDefinition,
   AgentChannelDefinition,
   AgentChannelDeliveryEffectContext,
   AgentChannelDeliveryEffectIntent,
@@ -252,6 +253,35 @@ function parseSlashCommand(body: string): { args: string, command: `/${string}` 
     args: match[2]?.trim() || "",
     command: match[1] as `/${string}`,
   }
+}
+
+type AgentChannelTriggerContextWithCapabilities<TRuntimeConfig extends AgentRuntimeConfig> =
+  AgentCallbackContext<TRuntimeConfig> & { capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig>[] }
+
+type InputCommandsMetadata = {
+  commands: Record<string, unknown>
+  trigger: string
+}
+
+function inputCommandsMetadata(value: unknown): InputCommandsMetadata | undefined {
+  if (!isRecord(value) || Array.isArray(value.commands) || !isRecord(value.commands) || typeof value.trigger !== "string") return
+  return { commands: value.commands, trigger: value.trigger }
+}
+
+function declaredInputCommand<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentCallbackContext<TRuntimeConfig>,
+  command: string,
+): boolean | undefined {
+  let sawMatchingTrigger = false
+  for (const capability of (context as AgentChannelTriggerContextWithCapabilities<TRuntimeConfig>).capabilities || []) {
+    const metadata = inputCommandsMetadata(capability.metadata)
+    if (!metadata || !command.startsWith(metadata.trigger)) continue
+    const name = command.slice(metadata.trigger.length)
+    if (!name) continue
+    sawMatchingTrigger = true
+    if (Object.hasOwn(metadata.commands, name)) return true
+  }
+  return sawMatchingTrigger ? false : undefined
 }
 
 function githubPullRequestCommandFromInput(input: unknown): GitHubPullRequestCommand | undefined {
@@ -756,6 +786,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         const command = githubPullRequestCommandFromInput(isRecord(input) ? { ...input, payload } : { payload })
         if (!payload) return options.ignored?.("missing_payload") || ignored("missing_payload")
         if (!command) return options.ignored?.("not_command") || ignored("not_command")
+        if (declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
         const pullRequest = githubPullRequestRunContext(command, {
           ...options,
           threadId: options.threadId || maybeString(payload.issue?.pull_request?.html_url) || maybeString(payload.issue?.html_url),
