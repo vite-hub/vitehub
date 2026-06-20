@@ -279,7 +279,7 @@ describe("agent Vite plugin", () => {
     try {
       process.env.VITEHUB_HOSTING = "netlify"
       const plugin = hubAgent({ routes: { chat: false, webhooks: false } })
-      const configResolved = plugin.configResolved as (config: { build?: { outDir?: string }, command: "build", resolve: { alias: [] }, root: string }) => Promise<void>
+      const configResolved = plugin.configResolved as unknown as (config: { build?: { outDir?: string }, command: "build", resolve: { alias: [] }, root: string }) => Promise<void>
       const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
 
