@@ -95,7 +95,7 @@ const heroAgentCoreNodes = [
     label: "Channels",
     icon: "i-lucide-radio",
     angle: 0,
-    summary: "One Agent Definition can be reached from product and platform surfaces.",
+    summary: "Reach users from product and platform surfaces without changing the agent.",
     stat: "",
     tokens: [
       { label: "Slack", icon: "i-simple-icons-slack" },
@@ -110,7 +110,7 @@ const heroAgentCoreNodes = [
     label: "Capabilities",
     icon: "i-lucide-blocks",
     angle: 90,
-    summary: "Attach named abilities only when the active Agent Driver should receive them.",
+    summary: "Give the driver only the named abilities it needs for this run.",
     stat: "27 documented abilities",
     tokens: [
       { label: "Shell", icon: "i-lucide-terminal" },
@@ -126,7 +126,7 @@ const heroAgentCoreNodes = [
     label: "Driver",
     icon: "i-lucide-cpu",
     angle: 180,
-    summary: "The engine boundary for model execution, streaming, usage, and lifecycle.",
+    summary: "The engine boundary for model calls, streaming, usage, and lifecycle.",
     stat: "",
     tokens: [
       { label: "AI SDK", icon: "i-simple-icons-vercel" },
@@ -139,7 +139,7 @@ const heroAgentCoreNodes = [
     label: "Workspace",
     icon: "i-lucide-folder-tree",
     angle: 270,
-    summary: "A Linux-like file tree with explicit Sources, so the model uses your context.",
+    summary: "Put the model in a Linux-like project with your own files and sources.",
     stat: "",
     tokens: [
       { label: "Linux", icon: "i-simple-icons-linux" },
@@ -886,101 +886,90 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="min-w-0">
-          <div class="vh-hero-system relative z-10 overflow-visible rounded-sm bg-default ring-1 ring-default">
-            <div class="grid gap-4 p-4 sm:p-5">
-              <div class="flex items-center justify-between gap-3">
-                <div class="min-w-0">
-                  <h2 class="text-xl font-semibold text-highlighted">One Agent Definition. Two runtime paths.</h2>
+          <div class="relative z-10 overflow-visible">
+            <div class="vh-hero-orbit-wrap">
+              <div class="vh-hero-orbit-core" aria-hidden="true">
+                <div class="vh-hero-recipe-shell">
+                  <svg class="vh-hero-recipe-mark" viewBox="0 0 120 120" aria-hidden="true">
+                    <path
+                      class="vh-hero-recipe-mark-fill"
+                      d="M37 10H83Q91 10 95 17L116 53Q120 60 116 67L95 103Q91 110 83 110H37Q29 110 25 103L4 67Q0 60 4 53L25 17Q29 10 37 10Z"
+                    />
+                    <path
+                      class="vh-hero-recipe-mark-stroke"
+                      d="M37 10H83Q91 10 95 17L116 53Q120 60 116 67L95 103Q91 110 83 110H37Q29 110 25 103L4 67Q0 60 4 53L25 17Q29 10 37 10Z"
+                      pathLength="1"
+                    />
+                  </svg>
+                  <div
+                    v-for="(recipe, index) in heroAgentRecipes"
+                    :key="recipe.agent"
+                    class="vh-hero-recipe-card"
+                    :style="{ '--vh-recipe-delay': `${index * 5}s` }"
+                  >
+                    <span class="vh-hero-recipe-channel">
+                      <UIcon :name="recipe.channelIcon" class="size-4 shrink-0" aria-hidden="true" />
+                      <span>{{ recipe.channel }}</span>
+                    </span>
+                    <span class="vh-hero-recipe-bridge">
+                      <span class="vh-hero-recipe-chip">
+                        <UIcon :name="recipe.workspaceIcon" class="size-3 shrink-0" aria-hidden="true" />
+                        {{ recipe.workspace }}
+                      </span>
+                      <span class="vh-hero-recipe-flow" aria-hidden="true" />
+                      <span class="vh-hero-recipe-chip">
+                        <UIcon :name="recipe.capabilityIcon" class="size-3 shrink-0" aria-hidden="true" />
+                        {{ recipe.capability }}
+                      </span>
+                    </span>
+                    <strong>{{ recipe.agent }}</strong>
+                  </div>
                 </div>
-                <span class="hidden shrink-0 rounded-sm border border-default bg-muted/40 px-2 py-1 font-mono text-xs text-muted sm:inline-flex">
-                  defineAgent()
-                </span>
               </div>
 
-              <div class="vh-hero-orbit-wrap">
-                <div class="vh-hero-orbit-core" aria-hidden="true">
-                  <div class="vh-hero-recipe-shell">
-                    <svg class="vh-hero-recipe-mark" viewBox="0 0 120 120" aria-hidden="true">
-                      <path
-                        class="vh-hero-recipe-mark-fill"
-                        d="M37 10H83Q91 10 95 17L116 53Q120 60 116 67L95 103Q91 110 83 110H37Q29 110 25 103L4 67Q0 60 4 53L25 17Q29 10 37 10Z"
-                      />
-                      <path
-                        class="vh-hero-recipe-mark-stroke"
-                        d="M37 10H83Q91 10 95 17L116 53Q120 60 116 67L95 103Q91 110 83 110H37Q29 110 25 103L4 67Q0 60 4 53L25 17Q29 10 37 10Z"
-                        pathLength="1"
-                      />
-                    </svg>
-                    <div
-                      v-for="(recipe, index) in heroAgentRecipes"
-                      :key="recipe.agent"
-                      class="vh-hero-recipe-card"
-                      :style="{ '--vh-recipe-delay': `${index * 5}s` }"
-                    >
-                      <span class="vh-hero-recipe-channel">
-                        <UIcon :name="recipe.channelIcon" class="size-4 shrink-0" aria-hidden="true" />
-                        <span>{{ recipe.channel }}</span>
-                      </span>
-                      <span class="vh-hero-recipe-bridge">
-                        <span class="vh-hero-recipe-chip">
-                          <UIcon :name="recipe.workspaceIcon" class="size-3 shrink-0" aria-hidden="true" />
-                          {{ recipe.workspace }}
-                        </span>
-                        <span class="vh-hero-recipe-flow" aria-hidden="true" />
-                        <span class="vh-hero-recipe-chip">
-                          <UIcon :name="recipe.capabilityIcon" class="size-3 shrink-0" aria-hidden="true" />
-                          {{ recipe.capability }}
-                        </span>
-                      </span>
-                      <strong>{{ recipe.agent }}</strong>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="vh-hero-orbit-ring vh-hero-orbit-ring--cores">
-                  <span class="sr-only">Agent core primitives</span>
-                  <div
-                    v-for="node in heroAgentCoreNodes"
-                    :key="node.label"
-                    class="vh-hero-orbit-anchor"
-                    :style="{ '--vh-orbit-angle': `${node.angle}deg` }"
+              <div class="vh-hero-orbit-ring vh-hero-orbit-ring--cores">
+                <span class="sr-only">Agent core primitives</span>
+                <div
+                  v-for="node in heroAgentCoreNodes"
+                  :key="node.label"
+                  class="vh-hero-orbit-anchor"
+                  :style="{ '--vh-orbit-angle': `${node.angle}deg` }"
+                >
+                  <button
+                    type="button"
+                    class="vh-hero-orbit-node vh-hero-orbit-node--core"
+                    :aria-label="`${node.label}: ${node.summary} ${node.stat || ''} ${node.tokens.map(token => token.label).join(', ')}`"
                   >
-                    <button
-                      type="button"
-                      class="vh-hero-orbit-node vh-hero-orbit-node--core"
-                      :aria-label="`${node.label}: ${node.summary} ${node.stat || ''} ${node.tokens.map(token => token.label).join(', ')}`"
-                    >
-                      <span class="vh-hero-orbit-node-main">
-                        <UIcon :name="node.icon" class="size-4 shrink-0" aria-hidden="true" />
-                        <span>{{ node.label }}</span>
-                      </span>
-                      <span class="vh-hero-orbit-node-detail">
-                        <span class="vh-hero-orbit-node-copy">{{ node.summary }}</span>
-                        <span v-if="node.stat" class="vh-hero-orbit-node-stat">{{ node.stat }}</span>
-                        <span class="vh-hero-orbit-node-list" role="list">
-                          <span v-for="token in node.tokens" :key="token.label" class="vh-hero-orbit-token" role="listitem">
-                            <UIcon :name="token.icon" class="size-4 shrink-0" aria-hidden="true" />
-                            <span>{{ token.label }}</span>
-                          </span>
-                        </span>
-                      </span>
-                    </button>
-                  </div>
-                </div>
-
-                <div class="vh-hero-orbit-ring vh-hero-orbit-ring--providers">
-                  <span class="sr-only">Provider targets</span>
-                  <div
-                    v-for="node in heroProviderNodes"
-                    :key="node.label"
-                    class="vh-hero-orbit-anchor"
-                    :style="{ '--vh-orbit-angle': `${node.angle}deg` }"
-                  >
-                    <span class="vh-hero-orbit-node vh-hero-orbit-node--provider" :aria-label="node.label">
-                      <UIcon :name="node.icon" class="size-5 shrink-0" aria-hidden="true" />
-                      <span class="sr-only">{{ node.label }}</span>
+                    <span class="vh-hero-orbit-node-main">
+                      <UIcon :name="node.icon" class="size-4 shrink-0" aria-hidden="true" />
+                      <span>{{ node.label }}</span>
                     </span>
-                  </div>
+                    <span class="vh-hero-orbit-node-detail">
+                      <span class="vh-hero-orbit-node-copy">{{ node.summary }}</span>
+                      <span v-if="node.stat" class="vh-hero-orbit-node-stat">{{ node.stat }}</span>
+                      <span class="vh-hero-orbit-node-list" role="list">
+                        <span v-for="token in node.tokens" :key="token.label" class="vh-hero-orbit-token" role="listitem">
+                          <UIcon :name="token.icon" class="size-4 shrink-0" aria-hidden="true" />
+                          <span>{{ token.label }}</span>
+                        </span>
+                      </span>
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="vh-hero-orbit-ring vh-hero-orbit-ring--providers">
+                <span class="sr-only">Provider targets</span>
+                <div
+                  v-for="node in heroProviderNodes"
+                  :key="node.label"
+                  class="vh-hero-orbit-anchor"
+                  :style="{ '--vh-orbit-angle': `${node.angle}deg` }"
+                >
+                  <span class="vh-hero-orbit-node vh-hero-orbit-node--provider" :aria-label="node.label">
+                    <UIcon :name="node.icon" class="size-5 shrink-0" aria-hidden="true" />
+                    <span class="sr-only">{{ node.label }}</span>
+                  </span>
                 </div>
               </div>
             </div>
@@ -1356,10 +1345,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.vh-hero-system {
-  background: var(--ui-bg);
-}
-
 .vh-hero-orbit-wrap {
   --vh-hero-core-size: 7rem;
   --vh-hero-inner-radius: 8.5rem;
@@ -1373,9 +1358,6 @@ onBeforeUnmount(() => {
   min-height: 30rem;
   place-items: center;
   overflow: visible;
-  border: 1px solid var(--ui-border);
-  border-radius: 0.25rem;
-  background: color-mix(in srgb, var(--ui-bg-muted) 55%, transparent);
   font-size: 0.875rem;
 }
 
@@ -1454,7 +1436,7 @@ onBeforeUnmount(() => {
   opacity: 0;
   text-align: center;
   animation: vh-hero-recipe-card 30s cubic-bezier(0.23, 1, 0.32, 1) infinite;
-  animation-delay: var(--vh-recipe-delay);
+  animation-delay: calc(var(--vh-recipe-delay) - 1.25s);
 }
 
 .vh-hero-recipe-channel,
@@ -1473,12 +1455,11 @@ onBeforeUnmount(() => {
 
 .vh-hero-recipe-bridge {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 0.5rem minmax(0, 1fr);
-  align-items: center;
-  gap: 0.18rem;
-  width: min(8.5rem, 100%);
+  justify-items: center;
+  gap: 0.12rem;
+  width: min(7rem, 100%);
   color: color-mix(in srgb, var(--ui-text-highlighted) 78%, var(--ui-text-muted));
-  font-size: 0.55rem;
+  font-size: 0.56rem;
   font-weight: 700;
   line-height: 1;
 }
@@ -1489,29 +1470,30 @@ onBeforeUnmount(() => {
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--ui-border) 70%, transparent);
   border-radius: 999px;
-  padding: 0.22rem 0.32rem;
+  padding: 0.2rem 0.34rem;
   background: color-mix(in srgb, var(--ui-bg) 78%, transparent);
   animation: vh-hero-recipe-chip 5s cubic-bezier(0.23, 1, 0.32, 1) infinite;
-  animation-delay: var(--vh-recipe-delay);
+  animation-delay: calc(var(--vh-recipe-delay) - 1.25s);
   white-space: nowrap;
 }
 
 .vh-hero-recipe-flow {
   display: block;
-  width: 0.32rem;
-  height: 0.32rem;
+  width: 1rem;
+  height: 1px;
   border-radius: 999px;
   background: var(--ui-text-highlighted);
-  opacity: 0.42;
+  opacity: 0.28;
   animation: vh-hero-recipe-flow 5s cubic-bezier(0.23, 1, 0.32, 1) infinite;
-  animation-delay: var(--vh-recipe-delay);
+  animation-delay: calc(var(--vh-recipe-delay) - 1.25s);
 }
 
 .vh-hero-recipe-card strong {
-  max-width: 8.5ch;
+  max-width: 7ch;
   font-size: 0.9rem;
   font-weight: 800;
   line-height: 1.05;
+  text-wrap: balance;
 }
 
 .vh-hero-orbit-ring {
@@ -1602,6 +1584,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 0.4rem;
   flex: 0 0 auto;
+  min-width: 0;
 }
 
 .vh-hero-orbit-node-detail {
@@ -1610,7 +1593,8 @@ onBeforeUnmount(() => {
   right: 0.9rem;
   left: 7.75rem;
   display: grid;
-  gap: 0.35rem;
+  align-content: center;
+  gap: 0.45rem;
   overflow: visible;
   color: var(--ui-text-muted);
   font-size: 0.6875rem;
@@ -1635,42 +1619,73 @@ onBeforeUnmount(() => {
 
 .vh-hero-orbit-node-stat {
   color: var(--ui-text);
+  font-size: 0.75rem;
   font-weight: 600;
 }
 
 .vh-hero-orbit-node-list {
-  display: flex;
+  display: grid;
   min-width: 0;
-  flex-wrap: wrap;
-  gap: 0.25rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 0.36rem 0.32rem;
 }
 
 .vh-hero-orbit-token {
   display: inline-flex;
+  min-width: 0;
+  width: 100%;
   align-items: center;
   gap: 0.25rem;
   border: 1px solid color-mix(in srgb, var(--ui-border) 70%, transparent);
   border-radius: 999px;
-  padding: 0.25rem 0.5rem 0.25rem 0.25rem;
+  padding: 0.22rem 0.5rem 0.22rem 0.22rem;
   background: color-mix(in srgb, var(--ui-bg-muted) 44%, transparent);
   color: var(--ui-text);
+  font-size: 0.72rem;
   line-height: 1;
+}
+
+.vh-hero-orbit-token span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .vh-hero-orbit-node--core:hover,
 .vh-hero-orbit-node--core:focus-visible {
   z-index: 6;
-  width: 24rem;
-  height: 8.75rem;
-  justify-content: flex-start;
+  display: grid;
+  width: 27.5rem;
+  height: 10.75rem;
+  grid-template-columns: 8.25rem minmax(0, 1fr);
+  align-items: center;
+  justify-content: stretch;
+  gap: 0.85rem;
   background: var(--ui-bg);
+  padding: 0.85rem 1rem 0.85rem 0.85rem;
   box-shadow: 0 1rem 2.5rem color-mix(in srgb, var(--ui-bg-inverted) 10%, transparent);
+  white-space: normal;
+}
+
+.vh-hero-orbit-node--core:hover .vh-hero-orbit-node-main,
+.vh-hero-orbit-node--core:focus-visible .vh-hero-orbit-node-main {
+  align-self: stretch;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.35rem;
+  border-right: 1px solid color-mix(in srgb, var(--ui-border) 70%, transparent);
+  padding-right: 0.85rem;
+  text-align: center;
 }
 
 .vh-hero-orbit-node--core:hover .vh-hero-orbit-node-detail,
 .vh-hero-orbit-node--core:focus-visible .vh-hero-orbit-node-detail {
+  position: static;
+  min-width: 0;
   opacity: 1;
   visibility: visible;
+  transform: none;
 }
 
 .vh-hero-orbit-wrap:has(.vh-hero-orbit-node:hover) .vh-hero-orbit-ring,
@@ -1706,12 +1721,12 @@ onBeforeUnmount(() => {
   }
 
   .vh-hero-recipe-bridge {
-    width: 9.2rem;
-    font-size: 0.64rem;
+    width: 7.5rem;
+    font-size: 0.62rem;
   }
 
   .vh-hero-recipe-card strong {
-    font-size: 1.1rem;
+    font-size: 1.05rem;
   }
 }
 

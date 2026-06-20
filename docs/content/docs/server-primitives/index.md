@@ -10,26 +10,67 @@ icon: i-lucide-server-cog
 
 Use ViteHub primitives directly from routes, handlers, jobs, and workers, then expose them to Agents only when needed. Server primitives are useful even when the app has no Agent Definition.
 
-Start here:
+Start with the first primitive when you want a runnable path, use Concepts when the framework model is unclear, and move to Agents only when a model or harness should receive controlled abilities.
 
-- [Build your first server primitive](/docs/getting-started/first-server-primitive)
-- [Server primitives for any host](/docs/concepts/server-primitives-for-any-host)
-- [Compose primitives into Agents](/docs/agents)
+::u-page-grid{class="not-prose mt-8"}
+  :::u-page-card
+  ---
+  title: First primitive
+  description: Add KV to an app, register the Vite Integration, and call the Runtime Helper from server code.
+  icon: i-lucide-rocket
+  to: /docs/getting-started/first-server-primitive
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Server model
+  description: Learn why Runtime Helpers, Vite Integrations, Provider Output, and stable imports stay separate.
+  icon: i-lucide-map
+  to: /docs/concepts/server-primitives-for-any-host
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Runtime imports
+  description: Call primitives through ViteHub-owned imports instead of generated files or provider SDK wiring.
+  icon: i-lucide-code-2
+  to: /docs/concepts/runtime-helpers-and-stable-imports
+  ---
+  :::
+  :::u-page-card
+  ---
+  title: Agents
+  description: Compose these primitives into Agent Definitions through explicit Capabilities when model behavior needs them.
+  icon: i-lucide-bot
+  to: /docs/agents
+  ---
+  :::
+::
 
 :::note
 **Server code gets Runtime Helpers. Agents get Capabilities.** App routes can call stable imports directly, while an Agent Driver receives only the named abilities that Capabilities expose. Read [How ViteHub fits together](/docs/concepts/how-vitehub-fits-together) and [Capabilities API](/docs/concepts/capabilities-api) for the shared model.
 :::
 
+## Pick the right primitive
+
+| You need | Start with |
+| --- | --- |
+| Public, server, build-time, runtime, or secret environment values | [Env](/docs/server-primitives/env) |
+| Application users, sessions, Better Auth routing, or guarded app routes | [Auth](/docs/server-primitives/auth) |
+| Small key-addressed values, settings, flags, cursors, or lightweight state | [KV](/docs/server-primitives/kv) |
+| Relational data, constraints, joins, migrations, or queryable history | [Database](/docs/server-primitives/database) |
+| Uploads, generated artifacts, binary files, or object metadata | [Blob](/docs/server-primitives/blob) |
+| Persistent file-tree state, snapshots, diffs, rules, or sessions | [Workspace](/docs/server-primitives/workspace) |
+| Read-only retrieval from files, globs, GitHub, markdown, MCP, or custom loaders | [Source](/docs/server-primitives/source) |
+| Background delivery that should return before work finishes | [Queue](/docs/server-primitives/queue) |
+| Durable long-running work with provider-tracked run state | [Workflows](/docs/server-primitives/workflows) |
+| Static cron output or recurring runtime schedules | [Schedule](/docs/server-primitives/schedule) |
+| Isolated provider-managed execution | [Sandbox](/docs/server-primitives/sandbox) |
+| Controlled Unix-like command sessions | [Shell](/docs/server-primitives/shell) |
+
 ## Use primitives from server code
 
 Most primitives expose stable imports for application code. The route calls the Runtime Helper; package integrations and Provider Output own the host wiring.
-
-| Need | Read |
-| --- | --- |
-| Install the preset Vite Integration and primitive packages | [Installation](/docs/getting-started/installation) |
-| Call generated or integration-backed APIs through stable imports | [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports) |
-| Understand what the Vite Integration emits for each host | [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output) |
-| Check package and generated import paths | [Import paths](/docs/reference/import-paths) |
 
 ```ts [server/api/settings.put.ts]
 import { kv } from '@vite-hub/kv'
@@ -41,42 +82,6 @@ export default defineEventHandler(async (event) => {
 ```
 
 That route does not know whether the backing KV Store uses local files, Cloudflare, Vercel, or another driver. The primitive owns the provider boundary.
-
-## Primitive map
-
-Grouped by the job you need first, not by package directory.
-
-### Identity and config
-
-| Primitive | Use it for |
-| --- | --- |
-| [Env](/docs/server-primitives/env) | Public Env, Server Env, Build Env, Runtime Env, and Secret Env values. |
-| [Auth](/docs/server-primitives/auth) | Better Auth server routing, sessions, Auth Database Placement, guarded app routes, and the [Auth Users and Agent Invokers](/docs/concepts/auth-users-and-agent-invokers) boundary. |
-
-### Storage, data, and files
-
-| Primitive | Use it for |
-| --- | --- |
-| [KV](/docs/server-primitives/kv) | Small key-addressed values and lightweight state. |
-| [Database](/docs/server-primitives/database) | Drizzle-backed relational data, Default Databases, Named Databases, and generated schema. |
-| [Blob](/docs/server-primitives/blob) | Object storage for uploads, generated artifacts, binary files, and metadata. |
-| [Workspace](/docs/server-primitives/workspace) | Persistent file trees with rules, snapshots, diffs, Source Bindings, and sessions. |
-| [Source](/docs/server-primitives/source) | Typed read-only retrieval from files, globs, GitHub, markdown, MCP resources, or custom loaders. |
-
-### Runtime work and execution
-
-| Primitive | Use it for |
-| --- | --- |
-| [Queue](/docs/server-primitives/queue) | Background Queue Enqueue and provider-driven Queue Delivery. |
-| [Workflows](/docs/server-primitives/workflows) | Durable Workflow Runs with provider-tracked orchestration and optional Workflow Steps. |
-| [Schedule](/docs/server-primitives/schedule) | Static cron Schedule Definitions and recurring Runtime Schedules. |
-| [Sandbox](/docs/server-primitives/sandbox) | Isolated Sandbox Runs for named execution work. |
-| [Shell](/docs/server-primitives/shell) | Controlled Shell Runtime sessions over explicit filesystem and execution boundaries. |
-
-## Primitive showcase
-
-::server-primitive-showcase
-::
 
 ## Definitions, registries, and provider output
 
