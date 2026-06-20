@@ -108,4 +108,5 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
+      - run: npm install -g netlify-cli@23.15.1
       - run: vp run e2e:netlify
