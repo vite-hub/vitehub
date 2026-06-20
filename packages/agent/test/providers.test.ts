@@ -322,10 +322,13 @@ describe("agent Vite plugin", () => {
 
   it("publishes the Cloudflare state Durable Object subpath", async () => {
     const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
-      exports?: Record<string, string>
+      exports?: Record<string, unknown>
     }
 
-    expect(pkg.exports?.["./cloudflare/state"]).toBe("./dist/cloudflare/state.js")
+    expect(pkg.exports?.["./cloudflare/state"]).toEqual({
+      types: "./dist/cloudflare/state.d.ts",
+      import: "./dist/cloudflare/state.js",
+    })
   })
 })
 

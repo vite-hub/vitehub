@@ -27,6 +27,22 @@ export default defineConfig({
       "src/sandbox/providers/vercel.ts",
     ],
     exports: {
+      customExports(exports) {
+        return Object.fromEntries(
+          Object.entries(exports).map(([key, value]) => {
+            if (typeof value !== "string" || !value.endsWith(".js")) {
+              return [key, value];
+            }
+            return [
+              key,
+              {
+                types: value.replace(/\.js$/, ".d.ts"),
+                import: value,
+              },
+            ];
+          }),
+        );
+      },
       inlinedDependencies: false,
     },
     outExtensions: () => ({

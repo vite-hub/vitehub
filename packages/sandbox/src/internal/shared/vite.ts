@@ -4,13 +4,13 @@ import {
   type FeatureStateSource,
   type FeatureViteContext,
   type FeatureViteSetupResult,
-} from './feature-engine'
+} from '@vite-hub/internal/feature-bridge'
 import { mergeUserConfigs } from './vite/config-merge'
 import { resolveFeatureViteState, type ResolvedFeatureViteState } from './vite/virtual-modules'
 
 import type { ConfigEnv, Plugin } from 'vite'
 
-export type { FeatureViteContext, FeatureViteSetupResult } from './feature-engine'
+export type { FeatureViteContext, FeatureViteSetupResult } from '@vite-hub/internal/feature-bridge'
 export type { FeatureViteState } from './vite/virtual-modules'
 
 export interface FeatureBridgeBundle {
@@ -23,10 +23,10 @@ type ViteFeatureFactoryOptions<TOptions, TInput, TConfig = TInput> = {
   configKey: string
   defaultOptions?: TOptions | (() => TOptions)
   loadDeps?: boolean
-  normalizeOptions: (options: TOptions | undefined) => TInput | undefined
+  normalizeOptions: (options: TOptions | false | undefined) => TInput | undefined
   resolveConfig?: (config: TInput, hosting?: string) => TConfig
   assignRuntimeConfig?: (runtimeConfig: Record<string, unknown>, config: TConfig) => void
-  readOptions: (config: Record<string, unknown>, env: ConfigEnv) => TOptions | undefined
+  readOptions: (config: Record<string, unknown>, env: ConfigEnv) => TOptions | false | undefined
   setup?: (context: FeatureViteContext<TConfig>) => Promise<FeatureViteSetupResult | void> | FeatureViteSetupResult | void
 }
 

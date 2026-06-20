@@ -354,6 +354,10 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
   throw webhookVerificationError("[vitehub] Webhook secret verification failed.")
 }
 
+function requiresWebhookSecretHeader(registrations: AgentWebhookRegistrationDefinition[]) {
+  return registrations.some(registration => registration.secretToken !== undefined && registration.secretToken !== false)
+}
+
 function withAgentTriggerContext<CALL_OPTIONS>(
   input: AgentRunInput<CALL_OPTIONS>,
   trigger: Pick<ResolvedAgentTriggerDefinition, "capabilityId" | "channelId" | "id" | "name" | "source">,
@@ -414,7 +418,9 @@ export async function resolveAgentTriggerInvocation<
     throw new Error(`[vitehub] Agent trigger "${triggerId}" is not defined by this agent.`)
   }
   if (trigger.webhooks?.length && context.request) {
-    await verifyAgentWebhookRequest(trigger.webhooks, context.request, createAgentCallbackContext(context))
+    await verifyAgentWebhookRequest(trigger.webhooks, context.request, createAgentCallbackContext(context), {
+      requireSecretHeader: requiresWebhookSecretHeader(trigger.webhooks),
+    })
   }
   const invocation = await trigger.invoke(input)
   if (invocation instanceof Response) {

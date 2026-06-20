@@ -33,24 +33,78 @@
     }
   },
   "exports": {
-    ".": "./dist/index.js",
-    "./ai-sdk": "./dist/ai-sdk.js",
-    "./capabilities": "./dist/capabilities.js",
-    "./channels": "./dist/channels.js",
-    "./cli": "./dist/cli.js",
-    "./cloudflare": "./dist/cloudflare.js",
-    "./cloudflare/state": "./dist/cloudflare/state.js",
-    "./eval": "./dist/eval.js",
-    "./mcp": "./dist/mcp.js",
-    "./mcp/stdio": "./dist/mcp/stdio.js",
-    "./messages": "./dist/messages.js",
-    "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
-    "./runtime/workflow": "./dist/runtime/workflow.js",
-    "./server": "./dist/server.js",
-    "./state/sqlite": "./dist/state/sqlite.js",
-    "./test": "./dist/test.js",
-    "./vercel": "./dist/vercel.js",
-    "./vite": "./dist/vite.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./ai-sdk": {
+      "types": "./dist/ai-sdk.d.ts",
+      "import": "./dist/ai-sdk.js"
+    },
+    "./capabilities": {
+      "types": "./dist/capabilities.d.ts",
+      "import": "./dist/capabilities.js"
+    },
+    "./channels": {
+      "types": "./dist/channels.d.ts",
+      "import": "./dist/channels.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
+    },
+    "./cloudflare": {
+      "types": "./dist/cloudflare.d.ts",
+      "import": "./dist/cloudflare.js"
+    },
+    "./cloudflare/state": {
+      "types": "./dist/cloudflare/state.d.ts",
+      "import": "./dist/cloudflare/state.js"
+    },
+    "./eval": {
+      "types": "./dist/eval.d.ts",
+      "import": "./dist/eval.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp.d.ts",
+      "import": "./dist/mcp.js"
+    },
+    "./mcp/stdio": {
+      "types": "./dist/mcp/stdio.d.ts",
+      "import": "./dist/mcp/stdio.js"
+    },
+    "./messages": {
+      "types": "./dist/messages.d.ts",
+      "import": "./dist/messages.js"
+    },
+    "./runtime/empty-registry": {
+      "types": "./dist/runtime/empty-registry.d.ts",
+      "import": "./dist/runtime/empty-registry.js"
+    },
+    "./runtime/workflow": {
+      "types": "./dist/runtime/workflow.d.ts",
+      "import": "./dist/runtime/workflow.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./state/sqlite": {
+      "types": "./dist/state/sqlite.d.ts",
+      "import": "./dist/state/sqlite.js"
+    },
+    "./test": {
+      "types": "./dist/test.d.ts",
+      "import": "./dist/test.js"
+    },
+    "./vercel": {
+      "types": "./dist/vercel.d.ts",
+      "import": "./dist/vercel.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {

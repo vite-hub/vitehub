@@ -344,6 +344,26 @@ describe("fetch sources", () => {
     await expect(view.writeFile(".vitehub/sources/inventoryHealthSummary.json", "{}")).rejects.toThrow("read-only")
   })
 
+  it("rejects unsafe request descriptor source keys", () => {
+    expect(() => createWorkspaceSourceView({
+      name: "fetch-unsafe-nested-source-key",
+      sources: {
+        "nested/status": fetch({
+          url: "https://status.example.com/health",
+        }),
+      },
+    }, createMemoryWorkspaceStore())).toThrow("single safe file stem")
+
+    expect(() => createWorkspaceSourceView({
+      name: "fetch-unsafe-json-source-key",
+      sources: {
+        "status.json": fetch({
+          url: "https://status.example.com/health",
+        }),
+      },
+    }, createMemoryWorkspaceStore())).toThrow("single safe file stem")
+  })
+
   it("uses schema-derived defaults for source-backed fetch reads", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "ok" }))
     const querySchema = {

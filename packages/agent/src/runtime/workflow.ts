@@ -7,7 +7,9 @@ import type {
   AgentInput,
   AgentRunInput,
   AgentRunMetadata,
+  AgentRunResult,
   AgentRuntimeConfig,
+  AgentRuntimeContext,
   AgentRuntimeName,
 } from "../types.ts"
 import type { WorkflowExecutionContext, WorkflowProvider } from "@vite-hub/workflow"
@@ -19,11 +21,14 @@ export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   runtimeConfig?: AgentRuntimeConfig
 }
 
-export type AgentWorkflowRunner = (
-  agent: any,
-  context: any,
-  input: any,
-) => Promise<Response | unknown>
+export type AgentWorkflowRunner<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> = (
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  input: AgentRunInput<CALL_OPTIONS>,
+) => Promise<Response | AgentRunResult | unknown>
 
 function agentRuntimeFromWorkflowProvider(provider: WorkflowProvider): AgentRuntimeName {
   if (provider === "cloudflare") return "cloudflare-agents"
@@ -39,10 +44,10 @@ export async function runAgentWorkflowDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 >(
-  agent: AgentInput,
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: WorkflowExecutionContext<AgentWorkflowInvocationPayload<CALL_OPTIONS> | undefined>,
-  runAgentInline: AgentWorkflowRunner,
-): Promise<Response | unknown> {
+  runAgentInline: AgentWorkflowRunner<TRuntimeConfig, CALL_OPTIONS>,
+): Promise<Response | AgentRunResult | unknown> {
   const payload = context.payload || {}
   const cloudflareEnv = context.provider === "cloudflare"
     ? getActiveCloudflareEnv() || getCloudflareEnv(getWorkflowRuntimeEvent())
@@ -60,6 +65,6 @@ export async function runAgentWorkflowDefinition<
   return await runAgentInline(
     agent,
     runtimeContext,
-    payload.input || {},
+    (payload.input ?? {}) as AgentRunInput<CALL_OPTIONS>,
   )
 }

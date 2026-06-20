@@ -1,6 +1,6 @@
 import { lookup } from "mrmime"
 
-import { SourceError } from "../core/errors.ts"
+import { SourceError, SourcePathError } from "../core/errors.ts"
 import { normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
 
 import type { Source, SourceContent, SourceContext } from "../core/types.ts"
@@ -48,8 +48,21 @@ async function readSourceFile<TKey extends string>(options: FileSourceOptions<TK
     throw new TypeError("[vitehub] file requires path when content is not provided.")
   }
   const { readFile } = await import("node:fs/promises")
-  const { resolve } = await import("node:path")
-  return new Uint8Array(await readFile(resolve(resolveSourceRoot(ctx), normalizeSafeSourcePath(options.path))))
+  return new Uint8Array(await readFile(await resolveSafeSourceFilePath(options.path, ctx)))
+}
+
+async function resolveSafeSourceFilePath(path: string, ctx: SourceContext) {
+  const { realpath } = await import("node:fs/promises")
+  const { relative, resolve, sep } = await import("node:path")
+  const root = await realpath(resolve(resolveSourceRoot(ctx)))
+  const target = await realpath(resolve(root, normalizeSafeSourcePath(path)))
+  const rel = relative(root, target)
+
+  if (rel === ".." || rel.startsWith(`..${sep}`)) {
+    throw new SourcePathError(path)
+  }
+
+  return target
 }
 
 export function file<const TKey extends string = string>(input: FileSourceInput<TKey>): Source<TKey> {
@@ -65,8 +78,7 @@ export function file<const TKey extends string = string>(input: FileSourceInput<
       if (requestedKey !== key) return
       if (!("path" in options) || !options.path) return
       const { stat } = await import("node:fs/promises")
-      const { resolve } = await import("node:path")
-      const info = await stat(resolve(resolveSourceRoot(ctx), normalizeSafeSourcePath(options.path)))
+      const info = await stat(await resolveSafeSourceFilePath(options.path, ctx))
       return {
         digest: `${info.size}:${info.mtimeMs}`,
       }

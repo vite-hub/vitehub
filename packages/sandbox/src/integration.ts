@@ -1,4 +1,4 @@
-import { createFeatureEngine, normalizeFeaturePublicOptions, readFeaturePublicOptions } from './internal/shared/feature-engine'
+import { createFeatureEngine, normalizeFeaturePublicOptions, readFeaturePublicOptions } from '@vite-hub/internal/feature-bridge'
 import { resolveSandboxFeatureConfig } from './feature'
 import type { AgentSandboxConfig } from './module-types'
 import { getSandboxFeatureProvider } from './module-types'
@@ -25,7 +25,7 @@ function assignSandboxRuntimeConfig(runtimeConfig: Record<string, unknown>, conf
   runtimeConfig.sandbox = config
 }
 
-export const sandboxFeatureEngine = createFeatureEngine<SandboxPublicOptions, AgentSandboxConfig>({
+export const sandboxFeatureEngine = createFeatureEngine<AgentSandboxConfig, AgentSandboxConfig>({
   name: '@vite-hub/sandbox',
   feature: 'sandbox',
   configKey: 'sandbox',

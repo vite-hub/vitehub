@@ -187,9 +187,6 @@ catalogs:
     pathe:
       specifier: ^2.0.3
       version: 2.0.3
-    pkg-types:
-      specifier: ^2.3.0
-      version: 2.3.1
     scule:
       specifier: ^1.3.0
       version: 1.3.0
@@ -868,9 +865,6 @@ importers:
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
-      pkg-types:
-        specifier: catalog:unjs
-        version: 2.3.1
       rollup:
         specifier: catalog:tooling
         version: 4.60.4

@@ -2,7 +2,7 @@ import {
   buildFeatureViteContext,
   type FeatureEngine,
   type FeatureViteContext,
-} from '../feature-engine'
+} from '@vite-hub/internal/feature-bridge'
 
 import type { ConfigEnv, UserConfig } from 'vite'
 

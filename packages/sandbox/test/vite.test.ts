@@ -107,6 +107,28 @@ describe("hubSandbox", () => {
     expect(code).not.toContain('"provider": "cloudflare"')
   })
 
+  it("preserves explicit disabled sandbox config in feature state", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox(false)
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
+    const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
+
+    await configHook({
+      root: rootDir,
+    }, {
+      command: "serve",
+      mode: "development",
+    })
+
+    const resolvedId = await resolveId("#vitehub/sandbox")
+    const code = await load(resolvedId as string)
+
+    expect(code).toContain('"config": false')
+    expect(code).toContain('"sandbox": false')
+  })
+
   it("adds server-environment markers through the Environment API", async () => {
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox()
