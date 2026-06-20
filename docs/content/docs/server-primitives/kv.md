@@ -1,21 +1,25 @@
 ---
 title: KV
-description: Store small JSON-like values behind one stable key-value Runtime Helper.
+description: Store small key-addressed values behind one stable key-value Runtime Helper.
 navigation.order: 4
 icon: i-lucide-database-zap
 ---
 
-KV is the primitive for small values addressed by key. Use it for settings, feature flags, cache records, cursors, lightweight state, and simple lookup tables.
+KV stores small values addressed by key. Use it for settings, feature flags, cursors, cache records, lightweight state, and simple lookup tables.
 
-Do not use KV for relational data, complex queries, large binary objects, or file trees. Use [Database](/docs/server-primitives/database), [Blob](/docs/server-primitives/blob), or [Workspace and Sources](/docs/server-primitives/workspace) for those.
+KV does not model relationships, constraints, joins, large binary objects, or file trees. Use [Database](/docs/server-primitives/database), [Blob](/docs/server-primitives/blob), or [Workspace](/docs/server-primitives/workspace) for those boundaries.
 
-## Install and configure
+## Quick start
 
-```bash
+::steps{level="3"}
+
+### Install
+
+```bash [Terminal]
 pnpm add @vite-hub/kv
 ```
 
-Register the integration and choose a driver only when you need to override the default.
+### Configure
 
 ```ts [vite.config.ts]
 import { hubKv } from '@vite-hub/kv/vite'
@@ -23,15 +27,67 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [hubKv()],
+})
+```
+
+### Start using it
+
+```ts [server/api/settings.put.ts]
+import { kv } from '@vite-hub/kv'
+
+export default defineEventHandler(async (event) => {
+  await kv.set('settings', await readBody(event))
+  return { ok: true }
+})
+```
+
+::
+
+## Public imports
+
+| Import | Use |
+| --- | --- |
+| `kv` from `@vite-hub/kv` | Read and write the Default KV Store or a named KV Store. |
+| `hubKv` from `@vite-hub/kv/vite` | Register KV runtime configuration. |
+| `resolveKVViteConfig` from `@vite-hub/kv/vite` | Resolve KV Vite runtime config manually. |
+
+All KV driver, store, module, and storage types are exported from `@vite-hub/kv`.
+
+## Configuration options
+
+Configure a default store directly, or configure named stores with `kv.stores`.
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [hubKv()],
   kv: {
-    driver: 'fs-lite',
+    stores: {
+      default: { driver: 'fs-lite' },
+      rateLimit: { driver: 'upstash' },
+    },
   },
 })
 ```
 
-## Runtime API
+| Shape | Description |
+| --- | --- |
+| `kv: false` | Disables KV runtime configuration. |
+| `kv: { driver: 'fs-lite', base?: string }` | Uses local filesystem-backed KV. Default `base`: `.data/kv`. |
+| `kv: { driver: 'cloudflare-kv-binding', binding?: string, namespaceId?: string }` | Uses Cloudflare KV. Default `binding`: `KV`. `namespaceId` can come from `KV_NAMESPACE_ID`. |
+| `kv: { driver: 'upstash', url?: string, token?: string }` | Uses Upstash REST KV. Values can come from `KV_REST_API_URL` and `KV_REST_API_TOKEN`. |
+| `kv: { stores: Record<string, KVStoreConfig> }` | Defines named KV Stores. `stores.default` is required. |
 
-Use `kv` from server code.
+## Providers
+
+| Provider | Driver | Default resolution |
+| --- | --- | --- |
+| Local filesystem | `fs-lite` | Used for local/non-hosted development when no hosted env is detected. |
+| Cloudflare KV | `cloudflare-kv-binding` | Used on Cloudflare hosting. |
+| Upstash | `upstash` | Used when Upstash env vars are present or when Vercel hosting is detected. |
+
+## Use it at runtime
+
+Use the `kv` Runtime Helper from server code.
 
 ```ts [server/api/settings.put.ts]
 import { kv } from '@vite-hub/kv'
@@ -52,75 +108,56 @@ export default defineEventHandler(async () => {
 })
 ```
 
-Common operations:
+Use named stores when configuration defines multiple KV Stores.
 
-```ts
-await kv.set('settings', { theme: 'system' })
-await kv.get('settings')
-await kv.has('settings')
-await kv.del('settings')
-await kv.keys('users:')
-await kv.clear('cache:')
+```ts [server/rate-limit.ts]
+import { kv } from '@vite-hub/kv'
+
+const rateLimitStore = kv.store('rate-limit')
+
+export async function recordHit(key: string) {
+  await rateLimitStore.set(key, { seenAt: Date.now() })
+}
 ```
 
-## Prefixes
+## Runtime Helper
 
-Use prefixes when one store holds multiple logical groups.
+`kv` implements `KVStorage`.
 
-```ts
-await kv.set('users:42:profile', profile)
-await kv.set('users:42:prefs', prefs)
+| Method | Description |
+| --- | --- |
+| `kv.get<T>(key)` | Reads a value or returns `null`. |
+| `kv.set<T>(key, value)` | Writes a value. |
+| `kv.has(key)` | Checks whether a key exists. |
+| `kv.del(key)` | Deletes one key. |
+| `kv.keys(base?)` | Lists keys under an optional base prefix. |
+| `kv.clear(base?)` | Deletes keys under an optional base prefix. |
+| `kv.store(name)` | Selects a named KV Store. |
 
-const keys = await kv.keys('users:42:')
-```
+## Provider output
 
-Prefixes are a convention, not a relational model. If the app needs constraints, joins, migrations, or history, move the data to Database.
+The KV Package owns Default KV Store behavior, named KV Store selection, generated store-name types, and the KV Driver Boundary. Provider-specific namespaces, bindings, and credentials belong in integration configuration and deployment setup.
 
-## Local development
+Application code should keep importing `kv` from `@vite-hub/kv` when switching between local, Cloudflare, Vercel-compatible, or other drivers.
 
-Local development should be boring. The default local path uses a file-backed store so you can run the app without provisioning a remote service.
+## Connect it to Agents
 
-Host-specific drivers should be tested before deployment, but route code should not change when you switch drivers.
+Direct KV access is for app and server code. To let a model inspect or edit scoped key-value data, attach the KV Capability from the agent capability catalog.
 
-## Cloudflare KV namespace
-
-Cloudflare KV uses a binding and namespace id.
-
-```ts [vite.config.ts]
-export default defineConfig({
-  kv: {
-    driver: 'cloudflare-kv-binding',
-    binding: 'KV',
-    namespaceId: process.env.CLOUDFLARE_KV_NAMESPACE_ID,
-  },
-})
-```
-
-Cloudflare setup should stay in config and deployment metadata. Server routes should still import `kv` from `@vite-hub/kv`.
-
-## Upstash-backed KV on Vercel
-
-Vercel KV usually routes through Upstash credentials.
-
-```env [.env]
-KV_REST_API_URL=https://example.upstash.io
-KV_REST_API_TOKEN=<upstash-rest-token>
-```
-
-```ts [vite.config.ts]
-export default defineConfig({
-  kv: {
-    driver: 'upstash',
-  },
-})
-```
-
-## Using KV from an agent
-
-This page is about app code using KV directly. To let a model read or edit scoped KV data, attach the KV Capability from the agent docs:
-
-```ts
+```ts [server/agents/support/config.ts]
 import { kv } from '@vite-hub/agent/capabilities'
 ```
 
-Read [Agent capabilities](/docs/agents/capabilities) before exposing writable storage to a model.
+Keep model-facing prefixes narrow and make write behavior explicit. Read [Official capabilities](/docs/capabilities/official-capabilities) for storage Capability modes and write approvals.
+
+## Production boundaries
+
+KV prefixes are conventions, not relational models. Move data to Database when you need constraints, joins, migrations, history, or complex queries.
+
+Do not build public coordination locks on top of basic `kv.get()` and `kv.set()`. ViteHub runtime coordination uses package-owned internal APIs when stronger guarantees are required.
+
+## Next steps
+
+- Use [Database](/docs/server-primitives/database) for relational data.
+- Use [Blob](/docs/server-primitives/blob) for object storage.
+- Expose scoped model access through [Official capabilities](/docs/capabilities/official-capabilities).

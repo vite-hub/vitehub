@@ -17,7 +17,7 @@ describe("showcase examples", () => {
 
     const phases = getShowcasePhasePaths(kv!, "vite", "build");
     expect(phases.configure).toBe("vite.config.ts");
-    expect(phases.run).toBe("src/main.ts");
+    expect(phases.run).toBe("src/server.ts");
   });
 
   it("keeps phase files first for the selected landing showcase", () => {
@@ -25,7 +25,20 @@ describe("showcase examples", () => {
     expect(kv).toBeTruthy();
 
     const files = getShowcaseFiles(kv!, "vite", "build");
-    expect(files.slice(0, 3).map(file => file.path)).toEqual(["vite.config.ts", "src/main.ts", "package.json"]);
+    expect(files.slice(0, 3).map(file => file.path)).toEqual(["vite.config.ts", "src/server.ts", "package.json"]);
+  });
+
+  it("renders landing config examples through the ViteHub preset", () => {
+    for (const example of getShowcaseExamples()) {
+      const providerId = example.providers[0]?.id;
+      const files = getShowcaseFiles(example, "vite", providerId || "build");
+      const config = files.find(file => file.path === "vite.config.ts");
+
+      expect(config?.code).toContain("import { vitehub } from '@vite-hub/vite'");
+      expect(config?.code).toContain("plugins: [vitehub()]");
+      expect(config?.code).not.toMatch(/@vite-hub\/[^/]+\/vite/);
+      expect(config?.code).not.toMatch(/\bhub[A-Z]\w+\(/);
+    }
   });
 
   it("applies provider overrides without changing showcase ordering", () => {
@@ -33,8 +46,13 @@ describe("showcase examples", () => {
     expect(kv).toBeTruthy();
 
     const files = getShowcaseFiles(kv!, "vite", "upstash");
-    expect(files.slice(0, 2).map(file => file.path)).toEqual(["vite.config.ts", "src/main.ts"]);
-    expect(files.find(file => file.path === "vite.config.ts")?.code).toContain("driver: 'upstash'");
+    const config = files.find(file => file.path === "vite.config.ts")?.code;
+
+    expect(files.slice(0, 2).map(file => file.path)).toEqual(["vite.config.ts", "src/server.ts"]);
+    expect(config).toContain("appType: 'custom'");
+    expect(config).toContain("input: resolve(import.meta.dirname, 'src/server.ts')");
+    expect(config).toContain("driver: 'upstash'");
+    expect(config).toContain("plugins: [vitehub()]");
     expect(files.find(file => file.path === "env.example")?.code).toContain("KV_REST_API_URL=https://example.upstash.io");
   });
 });

@@ -1,9 +1,13 @@
+import { resolve } from "node:path"
 import { defineConfig } from "vite"
 import { hubKv } from "@vite-hub/kv/vite"
 
 export default defineConfig({
-  plugins: [hubKv()],
-  server: {
-    port: 5173,
+  appType: "custom",
+  build: {
+    rollupOptions: {
+      input: resolve(import.meta.dirname, "src/server.ts"),
+    },
   },
+  plugins: [hubKv()],
 })

@@ -1,49 +1,50 @@
 ---
-title: Agent definitions
-description: Declare the model-backed actor, its instructions, workspace boundary, and attached capabilities.
+title: Agent Definitions
+description: Declare one Agent, its Agent Driver, Capabilities, Workspace, and trusted invocation boundaries.
 navigation.order: 21
 icon: i-lucide-file-user
 ---
 
-An Agent Definition is the code declaration that names an Agent and configures how it runs.
+An Agent Definition is the code declaration that names one Agent and configures how it runs. It owns the Agent Driver, attached Capabilities, Workspace context, Agent Invoker options, and lifecycle hooks.
 
-It can include:
+ViteHub discovers Agent Definitions from `server/agents`. The Agent File Name or folder name provides the discovered identity, so `server/agents/support.ts` and `server/agents/support/config.ts` both create a `support` Agent.
 
-- Instructions.
-- Model configuration.
-- Workspace context.
-- Capabilities.
-- Invocation hooks.
-- Custom run behavior.
+## Define the Agent
 
-## Minimal definition
+Start with one Agent Driver. A model-backed Agent uses `defineAgent({ driver: { model } })` and keeps model-facing instructions inside the driver object.
 
 ```ts [server/agents/support.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 
 export default defineAgent({
-  instructions: 'Answer support requests with short, concrete replies.',
-  model: gateway('openai/gpt-5.1-mini'),
+  title: 'Support Agent',
+  driver: {
+    model: gateway('openai/gpt-5.1-mini'),
+    instructions: 'Answer support requests with short, concrete replies.',
+  },
 })
 ```
 
-The discovered Agent name comes from the file location. If this file is `server/agents/support.ts`, the discovered name is `support`.
+The driver object accepts exactly one concrete variant: `model`, `harness`, or `run`. Driver-specific options stay beside that variant key.
 
-## Add capabilities
+## Attach Capabilities
 
-Capabilities expose controlled abilities to the model.
+Capabilities add named abilities. They are the public way to expose model-facing tools, instruction blocks, triggers, policy, and context values.
 
 ```ts [server/agents/support.ts]
+import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 import { webSearch, workspaceShell } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
-  instructions: [
-    'Answer from project context first.',
-    '{{ capabilities }}',
-  ].join('\n\n'),
-  model,
+  driver: {
+    model: gateway('openai/gpt-5.1-mini'),
+    instructions: [
+      'Answer from project context first.',
+      '{{ capabilities }}',
+    ],
+  },
   capabilities: [
     workspaceShell({ mode: 'read' }),
     webSearch({ mode: 'tool' }),
@@ -53,30 +54,71 @@ export default defineAgent({
 
 Tools are contributed by Capabilities. They are not top-level Agent Definition fields.
 
-## Add workspace context
+## Add Workspace context
 
-```ts
+Workspace context gives the Agent a file tree and Sources. The Workspace owns file visibility, while Capabilities decide whether the active Agent Driver receives model-facing tools or other driver-compatible inputs.
+
+```ts [server/agents/docs/config.ts]
+import { gateway } from '@ai-sdk/gateway'
+import { defineAgent } from '@vite-hub/agent'
+import { workspaceShell } from '@vite-hub/agent/capabilities'
 import { glob } from '@vite-hub/workspace'
 
 export default defineAgent({
+  driver: {
+    model: gateway('openai/gpt-5.1-mini'),
+    instructions: [
+      'Answer from the docs workspace.',
+      '{{ workspace.sources }}',
+    ],
+  },
   workspace: {
     sources: {
       docs: glob({
         cwd: '.',
         include: ['README.md', 'docs/**/*.md'],
+        instructions: 'Use these files for public product behavior.',
       }),
     },
   },
   capabilities: [
     workspaceShell({ mode: 'read' }),
   ],
-  instructions,
-  model,
 })
 ```
 
-The Workspace supplies files. The Capability decides whether the model can inspect or edit them.
+Use a writable Workspace Capability only when the product expects the Agent to change Workspace files. Start with read access when the Agent only needs context.
 
-## Keep app runtime config out of callbacks
+## Configure trusted callers
 
-Agent callbacks receive Agent-owned runtime metadata. Server code should read app-owned environment and runtime values through Server Env or other server primitives.
+Agent Invoker options define trusted caller profiles and optional resolution logic. The resolved Agent Invoker becomes `context.invoker` for Agent and Capability callbacks.
+
+```ts [server/agents/support.ts]
+import { gateway } from '@ai-sdk/gateway'
+import { defineAgent, defineAgentInvoker } from '@vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    model: gateway('openai/gpt-5.1-mini'),
+    instructions: 'Answer support requests.',
+  },
+  invoker: defineAgentInvoker({
+    profiles: [
+      {
+        id: 'dev-support',
+        kind: 'devtools',
+        label: 'Support developer',
+        meta: { scope: 'support' },
+      },
+    ],
+  }),
+})
+```
+
+Agent Invokers are not Channels, Auth Users, or Access roles. They carry trusted invocation identity that those systems may produce or consume.
+
+## Next steps
+
+- Read [Agent Drivers](/docs/agents/agent-drivers) for the driver variants.
+- Read [Workspace context](/docs/agents/workspace-context) before exposing files.
+- Read [Capabilities](/docs/capabilities) for official and custom ability pages.

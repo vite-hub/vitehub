@@ -23,22 +23,22 @@
         "dev": {
           "phases": {
             "configure": "vite.config.ts",
-            "define": "server/databases/primary/config.ts",
+            "define": "src/primary.database.ts",
             "run": "src/server.ts"
           },
           "supplementalFiles": [
-            "server/databases/analytics/config.ts",
+            "src/analytics.database.ts",
             "package.json"
           ]
         },
         "build": {
           "phases": {
             "configure": "vite.config.ts",
-            "define": "server/databases/primary/config.ts",
+            "define": "src/primary.database.ts",
             "run": "src/server.ts"
           },
           "supplementalFiles": [
-            "server/databases/analytics/config.ts",
+            "src/analytics.database.ts",
             "package.json"
           ]
         }

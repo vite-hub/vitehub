@@ -35,6 +35,26 @@ function parseFrontmatter(source: string) {
   return result;
 }
 
+function parseNavigationFile(sectionDir: string) {
+  const navigationPath = resolve(sectionDir, ".navigation.yml");
+  if (!existsSync(navigationPath)) {
+    return {};
+  }
+
+  const result: Record<string, unknown> = {};
+  for (const line of readFileSync(navigationPath, "utf8").split("\n")) {
+    const match = line.match(/^([A-Za-z0-9_.-]+):\s*(.*)$/);
+    if (!match) {
+      continue;
+    }
+
+    const [, key = "", value = ""] = match;
+    result[key] = parseScalar(value);
+  }
+
+  return result;
+}
+
 function normalizePageId(relativeFile: string) {
   const withoutExtension = relativeFile.replace(/\.md$/, "");
   if (withoutExtension === "index") {
@@ -77,6 +97,7 @@ function collectPages(rootDir: string, sectionId: string) {
       description: typeof meta.description === "string" ? meta.description : null,
       icon: typeof meta.icon === "string" ? meta.icon : null,
       group: typeof meta["navigation.group"] === "string" ? meta["navigation.group"] : null,
+      navigation: meta.navigation !== false,
       order: pageOrderFromMeta(meta),
     };
   }).sort((left, right) => {
@@ -110,6 +131,7 @@ function collectRootPage(localDocsRoot: string) {
     sourceTitle: typeof meta.title === "string" ? meta.title : null,
     description: typeof meta.description === "string" ? meta.description : null,
     icon: typeof meta.icon === "string" ? meta.icon : null,
+    navigation: meta.navigation !== false,
     order: pageOrderFromMeta(meta),
   };
 }
@@ -117,14 +139,15 @@ function collectRootPage(localDocsRoot: string) {
 function createDocsSection(sectionId: string, rootDir: string, order: number) {
   const pages = collectPages(rootDir, sectionId);
   const overview = pages.find(page => page.id === "index");
+  const navigation = parseNavigationFile(rootDir);
 
   return {
     id: sectionId,
     path: pagePath(sectionId, "index"),
-    title: overview?.sourceTitle || titleCase(sectionId),
+    title: typeof navigation.title === "string" ? navigation.title : overview?.sourceTitle || titleCase(sectionId),
     description: overview?.description || null,
-    icon: overview?.icon || null,
-    order,
+    icon: typeof navigation.icon === "string" ? navigation.icon : overview?.icon || null,
+    order: typeof navigation.order === "number" ? navigation.order : order,
     pages,
   };
 }
@@ -139,9 +162,7 @@ function collectSections(localDocsRoot: string) {
     .map((entry, index) => createDocsSection(entry.name, resolve(localDocsRoot, entry.name), index))
     .filter(section => section.pages.length > 0)
     .sort((left, right) => {
-      const leftOrder = left.pages.find(page => page.id === "index")?.order ?? left.order;
-      const rightOrder = right.pages.find(page => page.id === "index")?.order ?? right.order;
-      return leftOrder - rightOrder || left.title.localeCompare(right.title);
+      return left.order - right.order || left.title.localeCompare(right.title);
     });
 }
 

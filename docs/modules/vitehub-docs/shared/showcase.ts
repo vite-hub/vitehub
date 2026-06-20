@@ -17,14 +17,14 @@ export function getFrameworkConfigPath(framework: Framework) {
   return "vite.config.ts";
 }
 
-export function generateFrameworkConfig(framework: Framework, pkg: string, configOverride?: string | null) {
-  if (!configOverride) {
-    return null;
-  }
-
-  const modulePath = `@vite-hub/${pkg}/${framework}`;
-  const fnName = `hub${pkg[0]!.toUpperCase()}${pkg.slice(1)}`;
-  return `import { defineConfig } from 'vite'\nimport { ${fnName} } from '${modulePath}'\n\nexport default defineConfig({\n  plugins: [${fnName}()],\n${configOverride}\n})`;
+export function generateFrameworkConfig(configOverride?: string | null, serverEntry?: string) {
+  const importNames = configOverride?.includes("env(") ? "env, vitehub" : "vitehub";
+  const imports = `${serverEntry ? "import { resolve } from 'node:path'\n" : ""}import { defineConfig } from 'vite'\nimport { ${importNames} } from '@vite-hub/vite'`;
+  const serverConfig = serverEntry
+    ? `  appType: 'custom',\n  build: {\n    rollupOptions: {\n      input: resolve(import.meta.dirname, '${serverEntry}'),\n    },\n  },`
+    : "";
+  const lines = [serverConfig, "  plugins: [vitehub()],", configOverride?.trimEnd()].filter(Boolean).join("\n");
+  return `${imports}\n\nexport default defineConfig({\n${lines}\n})`;
 }
 
 export function sortShowcaseFiles<T extends { path: string }>(

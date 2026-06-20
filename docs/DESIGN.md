@@ -4,39 +4,43 @@ ViteHub should feel like practical infrastructure for Vite teams: fast to unders
 
 ## Logo
 
-Use the runtime switchboard mark as the primary symbol. It is a vertical terminal rail with branching routes to provider endpoints.
+Use the grounded black hexagon mark as the primary symbol. The shape references the Nimiq hexagon's radical simplicity, but ViteHub owns the surrounding system: a flat bottom edge sitting on a baseline that can extend into route rails, endpoint dots, code blocks, and provider output maps.
 
 The mark should communicate:
 
+- stable server primitives
 - provider-agnostic deployment paths
-- server primitives that compose cleanly
 - developer flow without platform lock-in
 
-The current production assets are generated raster PNG files:
+The current production assets are generated from the SVG source:
 
-- `docs/public/vitehub-logo.png` for the light website header
-- `docs/public/vitehub-logo-dark.png` for the dark website header
+- `docs/public/vitehub-mark.svg` for the source mark
+- `docs/public/vitehub-logo.svg` for the horizontal source logo
+- `docs/public/vitehub-logo.png` for large horizontal usage
+- `docs/public/vitehub-logo-dark.png` for large horizontal dark-surface fallback
+- `docs/public/vitehub-logo-header.png` for compact header fallback
+- `docs/public/vitehub-logo-header-dark.png` for compact dark-surface fallback
 - `docs/public/vitehub-mark.png` for standalone mark usage
 - `docs/public/favicon.png` for browser tabs
 - `docs/public/apple-touch-icon.png` for install/bookmark surfaces
 - `docs/public/github-org-avatar.png` for the GitHub organization avatar
 
-Do not use the old hexagon motif. Avoid clouds, shields, cubes, honeycombs, generic lightning bolts, and hand-built SVG approximations of the generated mark.
+Avoid clouds, shields, cubes, honeycombs, generic lightning bolts, decorative logo construction diagrams, and alternate mark systems.
 
 ## Color
 
-Yellow stays the primary brand color.
+The public docs use a monochrome system.
 
 | Token | Value | Use |
 | --- | --- | --- |
-| Yellow | `#facc15` | Logo rail, primary accents, selected states |
-| Ink | `#1c1917` | Logo background, headings, high-contrast surfaces |
-| Paper | `#fafaf9` | Light backgrounds and logo endpoint dots |
-| Stone | `#78716c` | Secondary text, borders, quiet UI |
-| Amber | `#f59e0b` | Warnings and secondary emphasis |
-| Green | `#22c55e` | Success and provider status only |
+| Ink | `#09090b` | Logo, headings, high-contrast surfaces |
+| Paper | `#fafafa` | Light backgrounds and mark containers |
+| Graphite | `#18181b` | Dark surfaces |
+| Mist | `#f4f4f5` | Quiet surfaces |
+| Line | `#d4d4d8` | Borders and route rails |
+| Muted | `#71717a` | Secondary text and endpoint dots |
 
-Keep yellow crisp and intentional. Most interfaces should be stone, paper, and ink with yellow reserved for identity and active affordances.
+Keep the system black, white, and zinc. Active states can use stronger ink, heavier borders, or route-line placement instead of hue.
 
 ## Typography
 
@@ -53,7 +57,7 @@ The visual system should be quiet, technical, and precise.
 
 - Prefer compact docs layouts over marketing-heavy composition.
 - Use sharp alignment, clear spacing, and restrained borders.
-- Use small route, rail, endpoint, and primitive-block motifs when illustration is needed.
+- Use grounded route, rail, endpoint, and primitive-block motifs when illustration is needed.
 - Use icons to identify primitives such as Blob, KV, Queue, Workflow, Sandbox, Chat, and Workspace.
 - Keep provider visuals neutral unless a provider page needs a real provider logo.
 

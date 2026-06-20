@@ -24,6 +24,9 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./agent": "./dist/agent.js",
+    "./agent/capabilities": "./dist/agent/capabilities.js",
+    "./agent/channels": "./dist/agent/channels.js",
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -34,9 +37,14 @@
   },
   "dependencies": {
     "@vite-hub/agent": "workspace:*",
+    "@vite-hub/blob": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/devtools": "workspace:*",
     "@vite-hub/env": "workspace:*",
+    "@vite-hub/kv": "workspace:*",
+    "@vite-hub/queue": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*",
+    "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*"
   },

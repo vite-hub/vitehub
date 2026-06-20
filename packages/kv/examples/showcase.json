@@ -23,7 +23,7 @@
         "dev": {
           "phases": {
             "configure": "vite.config.ts",
-            "run": "src/main.ts"
+            "run": "src/server.ts"
           },
           "supplementalFiles": [
             "package.json"
@@ -32,7 +32,7 @@
         "build": {
           "phases": {
             "configure": "vite.config.ts",
-            "run": "src/main.ts"
+            "run": "src/server.ts"
           },
           "supplementalFiles": [
             "package.json"

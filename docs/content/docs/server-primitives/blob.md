@@ -5,15 +5,21 @@ navigation.order: 6
 icon: i-lucide-files
 ---
 
-Blob is direct object storage. Use it for uploads, generated images, audio, video, PDFs, exports, and other file-shaped objects.
+Blob owns object storage. Use it for uploads, generated images, audio, video, PDFs, exports, and other file-shaped objects.
 
-Blob is not Workspace. Blob stores objects. Workspace owns a file tree, source ingestion, snapshots, diffs, and agent-visible file context.
+Blob is not Workspace. Blob Stores hold objects; Workspace owns file-tree behavior, Source ingestion, snapshots, diffs, and agent-visible file context.
 
-## Install and configure
+## Quick start
 
-```bash
+::steps{level="3"}
+
+### Install
+
+```bash [Terminal]
 pnpm add @vite-hub/blob
 ```
+
+### Configure
 
 ```ts [vite.config.ts]
 import { hubBlob } from '@vite-hub/blob/vite'
@@ -24,15 +30,79 @@ export default defineConfig({
 })
 ```
 
-## Write and read objects
+### Start using it
+
+```ts [server/api/files.post.ts]
+import { blob } from '@vite-hub/blob'
+
+export default defineEventHandler(async () => {
+  return blob.put('hello.txt', 'Hello from ViteHub')
+})
+```
+
+::
+
+## Public imports
+
+| Import | Use |
+| --- | --- |
+| `blob` from `@vite-hub/blob` | Read and write the Default Blob Store or named Blob Stores. |
+| `ensureBlob` from `@vite-hub/blob` or `@vite-hub/blob/ensure` | Validate upload size and content type. |
+| `hubBlob` from `@vite-hub/blob/vite` | Register Blob runtime configuration and Provider Output. |
+| `resolveBlobViteConfig` from `@vite-hub/blob/vite` | Resolve Blob Vite runtime config manually. |
+| `@vite-hub/blob/drivers/*` | Import provider-specific Blob Driver Modules. |
+
+All Blob driver, object, list, put, store, and module types are exported from `@vite-hub/blob`.
+
+## Store configuration
+
+Configure one default Blob Store directly, or configure named stores with `blob.stores`.
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [hubBlob()],
+  blob: {
+    stores: {
+      default: { driver: 'fs' },
+      reports: { driver: 'vercel-blob', access: 'private' },
+    },
+  },
+})
+```
+
+| Shape | Description |
+| --- | --- |
+| `blob: false` | Disables Blob runtime configuration. |
+| `blob: { driver: 'fs', base?: string }` | Uses local filesystem storage. Default `base`: `.data/blob`. |
+| `blob: { driver: 'cloudflare-r2', binding?: string, bucketName?: string }` | Uses Cloudflare R2. Default `binding`: `BLOB`. |
+| `blob: { driver: 'vercel-blob', token?, access? }` | Uses Vercel Blob. Runtime token can come from `BLOB_READ_WRITE_TOKEN`; access can be `private` or `public`. |
+| `blob: { driver: 'minio', endpoint?: string, bucket?: string, region?: string }` | Uses MinIO or S3-compatible local object storage. |
+| `blob: { stores: Record<string, BlobStoreConfig> }` | Defines named Blob Stores. `stores.default` is required. |
+
+## Providers
+
+| Driver | Provider family |
+| --- | --- |
+| `fs` | Local filesystem. |
+| `cloudflare-r2` | Cloudflare R2 binding. |
+| `vercel-blob` | Vercel Blob. |
+| `minio`, `s3`, `akamai`, `digitalocean-spaces`, `hetzner`, `storj` | S3-compatible storage. |
+| `gcs`, `azure`, `supabase`, `netlify-blobs`, `uploadthing` | Hosted object storage services. |
+| `google-drive`, `onedrive`, `dropbox`, `box` | File-provider-backed object storage. |
+
+## Use it at runtime
+
+Use the `blob` Runtime Helper from server code.
 
 ```ts [server/api/files.post.ts]
 import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ path: string; text: string }>(event)
+  const body = await readBody<{ path: string, text: string }>(event)
+
   await blob.put(body.path, body.text, {
     contentType: 'text/plain',
+    customMetadata: { source: 'api' },
   })
 
   return { ok: true }
@@ -54,48 +124,65 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-## Metadata and content types
+Use named Blob Stores when configuration defines multiple stores.
 
-Store the content type and relevant metadata when the object is written. Avoid guessing later.
+```ts [server/reports.ts]
+import { blob } from '@vite-hub/blob'
 
-```ts
-await blob.put('reports/q1.pdf', file, {
-  contentType: 'application/pdf',
-  metadata: {
-    report: 'q1',
-  },
-})
+export const reports = blob.store('reports')
 ```
 
-## Cloudflare R2 bucket
+## Runtime Helper
 
-Cloudflare object storage maps to R2. Configure the binding and bucket near the integration.
+`blob` implements `BlobStorage`.
 
-```ts [vite.config.ts]
-export default defineConfig({
-  blob: {
-    driver: 'cloudflare-r2',
-    binding: 'BLOB',
-    bucketName: 'app-artifacts',
-  },
-})
-```
+| Method | Description |
+| --- | --- |
+| `blob.put(pathname, body, options?)` | Stores text, bytes, streams, ArrayBuffers, or `Blob` objects. |
+| `blob.get(pathname)` | Reads a `Blob` or returns `null`. |
+| `blob.head(pathname)` | Reads object metadata. |
+| `blob.list(options?)` | Lists objects with optional `prefix`, `limit`, `cursor`, and folded folders. |
+| `blob.del(pathnames)` | Deletes one or more objects. |
+| `blob.serve(event, pathname)` | Serves an object stream through an H3 event. |
+| `blob.store(name)` | Selects a named Blob Store. |
 
-## Vercel Blob token
+## Write options
 
-Vercel Blob uses the Blob token from the deployment environment.
+| Option | Type | Description |
+| --- | --- | --- |
+| `contentType` | `string` | Stored MIME type. |
+| `contentLength` | `string` | Expected content length when the provider supports it. |
+| `customMetadata` | `Record<string, string>` | Provider custom metadata. |
+| `access` | `BlobPutOptions['access']` | Object access policy when the driver supports it. Values: `private`, `public`. |
+| `addRandomSuffix` | `boolean` | Adds a random suffix when supported by the driver. |
+| `prefix` | `string` | Provider path prefix when supported by the driver. |
 
-```env [.env]
-BLOB_READ_WRITE_TOKEN=<blob-read-write-token>
-```
+## `ensureBlob(blob, options)`
 
-```ts [vite.config.ts]
-export default defineConfig({
-  blob: {
-    driver: 'vercel-blob',
-  },
-})
-```
+Use `ensureBlob()` at upload boundaries.
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `maxSize` | `BlobSize` | Rejects blobs larger than the limit. Examples: `4MB`, `128KB`, `1GB`. |
+| `types` | `BlobType[]` | Allows exact MIME types or broad types such as `image`, `video`, `audio`, `pdf`, and `text`. |
+
+## Provider output
+
+The Blob Package owns Default Blob Store behavior, named Blob Store selection, driver loading, and the Blob Driver Boundary. Provider-specific bucket names, tokens, and bindings belong in integration configuration and deployment setup.
+
+Application code should keep importing `blob` from `@vite-hub/blob` when switching providers.
+
+## Connect it to Agents
+
+Direct Blob access is for server code. To let a model inspect or edit scoped object storage, attach the Blob Capability.
+
+Blob Capability access should use narrow prefixes and explicit write policy. Use Workspace instead when the model needs file-tree semantics, diffs, snapshots, or source-backed context.
+
+## Production boundaries
+
+Store content types and metadata at write time. Avoid guessing object type later from path names.
+
+Blob stores can back Workspace Stores, but that does not make Blob an agent-facing file tree. Workspace remains the boundary for file operations, rules, snapshots, and diffs.
 
 ## MinIO object storage
 
@@ -122,6 +209,8 @@ BLOB_BUCKET_NAME=vitehub-blob
 
 MinIO credentials are read from runtime env and stay masked in generated provider output. ViteHub accepts the Files SDK native `MINIO_ACCESS_KEY_ID` and `MINIO_SECRET_ACCESS_KEY` names plus Docker Compose aliases like `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`. `driver: 'minio'` defaults to path-style S3 requests, `us-east-1`, `http://localhost:9000`, and the `vitehub-blob` bucket when those values are not provided. Production Docker deployments should use managed `s3` or a production-grade S3-compatible store rather than relying on a single-host Compose MinIO service.
 
-## Blob and agents
+## Next steps
 
-Attach the Blob Capability only when a model should inspect or edit object storage. Keep prefixes narrow and make write behavior explicit.
+- Use [Workspace](/docs/server-primitives/workspace) for file-tree state.
+- Use [Source](/docs/server-primitives/source) for read-only retrieval.
+- Expose scoped model access through [Official capabilities](/docs/capabilities/official-capabilities).

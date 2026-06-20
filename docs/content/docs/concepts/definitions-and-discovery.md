@@ -1,0 +1,52 @@
+---
+title: Definitions and discovery
+description: Learn how ViteHub discovers portable declarations and gives them stable runtime identity.
+navigation.order: 4
+icon: i-lucide-file-code-2
+---
+
+A Definition is a portable user declaration that names work or state without depending on one framework runtime. A Discovered Definition is a Definition found by a package's discovery rules.
+
+ViteHub derives Discovery Identity from the discovery location. It does not ask normal app code to invent inline ids for discovered names.
+
+## Why it exists
+
+Location-derived identity makes generated registries, Provider Output, DevTools, and runtime calls predictable. It also keeps package-owned discovery rules separate from Definition Options.
+
+This matters for agents because an Agent File Name or agent folder name becomes the discovered Agent identity. `defineAgent({ name })` is not the discovery identity override.
+
+## Current discovery examples
+
+```txt [Definition paths]
+server/agents/support.ts          -> support
+server/agents/docs/config.ts      -> docs
+src/triager.agent.ts              -> triager
+server/auth.ts                    -> Primary Auth Definition
+server.auth.ts                    -> Primary Auth Definition alias
+```
+
+Other primitive pages document their own Definition locations. Keep discovery examples on the package page when the package owns special rules.
+
+## Boundary helpers
+
+Definition Boundary Helpers mark files for discovery and validation. A first-class discovered definition file should default-export the package-owned helper directly when a package needs build-extracted Definition Options.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    run: () => 'ok',
+  },
+})
+```
+
+## Inspect it
+
+Inspect the source file and the generated or runtime surface that consumes it. For Agents, DevTools and trigger consumers use discovered Agent names. For generated imports, use stable ViteHub import paths documented by the package instead of importing registry files directly.
+
+## Next steps
+
+- Read [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output).
+- Read [Agent definitions](/docs/agents/agent-definitions).
+- Open the primitive page that owns the Definition type you are using.

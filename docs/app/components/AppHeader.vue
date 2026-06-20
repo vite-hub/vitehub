@@ -1,52 +1,56 @@
 <script setup lang="ts">
 const route = useRoute();
-const primaryLinks = [
-  { label: "Server primitives", to: "/docs/server-primitives" },
-  { label: "Agents", to: "/docs/agents" },
+const isDocsRoute = computed(() => route.path.startsWith("/docs"));
+
+const navLinks = [
+  { label: "Docs", to: "/docs" },
   { label: "Blog", to: "/blog" },
 ];
+
 const mobileLinks = [
   { label: "Home", to: "/" },
-  ...primaryLinks,
+  ...navLinks,
 ];
-
-function isActiveLink(link: typeof mobileLinks[number]) {
-  const { to } = link;
-  if (to === "/") return route.path === "/";
-  return route.path === to || route.path.startsWith(`${to}/`);
-}
 </script>
 
 <template>
   <div class="sticky top-0 z-50">
     <UHeader :to="'/'" title="ViteHub">
       <template #title>
-        <UColorModeImage
-          light="/vitehub-logo-header.png"
-          dark="/vitehub-logo-header-dark.png"
-          alt="ViteHub"
-          class="h-7 w-auto shrink-0 self-baseline"
-        />
+        <span class="vh-brand" aria-label="ViteHub">
+          <span class="vh-brand-mark" aria-hidden="true">
+            <img src="/vitehub-mark.svg" alt="" class="h-4 w-[1.125rem]" />
+          </span>
+          <span>ViteHub</span>
+        </span>
       </template>
 
-      <nav class="hidden items-center gap-1 lg:flex">
+      <nav class="flex items-center gap-1" aria-label="Primary">
         <UButton
-          v-for="link in primaryLinks"
+          v-for="link in navLinks"
           :key="link.to"
           :to="link.to"
           :label="link.label"
-          :color="isActiveLink(link) ? 'primary' : 'neutral'"
+          color="neutral"
           variant="ghost"
           size="sm"
         />
       </nav>
 
       <template #right>
-        <UContentSearchButton class="hidden lg:inline-flex" />
+        <UContentSearchButton
+          collapsed
+          :kbds="[]"
+          :ui="{
+            base: '!w-8 shrink-0 justify-center rounded-md border-0 !p-1.5 text-default hover:bg-elevated',
+            label: 'sr-only',
+            trailing: 'hidden',
+          }"
+        />
         <ClientOnly>
           <UColorModeButton />
           <template #fallback>
-            <div class="size-8 animate-pulse rounded-md bg-muted" />
+            <div class="size-8 animate-pulse bg-muted" />
           </template>
         </ClientOnly>
         <UButton
@@ -60,13 +64,17 @@ function isActiveLink(link: typeof mobileLinks[number]) {
       </template>
 
       <template #body>
-        <nav class="grid gap-1">
+        <div v-if="isDocsRoute" class="-mx-4 -my-2">
+          <DocsAsideLeftTop />
+          <DocsAsideLeftBody />
+        </div>
+        <nav v-else class="grid gap-1">
           <UButton
             v-for="link in mobileLinks"
             :key="link.to"
             :to="link.to"
             :label="link.label"
-            :color="isActiveLink(link) ? 'primary' : 'neutral'"
+            color="neutral"
             variant="ghost"
             block
             class="justify-start"
@@ -76,3 +84,23 @@ function isActiveLink(link: typeof mobileLinks[number]) {
     </UHeader>
   </div>
 </template>
+
+<style scoped>
+.vh-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ui-text-highlighted);
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.vh-brand-mark {
+  display: inline-grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  place-items: center;
+  border: 1px solid var(--ui-border);
+  background: #fafafa;
+}
+</style>

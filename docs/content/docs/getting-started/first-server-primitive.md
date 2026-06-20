@@ -5,7 +5,7 @@ navigation.order: 3
 icon: i-lucide-server-cog
 ---
 
-KV is the fastest first server primitive because it stores small values by key and does not require a Definition file.
+KV stores small values by key behind one stable Runtime Helper. It is the fastest first primitive because server code can use it after the Vite Integration resolves the local or hosted store.
 
 ## Install KV
 
@@ -24,11 +24,11 @@ export default defineConfig({
 })
 ```
 
-Local development uses a local store by default. Add host configuration later when you deploy.
+Local development uses a file-backed store by default. Add Cloudflare, Vercel, or Upstash configuration only when deployment needs it.
 
 ## Write a value
 
-Create a server route that writes a small JSON-like value.
+Create a server route that writes a small JSON-like value through the `kv` Runtime Helper.
 
 ```ts [server/api/settings.put.ts]
 import { kv } from '@vite-hub/kv'
@@ -41,7 +41,7 @@ export default defineEventHandler(async (event) => {
 
 ## Read the value
 
-Read from the same Runtime Helper in any server route.
+Read from the same Runtime Helper in another server route.
 
 ```ts [server/api/settings.get.ts]
 import { kv } from '@vite-hub/kv'
@@ -55,9 +55,26 @@ export default defineEventHandler(async () => {
 
 The route imports `kv` from `@vite-hub/kv`. It does not import a Cloudflare, Vercel, or local driver directly.
 
-## Continue with the full KV page
+## Inspect it
 
-The full [KV](/docs/server-primitives/kv) page covers prefixes, host storage, and using KV from an Agent Capability.
+Run the app and call the two routes.
 
-Use [Database](/docs/server-primitives/database) instead when the data needs relationships, constraints, joins, migrations, or history.
+```bash [Terminal]
+pnpm dev
+```
 
+```bash [Terminal]
+curl -X PUT http://localhost:5173/api/settings \
+  -H 'content-type: application/json' \
+  -d '{"theme":"system"}'
+
+curl http://localhost:5173/api/settings
+```
+
+With the default local driver, KV data is stored under `.data/kv`. The important proof is that route code stays stable while the Vite Integration owns the selected store.
+
+## Next steps
+
+- Read the full [KV](/docs/server-primitives/kv) page for prefixes, named stores, and hosted drivers.
+- Use [Database](/docs/server-primitives/database) when data needs relationships, joins, migrations, or history.
+- Read [Runtime Helpers and stable imports](/docs/concepts/runtime-helpers-and-stable-imports) to understand why server code imports `kv` instead of a provider driver.

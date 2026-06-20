@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: Add ViteHub packages to your app and register the Vite Integrations or preset you use.
+description: Install the ViteHub preset, register its Vite Integration, and verify the app boots.
 navigation.order: 2
 icon: i-lucide-download
 ---
@@ -10,92 +10,44 @@ icon: i-lucide-download
 ```txt [Prompt]
 Install ViteHub in my app.
 
-- Choose whether I need server primitives, agents, or both.
-- Install the common ViteHub preset or only the packages I use.
-- Register the preset or package-owned integrations in `vite.config.ts`.
-- Keep host credentials in environment variables or deployment configuration.
-- Start with KV for a small server primitive, or start with Agent definitions for model-backed behavior.
+- Start with the ViteHub preset.
+- Install direct primitive or provider packages only when a page asks for them.
+- Register the preset Vite Integration in `vite.config.ts`.
+- Add generated ViteHub types to `tsconfig.json`.
+- Verify local development starts without missing integration errors.
 ```
 
 ::
 
-ViteHub uses feature packages. Install the package that owns the primitive or agent surface you need.
+ViteHub starts with the `@vite-hub/vite` preset. Add direct primitive, Agent Package, or provider packages only when a guide needs a narrower install.
 
 ## Prerequisites
 
-- Node 24.
+- Node 24 or newer.
 - Vite 8 or newer.
 - A server app with a `vite.config.ts` file.
 - A package manager such as `pnpm`, `npm`, `yarn`, or `bun`.
-- A local `.env` file or deployment environment variable system for host credentials.
+- A local `.env` file or provider environment variable system for host credentials.
 
-## Install a server primitive
+::steps{level="2"}
 
-Start with one primitive. KV is the smallest first install because it does not require a Definition file.
+## Install the preset
 
-```bash [Terminal]
-pnpm add @vite-hub/kv
-```
-
-Register the integration in `vite.config.ts`.
-
-```ts [vite.config.ts]
-import { hubKv } from "@vite-hub/kv/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [hubKv()],
-});
-```
-
-Add more primitives only when your app needs them.
+Install `@vite-hub/vite` for the default ViteHub setup.
 
 ```bash [Terminal]
-pnpm add @vite-hub/env @vite-hub/database @vite-hub/blob @vite-hub/queue @vite-hub/workflow @vite-hub/schedule @vite-hub/sandbox @vite-hub/workspace
+pnpm add @vite-hub/vite
 ```
 
-Each package exports its own Vite Integration.
-
-```ts [vite.config.ts]
-import { hubBlob } from "@vite-hub/blob/vite";
-import { hubDb } from "@vite-hub/database/vite";
-import { hubEnv } from "@vite-hub/env/vite";
-import { hubKv } from "@vite-hub/kv/vite";
-import { hubQueue } from "@vite-hub/queue/vite";
-import { hubSandbox } from "@vite-hub/sandbox/vite";
-import { hubSchedule } from "@vite-hub/schedule/vite";
-import { hubWorkflow } from "@vite-hub/workflow/vite";
-import { hubWorkspace } from "@vite-hub/workspace/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [
-    hubEnv(),
-    hubKv(),
-    hubDb(),
-    hubBlob(),
-    hubQueue(),
-    hubWorkflow(),
-    hubSchedule(),
-    hubSandbox(),
-    hubWorkspace(),
-  ],
-});
-```
+Model-backed agent guides may ask you to install `@vite-hub/agent` and a model provider such as `@ai-sdk/gateway` directly. Use those page-specific installs when you are following that narrower path.
 
 ::tip
-Keep the installed set small. The docs show the complete primitive list so you can see the shape, but most apps should start with one or two packages.
+Install only the packages you use. Add Env, Database, Blob, Queue, Workflow, Schedule, Sandbox, Workspace, Agent, or provider packages when a page or feature needs them.
 ::
 
-## Install the common ViteHub preset
+## Register the Vite Integration
 
-Use the ViteHub preset when the app needs the common agent runtime surface and you do not want to wire each package-owned Vite Integration by hand.
-
-```bash [Terminal]
-pnpm add @vite-hub/vite @ai-sdk/gateway
-```
-
-Register the preset as one Vite plugin entry.
+Register the preset Vite Integration with `vitehub()` in `vite.config.ts`.
 
 ```ts [vite.config.ts]
 import { vitehub } from "@vite-hub/vite";
@@ -108,53 +60,34 @@ export default defineConfig({
 });
 ```
 
-Disable package integrations the app does not use.
+## Add generated types
 
-```ts [vite.config.ts]
-export default defineConfig({
-  plugins: [
-    vitehub({
-      database: false,
-      workflow: false,
-    }),
-  ],
-});
+Some packages write generated types under `.vitehub/types`. Add that directory to `tsconfig.json` before using generated names or stable `#vitehub/...` imports.
+
+```json [tsconfig.json]
+{
+  "include": [
+    "server/**/*.ts",
+    "src/**/*.ts",
+    ".vitehub/types/**/*.d.ts"
+  ]
+}
 ```
 
-## Install agents
+## Verify local development
 
-Install the agent package when you want to define model-backed actors.
-
-```bash [Terminal]
-pnpm add @vite-hub/agent @ai-sdk/gateway
-```
-
-Register the Agent integration.
-
-```ts [vite.config.ts]
-import { hubAgent } from "@vite-hub/agent/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [hubAgent()],
-});
-```
-
-Agents can use server primitives through capabilities, but the agent package does not automatically expose every primitive to a model. Attach capabilities explicitly in the Agent Definition.
-
-## Verify the installation
-
-Run the development server and call one server route that imports a ViteHub Runtime Helper.
+Run the development server.
 
 ```bash [Terminal]
 pnpm dev
 ```
 
-Confirm the app starts without missing integration errors. If a page imports `kv` but `hubKv()` is missing, ViteHub reports that mismatch during local development.
+Confirm the app starts without missing integration errors. If server code imports a ViteHub Runtime Helper but the matching Vite Integration is missing, local development should report the mismatch before deployment.
+
+::
 
 ## Next steps
 
 - Continue with [First server primitive](/docs/getting-started/first-server-primitive) to store and read a KV value.
 - Continue with [First agent](/docs/getting-started/first-agent) to define and run an Agent.
-- Open [Server primitives](/docs/server-primitives) when you already know which primitive your app needs.
-- Open [Agents](/docs/agents) when the main product value is model-backed behavior.
+- Read [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output) to understand what the integration owns.

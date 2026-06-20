@@ -1,0 +1,195 @@
+---
+title: Shell
+description: Run controlled Unix-like command sessions over explicit filesystem, process, network, and policy boundaries.
+navigation.order: 13
+icon: i-lucide-terminal
+---
+
+Shell owns controlled Unix-like command environments. Use it when server code needs command-shaped inspection or mutation with explicit execution, filesystem, process, network, timeout, and policy boundaries.
+
+Shell is not Sandbox. Sandbox can provide an isolated execution provider, but Shell defines the command runtime, Shell Session lifecycle, Command Analysis, Shell Observations, and Shell Boundary.
+
+## Quick start
+
+::steps{level="3"}
+
+### Install
+
+```bash [Terminal]
+pnpm add @vite-hub/shell
+```
+
+### Configure
+
+```ts [server/tasks/search-docs.ts]
+import { createShellRuntime } from '@vite-hub/shell'
+import { createJustBashProvider } from '@vite-hub/shell/providers/just-bash'
+import { createReadonlyWorkspaceFs, workspaceMountPoint } from '@vite-hub/shell/workspace'
+import { useWorkspace } from '@vite-hub/workspace'
+
+const workspace = useWorkspace('docs')
+const shell = createShellRuntime({
+  provider: createJustBashProvider({
+    commands: ['pwd', 'ls', 'cat', 'rg'],
+    cwd: workspaceMountPoint,
+    fs: createReadonlyWorkspaceFs(workspace.fs),
+  }),
+})
+```
+
+### Start using it
+
+```ts [server/tasks/search-docs.ts]
+await shell.exec('rg auth docs', { cwd: workspaceMountPoint })
+```
+
+::
+
+## Public imports
+
+| Import | Use |
+| --- | --- |
+| `createShellRuntime` from `@vite-hub/shell` | Create a Shell Runtime from an Execution Provider. |
+| `analyzeShellCommand` from `@vite-hub/shell` | Parse a command and return static command facts. |
+| `createJustBashProvider` from `@vite-hub/shell/providers/just-bash` | Run Bash-compatible commands in the `just-bash` browser runtime. |
+| `createCloudflareShellProvider` from `@vite-hub/shell/providers/cloudflare` | Adapt a Cloudflare sandbox-like client to Shell. |
+| `createReadonlyWorkspaceFs`, `createWritableWorkspaceFs`, `workspaceMountPoint` from `@vite-hub/shell/workspace` | Mount Workspace file access into Shell providers. |
+| `runWorkspaceInspectionCommand` from `@vite-hub/shell/workspace` | Run a preflighted read-only Workspace inspection command. |
+| `cleanWorkspaceShellPath`, `cleanWorkspaceMutationPath` from `@vite-hub/shell/workspace` | Normalize Workspace paths for shell-facing behavior. |
+
+Shell Runtime, Session, Policy, Boundary, Observation, Provider, process, and Workspace filesystem types are exported from these entrypoints.
+
+## Providers
+
+Shell providers implement `ShellExecutionProvider`. Shell has provider adapters, not Vite Integration output.
+
+| Provider | Configure with | Boundary nuance |
+| --- | --- | --- |
+| Just Bash | `createJustBashProvider({ fs, commands?, cwd? })` | Runs `just-bash` against an explicit filesystem adapter. Network is disabled; background and interactive processes are unsupported. |
+| Cloudflare | `createCloudflareShellProvider({ sandbox })` | Delegates execution to a Cloudflare sandbox-like client. CWD and env support come from `sandbox.supports`; network is reported as `unknown`. |
+| Custom | A `ShellExecutionProvider` object | Implement `boundary`, `exec`, optional `analyze`, and optional process methods directly. |
+
+## Create a Shell Runtime
+
+Use `createShellRuntime()` with an Execution Provider. The built-in Just Bash Provider runs Bash-compatible commands against an explicit filesystem adapter.
+
+```ts [server/tasks/search-docs.ts]
+import { createShellRuntime } from '@vite-hub/shell'
+import { createJustBashProvider } from '@vite-hub/shell/providers/just-bash'
+import { createReadonlyWorkspaceFs, workspaceMountPoint } from '@vite-hub/shell/workspace'
+import { useWorkspace } from '@vite-hub/workspace'
+
+export async function searchDocs() {
+  const workspace = useWorkspace('docs')
+  const runtime = createShellRuntime({
+    provider: createJustBashProvider({
+      commands: ['pwd', 'ls', 'cat', 'rg'],
+      cwd: workspaceMountPoint,
+      fs: createReadonlyWorkspaceFs(workspace.fs),
+    }),
+  })
+
+  return runtime.exec('rg auth docs', {
+    cwd: workspaceMountPoint,
+  })
+}
+```
+
+The provider controls available commands. The Workspace filesystem controls whether file writes can happen.
+
+## Runtime options
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `provider` | `ShellExecutionProvider` | Required execution provider. |
+| `policy` | `ShellSessionPolicy` | Default policy applied to runtime `exec()` calls and new sessions. |
+
+`runtime.exec(command, options?)` creates a short-lived session, runs one command, disposes the session, and returns a Shell Observation.
+
+## Use Shell Sessions
+
+A Shell Session adds stateful policy around repeated commands, output size, timeouts, and process budget.
+
+```ts [server/tasks/inspect-docs.ts]
+import { createShellRuntime } from '@vite-hub/shell'
+
+export async function inspect(runtime: ReturnType<typeof createShellRuntime>) {
+  const session = runtime.createSession({
+    policy: {
+      maxOutputLength: 10_000,
+      maxShellCalls: 4,
+      timeout: 30_000,
+    },
+  })
+
+  try {
+    return await session.exec('pwd')
+  }
+  finally {
+    await session.dispose()
+  }
+}
+```
+
+## Session and exec options
+
+| Option | Type | Applies to | Description |
+| --- | --- | --- | --- |
+| `env` | `Record<string, string>` | `createSession` | Default environment for session commands. |
+| `maxOutputLength` | `number` | `policy` | Truncates Shell Observation output. |
+| `maxShellCalls` | `number` | `policy` | Limits calls to `exec()` in one session. |
+| `maxProcesses` | `number` | `policy` | Limits tracked background processes when a provider supports them. |
+| `timeout` | `number` | `policy`, `exec` | Command timeout in milliseconds. |
+| `cwd` | `string` | `exec` | Working directory for the command when the provider supports CWD. |
+| `stdin` | `string` | `exec` | Standard input sent to the command. |
+| `onStdout` | `function` | `exec` | Receives stdout chunks when the provider supports streaming callbacks. |
+| `onStderr` | `function` | `exec` | Receives stderr chunks when the provider supports streaming callbacks. |
+
+## Analyze commands
+
+Command Analysis produces facts about a command before execution. The caller owns the final Policy Decision.
+
+```ts [server/tasks/analyze-command.ts]
+import { analyzeShellCommand } from '@vite-hub/shell'
+
+export async function analyze(command: string) {
+  return analyzeShellCommand(command)
+}
+```
+
+`analyzeShellCommand(command, options?)` uses `sh-syntax` and returns `ok`, parser name, command names, and flags for pipelines, redirects, heredocs, and command substitution. `ShellAnalyzeOptions` accepts `maxInputBytes` and `timeoutMs`.
+
+Do not treat analysis as sandbox enforcement. Execution Providers and caller-owned policy enforce the actual boundary.
+
+## Shell Observation shape
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `event` | `ShellObservationEvent` | `command_finished`, `command_timed_out`, `policy_denied`, or `session_disposed`. |
+| `exitCode` | `number or null` | Provider exit code, or `null` when no process exit happened. |
+| `stdout` | `string` | Captured stdout. |
+| `stderr` | `string` | Captured stderr. |
+| `command` | `string` | Command that ran, when available. |
+| `cwd` | `string` | Working directory used by the provider, when available. |
+| `durationMs` | `number` | Runtime duration, when available. |
+| `outputTruncated` | `boolean` | Whether `maxOutputLength` truncated output. |
+| `timedOut` | `boolean` | Whether timeout ended command execution. |
+| `workspaceGuardrail` | `object` | Workspace inspection feedback such as broad search, missing path, no match, or timeout. |
+
+## Connect it to Agents
+
+Agents use Shell through Capabilities, usually `workspaceShell()`. That Capability exposes shell-shaped Workspace inspection and optional structured Workspace mutation tools through Workspace Scope, Workspace rules, and Shell policy.
+
+Do not expose a raw Shell Runtime to a model. Use [Official capabilities](/docs/capabilities/official-capabilities) so policy, metadata, driver support, and tool surfaces stay attached to the Agent Definition.
+
+## Production boundaries
+
+Declare command, filesystem, network, process, streaming, and timeout boundaries before running commands. Shell Network Grants are explicit; normal network access is not implied.
+
+Use Sandbox when the app needs provider-managed isolation. Use Shell when the app needs controlled command semantics over a declared Shell Workspace.
+
+## Next steps
+
+- Use [Workspace](/docs/server-primitives/workspace) for file-tree state.
+- Use [Sandbox](/docs/server-primitives/sandbox) for isolated execution providers.
+- Expose command inspection to agents through [Official capabilities](/docs/capabilities/official-capabilities).
