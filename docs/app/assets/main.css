@@ -224,9 +224,9 @@ body {
   position: fixed !important;
   top: 248px !important;
   left: 50vw !important;
-  width: 640px !important;
+  width: min(640px, calc(100vw - 1rem)) !important;
   margin: 0 !important;
-  transform: none !important;
+  transform: translateX(-50%) !important;
   overflow: hidden;
   box-shadow: none !important;
 }
