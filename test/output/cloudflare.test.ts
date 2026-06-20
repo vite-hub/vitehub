@@ -39,6 +39,13 @@ describe.runIf(providerEnabled("cloudflare"))("cloudflare provider output", () =
     expect(wrangler().kv_namespaces.length).toBeGreaterThan(0)
   })
 
+  it("wrangler.json declares D1 databases", () => {
+    expect(wrangler().d1_databases).toEqual(expect.arrayContaining([
+      expect.objectContaining({ binding: "DB" }),
+      expect.objectContaining({ binding: "DB_ANALYTICS" }),
+    ]))
+  })
+
   it("wrangler.json has no Workspace Artifacts bindings", () => {
     expect(wrangler().artifacts).toBeUndefined()
   })

@@ -4,8 +4,8 @@ import { dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { normalizeBlobOptions } from "../../../packages/blob/src/config.ts"
-import { resolveConfigValue } from "../../../packages/database/src/config-value.ts"
 import { resolveDBViteConfig } from "../../../packages/database/src/config.ts"
+import { resolveCloudflareD1Bindings } from "../../../packages/database/src/internal/cloudflare.ts"
 import { configureCloudflareKV } from "../../../packages/kv/src/integrations/cloudflare.ts"
 import { normalizeKVOptions } from "../../../packages/kv/src/config.ts"
 import { normalizeQueueOptions } from "../../../packages/queue/src/config.ts"
@@ -34,6 +34,7 @@ import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/p
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-discovery"
+import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
 import type { ResolvedBlobModuleOptions } from "../../../packages/blob/src/types.ts"
 import type { ResolvedDBViteConfig } from "../../../packages/database/src/types.ts"
@@ -1191,22 +1192,14 @@ function createCloudflareR2Bindings(config: false | ResolvedBlobModuleOptions | 
   return [{ binding: config.store.binding, bucket_name: config.store.bucketName }]
 }
 
-function createCloudflareD1Bindings(config: ResolvedDBViteConfig | undefined) {
+function createCloudflareD1Bindings(rootDir: string, config: ResolvedDBViteConfig | undefined) {
   if (!config) {
     return undefined
   }
 
-  const bindings = config.databaseNames
-    .map(name => config.databases[name]?.cloudflare)
-    .filter(database => Boolean(resolveConfigValue(database?.databaseId)))
-    .map(database => ({
-      binding: database!.binding,
-      database_id: resolveConfigValue(database!.databaseId),
-      ...(resolveConfigValue(database!.databaseName) ? { database_name: resolveConfigValue(database!.databaseName) } : {}),
-      ...(database!.migrationsDir ? { migrations_dir: database!.migrationsDir } : {}),
-      ...(database!.migrationsTable ? { migrations_table: database!.migrationsTable } : {}),
-      ...(resolveConfigValue(database!.previewDatabaseId) ? { preview_database_id: resolveConfigValue(database!.previewDatabaseId) } : {}),
-    }))
+  const bindings = resolveCloudflareD1Bindings(config, {
+    provisionState: readProvisionStateSync(rootDir),
+  }).d1Databases
 
   return bindings.length ? bindings : undefined
 }
@@ -1271,7 +1264,7 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
     platform: "neutral",
   })
 
-  const d1Databases = createCloudflareD1Bindings(options.db)
+  const d1Databases = createCloudflareD1Bindings(options.rootDir, options.db)
   const queueBindings = createCloudflareQueueBindings(artifacts.queueDefinitions)
   const r2Buckets = createCloudflareR2Bindings(options.blob)
 
