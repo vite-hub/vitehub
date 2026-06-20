@@ -427,6 +427,7 @@ describe("agent chat capability discovery", () => {
         { id: "support-technical", kind: "technical", label: "Technical" },
       ],
       selected: "support",
+      title: "support",
     })
 
     const sendResponse = await invokeMiddleware(handlers[0]!, {
@@ -982,6 +983,7 @@ describe("agent chat capability discovery", () => {
       source: "ingestion",
     })
 
+    expect(materializedState.title).toBe("support")
     expect(materializedState.files).toEqual([
       expect.objectContaining({
         children: [
@@ -1018,6 +1020,7 @@ describe("agent chat capability discovery", () => {
       source: "portal",
     })
 
+    expect(nextState.title).toBe("support")
     expect(nextState.files).toEqual([
       expect.objectContaining({
         children: [

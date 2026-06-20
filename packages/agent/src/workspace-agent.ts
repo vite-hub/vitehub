@@ -418,14 +418,13 @@ function agentDevtoolsMetadata<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 >(
-  definition: Pick<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>, "invoker" | "title" | "version"> & AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-): Pick<AgentDevtoolsMetadata, "config" | "invokerProfiles" | "title" | "version"> {
+  definition: Pick<AgentDefinition<TRuntimeConfig, CALL_OPTIONS>, "invoker" | "version"> & AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+): Pick<AgentDevtoolsMetadata, "config" | "invokerProfiles" | "version"> {
   const invokerProfiles = normalizeAgentInvokerProfiles(definition.invoker?.profiles)
   const config = staticConfigMetadata(definition)
   return {
     ...(config ? { config } : {}),
     ...(invokerProfiles.length ? { invokerProfiles } : {}),
-    ...(definition.title ? { title: definition.title } : {}),
     ...(definition.version ? { version: definition.version } : {}),
   }
 }

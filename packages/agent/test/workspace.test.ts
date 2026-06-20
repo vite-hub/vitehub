@@ -1450,7 +1450,6 @@ describe("defineAgent workspace option", () => {
       },
       instructions: "Answer from the workspace.",
       model: model as never,
-      title: "Support agent",
       version: "1.2.3",
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
@@ -1475,7 +1474,6 @@ describe("defineAgent workspace option", () => {
         status: "ready",
       }],
       instructions: ["Answer from the workspace."],
-      title: "Support agent",
       version: "1.2.3",
       tools: expect.arrayContaining([
         expect.objectContaining({

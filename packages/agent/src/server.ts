@@ -1220,8 +1220,16 @@ function canResolveAgentDevtoolsMetadata(agent: AgentInput<ViteAgentRouteRuntime
   return Boolean((agent as { __vitehubWorkspaceAgent?: unknown }).__vitehubWorkspaceAgent)
 }
 
-function createStaticAgentDevtoolsMetadata(agent: AgentInput<ViteAgentRouteRuntimeContext>): ChatDevtoolsMetadata {
-  return createAgentDevtoolsMetadata(agent as never)
+function metadataWithAgentName(metadata: ChatDevtoolsMetadata, name: string): ChatDevtoolsMetadata {
+  return {
+    ...metadata,
+    name: metadata.name || name,
+  }
+}
+
+function createStaticAgentDevtoolsMetadata(agent: AgentInput<ViteAgentRouteRuntimeContext>, name?: string): ChatDevtoolsMetadata {
+  const metadata = createAgentDevtoolsMetadata(agent as never)
+  return name ? metadataWithAgentName(metadata, name) : metadata
 }
 
 function chatDevtoolsMetadataStatus(agent: AgentInput<ViteAgentRouteRuntimeContext>): ChatDevtoolsMetadataStatus {
@@ -1333,7 +1341,8 @@ async function startAgentDevtoolsMetadataResolution(
   const selectionKey = metadataSelectionKey(metadataSelection)
   if (!resolution.force && state.metadataSelectionKey === selectionKey) return
 
-  state.metadata = createStaticAgentDevtoolsMetadata(agent)
+  const name = agentChatDevtoolsName(agent, options)
+  state.metadata = createStaticAgentDevtoolsMetadata(agent, name)
   state.metadataError = undefined
   state.metadataSelectionKey = selectionKey
   state.metadataStatus = "loading"
@@ -1345,7 +1354,7 @@ async function startAgentDevtoolsMetadataResolution(
   } as never)
     .then((metadata) => {
       if (state.metadataTask !== task || state.metadataSelectionKey !== selectionKey) return
-      state.metadata = metadata
+      state.metadata = metadataWithAgentName(metadata, name)
       state.metadataError = undefined
       state.metadataStatus = "ready"
       state.metadataTask = undefined
@@ -1394,7 +1403,7 @@ function serializeAgentChatDevtoolsState(
   state: AgentChatDevtoolsFetchState,
   requestedSelection: AgentChatDevtoolsInvokerSelection = {},
 ): ChatDevtoolsStateResult {
-  const title = sessionTitle(state.session) || state.metadata.title
+  const title = sessionTitle(state.session) || state.metadata.name
   const invokerProfileId = state.session.invokerProfileId || (!requestedSelection.invokerFallback ? validMetadataInvokerProfileId(state.metadata, requestedSelection.invokerProfileId) : undefined)
   const invokerFallback = state.session.invokerFallback || (!invokerProfileId && requestedSelection.invokerFallback === true)
   const chats: ChatDevtoolsConversation[] = [{
@@ -1706,7 +1715,7 @@ async function materializeDevtoolsSource(
   state.metadataError = undefined
 
   try {
-    state.metadata = await materializeAgentDevtoolsSourceMetadata(agent as never, {
+    const metadata = await materializeAgentDevtoolsSourceMetadata(agent as never, {
       ...options.defaults,
       input: createDevtoolsMetadataInput(metadataSelection),
       ...(input.path ? { path: input.path } : {}),
@@ -1714,6 +1723,7 @@ async function materializeDevtoolsSource(
       runtime,
       sources: materializedSourceKeys(state.metadata),
     } as never)
+    state.metadata = metadataWithAgentName(metadata, agentChatDevtoolsName(agent, options))
     state.metadataSelectionKey = metadataSelectionKey(metadataSelection)
     state.metadataStatus = "ready"
     state.metadataTask = undefined
@@ -1914,8 +1924,9 @@ export function defineAgentChatDevtoolsFetchHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   options: AgentChatDevtoolsFetchHandlerOptions = {},
 ): (request: Request, options?: AgentChatDevtoolsFetchRequestOptions) => Promise<Response> {
+  const name = agentChatDevtoolsName(agent, options)
   const state: AgentChatDevtoolsFetchState = {
-    metadata: createStaticAgentDevtoolsMetadata(agent),
+    metadata: createStaticAgentDevtoolsMetadata(agent, name),
     metadataStatus: chatDevtoolsMetadataStatus(agent),
     session: { uiMessages: [] },
   }

@@ -151,8 +151,8 @@ export interface ChatDevtoolsTypingThread {
 }
 
 type ResolvedChatDevtoolsMetadata =
-  Required<Omit<ChatDevtoolsMetadata, "config" | "title" | "version">>
-  & Pick<ChatDevtoolsMetadata, "config" | "title" | "version">
+  Required<Omit<ChatDevtoolsMetadata, "config" | "name" | "version">>
+  & Pick<ChatDevtoolsMetadata, "config" | "name" | "version">
 
 interface ChatDevtoolsFullStreamToolPart {
   error?: unknown
@@ -478,7 +478,7 @@ function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): 
     files: metadata?.files ? [...metadata.files] : [],
     instructions: metadata?.instructions ? [...metadata.instructions] : [],
     invokerProfiles: metadata?.invokerProfiles ? [...metadata.invokerProfiles] : [],
-    title: metadata?.title,
+    name: metadata?.name,
     tools: metadata?.tools ? [...metadata.tools] : [],
     version: metadata?.version,
     ...(metadata?.config ? { config: metadata.config } : {}),
@@ -672,7 +672,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
         instructions: metadata.instructions,
         invokerProfiles: metadata.invokerProfiles,
         selected: chat && chats.some(item => item.name === chat) ? chat : chats[0]!.name,
-        ...(metadata.title ? { title: metadata.title } : {}),
+        ...(metadata.name ? { title: metadata.name } : {}),
         tools: metadata.tools,
         ...(metadata.version ? { version: metadata.version } : {}),
       }
