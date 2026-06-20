@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineWorkspace, source, useWorkspace } from "../src/index.ts"
+import { custom, defineWorkspace, markdown, useWorkspace } from "../src/index.ts"
 import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/core/registry.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
@@ -112,7 +112,7 @@ describe("Workspace Source Sync", () => {
     registerWorkspace("stale-sync", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        docs: source.custom({
+        docs: custom({
           sync: { stale: "remove" },
           async getKeys() {
             return [...items.keys()]
@@ -445,7 +445,7 @@ describe("Workspace Source Sync", () => {
       rootDir: root,
       store: { provider: "memory" },
       sources: {
-        docs: source.markdown({
+        docs: markdown({
           path: "README.md",
           sync: true,
         }),

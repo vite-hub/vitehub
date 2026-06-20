@@ -1,4 +1,4 @@
-import { defineWorkspace, source } from "@vite-hub/workspace"
+import { defineWorkspace, file } from "@vite-hub/workspace"
 
 export default defineWorkspace({
   store: {
@@ -6,7 +6,7 @@ export default defineWorkspace({
     root: ".vitehub/workspaces/docs",
   },
   sources: {
-    docs: source.file({
+    docs: file({
       workspacePath: "README.md",
       content: "# Workspace example\n",
     }),

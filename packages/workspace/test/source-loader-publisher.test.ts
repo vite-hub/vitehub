@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { collectWorkspaceStoreAssetBundle, syncDiscoveredWorkspaceAssetBundles, writeWorkspaceAssetsRegistry } from "../src/build/assets.ts"
 import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets } from "../src/build/integration.ts"
 import { resetWorkspaceAssetsRegistry } from "../src/asset-registry.ts"
-import { defineWorkspace, source, useWorkspace } from "../src/index.ts"
+import { custom, defineWorkspace, file, github, glob, useWorkspace } from "../src/index.ts"
 import * as loader from "../src/loader.ts"
 import * as publish from "../src/publish.ts"
 import { registerWorkspace } from "../src/test.ts"
@@ -156,7 +156,7 @@ describe("sources, loaders, and publishers", () => {
       "docs/README.md": "# Docs\n",
     })
 
-    const githubSource = source.github({
+    const githubSource = github({
       repo: "acme/app",
       root: "dbt",
     })
@@ -172,7 +172,7 @@ describe("sources, loaders, and publishers", () => {
       "docs/README.md": "# Docs\n",
     })
 
-    const githubSource = source.github({ repo: "acme/app" })
+    const githubSource = github({ repo: "acme/app" })
 
     await expect(githubSource.getKeys({ rootDir: "", workspace: "github-default-ref" })).resolves.toEqual(["docs/README.md"])
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/commits/main"))).toBe(true)
@@ -187,7 +187,7 @@ describe("sources, loaders, and publishers", () => {
       "dbt/macros/date_spine.sql": "{% macro date_spine() %}{% endmacro %}\n",
     })
 
-    const githubSource = source.github({
+    const githubSource = github({
       repo: "acme/app",
       root: "dbt",
       include: ["models/**/*.sql", "macros/**/*.sql"],
@@ -206,7 +206,7 @@ describe("sources, loaders, and publishers", () => {
     })
     process.env.GITHUB_TOKEN = "first-token"
 
-    const githubSource = source.github({ repo: "acme/private" })
+    const githubSource = github({ repo: "acme/private" })
 
     await expect(githubSource.getKeys({ rootDir: "", workspace: "github-auth" })).resolves.toEqual(["docs/README.md"])
     process.env.GITHUB_TOKEN = "second-token"
@@ -225,7 +225,7 @@ describe("sources, loaders, and publishers", () => {
       "docs/README.md": "# Docs\n",
     })
 
-    const githubSource = source.github({ repo: "acme/private" })
+    const githubSource = github({ repo: "acme/private" })
 
     await expect(githubSource.getKeys({ rootDir: root, workspace: "github-env-file-auth" })).resolves.toEqual(["docs/README.md"])
 
@@ -240,7 +240,7 @@ describe("sources, loaders, and publishers", () => {
       "docs/README.md": "# Docs\n",
     })
 
-    const githubSource = source.github({ repo: "acme/private" })
+    const githubSource = github({ repo: "acme/private" })
 
     await expect(githubSource.getKeys({ rootDir: root, workspace: "github-env-file-auth" })).resolves.toEqual(["docs/README.md"])
     await writeFile(join(root, ".env"), "GITHUB_TOKEN=second-env-file-token\n")
@@ -260,7 +260,7 @@ describe("sources, loaders, and publishers", () => {
     })
     process.env.GITHUB_TOKEN = "runtime-token"
 
-    const githubSource = source.github({ repo: "acme/private" })
+    const githubSource = github({ repo: "acme/private" })
 
     await githubSource.getKeys({ rootDir: root, workspace: "github-runtime-auth" })
 
@@ -275,7 +275,7 @@ describe("sources, loaders, and publishers", () => {
     })
     ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = { GITHUB_TOKEN: "cloudflare-token" }
 
-    const githubSource = source.github({ repo: "acme/private" })
+    const githubSource = github({ repo: "acme/private" })
 
     await githubSource.getKeys({ rootDir: root, workspace: "github-cloudflare-auth" })
 
@@ -288,7 +288,7 @@ describe("sources, loaders, and publishers", () => {
     })
     ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = { GITHUB_TOKEN: "cloudflare-token" }
 
-    const githubSource = source.github({ auth: "explicit-token", repo: "acme/private" })
+    const githubSource = github({ auth: "explicit-token", repo: "acme/private" })
 
     await githubSource.getKeys({ rootDir: "", workspace: "github-auth" })
 
@@ -302,7 +302,7 @@ describe("sources, loaders, and publishers", () => {
       "docs/README.md": "# Docs\n",
     })
 
-    const githubSource = source.github({ auth: "explicit-token", repo: "acme/private" })
+    const githubSource = github({ auth: "explicit-token", repo: "acme/private" })
 
     await githubSource.getKeys({ rootDir: root, workspace: "github-explicit-auth" })
 
@@ -314,7 +314,7 @@ describe("sources, loaders, and publishers", () => {
       "docs/README.md": "# Docs\n",
     })
 
-    const githubSource = source.github({ repo: "acme/public" })
+    const githubSource = github({ repo: "acme/public" })
 
     await githubSource.getKeys({ rootDir: "", workspace: "github-public" })
 
@@ -327,7 +327,7 @@ describe("sources, loaders, and publishers", () => {
       "docs/README.md": "# Docs\n",
     }, { apiStatus: 403 })
 
-    const githubSource = source.github({
+    const githubSource = github({
       repo: "acme/app",
       root: "dbt",
     })
@@ -346,7 +346,7 @@ describe("sources, loaders, and publishers", () => {
     }, { apiStatus: 403 })
     process.env.GITHUB_TOKEN = "stale-token"
 
-    const githubSource = source.github({
+    const githubSource = github({
       repo: "acme/app",
     })
 
@@ -373,7 +373,7 @@ describe("sources, loaders, and publishers", () => {
       throw new Error(`Unexpected GitHub request: ${requestUrl}`)
     })
 
-    const githubSource = source.github({
+    const githubSource = github({
       auth: "token",
       repo: "acme/app",
     })
@@ -392,7 +392,7 @@ describe("sources, loaders, and publishers", () => {
     registerWorkspace("github-lazy-tree-cache", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        docs: source.github({
+        docs: github({
           cache: { maxAge: 3600 },
           materialize: "lazy",
           mount: "docs",
@@ -429,7 +429,7 @@ describe("sources, loaders, and publishers", () => {
     registerWorkspace("github-lazy-content-cache", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        docs: source.github({
+        docs: github({
           cache: { maxAge: 3600 },
           materialize: "lazy",
           mount: "docs",
@@ -463,7 +463,7 @@ describe("sources, loaders, and publishers", () => {
       rootDir: root,
       store: { provider: "memory" },
       sources: {
-        docs: source.github({
+        docs: github({
           mount: "docs",
           repo: "acme/app",
           root: "dbt",
@@ -538,10 +538,10 @@ describe("sources, loaders, and publishers", () => {
     await writeFile(join(root, "README.md"), "# Root\n")
     await writeFile(join(directory, "README.md"), "# Directory\n")
     await writeFile(join(directory, "config.mjs"), [
-      `import { source } from '${workspaceSourceImport}'`,
+      `import { glob } from '${workspaceSourceImport}'`,
       "export default {",
       "  sourceRootDir: '',",
-      "  sources: { docs: source.glob({ include: ['README.md'] }) },",
+      "  sources: { docs: glob({ include: ['README.md'] }) },",
       "}",
       "",
     ].join("\n"))
@@ -574,9 +574,9 @@ describe("sources, loaders, and publishers", () => {
     await writeFile(join(root, "AGENTS.md"), "# Root\n")
     await writeFile(join(sourceRoot, "AGENTS.md"), "# Support\n")
     await writeFile(join(directory, "config.mjs"), [
-      `import { source } from '${workspaceSourceImport}'`,
+      `import { file } from '${workspaceSourceImport}'`,
       "export default {",
-      "  sources: { instructions: source.file('AGENTS.md') },",
+      "  sources: { instructions: file('AGENTS.md') },",
       "}",
       "",
     ].join("\n"))
@@ -608,9 +608,9 @@ describe("sources, loaders, and publishers", () => {
     await mkdir(sourceRoot, { recursive: true })
     await writeFile(join(sourceRoot, "AGENTS.md"), "# Bundled Support\n")
     await writeFile(join(directory, "config.mjs"), [
-      `import { source } from '${workspaceSourceImport}'`,
+      `import { file } from '${workspaceSourceImport}'`,
       "export default {",
-      "  sources: { instructions: source.file('AGENTS.md') },",
+      "  sources: { instructions: file('AGENTS.md') },",
       "}",
       "",
     ].join("\n"))
@@ -642,7 +642,7 @@ describe("sources, loaders, and publishers", () => {
       name: "support",
       rootDir: root,
       sourceRootDir: sourceRoot,
-      sources: { instructions: source.file("AGENTS.md") },
+      sources: { instructions: file("AGENTS.md") },
     }, store)
 
     await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({
@@ -653,7 +653,7 @@ describe("sources, loaders, and publishers", () => {
   it("purges stale build source files when source maps change", async () => {
     const store = createMemoryWorkspaceStore()
     let keys = ["README.md", "stale.md"]
-    const docsSource = source.custom({
+    const docsSource = custom({
       async getKeys() {
         return keys
       },
@@ -693,7 +693,7 @@ describe("sources, loaders, and publishers", () => {
     await syncWorkspaceDefinition({
       name: "source-context-build-files",
       sources: {
-        mirror: source.custom({
+        mirror: custom({
           mount: "generated",
           async getKeys(ctx) {
             previousReport = await ctx.workspaceFiles!.readFile("data/sync-report.json")
@@ -737,7 +737,7 @@ describe("sources, loaders, and publishers", () => {
   it("purges stale root-mounted build source files when source maps change", async () => {
     const store = createMemoryWorkspaceStore()
     let keys = ["AGENTS.md", "stale.md"]
-    const rootSource = source.custom({
+    const rootSource = custom({
       async getKeys() {
         return keys
       },
@@ -764,7 +764,7 @@ describe("sources, loaders, and publishers", () => {
   it("purges stale local build source files after store restarts", async () => {
     const root = await createRoot()
     const storeRoot = join(root, ".vitehub", "workspaces", "docs")
-    const docsSource = source.file({ content: "# Docs\n", workspacePath: "README.md", mount: "docs" })
+    const docsSource = file({ content: "# Docs\n", workspacePath: "README.md", mount: "docs" })
     const definition: WorkspaceDefinition = {
       name: "stale-local-build-sources",
       sources: { docs: docsSource },
@@ -873,7 +873,7 @@ describe("sources, loaders, and publishers", () => {
   it("reports inaccessible GitHub repositories with a source-specific error", async () => {
     stubGitHubSource({}, 404)
 
-    const githubSource = source.github({
+    const githubSource = github({
       repo: "acme/private",
       ref: "main",
       auth: "github-token",
@@ -893,9 +893,9 @@ describe("sources, loaders, and publishers", () => {
       rootDir: root,
       store: { provider: "memory" },
       sources: {
-        docs: source.glob({ cwd: ".", include: ["**/*.md"] }),
-        files: source.file({ workspacePath: "two.md", content: "# Two\n" }),
-        custom: source.custom({
+        docs: glob({ cwd: ".", include: ["**/*.md"] }),
+        files: file({ workspacePath: "two.md", content: "# Two\n" }),
+        custom: custom({
           async getKeys() {
             return ["custom.json"]
           },
@@ -938,7 +938,7 @@ describe("sources, loaders, and publishers", () => {
     await writeFile(join(root, "node_modules/pkg/hidden.md"), "# Hidden\n")
     await writeFile(join(root, ".git/hooks/pre-commit"), "hook\n")
 
-    const keys = await source.glob({ cwd: ".", include: "**/*" }).getKeys({ rootDir: root, workspace: "glob-source" })
+    const keys = await glob({ cwd: ".", include: "**/*" }).getKeys({ rootDir: root, workspace: "glob-source" })
 
     expect(keys).toEqual(["visible.md"])
   })
@@ -948,7 +948,7 @@ describe("sources, loaders, and publishers", () => {
     await writeFile(join(root, "visible.md"), "# Visible\n")
     await writeFile(join(root, ".hidden.md"), "# Hidden\n")
 
-    const keys = await source.glob({ cwd: ".", dot: true, include: "**/*" }).getKeys({ rootDir: root, workspace: "glob-source" })
+    const keys = await glob({ cwd: ".", dot: true, include: "**/*" }).getKeys({ rootDir: root, workspace: "glob-source" })
 
     expect(keys).toEqual([".hidden.md", "visible.md"])
   })
@@ -960,8 +960,8 @@ describe("sources, loaders, and publishers", () => {
       rootDir: root,
       store: { provider: "memory" },
       sources: {
-        docs: source.file({ content: "hello\n", workspacePath: "README.md" }),
-        data: source.file({ content: new Uint8Array([1, 2, 3]), workspacePath: "data.bin" }),
+        docs: file({ content: "hello\n", workspacePath: "README.md" }),
+        data: file({ content: new Uint8Array([1, 2, 3]), workspacePath: "data.bin" }),
       },
     })
     registerWorkspace("asset-bundle", definition)

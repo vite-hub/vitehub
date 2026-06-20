@@ -36,7 +36,7 @@ function normalizeFileSourceOptions<TKey extends string>(input: FileSourceInput<
 function sourceKey<TKey extends string>(options: FileSourceOptions<TKey>): TKey {
   if (options.workspacePath) return normalizeSourcePath(options.workspacePath) as TKey
   if ("path" in options && options.path) return normalizeSourcePath(basename(normalizeSafeSourcePath(options.path))) as TKey
-  throw new TypeError("[vitehub] source.file requires a path or workspacePath.")
+  throw new TypeError("[vitehub] file requires a path or workspacePath.")
 }
 
 function resolveSourceRoot(ctx: SourceContext) {
@@ -45,7 +45,7 @@ function resolveSourceRoot(ctx: SourceContext) {
 
 async function readSourceFile<TKey extends string>(options: FileSourceOptions<TKey>, ctx: SourceContext) {
   if (!("path" in options) || !options.path) {
-    throw new TypeError("[vitehub] source.file requires path when content is not provided.")
+    throw new TypeError("[vitehub] file requires path when content is not provided.")
   }
   const { readFile } = await import("node:fs/promises")
   const { resolve } = await import("node:path")
@@ -73,7 +73,7 @@ export function file<const TKey extends string = string>(input: FileSourceInput<
     },
     async getItem(requestedKey: TKey, ctx: SourceContext) {
       if (requestedKey !== key) {
-        throw new SourceError(`[vitehub] source.file could not find ${JSON.stringify(requestedKey)}.`)
+        throw new SourceError(`[vitehub] file could not find ${JSON.stringify(requestedKey)}.`)
       }
       const content = typeof options.content === "undefined"
         ? await readSourceFile(options, ctx)

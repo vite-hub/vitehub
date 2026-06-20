@@ -29,7 +29,7 @@ vite.config.ts
 
 ```ts
 // server/workspaces/docs/config.ts
-import { defineWorkspace, source } from "@vite-hub/workspace"
+import { defineWorkspace, file, github } from "@vite-hub/workspace"
 
 export default defineWorkspace({
   store: {
@@ -37,13 +37,13 @@ export default defineWorkspace({
     root: ".vitehub/workspaces/docs",
   },
   sources: {
-    readme: source.file("README.md"),
-    vitehubDocs: source.github({
+    readme: file("README.md"),
+    vitehubDocs: github({
       repo: "vite-hub/vitehub",
       root: "docs/content/docs",
       instructions: "Use this source for public ViteHub documentation.",
     }),
-    guide: source.file({
+    guide: file({
       workspacePath: "guide.md",
       content: "# Guide\n",
       instructions: "Use this source for local guide notes.",

@@ -35,7 +35,7 @@ pnpm add @ai-sdk/harness@canary @ai-sdk/harness-codex@canary @ai-sdk/sandbox-ver
 import { gateway } from "@ai-sdk/gateway"
 import { defineAgent } from "@vite-hub/agent"
 import { chat, workspaceShell } from "@vite-hub/agent/capabilities"
-import { source } from "@vite-hub/workspace"
+import { file } from "@vite-hub/workspace"
 
 export default defineAgent({
   driver: {
@@ -48,7 +48,7 @@ export default defineAgent({
   capabilities: [chat(), workspaceShell()],
   workspace: {
     sources: {
-      support: source.file({
+      support: file({
         path: "support.md",
         instructions: "Use this source for support policies and known answers.",
       }),
@@ -66,7 +66,7 @@ Harness-backed agents use AI SDK `HarnessAgent` behind the ViteHub Agent Driver 
 import { createCodex } from "@ai-sdk/harness-codex"
 import { defineAgent } from "@vite-hub/agent"
 import { skills } from "@vite-hub/agent/capabilities"
-import { source } from "@vite-hub/workspace"
+import { file } from "@vite-hub/workspace"
 
 export default defineAgent({
   driver: {
@@ -79,7 +79,7 @@ export default defineAgent({
   workspace: {
     mode: "write",
     sources: {
-      guide: source.file("AGENTS.md"),
+      guide: file("AGENTS.md"),
     },
   },
   capabilities: [

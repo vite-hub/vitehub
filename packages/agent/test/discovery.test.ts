@@ -819,7 +819,7 @@ describe("agent chat capability discovery", () => {
 
     const { chat } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
-    const { source } = await import("@vite-hub/workspace")
+    const { custom } = await import("@vite-hub/workspace")
     const { registerWorkspace } = await import("@vite-hub/workspace/test")
     const agent = withAgentDefaults(defineAgent({
       capabilities: [chat()],
@@ -828,7 +828,7 @@ describe("agent chat capability discovery", () => {
       workspace: {
         store: { provider: "memory" },
         sources: {
-          ingestion: source.custom({
+          ingestion: custom({
             cache: { maxAge: 60 },
             materialize: "lazy",
             mount: "ingestion",
@@ -906,7 +906,7 @@ describe("agent chat capability discovery", () => {
 
     const { chat } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
-    const { source } = await import("@vite-hub/workspace")
+    const { custom } = await import("@vite-hub/workspace")
     const { registerWorkspace } = await import("@vite-hub/workspace/test")
     const agent = withAgentDefaults(defineAgent({
       capabilities: [chat()],
@@ -915,7 +915,7 @@ describe("agent chat capability discovery", () => {
       workspace: {
         store: { provider: "memory" },
         sources: {
-          ingestion: source.custom({
+          ingestion: custom({
             fingerprint: { source: "resolved-ingestion" },
             materialize: "lazy",
             async getKeys() {
@@ -925,7 +925,7 @@ describe("agent chat capability discovery", () => {
               throw new Error(`unresolved source read: ${key}`)
             },
             async resolve() {
-              return source.custom({
+              return custom({
                 cache: { maxAge: 60 },
                 fingerprint: { source: "resolved-ingestion" },
                 materialize: "lazy",
@@ -939,7 +939,7 @@ describe("agent chat capability discovery", () => {
               })
             },
           }),
-          portal: source.custom({
+          portal: custom({
             cache: { maxAge: 60 },
             fingerprint: { source: "portal" },
             materialize: "lazy",

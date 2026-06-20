@@ -206,7 +206,7 @@ function inferWorkspaceSource(input: WorkspaceSourceInput): WorkspaceSourceInput
 }
 
 function ambiguousSourceConfiguration(families: WorkspaceSourceFamily[]): TypeError {
-  return new TypeError(`[vitehub] Workspace source configuration is ambiguous. Matched ${families.join(", ")}. Use { source: ... } or source.custom(...) to make the source kind explicit.`)
+  return new TypeError(`[vitehub] Workspace source configuration is ambiguous. Matched ${families.join(", ")}. Use { source: ... } or custom(...) to make the source kind explicit.`)
 }
 
 function createInferredFetchSource(input: WorkspaceSourceInput): WorkspaceSource {
@@ -341,7 +341,7 @@ function inferFetchWorkspacePath(input: Record<string, unknown>) {
 
   const url = input.url instanceof URL ? input.url : new URL(String(input.url))
   if (url.search) {
-    throw new Error("[vitehub] source.fetch() requires an explicit path when the URL includes query parameters.")
+    throw new Error("[vitehub] fetch() requires an explicit path when the URL includes query parameters.")
   }
 
   let path = normalizeSafeWorkspacePath(decodeURI(url.pathname).replace(/^\/+/, ""), { allowEmpty: false })

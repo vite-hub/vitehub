@@ -98,7 +98,7 @@ function resolvableGitHubSource(resolve: GitHubSourceResolver): WorkspaceSource 
       return []
     },
     async getItem(key) {
-      throw new Error(`[vitehub] source.github() resolver did not resolve before reading ${JSON.stringify(key)}.`)
+      throw new Error(`[vitehub] github() resolver did not resolve before reading ${JSON.stringify(key)}.`)
     },
     async getItems() {
       return []

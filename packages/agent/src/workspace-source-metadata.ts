@@ -116,7 +116,7 @@ function inferWorkspaceSourceFamily(input: Record<string, unknown>): WorkspaceSo
 }
 
 function ambiguousSourceConfiguration(families: WorkspaceSourceFamily[]): TypeError {
-  return new TypeError(`[vitehub] Workspace source configuration is ambiguous. Matched ${families.join(", ")}. Use { source: ... } or source.custom(...) to make the source kind explicit.`)
+  return new TypeError(`[vitehub] Workspace source configuration is ambiguous. Matched ${families.join(", ")}. Use { source: ... } or custom(...) to make the source kind explicit.`)
 }
 
 function fileSourceDefaults(input: Record<string, unknown>): WorkspaceSourceMetadataDescriptor {
@@ -207,7 +207,7 @@ function hasSourceMethods(input: Record<string, unknown>) {
 function fileSourceKey(input: Record<string, unknown>): string {
   if (typeof input.workspacePath === "string") return normalizeAgentSourcePath(input.workspacePath, { allowEmpty: false })
   if (typeof input.path === "string") return normalizeAgentSourcePath(basename(normalizeAgentSourcePath(input.path, { allowEmpty: false })), { allowEmpty: false })
-  throw new TypeError("[vitehub] source.file requires a path or workspacePath.")
+  throw new TypeError("[vitehub] file requires a path or workspacePath.")
 }
 
 function inferFetchWorkspacePath(input: Record<string, unknown>) {
@@ -217,7 +217,7 @@ function inferFetchWorkspacePath(input: Record<string, unknown>) {
 
   const url = input.url instanceof URL ? input.url : new URL(String(input.url))
   if (url.search) {
-    throw new Error("[vitehub] source.fetch() requires an explicit path when the URL includes query parameters.")
+    throw new Error("[vitehub] fetch() requires an explicit path when the URL includes query parameters.")
   }
 
   let path = normalizeAgentWorkspacePath(decodeURI(url.pathname).replace(/^\/+/, ""), { allowEmpty: false })

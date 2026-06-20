@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineWorkspace, source, useWorkspace } from "../src/index.ts"
+import { defineWorkspace, fetch, useWorkspace } from "../src/index.ts"
 import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/core/registry.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
@@ -34,7 +34,7 @@ describe("fetch sources", () => {
     registerWorkspace("fetch-json", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        status: source.fetch<{ ignored: boolean, status: string }, { status: string }>({
+        status: fetch<{ ignored: boolean, status: string }, { status: string }>({
           workspacePath: "api/summary.json",
           transform: data => ({ status: data.status }),
           url: "https://status.example.com/api/summary",
@@ -82,7 +82,7 @@ describe("fetch sources", () => {
     registerWorkspace("fetch-text", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        status: source.fetch({
+        status: fetch({
           body: { scope: "all" },
           headers: { authorization: "Bearer secret" },
           method: "POST",
@@ -116,7 +116,7 @@ describe("fetch sources", () => {
     registerWorkspace("fetch-json-string", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        status: source.fetch({
+        status: fetch({
           url: "https://status.example.com/string",
           workspacePath: "external/status/string.json",
         }),
@@ -133,7 +133,7 @@ describe("fetch sources", () => {
     registerWorkspace("fetch-head", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        ping: source.fetch({
+        ping: fetch({
           method: "HEAD",
           responseType: "text",
           url: "https://status.example.com/ping",
@@ -146,7 +146,7 @@ describe("fetch sources", () => {
 
     await expect(workspace.fs.readFile("external/status/ping.txt")).resolves.toBe("")
     expect(request).toHaveBeenCalledWith("https://status.example.com/ping", expect.objectContaining({ method: "HEAD" }))
-    expect(() => source.fetch({
+    expect(() => fetch({
       responseType: "arrayBuffer" as never,
       url: "https://status.example.com/image",
     })).toThrow("responseType")
@@ -157,7 +157,7 @@ describe("fetch sources", () => {
     registerWorkspace("fetch-readonly", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        status: source.fetch({
+        status: fetch({
           url: "https://status.example.com/api/summary?region=eu",
           workspacePath: "status/eu.json",
         }),
@@ -174,7 +174,7 @@ describe("fetch sources", () => {
     registerWorkspace("fetch-materialize", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        status: source.fetch({
+        status: fetch({
           url: "https://status.example.com/api/summary",
           workspacePath: "status/summary.json",
         }),
@@ -200,7 +200,7 @@ describe("fetch sources", () => {
     const view = createWorkspaceSourceView({
       name: "fetch-stale-listing",
       sources: {
-        status: source.fetch({
+        status: fetch({
           url: "https://status.example.com/new",
           workspacePath: "status/new.json",
         }),
@@ -220,7 +220,7 @@ describe("fetch sources", () => {
     const view = createWorkspaceSourceView({
       name: "fetch-search",
       sources: {
-        status: source.fetch({
+        status: fetch({
           url: "https://status.example.com/search",
           workspacePath: "status/search.json",
         }),
@@ -244,7 +244,7 @@ describe("fetch sources", () => {
     const view = createWorkspaceSourceView({
       name: "fetch-root-listing",
       sources: {
-        status: source.fetch({
+        status: fetch({
           url: "https://status.example.com/summary",
           workspacePath: "summary.json",
         }),
@@ -267,7 +267,7 @@ describe("fetch sources", () => {
     const firstView = createWorkspaceSourceView({
       name: "fetch-root-refresh",
       sources: {
-        status: source.fetch({
+        status: fetch({
           url: "https://status.example.com/old",
           workspacePath: "old.json",
         }),
@@ -278,7 +278,7 @@ describe("fetch sources", () => {
     const nextView = createWorkspaceSourceView({
       name: "fetch-root-refresh",
       sources: {
-        status: source.fetch({
+        status: fetch({
           url: "https://status.example.com/new",
           workspacePath: "new.json",
         }),
@@ -310,7 +310,7 @@ describe("fetch sources", () => {
     const view = createWorkspaceSourceView({
       name: "fetch-request-only",
       sources: {
-        inventoryHealthSummary: source.fetch({
+        inventoryHealthSummary: fetch({
           cookies: { auth_token: "secret" },
           instructions: "Use for fresh filtered inventory health data.",
           querySchema,
@@ -366,7 +366,7 @@ describe("fetch sources", () => {
     const view = createWorkspaceSourceView({
       name: "fetch-schema-default",
       sources: {
-        status: source.fetch({
+        status: fetch({
           querySchema,
           url: "https://status.example.com/api/summary",
           workspacePath: "status/summary.json",
@@ -386,18 +386,18 @@ describe("fetch sources", () => {
       },
     } as const
 
-    expect(() => source.fetch({
+    expect(() => fetch({
       query: { region: "eu" },
       querySchema: schema,
       url: "https://status.example.com/query",
     })).toThrow("either query or querySchema")
-    expect(() => source.fetch({
+    expect(() => fetch({
       body: { scope: "all" },
       bodySchema: schema,
       method: "POST",
       url: "https://status.example.com/query",
     })).toThrow("either body or bodySchema")
-    expect(() => source.fetch({
+    expect(() => fetch({
       body: { scope: "all" },
       method: "GET",
       url: "https://status.example.com/query",

@@ -56,12 +56,12 @@ Tools are contributed by Capabilities. They are not top-level Agent Definition f
 ## Add workspace context
 
 ```ts
-import { source } from '@vite-hub/workspace'
+import { glob } from '@vite-hub/workspace'
 
 export default defineAgent({
   workspace: {
     sources: {
-      docs: source.glob({
+      docs: glob({
         cwd: '.',
         include: ['README.md', 'docs/**/*.md'],
       }),

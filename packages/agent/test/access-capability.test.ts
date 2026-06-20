@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import type { AgentRuntimeContext, AgentToolSet } from "../src/types.ts"
-import { attachWorkspaceSourceRequestExecution, source, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceStat } from "@vite-hub/workspace"
+import { attachWorkspaceSourceRequestExecution, custom, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceStat } from "@vite-hub/workspace"
 
 function runtime(): AgentRuntimeContext {
   return {
@@ -501,7 +501,7 @@ describe("access capability", () => {
     const workspaceDefinition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventoryHealthSummary: source.custom({
+        inventoryHealthSummary: custom({
           mount: "inventoryHealthSummary",
           async getKeys() {
             return []
@@ -553,7 +553,7 @@ describe("access capability", () => {
     const workspaceDefinition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        hiddenInventory: source.custom({
+        hiddenInventory: custom({
           mount: "hiddenInventory",
           async getKeys() {
             return []
@@ -562,7 +562,7 @@ describe("access capability", () => {
             throw new Error(`unexpected read: ${key}`)
           },
         }),
-        inventoryHealthSummary: source.custom({
+        inventoryHealthSummary: custom({
           mount: "inventoryHealthSummary",
           async getKeys() {
             return []
@@ -615,13 +615,13 @@ describe("access capability", () => {
     const workspaceDefinition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        ingestion: source.custom({
+        ingestion: custom({
           async resolve({ invocation }) {
             const scope = invocation.context.get<{ customers: string[] }>("support.customerScope")
             resolverScopes.push(scope)
             const customer = scope?.customers[0]
             if (!customer) return false
-            return source.custom({
+            return custom({
               instructions: `Use this source for ${customer} ingestion models only.`,
               materialize: "lazy",
               mount: `ingestion/${customer}`,
@@ -684,9 +684,9 @@ describe("access capability", () => {
     const workspaceDefinition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        ingestion: source.custom({
+        ingestion: custom({
           async resolve() {
-            return source.custom({
+            return custom({
               mount: "ingestion/acme",
               async getKeys() {
                 return ["models/orders.sql"]
@@ -814,7 +814,7 @@ describe("access capability", () => {
       workspaceDefinition: {
         name: "support",
         sources: {
-          acme: source.custom({
+          acme: custom({
             materialize: "lazy",
             mount: "ingestion/acme",
             async getKeys() {
@@ -824,7 +824,7 @@ describe("access capability", () => {
               return { key, content: "" }
             },
           }),
-          private: source.custom({
+          private: custom({
             materialize: "lazy",
             mount: "ingestion/acme/private",
             async getKeys() {
@@ -850,9 +850,9 @@ describe("access capability", () => {
     const workspaceDefinition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        ingestion: source.custom({
+        ingestion: custom({
           async resolve() {
-            return source.custom({
+            return custom({
               instructions: "Use this source for globex ingestion models only.",
               mount: "ingestion/globex",
               async getKeys() {

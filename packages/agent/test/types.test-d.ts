@@ -8,7 +8,7 @@ import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentUsageRecord } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
-import { source } from "@vite-hub/workspace"
+import { file, github as githubSource } from "@vite-hub/workspace"
 import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatPlatformResolver, AgentChatRunContext, FetchCapabilityToolOptions, RepositoryHostClient, TranscriptionResult, UsageTelemetrySummaryOptions } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
@@ -527,9 +527,9 @@ describe("agent public types", () => {
   it("types access workspace source grants and chat run context", () => {
     const workspace = {
       sources: {
-        docs: source.file("AGENTS.md"),
-        forecastingEngine: source.github({ repo: "acme/forecasting-engine" }),
-        pullRequest: source.github(({ invocation }) => {
+        docs: file("AGENTS.md"),
+        forecastingEngine: githubSource({ repo: "acme/forecasting-engine" }),
+        pullRequest: githubSource(({ invocation }) => {
           const pullRequest = invocation.context.get("pullRequest")
           expectTypeOf(pullRequest).toEqualTypeOf<GitHubPullRequestRunContext | undefined>()
           if (!pullRequest) return false
@@ -637,8 +637,8 @@ describe("agent public types", () => {
     })
     const workspace = {
       sources: {
-        docs: source.file("AGENTS.md"),
-        forecastingEngine: source.github({ repo: "acme/forecasting-engine" }),
+        docs: file("AGENTS.md"),
+        forecastingEngine: githubSource({ repo: "acme/forecasting-engine" }),
       },
     }
     type SupportInvoker = AgentInvoker<{ audience?: "support" | "technical", customer?: "acme" }>
@@ -759,7 +759,7 @@ describe("agent public types", () => {
       model: {} as never,
       workspace: {
         sources: {
-          docs: source.file("AGENTS.md"),
+          docs: file("AGENTS.md"),
         },
       },
     })
@@ -806,7 +806,7 @@ describe("agent public types", () => {
       model: {} as never,
       workspace: {
         sources: {
-          docs: source.file("AGENTS.md"),
+          docs: file("AGENTS.md"),
         },
       },
     })

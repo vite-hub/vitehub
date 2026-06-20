@@ -193,7 +193,7 @@ function resolvableFetchSource<TResponse, TOutput>(resolve: FetchSourceResolver<
       return []
     },
     async getItem(key) {
-      throw new Error(`[vitehub] source.fetch() resolver did not resolve before reading ${JSON.stringify(key)}.`)
+      throw new Error(`[vitehub] fetch() resolver did not resolve before reading ${JSON.stringify(key)}.`)
     },
     async getItems() {
       return []
@@ -210,7 +210,7 @@ function resolvableFetchSource<TResponse, TOutput>(resolve: FetchSourceResolver<
 
 function normalizePublicResponseType(responseType: string): FetchSourceResponseType {
   if (responseType !== "json" && responseType !== "text") {
-    throw new TypeError(`[vitehub] source.fetch() responseType "${responseType}" is not supported in v1. Use json or text.`)
+    throw new TypeError(`[vitehub] fetch() responseType "${responseType}" is not supported in v1. Use json or text.`)
   }
   return responseType
 }
@@ -218,7 +218,7 @@ function normalizePublicResponseType(responseType: string): FetchSourceResponseT
 function normalizeMethod(method: FetchSourceMethod | undefined): FetchSourceMethod {
   const normalized = (method || "GET").toUpperCase()
   if (normalized !== "GET" && normalized !== "HEAD" && normalized !== "POST") {
-    throw new TypeError(`[vitehub] source.fetch() method "${normalized}" is not supported in v1. Use GET, HEAD, or POST.`)
+    throw new TypeError(`[vitehub] fetch() method "${normalized}" is not supported in v1. Use GET, HEAD, or POST.`)
   }
   return normalized
 }
@@ -229,13 +229,13 @@ function normalizeFetchWorkspacePath(options: Pick<FetchSourceOptions, "workspac
 
 function assertRequestShape(options: FetchSourceOptions<any, any>, method: FetchSourceMethod): void {
   if ((options.query !== undefined || urlHasQuery(options.url)) && options.querySchema !== undefined) {
-    throw new TypeError("[vitehub] source.fetch() accepts either query or querySchema, not both.")
+    throw new TypeError("[vitehub] fetch() accepts either query or querySchema, not both.")
   }
   if (options.body !== undefined && options.bodySchema !== undefined) {
-    throw new TypeError("[vitehub] source.fetch() accepts either body or bodySchema, not both.")
+    throw new TypeError("[vitehub] fetch() accepts either body or bodySchema, not both.")
   }
   if ((method === "GET" || method === "HEAD") && (options.body !== undefined || options.bodySchema !== undefined)) {
-    throw new TypeError(`[vitehub] source.fetch() ${method} requests cannot declare body or bodySchema.`)
+    throw new TypeError(`[vitehub] fetch() ${method} requests cannot declare body or bodySchema.`)
   }
 }
 
@@ -285,7 +285,7 @@ function descriptorCredentials(options: Pick<FetchSourceOptions<any, any>, "cook
 function schemaProjection(schema: FetchSourceStandardJsonSchemaV1, option: string): Record<string, unknown> {
   const project = schema["~standard"].jsonSchema?.input
   if (typeof project !== "function") {
-    throw new TypeError(`[vitehub] source.fetch() ${option} must expose a Standard JSON Schema-compatible input projection.`)
+    throw new TypeError(`[vitehub] fetch() ${option} must expose a Standard JSON Schema-compatible input projection.`)
   }
   return project({ target: "draft-2020-12" })
 }
@@ -310,10 +310,10 @@ async function defaultFetchSourceRequest(
 ) {
   const defaultQuery = options.query !== undefined || concreteQueryFromOptions(options)
     ? concreteQueryFromOptions(options)
-    : options.querySchema ? await parseStandardSchema(options.querySchema, {}, "source.fetch() query default") : undefined
+    : options.querySchema ? await parseStandardSchema(options.querySchema, {}, "fetch() query default") : undefined
   const defaultBody = options.body !== undefined
     ? options.body
-    : options.bodySchema ? await parseStandardSchema(options.bodySchema, {}, "source.fetch() body default") : undefined
+    : options.bodySchema ? await parseStandardSchema(options.bodySchema, {}, "fetch() body default") : undefined
   const query = overrides.query ?? defaultQuery
   const body = typeof overrides.body === "undefined" ? defaultBody : overrides.body
   const context = sourceRequestContext(options, method, { body, query }, ctx)

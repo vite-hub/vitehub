@@ -13,16 +13,16 @@ Use Workspace when the app needs files, project context, source ingestion, snaps
 ## Define a workspace
 
 ```ts [server/workspaces/docs.ts]
-import { defineWorkspace, source } from '@vite-hub/workspace'
+import { defineWorkspace, glob, github } from '@vite-hub/workspace'
 
 export default defineWorkspace({
   sources: {
-    docs: source.glob({
+    docs: glob({
       cwd: '.',
       include: ['README.md', 'docs/**/*.md'],
       instructions: 'Use these docs for public product behavior.',
     }),
-    handbook: source.github({
+    handbook: github({
       repo: 'acme/handbook',
       ref: 'main',
       root: 'support',
@@ -48,7 +48,7 @@ Custom Sources can read existing materialized Workspace files through `ctx.works
 Sources can resolve their concrete origin, Mount, and Source Instructions for one invocation from trusted runtime context. Use this when the same Source key should point at a narrowed origin after Access has selected a Workspace Scope.
 
 ```ts
-source.github(({ invocation }) => {
+github(({ invocation }) => {
   const scope = invocation.context.get<{ customers: string[] }>('support.customerScope')
   const customer = scope?.customers[0]
   if (!customer)

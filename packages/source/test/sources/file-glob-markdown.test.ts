@@ -48,9 +48,9 @@ describe("@vite-hub/source local file sources", () => {
       mediaType: "text/markdown",
     })
     await expect(useSource("readme", { rootDir: root }).read("missing.md" as any))
-      .rejects.toThrow("source.file could not find")
+      .rejects.toThrow("file could not find")
     await expect(useSource("docs", { rootDir: root }).read("../package.json" as any))
-      .rejects.toThrow("source.glob could not find")
+      .rejects.toThrow("glob could not find")
   })
 
   it("resolves relative glob cwd from the source root", async () => {
@@ -121,8 +121,8 @@ describe("@vite-hub/source local file sources", () => {
       "README.md",
     ])
     await expect(glob({ cwd: outside, include: "**/*.md" }).getKeys({ rootDir: root }))
-      .rejects.toThrow("source.glob cwd escapes the source root")
+      .rejects.toThrow("glob cwd escapes the source root")
     await expect(glob({ cwd: "workspace/outside", include: "**/*.md" }).getKeys({ rootDir: root }))
-      .rejects.toThrow("source.glob cwd escapes the source root")
+      .rejects.toThrow("glob cwd escapes the source root")
   })
 })
