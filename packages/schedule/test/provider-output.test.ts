@@ -101,7 +101,8 @@ describe("schedule provider output", () => {
     const cleanup = outputs.find(output => output.name === "cleanup")
     expect(cleanup?.source).toContain("export const config = {")
     expect(cleanup?.source).toContain("schedule: \"0 0 * * *\"")
-    expect(cleanup?.source).toContain("next_run")
+    expect(cleanup?.source).not.toContain("next_run")
+    expect(cleanup?.source).toContain("scheduledAt: new Date()")
     expect(cleanup?.source).toContain("executeStaticSchedule")
   })
 
