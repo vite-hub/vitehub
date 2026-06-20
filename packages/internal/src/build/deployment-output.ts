@@ -6,7 +6,7 @@ import { bundleEsmEntry } from "./esbuild.ts"
 import { toSafeAppName } from "./user-entry.ts"
 import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
 
-type BundleOptions = Parameters<typeof bundleEsmEntry>[2]
+type BundleOptions = NonNullable<Parameters<typeof bundleEsmEntry>[2]>
 
 interface SharedDeploymentOptions {
   clientOutDir: string
