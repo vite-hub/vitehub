@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs"
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
-import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
@@ -636,6 +636,29 @@ export async function createNetlifyScheduleFunctionOutputs(options: {
   })
 }
 
+async function writeNetlifyScheduleFunctions(options: {
+  definitions: DiscoveredScheduleDefinition[]
+  outputRoot: string
+  registryFile: string
+}) {
+  const functionRoot = resolve(options.outputRoot, "functions")
+  await mkdir(functionRoot, { recursive: true })
+  const existingFiles = await readdir(functionRoot).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return []
+    throw error
+  })
+  await Promise.all(existingFiles
+    .filter(file => /^vitehub-schedule-.+\.mjs$/.test(file))
+    .map(file => rm(resolve(functionRoot, file), { force: true, recursive: true })))
+
+  const outputs = await createNetlifyScheduleFunctionOutputs({
+    definitions: options.definitions,
+    functionRoot,
+    registryFile: options.registryFile,
+  })
+  await Promise.all(outputs.map(async output => writeFile(output.file, output.source, "utf8")))
+}
+
 async function writeCloudflareScheduleOutput(options: {
   bundleAlias?: Record<string, string>
   bundleEntry: string
@@ -700,5 +723,10 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     registryFile: artifacts.registryFile,
     rootDir: options.rootDir,
   }, crons)
+  await writeNetlifyScheduleFunctions({
+    definitions: artifacts.definitions,
+    outputRoot: createDefaultNetlifyOutputRoot(options.rootDir),
+    registryFile: artifacts.registryFile,
+  })
   return artifacts
 }
