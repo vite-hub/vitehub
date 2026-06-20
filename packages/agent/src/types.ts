@@ -79,13 +79,19 @@ export interface AgentAccessInvocationContextValue<TScopeName extends string = s
   workspaceScope?: AgentAccessWorkspaceScopeContext<TScopeName>
 }
 
-export interface AgentInvocationContextValues {
+declare global {
+  interface ViteHubAgentInvocationContextValues {}
+}
+
+export interface AgentInvocationContextValues extends ViteHubAgentInvocationContextValues {
   access: AgentAccessInvocationContextValue
   actor: AgentActor
   "channel.delivery.effects": AgentChannelDeliveryEffectIntent[]
   "channel.delivery.finishEffects": AgentChannelDeliveryFinishEffect[]
   invoker: AgentInvoker
 }
+
+export type AgentRunInputContextValues = Partial<AgentInvocationContextValues> & Record<string, unknown>
 
 export interface AgentInvocationContextStore<TValues extends object = AgentInvocationContextValues> {
   entries: () => IterableIterator<[string, unknown]>
@@ -127,7 +133,7 @@ export interface AgentInvokerOptions<
 
 export interface AgentRunInput<
   CALL_OPTIONS = unknown,
-  TContext extends object = Record<string, unknown>,
+  TContext extends object = AgentRunInputContextValues,
 > {
   abortSignal?: AbortSignal
   context?: TContext

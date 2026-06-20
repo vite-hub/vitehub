@@ -1652,8 +1652,9 @@ describe("agent message protocol", () => {
           review: {
             description: "Review a pull request.",
             run({ args, input }) {
-              const command = input.context?.github as Record<string, unknown>
-              const pullRequest = input.context?.pullRequest as Record<string, unknown>
+              const command = input.context?.github
+              const pullRequest = input.context?.pullRequest
+              if (!command || !pullRequest) throw new Error("Missing GitHub pull request context.")
               expect(command.actor).toMatchObject({ association: "MEMBER" })
               expect(pullRequest).toMatchObject({
                 pullRequest: {
@@ -1759,7 +1760,7 @@ describe("agent message protocol", () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { github } = await import("../src/channels.ts")
     const commandRun = vi.fn(({ input }) => {
-      const pullRequest = input.context?.pullRequest as { trigger?: { actor?: { association?: string } } } | undefined
+      const pullRequest = input.context?.pullRequest
       return pullRequest?.trigger?.actor?.association === "MEMBER"
         ? { prompt: "unexpected" }
         : Response.json({ accepted: false, ok: true, reason: "unauthorized" })

@@ -167,6 +167,10 @@ declare global {
     github: GitHubPullRequestCommand
     pullRequest: GitHubPullRequestRunContext
   }
+  interface ViteHubAgentInvocationContextValues {
+    github: GitHubPullRequestCommand
+    pullRequest: GitHubPullRequestRunContext
+  }
 }
 
 export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
