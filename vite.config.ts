@@ -31,6 +31,16 @@ export default defineConfig({
         command: "node test/local/netlify-real-project.mjs",
         dependsOn: ["build"],
       },
+      "e2e:deno": {
+        cache: false,
+        command: "node test/local/deno-real-project.mjs",
+        dependsOn: ["build"],
+      },
+      "e2e:deno:live": {
+        cache: false,
+        command: "node test/local/deno-real-project.mjs --live",
+        dependsOn: ["build"],
+      },
       "fallow:dead-code": "vp exec fallow dead-code --summary --format markdown --fail-on-issues",
       "kv:e2e": {
         cache: false,

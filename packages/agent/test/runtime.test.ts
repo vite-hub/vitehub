@@ -369,6 +369,7 @@ describe("agent message protocol", () => {
     const agentSettings: Record<string, unknown>[] = []
     aiGlobal.AI_SDK_TELEMETRY_INTEGRATIONS = [globalIntegration]
     vi.doMock("ai", () => ({
+      jsonSchema: vi.fn(schema => schema),
       ToolLoopAgent: class {
         settings: Record<string, unknown>
 
@@ -2145,6 +2146,7 @@ describe("agent message protocol", () => {
 
   it("runs agent finish hooks for model-backed object results", async () => {
     vi.doMock("ai", () => ({
+      jsonSchema: vi.fn(schema => schema),
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }
@@ -2198,6 +2200,7 @@ describe("agent message protocol", () => {
 
   it("runs stream finish hooks with rendered model-backed object results", async () => {
     vi.doMock("ai", () => ({
+      jsonSchema: vi.fn(schema => schema),
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }
@@ -2387,7 +2390,7 @@ describe("agent message protocol", () => {
 
   it("generates chat titles with the default template and agent model", async () => {
     const generateText = vi.fn(async () => ({ text: '"Generated invoice title"' }))
-    vi.doMock("ai", () => ({ generateText }))
+    vi.doMock("ai", () => ({ generateText, jsonSchema: vi.fn(schema => schema) }))
 
     try {
       const { defineAgent, runAgent } = await import("../src/index.ts")
@@ -2426,7 +2429,7 @@ describe("agent message protocol", () => {
 
   it("renders custom chat title templates and skips unmatched triggers", async () => {
     const generateText = vi.fn(async () => ({ text: "Portal Forecast Help" }))
-    vi.doMock("ai", () => ({ generateText }))
+    vi.doMock("ai", () => ({ generateText, jsonSchema: vi.fn(schema => schema) }))
 
     try {
       const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
@@ -2488,6 +2491,7 @@ describe("agent message protocol", () => {
 
   it("emits chat title data for adapter text streams", async () => {
     vi.doMock("ai", () => ({
+      jsonSchema: vi.fn(schema => schema),
       ToolLoopAgent: class {
         async generate() {
           return { finishReason: "stop", text: "ok" }

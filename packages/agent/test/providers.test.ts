@@ -424,6 +424,42 @@ describe("agent Vite plugin", () => {
     expect(output.build).toBeUndefined()
   })
 
+  it("skips Nitro handlers for Deno generated output", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ routes: { chat: true, webhooks: true }, runtime: "deno" })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
+      : undefined
+
+    expect(result).toMatchObject({
+      agent: { routes: { chat: true, webhooks: true }, runtime: "deno" },
+      server: { watch: { ignored: ["**/.vitehub/**"] } },
+    })
+    expect((result as { nitro?: unknown } | undefined)?.nitro).toBeUndefined()
+  })
+
+  it("does not materialize Vercel runtime packages for Deno output", async () => {
+    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-deno-close-bundle-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const plugin = hubAgent({ eval: false, routes: { chat: true }, runtime: "deno" })
+      const configResolved = plugin.configResolved as (config: { agent?: unknown, command: "build", root: string }) => Promise<void>
+      const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+      vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
+
+      await configResolved({ agent: { eval: false, routes: { chat: true }, runtime: "deno" }, command: "build", root })
+      await closeBundle.handler()
+
+      expect(copyVercelFunctionRuntimePackages).not.toHaveBeenCalled()
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("writes generated Nitro handlers that pass Web Requests to chat webhooks", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-routes-"))
@@ -453,6 +489,60 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("const webhookRoutePattern")
       expect(webhookRoute).toContain("const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)")
       expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("writes generated Deno server output for chat and webhook routes", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-deno-routes-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const plugin = hubAgent({ routes: { chat: true, webhooks: true }, runtime: "deno" })
+      if (typeof plugin.configResolved === "function") {
+        await plugin.configResolved.call({} as never, { root } as never)
+      }
+
+      const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
+
+      expect(denoServer).toContain("import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server/routes'")
+      expect(denoServer).not.toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
+      expect(denoServer).toContain("await import('../schedule/deno-cron.mjs').catch")
+      expect(denoServer).toContain("const chatRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/chat$\")")
+      expect(denoServer).toContain("const webhookRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/webhooks/(?<webhook>[^/]+)$\")")
+      expect(denoServer).toContain("return isWebhookRoute ? await handler(request, webhook, { agentName: agent }) : await handler(request, { agentName: agent })")
+      expect(denoServer).toContain("function resolveDenoServeOptions(args)")
+      expect(denoServer).toContain("const serveOptions = resolveDenoServeOptions(Deno.args)")
+      expect(denoServer).toContain("Deno.serve(serveOptions, handleRequest)")
+      expect(denoServer).toContain("Deno.serve(handleRequest)")
+      expect(denoServer).not.toContain("export default")
+      expect(denoServer).not.toContain("@vite-hub/workspace/internal")
+      expect(denoServer).not.toContain("/Users/maxi/.codex/worktrees/9506/vitehub")
+      expect(denoServer).not.toContain("@/")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("registers workspace-backed Agent Definitions in Deno server output", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-deno-workspace-routes-"))
+    try {
+      await mkdir(join(root, "server", "agents", "support"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support", "config.ts"), "import { defineAgent } from '@vite-hub/agent'\nexport default defineAgent({ workspace: {}, async run() { return 'ok' } })", "utf8")
+      const plugin = hubAgent({ routes: { chat: true }, runtime: "deno" })
+      if (typeof plugin.configResolved === "function") {
+        await plugin.configResolved.call({} as never, { root } as never)
+      }
+
+      const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
+
+      expect(denoServer).toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
+      expect(denoServer).toContain("setWorkspaceRuntimeRegistry({\n  \"support\": async () =>")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -500,6 +590,17 @@ describe("agent Vite plugin", () => {
 
     expect(config).toContain('"esbuild"')
     expect(pkg.dependencies?.esbuild).toBe("catalog:esbuild-v27")
+  })
+
+  it("publishes the route-only Agent server subpath", async () => {
+    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
+      exports?: Record<string, unknown>
+    }
+
+    expect(pkg.exports?.["./server/routes"]).toEqual({
+      types: "./dist/server/routes.d.ts",
+      import: "./dist/server/routes.js",
+    })
   })
 })
 

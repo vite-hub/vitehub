@@ -373,7 +373,7 @@ async function resolveStore(
 }
 
 function isHostedRuntime(runtime: string): boolean {
-  return runtime === "vercel" || runtime === "cloudflare-agents"
+  return runtime === "vercel" || runtime === "cloudflare-agents" || runtime === "deno"
 }
 
 function retryAfterSeconds(resetAt: number, now: number): number {

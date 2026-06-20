@@ -11,6 +11,7 @@ const mountedDrivers: {
 
 let cloudflareDriver: Driver | undefined
 let fsLiteDriver: Driver | undefined
+const originalDeno = (globalThis as typeof globalThis & { Deno?: unknown }).Deno
 
 function resetStorage() {
   cloudflareDriver = undefined
@@ -56,6 +57,31 @@ function createDriverWithoutOptionalMethods(): Driver {
   } as Driver
 }
 
+function createDenoOpenKvMock() {
+  const data = new Map<string, unknown>()
+  const close = vi.fn()
+  const openKv = vi.fn(async () => ({
+    close,
+    delete: async ([key]: [string]) => {
+      data.delete(key)
+    },
+    get: async ([key]: [string]) => ({
+      key: [key] as [string],
+      value: data.has(key) ? data.get(key) : null,
+    }),
+    list: async function* () {
+      for (const [key, value] of data) {
+        yield { key: [key] as [string], value }
+      }
+    },
+    set: async ([key]: [string], value: unknown) => {
+      data.set(key, value)
+    },
+  }))
+
+  return { close, data, openKv }
+}
+
 vi.mock("unstorage/drivers/fs-lite", () => ({
   default: vi.fn((options: Record<string, unknown> = {}) => {
     mountedDrivers.fsLite = options
@@ -78,12 +104,14 @@ describe("kv runtime", () => {
   beforeEach(async () => {
     vi.resetModules()
     resetStorage()
+    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = originalDeno
   })
 
   afterEach(() => {
     delete process.env.KV_REST_API_URL
     delete process.env.KV_REST_API_TOKEN
     delete process.env.VITEHUB_HOSTING
+    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = originalDeno
   })
 
   it("falls back to hosted env config when the generated config import cannot load", async () => {
@@ -99,6 +127,22 @@ describe("kv runtime", () => {
       token: "upstash-token",
       url: "https://upstash.example.com",
     })
+  })
+
+  it("honors explicit hosting before ambient Deno KV detection", async () => {
+    process.env.VITEHUB_HOSTING = "local"
+    const { openKv } = createDenoOpenKvMock()
+    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
+
+    const { kv } = await import("../src/runtime/storage.ts")
+    await kv.set("explicit-host", "fs-lite")
+
+    expect(await kv.get("explicit-host")).toBe("fs-lite")
+    expect(mountedDrivers.fsLite).toMatchObject({
+      base: ".data/kv",
+      driver: "fs-lite",
+    })
+    expect(openKv).not.toHaveBeenCalled()
   })
 
   it("does not make the lazy driver thenable", async () => {
@@ -192,5 +236,53 @@ describe("kv runtime", () => {
     await expect(driver.getItemRaw?.("greeting", {})).resolves.toEqual(Buffer.from("hello"))
     await expect(driver.getMeta?.("greeting", {})).resolves.toBe(metadata)
     await expect(driver.setItemRaw?.("greeting", Buffer.from("hello"), {})).resolves.toBeUndefined()
+  })
+
+  it("loads Deno KV through the lazy KV Store driver", async () => {
+    const { openKv } = createDenoOpenKvMock()
+    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
+
+    const { createLazyKVRuntimeDriver } = await import("../src/runtime/driver.ts")
+    const lazyStorage = createStorage({
+      driver: createLazyKVRuntimeDriver({
+        store: {
+          driver: "deno-kv",
+        },
+      }),
+    })
+
+    await lazyStorage.setItem("lazy:one", "ok")
+
+    expect(await lazyStorage.getItem("lazy:one")).toBe("ok")
+    expect(openKv).toHaveBeenCalledWith(undefined)
+  })
+
+  it("maps the KV Store surface onto native Deno KV without exposing queue or watch handles", async () => {
+    const { close, openKv } = createDenoOpenKvMock()
+    ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
+
+    const { default: createDenoKVDriver } = await import("../src/runtime/deno-kv.ts")
+    const driver = createDenoKVDriver({ driver: "deno-kv", path: ":memory:" }) as Driver & Record<string, unknown>
+    const storage = createStorage({ driver })
+
+    await storage.setItem("users:42:profile", { name: "Ada" })
+    await storage.setItem("users:42:prefs", { theme: "system" })
+    await storage.setItem("users:7:profile", { name: "Grace" })
+
+    expect(await storage.getItem("users:42:profile")).toEqual({ name: "Ada" })
+    expect(await storage.hasItem("users:42:prefs")).toBe(true)
+    expect(await storage.getKeys("users:42:")).toEqual(["users:42:prefs", "users:42:profile"])
+    expect(driver.enqueue).toBeUndefined()
+    expect(driver.listenQueue).toBeUndefined()
+    expect(driver.watch).toBeUndefined()
+
+    await (driver.clear as unknown as (base?: string) => Promise<void>)("users:42:")
+
+    expect(await storage.hasItem("users:42:profile")).toBe(false)
+    expect(await storage.hasItem("users:7:profile")).toBe(true)
+
+    await driver.dispose?.()
+    expect(openKv).toHaveBeenCalledWith(":memory:")
+    expect(close).toHaveBeenCalledOnce()
   })
 })

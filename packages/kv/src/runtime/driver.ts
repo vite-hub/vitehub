@@ -3,7 +3,6 @@ import type { Driver } from "unstorage"
 import type { ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "../types.ts"
 import { resolveRuntimeKVOptions } from "./upstash.ts"
 
-type DriverFactory = (options: object) => Driver
 type AnyRecord = Record<PropertyKey, unknown>
 
 const lazyDriverMethods = new Set<PropertyKey>([
@@ -17,15 +16,31 @@ const lazyDriverMethods = new Set<PropertyKey>([
 
 const lazyOptionalDriverMethods: Record<ResolvedKVStoreConfig["driver"], Set<PropertyKey>> = {
   "cloudflare-kv-binding": new Set(),
+  "deno-kv": new Set(),
   "fs-lite": new Set(["getItemRaw", "getMeta", "setItemRaw"]),
   "upstash": new Set(["getItems"]),
 }
 
-const driverLoaders = {
-  "cloudflare-kv-binding": () => import("unstorage/drivers/cloudflare-kv-binding"),
-  "fs-lite": () => import("unstorage/drivers/fs-lite"),
-  "upstash": () => import("unstorage/drivers/upstash"),
-} satisfies Record<ResolvedKVStoreConfig["driver"], () => Promise<{ default: DriverFactory }>>
+async function createRuntimeDriver(store: ResolvedKVStoreConfig): Promise<Driver> {
+  switch (store.driver) {
+    case "cloudflare-kv-binding": {
+      const { default: factory } = await import("unstorage/drivers/cloudflare-kv-binding")
+      return factory(store)
+    }
+    case "deno-kv": {
+      const { default: factory } = await import("./deno-kv.ts")
+      return factory(store)
+    }
+    case "fs-lite": {
+      const { default: factory } = await import("unstorage/drivers/fs-lite")
+      return factory(store)
+    }
+    case "upstash": {
+      const { default: factory } = await import("unstorage/drivers/upstash")
+      return factory(store)
+    }
+  }
+}
 
 export function createLazyKVRuntimeDriver(config: ResolvedKVModuleOptions): Driver {
   let driverPromise: Promise<Driver> | undefined
@@ -33,8 +48,7 @@ export function createLazyKVRuntimeDriver(config: ResolvedKVModuleOptions): Driv
   const resolve = () => driverPromise ||= (async () => {
     const runtime = resolveRuntimeKVOptions(config)
     if (!runtime) throw new Error("KV runtime is disabled.")
-    const { default: factory } = await driverLoaders[runtime.store.driver]()
-    return factory(runtime.store)
+    return createRuntimeDriver(runtime.store)
   })()
 
   const target = { name: `lazy:${config.store.driver}`, options: config.store } as AnyRecord
