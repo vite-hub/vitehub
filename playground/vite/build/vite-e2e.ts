@@ -137,6 +137,10 @@ function resolveIsomorphicGitHttpWebEsmEntry() {
   return resolve(dirname(resolvePackageDependency(workspacePackageDir, "isomorphic-git/http/web")), "index.js")
 }
 
+function resolveIsomorphicGitDependency(specifier: string) {
+  return createRequire(resolveIsomorphicGitEsmEntry()).resolve(specifier)
+}
+
 function resolveSandboxClassName(config: { className?: unknown } | undefined) {
   return typeof config?.className === "string" ? config.className : defaultCloudflareSandboxClassName
 }
@@ -759,7 +763,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     alias["isomorphic-git/http/web"] = resolveIsomorphicGitHttpWebEsmEntry()
     alias["isomorphic-git"] = resolveIsomorphicGitEsmEntry()
     for (const dependency of ["async-lock", "clean-git-ref", "crc-32", "diff3", "ignore", "inherits", "minimisted", "pako", "pify", "readable-stream", "sha.js/sha1.js", "simple-get"]) {
-      alias[dependency] = resolvePackageDependency(workspacePackageDir, dependency)
+      alias[dependency] = resolveIsomorphicGitDependency(dependency)
     }
     runtimeWrites.push(
       writeFile(workspaceAssetsRuntimeFile, renderWorkspaceAssetsRuntimeModule(), "utf8"),
