@@ -1,20 +1,26 @@
 ---
-title: fetch()
+title: Fetch
 description: Expose named HTTP request tools for developer-approved endpoints.
-navigation.title: fetch()
+navigation.title: Fetch
 navigation.order: 140
+navigation.group: External context
 icon: i-lucide-send
 ---
 
 `fetch()` adds model-facing HTTP tools that the developer names and defines.
 Use it for specific endpoints, not for unrestricted web browsing.
 
+## Installation
+
+Import the Capability factory from `-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
+Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
+
 ## What it adds
 
 The Capability creates one tool per entry in `tools`.
 Each tool can validate input, build a request, parse JSON or text, validate the response, and transform the output.
 
-## Minimum attach example
+## Configuration
 
 Define at least one named fetch tool.
 Keep the endpoint and method explicit.
@@ -63,6 +69,20 @@ Use schemas for input and response validation when the endpoint accepts argument
 
 Inspect the Agent tool list and confirm only the named fetch tools appear.
 Run one invocation with invalid input when a schema is configured and verify the request does not leave the process.
+
+## Options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `tools` | `Record<string, FetchCapabilityToolOptions>` | required | Named fetch tools exposed to the model. |
+| `tools.*.description` | `string` | `Fetch <name>.` | Tool description. |
+| `tools.*.url` | `string \| URL` | none | Static request URL. |
+| `tools.*.request` | `object \| function` | none | Static or input-derived request definition. |
+| `tools.*.method` | `"GET" \| "HEAD" \| "POST"` | request default | HTTP method. |
+| `tools.*.inputSchema` | Standard Schema | none | Validates model tool input before request construction. |
+| `tools.*.schema` | Standard Schema | none | Validates parsed response data. |
+| `tools.*.responseType` | `"json" \| "text"` | `"json"` | Response parser. |
+| `tools.*.transform` | `(data, input) => output` | none | Maps validated response data before returning it to the model. |
 
 ## Reference
 

@@ -1,109 +1,56 @@
 <script setup lang="ts">
 const route = useRoute();
-const isBetterAuthFixture = computed(() => route.path.includes("/docs/getting-started/better-auth-style"));
+const isDocsRoute = computed(() => route.path.startsWith("/docs"));
 
-const betterAuthLinks = [
-  { label: "README", to: "#" },
-  { label: "DOCS", to: "#", active: true },
-  { label: "PRODUCTS", to: "#", trailingIcon: "i-lucide-chevron-down" },
-  { label: "ENTERPRISE", to: "#" },
-  { label: "RESOURCES", to: "#", trailingIcon: "i-lucide-chevron-down" },
-];
-
-const primaryLinks = [
+const navLinks = [
   { label: "Docs", to: "/docs" },
-  { label: "Agents", to: "/docs/agents" },
-  { label: "Capabilities", to: "/docs/capabilities" },
-  { label: "Primitives", to: "/docs/server-primitives" },
   { label: "Blog", to: "/blog" },
 ];
+
 const mobileLinks = [
   { label: "Home", to: "/" },
-  ...primaryLinks,
+  ...navLinks,
 ];
-
-function isActiveLink(link: typeof mobileLinks[number]) {
-  const { to } = link;
-  if (to === "/") return route.path === "/";
-  return route.path === to || route.path.startsWith(`${to}/`);
-}
 </script>
 
 <template>
-  <header v-if="isBetterAuthFixture" class="better-auth-topbar sticky top-0 z-50">
-    <NuxtLink to="/docs/getting-started/better-auth-style/" class="better-auth-brand">
-      <span class="better-auth-mark" aria-hidden="true" />
-      <span>BETTER-AUTH.</span>
-    </NuxtLink>
-
-    <nav class="better-auth-main-nav">
-      <NuxtLink
-        v-for="link in betterAuthLinks"
-        :key="link.label"
-        :to="link.to"
-        :class="['better-auth-main-nav-link', { 'is-active': link.active }]"
-      >
-        <span>{{ link.label }}</span>
-        <UIcon v-if="link.trailingIcon" :name="link.trailingIcon" class="size-3" />
-      </NuxtLink>
-    </nav>
-
-    <NuxtLink to="#" class="better-auth-sign-in">
-      <span>SIGN-IN</span>
-      <UIcon name="i-lucide-arrow-up-right" class="size-3" />
-    </NuxtLink>
-
-    <div class="better-auth-mobile-actions">
-      <UContentSearchButton collapsed :kbds="[]" class="better-auth-mobile-search" />
-      <ClientOnly>
-        <UColorModeButton class="better-auth-mobile-icon" />
-        <template #fallback>
-          <div class="size-8 animate-pulse bg-muted" />
-        </template>
-      </ClientOnly>
-      <UButton
-        icon="i-lucide-menu"
-        variant="ghost"
-        color="neutral"
-        aria-label="Menu"
-        class="better-auth-mobile-icon"
-      />
-    </div>
-  </header>
-
   <div class="sticky top-0 z-50">
-    <UHeader v-if="!isBetterAuthFixture" :to="'/'" title="ViteHub">
+    <UHeader :to="'/'" title="ViteHub">
       <template #title>
-        <UColorModeImage
-          light="/vitehub-logo-header.png"
-          dark="/vitehub-logo-header-dark.png"
-          alt="ViteHub"
-          class="h-6 w-auto shrink-0 self-baseline"
-        />
+        <span class="vh-brand" aria-label="ViteHub">
+          <span class="vh-brand-mark" aria-hidden="true">
+            <img src="/vitehub-mark.svg" alt="" class="h-4 w-[1.125rem]" />
+          </span>
+          <span>ViteHub</span>
+        </span>
       </template>
 
-      <nav class="hidden h-full items-center lg:flex">
+      <nav class="flex items-center gap-1" aria-label="Primary">
         <UButton
-          v-for="link in primaryLinks"
+          v-for="link in navLinks"
           :key="link.to"
           :to="link.to"
           :label="link.label"
           color="neutral"
           variant="ghost"
           size="sm"
-          :class="[
-            'h-full rounded-none border-x border-transparent px-4 xl:px-8 text-[11px] font-medium uppercase tracking-[0.18em]',
-            isActiveLink(link) ? 'border-default border-b-highlighted text-highlighted' : 'text-muted hover:text-highlighted',
-          ]"
         />
       </nav>
 
       <template #right>
-        <UContentSearchButton collapsed :kbds="[]" class="lg:hidden" />
+        <UContentSearchButton
+          collapsed
+          :kbds="[]"
+          :ui="{
+            base: '!w-8 shrink-0 justify-center rounded-md border-0 !p-1.5 text-default hover:bg-elevated',
+            label: 'sr-only',
+            trailing: 'hidden',
+          }"
+        />
         <ClientOnly>
           <UColorModeButton />
           <template #fallback>
-            <div class="size-8 animate-pulse rounded-md bg-muted" />
+            <div class="size-8 animate-pulse bg-muted" />
           </template>
         </ClientOnly>
         <UButton
@@ -117,13 +64,17 @@ function isActiveLink(link: typeof mobileLinks[number]) {
       </template>
 
       <template #body>
-        <nav class="grid gap-1">
+        <div v-if="isDocsRoute" class="-mx-4 -my-2">
+          <DocsAsideLeftTop />
+          <DocsAsideLeftBody />
+        </div>
+        <nav v-else class="grid gap-1">
           <UButton
             v-for="link in mobileLinks"
             :key="link.to"
             :to="link.to"
             :label="link.label"
-            :color="isActiveLink(link) ? 'primary' : 'neutral'"
+            color="neutral"
             variant="ghost"
             block
             class="justify-start"
@@ -133,3 +84,23 @@ function isActiveLink(link: typeof mobileLinks[number]) {
     </UHeader>
   </div>
 </template>
+
+<style scoped>
+.vh-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ui-text-highlighted);
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.vh-brand-mark {
+  display: inline-grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  place-items: center;
+  border: 1px solid var(--ui-border);
+  background: #fafafa;
+}
+</style>

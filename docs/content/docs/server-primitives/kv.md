@@ -9,13 +9,17 @@ KV stores small values addressed by key. Use it for settings, feature flags, cur
 
 KV does not model relationships, constraints, joins, large binary objects, or file trees. Use [Database](/docs/server-primitives/database), [Blob](/docs/server-primitives/blob), or [Workspace](/docs/server-primitives/workspace) for those boundaries.
 
-## Configure KV
+## Quick start
 
-Install the package and register the Vite Integration.
+::steps{level="3"}
+
+### Install
 
 ```bash [Terminal]
 pnpm add @vite-hub/kv
 ```
+
+### Configure
 
 ```ts [vite.config.ts]
 import { hubKv } from '@vite-hub/kv/vite'
@@ -26,7 +30,60 @@ export default defineConfig({
 })
 ```
 
-Local development can use the default local store. Choose a provider in config only when the app needs specific hosted behavior.
+### Start using it
+
+```ts [server/api/settings.put.ts]
+import { kv } from '@vite-hub/kv'
+
+export default defineEventHandler(async (event) => {
+  await kv.set('settings', await readBody(event))
+  return { ok: true }
+})
+```
+
+::
+
+## Public imports
+
+| Import | Use |
+| --- | --- |
+| `kv` from `@vite-hub/kv` | Read and write the Default KV Store or a named KV Store. |
+| `hubKv` from `@vite-hub/kv/vite` | Register KV runtime configuration. |
+| `resolveKVViteConfig` from `@vite-hub/kv/vite` | Resolve KV Vite runtime config manually. |
+
+All KV driver, store, module, and storage types are exported from `@vite-hub/kv`.
+
+## Configuration options
+
+Configure a default store directly, or configure named stores with `kv.stores`.
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [hubKv()],
+  kv: {
+    stores: {
+      default: { driver: 'fs-lite' },
+      rateLimit: { driver: 'upstash' },
+    },
+  },
+})
+```
+
+| Shape | Description |
+| --- | --- |
+| `kv: false` | Disables KV runtime configuration. |
+| `kv: { driver: 'fs-lite', base?: string }` | Uses local filesystem-backed KV. Default `base`: `.data/kv`. |
+| `kv: { driver: 'cloudflare-kv-binding', binding?: string, namespaceId?: string }` | Uses Cloudflare KV. Default `binding`: `KV`. `namespaceId` can come from `KV_NAMESPACE_ID`. |
+| `kv: { driver: 'upstash', url?: string, token?: string }` | Uses Upstash REST KV. Values can come from `KV_REST_API_URL` and `KV_REST_API_TOKEN`. |
+| `kv: { stores: Record<string, KVStoreConfig> }` | Defines named KV Stores. `stores.default` is required. |
+
+## Providers
+
+| Provider | Driver | Default resolution |
+| --- | --- | --- |
+| Local filesystem | `fs-lite` | Used for local/non-hosted development when no hosted env is detected. |
+| Cloudflare KV | `cloudflare-kv-binding` | Used on Cloudflare hosting. |
+| Upstash | `upstash` | Used when Upstash env vars are present or when Vercel hosting is detected. |
 
 ## Use it at runtime
 
@@ -62,6 +119,20 @@ export async function recordHit(key: string) {
   await rateLimitStore.set(key, { seenAt: Date.now() })
 }
 ```
+
+## Runtime Helper
+
+`kv` implements `KVStorage`.
+
+| Method | Description |
+| --- | --- |
+| `kv.get<T>(key)` | Reads a value or returns `null`. |
+| `kv.set<T>(key, value)` | Writes a value. |
+| `kv.has(key)` | Checks whether a key exists. |
+| `kv.del(key)` | Deletes one key. |
+| `kv.keys(base?)` | Lists keys under an optional base prefix. |
+| `kv.clear(base?)` | Deletes keys under an optional base prefix. |
+| `kv.store(name)` | Selects a named KV Store. |
 
 ## Provider output
 

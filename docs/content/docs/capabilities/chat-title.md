@@ -1,20 +1,26 @@
 ---
-title: chatTitle()
+title: Chat title
 description: Generate a short chat title and attach it to Agent output.
-navigation.title: chatTitle()
+navigation.title: Chat title
 navigation.order: 200
+navigation.group: Decisions and output
 icon: i-lucide-heading
 ---
 
 `chatTitle()` adds title generation for chat-style Agent output.
 It can use a model, a custom executor, or a local heuristic, then streams or returns the title as output metadata.
 
+## Installation
+
+Import the Capability factory from `-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
+Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
+
 ## What it adds
 
 The Capability reads the first user message, generates a short title, provides it as a finish extension, and injects title data into compatible streams.
 It can filter by Agent Trigger id when title generation should run only for selected triggers.
 
-## Minimum attach example
+## Configuration
 
 Attach `chatTitle()` beside `chat()` for chat surfaces.
 When no model is available to the Capability, ViteHub falls back to a short heuristic title.
@@ -60,6 +66,21 @@ Send one chat message and inspect the stream for chat title data.
 The finish extension should include `{ title }` when title generation succeeds.
 
 Test a vague first message and confirm the fallback title is used instead of an empty string.
+
+## Options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `execute` | `(input) => string \| { title?: string }` | none | Custom title generator. |
+| `fallback` | `string` | `"New Conversation"` | Title used when generation returns no usable text. |
+| `id` | `string` | `"chat-title"` | Capability id. |
+| `instructions` | `string` | none | System instructions for model-backed title generation. |
+| `maxLength` | `number` | `80` | Maximum title length. |
+| `model` | `AgentModelResolver` | Agent model, then heuristic fallback | Model used for title generation. |
+| `template` | `string \| function` | generated | Prompt template for model-backed generation. |
+| `trigger` | `string \| string[]` | all triggers | Limit title generation to selected Agent Trigger ids. |
+| `variables` | `Record<string, value \| function>` | none | Extra template variables. |
+| `when` | `(input) => boolean` | none | Predicate that decides whether title generation runs. |
 
 ## Reference
 

@@ -13,7 +13,8 @@ Each package owns the public APIs, Vite Integration, Provider Output, errors, an
 
 | Package | Owns | Primary imports |
 | --- | --- | --- |
-| `@vite-hub/agent` | Agent Definitions, Agent Invocations, Agent Driver boundary, Capability composition, Agent Evals, Agent Trigger API | `@vite-hub/agent`, `@vite-hub/agent/capabilities`, `@vite-hub/agent/eval`, `@vite-hub/agent/vite` |
+| `@vite-hub/vite` | Preset Vite Integration for the core ViteHub server primitives | `@vite-hub/vite` |
+| `@vite-hub/agent` | Agent Definitions, Agent Invocations, Agent Driver boundary, Capability composition, Agent Evals, Agent Trigger API | `@vite-hub/agent`, `@vite-hub/agent/capabilities`, `@vite-hub/agent/channels`, `@vite-hub/agent/eval`, `@vite-hub/agent/vite` |
 | `@vite-hub/auth` | Auth Definitions, Better Auth server wiring, generated Auth route behavior | `@vite-hub/auth`, `@vite-hub/auth/server`, `@vite-hub/auth/vite` |
 | `@vite-hub/blob` | Blob Stores, Default Blob Store behavior, Blob Driver Modules, provider storage output | `@vite-hub/blob`, `@vite-hub/blob/vite`, `@vite-hub/blob/drivers/*` |
 | `@vite-hub/database` | Database Definitions, Drizzle schema generation, D1 and hosted database wiring | `@vite-hub/database`, `@vite-hub/database/drizzle`, `@vite-hub/database/vite` |

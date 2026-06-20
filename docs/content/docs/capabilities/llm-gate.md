@@ -1,20 +1,26 @@
 ---
-title: llmGate()
+title: LLM gate
 description: Allow or reject an Agent Invocation with a pre-invocation model decision.
-navigation.title: llmGate()
+navigation.title: LLM gate
 navigation.order: 180
+navigation.group: Decisions and output
 icon: i-lucide-shield-alert
 ---
 
 `llmGate()` adds a pre-invocation model decision that classifies a request into allow or reject categories.
 It can stop the Agent Invocation before the main Agent Driver runs.
 
+## Installation
+
+Import the Capability factory from `-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
+Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
+
 ## What it adds
 
 The Capability asks a model to choose one configured allow or reject category.
 It records the decision as an Agent Invocation Context Value, exposes it as a finish extension, and throws `LlmGateRejectedError` when the selected category is rejected.
 
-## Minimum attach example
+## Configuration
 
 Define allow and reject categories with stable keys.
 Use the message option when the host should return a product-specific rejection message.
@@ -67,6 +73,18 @@ Inspect the context value for `llm-gate` or your custom id, then verify rejected
 
 Check that the gate does not attach, remove, or grant Capabilities.
 It records a decision; later behavior must read that decision explicitly.
+
+## Options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `allow` | `Record<string, choice>` | required | Allowed categories. |
+| `reject` | `Record<string, choice>` | required | Rejected categories. |
+| `history` | `boolean \| number` | `false` | Include recent conversation history in the classifier prompt. |
+| `id` | `string` | `"llm-gate"` | Capability id and invocation context key. |
+| `message` | `string \| function` | default rejection message | Error message when the gate rejects. |
+| `model` | `AgentModelResolver` | Agent model | Model used for the pre-invocation decision. |
+| `prompt` | `string` | generated | Additional classifier prompt text. |
 
 ## Reference
 

@@ -1,4 +1,4 @@
-import { H3, serve } from "h3"
+import { H3 } from "h3"
 import { kv } from "@vite-hub/kv"
 
 const app = new H3()
@@ -6,4 +6,4 @@ const app = new H3()
   .put("/", async () => await kv.set("settings", { enabled: true }))
   .delete("/", async () => await kv.del("settings"))
 
-serve(app)
+export default app

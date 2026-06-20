@@ -9,6 +9,93 @@ Sandbox owns isolated execution. Use it when named work should run away from the
 
 Sandbox is not Shell. Sandbox owns isolated Sandbox Runs; Shell owns controlled Unix-like command sessions and Shell Observations.
 
+## Quick start
+
+::steps{level="3"}
+
+### Install
+
+```bash [Terminal]
+pnpm add @vite-hub/sandbox
+```
+
+### Configure
+
+```ts [vite.config.ts]
+import { hubSandbox } from '@vite-hub/sandbox/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubSandbox()],
+})
+```
+
+### Start using it
+
+```ts [server/sandboxes/release-notes.ts]
+import { defineSandbox } from '@vite-hub/sandbox'
+
+export default defineSandbox(async (payload: { notes?: string } = {}) => {
+  return { text: payload.notes?.toUpperCase() || 'No notes' }
+})
+```
+
+```ts [server/api/release-notes.post.ts]
+import { runSandbox } from '@vite-hub/sandbox'
+
+export default defineEventHandler(async () => {
+  return runSandbox('release-notes', { notes: 'ship it' })
+})
+```
+
+::
+
+## Public imports
+
+| Import | Use |
+| --- | --- |
+| `defineSandbox` from `@vite-hub/sandbox` | Declare a Sandbox Definition. |
+| `runSandbox` from `@vite-hub/sandbox` | Execute a named Sandbox Definition. |
+| `hubSandbox` from `@vite-hub/sandbox/vite` | Register Sandbox discovery, generated types, and provider runtime wiring. |
+| `@vite-hub/sandbox/runtime/providers/cloudflare` | Cloudflare runtime provider loader entry. |
+| `@vite-hub/sandbox/runtime/providers/vercel` | Vercel runtime provider loader entry. |
+| `@vite-hub/sandbox/sandbox/providers/cloudflare` | Cloudflare direct Sandbox client provider. |
+| `@vite-hub/sandbox/sandbox/providers/vercel` | Vercel direct Sandbox client provider. |
+
+Sandbox Definition, Provider, Execution Options, and Run Result types are exported from `@vite-hub/sandbox`.
+
+## Configure the Vite Integration
+
+```ts [vite.config.ts]
+import { hubSandbox } from '@vite-hub/sandbox/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubSandbox()],
+})
+```
+
+The Vite config key is `sandbox`.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `sandbox: false` | `false` | enabled | Disables Sandbox discovery and provider runtime output. |
+| `provider` | `SandboxProvider` | inferred from hosting | Selects `cloudflare` or `vercel`. Omit it only when hosting inference is enough. |
+| `name` | `string` | package default | Shared provider resource name hint. |
+| Cloudflare provider options | `CloudflareSandboxDefinitionProviderOptions` | provider defaults | `binding`, `className`, `migrationTag`, `sandboxId`, `sleepAfter`, `keepAlive`, and `normalizeId`. |
+| Vercel provider options | `VercelSandboxProviderOptions` | provider defaults | `runtime`, `timeout`, `cpu`, `ports`, `source`, `networkPolicy`, `token`, `teamId`, and `projectId`. |
+
+Provider inference supports Cloudflare and Vercel hosting. Netlify cannot infer a Sandbox Provider; set `sandbox.provider` explicitly when a build target needs sandbox output.
+
+## Providers
+
+| Provider | Configure with | Provider output | Nuance |
+| --- | --- | --- | --- |
+| Cloudflare | `sandbox: { provider: 'cloudflare' }` | Durable Object binding, migration, and runtime provider loader output. | Uses request environment bindings. `binding` defaults to `SANDBOX`; `sandboxId` can pin a reusable execution sandbox. |
+| Vercel | `sandbox: { provider: 'vercel' }` | Vercel Sandbox runtime provider output. | Requires `@vercel/sandbox` at runtime. Supported runtimes are currently `node22` and `node24`. |
+
+Cloudflare and Vercel expose different lifecycle, credential, network, and file behavior. Keep provider credentials in Server Env or provider configuration, not in Sandbox Payloads.
+
 ## Define sandbox work
 
 Create a Sandbox Definition for work that can run through a Sandbox Provider.
@@ -23,6 +110,19 @@ export default defineSandbox(async (payload: { notes?: string } = {}) => {
 })
 ```
 
+## Sandbox Definition options
+
+`defineSandbox(handler, options?)` accepts these options. The discovered file name provides the Definition name.
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `timeout` | `number` | Runtime timeout in milliseconds when the provider supports ViteHub-side timeout enforcement. |
+| `env` | `Record<string, string>` | Environment variables passed to the Sandbox Definition process. |
+| `runtime.command` | `string` | Custom command used to launch the Sandbox Definition. |
+| `runtime.args` | `string[]` | Arguments passed to `runtime.command`. |
+
+The handler receives optional Sandbox Payload and optional `context` values supplied by Invocation Options.
+
 ## Run it at runtime
 
 Use `runSandbox()` from server code.
@@ -32,12 +132,21 @@ import { runSandbox } from '@vite-hub/sandbox'
 
 export default defineEventHandler(async (event) => {
   return runSandbox('release-notes', await readBody(event), {
-    id: 'release-notes-preview',
+    sandboxId: 'release-notes-preview',
   })
 })
 ```
 
 The payload is Sandbox Payload. Provider reuse hints such as Sandbox Identity belong to Invocation Options, not to the portable Sandbox Definition identity.
+
+## Invocation options
+
+| Option | Type | Description |
+| --- | --- | --- |
+| `context` | `Record<string, unknown>` | Trusted runtime context passed as the handler second argument. |
+| `sandboxId` | `string` | Provider sandbox identity or reuse hint for this run. |
+
+`runSandbox()` returns a `SandboxRunResult`: `isOk()` results contain `value`, and `isErr()` results contain a normalized `SandboxError`.
 
 ## Pair it with Workspace
 
@@ -58,12 +167,6 @@ export async function testWorkspace() {
 ```
 
 Workspace owns files, rules, snapshots, diffs, and commit behavior. Sandbox owns the isolated provider execution boundary.
-
-## Provider output
-
-The Sandbox Package discovers Sandbox Definitions, selects a Sandbox Provider, and generates runtime wiring for the host. Provider selection belongs in Integration Options when it changes generated output or bindings.
-
-Cloudflare and Vercel sandbox providers have different deployment and credential requirements. Keep those details in configuration and Server Env.
 
 ## Connect it to Agents
 

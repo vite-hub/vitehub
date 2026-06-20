@@ -1,20 +1,26 @@
 ---
-title: blob()
+title: Blob
 description: Expose scoped Blob read and optional edit tools to an Agent.
-navigation.title: blob()
+navigation.title: Blob
 navigation.order: 80
+navigation.group: Runtime primitives
 icon: i-lucide-file-box
 ---
 
 `blob()` adds model-facing tools for a configured ViteHub Blob primitive.
 It exposes object read, metadata, and list operations by default, then adds edits only in write mode.
 
+## Installation
+
+Import the Capability factory from `-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
+Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
+
 ## What it adds
 
 The Capability contributes `blob_read` for get, head, and list operations.
 When configured with write mode, it also contributes `blob_edit` for putting or deleting objects.
 
-## Minimum attach example
+## Configuration
 
 Attach Blob in read mode until the Agent needs to write objects.
 The Blob primitive must already be configured by the app.
@@ -59,6 +65,14 @@ Read mode should show only `blob_read`; write mode should also show `blob_edit` 
 
 Run one invocation against a missing Blob primitive during development.
 The Capability should fail before exposing tools.
+
+## Options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `mode` | `"read" \| "write"` | `"read"` | Adds `blob_edit` when set to `"write"`. |
+| `store` | `string` | default store | Selects a named Blob store when the Blob primitive supports `store()`. |
+| `policy` | `AgentToolPolicyDecision \| function` | `"require-approval"` | Policy for `blob_edit`. |
 
 ## Reference
 

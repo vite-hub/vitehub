@@ -1,20 +1,26 @@
 ---
-title: rateLimit()
+title: Rate limit
 description: Check or consume a trusted invocation budget before the Agent runs.
-navigation.title: rateLimit()
+navigation.title: Rate limit
 navigation.order: 190
+navigation.group: Decisions and output
 icon: i-lucide-gauge
 ---
 
 `rateLimit()` adds a pre-invocation budget check.
 It uses trusted invocation identity, records a typed decision, and can reject before the main Agent Invocation proceeds.
 
+## Installation
+
+Import the Capability factory from `-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
+Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
+
 ## What it adds
 
 The Capability checks or consumes one budget unit for the configured identity, scope, limit, and window.
 It records the Rate Limit Decision as an Agent Invocation Context Value and exposes it as a finish extension.
 
-## Minimum attach example
+## Configuration
 
 Use the memory store only for local development, tests, or single-process hosts.
 Hosted runtimes require an explicit Rate Limit Store.
@@ -65,6 +71,23 @@ Inspect the Rate Limit Decision for limit, used, remaining, reset time, identity
 
 On a hosted runtime, run without an explicit store during development or preview.
 The Capability should fail with a store requirement instead of using process memory.
+
+## Options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `limit` | `number \| function` | required | Maximum allowed count for the window. |
+| `window` | ``${number}ms\|s\|m\|h\|d`` | required | Fixed window duration. |
+| `action` | `"check" \| "consume"` | `"consume"` | Store operation. |
+| `id` | `string` | `"rate-limit"` | Capability id and invocation context key. |
+| `identity` | `"auto" \| "invoker" \| "ip" \| "run" \| function` | `"auto"` | Identity used to build the rate-limit key. |
+| `scope` | `string \| function` | capability id | Extra key partition. |
+| `store` | `RateLimitStore \| "memory" \| function` | local memory outside hosted runtimes | Store implementation. |
+| `trustedIpHeaders` | `string[]` | none | Request headers trusted for `identity: "ip"` or auto IP fallback. |
+| `message` | `string \| function` | default rejection message | Error message when the limit rejects. |
+| `onDecision` | `function` | none | Callback after every rate-limit decision. |
+| `onAllowed` | `function` | none | Callback after allowed decisions. |
+| `onRejected` | `function` | none | Callback after rejected decisions. |
 
 ## Reference
 

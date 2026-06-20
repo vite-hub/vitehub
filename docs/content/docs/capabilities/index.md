@@ -3,6 +3,7 @@ title: Capabilities
 description: Attach user-shareable abilities to Agent Definitions without exposing raw runtime authority by default.
 navigation.title: Overview
 navigation.order: 1
+navigation.group: Start here
 icon: i-lucide-blocks
 ---
 

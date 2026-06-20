@@ -69,9 +69,11 @@ catalogs:
   ui:
     "@comark/vue": ^0.3.1
     "@iconify-json/lucide": ^1.2.111
+    "@iconify-json/ph": ^1.2.2
     "@iconify-json/simple-icons": ^1.2.84
     "@iconify-json/vscode-icons": ^1.2.53
     "@vueuse/core": ^14.3.0
+    motion-v: ^2.2.1
     shiki: ^4.0.2
     tailwindcss: ^4.1.18
   unjs:

@@ -1,17 +1,133 @@
 ---
 title: Queue
-description: Enqueue background jobs and let a Queue Provider deliver them to a Queue Definition.
+description: Define Queue Definitions, enqueue Queue Jobs, and choose Cloudflare or Vercel Queue Providers.
 navigation.order: 9
 icon: i-lucide-list-ordered
 ---
 
 Queue owns background delivery. Use it when a request should enqueue work and return before the work finishes.
 
-Queue is not Workflow. Queue Enqueue means the provider accepted the job; Queue Delivery later invokes the Queue Definition. Use [Workflows](/docs/server-primitives/workflows) when work needs durable orchestration, run state, waits, or inspectable progress.
+Queue is not Workflow. Queue Enqueue means the Queue Provider accepted the job; Queue Delivery later invokes the Queue Definition. Use [Workflows](/docs/server-primitives/workflows) when work needs durable orchestration, run state, waits, or inspectable progress.
+
+## Quick start
+
+::steps{level="3"}
+
+### Install
+
+```bash [Terminal]
+pnpm add @vite-hub/queue
+```
+
+### Configure
+
+```ts [vite.config.ts]
+import { hubQueue } from '@vite-hub/queue/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubQueue()],
+})
+```
+
+### Start using it
+
+```ts [server/queues/welcome-email.ts]
+import { defineQueue } from '@vite-hub/queue'
+
+export default defineQueue<{ email: string }>(async ({ payload }) => {
+  await sendWelcomeEmail(payload.email)
+})
+```
+
+```ts [server/api/welcome.post.ts]
+import { runQueue } from '@vite-hub/queue'
+
+export default defineEventHandler(async () => {
+  return runQueue('welcome-email', { email: 'ada@example.com' })
+})
+```
+
+::
+
+## Public imports
+
+| Import | Use |
+| --- | --- |
+| `defineQueue` from `@vite-hub/queue` | Declare a Queue Definition. |
+| `runQueue`, `deferQueue`, `getQueue` from `@vite-hub/queue` | Enqueue jobs and access discovered QueueClients. |
+| `createQueueClient` from `@vite-hub/queue` | Create a direct provider QueueClient. |
+| `createQueueMessageId` from `@vite-hub/queue` | Generate a ViteHub message id with an optional prefix. |
+| `QueueError` from `@vite-hub/queue` | Catch Queue-specific runtime errors. |
+| `createCloudflareQueueBatchHandler` from `@vite-hub/queue` | Build a Cloudflare batch handler outside generated Provider Output. |
+| `getCloudflareQueueName`, `getCloudflareQueueBindingName`, `getCloudflareQueueDefinitionName`, `getVercelQueueTopicName` from `@vite-hub/queue` | Inspect provider-derived names. Application code should not persist these names as source authority. |
+| `handleHostedVercelQueueCallback`, `createQueueCloudflareWorker` from `@vite-hub/queue` | Host adapter helpers used by generated Provider Output. |
+| `hubQueue`, `createCloudflareQueueConfig` from `@vite-hub/queue/vite` | Register the Vite Integration and emit Cloudflare queue config. |
+
+All Queue option, client, job, provider, and result types are exported from `@vite-hub/queue`.
+
+## Configure the Vite Integration
+
+Register the Queue Vite Integration and choose a Queue Provider with the `queue` Integration Options.
+
+```ts [vite.config.ts]
+import { hubQueue } from '@vite-hub/queue/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubQueue()],
+  queue: {
+    provider: 'cloudflare',
+  },
+})
+```
+
+You can also pass the same options to `hubQueue()`. A `queue` key in `vite.config.ts` takes precedence.
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [hubQueue({ provider: 'vercel', region: 'iad1' })],
+})
+```
+
+### `provider` `'cloudflare' | 'vercel'`
+
+Selects the Queue Provider. If you omit it, ViteHub resolves Cloudflare for Cloudflare hosting and Vercel for other production-shaped builds.
+
+### `cache` `boolean`
+
+Controls named QueueClient reuse for providers that can cache clients. Default: enabled. Cloudflare QueueClients still resolve the request-scoped binding for each request.
+
+### `queue: false`
+
+Disables runtime queue dispatch and skips generated Vercel queue consumer functions. Runtime calls throw `QUEUE_DISABLED`.
+
+## Providers
+
+| Provider | Configure with | Generated output | Nuance |
+| --- | --- | --- | --- |
+| Cloudflare | `queue: { provider: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses request-scoped queue bindings. Supports `contentType` and `delaySeconds`. |
+| Vercel | `queue: { provider: 'vercel', region?: string }` | `.vercel/output` queue consumer functions with Vercel queue triggers. | Requires `@vercel/queue`. Supports idempotency, region, retention, and delayed send options. |
+
+### Cloudflare options
+
+`binding` `string`
+
+Overrides the generated Cloudflare binding name. Without this option, ViteHub derives a binding from the Queue Definition name, such as `QUEUE_77656C636F6D65`.
+
+Cloudflare queue names are generated as `queue--<hex-name>`. Application code should not depend on that name; use `runQueue()` with the Queue Definition name.
+
+### Vercel options
+
+`region` `string`
+
+Sets the default Vercel Queue region. If you omit it, ViteHub checks `QUEUE_REGION`, then `VERCEL_REGION`, then request headers in a Vercel request context.
+
+Vercel topic names are generated as `topic--<hex-name>`. Application code should not depend on that topic; use `runQueue()` with the Queue Definition name.
 
 ## Define a queue
 
-Create a Queue Definition for provider-delivered work.
+Create a Queue Definition in `server/queues/<name>.ts` or `src/<name>.queue.ts`.
 
 ```ts [server/queues/welcome-email.ts]
 import { defineQueue } from '@vite-hub/queue'
@@ -23,9 +139,56 @@ export default defineQueue<{ email: string }>(async (job) => {
 
 The queue name comes from discovery. This file is addressed as `welcome-email` by Runtime Helpers.
 
+## Queue job
+
+The handler receives a normalized Queue Job.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `payload` | `TPayload` | The payload passed by Queue Enqueue. |
+| `id` | `string` | The provider message id when available, otherwise a generated message id. |
+| `attempts` | `number` | Delivery attempt count. |
+| `metadata` | `unknown` | Provider delivery metadata when the Queue Provider supplies it. |
+
+Handler return values belong to Queue Delivery. `runQueue()` does not return the handler result.
+
+## Queue Definition options
+
+Pass Definition Options as the second argument to `defineQueue()`.
+
+```ts [server/queues/report.ts]
+import { defineQueue } from '@vite-hub/queue'
+
+export default defineQueue<{ reportId: string }>(async (job) => {
+  await buildReport(job.payload.reportId)
+}, {
+  concurrency: 5,
+})
+```
+
+### `cache` `boolean`
+
+Overrides QueueClient caching for this Queue Definition.
+
+### `concurrency` `number`
+
+Controls Cloudflare batch delivery concurrency for this Queue Definition. Default: `1`. Values are floored to an integer and never lower than `1`.
+
+### `onError` `(error, message, batch) => 'ack' | 'retry' | { retry: { delaySeconds?: number } } | void`
+
+Handles Cloudflare message delivery errors. Return `'ack'` to acknowledge the failed message, `'retry'` or `void` to retry it, or `{ retry: { delaySeconds } }` to retry with a delay.
+
+### `callbackOptions` `{ retry?: VercelQueueRetryHandler, visibilityTimeoutSeconds?: number }`
+
+Passes Vercel callback options to `@vercel/queue` for this Queue Definition.
+
+### `onDispatchError` `(error, context) => unknown | Promise<unknown>`
+
+Handles dispatch errors from `deferQueue()`. This is not a Queue Delivery error hook.
+
 ## Enqueue work
 
-Use `runQueue()` from server code to enqueue a job.
+Use `runQueue()` from server code.
 
 ```ts [server/api/signup.post.ts]
 import { runQueue } from '@vite-hub/queue'
@@ -40,25 +203,128 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-The result describes enqueue status, not the handler result.
+You can pass the payload directly when you do not need Queue Enqueue options.
 
-## Delivery behavior
+```ts
+await runQueue('welcome-email', { email: 'ava@example.com' })
+```
 
-Queue Providers decide delivery timing, retry behavior, and provider-specific message metadata. Queue handlers should be idempotent and tolerate retry.
+## Queue Enqueue options
 
-Good queue jobs include emails, webhook fan-out, report generation after upload, and short external sync work. Use Workflow for long-running state machines or work that needs durable checkpoints.
+Queue Enqueue accepts either a raw payload or an envelope with `payload` and options.
+
+```ts
+await runQueue('welcome-email', {
+  payload: { email: 'ava@example.com' },
+  delaySeconds: 60,
+})
+```
+
+| Option | Type | Cloudflare | Vercel | Description |
+| --- | --- | --- | --- | --- |
+| `payload` | `TPayload` | Yes | Yes | The payload delivered to the Queue Definition. Required when using the envelope form. |
+| `id` | `string` | Yes | Yes | ViteHub message id. If omitted, ViteHub generates one. |
+| `contentType` | `CloudflareQueueContentType` | Yes | No | Cloudflare message content type. Values: `bytes`, `json`, `text`, `v8`. |
+| `delaySeconds` | `number` | Yes | Yes | Provider-supported enqueue delay. |
+| `idempotencyKey` | `string` | No | Yes | Vercel idempotency key. Defaults to the generated `id` when omitted. |
+| `region` | `string` | No | Yes | Vercel send region for this Queue Enqueue. |
+| `retentionSeconds` | `number` | No | Yes | Vercel message retention time. |
+
+Unsupported provider options throw `QueueError` instead of being ignored.
+
+## Runtime Helpers
+
+### `runQueue(name, input)`
+
+Enqueues one Queue Job and returns the Queue Provider acceptance result.
+
+```ts
+const result = await runQueue('welcome-email', { email: 'ava@example.com' })
+```
+
+Returns:
+
+```ts
+type QueueSendResult = {
+  messageId?: string
+  status: 'queued'
+}
+```
+
+### `deferQueue(name, input)`
+
+Schedules Queue Enqueue through the current request's `waitUntil` support and returns `void`.
+
+```ts
+deferQueue('welcome-email', { email: 'ava@example.com' })
+```
+
+Use this when the current request should return without awaiting provider enqueue. Dispatch failures are logged and passed to `onDispatchError` when the Queue Definition provides one.
+
+### `getQueue(name)`
+
+Returns the provider-specific QueueClient for a discovered Queue Definition.
+
+```ts
+const queue = await getQueue('welcome-email')
+await queue.send({ email: 'ava@example.com' })
+```
+
+### `createQueueClient(options)`
+
+Creates a direct provider QueueClient. Most app code should use `runQueue()` or `getQueue()` so provider output and discovery stay in charge.
+
+Cloudflare direct clients require a concrete binding object.
+
+```ts
+await createQueueClient({
+  provider: 'cloudflare',
+  binding,
+})
+```
+
+Vercel direct clients require a concrete topic.
+
+```ts
+await createQueueClient({
+  provider: 'vercel',
+  topic: 'topic--77656c636f6d65',
+  region: 'iad1',
+})
+```
+
+## Errors
+
+Queue APIs throw `QueueError` with `code`, `provider`, `method`, `httpStatus`, and `details` when those fields are available.
+
+| Code | Meaning |
+| --- | --- |
+| `QUEUE_DISABLED` | Queue runtime support is disabled. |
+| `QUEUE_DEFINITION_NOT_FOUND` | No discovered Queue Definition matches the requested name. |
+| `CLOUDFLARE_BINDING_RESOLUTION_REQUIRED` | A direct Cloudflare client was created without a concrete binding. |
+| `CLOUDFLARE_BINDING_INVALID` | The Cloudflare binding does not expose `send()` and `sendBatch()`. |
+| `CLOUDFLARE_UNSUPPORTED_ENQUEUE_OPTIONS` | Cloudflare received unsupported enqueue options such as `idempotencyKey` or `retentionSeconds`. |
+| `VERCEL_QUEUE_SDK_LOAD_FAILED` | `@vercel/queue` could not be loaded. |
+| `VERCEL_QUEUE_REGION_REQUIRED` | Vercel region could not be resolved for the installed SDK shape. |
+| `VERCEL_TOPIC_RESOLUTION_REQUIRED` | A direct Vercel client was created without a topic. |
+| `VERCEL_UNSUPPORTED_ENQUEUE_OPTIONS` | Vercel received unsupported enqueue options such as `contentType`. |
 
 ## Provider output
 
-The Queue Package discovers Queue Definitions, generates provider consumers, and hides provider-specific delivery details behind the Queue Provider boundary. Cloudflare queue bindings and Vercel queue topics belong in configuration and generated host output, not in job handlers.
+The Queue Package discovers Queue Definitions, generates a Runtime Registry, and emits provider-specific Queue Delivery output.
 
-Queue delay, region, retention, and idempotency are Queue Enqueue options when a provider supports them.
+| Provider | Output |
+| --- | --- |
+| Cloudflare | Worker bundle plus `wrangler.json` queue producer and consumer entries. |
+| Vercel | Queue consumer functions under `.vercel/output/functions/api/vitehub/queues/vercel/**` and queue trigger config. |
+
+Generated files are Provider Output. Do not import them from application code.
 
 ## Connect it to Agents
 
 Queue is a server primitive, not an Agent Capability by default. An Agent can enqueue work only when you expose that behavior through an app-owned Capability or server route.
 
-Keep the Capability boundary product-specific. A model should not receive arbitrary queue access just because the app uses Queue internally.
+Keep the Capability boundary product-specific. A model should not receive arbitrary queue access because the app uses Queue internally.
 
 ## Next steps
 

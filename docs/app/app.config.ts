@@ -5,6 +5,9 @@ export default defineAppConfig({
   socials: {
     discord: "https://discord.gg/YTRDsRP3",
   },
+  toc: {
+    title: "On this page",
+  },
   navigation: {
     sub: "aside",
   },
@@ -15,14 +18,20 @@ export default defineAppConfig({
       warning: "amber",
     },
     container: {
-      base: "w-full max-w-none mx-0 px-0",
+      base: "w-full max-w-none mx-0 px-0 sm:px-0 lg:px-0",
     },
     header: {
+      defaultVariants: {
+        menu: {
+          title: "Navigation",
+          description: "ViteHub site navigation",
+        },
+      },
       slots: {
         root: "bg-default border-b border-default h-[44px] sticky top-0 z-50",
-        container: "flex items-center justify-between gap-0 h-full max-w-none px-4",
+        container: "flex items-center justify-between gap-0 h-full max-w-none !ps-5 !pe-4 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]",
         left: "flex items-center gap-2 lg:w-[var(--vh-sidebar-width)] lg:flex-none",
-        center: "hidden lg:flex h-full",
+        center: "hidden lg:flex lg:items-center lg:justify-center",
         right: "flex items-center justify-end gap-1.5 lg:flex-1",
         title: "shrink-0 font-semibold text-sm text-highlighted flex items-center gap-2 tracking-normal",
         toggle: "lg:hidden",
@@ -30,9 +39,9 @@ export default defineAppConfig({
     },
     pageAside: {
       slots: {
-        root: "hidden overflow-y-auto lg:block lg:max-h-[calc(100vh-var(--ui-header-height))] lg:sticky lg:top-(--ui-header-height) py-0 lg:pe-0",
+        root: "hidden overflow-y-auto lg:block lg:max-h-[calc(100vh-var(--ui-header-height))] lg:sticky lg:top-(--ui-header-height) py-0 lg:ms-0 lg:ps-0 lg:pe-0",
         topHeader: "hidden",
-        topBody: "bg-default relative pointer-events-auto flex flex-col",
+        topBody: "bg-default relative pointer-events-auto flex flex-col mx-0 px-0",
         topFooter: "hidden",
       },
     },
@@ -57,7 +66,7 @@ export default defineAppConfig({
     },
     page: {
       slots: {
-        root: "flex flex-col lg:!grid lg:!grid-cols-[var(--vh-sidebar-width)_minmax(0,1fr)] lg:gap-8 px-0",
+        root: "flex flex-col lg:!grid lg:!grid-cols-[var(--vh-sidebar-width)_minmax(0,1fr)] lg:gap-0 px-0",
         left: "lg:!col-span-1 lg:w-[var(--vh-sidebar-width)] lg:shrink-0 lg:border-e lg:border-default",
         center: "lg:!col-span-1 min-w-0",
         right: "order-first lg:order-last lg:!col-span-1 lg:w-[var(--vh-toc-width)] lg:shrink-0",
@@ -65,7 +74,7 @@ export default defineAppConfig({
     },
     pageHeader: {
       slots: {
-        root: "relative border-b-0 px-4 pt-4 pb-6 sm:px-8 lg:px-4 lg:pt-14",
+        root: "relative border-b-0 px-4 pt-4 pb-6 sm:px-8 lg:px-8 xl:px-12 lg:pt-14",
         container: "flex flex-col",
         wrapper: "contents lg:flex lg:items-start lg:justify-between lg:gap-4",
         title: "order-1 text-[28px] leading-[42px] text-pretty font-semibold text-highlighted",
@@ -74,7 +83,7 @@ export default defineAppConfig({
       },
     },
     pageBody: {
-      base: "mt-0 px-4 pb-24 sm:px-8 lg:px-4",
+      base: "mt-0 px-4 pb-24 sm:px-8 lg:px-8 xl:px-12",
     },
     contentSearchButton: {
       defaultVariants: {
@@ -94,18 +103,18 @@ export default defineAppConfig({
         placeholder: "Search",
       },
       slots: {
-        modal: "vitehub-content-search-modal w-[calc(100vw-1rem)] !max-w-[640px] !h-auto rounded-lg border border-default shadow-lg max-h-[calc(100dvh-1rem)] sm:max-h-[70vh]",
+        modal: "vitehub-content-search-modal w-[calc(100vw-1rem)] !max-w-[640px] !h-auto rounded-sm border border-default shadow-none max-h-[calc(100dvh-1rem)] sm:max-h-[70vh]",
         input: "[&>input]:h-14 [&>input]:text-lg",
       },
     } as any,
     contentToc: {
+      defaultVariants: {
+        highlightVariant: "circuit",
+      },
       slots: {
         root: "sticky top-(--ui-header-height) z-10 bg-default overflow-y-auto max-h-[calc(100vh-var(--ui-header-height))]",
-        container: "pt-3 pb-3 border-b border-default lg:pt-14 lg:pb-4 lg:border-b-0 flex flex-col",
+        container: "flex flex-col pt-14 pb-4",
         title: "text-sm font-medium text-muted",
-        links: "space-y-1",
-        link: "block py-1.5 text-sm text-muted transition-colors hover:text-default",
-        linkActive: "text-highlighted",
       },
     },
     prose: {
@@ -118,10 +127,10 @@ export default defineAppConfig({
         },
         variants: {
           color: {
-            info: { base: "border-blue-500/40 bg-default", icon: "text-blue-500" },
-            warning: { base: "border-amber-500/40 bg-default", icon: "text-amber-500" },
-            error: { base: "border-red-500/40 bg-default", icon: "text-red-500" },
-            success: { base: "border-green-500/40 bg-default", icon: "text-green-500" },
+            info: { base: "border-default bg-muted/30", icon: "text-muted" },
+            warning: { base: "border-default bg-muted/30", icon: "text-muted" },
+            error: { base: "border-default bg-muted/30", icon: "text-muted" },
+            success: { base: "border-default bg-muted/30", icon: "text-muted" },
             neutral: { base: "border-s-stone-500/50" },
           },
         },
@@ -167,7 +176,7 @@ export default defineAppConfig({
         },
       },
       steps: {
-        base: "ms-4 border-s border-default ps-8 [counter-reset:step]",
+        base: "vitehub-docs-steps ms-4 border-s border-default ps-8 [counter-reset:step]",
       },
     } as any,
   },

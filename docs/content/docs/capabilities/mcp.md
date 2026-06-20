@@ -1,20 +1,26 @@
 ---
-title: mcp()
+title: MCP
 description: Connect an Agent to external MCP server tools.
-navigation.title: mcp()
+navigation.title: MCP
 navigation.order: 120
+navigation.group: External context
 icon: i-lucide-plug
 ---
 
 `mcp()` connects an Agent to external Model Context Protocol servers.
 It resolves each configured MCP Server and exposes its tools as model-facing Agent tools.
 
+## Installation
+
+Import the Capability factory from `-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
+Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
+
 ## What it adds
 
 The Capability normalizes MCP tool names with the server name, attaches sanitized MCP metadata, and closes MCP clients after the invocation.
 It can also contribute instructions that name the configured MCP servers.
 
-## Minimum attach example
+## Configuration
 
 Pass a server map.
 Each entry can resolve to an MCP client or MCP client configuration owned by the application.
@@ -65,6 +71,13 @@ MCP tools should use normalized names such as `mcp_docs_search`.
 
 Run one invocation with a duplicate normalized tool name during development.
 The Capability should fail before model execution.
+
+## Options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `servers` | `Record<string, McpServerConfig>` | required | MCP clients, client configs, or resolvers keyed by server name. |
+| `instructions` | `string \| false` | generated | Override or disable generated MCP tool instructions. |
 
 ## Reference
 

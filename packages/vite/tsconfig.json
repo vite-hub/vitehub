@@ -11,6 +11,12 @@
       "@vite-hub/agent/*": [
         "packages/agent/src/*"
       ],
+      "@vite-hub/blob": [
+        "packages/blob/src/index.ts"
+      ],
+      "@vite-hub/blob/*": [
+        "packages/blob/src/*"
+      ],
       "@vite-hub/database": [
         "packages/database/src/index.ts"
       ],
@@ -25,6 +31,24 @@
       ],
       "@vite-hub/env/*": [
         "packages/env/src/*"
+      ],
+      "@vite-hub/kv": [
+        "packages/kv/src/index.ts"
+      ],
+      "@vite-hub/kv/*": [
+        "packages/kv/src/*"
+      ],
+      "@vite-hub/queue": [
+        "packages/queue/src/index.ts"
+      ],
+      "@vite-hub/queue/*": [
+        "packages/queue/src/*"
+      ],
+      "@vite-hub/schedule": [
+        "packages/schedule/src/index.ts"
+      ],
+      "@vite-hub/schedule/*": [
+        "packages/schedule/src/*"
       ],
       "@vite-hub/workflow": [
         "packages/workflow/src/index.ts"

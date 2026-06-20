@@ -1,76 +1,261 @@
 <script setup lang="ts">
+import { docsManifest, normalizeDocsPath } from "~~/modules/vitehub-docs/runtime/utils/docs";
+
+type ManifestSection = (typeof docsManifest.sections)[number];
+type ManifestPage = ManifestSection["pages"][number];
+
 const route = useRoute();
-const { sidebarNavigation } = useSubNavigation();
+const currentPath = computed(() => normalizeDocsPath(route.path));
+const rootPage = docsManifest.rootPage;
 
-const contentNavVariants = useUIConfig("contentNavigation");
-const isBetterAuthFixture = computed(() => route.path.includes("/docs/getting-started/better-auth-style"));
-
-const betterAuthNavigation = [
-  {
-    label: "Get Started",
-    icon: "i-lucide-circle-play",
-    open: true,
-    children: [
-      { label: "Introduction", icon: "i-lucide-book-open" },
-      { label: "Comparison", icon: "i-lucide-copy" },
-      { label: "Installation", icon: "i-lucide-square-terminal", active: true },
-      { label: "Basic Usage", icon: "i-lucide-panel-top" },
-    ],
-  },
-  { label: "Concepts", icon: "i-lucide-book-open" },
-  { label: "Authentication", icon: "i-lucide-id-card" },
-  { label: "Databases", icon: "i-lucide-database" },
-  { label: "Integrations", icon: "i-lucide-layout-grid" },
-  { label: "Infrastructure", icon: "i-lucide-server" },
-  { label: "Plugins", icon: "i-lucide-plug" },
-  { label: "Guides", icon: "i-lucide-panels-top-left" },
-  { label: "AI Resources", icon: "i-lucide-sparkles" },
-  { label: "Reference", icon: "i-lucide-library" },
+const sectionOrder = [
+  "Start",
+  "Concepts",
+  "Agents",
+  "Capabilities",
+  "Server primitives",
+  "Development",
+  "Frameworks and Hosts",
+  "Reference",
+  "AI Resources",
 ];
+
+const sections = computed(() => {
+  return docsManifest.sections
+    .map(section => ({ ...section, pages: section.pages.filter(page => page.navigation !== false) }))
+    .filter(section => section.pages.length > 0)
+    .sort((a, b) => {
+      const aIndex = sectionOrder.indexOf(a.title);
+      const bIndex = sectionOrder.indexOf(b.title);
+      return (aIndex === -1 ? sectionOrder.length : aIndex)
+        - (bIndex === -1 ? sectionOrder.length : bIndex);
+    });
+});
+
+const sidebarIconMap: Record<string, string> = {
+  "i-lucide-activity": "i-ph-activity-light",
+  "i-lucide-audio-lines": "i-ph-waveform-light",
+  "i-lucide-badge-check": "i-ph-seal-check-light",
+  "i-lucide-blocks": "i-ph-squares-four-light",
+  "i-lucide-book-open": "i-ph-book-open-light",
+  "i-lucide-book-open-check": "i-ph-book-bookmark-light",
+  "i-lucide-bot": "i-ph-robot-light",
+  "i-lucide-box": "i-ph-cube-light",
+  "i-lucide-brain": "i-ph-brain-light",
+  "i-lucide-brain-circuit": "i-ph-brain-light",
+  "i-lucide-calendar-clock": "i-ph-calendar-check-light",
+  "i-lucide-chart-no-axes-column": "i-ph-chart-bar-light",
+  "i-lucide-circle-alert": "i-ph-warning-circle-light",
+  "i-lucide-clipboard-check": "i-ph-clipboard-text-light",
+  "i-lucide-cloud-cog": "i-ph-cloud-light",
+  "i-lucide-cloud-upload": "i-ph-cloud-arrow-up-light",
+  "i-lucide-code-2": "i-ph-code-light",
+  "i-lucide-cpu": "i-ph-cpu-light",
+  "i-lucide-database": "i-ph-database-light",
+  "i-lucide-database-zap": "i-ph-lightning-light",
+  "i-lucide-door-open": "i-ph-door-open-light",
+  "i-lucide-download": "i-ph-download-simple-light",
+  "i-lucide-file-box": "i-ph-file-light",
+  "i-lucide-file-code-2": "i-ph-file-code-light",
+  "i-lucide-file-cog": "i-ph-file-code-light",
+  "i-lucide-file-text": "i-ph-file-text-light",
+  "i-lucide-file-user": "i-ph-identification-card-light",
+  "i-lucide-files": "i-ph-files-light",
+  "i-lucide-folder-git-2": "i-ph-folder-notch-open-light",
+  "i-lucide-folder-input": "i-ph-folder-plus-light",
+  "i-lucide-folder-search": "i-ph-file-magnifying-glass-light",
+  "i-lucide-folder-tree": "i-ph-tree-structure-light",
+  "i-lucide-gauge": "i-ph-gauge-light",
+  "i-lucide-git-branch": "i-ph-git-branch-light",
+  "i-lucide-git-pull-request": "i-ph-git-pull-request-light",
+  "i-lucide-heading": "i-ph-text-h-light",
+  "i-lucide-key-round": "i-ph-key-light",
+  "i-lucide-list-checks": "i-ph-list-checks-light",
+  "i-lucide-list-ordered": "i-ph-list-numbers-light",
+  "i-lucide-map": "i-ph-map-trifold-light",
+  "i-lucide-message-circle-code": "i-ph-chat-circle-text-light",
+  "i-lucide-message-square": "i-ph-chat-text-light",
+  "i-lucide-messages-square": "i-ph-chats-circle-light",
+  "i-lucide-network": "i-ph-tree-structure-light",
+  "i-lucide-package": "i-ph-package-light",
+  "i-lucide-panels-top-left": "i-ph-browser-light",
+  "i-lucide-play-circle": "i-ph-play-circle-light",
+  "i-lucide-plug": "i-ph-plug-light",
+  "i-lucide-plug-zap": "i-ph-plug-light",
+  "i-lucide-radio": "i-ph-broadcast-light",
+  "i-lucide-rocket": "i-ph-rocket-launch-light",
+  "i-lucide-route": "i-ph-path-light",
+  "i-lucide-scroll-text": "i-ph-scroll-light",
+  "i-lucide-search": "i-ph-magnifying-glass-light",
+  "i-lucide-send": "i-ph-paper-plane-tilt-light",
+  "i-lucide-server": "i-ph-hard-drives-light",
+  "i-lucide-server-cog": "i-ph-hard-drives-light",
+  "i-lucide-shield-alert": "i-ph-shield-warning-light",
+  "i-lucide-shield-check": "i-ph-shield-check-light",
+  "i-lucide-sliders-horizontal": "i-ph-sliders-horizontal-light",
+  "i-lucide-stethoscope": "i-ph-stethoscope-light",
+  "i-lucide-terminal": "i-ph-terminal-light",
+  "i-lucide-terminal-square": "i-ph-terminal-window-light",
+  "i-lucide-user-check": "i-ph-user-check-light",
+  "i-lucide-users-round": "i-ph-users-three-light",
+  "i-lucide-workflow": "i-ph-arrows-split-light",
+  "i-lucide-wrench": "i-ph-wrench-light",
+  "i-simple-icons-vite": "i-ph-lightning-light",
+  "i-simple-icons-cloudflare": "i-ph-cloud-light",
+  "i-simple-icons-vercel": "i-ph-triangle-light",
+  "i-vscode-icons-file-type-markdown": "i-ph-markdown-logo-light",
+};
+
+const sidebarSectionIconMap: Record<string, string> = {
+  "AI Resources": "i-ph-brain-light",
+  "Development": "i-ph-wrench-light",
+  "Frameworks and Hosts": "i-ph-plug-light",
+  "Reference": "i-ph-book-bookmark-light",
+};
+
+const sidebarPageIconMap: Record<string, string> = {
+  "/docs/agents": "i-ph-activity-light",
+  "/docs/capabilities": "i-ph-sliders-horizontal-light",
+  "/docs/concepts": "i-ph-book-bookmark-light",
+  "/docs/frameworks-hosts": "i-ph-lightning-light",
+  "/docs/getting-started": "i-ph-book-open-light",
+  "/docs/reference": "i-ph-package-light",
+  "/docs/server-primitives": "i-ph-cube-light",
+};
+
+function sidebarIcon(icon: string | null | undefined, fallback = "i-ph-file-text-light") {
+  return icon ? sidebarIconMap[icon] || fallback : fallback;
+}
+
+function sidebarSectionIcon(section: ManifestSection) {
+  return sidebarSectionIconMap[section.title] || sidebarIcon(section.icon, "i-ph-folder-light");
+}
+
+function sidebarPageIcon(page: ManifestPage) {
+  return sidebarPageIconMap[normalizeDocsPath(page.path)] || sidebarIcon(page.icon);
+}
+
+function isActive(path: string) {
+  return currentPath.value === normalizeDocsPath(path);
+}
+
+function isSectionOpen(section: ManifestSection) {
+  return currentPath.value === "/docs"
+    ? section.id === "getting-started"
+    : section.pages.some(page => isActive(page.path));
+}
+
 </script>
 
 <template>
-  <nav v-if="isBetterAuthFixture" class="better-auth-sidebar-nav">
-    <div
-      v-for="item in betterAuthNavigation"
-      :key="item.label"
-      class="better-auth-sidebar-group"
+  <nav class="vh-docs-sidebar-nav" aria-label="Docs">
+    <NuxtLink
+      v-if="rootPage"
+      :to="rootPage.path"
+      :class="['vh-docs-sidebar-root-link', { 'is-active': isActive(rootPage.path) }]"
+      :aria-current="isActive(rootPage.path) ? 'page' : undefined"
     >
-      <button type="button" class="better-auth-sidebar-group-button">
-        <UIcon :name="item.icon" class="size-4 shrink-0" />
-        <span>{{ item.label }}</span>
-        <UIcon
-          v-if="item.open"
-          name="i-lucide-chevron-up"
-          class="ml-auto size-3.5 text-muted"
-        />
-        <UIcon
-          v-else
-          name="i-lucide-chevron-down"
-          class="ml-auto size-3.5 text-muted"
-        />
-      </button>
+      <UIcon :name="sidebarIcon(rootPage.icon, 'i-ph-book-open-light')" class="size-4 shrink-0" />
+      <span class="min-w-0 truncate">{{ rootPage.title }}</span>
+    </NuxtLink>
 
-      <div v-if="item.children?.length" class="better-auth-sidebar-children">
+    <details
+      v-for="section in sections"
+      :key="section.id"
+      class="vh-docs-sidebar-section group"
+      :open="isSectionOpen(section)"
+    >
+      <summary class="vh-docs-sidebar-summary">
+        <UIcon :name="sidebarSectionIcon(section)" class="size-4 shrink-0" />
+        <span class="min-w-0 truncate">{{ section.title }}</span>
+        <UIcon name="i-ph-caret-down-light" class="ml-auto size-3.5 shrink-0 text-muted group-open:rotate-180" />
+      </summary>
+
+      <div class="vh-docs-sidebar-panel">
         <NuxtLink
-          v-for="child in item.children"
-          :key="child.label"
-          to="/docs/getting-started/better-auth-style/"
-          :class="['better-auth-sidebar-child', { 'is-active': child.active }]"
+          v-for="page in section.pages"
+          :key="page.path"
+          :to="page.path"
+          :class="['vh-docs-sidebar-link', { 'is-active': isActive(page.path) }]"
+          :aria-current="isActive(page.path) ? 'page' : undefined"
         >
-          <UIcon :name="child.icon" class="size-3.5 shrink-0" />
-          <span>{{ child.label }}</span>
+          <UIcon :name="sidebarPageIcon(page)" class="size-4 shrink-0" />
+          <span class="min-w-0 truncate">{{ page.title }}</span>
         </NuxtLink>
       </div>
-    </div>
+    </details>
   </nav>
-
-  <UContentNavigation
-    v-else
-    :highlight="contentNavVariants.highlight ?? true"
-    :highlight-color="contentNavVariants.highlightColor"
-    :variant="contentNavVariants.variant ?? 'link'"
-    :color="contentNavVariants.color"
-    :navigation="sidebarNavigation"
-  />
 </template>
+
+<style scoped>
+.vh-docs-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.vh-docs-sidebar-section {
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.vh-docs-sidebar-root-link {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  border-bottom: 1px solid var(--ui-border);
+  padding: 0.625rem 1.25rem;
+  color: var(--ui-text);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.vh-docs-sidebar-summary {
+  display: flex;
+  cursor: pointer;
+  list-style: none;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 1.25rem;
+  color: var(--ui-text-muted);
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+
+.vh-docs-sidebar-summary::-webkit-details-marker {
+  display: none;
+}
+
+.vh-docs-sidebar-summary:hover,
+.vh-docs-sidebar-summary:focus-visible,
+.vh-docs-sidebar-root-link:hover,
+.vh-docs-sidebar-root-link:focus-visible,
+.vh-docs-sidebar-root-link.is-active {
+  color: var(--ui-text-highlighted);
+}
+
+.vh-docs-sidebar-panel {
+  padding: 0;
+}
+
+.vh-docs-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  border-left: 2px solid transparent;
+  padding: 0.25rem 1.25rem;
+  color: var(--ui-text-muted);
+  font-size: 0.875rem;
+  transition: all 0.15s;
+}
+
+.vh-docs-sidebar-link:hover,
+.vh-docs-sidebar-link:focus-visible,
+.vh-docs-sidebar-link.is-active {
+  border-left-color: var(--ui-text-highlighted);
+  background: color-mix(in srgb, var(--ui-text-highlighted) 6%, transparent);
+  color: var(--ui-text);
+}
+</style>

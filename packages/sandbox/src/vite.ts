@@ -6,6 +6,7 @@ import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-pat
 import { sandboxFeatureEngine, type SandboxPublicOptions } from './integration'
 
 export { createViteHubDefinitionAutoImportsPlugin } from './internal/shared/vitehub-auto-imports'
+export type { SandboxPublicOptions } from './integration'
 
 export type SandboxVitePlugin = Plugin
 

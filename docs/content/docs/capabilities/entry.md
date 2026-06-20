@@ -1,20 +1,26 @@
 ---
-title: entry()
+title: Entry
 description: Add a small product-owned Agent Trigger Capability.
-navigation.title: entry()
+navigation.title: Entry
 navigation.order: 30
+navigation.group: Invocation
 icon: i-lucide-door-open
 ---
 
 `entry()` creates a small official Capability for app-owned product events.
 Use it when a product event needs an Agent Trigger but the behavior has not earned a full product-specific Capability name.
 
+## Installation
+
+Import the Capability factory from `-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
+Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
+
 ## What it adds
 
 `entry()` adds Capability metadata and any Agent Triggers supplied by the application.
 The Capability keeps trigger behavior attached to the Agent Definition instead of registering a separate route or channel helper.
 
-## Minimum attach example
+## Configuration
 
 Pass a stable id and a trigger map.
 The trigger definitions remain app-owned, while ViteHub composes them through the Capability lifecycle.
@@ -62,6 +68,13 @@ An app route, webhook, DevTools surface, or another host component must consume 
 
 Inspect the Agent trigger list and verify the trigger id uses the Capability id plus trigger name.
 Invoke the trigger once from the host surface and check that the Agent Invocation metadata names the expected origin.
+
+## Options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | required | Capability id and app-owned entry id. |
+| `triggers` | `Record<string, AgentTriggerDefinition>` | none | Named Agent Triggers contributed by this entry. |
 
 ## Reference
 

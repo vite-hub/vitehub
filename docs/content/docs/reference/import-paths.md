@@ -12,9 +12,13 @@ They may resolve to Runtime Registries, generated files, virtual modules, or pac
 
 | Import path | Owner | Use |
 | --- | --- | --- |
-| `@vite-hub/agent` | Agent Package | Agent Definition helpers, invocation helpers, trigger helpers, Agent Invoker types. |
-| `@vite-hub/agent/capabilities` | Agent Package | Official Capability factories such as `chat()`, `access()`, `workspaceShell()`, and `inputCommands()`. |
+| `@vite-hub/agent` | Agent Package | Agent Definition helpers, invocation helpers, trigger helpers, Agent Actor types, and legacy Agent Invoker compatibility types. |
+| `@vite-hub/agent/capabilities` | Agent Package | Official Capability factories such as `access()`, `workspaceShell()`, `inputCommands()`, and `subagents()`. |
+| `@vite-hub/agent/channels` | Agent Package | Official Channel Kind helpers such as `github()`, `stream()`, `teams()`, `telegram()`, `webChat()`, and `defineChannel()`. |
 | `@vite-hub/agent/eval` | Agent Package | Agent Eval authoring helpers. |
+| `@vite-hub/vite/agent` | Vite Preset | Agent Definition helpers forwarded by the preset package. |
+| `@vite-hub/vite/agent/capabilities` | Vite Preset | Official Capability factories forwarded by the preset package. |
+| `@vite-hub/vite/agent/channels` | Vite Preset | Official Channel Kind helpers forwarded by the preset package. |
 | `@vite-hub/auth` | Auth Package | Auth Definition helpers. |
 | `@vite-hub/blob` | Blob Package | Blob Runtime Helpers and Blob Store access. |
 | `@vite-hub/database/drizzle` | Database Package | Generated Drizzle `db` and `schema` access. |
@@ -33,6 +37,7 @@ They may resolve to Runtime Registries, generated files, virtual modules, or pac
 
 | Import path | Use |
 | --- | --- |
+| `@vite-hub/vite` | Register the preset Vite Integration with `vitehub()`. It currently composes Agent, Database, DevTools, Env, Workflow, and Workspace integrations. |
 | `@vite-hub/agent/vite` | Register the Agent Vite Integration. |
 | `@vite-hub/auth/vite` | Register the Auth Vite Integration. |
 | `@vite-hub/blob/vite` | Register the Blob Vite Integration. |

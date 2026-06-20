@@ -70,6 +70,12 @@ find dist -maxdepth 4 -type f | sort
 Cloudflare local development and deployed Workers do not always expose the same runtime behavior.
 Use Provider Output Contracts and Local Provider Runs for pull request checks, then keep Live Smoke thin against real Cloudflare deployments.
 
+::warning
+Cloudflare Provider Output can require real Worker bindings such as D1, R2, KV, Queues, Durable Objects, Cloudflare Artifacts, or Agent state. Verify generated bindings before deploy, then smoke test the deployed Worker when runtime bindings matter.
+::
+
+Agent Definitions can run on Cloudflare through the Agent Package's Cloudflare handler, or through generated host output where the Agent integration owns that route. Keep model keys, Durable Object state bindings, and other Runtime Env in Worker bindings.
+
 ## Next steps
 
 - Use [Provisioning](/docs/development/provisioning) for resource creation.

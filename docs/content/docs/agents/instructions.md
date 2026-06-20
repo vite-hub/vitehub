@@ -63,7 +63,7 @@ Sources can contribute Source Instructions. Put `{{ workspace.sources }}` where 
 ```ts [server/agents/docs.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
-import { source } from '@vite-hub/workspace'
+import { file } from '@vite-hub/workspace'
 
 export default defineAgent({
   driver: {
@@ -75,7 +75,7 @@ export default defineAgent({
   },
   workspace: {
     sources: {
-      docs: source.file({
+      docs: file({
         path: 'docs.md',
         instructions: 'Use this source for published product behavior.',
       }),

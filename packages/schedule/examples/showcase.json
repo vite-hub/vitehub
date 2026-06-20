@@ -8,15 +8,13 @@
     {
       "id": "cloudflare",
       "label": "Cloudflare",
-      "icon": "i-simple-icons-cloudflare",
-      "configOverride": "  schedule: {\n    provider: 'cloudflare',\n  },"
+      "icon": "i-simple-icons-cloudflare"
     },
     {
       "id": "vercel",
       "label": "Vercel",
       "icon": "i-simple-icons-vercel",
-      "darkInvert": true,
-      "configOverride": "  schedule: {\n    provider: 'vercel',\n  },"
+      "darkInvert": true
     }
   ],
   "frameworks": {

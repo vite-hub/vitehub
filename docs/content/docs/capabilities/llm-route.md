@@ -1,20 +1,26 @@
 ---
-title: llmRoute()
+title: LLM route
 description: Choose one developer-defined route before the main Agent Invocation runs.
-navigation.title: llmRoute()
+navigation.title: LLM route
 navigation.order: 170
+navigation.group: Decisions and output
 icon: i-lucide-route
 ---
 
 `llmRoute()` adds a pre-invocation model decision that chooses one developer-defined route.
 It records the chosen route as an Agent Invocation Context Value and does not apply route effects by itself.
 
+## Installation
+
+Import the Capability factory from `-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
+Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
+
 ## What it adds
 
 The Capability asks a model to select exactly one configured choice.
 It can include recent conversation history, records the decision under a stable id, and exposes the decision as a finish extension.
 
-## Minimum attach example
+## Configuration
 
 Define stable choice keys with short descriptions.
 Later callbacks can read the recorded context value and decide how to use the route.
@@ -66,6 +72,16 @@ The value should include `choice` and may include confidence or reason.
 
 Add a test case for an invalid model response if you provide a custom model wrapper.
 The Capability should reject choices outside the configured map.
+
+## Options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `choices` | `Record<string, string \| { label?: string; description?: string }>` | required | Developer-defined route choices. |
+| `history` | `boolean \| number` | `false` | Include recent conversation history in the classifier prompt. |
+| `id` | `string` | `"llm-route"` | Capability id and invocation context key. |
+| `model` | `AgentModelResolver` | Agent model | Model used for the pre-invocation decision. |
+| `prompt` | `string` | generated | Additional classifier prompt text. |
 
 ## Reference
 

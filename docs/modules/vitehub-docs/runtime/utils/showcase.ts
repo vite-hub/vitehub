@@ -82,10 +82,10 @@ export function getShowcaseFiles(
     const configurePath = modeConfig.phases.configure || getFrameworkConfigPath(resolvedFramework);
     const configOverride = provider?.configOverrides?.[resolvedFramework] || provider?.configOverride;
 
-    if (configOverride && file.path === configurePath) {
+    if (file.path === configurePath) {
       return {
         ...file,
-        code: generateFrameworkConfig(resolvedFramework, example.pkg, configOverride) || file.code,
+        code: generateFrameworkConfig(configOverride, modeConfig.phases.run === "src/server.ts" ? "src/server.ts" : undefined),
       };
     }
 

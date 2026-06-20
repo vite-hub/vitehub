@@ -26,25 +26,7 @@ provide("codeTree", tree);
 provide("codeTreeActive", activePath);
 
 const treeItems = computed(() => Object.entries(tree.value).map(([label, component]) => ({ label, component })));
-const postLayout = computed(() => post.value?.layout || "article");
-const isTutorialLayout = computed(() => postLayout.value === "tutorial");
-const pageUi = computed(() => ({
-  root: isTutorialLayout.value
-    ? "mx-auto grid w-full max-w-[112rem] grid-cols-1 gap-8 px-4 sm:px-6 lg:grid-cols-[minmax(0,40rem)_minmax(0,1fr)] lg:gap-8 lg:pl-8 lg:pr-0 xl:grid-cols-[minmax(0,42rem)_minmax(0,1fr)] xl:gap-9 xl:pl-12 xl:pr-0"
-    : undefined,
-  center: isTutorialLayout.value
-    ? "min-w-0 max-w-[42rem] lg:col-span-1 lg:max-w-none mx-0"
-    : "max-w-[var(--vh-content-width,860px)] mx-auto",
-  right: isTutorialLayout.value
-    ? "hidden lg:col-span-1 lg:order-none lg:block w-full min-w-0 self-stretch border-l border-default"
-    : "hidden",
-}));
-const pageHeaderUi = computed(() => isTutorialLayout.value
-  ? {
-      container: "max-w-[42rem]",
-      description: "max-w-[38rem]",
-    }
-  : undefined);
+const isTutorialLayout = computed(() => post.value?.layout === "tutorial");
 
 const publishedDate = computed(() => post.value?.date || "");
 const formattedDate = computed(() => {
@@ -67,25 +49,35 @@ useSeoMeta({
 </script>
 
 <template>
-  <UContainer v-if="post" :class="isTutorialLayout ? '!max-w-none !px-0 sm:!px-0 lg:!px-0' : undefined">
-    <UPage :ui="pageUi">
-      <UPageHeader :title="post.title" :description="post.description" :ui="pageHeaderUi">
-        <template #headline>
-          <div class="flex flex-wrap items-center gap-2 text-sm text-muted">
-            <UButton
-              to="/blog"
-              variant="link"
-              color="neutral"
-              icon="i-lucide-arrow-left"
-              label="Blog"
-              class="p-0"
-            />
-            <span v-if="formattedDate" aria-hidden="true">·</span>
-            <time v-if="formattedDate" :datetime="publishedDate">{{ formattedDate }}</time>
-          </div>
-        </template>
+  <main
+    v-if="post"
+    :class="isTutorialLayout
+      ? 'mx-auto grid w-full max-w-[112rem] grid-cols-1 gap-8 px-4 pb-24 pt-8 sm:px-6 lg:grid-cols-[minmax(0,42rem)_minmax(0,1fr)] lg:gap-8 lg:px-8 lg:pr-0 xl:grid-cols-[minmax(0,44rem)_minmax(0,1fr)] xl:px-12 xl:pr-0'
+      : 'mx-auto w-full max-w-[var(--vh-content-width)] px-4 pb-24 pt-8 sm:px-6 lg:px-8'"
+  >
+    <article class="min-w-0">
+      <header class="pb-8">
+        <div class="flex flex-wrap items-center gap-2 text-sm text-muted">
+          <UButton
+            to="/blog"
+            variant="link"
+            color="neutral"
+            icon="i-lucide-arrow-left"
+            label="Blog"
+            class="p-0"
+          />
+          <span v-if="formattedDate" aria-hidden="true">·</span>
+          <time v-if="formattedDate" :datetime="publishedDate">{{ formattedDate }}</time>
+        </div>
 
-        <div v-if="post.authors?.length" class="mt-6 flex flex-wrap items-center gap-4">
+        <h1 class="mt-5 text-[34px] font-semibold leading-[42px] text-highlighted sm:text-[40px] sm:leading-[48px]">
+          {{ post.title }}
+        </h1>
+        <p class="mt-4 max-w-[38rem] text-lg leading-8 text-muted">
+          {{ post.description }}
+        </p>
+
+        <div v-if="post.authors?.length" class="mt-5 flex flex-wrap items-center gap-4">
           <UUser
             v-for="author in post.authors"
             :key="author.name"
@@ -94,40 +86,40 @@ useSeoMeta({
             :ui="{ name: 'font-medium text-highlighted', description: 'text-muted' }"
           />
         </div>
-      </UPageHeader>
+      </header>
 
-      <UPageBody prose class="docs-content blog-content max-w-[42rem] pb-24 lg:max-w-none">
+      <UPageBody prose class="docs-content blog-content !px-0 !pb-0 sm:!px-0 lg:!px-0 xl:!px-0">
         <ContentRenderer :value="post" />
       </UPageBody>
+    </article>
 
-      <template #right>
-        <aside
-          v-if="isTutorialLayout"
-          class="sticky top-[var(--ui-header-height,56px)] h-[calc(100vh-var(--ui-header-height,56px))] overflow-hidden"
-        >
-          <ProseCodeTree
-            v-if="activePath"
-            :model-value="activePath"
-            :items="treeItems"
-            expand-all
-            class="my-0 h-full min-h-0 w-full rounded-none border-0 lg:!h-full lg:grid-cols-[13rem_minmax(0,1fr)] xl:grid-cols-[14rem_minmax(0,1fr)]"
-            :ui="{
-              root: 'my-0 h-full min-h-0 w-full rounded-none border-0',
-              list: 'h-full min-h-0 border-default p-1 pr-2',
-              listWithChildren: 'ms-3 border-s border-default',
-              itemWithChildren: 'ps-1 -ms-px',
-              link: 'px-1.5 py-1.5 gap-1.5',
-              content: 'h-full min-w-0 lg:!col-span-1 lg:!col-start-2 lg:!row-start-1 [&>div]:m-0 [&>div]:h-full [&>div]:min-h-0 [&>div]:w-full [&>div]:!overflow-hidden [&>div>pre]:min-h-0 [&>div>pre]:w-full [&>div>pre]:max-w-none [&>div>pre]:flex-1 [&>div>pre]:overflow-auto [&>div>pre]:bg-muted/50 [&>div>pre]:border-default [&>div>pre]:rounded-none [&>div>pre]:px-3 [&>div>pre]:py-3',
-            }"
-          />
+    <aside
+      v-if="isTutorialLayout"
+      class="hidden min-w-0 border-l border-default lg:block"
+    >
+      <div class="sticky top-[var(--ui-header-height,56px)] h-[calc(100vh-var(--ui-header-height,56px))] overflow-hidden">
+        <ProseCodeTree
+          v-if="activePath"
+          :model-value="activePath"
+          :items="treeItems"
+          expand-all
+          class="my-0 h-full min-h-0 w-full rounded-none border-0 lg:!h-full lg:grid-cols-[13rem_minmax(0,1fr)] xl:grid-cols-[14rem_minmax(0,1fr)]"
+          :ui="{
+            root: 'my-0 h-full min-h-0 w-full rounded-none border-0',
+            list: 'h-full min-h-0 border-default p-1 pr-2',
+            listWithChildren: 'ms-3 border-s border-default',
+            itemWithChildren: 'ps-1 -ms-px',
+            link: 'px-1.5 py-1.5 gap-1.5',
+            content: 'h-full min-w-0 lg:!col-span-1 lg:!col-start-2 lg:!row-start-1 [&>div]:m-0 [&>div]:h-full [&>div]:min-h-0 [&>div]:w-full [&>div]:!overflow-hidden [&>div>pre]:min-h-0 [&>div>pre]:w-full [&>div>pre]:max-w-none [&>div>pre]:flex-1 [&>div>pre]:overflow-auto [&>div>pre]:bg-muted/50 [&>div>pre]:border-default [&>div>pre]:rounded-none [&>div>pre]:px-3 [&>div>pre]:py-3',
+          }"
+        />
 
-          <div v-else class="grid h-full min-h-0 place-items-center text-muted">
-            <UIcon name="i-lucide-arrow-down" class="size-10 animate-bounce" />
-          </div>
-        </aside>
-      </template>
-    </UPage>
-  </UContainer>
+        <div v-else class="grid h-full min-h-0 place-items-center text-muted">
+          <UIcon name="i-lucide-arrow-down" class="size-10 animate-bounce" />
+        </div>
+      </div>
+    </aside>
+  </main>
 </template>
 
 <style scoped>

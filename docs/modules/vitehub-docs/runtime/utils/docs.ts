@@ -10,6 +10,7 @@ export type DocsPage = {
   description: string | null;
   icon: string | null;
   group?: string | null;
+  navigation: boolean;
   order: number;
 };
 

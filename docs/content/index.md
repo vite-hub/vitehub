@@ -1,6 +1,6 @@
 ---
 title: ViteHub
-description: Agents and server primitives for any Vite host.
+description: Agents for any host, composed with server primitives through one Vite plugin.
 ---
 
 # ViteHub

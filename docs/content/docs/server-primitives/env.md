@@ -9,6 +9,56 @@ Env models environment values without mixing browser-safe config, build replacem
 
 Env does not store secrets for a host. The host still supplies variables, and server code performs Secret Unseal only at the boundary that needs the raw value.
 
+## Quick start
+
+::steps{level="3"}
+
+### Install
+
+```bash [Terminal]
+pnpm add @vite-hub/env
+```
+
+### Configure
+
+```ts [vite.config.ts]
+import { env, hubEnv } from '@vite-hub/env/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubEnv()],
+  env: {
+    public: {
+      appName: env({ default: 'Acme' }),
+    },
+  },
+})
+```
+
+### Start using it
+
+```ts [src/app.ts]
+import { usePublicEnv } from '#vitehub/env/public'
+
+const publicEnv = usePublicEnv()
+console.log(publicEnv.appName)
+```
+
+::
+
+## Public imports
+
+| Import | Use |
+| --- | --- |
+| `env` from `@vite-hub/env` or `@vite-hub/env/vite` | Declare Env values and Env Sources. |
+| `hubEnv` from `@vite-hub/env/vite` | Register the Vite Integration. |
+| `usePublicEnv` from `#vitehub/env/public` | Read generated Public Env from browser-safe code. |
+| `useServerEnv` from `#vitehub/env/server` | Read generated Server Env from server code. |
+| `SecretEnv` from `@vite-hub/env` or `@vite-hub/env/secret` | Represent Secret Env values that redact by default. |
+| `resolveServerEnv` from `@vite-hub/env` or `@vite-hub/env/server` | Resolve a server env registry manually. |
+| `openWorkflowEnv` from `@vite-hub/env` or `@vite-hub/env/presets` | Use the OpenWorkflow env preset. |
+| `parseSchema` from `@vite-hub/env` or `@vite-hub/env/schema` | Parse Standard Schema-compatible values. |
+
 ## Configure Env
 
 Add `hubEnv()` and declare values in the Vite config. `env.public` becomes browser-safe Public Env, `env.define` becomes Vite replacements, and `env.server` becomes Server Env for server runtime code.
@@ -34,6 +84,54 @@ export default defineConfig({
   },
 })
 ```
+
+## Integration options
+
+Pass Integration Options to `hubEnv()`.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `diagnostics` | `EnvDiagnostics` | Package default | Controls Env diagnostic output during Vite config/dev/build. Values: `off`, `summary`, `trace`. |
+| `prefix` | `string` | None | Prefixes env variable lookup names. |
+| `projectRoot` | `string` | ViteHub project root | Resolves generated files and package import updates from a custom project root. |
+
+## Env config sections
+
+| Section | Runtime | Public | Use |
+| --- | --- | --- | --- |
+| `env.public` | Build | Yes | Browser-safe Public Env through `#vitehub/env/public`. |
+| `env.define` | Build transform | Yes in bundled code | Vite compile-time replacements. |
+| `env.server` | Server runtime | No | Server Env through `#vitehub/env/server`. |
+
+## Env Declaration options
+
+`env()` and `env.variable()` accept the same options.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `source` | `EnvSource` or `EnvSourceResolver` | Section key lookup | Selects where the value comes from. |
+| `default` | `unknown` | None | Value used when the source is absent. |
+| `required` | `boolean` | `true` unless `optional` is set | Throws when a runtime value is missing. |
+| `optional` | `boolean` | `false` | Sets `required` to `false`. Cannot be combined with `required`. |
+| `mode` | `EnvMode` | `runtime` | Marks the value as Build Env or Runtime Env. Values: `build`, `runtime`. |
+| `schema` | Standard Schema-compatible parser | string parser | Validates and parses the value. |
+| `secret` | `boolean` | `false` | Wraps runtime values in `SecretEnv`. |
+| `type` | `string` | Inferred | Overrides the generated type label. |
+
+## Env Sources
+
+| Source helper | Description |
+| --- | --- |
+| `env.source('NAME')` | Reads one host env variable. |
+| `env.source(['PRIMARY', 'FALLBACK'])` | Reads the first available env variable from a list. |
+| `env.custom(label, resolver)` | Resolves from a custom callback. |
+| `env.gitBranch()` | Reads the current Git branch. |
+| `env.gitCommit({ short })` | Reads the current Git commit. |
+| `env.gitRef()` | Reads the current Git ref. |
+| `env.gitSha({ short })` | Reads the current Git SHA. |
+| `env.gitTag()` | Reads the current Git tag. |
+| `env.buildTimestamp()` | Reads the build timestamp. |
+| `env.packageJson(path)` | Reads a value from `package.json`. |
 
 ## Use it at runtime
 

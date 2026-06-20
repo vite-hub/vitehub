@@ -9,16 +9,14 @@
       "id": "cloudflare",
       "label": "Cloudflare",
       "icon": "i-simple-icons-cloudflare",
-      "configOverride": "  env: {\n    auth: {\n      token: env({ secret: true }),\n    },\n  },",
-      "envOverride": "AUTH_TOKEN=<auth-token>"
+      "envOverride": "VITEHUB_PUBLIC_APP_NAME=ViteHub Env\nGITHUB_TOKEN=<github-token>"
     },
     {
       "id": "vercel",
       "label": "Vercel",
       "icon": "i-simple-icons-vercel",
       "darkInvert": true,
-      "configOverride": "  env: {\n    auth: {\n      token: env({ secret: true }),\n    },\n  },",
-      "envOverride": "AUTH_TOKEN=<auth-token>"
+      "envOverride": "VITEHUB_PUBLIC_APP_NAME=ViteHub Env\nGITHUB_TOKEN=<github-token>"
     }
   ],
   "frameworks": {
@@ -27,7 +25,7 @@
         "dev": {
           "phases": {
             "configure": "vite.config.ts",
-            "run": "src/main.ts"
+            "run": "src/server.ts"
           },
           "supplementalFiles": [
             "package.json"
@@ -36,7 +34,7 @@
         "build": {
           "phases": {
             "configure": "vite.config.ts",
-            "run": "src/main.ts"
+            "run": "src/server.ts"
           },
           "supplementalFiles": [
             "package.json"

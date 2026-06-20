@@ -8,22 +8,28 @@ icon: i-lucide-sliders-horizontal
 Integration Options configure ViteHub package integrations.
 Provider Selection belongs in Integration Options when it changes generated output, bindings, imports, or deployment behavior.
 
+## Preset options
+
+| Import | Public type | Placement | Defaults |
+| --- | --- | --- | --- |
+| `@vite-hub/vite` | `ViteHubPresetOptions` | `vitehub(options)` in Vite `plugins` | Enables Agent, Blob, Database, DevTools, Env, KV, Queue, Sandbox, Schedule, Workflow, and Workspace integrations unless that key is `false`. |
+
 ## Vite Integration options
 
-| Package | Config key or plugin option | Main options |
-| --- | --- | --- |
-| Agent | `agent` or `hubAgent(options)` | `runtime`, `execution`, `imports`, `webhooks`, `devtools`, `cli`, `eval`, `integrations`, `providers`. |
-| Auth | `hubAuth(options)` | Enable or disable the integration; Auth Definition owns Better Auth options. |
-| Blob | `blob` or `hubBlob(options)` | Blob Store config, named stores, provider driver selection. |
-| Database | `database` or `hubDb(options)` | `driver`, Cloudflare D1 fields, local runtime fields, `cli.generate`, `cli.migrate`. |
-| DevTools | `hubDevtools(options)` | DevTools Client shell URL and hosted/local shell behavior. |
-| Env | `hubEnv(options)` and `env` config | `prefix`, `projectRoot`, `diagnostics`, plus `env.public`, `env.define`, and `env.server`. |
-| KV | `kv` or `hubKv(options)` | `fs-lite`, `cloudflare-kv-binding`, or `upstash` store config; named stores. |
-| Queue | `queue` or `hubQueue(options)` | `provider`, `binding`, `region`, cache behavior. |
-| Sandbox | `sandbox` or `hubSandbox(options)` | `provider`, `binding`, class name, sandbox name, provider reuse options. |
-| Schedule | `hubSchedule(options)` | `providerOutput`, `projectRoot`. |
-| Workflow | `workflow` or `hubWorkflow(options)` | `provider`, `binding`, OpenWorkflow database config, worker config. |
-| Workspace | `workspace` or `hubWorkspace(options)` | `root`, `projectRoot`, `assets`, Workspace Store config. |
+| Package | Public type | Placement | Confirmed options and defaults |
+| --- | --- | --- | --- |
+| Agent | `AgentModuleOptions` | `agent` config key or `hubAgent(options)` | `runtime`: `auto`, `cloudflare-agents`, `unknown`, `vercel`, `vite`; default `auto`. `execution`: `inline`, `sandbox`, `workflow`; default `inline`. `imports` defaults to `true`. `integrations.sandbox` and `integrations.workflow` default to `auto`. Provider groups `sandbox`, `scheduler`, and `state` default to provider `auto`. `routes.chat` and `routes.webhooks` are disabled unless set to `true` or a route string; `true` uses `/api/_vitehub/agents/[agent]/chat` and `/api/_vitehub/agents/[agent]/webhooks/[webhook]`. |
+| Auth | `AuthModuleOptions` | `auth` config key or `hubAuth(options)` | `false` disables the integration. The enabled integration has no plugin option bag yet. `defineAuth()` owns `basePath` default `/api/auth`, `route: false`, `access`, `database`, `secondaryStorage`, and `runtime`. |
+| Blob | `BlobModuleOptions` | `blob` config key or `hubBlob(options)` | Accepts `false`, one `BlobStoreConfig`, or `{ stores }` with `stores.default`. Driver literals include `fs`, `cloudflare-r2`, `vercel-blob`, `minio`, `s3`, `gcs`, `azure`, and other exported Blob drivers. Defaults: Cloudflare hosting selects `cloudflare-r2` binding `BLOB`; Vercel hosting or `BLOB_READ_WRITE_TOKEN` selects `vercel-blob` with `access: "public"`; otherwise `fs` at `.data/blob`. MinIO defaults to bucket `vitehub-blob`, endpoint `http://localhost:9000`, region `us-east-1`, and `forcePathStyle: true`. |
+| Database | `DBModulePublicOptions` | `database` config key or `hubDb(options)` | `false` disables the integration. Integration options are `cli.generate` and `cli.migrate`, each disableable with `false`. Cloudflare D1 runtime fields are `driver: "d1"`, `binding`, `databaseId`, `previewDatabaseId`, `databaseName`, `migrationsTable`, and `local.filename`. Database Definitions own tables and per-database Cloudflare binding metadata. |
+| DevTools | `HubDevtoolsOptions` | `hubDevtools(options)` | `enabled: false` disables the shell. `url` defaults to `VITEHUB_DEVTOOLS_URL` or `/__vitehub/devtools/`. `title` defaults to `ViteHub`; `icon` is passed to the Vite DevTools dock entry. |
+| Env | `EnvIntegrationOptions` and `EnvViteConfigOptions` | `hubEnv(options)` plus Vite `env` config | `diagnostics`: `off`, `summary`, `trace`; default `summary`. `prefix` changes inferred environment variable names. `projectRoot` changes generated file placement. Vite `env.public`, `env.define`, and `env.server` own Public Env, build define values, and Server Env declarations. |
+| KV | `KVModuleOptions` | `kv` config key or `hubKv(options)` | Accepts `false`, one store config, or `{ stores }` with `stores.default`. Driver literals are `fs-lite`, `cloudflare-kv-binding`, and `upstash`. Defaults: Upstash env selects `upstash`; Vercel hosting selects `upstash`; Cloudflare hosting selects `cloudflare-kv-binding` binding `KV`; otherwise `fs-lite` at `.data/kv`. |
+| Queue | `QueueModuleOptions` | `queue` config key or `hubQueue(options)` | `false` disables the integration. `provider`: `cloudflare` or `vercel`; default is `cloudflare` on Cloudflare hosting and `vercel` otherwise. Shared `cache` belongs here. Cloudflare uses `binding`; Vercel uses `region`. Queue concurrency and retry behavior belong to Queue Definition or enqueue options. |
+| Sandbox | `SandboxPublicOptions` | `sandbox` config key or `hubSandbox(options)` | `false` disables the integration. Provider selection belongs here: `cloudflare`, `vercel`, or inferred provider options. Cloudflare defaults are binding `SANDBOX`, class name `Sandbox`, and migration tag `v1`. Per-run sandbox identity belongs to Sandbox Run invocation options. |
+| Schedule | `ScheduleVitePluginOptions` | `hubSchedule(options)` | `providerOutput`: `auto`, `standalone`, `nitro`, or `false`; default `auto`. `projectRoot` changes where generated schedule output is written. There is no public `schedule.provider` option. |
+| Workflow | `WorkflowModuleOptions` | `workflow` config key or `hubWorkflow(options)` | `false` disables the integration. `provider`: `cloudflare`, `openworkflow`, or `vercel`. Defaults: Cloudflare hosting selects `cloudflare`; Node or Docker with OpenWorkflow storage config selects `openworkflow`; otherwise `vercel`. Shared fields are `binding` and `name`. OpenWorkflow fields are `database`, `postgres`, `sqlite`, and `worker.concurrency`. |
+| Workspace | `WorkspaceModuleOptions` | `workspace` config key or `hubWorkspace(options)` | `root` defaults to `.vitehub/workspaces`. `projectRoot` changes source root resolution. `assets` controls build-time asset generation. `store` provider literals are `local`, `memory`, `cloudflare-artifacts`, `vercel-blob`, and `github`. Defaults: local development uses `local`; Cloudflare hosting uses `memory`; `BLOB_READ_WRITE_TOKEN` selects `vercel-blob`; Vercel hosting without Blob env uses `memory`; otherwise `local`. |
 
 ## Option placement
 
@@ -33,6 +39,8 @@ Provider Selection belongs in Integration Options when it changes generated outp
 | Definition Options | Definition Boundary Helper file | Queue concurrency, Database tables, Workspace Sources and rules. |
 | Invocation Options | Runtime Helper call | Sandbox Identity, Agent input options, schedule creation input. |
 | Runtime Env | Env Package Server Env | Provider tokens, app secrets, request-time runtime values. |
+
+Provider-specific driver fields are intentionally summarized here. Read the exported package types when configuring a deep provider adapter, and keep provider choices in Integration Options unless the owning package documents an invocation-time option.
 
 ## Agent eval options
 

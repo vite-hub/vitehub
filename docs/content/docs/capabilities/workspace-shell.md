@@ -1,20 +1,26 @@
 ---
-title: workspaceShell()
+title: Workspace shell
 description: Expose shell-shaped Workspace inspection and optional structured Workspace mutation tools.
-navigation.title: workspaceShell()
+navigation.title: Workspace shell
 navigation.order: 50
+navigation.group: Workspace
 icon: i-lucide-folder-search
 ---
 
 `workspaceShell()` adds model-facing Workspace tools to an Agent.
 It exposes shell-shaped inspection by default and write tools only when the Agent's Workspace grants write mode.
 
+## Installation
+
+Import the Capability factory from `-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
+Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
+
 ## What it adds
 
 The Capability contributes Workspace inspection tools in read mode and structured Workspace mutation tools in write mode.
 When Workspace Sources expose request descriptors, it also contributes instructions that tell the Agent how to inspect controlled curl access.
 
-## Minimum attach example
+## Configuration
 
 Attach `workspaceShell()` only when the Agent should inspect the Workspace.
 Use read mode first, then switch to write mode when product behavior requires mutation.
@@ -61,6 +67,12 @@ Read mode should expose inspection tools, and write mode should expose mutation 
 
 Try reading outside an `access()` Workspace Scope when both Capabilities are attached.
 The scoped Workspace should hide or reject paths outside the selected grants.
+
+## Options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `mode` | `"read" \| "write"` | `"read"` | Selects Workspace inspection tools or write-capable Workspace tools. |
 
 ## Reference
 

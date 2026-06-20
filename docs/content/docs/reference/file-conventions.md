@@ -14,7 +14,7 @@ Discovery Identity comes from the discovery location, not from arbitrary inline 
 | --- | --- | --- |
 | Agent Definition | `server/agents/<agent>.ts` or `server/agents/<agent>/config.ts` | Agent File Name or agent folder name. |
 | Auth Definition | `server/auth.ts` or `server.auth.ts` | Single app Auth Definition. |
-| Database Definition | `server/databases/config.ts` or `server/databases/<name>/config.ts` | `default` for `config.ts`; folder name for named databases. |
+| Database Definition | `src/database.ts` or `src/<name>.database.ts` | `default` for `database.ts`; suffix file name for named databases. |
 | Queue Definition | `server/queues/<name>.ts` or `src/<name>.queue.ts` | File name. |
 | Workflow Definition | `server/workflows/<name>.ts`, `server/workflows/<name>/index.ts`, or `src/<name>.workflow.ts` | File or folder name. |
 | Schedule Definition | `server/schedules/<name>.ts` or `src/<name>.schedule.ts` | File name. |

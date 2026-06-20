@@ -3,6 +3,7 @@ title: Custom capabilities
 description: Build one product-specific Agent ability with requirements, instructions, tools, policy, and metadata.
 navigation.title: Custom capabilities
 navigation.order: 3
+navigation.group: Start here
 icon: i-lucide-wrench
 ---
 

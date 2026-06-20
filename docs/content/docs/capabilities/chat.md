@@ -1,20 +1,26 @@
 ---
-title: chat()
+title: Chat
 description: Add chat-oriented Agent Trigger behavior and Chat History state requirements.
-navigation.title: chat()
+navigation.title: Chat
 navigation.order: 20
+navigation.group: Invocation
 icon: i-lucide-messages-square
 ---
 
 `chat()` adds chat-oriented runtime behavior to an Agent Definition.
 It contributes a `chat.message` Agent Trigger, optional Chat Platform Adapter webhooks, Chat History state requirements, and a chat finish extension.
 
+## Installation
+
+Import the Capability factory from `-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
+Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
+
 ## What it adds
 
 The Chat Capability turns message-shaped input into Agent Invocations and exposes the trigger to DevTools.
 When adapters are configured, the Agent Package can infer Chat Webhook Routes for supported platform events.
 
-## Minimum attach example
+## Configuration
 
 Attach `chat()` when a chat surface should call the Agent through the Agent Trigger API.
 The application UI or platform adapter remains the trigger consumer.
@@ -55,6 +61,23 @@ Open Agent DevTools and confirm the Agent exposes a `chat.message` trigger.
 Send one DevTools message and verify the invocation origin, Chat Session behavior, and finish extension in the run details.
 
 When adapters are configured, inspect generated webhook registrations for the expected platform names and route metadata.
+
+## Options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `platforms` | `Record<string, Adapter> \| resolver` | none | Chat Platform Adapters used to infer webhook registrations. |
+| `webhooks` | `Record<string, webhook \| webhook[] \| false>` | inferred | Explicit Chat Webhook registrations by platform. |
+| `hooks` | `AgentChatEventHooks` | none | Chat event hooks such as `onDirectMessage`. |
+| `event` | `"directMessage"` | none | Chat event binding hint. |
+| `history` | `boolean \| "none" \| { source: "thread"; maxMessages?: number }` | inherited | Chat History selection for message input. |
+| `sessions` | `boolean \| AgentChatSessionOptions` | inherited | Chat Session behavior, including `strategy`, `idleTimeoutMs`, and `metadataKey`. |
+| `state` | `AgentChatStateResolver` | runtime state | Chat State adapter override. |
+| `stream` | `boolean` | inherited | Whether the chat trigger should stream output. |
+| `concurrency` | `"drop" \| "parallel" \| "queue" \| "reject" \| string` | inherited | Message concurrency behavior. |
+| `lockScope` | `"agent" \| "channel" \| "thread" \| string` | inherited | Scope used for message locks. |
+| `fallbackStreamingPlaceholderText` | `string \| null \| function` | inherited | Placeholder text while streaming starts. |
+| `errorFallbackText` | `string \| null \| function` | inherited | Fallback message when chat handling fails. |
 
 ## Reference
 

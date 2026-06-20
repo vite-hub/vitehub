@@ -1,21 +1,33 @@
 ---
-title: Markdown pages
-description: Treat docs Markdown files as the canonical page source for AI-readable ViteHub documentation.
+title: Raw Markdown pages
+description: Use public raw Markdown routes for page-level AI-readable ViteHub documentation.
 navigation.order: 61
 icon: i-vscode-icons-file-type-markdown
 ---
 
-Markdown pages are the canonical source for ViteHub documentation content.
-The docs app renders them into public routes, while agents can inspect the source files directly in a local checkout.
+Raw Markdown pages expose ViteHub docs content without the rendered docs shell.
+Use them when an AI tool or coding agent needs copyable page content with a stable URL.
 
-## Source layout
+## Route patterns
 
-| Source path | Public route pattern | Notes |
-| --- | --- | --- |
-| `docs/content/docs/index.md` | `/docs` | Root docs page. |
-| `docs/content/docs/<section>/index.md` | `/docs/<section>` | Section landing page or first page. |
-| `docs/content/docs/<section>/<page>.md` | `/docs/<section>/<page>` | Normal page route. |
-| `docs/content/docs/<section>/.navigation.yml` | Sidebar metadata | Section title, icon, and order. |
+| Rendered route | Raw Markdown route |
+| --- | --- |
+| `/docs` | `/raw/docs.md` |
+| `/docs/<section>` | `/raw/docs/<section>.md` |
+| `/docs/<section>/<page>` | `/raw/docs/<section>/<page>.md` |
+
+For example, the rendered page `/docs/ai-resources/markdown-pages` is available as `/raw/docs/ai-resources/markdown-pages.md`.
+
+## Local source layout
+
+Agents working inside this repository can inspect the authoring files directly.
+
+| Source path | Purpose |
+| --- | --- |
+| `docs/content/docs/index.md` | Root docs page. |
+| `docs/content/docs/<section>/index.md` | Section landing page. |
+| `docs/content/docs/<section>/<page>.md` | Normal page source. |
+| `docs/content/docs/<section>/.navigation.yml` | Sidebar metadata. |
 
 ## Authoring rules
 
@@ -31,15 +43,26 @@ Application code should use Stable ViteHub Import Paths instead of importing gen
 
 ## Public raw Markdown
 
-Raw public per-page Markdown routes are planned.
-Until that exists, the local source tree remains the reliable Markdown source for agents working inside the repository.
+Public raw Markdown routes are available for each docs page.
+Use local source files when you are editing the repo; use raw routes when you are feeding published docs to an external tool.
 
 | Feature | Status |
 | --- | --- |
 | Local Markdown source | Available |
 | Rendered docs routes | Available |
-| Raw Markdown route per docs page | Planned |
+| Raw Markdown route per docs page | Available |
 | Markdown manifest with page metadata | Partially available through generated docs artifacts |
+
+## Copy and paste usage
+
+When sharing docs context with an AI tool, paste the smallest relevant section and include the raw URL above it.
+For repo-local work, include the local source path instead.
+
+```txt [External AI context]
+Source: https://vitehub.dev/raw/docs/ai-resources/markdown-pages.md
+
+<paste the relevant Markdown section>
+```
 
 ## Next steps
 

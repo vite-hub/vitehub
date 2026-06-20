@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@vite-hub/env": "workspace:*",
+    "h3": "catalog:unjs",
     "vite": "catalog:vite"
   },
   "devDependencies": {

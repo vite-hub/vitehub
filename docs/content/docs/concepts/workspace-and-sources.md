@@ -20,11 +20,11 @@ Workspace is also useful outside agents. Server code can read, write, snapshot, 
 Declare Sources inside the Workspace that owns their placement and policy.
 
 ```ts [server/workspaces/docs.ts]
-import { defineWorkspace, source } from '@vite-hub/workspace'
+import { defineWorkspace, glob } from '@vite-hub/workspace'
 
 export default defineWorkspace({
   sources: {
-    docs: source.glob({
+    docs: glob({
       cwd: '.',
       include: ['README.md', 'docs/**/*.md'],
       instructions: 'Use these docs for public product behavior.',

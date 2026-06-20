@@ -17,15 +17,25 @@ ViteHub uses Vite Integrations as the public integration layer, while package-ow
 | UnJS libraries | Useful implementation dependencies for server primitives, not public ViteHub framework identity. |
 | Application server code | Calls Runtime Helpers and stable handlers without importing generated Nitro internals. |
 
-## Current Nitro bridges
+## Accepted Nitro handoffs
 
 | Bridge | Status | Owner | Purpose |
 | --- | --- | --- | --- |
-| Auth route handler | Available | Auth Package | Exposes `/api/auth/**` for Better Auth-backed server behavior. |
-| Agent Chat Webhook Route | Available | Agent Package | Registers a generated route for chat-capable discovered Agents when webhooks are enabled. |
 | Schedule Provider Wake | Available | Schedule Package | Registers Cloudflare scheduled runtime hooks and cron output for Nitro-shaped hosts. |
-| Workspace Runtime Registry bridge | Available where package integration requires it | Workspace Package | Makes generated Workspace runtime state available to hosted runtime code. |
+| Workspace hosted runtime setup | Available where hosted stores require it | Workspace Package | Moves generated Workspace runtime setup into Nuxt's top-level Nitro config. |
+| Database Nuxt D1 host wiring | Available for Nuxt D1 host resources | Database Package | Keeps one D1 Database Host Resource in sync with Nuxt Content and Cloudflare output. |
 | General Nitro-first integration | Not the public direction | Not applicable | ViteHub keeps the public contract on Vite Integrations. |
+
+## Current generated route output
+
+::warning
+Auth and Agent generated Nitro handlers exist in current package output, but the accepted public direction remains Vite-first. Treat them as generated Provider Output under domain review, not as a general Nitro Framework Integration or public `@vite-hub/*/nitro` authoring surface.
+::
+
+| Output | Current owner | Boundary |
+| --- | --- | --- |
+| Auth route handler | Auth Package | Exposes generated `/api/auth/**` behavior while the Auth/Nitro boundary remains unresolved. |
+| Agent chat and webhook routes | Agent Package | Dispatches generated Agent route output without making Nitro discovery or route files the app API. |
 
 ## Use stable handlers
 

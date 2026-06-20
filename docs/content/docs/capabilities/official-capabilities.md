@@ -3,6 +3,7 @@ title: Official capabilities
 description: Use the official Capability catalog by agent ability, not by package boundary.
 navigation.title: Official capabilities
 navigation.order: 2
+navigation.group: Start here
 icon: i-lucide-list-checks
 ---
 
@@ -14,9 +15,12 @@ import {
   access,
   blob,
   chat,
+  chatSummary,
+  chatTitle,
   db,
   entry,
   fetch,
+  git,
   inputCommands,
   kv,
   llmGate,
@@ -24,9 +28,11 @@ import {
   mcp,
   memory,
   rateLimit,
+  repositoryHost,
   sandbox,
   schedule,
   skills,
+  subagents,
   transcribe,
   usageTelemetry,
   webSearch,
@@ -42,7 +48,10 @@ import {
 | Chat behavior | [`chat()`](/docs/capabilities/chat) | A chat surface should start Agent Invocations and manage Chat History behavior. |
 | App-owned entry | [`entry()`](/docs/capabilities/entry) | A product event needs a named Agent Trigger without a full product-specific Capability. |
 | Input commands | [`inputCommands()`](/docs/capabilities/input-commands) | Explicit user commands should transform or enrich input before the Agent runs. |
+| Subagents | [`subagents()`](/docs/capabilities/subagents) | A model-backed Agent should delegate bounded work to named Agent Definitions through model-facing tools. |
 | Workspace files | [`workspaceShell()`](/docs/capabilities/workspace-shell) | The Agent should inspect or edit Workspace files through constrained Workspace tools. |
+| Git source history | [`git()`](/docs/capabilities/git) | The Agent needs bounded Git source-history inspection or local Workspace Session git state selection. |
+| Repository host | [`repositoryHost()`](/docs/capabilities/repository-host) | The Agent needs provider-hosted repository, Change Request, issue, comment, check, or status data through a configured Repository Host client. |
 | Skills file | [`skills()`](/docs/capabilities/skills) | The Agent requires a Workspace skill file at invocation time. |
 | KV storage | [`kv()`](/docs/capabilities/kv) | The Agent needs scoped key-value read or edit tools. |
 | Blob storage | [`blob()`](/docs/capabilities/blob) | The Agent needs scoped object read or edit tools. |
@@ -63,7 +72,7 @@ import {
 
 ## Read capability pages first
 
-Each capability page shows the minimum attach example, runtime behavior, requirements, driver support, inspection path, and related reference links.
+Each capability page starts with installation and configuration, then shows runtime behavior, requirements, driver support, options, inspection path, and related reference links.
 Avoid copying option shapes between Capabilities unless the public factory exposes the same type.
 
 ## Read next

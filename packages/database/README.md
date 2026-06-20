@@ -19,7 +19,7 @@ pnpm add -D drizzle-kit
 ## Minimal API
 
 ```ts
-// server/databases/config.ts
+// src/database.ts
 import { defineDatabase } from "@vite-hub/database"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
@@ -55,7 +55,7 @@ export default defineConfig({
 
 ## Vite Integration
 
-Use `server/databases/config.ts` for the default database, or `server/databases/<name>/config.ts` for named databases. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `@vite-hub/database/drizzle`.
+Use `src/database.ts` for the default database, or `src/<name>.database.ts` for named databases. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `@vite-hub/database/drizzle`.
 
 ## Nuxt D1 host wiring
 

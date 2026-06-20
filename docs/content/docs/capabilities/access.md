@@ -1,20 +1,26 @@
 ---
-title: access()
+title: Access
 description: Resolve trusted invocation access before other Capabilities expose scoped runtime surfaces.
-navigation.title: access()
+navigation.title: Access
 navigation.order: 10
+navigation.group: Invocation
 icon: i-lucide-shield-check
 ---
 
 `access()` adds invocation-time access resolution for chat admission and Workspace Scope.
 Attach it first when later Capabilities should see a narrowed Workspace or when chat webhooks need an allow-only decision.
 
+## Installation
+
+Import the Capability factory from `-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
+Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
+
 ## What it adds
 
 `access()` can resolve chat access and apply read-only Workspace Scope before other Capabilities run.
 Workspace scopes can grant paths or Sources, set a role, and add explicit Workspace Scope Instructions for the Agent.
 
-## Minimum attach example
+## Configuration
 
 Place `access()` before Workspace and storage Capabilities.
 The selected scope narrows the Workspace facade before `workspaceShell()` exposes tools.
@@ -68,6 +74,20 @@ Verify that `access.workspaceScope` appears in invocation context and that later
 
 Trigger a scope failure during development.
 Unknown scopes, root-mounted Source grants, missing Workspace definitions, and invalid path escapes should fail before model execution.
+
+## Options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `chat.resolve` | `(context) => boolean \| void` | none | Allow or reject trusted Chat Platform traffic before the Agent Invocation runs. |
+| `workspace.defaultScope` | `string` | none | Fallback Workspace Scope name when `resolve` does not choose one. |
+| `workspace.resolve` | `string \| selection \| function` | none | Select a Workspace Scope from trusted invocation context. |
+| `workspace.scopes` | `Record<string, scope>` | none | Named Workspace Scope definitions. |
+| `scope.all` | `boolean` | `false` | Grant the full Workspace for that scope. |
+| `scope.path` / `scope.paths` | `string \| string[]` | none | Grant Workspace paths. |
+| `scope.source` / `scope.sources` | `string \| string[]` | none | Grant Workspace Sources. |
+| `scope.grants` | `AccessWorkspaceScopeGrant[]` | none | Combine path and Source grants. |
+| `scope.instructions` | `string \| string[]` | none | Add scope-specific instructions. |
 
 ## Reference
 

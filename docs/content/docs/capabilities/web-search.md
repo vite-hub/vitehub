@@ -1,20 +1,26 @@
 ---
-title: webSearch()
+title: Web search
 description: Add model web search or normalized web search and read tools.
-navigation.title: webSearch()
+navigation.title: Web search
 navigation.order: 130
+navigation.group: External context
 icon: i-lucide-search
 ---
 
 `webSearch()` gives an Agent access to web context through an explicit mode.
 Use model mode for provider-native web search, or tool mode for normalized `web_search` and `web_read` tools.
 
+## Installation
+
+Import the Capability factory from `-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
+Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
+
 ## What it adds
 
 Model mode contributes a provider tool request for `web_search`.
 Tool mode contributes `web_search` and `web_read` model-facing tools backed by a single configured search provider.
 
-## Minimum attach example
+## Configuration
 
 Use model mode when the selected model provider supports provider-native web search.
 Tool mode requires a web search provider configuration.
@@ -58,6 +64,16 @@ Tool mode should expose `web_search` and `web_read`.
 
 Run tool mode without `askweb` during development.
 The Capability should report the missing package and suggest model mode as the alternative.
+
+## Options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `mode` | `"model" \| "tool"` | required | Uses provider-native model web search or ViteHub-managed search/read tools. |
+| `provider` | `WebSearchProviderInput` | required in tool mode | Provider name or provider options for tool mode. |
+| `provider.name` | `"brave" \| "exa" \| "jina" \| "searxng" \| "serpapi" \| "serpbase" \| "tavily" \| string` | required | Tool-mode web search provider. |
+| `provider.apiKey` | `string \| unsealer \| function` | env/provider default | Credential for providers that require one. |
+| `provider.baseURL` | `string` | provider default | Override provider endpoint. |
 
 ## Reference
 

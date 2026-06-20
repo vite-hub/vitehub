@@ -1,20 +1,26 @@
 ---
-title: db()
+title: Database
 description: Expose guarded database schema, query, and mutation tools to an Agent.
-navigation.title: db()
+navigation.title: Database
 navigation.order: 90
+navigation.group: Runtime primitives
 icon: i-lucide-database
 ---
 
 `db()` adds model-facing tools for a configured ViteHub Database primitive.
 It exposes read-only query and schema inspection by default, then adds SQL mutation only when write modes allow it.
 
+## Installation
+
+Import the Capability factory from `-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
+Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
+
 ## What it adds
 
 The Capability contributes `db_query` for one read-only SQL statement and `db_schema` for schema inspection.
 When data or schema write modes allow it, it also contributes `db_exec` for one mutation statement with a rationale.
 
-## Minimum attach example
+## Configuration
 
 Attach DB in read mode until the Agent needs guarded mutations.
 The Database primitive must already be configured by the app.
@@ -61,6 +67,15 @@ Read mode should show `db_query` and `db_schema`; write-capable configurations s
 
 Run a multi-statement SQL input during development.
 The Capability should reject it before it reaches the database primitive.
+
+## Options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `database` | `string` | `"default"` | Selects a named database when the DB primitive supports `database()`. |
+| `mode` | `"read" \| "write"` | `"read"` | Allows data mutation through `db_exec` when set to `"write"`. |
+| `schemaMode` | `"read" \| "write"` | `"read"` | Allows DDL through `db_exec` when set to `"write"`. |
+| `policy` | `AgentToolPolicyDecision \| function` | `"require-approval"` | Policy for `db_exec`. |
 
 ## Reference
 

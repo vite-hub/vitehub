@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vite-hub/vitehub/main/docs/public/vitehub-logo-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/vite-hub/vitehub/main/docs/public/vitehub-logo.png">
-    <img alt="ViteHub" src="https://raw.githubusercontent.com/vite-hub/vitehub/main/docs/public/vitehub-logo.png" width="360">
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/vitehub-logo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset=".github/assets/vitehub-logo.png">
+    <img alt="ViteHub" src=".github/assets/vitehub-logo.png" width="360">
   </picture>
 </p>
 

@@ -137,10 +137,10 @@ Workspace Scope Instructions are explicit prompt text for the selected scope. Vi
 Source Resolution can narrow a Source from trusted invocation context, such as a Selected Workspace Scope or an Agent Invocation Context Value. Source Resolution is source shaping, not authorization.
 
 ```ts [server/agents/support/config.ts]
-import { source } from '@vite-hub/workspace'
+import { github } from '@vite-hub/workspace'
 
 export const supportSources = {
-  ingestion: source.github(({ invocation }) => {
+  ingestion: github(({ invocation }) => {
     const customer = invocation.context.get<{ customer?: string }>('support.customer')?.customer
 
     return {

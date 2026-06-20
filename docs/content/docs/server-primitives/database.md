@@ -9,11 +9,88 @@ Database owns relational application data for ViteHub apps. Use it when the app 
 
 Database is not KV, Blob, or Workspace. Use KV for small key-addressed values, Blob for object storage, and Workspace for file-tree state.
 
+## Quick start
+
+::steps{level="3"}
+
+### Install
+
+```bash [Terminal]
+pnpm add @vite-hub/database drizzle-orm
+```
+
+### Configure
+
+```ts [vite.config.ts]
+import { hubDb } from '@vite-hub/database/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubDb()],
+})
+```
+
+### Start using it
+
+```ts [src/database.ts]
+import { defineDatabase } from '@vite-hub/database'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export const notes = sqliteTable('notes', {
+  id: integer('id').primaryKey(),
+  title: text('title').notNull(),
+})
+
+export default defineDatabase({
+  tables: { notes },
+})
+```
+
+::
+
+## Public imports
+
+| Import | Use |
+| --- | --- |
+| `defineDatabase` from `@vite-hub/database` | Declare a Database Definition. |
+| `db`, `databases`, `schema` from `@vite-hub/database/drizzle` | Query the generated Drizzle Runtime Surface. |
+| `hubDb` from `@vite-hub/database/vite` | Register database discovery, generated schema, and Provider Output. |
+| `@vite-hub/database/config` | Resolve database config values and discovery config. |
+| `@vite-hub/database/cli` | Use package-owned database CLI contribution. |
+| `@vite-hub/database/nuxt` | Use the narrow Nuxt D1 host-resource bridge. |
+
+All Database Definition, integration, connection, Cloudflare D1, Drizzle, and runtime config types are exported from `@vite-hub/database`.
+
+## Configure the Vite Integration
+
+```ts [vite.config.ts]
+import { hubDb } from '@vite-hub/database/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubDb()],
+})
+```
+
+The Vite config key is `database`.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `database: false` | `false` | enabled | Disables database discovery and generated runtime surfaces. |
+| `database.cli.generate` | `false` | enabled | Disables package-owned schema generation CLI contribution. |
+| `database.cli.migrate` | `false` | enabled | Disables package-owned migration CLI contribution. |
+| `database.driver` | `DatabaseRuntimeD1Options['driver']` | none | Selects Cloudflare D1 runtime output when configured at integration level. Value: `d1`. |
+| `database.binding` | `string` | `DB` or `DB_<NAME>` | Cloudflare D1 binding for integration-level runtime output. |
+| `database.databaseId` | `DatabaseConfigValue` | none | Cloudflare D1 database id. |
+| `database.previewDatabaseId` | `DatabaseConfigValue` | none | Cloudflare D1 preview database id. |
+| `database.databaseName` | `DatabaseConfigValue` | none | Cloudflare D1 database name. |
+| `database.migrationsTable` | `string` | provider default | Cloudflare D1 migrations table. |
+
 ## Define a database
 
 Database Definitions keep the Database Table Schema close to the server code that owns it.
 
-```ts [server/databases/config.ts]
+```ts [src/database.ts]
 import { defineDatabase } from '@vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
@@ -30,6 +107,24 @@ export default defineDatabase({
 
 A project uses either one Default Database or a set of Named Databases. Do not mix both modes in one app.
 
+## Database Definition options
+
+`defineDatabase()` accepts one object.
+
+| Option | Type | Required | Description |
+| --- | --- | --- | --- |
+| `tables` | `Record<string, Drizzle table>` | Yes | Database Table Schema source of truth. |
+| `connection.url` | `DatabaseConfigValue` | No | SQLite/libSQL connection URL. Defaults to `.vitehub/data/database/sqlite.db` for a Default Database. |
+| `connection.authToken` | `DatabaseConfigValue` | No | Hosted database auth token. |
+| `cloudflare.binding` | `string` | No | D1 binding. Defaults to `DB` for Default Database and `DB_<NAME>` for Named Databases. |
+| `cloudflare.databaseId` | `DatabaseConfigValue` | No | D1 database id. |
+| `cloudflare.previewDatabaseId` | `DatabaseConfigValue` | No | D1 preview database id. |
+| `cloudflare.databaseName` | `DatabaseConfigValue` | No | D1 database name. |
+| `cloudflare.migrationsTable` | `string` | No | D1 migrations table. |
+| `drizzle.casing` | `DrizzleCasing` | No | Drizzle casing option. Values: `snake_case`, `camelCase`. |
+
+ViteHub currently exposes `sqlite` as the public `DatabaseDialect`.
+
 ## Use it at runtime
 
 Use the generated Drizzle Runtime Surface from server code.
@@ -44,9 +139,14 @@ export default defineEventHandler(() => {
 
 Use Named Databases when separate data boundaries need explicit names.
 
-```ts [server/databases/analytics/config.ts]
+```ts [src/analytics.database.ts]
 import { defineDatabase } from '@vite-hub/database'
-import { events } from './schema'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+const events = sqliteTable('events', {
+  id: integer('id').primaryKey(),
+  name: text('name').notNull(),
+})
 
 export default defineDatabase({
   tables: { events },
@@ -55,11 +155,31 @@ export default defineDatabase({
 
 Named databases should represent real ownership or operational boundaries, not folder organization.
 
+```ts [server/api/events.get.ts]
+import { databases } from '@vite-hub/database/drizzle'
+
+export default defineEventHandler(() => {
+  return databases.analytics.db.select().from(databases.analytics.schema.events)
+})
+```
+
+## Providers
+
+| Provider/runtime | Configure with | Nuance |
+| --- | --- | --- |
+| Local SQLite | `connection.url` or no connection config | Default for local development and generated Drizzle artifacts. |
+| Hosted SQLite/libSQL-style connection | `connection.url` and optional `connection.authToken` | Keep URLs and tokens in Server Env when they are secrets. |
+| Cloudflare D1 | `cloudflare` Definition options or integration-level `database.driver: 'd1'` | Provider binding is wiring; Default/Named Database remains the public identity. |
+
 ## Provider output
 
 The Database Package discovers Database Definitions, generates the Drizzle Runtime Surface, produces generated schema artifacts, and wires provider-specific output. Provider bindings are integration details; the public database identity is the Default Database or Named Database.
 
 Cloudflare D1 bindings, hosted libSQL URLs, and Nuxt host resources belong in Database configuration or host setup. Route code should keep using the generated Drizzle Runtime Surface.
+
+::note
+`@vite-hub/database/nuxt` is a narrow Nuxt lifecycle bridge for one D1 Database Host Resource, mainly to keep Nuxt Content and Cloudflare `wrangler.d1_databases` in sync. Discovered Database Definitions still own the Drizzle Runtime Surface.
+::
 
 ## Connect it to Agents
 

@@ -4,9 +4,9 @@ import { useHead, useSeoMeta } from "#app/composables/head";
 useHead({ titleTemplate: () => "ViteHub" });
 
 useSeoMeta({
-  title: "ViteHub — Agents and server primitives for any host",
-  ogTitle: "ViteHub — Agents and server primitives for any host · ViteHub",
-  description: "Build Agent Definitions with controlled Capabilities, Workspaces, Sources, KV, Blob, Database, Queue, Workflow, Schedule, Sandbox, Shell, Auth, and Env.",
+  title: "ViteHub — Agents for any host",
+  ogTitle: "ViteHub — Agents for any host · ViteHub",
+  description: "Compose agents with server primitives for databases, storage, workflows, schedules, and workspaces through one Vite plugin.",
 });
 </script>
 

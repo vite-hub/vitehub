@@ -6,11 +6,14 @@ export default defineConfig({
     deps: {
       neverBundle: [
         "vite",
-        /^@vite-hub\/(?:agent|database|devtools|env|workflow|workspace)(?:\/.*)?$/,
+        /^@vite-hub\/(?:agent|blob|database|devtools|env|kv|queue|sandbox|schedule|workflow|workspace)(?:\/.*)?$/,
       ],
       onlyBundle: false,
     },
     entry: [
+      "src/agent.ts",
+      "src/agent/capabilities.ts",
+      "src/agent/channels.ts",
       "src/index.ts",
     ],
     exports: {

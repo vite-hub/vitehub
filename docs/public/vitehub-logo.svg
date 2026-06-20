@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1296" height="304" viewBox="0 0 1296 304" role="img" aria-label="ViteHub">
+  <g transform="translate(56 60) scale(9.4)">
+    <path fill="#09090b" d="M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z"/>
+  </g>
+  <text x="326" y="193" fill="#09090b" font-family="Geist, Helvetica Neue, Arial, sans-serif" font-size="136" font-weight="650" letter-spacing="0">ViteHub</text>
+</svg>

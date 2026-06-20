@@ -14,7 +14,7 @@ const isVisible = computed(() => {
 <template>
   <div
     v-if="isVisible"
-    class="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-20"
+    class="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-20 hidden sm:block"
   >
     <UButton
       label="Ask AI"
