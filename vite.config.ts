@@ -26,6 +26,11 @@ export default defineConfig({
         cache: false,
         command: "node test/local/local.mjs",
       },
+      "e2e:netlify": {
+        cache: false,
+        command: "node test/local/netlify-real-project.mjs",
+        dependsOn: ["build"],
+      },
       "fallow:dead-code": "vp exec fallow dead-code --summary --format markdown --fail-on-issues",
       "kv:e2e": {
         cache: false,

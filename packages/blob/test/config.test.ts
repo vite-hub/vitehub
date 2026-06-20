@@ -6,6 +6,7 @@ import {
   resolveRuntimeVercelBlobStore,
   warnVercelBlobFallback,
 } from "../src/config.ts"
+import { resolveBlobViteConfig } from "../src/vite-config.ts"
 
 describe("blob config", () => {
   it("defaults to fs locally", () => {
@@ -66,6 +67,49 @@ describe("blob config", () => {
         access: "public",
         driver: "vercel-blob",
         token: "********",
+      },
+    })
+  })
+
+  it("defaults Netlify hosting to Netlify Blobs", () => {
+    expect(normalizeBlobOptions({}, {
+      env: { BLOB_READ_WRITE_TOKEN: "vercel-token" },
+      hosting: "netlify",
+    })).toEqual({
+      store: {
+        driver: "netlify-blobs",
+        name: "vitehub-blob",
+      },
+    })
+  })
+
+  it("infers Netlify hosting from Netlify CLI env", () => {
+    expect(resolveBlobViteConfig({}, {
+      env: {
+        BLOB_READ_WRITE_TOKEN: "vercel-token",
+        NETLIFY: "true",
+      },
+    })).toEqual({
+      blob: {
+        store: {
+          driver: "netlify-blobs",
+          name: "vitehub-blob",
+        },
+      },
+      hosting: "netlify",
+    })
+  })
+
+  it("normalizes explicit Netlify Blobs stores", () => {
+    expect(normalizeBlobOptions({
+      consistency: "strong",
+      driver: "netlify-blobs",
+      name: "assets",
+    })).toEqual({
+      store: {
+        consistency: "strong",
+        driver: "netlify-blobs",
+        name: "assets",
       },
     })
   })

@@ -7,6 +7,7 @@ export default defineConfig({
       alwaysBundle: [/^@vite-hub\/(devtools|internal)/],
       neverBundle: [
         "vite",
+        "esbuild",
         "#vitehub/agent/registry",
         "@vercel/nft",
         "cloudflare:workers",

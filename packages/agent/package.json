@@ -122,6 +122,7 @@
     "@vite-hub/workspace": "workspace:*",
     "@vitejs/devtools-kit": "catalog:vite",
     "chat": "catalog:chat",
+    "esbuild": "catalog:esbuild-v27",
     "hookable": "catalog:unjs"
   },
   "devDependencies": {

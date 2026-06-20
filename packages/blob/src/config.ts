@@ -11,6 +11,7 @@ import type {
   CloudflareR2BlobStoreConfig,
   FsBlobStoreConfig,
   MinioBlobStoreConfig,
+  NetlifyBlobsStoreConfig,
   ResolvedBlobModuleOptions,
   ResolvedCloudflareR2BlobStoreConfig,
   ResolvedFsBlobStoreConfig,
@@ -28,6 +29,7 @@ export const MASKED_BLOB_RUNTIME_VALUE = "********"
 const DEFAULT_MINIO_BUCKET = "vitehub-blob"
 const DEFAULT_MINIO_ENDPOINT = "http://localhost:9000"
 const DEFAULT_MINIO_REGION = "us-east-1"
+const DEFAULT_NETLIFY_BLOBS_STORE = "vitehub-blob"
 const MINIO_ACCESS_KEY_ENV = ["MINIO_ACCESS_KEY_ID", "MINIO_ACCESS_KEY", "MINIO_ROOT_USER", "AWS_ACCESS_KEY_ID"] as const
 const MINIO_SECRET_KEY_ENV = ["MINIO_SECRET_ACCESS_KEY", "MINIO_SECRET_KEY", "MINIO_ROOT_PASSWORD", "AWS_SECRET_ACCESS_KEY"] as const
 
@@ -57,6 +59,16 @@ function resolveVercelStore(
     access: config.access ?? "public",
     driver: "vercel-blob",
     token: trimmed(config.token) ?? MASKED_BLOB_RUNTIME_VALUE,
+  }
+}
+
+function resolveNetlifyStore(
+  config: Partial<NetlifyBlobsStoreConfig> = {},
+): NetlifyBlobsStoreConfig {
+  return {
+    ...config,
+    driver: "netlify-blobs",
+    name: trimmed(config.name) ?? DEFAULT_NETLIFY_BLOBS_STORE,
   }
 }
 
@@ -97,6 +109,8 @@ function resolveExplicitStore(
       return resolveFsStore(store)
     case "minio":
       return resolveMinioStore(store, env)
+    case "netlify-blobs":
+      return resolveNetlifyStore(store)
     case "vercel-blob":
       return resolveVercelStore(store)
     case "akamai":
@@ -107,7 +121,6 @@ function resolveExplicitStore(
     case "gcs":
     case "google-drive":
     case "hetzner":
-    case "netlify-blobs":
     case "onedrive":
     case "s3":
     case "storj":
@@ -163,6 +176,10 @@ export function normalizeBlobOptions(
 
   if (hosting.includes("cloudflare")) {
     return createResolvedConfig(resolveCloudflareStore(implicitCloudflare, env))
+  }
+
+  if (hosting.includes("netlify")) {
+    return createResolvedConfig(resolveNetlifyStore())
   }
 
   if (hasVercelBlobEnv(env)) {

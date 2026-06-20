@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs"
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
-import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot, createDefaultVercelOutputRoot } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/paths"
 import { createNodeFunctionConfig, createVercelConfigJson } from "@vite-hub/internal/build/vercel-config"
@@ -66,13 +66,20 @@ interface GenerateProviderOutputsOptions {
   source?: DiscoveredScheduleDefinition["source"]
 }
 
+export interface NetlifyScheduleFunctionOutput {
+  cron: string
+  file: string
+  name: string
+  source: string
+}
+
 const cronFieldPattern = /^[*,/\-0-9]+$/
 
 export function validateProviderCron(cron: string, scheduleName: string): void {
   const fields = cron.trim().split(/\s+/)
   const hasVercelDayConflict = fields[2] !== "*" && fields[4] !== "*"
   if (fields.length !== 5 || !fields.every(field => cronFieldPattern.test(field)) || hasVercelDayConflict) {
-    throw new Error(`Schedule "${scheduleName}" uses cron "${cron}", but provider wake output only supports five-field UTC cron syntax compatible with Cloudflare and Vercel.`)
+    throw new Error(`Schedule "${scheduleName}" uses cron "${cron}", but provider wake output only supports five-field UTC cron syntax compatible with Cloudflare, Vercel, and Netlify.`)
   }
 }
 
@@ -486,6 +493,34 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
   ].join("\n")
 }
 
+function renderNetlifyScheduleFunction(file: string, registryFile: string, scheduleName: string, cron: string) {
+  const runtimeImport = createImportPath(file, scheduleRuntimeEntry)
+  return [
+    `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
+    `import { executeStaticSchedule } from ${JSON.stringify(runtimeImport)}`,
+    "",
+    `const scheduleName = ${JSON.stringify(scheduleName)}`,
+    "",
+    "export default async function netlifyScheduleHandler(request) {",
+    "  const loaded = await scheduleRegistry[scheduleName]?.()",
+    "  const definition = loaded?.default ?? loaded",
+    "  if (!definition) return new Response('Missing schedule definition.', { status: 404 })",
+    `  await executeStaticSchedule({ cron: ${JSON.stringify(cron)}, definition, name: scheduleName, scheduledAt: new Date() })`,
+    "  return new Response(null, { status: 204 })",
+    "}",
+    "",
+    "export const config = {",
+    `  schedule: ${JSON.stringify(cron)},`,
+    "}",
+    "",
+  ].join("\n")
+}
+
+function sanitizeNetlifyScheduleFunctionName(name: string): string {
+  const safeName = name.toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "")
+  return `vitehub-schedule-${safeName || "schedule"}.mjs`
+}
+
 function createScheduleDefinitionAliasPlugin(): Plugin {
   return {
     name: "vitehub-schedule-definition-alias",
@@ -577,6 +612,53 @@ export async function writeVercelScheduleFunctions(options: {
   await writeFile(configFile, `${JSON.stringify(vercelConfig, null, 2)}\n`, "utf8")
 }
 
+export async function createNetlifyScheduleFunctionOutputs(options: {
+  definitions: DiscoveredScheduleDefinition[]
+  functionRoot: string
+  registryFile: string
+}): Promise<NetlifyScheduleFunctionOutput[]> {
+  const crons = await readDefinitionCrons(options.definitions)
+  const emitted = new Map<string, string>()
+  return options.definitions.map((definition) => {
+    const fileName = sanitizeNetlifyScheduleFunctionName(definition.name)
+    const existingName = emitted.get(fileName)
+    if (existingName) {
+      throw new Error(`Schedule "${definition.name}" and "${existingName}" both emit the same Netlify function file: ${fileName}`)
+    }
+    emitted.set(fileName, definition.name)
+    const file = resolve(options.functionRoot, fileName)
+    return {
+      cron: crons.get(definition.name)!,
+      file,
+      name: definition.name,
+      source: renderNetlifyScheduleFunction(file, options.registryFile, definition.name, crons.get(definition.name)!),
+    }
+  })
+}
+
+async function writeNetlifyScheduleFunctions(options: {
+  definitions: DiscoveredScheduleDefinition[]
+  outputRoot: string
+  registryFile: string
+}) {
+  const functionRoot = resolve(options.outputRoot, "functions")
+  await mkdir(functionRoot, { recursive: true })
+  const existingFiles = await readdir(functionRoot).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return []
+    throw error
+  })
+  await Promise.all(existingFiles
+    .filter(file => /^vitehub-schedule-.+\.mjs$/.test(file))
+    .map(file => rm(resolve(functionRoot, file), { force: true, recursive: true })))
+
+  const outputs = await createNetlifyScheduleFunctionOutputs({
+    definitions: options.definitions,
+    functionRoot,
+    registryFile: options.registryFile,
+  })
+  await Promise.all(outputs.map(async output => writeFile(output.file, output.source, "utf8")))
+}
+
 async function writeCloudflareScheduleOutput(options: {
   bundleAlias?: Record<string, string>
   bundleEntry: string
@@ -641,5 +723,10 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     registryFile: artifacts.registryFile,
     rootDir: options.rootDir,
   }, crons)
+  await writeNetlifyScheduleFunctions({
+    definitions: artifacts.definitions,
+    outputRoot: createDefaultNetlifyOutputRoot(options.rootDir),
+    registryFile: artifacts.registryFile,
+  })
   return artifacts
 }

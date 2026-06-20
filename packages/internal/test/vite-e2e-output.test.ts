@@ -342,4 +342,30 @@ describe("unified vite e2e hosted outputs", () => {
     expect(chatOutput).toContain("playground-mock")
     expect(chatOutput).toContain("DevTools Demo Agent")
   }, 45_000)
+
+  it("writes Netlify agent HTTP function output from the chat playground", async () => {
+    const rootDir = await createPlaygroundCopy("vitehub-internal-vite-netlify-agent-")
+
+    await execFileAsync("vp", ["build"], {
+      cwd: rootDir,
+      env: {
+        ...process.env,
+        VITEHUB_HOSTING: "netlify",
+        VITEHUB_VITE_MODE: "chat",
+      },
+      maxBuffer: execMaxBuffer,
+    })
+
+    const source = await readFile(join(rootDir, ".vitehub", "agent", "netlify-function.mjs"), "utf8")
+    const functionFile = await readFile(join(rootDir, ".netlify", "v1", "functions", "vitehub-agent.mjs"), "utf8")
+    const config = JSON.parse(await readFile(join(rootDir, ".netlify", "v1", "config.json"), "utf8"))
+
+    expect(source).toContain("viteHubAgentNetlifyFunction")
+    expect(functionFile).toContain("export const config = {")
+    expect(functionFile).toContain("\"name\": \"vitehub-agent\"")
+    expect(functionFile).toContain("\"nodeBundler\": \"esbuild\"")
+    expect(functionFile).toContain("\"/api/_vitehub/agents/:agent/chat\"")
+    expect(functionFile).toContain("\"/api/_vitehub/agents/:agent/webhooks/:webhook\"")
+    expect(config).toEqual({})
+  }, 45_000)
 })

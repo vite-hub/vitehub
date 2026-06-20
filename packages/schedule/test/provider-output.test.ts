@@ -5,9 +5,10 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterAll, describe, expect, it } from "vitest"
-import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
-import { generateProviderOutputs, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
+import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
+import { discoverScheduleDefinitions } from "../src/discovery.ts"
 
 const tempDirs: string[] = []
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -46,7 +47,7 @@ describe("schedule provider output", () => {
     expect(packageJson.exports).not.toHaveProperty("./definition")
   })
 
-  it("emits Cloudflare and Vercel schedule provider wake output", async () => {
+  it("emits Cloudflare, Vercel, and Netlify schedule provider wake output", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-")
 
     await generateProviderOutputs({
@@ -59,6 +60,7 @@ describe("schedule provider output", () => {
     const cloudflareConfig = join(cloudflareRoot, "wrangler.json")
     const vercelConfig = join(rootDir, ".vercel", "output", "config.json")
     const vercelFunction = join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "schedules", "vercel", "cleanup.func", "index.mjs")
+    const netlifyFunction = join(createDefaultNetlifyOutputRoot(rootDir), "functions", "vitehub-schedule-cleanup.mjs")
 
     expect(existsSync(cloudflareWorker)).toBe(true)
     expect(JSON.parse(await readFile(cloudflareConfig, "utf8")).triggers.crons).toEqual(["0 0 * * *"])
@@ -67,16 +69,59 @@ describe("schedule provider output", () => {
       schedule: "0 0 * * *",
     }])
     expect(await readFile(vercelFunction, "utf8")).toContain("executeStaticSchedule")
+    await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("export const config = {")
+    await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
+    await expect(readFile(netlifyFunction, "utf8")).resolves.toContain("executeStaticSchedule")
+  })
+
+  it("creates Netlify scheduled function output contributions", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-netlify-output-")
+    await writeFile(join(rootDir, "src", "AdminReport.schedule.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "",
+      "export default defineSchedule({ cron: '0 1 * * *', handler: () => 'ok' })",
+      "",
+    ].join("\n"), "utf8")
+    const definitions = discoverScheduleDefinitions({ rootDir })
+    const registryFile = join(rootDir, ".vitehub", "schedule", "registry.mjs")
+    const outputs = await createNetlifyScheduleFunctionOutputs({
+      definitions,
+      functionRoot: join(rootDir, "netlify", "functions"),
+      registryFile,
+    })
+
+    expect(outputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        cron: "0 0 * * *",
+        file: join(rootDir, "netlify", "functions", "vitehub-schedule-cleanup.mjs"),
+        name: "cleanup",
+      }),
+      expect.objectContaining({
+        cron: "0 1 * * *",
+        file: join(rootDir, "netlify", "functions", "vitehub-schedule-adminreport.mjs"),
+        name: "AdminReport",
+      }),
+    ]))
+    const cleanup = outputs.find(output => output.name === "cleanup")
+    expect(cleanup?.source).toContain("export const config = {")
+    expect(cleanup?.source).toContain("schedule: \"0 0 * * *\"")
+    expect(cleanup?.source).not.toContain("next_run")
+    expect(cleanup?.source).toContain("scheduledAt: new Date()")
+    expect(cleanup?.source).toContain("executeStaticSchedule")
   })
 
   it("preserves existing provider output files when adding schedule output", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-preserve-")
     const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)
     const vercelRoot = join(rootDir, ".vercel", "output")
+    const netlifyRoot = createDefaultNetlifyOutputRoot(rootDir)
     await mkdir(cloudflareRoot, { recursive: true })
     await mkdir(vercelRoot, { recursive: true })
+    await mkdir(join(netlifyRoot, "functions"), { recursive: true })
     await writeFile(join(cloudflareRoot, "existing.txt"), "keep\n", "utf8")
     await writeFile(join(vercelRoot, "existing.txt"), "keep\n", "utf8")
+    await writeFile(join(netlifyRoot, "functions", "other.mjs"), "keep\n", "utf8")
+    await writeFile(join(netlifyRoot, "functions", "vitehub-schedule-stale.mjs"), "stale\n", "utf8")
     await writeFile(join(cloudflareRoot, "wrangler.json"), JSON.stringify({
       main: "index.js",
       triggers: { crons: ["0 1 * * *"] },
@@ -89,6 +134,9 @@ describe("schedule provider output", () => {
 
     await expect(readFile(join(cloudflareRoot, "existing.txt"), "utf8")).resolves.toBe("keep\n")
     await expect(readFile(join(vercelRoot, "existing.txt"), "utf8")).resolves.toBe("keep\n")
+    await expect(readFile(join(netlifyRoot, "functions", "other.mjs"), "utf8")).resolves.toBe("keep\n")
+    await expect(readFile(join(netlifyRoot, "functions", "vitehub-schedule-stale.mjs"), "utf8")).rejects.toThrow()
+    await expect(readFile(join(netlifyRoot, "functions", "vitehub-schedule-cleanup.mjs"), "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
     expect(JSON.parse(await readFile(join(cloudflareRoot, "wrangler.json"), "utf8")).triggers.crons).toEqual(["0 1 * * *", "0 0 * * *"])
   })
 

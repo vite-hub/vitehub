@@ -5,7 +5,7 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, createDefaultNetlifyOutputRoot } from "@vite-hub/internal/build/deployment-output"
 import { hubSchedule } from "../src/vite.ts"
 
 function resolveScheduleRegistry(plugin: ReturnType<typeof hubSchedule>) {
@@ -377,6 +377,8 @@ describe("Vite schedule integration", () => {
     await expect(readFile(join(root, ".vitehub", "schedule", "registry.mjs"), "utf8")).resolves.not.toContain("\"sync\"")
     await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.toContain("\"0 0 * * *\"")
     await expect(readFile(join(createDefaultCloudflareOutputRoot(root), "wrangler.json"), "utf8")).resolves.not.toContain("\"0 4 * * *\"")
+    await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-cleanup.mjs"), "utf8")).resolves.toContain("schedule: \"0 0 * * *\"")
+    await expect(readFile(join(createDefaultNetlifyOutputRoot(root), "functions", "vitehub-schedule-sync.mjs"), "utf8")).rejects.toThrow()
   })
 
   it("serves a stable lazy registry for discovered schedule files", async () => {

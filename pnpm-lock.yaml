@@ -428,6 +428,9 @@ importers:
       chat:
         specifier: catalog:chat
         version: 4.29.0(ai@7.0.0-canary.173(zod@4.4.3))(zod@4.4.3)
+      esbuild:
+        specifier: catalog:esbuild-v27
+        version: 0.27.7
       hookable:
         specifier: catalog:unjs
         version: 6.1.1
