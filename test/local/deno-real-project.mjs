@@ -45,8 +45,14 @@ function run(command, args, options = {}) {
       else writeFileSync(logFile, output)
     }
   }
+  if (result.error) {
+    const detail = logFile ? `; see ${logFile}` : ""
+    throw new Error(`[e2e:deno] ${command} ${args.join(" ")} failed: ${result.error.message}${detail}`)
+  }
   if (result.status !== 0) {
-    throw new Error(`[e2e:deno] ${command} ${args.join(" ")} failed with exit ${result.status}`)
+    const detail = logFile ? `; see ${logFile}` : ""
+    const exit = result.status === null ? `signal ${result.signal}` : `exit ${result.status}`
+    throw new Error(`[e2e:deno] ${command} ${args.join(" ")} failed with ${exit}${detail}`)
   }
   return result
 }
@@ -236,6 +242,43 @@ async function waitForChat(child, timeoutMs = 90_000) {
   throw new Error(`[e2e:deno] chat route never became healthy: ${lastError}`)
 }
 
+async function writeDenoDeployConfig({ app, org }) {
+  const configPath = join(appDir, "deno.json")
+  await writeFile(configPath, `${JSON.stringify({
+    deploy: {
+      app,
+      ...(org ? { org } : {}),
+    },
+  }, null, 2)}\n`, "utf8")
+  return configPath
+}
+
+async function runDenoDeployProof({ app, denoServer, org }) {
+  const configPath = await writeDenoDeployConfig({ app, org })
+  const directoryArgs = ["deploy", "--app", app, "--allow-node-modules"]
+  const fileArgs = ["deploy", "--config", "deno.json", "--app", app, "--allow-node-modules"]
+  if (org) {
+    directoryArgs.push("--org", org)
+    fileArgs.push("--org", org)
+  }
+  directoryArgs.push(appDir)
+  fileArgs.push(denoServer)
+
+  log(`Deno Deploy live smoke target app ${JSON.stringify(app)}${org ? ` in org ${JSON.stringify(org)}` : ""}; preview deploy only, no --prod`)
+  log(`Deno Deploy generated entrypoint ${denoServer}`)
+  log(`Deno Deploy config ${configPath}`)
+  const logFile = join(logDir, "deno-deploy.log")
+  const message = [
+    "[e2e:deno] Deno Deploy live smoke is blocked before remote mutation.",
+    `Installed ${deno} deploy publishes a directory root and exposes no entrypoint flag.`,
+    `Live smoke can run after the Deno Deploy app entrypoint is configured to ${denoServer}, or a newer visible CLI flow can set that entrypoint.`,
+    `File-root command failed because the CLI walks the root path as a directory: ${deno} ${fileArgs.join(" ")}`,
+    `Candidate directory-root command after entrypoint configuration: ${deno} ${directoryArgs.join(" ")}`,
+  ].join("\n")
+  await writeFile(logFile, `${message}\n`, "utf8")
+  throw new Error(`${message}; see ${logFile}`)
+}
+
 function spawnLogged(command, args) {
   log(`${command} ${args.join(" ")}`)
   const child = spawn(command, args, {
@@ -275,14 +318,16 @@ async function runDenoServeProof(denoServer) {
   }
 }
 
-const args = process.argv.slice(2)
-if (args[0] === "--") args.shift()
+const args = process.argv.slice(2).filter(arg => arg !== "--")
 
 const { values } = parseArgs({
   args,
   options: {
     "package-source": { type: "string" },
     keep: { type: "boolean" },
+    live: { type: "boolean" },
+    "live-app": { type: "string" },
+    "live-org": { type: "string" },
     preview: { type: "string" },
   },
   strict: true,
@@ -294,12 +339,17 @@ const preview = values.preview || process.env.VITEHUB_DENO_PREVIEW
 if (packageSource === "preview") {
   assert(preview, "--preview <pr-or-sha> or VITEHUB_DENO_PREVIEW is required for --package-source preview")
 }
+const liveApp = values["live-app"] || process.env.VITEHUB_DENO_DEPLOY_APP || "vitehub-deno-smoke"
+const liveOrg = values["live-org"] || process.env.VITEHUB_DENO_DEPLOY_ORG
 
 try {
   await createProject({ packageSource, preview })
   run("pnpm", ["build"], { cwd: appDir, logName: "build.log" })
   const denoServer = await assertGeneratedOutput()
   await runDenoServeProof(denoServer)
+  if (values.live) {
+    await runDenoDeployProof({ app: liveApp, denoServer, org: liveOrg })
+  }
   log(`real project proof passed at ${appDir}`)
 }
 finally {
