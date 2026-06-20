@@ -1,10 +1,21 @@
+import { createSign } from "node:crypto"
+
 import type {
+  AgentCallbackContext,
+  AgentCapabilityDefinition,
   AgentChannelDefinition,
   AgentChannelDeliveryEffectContext,
+  AgentChannelDeliveryEffectIntent,
   AgentChannelDeliveryEffects,
+  AgentChannelDeliveryFinishEffect,
   AgentChatWebhookRegistrationDefinition,
+  AgentFinishEvent,
+  AgentRunInput,
+  AgentTriggerDefinition,
   AgentMessageChannelSettings,
+  AgentTriggerInvokeResult,
   AgentRuntimeConfig,
+  AgentWebhookSecretToken,
   MaybeResolvable,
 } from "./types.ts"
 import type { AgentChatFetchHandlerOptions } from "./server.ts"
@@ -20,7 +31,6 @@ export type {
   AgentChannels,
   AgentMessageChannelSettings,
 } from "./types.ts"
-
 export interface AgentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapter?: AgentChannelDefinition<TRuntimeConfig>["adapter"]
   dev?: AgentChannelDefinition<TRuntimeConfig>["dev"]
@@ -37,6 +47,51 @@ export interface AgentStreamChannelOptions<TRuntimeConfig extends AgentRuntimeCo
   route?: true | AgentChatFetchHandlerOptions
 }
 
+type GitHubAppValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
+  MaybeResolvable<T, AgentCallbackContext<TRuntimeConfig> | AgentChannelDeliveryEffectContext<TRuntimeConfig>>
+type GitHubAppContext<TRuntimeConfig extends AgentRuntimeConfig> =
+  AgentCallbackContext<TRuntimeConfig> | AgentChannelDeliveryEffectContext<TRuntimeConfig>
+
+export interface GitHubAppOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  apiBaseUrl?: string
+  appId?: GitHubAppValue<number | string | undefined, TRuntimeConfig>
+  fetch?: typeof fetch
+  installationId?: GitHubAppValue<number | string | undefined, TRuntimeConfig>
+  privateKey?: GitHubAppValue<string | { unseal: () => string } | undefined, TRuntimeConfig>
+  statusContext?: string
+  userAgent?: string
+  webhookSecret?: GitHubAppValue<false | string | { unseal: () => string } | undefined, TRuntimeConfig>
+}
+
+export type GitHubIssueCommentPayload = {
+  action?: unknown
+  comment?: {
+    author_association?: unknown
+    body?: unknown
+    created_at?: unknown
+    html_url?: unknown
+    id?: unknown
+    node_id?: unknown
+    updated_at?: unknown
+    user?: { id?: unknown, login?: unknown, type?: unknown }
+  }
+  installation?: { id?: unknown }
+  issue?: {
+    author_association?: unknown
+    html_url?: unknown
+    labels?: unknown
+    number?: unknown
+    pull_request?: { html_url?: unknown, url?: unknown }
+    title?: unknown
+  }
+  repository?: {
+    full_name?: unknown
+    name?: unknown
+    owner?: { login?: unknown }
+  }
+  sender?: { id?: unknown, login?: unknown, type?: unknown }
+}
+
 export interface GitHubPullRequestCommand {
   action: "created"
   actor: {
@@ -46,7 +101,8 @@ export interface GitHubPullRequestCommand {
     type?: string
   }
   args: string
-  command: string
+  body: string
+  command: `/${string}` | (string & {})
   commentId: number
   commentNodeId?: string
   deliveryId?: string
@@ -58,27 +114,18 @@ export interface GitHubPullRequestCommand {
   repository: string
 }
 
-export interface GitHubPullRequestCommandOptions {
-  command: `/${string}` | (string & {})
-}
-
-export interface GitHubPullRequestRunContextOptions {
-  origin?: string
-  runId?: string
-  sourceMount?: string
-  sourceRef?: string
-  threadId?: string
-}
-
 export interface GitHubPullRequestRunContext {
   pullRequest: {
     apiUrl: string
+    htmlUrl?: string
+    labels?: string[]
     number: number
     source: {
       mount: string
       ref: string
       repo: string
     }
+    title?: string
   }
   repository: {
     fullName: string
@@ -97,42 +144,62 @@ export interface GitHubPullRequestRunContext {
     args: string
     command: string
     comment: {
+      authorAssociation?: string
+      body?: string
+      createdAt?: string
+      htmlUrl?: string
       id: number
       nodeId?: string
+      updatedAt?: string
     }
     deliveryId?: string
+    event: "issue_comment"
     installationId?: number
+    sender?: {
+      id?: number
+      login?: string
+      type?: string
+    }
   }
 }
 
-export interface GitHubPullRequestEffectsOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+declare global {
+  interface ViteHubWorkspaceSourceResolutionContextMap {
+    github: GitHubPullRequestCommand
+    pullRequest: GitHubPullRequestRunContext
+  }
+  interface ViteHubAgentInvocationContextValues {
+    github: GitHubPullRequestCommand
+    pullRequest: GitHubPullRequestRunContext
+  }
+}
+
+export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  dev?: AgentTriggerDefinition<TRuntimeConfig>["dev"]
+  ignored?: (reason: string) => Response
+  origin?: string
+  reply?: boolean | AgentChannelDeliveryFinishEffect
+  sourceMount?: string
+  sourceRef?: string
+  threadId?: string
+}
+
+export interface GitHubChannelEventsOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
+  pullRequestComments?: boolean | GitHubPullRequestCommentEventOptions<TRuntimeConfig>
+}
+
+export interface GitHubChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends AgentChannelOptions<TRuntimeConfig> {
+  app?: true | GitHubAppOptions<TRuntimeConfig>
+  events?: GitHubChannelEventsOptions<TRuntimeConfig>
+}
+
+interface GitHubPullRequestEffectsOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   apiBaseUrl?: string
   fetch?: typeof fetch
   statusContext?: string
   token: MaybeResolvable<string, AgentChannelDeliveryEffectContext<TRuntimeConfig>>
   userAgent?: string
-}
-
-type GitHubIssueCommentPayload = {
-  action?: unknown
-  comment?: {
-    author_association?: unknown
-    body?: unknown
-    id?: unknown
-    node_id?: unknown
-    user?: { id?: unknown, login?: unknown, type?: unknown }
-  }
-  installation?: { id?: unknown }
-  issue?: {
-    author_association?: unknown
-    number?: unknown
-    pull_request?: { url?: unknown }
-  }
-  repository?: {
-    full_name?: unknown
-    name?: unknown
-    owner?: { login?: unknown }
-  }
 }
 
 type GitHubPullRequestStatusPayload = {
@@ -155,9 +222,22 @@ function maybeNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined
 }
 
+function maybeStrings(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return
+  const strings = value.filter((item): item is string => typeof item === "string" && Boolean(item))
+  return strings.length ? strings : undefined
+}
+
 function inputPayload(input: unknown): GitHubIssueCommentPayload | undefined {
   if (!isRecord(input)) return
   return isRecord(input.payload) ? input.payload as GitHubIssueCommentPayload : undefined
+}
+
+function inputPayloadOrBody(input: unknown): GitHubIssueCommentPayload | undefined {
+  const payload = inputPayload(input)
+  if (payload) return payload
+  if (!isRecord(input) || typeof input.body !== "string") return
+  return JSON.parse(input.body || "{}") as GitHubIssueCommentPayload
 }
 
 function inputGithubFacts(input: unknown): Record<string, unknown> | undefined {
@@ -165,26 +245,53 @@ function inputGithubFacts(input: unknown): Record<string, unknown> | undefined {
   return isRecord(input.github) ? input.github : undefined
 }
 
-function matchCommand(body: string, command: string): string | undefined {
+function parseSlashCommand(body: string): { args: string, command: `/${string}` | (string & {}) } | undefined {
   const text = body.trim()
-  if (text === command) return ""
-  if (text.startsWith(`${command} `) || text.startsWith(`${command}\n`)) return text.slice(command.length).trim()
-  return undefined
+  const match = /^(\/[a-z][a-z0-9_-]*)(?:\s+([\s\S]*))?$/i.exec(text)
+  if (!match) return
+  return {
+    args: match[2]?.trim() || "",
+    command: match[1] as `/${string}`,
+  }
 }
 
-export function githubPullRequestCommand(input: unknown, options: GitHubPullRequestCommandOptions): GitHubPullRequestCommand | undefined {
-  const command = options.command.trim()
-  if (!command.startsWith("/")) {
-    throw new TypeError("[vitehub] githubPullRequestCommand({ command }) requires slash command text such as \"/review\".")
+type AgentChannelTriggerContextWithCapabilities<TRuntimeConfig extends AgentRuntimeConfig> =
+  AgentCallbackContext<TRuntimeConfig> & { capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig>[] }
+
+type InputCommandsMetadata = {
+  commands: Record<string, unknown>
+  trigger: string
+}
+
+function inputCommandsMetadata(value: unknown): InputCommandsMetadata | undefined {
+  if (!isRecord(value) || Array.isArray(value.commands) || !isRecord(value.commands) || typeof value.trigger !== "string") return
+  return { commands: value.commands, trigger: value.trigger }
+}
+
+function declaredInputCommand<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentCallbackContext<TRuntimeConfig>,
+  command: string,
+): boolean | undefined {
+  let sawMatchingTrigger = false
+  for (const capability of (context as AgentChannelTriggerContextWithCapabilities<TRuntimeConfig>).capabilities || []) {
+    const metadata = inputCommandsMetadata(capability.metadata)
+    if (!metadata || !command.startsWith(metadata.trigger)) continue
+    const name = command.slice(metadata.trigger.length)
+    if (!name) continue
+    sawMatchingTrigger = true
+    if (Object.hasOwn(metadata.commands, name)) return true
   }
+  return sawMatchingTrigger ? false : undefined
+}
+
+function githubPullRequestCommandFromInput(input: unknown): GitHubPullRequestCommand | undefined {
   const payload = inputPayload(input)
   const facts = inputGithubFacts(input)
   if (!payload || facts?.event !== "issue_comment" || payload.action !== "created") return
   if (!payload.issue?.pull_request) return
   const body = maybeString(payload.comment?.body)
-  if (!body) return
-  const args = matchCommand(body, command)
-  if (args === undefined) return
+  const parsed = body ? parseSlashCommand(body) : undefined
+  if (!body || !parsed) return
   const repository = maybeString(payload.repository?.full_name)
   const [owner, repo] = repository?.split("/") || []
   const login = maybeString(payload.comment?.user?.login)
@@ -201,8 +308,9 @@ export function githubPullRequestCommand(input: unknown, options: GitHubPullRequ
       login,
       ...(maybeString(payload.comment?.user?.type) ? { type: maybeString(payload.comment?.user?.type) } : {}),
     },
-    args,
-    command,
+    args: parsed.args,
+    body,
+    command: parsed.command,
     commentId,
     ...(maybeString(payload.comment?.node_id) ? { commentNodeId: maybeString(payload.comment?.node_id) } : {}),
     ...(maybeString(facts?.deliveryId) ? { deliveryId: maybeString(facts?.deliveryId) } : {}),
@@ -215,20 +323,29 @@ export function githubPullRequestCommand(input: unknown, options: GitHubPullRequ
   }
 }
 
-export function githubPullRequestRunContext(
+function githubPullRequestRunContext(
   command: GitHubPullRequestCommand,
-  options: GitHubPullRequestRunContextOptions = {},
+  options: GitHubPullRequestCommentEventOptions = {},
+  payload?: GitHubIssueCommentPayload,
 ): GitHubPullRequestRunContext {
-  const runId = options.runId || command.deliveryId || `github:${command.repository}#${command.issueNumber}:comment:${command.commentId}`
+  const runId = command.deliveryId || `github:${command.repository}#${command.issueNumber}:comment:${command.commentId}`
+  const labels = maybeStrings(Array.isArray(payload?.issue?.labels)
+    ? payload.issue.labels.map(label => isRecord(label) ? maybeString(label.name) : undefined)
+    : undefined)
   return {
     pullRequest: {
       apiUrl: command.pullRequestUrl,
+      ...(maybeString(payload?.issue?.pull_request?.html_url) || maybeString(payload?.issue?.html_url)
+        ? { htmlUrl: maybeString(payload?.issue?.pull_request?.html_url) || maybeString(payload?.issue?.html_url) }
+        : {}),
+      ...(labels ? { labels } : {}),
       number: command.issueNumber,
       source: {
         mount: options.sourceMount || command.repo,
         ref: options.sourceRef || `refs/pull/${command.issueNumber}/head`,
         repo: command.repository,
       },
+      ...(maybeString(payload?.issue?.title) ? { title: maybeString(payload?.issue?.title) } : {}),
     },
     repository: {
       fullName: command.repository,
@@ -237,7 +354,7 @@ export function githubPullRequestRunContext(
     },
     run: {
       messageId: String(command.commentId),
-      origin: options.origin || "github-pull-request",
+      origin: options.origin || "github-pull-request-comment",
       runId,
       threadId: options.threadId || command.pullRequestUrl,
     },
@@ -247,12 +364,40 @@ export function githubPullRequestRunContext(
       args: command.args,
       command: command.command,
       comment: {
+        ...(command.actor.association ? { authorAssociation: command.actor.association } : {}),
+        ...(maybeString(payload?.comment?.body) ? { body: maybeString(payload?.comment?.body) } : {}),
+        ...(maybeString(payload?.comment?.created_at) ? { createdAt: maybeString(payload?.comment?.created_at) } : {}),
+        ...(maybeString(payload?.comment?.html_url) ? { htmlUrl: maybeString(payload?.comment?.html_url) } : {}),
         id: command.commentId,
         ...(command.commentNodeId ? { nodeId: command.commentNodeId } : {}),
+        ...(maybeString(payload?.comment?.updated_at) ? { updatedAt: maybeString(payload?.comment?.updated_at) } : {}),
       },
       ...(command.deliveryId ? { deliveryId: command.deliveryId } : {}),
+      event: "issue_comment",
       ...(command.installationId ? { installationId: command.installationId } : {}),
+      ...(payload?.sender
+        ? {
+            sender: {
+              ...(maybeNumber(payload.sender.id) ? { id: maybeNumber(payload.sender.id) } : {}),
+              ...(maybeString(payload.sender.login) ? { login: maybeString(payload.sender.login) } : {}),
+              ...(maybeString(payload.sender.type) ? { type: maybeString(payload.sender.type) } : {}),
+            },
+          }
+        : {}),
     },
+  }
+}
+
+function pullRequestCommandInput(
+  command: GitHubPullRequestCommand,
+  pullRequest: GitHubPullRequestRunContext,
+): AgentRunInput {
+  return {
+    context: {
+      github: command,
+      pullRequest,
+    },
+    prompt: command.body,
   }
 }
 
@@ -276,6 +421,7 @@ function githubCommandFromUnknown(value: unknown): GitHubPullRequestCommand | un
         }
       : { login: "" },
     args: maybeString(value.args) || "",
+    body: maybeString(value.body) || maybeString(value.command) || "",
     command: maybeString(value.command) || "",
     commentId,
     ...(maybeString(value.commentNodeId) ? { commentNodeId: maybeString(value.commentNodeId) } : {}),
@@ -306,6 +452,156 @@ async function resolveEffectOption<T, TRuntimeConfig extends AgentRuntimeConfig>
   if (typeof value === "function") return await (value as (context: AgentChannelDeliveryEffectContext<TRuntimeConfig>) => T | Promise<T>)(context)
   if (isRecord(value) && typeof value.resolve === "function") return await (value.resolve as (context: AgentChannelDeliveryEffectContext<TRuntimeConfig>) => T | Promise<T>)(context)
   return value as T
+}
+
+async function resolveGithubAppOption<T, TRuntimeConfig extends AgentRuntimeConfig>(
+  value: GitHubAppValue<T, TRuntimeConfig> | undefined,
+  context: GitHubAppContext<TRuntimeConfig>,
+): Promise<T | undefined> {
+  if (value === undefined) return undefined
+  if (typeof value === "function") return await (value as (context: GitHubAppContext<TRuntimeConfig>) => T | Promise<T>)(context)
+  if (isRecord(value) && typeof value.resolve === "function") return await (value.resolve as (context: GitHubAppContext<TRuntimeConfig>) => T | Promise<T>)(context)
+  return value as T
+}
+
+function unseal(value: unknown): unknown {
+  return isRecord(value) && typeof value.unseal === "function" ? value.unseal() : value
+}
+
+function cleanSecret(value: unknown): string | undefined {
+  const secret = unseal(value)
+  return typeof secret === "string" && secret.trim() ? secret.trim() : undefined
+}
+
+const serverEnvModuleId = "#vitehub/env/server"
+
+async function githubEnv(event?: unknown): Promise<Record<string, unknown>> {
+  const fallback = typeof process === "object" && process?.env
+    ? {
+        appId: process.env.GITHUB_APP_ID,
+        appInstallationId: process.env.GITHUB_APP_INSTALLATION_ID,
+        appPrivateKey: process.env.GITHUB_APP_PRIVATE_KEY,
+        webhookSecret: process.env.GITHUB_WEBHOOK_SECRET,
+      }
+    : {}
+  try {
+    const module = await import(/* @vite-ignore */ serverEnvModuleId) as { useServerEnv?: (event?: unknown) => unknown }
+    const env = module.useServerEnv?.(event)
+    return {
+      ...fallback,
+      ...(isRecord(env) && isRecord(env.github) ? env.github : {}),
+    }
+  }
+  catch {
+    return fallback
+  }
+}
+
+function githubAppOptions<TRuntimeConfig extends AgentRuntimeConfig>(
+  app: true | GitHubAppOptions<TRuntimeConfig> | undefined,
+): GitHubAppOptions<TRuntimeConfig> | undefined {
+  return app === true ? {} : app
+}
+
+async function githubAppSetting<T, TRuntimeConfig extends AgentRuntimeConfig>(
+  options: GitHubAppOptions<TRuntimeConfig>,
+  env: Record<string, unknown>,
+  key: keyof GitHubAppOptions<TRuntimeConfig>,
+  envKey: string,
+  context: AgentCallbackContext<TRuntimeConfig> | AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+): Promise<T | undefined> {
+  return await resolveGithubAppOption(options[key] as GitHubAppValue<T, TRuntimeConfig> | undefined, context) ?? unseal(env[envKey]) as T | undefined
+}
+
+function requiredString(value: unknown, name: string): string {
+  const string = typeof value === "number" ? String(value) : cleanSecret(value)
+  if (!string) throw new Error(`[vitehub] Missing GitHub App ${name}.`)
+  return string
+}
+
+function requiredNumber(value: unknown, name: string): number {
+  const number = typeof value === "number" ? value : Number(cleanSecret(value))
+  if (!Number.isFinite(number)) throw new Error(`[vitehub] Missing GitHub App ${name}.`)
+  return number
+}
+
+async function githubAppPrivateKey<TRuntimeConfig extends AgentRuntimeConfig>(
+  options: GitHubAppOptions<TRuntimeConfig>,
+  env: Record<string, unknown>,
+  context: AgentCallbackContext<TRuntimeConfig> | AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+) {
+  const inline = cleanSecret(await githubAppSetting(options, env, "privateKey", "appPrivateKey", context))
+  if (inline) return inline.replace(/\\n/g, "\n")
+  throw new Error("[vitehub] Missing GitHub App privateKey. Set github.appPrivateKey or GITHUB_APP_PRIVATE_KEY.")
+}
+
+function base64url(value: string | Buffer) {
+  return Buffer.from(value).toString("base64url")
+}
+
+function githubAppJwt(appId: string, privateKey: string) {
+  const now = Math.floor(Date.now() / 1000)
+  const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }))
+  const payload = base64url(JSON.stringify({ exp: now + 540, iat: now - 60, iss: appId }))
+  const data = `${header}.${payload}`
+  return `${data}.${createSign("RSA-SHA256").update(data).sign(privateKey).toString("base64url")}`
+}
+
+const githubAppTokenCache = new Map<string, { expiresAt: number, token: string }>()
+
+async function githubAppInstallationToken<TRuntimeConfig extends AgentRuntimeConfig>(
+  app: true | GitHubAppOptions<TRuntimeConfig>,
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+) {
+  const options = githubAppOptions(app) || {}
+  const env = await githubEnv(context)
+  const appId = requiredString(await githubAppSetting(options, env, "appId", "appId", context), "appId")
+  const installationId = githubCommandFromEffect(context)?.installationId
+    ?? requiredNumber(await githubAppSetting(options, env, "installationId", "appInstallationId", context), "installationId")
+  const apiBaseUrl = options.apiBaseUrl || "https://api.github.com"
+  const cacheKey = `${apiBaseUrl}:${appId}:${installationId}`
+  const cached = githubAppTokenCache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token
+
+  const response = await githubApi(options.fetch || fetch, `${apiBaseUrl}/app/installations/${installationId}/access_tokens`, {
+    headers: githubApiHeaders(githubAppJwt(appId, await githubAppPrivateKey(options, env, context)), options.userAgent),
+    method: "POST",
+  })
+  const body = await response.json().catch(() => undefined)
+  const token = isRecord(body) && typeof body.token === "string" ? body.token : undefined
+  if (!token) throw new Error("[vitehub] GitHub App installation token response did not include token.")
+  const expiresAt = isRecord(body) && typeof body.expires_at === "string" ? Date.parse(body.expires_at) : Date.now() + 9 * 60_000
+  githubAppTokenCache.set(cacheKey, { expiresAt, token })
+  return token
+}
+
+async function githubAppWebhookSecret<TRuntimeConfig extends AgentRuntimeConfig>(
+  app: true | GitHubAppOptions<TRuntimeConfig>,
+  context: AgentCallbackContext<TRuntimeConfig>,
+): Promise<string | false> {
+  const options = githubAppOptions(app) || {}
+  const env = await githubEnv(context)
+  const secret = await githubAppSetting<false | string | { unseal: () => string } | undefined, TRuntimeConfig>(options, env, "webhookSecret", "webhookSecret", context)
+  if (secret === false) return false
+  return cleanSecret(secret) || ""
+}
+
+function staticGithubAppWebhookSecret<TRuntimeConfig extends AgentRuntimeConfig>(
+  app: true | GitHubAppOptions<TRuntimeConfig>,
+): string | false | undefined {
+  if (app === true) return
+  const secret = app.webhookSecret
+  if (secret === false) return false
+  if (typeof secret === "function") return
+  return cleanSecret(secret)
+}
+
+function githubAppWebhookSecretToken<TRuntimeConfig extends AgentRuntimeConfig>(
+  app: true | GitHubAppOptions<TRuntimeConfig>,
+): AgentWebhookSecretToken<TRuntimeConfig> {
+  const staticSecret = staticGithubAppWebhookSecret(app)
+  if (staticSecret !== undefined) return staticSecret
+  return context => githubAppWebhookSecret(app, context)
 }
 
 function githubApiHeaders(token: string, userAgent?: string): Record<string, string> {
@@ -344,6 +640,37 @@ function replyBody<TRuntimeConfig extends AgentRuntimeConfig>(
   if (typeof context.effect.metadata?.body === "string") return context.effect.metadata.body
 }
 
+function finishResultText(result: unknown): string | undefined {
+  if (typeof result === "string") return result
+  if (result instanceof Response) return
+  return isRecord(result) ? maybeString(result.text) : undefined
+}
+
+function finishUsageSummary(event: AgentFinishEvent): string | undefined {
+  const usage = event.extensions.get("usage-telemetry")
+  return isRecord(usage) ? maybeString(usage.summary) : undefined
+}
+
+function githubPullRequestCommentReplyEffect(event: AgentFinishEvent): AgentChannelDeliveryEffectIntent | undefined {
+  const text = finishResultText(event.result)
+  if (!text) return
+  const body = text.trim() || "_No reply generated._"
+  const summary = finishUsageSummary(event)
+  return {
+    kind: "reply",
+    payload: summary ? `${body}\n\n> ${summary}` : body,
+  }
+}
+
+function githubPullRequestCommentFinishEffects(
+  options: GitHubPullRequestCommentEventOptions,
+): AgentChannelDeliveryFinishEffect | undefined {
+  if (options.reply === false) return
+  return options.reply === true || options.reply === undefined
+    ? githubPullRequestCommentReplyEffect
+    : options.reply
+}
+
 function statusPayload<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
   defaultContext: string,
@@ -368,7 +695,7 @@ async function githubPullRequestHeadSha(
   return isRecord(payload) && isRecord(payload.head) ? maybeString(payload.head.sha) : undefined
 }
 
-export function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
+function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: GitHubPullRequestEffectsOptions<TRuntimeConfig>,
 ): AgentChannelDeliveryEffects<TRuntimeConfig> {
   return {
@@ -418,9 +745,11 @@ export function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConf
 
 function githubWebhookDefaults<TRuntimeConfig extends AgentRuntimeConfig>(
   webhooks: AgentChannelDefinition<TRuntimeConfig>["webhooks"],
+  app?: true | GitHubAppOptions<TRuntimeConfig>,
 ): AgentChannelDefinition<TRuntimeConfig>["webhooks"] {
   const defaults = {
     secretHeader: "x-hub-signature-256",
+    ...(app ? { secretToken: githubAppWebhookSecretToken(app) } : {}),
     signature: "github-sha256" as const,
   }
   if (webhooks === undefined || webhooks === true) return defaults
@@ -437,6 +766,43 @@ function telegramWebhookDefaults<TRuntimeConfig extends AgentRuntimeConfig>(
   if (webhooks === false) return false
   const apply = (webhook: AgentChatWebhookRegistrationDefinition<TRuntimeConfig>) => ({ ...defaults, ...webhook })
   return Array.isArray(webhooks) ? webhooks.map(apply) : apply(webhooks)
+}
+
+function ignored(reason: string) {
+  return Response.json({ accepted: false, ok: true, reason })
+}
+
+function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
+  events: GitHubChannelEventsOptions<TRuntimeConfig> | undefined,
+): AgentChannelDefinition<TRuntimeConfig>["triggers"] {
+  const pullRequestComments = events?.pullRequestComments
+  if (!pullRequestComments) return undefined
+  const options = pullRequestComments === true ? {} : pullRequestComments
+  return {
+    webhook: {
+      ...(options.dev ? { dev: options.dev } : {}),
+      async invoke(context, input): Promise<AgentTriggerInvokeResult> {
+        const payload = inputPayloadOrBody(input)
+        const command = githubPullRequestCommandFromInput(isRecord(input) ? { ...input, payload } : { payload })
+        if (!payload) return options.ignored?.("missing_payload") || ignored("missing_payload")
+        if (!command) return options.ignored?.("not_command") || ignored("not_command")
+        if (declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
+        const pullRequest = githubPullRequestRunContext(command, {
+          ...options,
+          threadId: options.threadId || maybeString(payload.issue?.pull_request?.html_url) || maybeString(payload.issue?.html_url),
+        }, payload)
+        const finishEffects = githubPullRequestCommentFinishEffects(options)
+        return {
+          ...(finishEffects ? { delivery: { finishEffects } } : {}),
+          input: pullRequestCommandInput(command, pullRequest),
+          run: {
+            ...pullRequest.run,
+            channelId: context.trigger.channelId,
+          },
+        }
+      },
+    },
+  }
 }
 
 export function defineChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
@@ -462,12 +828,27 @@ export function discord<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntime
 }
 
 export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  options: AgentChannelOptions<TRuntimeConfig> = {},
+  options: GitHubChannelOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
+  const app = githubAppOptions(options.app)
+  const appEffects: AgentChannelDeliveryEffects<TRuntimeConfig> | undefined = options.app
+    ? githubPullRequestEffects<TRuntimeConfig>({
+        apiBaseUrl: app?.apiBaseUrl,
+        fetch: app?.fetch,
+        statusContext: app?.statusContext,
+        token: context => githubAppInstallationToken(options.app!, context),
+        userAgent: app?.userAgent,
+      })
+    : undefined
   return defineChannel("github", {
     ...options,
+    effects: appEffects ? { ...appEffects, ...options.effects } as AgentChannelDeliveryEffects<TRuntimeConfig> : options.effects,
     messages: false,
-    webhooks: githubWebhookDefaults(options.webhooks),
+    triggers: {
+      ...githubEventTriggers(options.events),
+      ...options.triggers,
+    },
+    webhooks: githubWebhookDefaults(options.webhooks, options.app),
   })
 }
 

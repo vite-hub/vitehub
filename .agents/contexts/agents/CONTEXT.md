@@ -80,6 +80,10 @@ _Avoid_: Filesystem channel registration, Capability factory, route helper
 An official Channel Kind for verified GitHub App or webhook delivery into Agent Invocations, plus reusable pull-request delivery facts and write-back effects.
 _Avoid_: Quiver Review behavior, browser review command, GitHub Capability
 
+**GitHub Pull Request Context**:
+The typed Agent Invocation Context Value produced by GitHub pull-request comment delivery, containing repository, pull-request source, triggering comment, run metadata, and trusted delivery facts.
+_Avoid_: Raw webhook payload, app-cast metadata, GitHub Capability
+
 **Stream Channel**:
 An official Channel Kind for app-owned HTTP UI-message stream entry into an Agent, such as Portal Ask AI.
 _Avoid_: sibling chat route helper, Web Chat, Chat Platform Adapter
@@ -196,6 +200,10 @@ _Avoid_: Metadata, chat analytics, generic observability
 The final completed accounting record captured after one Agent Invocation finishes, combining Agent Usage with selected Agent Driver, response, latency, and optional cost information.
 _Avoid_: Live stream event, token log
 
+**Agent Usage Summary**:
+An app-facing formatted summary derived from an Agent Usage Record for humans reading delivery output.
+_Avoid_: raw Agent Usage Record, hardcoded Channel footer, billing ledger
+
 **Mock Agent Adapter**:
 A deterministic Agent Adapter that exercises Agent Invocation behavior without calling a paid model provider.
 _Avoid_: Fake agent, dummy model, test bot
@@ -281,7 +289,8 @@ _Avoid_: Fake agent, dummy model, test bot
 - A **Custom Channel** is the root Agent Definition replacement for the old Entry Capability idea.
 - App-owned product events use **Custom Channels** when the concern is Agent reachability rather than a reusable Agent ability.
 - A **GitHub Channel** owns reusable GitHub delivery, verification, event facts, installation context, actor mapping, Channel Delivery Admission, and supported Channel Delivery Effects for triggering events; product-specific commands and artifacts stay app-owned.
-- A **GitHub Channel** trigger receives verified GitHub delivery facts from generated webhook routing. App code owns product-specific admission such as command filtering and trusted actor checks, while first-party helpers may parse pull-request comment command facts without deciding whether the Agent should run.
+- A **GitHub Channel** trigger receives verified GitHub delivery facts from generated webhook routing. App code owns product-specific admission such as command filtering and trusted actor checks, while first-party helpers may parse pull-request comment command facts and let app handlers accept, reject, or enrich the run input before the Agent runs.
+- A **GitHub Channel** exposes **GitHub Pull Request Context** as a typed **Agent Invocation Context Value** so Workspace Source resolvers and app admission code do not parse or cast raw webhook payloads.
 - GitHub pull-request write-back should use generic **Channel Delivery Effects** such as reactions, replies, and statuses instead of GitHub-prefixed Capability APIs.
 - Official **Channel Kinds** should name concrete entry paths rather than a generic Chat Channel.
 - Official **Channel Kind** helpers are imported from `@vite-hub/agent/channels`, not from the Agent Package root or Capabilities entry.
@@ -333,6 +342,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - **Agent Usage Records** record cost only when a provider reports it or explicit pricing logic estimates it; ViteHub must not invent exact cost for subscription-backed harness runs.
 - **Agent Usage Telemetry** observes **Agent Usage Records**.
 - **Agent Usage Telemetry** can expose an **Agent Usage Record** as an **Agent Invocation Extension**.
+- An **Agent Usage Summary** may be formatted by app code because human-facing delivery copy belongs to the application, while ViteHub owns the normalized usage record.
 - A **Mock Agent Adapter** can support playgrounds and end-to-end tests without creating provider cost.
 - Agent callbacks receive Agent-owned runtime metadata, not app-owned Runtime Env; server code reads app-owned Runtime Env through Server Env.
 

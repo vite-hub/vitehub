@@ -197,7 +197,7 @@ An external Model Context Protocol server consumed by an Agent through the MCP C
 _Avoid_: ViteHub-hosted server, Workspace Source
 
 **Input Command**:
-A Capability-provided command that transforms or enriches explicit user input before an Agent runs.
+A Capability-provided command that accepts, rejects, transforms, or enriches explicit user input before an Agent runs.
 _Avoid_: Slash Command, chat command, shell command, model tool
 
 **Host Command**:
@@ -253,6 +253,8 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - If an **MCP Prompt Template** references read-only MCP resources, those resources can be exposed separately through an **MCP Resource Source**.
 - Standard Schema validation is the preferred runtime boundary for app-owned invocation metadata that an official **Capability** directly consumes.
 - An **Input Command** is a **Capability** concern resolved before model-facing Agent behavior.
+- An **Input Command** owns command admission and input shaping, not model-facing task instructions.
+- Command-shaped **Channel Delivery Admission** should preserve the explicit input and let configured **Input Commands** accept, reject, or reshape it before **Agent Driver** execution.
 - A **Host Command** is not an **Input Command** and is outside the Capability Lifecycle.
 - A **Pre-Invocation Decision** is an internal primitive used by Capabilities before the main Agent Invocation.
 - A **Pre-Invocation Decision** can expose a typed invocation context value, reject the invocation, record an inspectable decision, or select Chat Session behavior.
@@ -335,7 +337,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A **Capability** can declare **Capability Requirements**.
 - The **Capability Lifecycle** validates **Capability Requirements** as early as possible.
 - Tools are exposed through **Capability Definitions**, not through top-level Agent Definition fields.
-- An **Input Command** exposes user-facing command descriptions for host rendering without making those descriptions part of command identity.
+- An **Input Command** exposes user-facing command descriptions for host rendering without making those descriptions model-facing instructions.
 - Official storage Capabilities use a **Storage Capability Tool Surface** instead of one tool per primitive method.
 - The DB Capability has data `mode` and **Schema Mode** as separate permission axes.
 - Storage write tools require approval by default unless the developer opts into **Autonomous Storage Writes**.

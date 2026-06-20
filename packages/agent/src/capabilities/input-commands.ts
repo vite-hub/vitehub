@@ -14,8 +14,10 @@ import type { Message } from "../messages.ts"
 
 export interface InputCommand {
   description: string
-  run: (input: InputCommandRunInput) => MaybePromise<Partial<AgentRunInput> | string | void>
+  run: (input: InputCommandRunInput) => MaybePromise<InputCommandResult>
 }
+
+export type InputCommandResult = Partial<AgentRunInput> | Response | string | void
 
 export interface InputCommandRunInput {
   args: string
@@ -220,6 +222,21 @@ export function replaceTargetText(
   return next
 }
 
+function inputCommandChangesText(result: Partial<AgentRunInput>): boolean {
+  return result.message !== undefined || result.messages !== undefined || result.prompt !== undefined
+}
+
+function removeInputCommandText(input: AgentRunInput, target: InputCommandTarget, invocation: InputCommandInvocation): AgentRunInput {
+  const before = target.text.slice(0, invocation.start).replace(/\s+$/, "")
+  const after = target.text.slice(invocation.end).replace(/^\s+/, "")
+  const text = before && after ? `${before} ${after}` : before || after
+  return replaceTargetText(input, target, text, {
+    end: target.text.length,
+    replacement: text,
+    start: 0,
+  })
+}
+
 function mergeInputCommandResult(input: AgentRunInput, result: Partial<AgentRunInput>): AgentRunInput {
   const next: AgentRunInput = {
     ...input,
@@ -270,6 +287,7 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
           name: invocation.name,
           text: invocation.text,
         })
+        if (result instanceof Response) return result
 
         const previousText = text
         input = context.input.get()
@@ -298,6 +316,7 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
         }
 
         if (result && typeof result === "object") {
+          const changesText = inputCommandChangesText(result)
           input = mergeInputCommandResult(input, result)
           context.input.set(input)
           target = getInputCommandTarget(input)
@@ -308,6 +327,21 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
             cursor = 0
             continue
           }
+          if (changesText) {
+            cursor = invocation.end
+            continue
+          }
+        }
+
+        if (text.slice(invocation.start, invocation.end) === invocation.text) {
+          input = removeInputCommandText(input, target, invocation)
+          context.input.set(input)
+          target = getInputCommandTarget(input)
+          if (!target) return
+          text = target.text
+          maxRuns = Math.max(maxRuns, text.length + 1)
+          cursor = 0
+          continue
         }
 
         if (text !== previousText) {

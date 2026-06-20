@@ -90,6 +90,7 @@ export interface ResolvedAgentCapabilities {
   hasCloseCallbacks: boolean
   input: AgentRunInput
   messages: Message[]
+  response?: Response
   registries: AgentCapabilityRegistries
   toolTransforms: AgentToolTransform[]
   tools?: AgentToolSet
@@ -438,8 +439,22 @@ export async function resolveAgentCapabilities<
 
       for (const phase of phases) {
         await callHooks(`capability:${phase}`, capabilityContext, options?.hooks)
-        await capability[phase]?.(capabilityContext)
+        const result = await capability[phase]?.(capabilityContext)
         await callHooks(`capability:${phase}:after`, capabilityContext, options?.hooks)
+        if (result instanceof Response) {
+          return {
+            capabilityInstructions,
+            close: closeRegisteredCallbacks,
+            hasCloseCallbacks: hasCloseWork,
+            input: currentInput,
+            messages,
+            response: result,
+            registries,
+            toolTransforms,
+            tools,
+            workspace: currentWorkspace,
+          }
+        }
       }
 
       if (invocationOptions.resolveInstructions !== false && capability.instructions !== undefined) {

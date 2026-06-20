@@ -141,6 +141,39 @@ describe("usage telemetry", () => {
     })
   })
 
+  it("uses app-owned usage summary formatting", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const finish = vi.fn()
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry({
+          summary: {
+            format: record => `Summary: ${record.usage?.outputTokens} output tokens at ${record.latency?.tokensPerSecond?.toFixed(1)} tokens/sec`,
+          },
+        }),
+      ],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({
+        text: "ok",
+        totalUsage: {
+          outputTokens: 20,
+        },
+        durationMs: 2000,
+      }),
+    })
+
+    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({ text: "ok" })
+    expect(finish).toHaveBeenCalledTimes(1)
+    const usageRecord = finish.mock.calls[0]![0].extensions.get("usage-telemetry")
+    expect(usageRecord).toMatchObject({
+      summary: "Summary: 20 output tokens at 10.0 tokens/sec",
+    })
+  })
+
   it("summarizes partial token splits without rendering missing counts as zero", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { usageTelemetry } = await import("../src/capabilities.ts")

@@ -206,9 +206,28 @@ describe("inputCommands", () => {
     expect(resolved.input).toMatchObject({
       context: { issue: "VH-123", keep: "override", untouched: true },
       options: { mode: "focused" },
-      prompt: "/issue VH-123",
+      prompt: "",
       timeout: 100,
     })
+  })
+
+  it("accepts commands without adding prompt text", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [inputCommands({
+        commands: {
+          review: {
+            description: "Review the request.",
+            run: ({ args }) => ({ context: { review: { args } } }),
+          },
+        },
+      })],
+    }, runtime(), { prompt: "/review auth changes" })
+
+    expect(resolved.input.context).toEqual({ review: { args: "auth changes" } })
+    expect(resolved.input.prompt).toBe("")
   })
 
   it("treats returned messages as authoritative over a stale string prompt", async () => {
@@ -359,12 +378,13 @@ describe("inputCommands", () => {
 
     expect(order).toEqual(["first:one", "second:two"])
     expect(resolved.input.context).toEqual({ value: "second" })
+    expect(resolved.input.prompt).toBe("")
   })
 
   it("scans long command chains without recursive lookahead", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const run = vi.fn()
+    const run = vi.fn(({ text }) => text)
 
     const prompt = Array.from({ length: 6_000 }, (_, index) => `/mark ${index}`).join(" ")
     await resolveAgentCapabilities({
@@ -464,7 +484,7 @@ describe("inputCommands", () => {
 
     expect(resolved.input).toMatchObject({
       context: { fromHandler: true, fromReturn: true },
-      prompt: "/mutate now",
+      prompt: "",
     })
   })
 

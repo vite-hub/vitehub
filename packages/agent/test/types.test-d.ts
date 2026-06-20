@@ -1,8 +1,8 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineAgentInvoker, type AgentActor, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDefinition, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, type AgentActor, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDefinition, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
 import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
-import { defineChannel, github, http, stream, teams, telegram, webChat } from "../src/channels.ts"
+import { defineChannel, github, http, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
@@ -108,6 +108,15 @@ describe("agent public types", () => {
         }),
         usageTelemetry({ summary: true }),
         usageTelemetry({ summary: { subject: "Review run" } satisfies UsageTelemetrySummaryOptions }),
+        usageTelemetry({
+          summary: {
+            format(record, { subject }) {
+              expectTypeOf(record.usage?.totalTokens).toEqualTypeOf<number | undefined>()
+              expectTypeOf(subject).toEqualTypeOf<string>()
+              return "usage"
+            },
+          },
+        }),
         chatTitle({
           model: () => ({}),
           template({ fallback, maxLength, text, trigger }) {
@@ -122,7 +131,7 @@ describe("agent public types", () => {
             suffix: ({ text }) => text,
           },
           when: ({ input }) => {
-            expectTypeOf(input.context).toEqualTypeOf<Record<string, unknown> | undefined>()
+            expectTypeOf(input.context).toEqualTypeOf<AgentRunInputContextValues | undefined>()
             return true
           },
         }),
@@ -434,12 +443,27 @@ describe("agent public types", () => {
           context.delivery.effect({ intent: "started", kind: "reaction" })
           context.delivery.finishEffect(event => ({ kind: "reply", payload: event.result }))
         },
-      }],
+      }, inputCommands({
+        commands: {
+          review: {
+            description: "Review the pull request.",
+            run({ args, input }) {
+              expectTypeOf(args).toEqualTypeOf<string>()
+              expectTypeOf(input.context?.github).toEqualTypeOf<GitHubPullRequestCommand | undefined>()
+              const pullRequest = input.context?.pullRequest
+              expectTypeOf(pullRequest).toEqualTypeOf<GitHubPullRequestRunContext | undefined>()
+              return { prompt: args }
+            },
+          },
+        },
+      })],
       channels: {
         github: github({
-          triggers: {
-            webhook: {
-              invoke: () => ({ input: { prompt: "github" } }),
+          app: true,
+          events: {
+            pullRequestComments: {
+              dev: { samples: { review: { github: { event: "issue_comment" } } } },
+              origin: "github-review",
             },
           },
         }),
@@ -505,6 +529,16 @@ describe("agent public types", () => {
       sources: {
         docs: source.file("AGENTS.md"),
         forecastingEngine: source.github({ repo: "acme/forecasting-engine" }),
+        pullRequest: source.github(({ invocation }) => {
+          const pullRequest = invocation.context.get("pullRequest")
+          expectTypeOf(pullRequest).toEqualTypeOf<GitHubPullRequestRunContext | undefined>()
+          if (!pullRequest) return false
+          return {
+            repo: pullRequest.pullRequest.source.repo,
+            ref: pullRequest.pullRequest.source.ref,
+            mount: pullRequest.pullRequest.source.mount,
+          }
+        }),
       },
     }
     type ChatContext = AgentChatRunContext<

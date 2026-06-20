@@ -169,6 +169,7 @@ export type {
 } from "./git.ts"
 export type {
   InputCommand,
+  InputCommandResult,
   InputCommandRunInput,
   InputCommandsOptions,
 } from "./input-commands.ts"
@@ -278,6 +279,8 @@ export type {
   UsageTelemetryCallback,
   UsageTelemetryContext,
   UsageTelemetryOptions,
+  UsageTelemetrySummaryFormatContext,
+  UsageTelemetrySummaryFormatter,
   UsageTelemetrySummaryOptions,
   VercelAiGatewayPricingOptions,
 } from "./usage-telemetry.ts"
