@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { normalizeAgentOptions } from "../src/config.ts"
 
@@ -35,6 +35,148 @@ describe("agent config", () => {
       routes: { chat: false, webhooks: false },
       runtime: "cloudflare-agents",
     })
+  })
+
+  it("preserves Deno runtime selection", () => {
+    expect(normalizeAgentOptions({ runtime: "deno" })).toMatchObject({
+      runtime: "deno",
+    })
+  })
+
+  it("keeps AI SDK loading out of the root Agent import", async () => {
+    vi.resetModules()
+    let loadedAi = false
+    vi.doMock("ai", async (importOriginal) => {
+      loadedAi = true
+      return await importOriginal<typeof import("ai")>()
+    })
+    try {
+      const agent = await import("../src/index.ts")
+      expect(agent.defineAgent).toBeTypeOf("function")
+      expect(loadedAi).toBe(false)
+    }
+    finally {
+      vi.doUnmock("ai")
+      vi.resetModules()
+    }
+  })
+
+  it("keeps workspace loading out of the root Agent import", async () => {
+    vi.resetModules()
+    vi.doMock("@vite-hub/workspace", () => {
+      throw new Error("workspace should only load when a workspace-backed path is used")
+    })
+    try {
+      const agent = await import("../src/index.ts")
+      expect(agent.defineAgent).toBeTypeOf("function")
+      expect(agent.withAgentDefaults(agent.defineAgent({ run: async () => "ok" }))?.run).toBeTypeOf("function")
+    }
+    finally {
+      vi.doUnmock("@vite-hub/workspace")
+      vi.resetModules()
+    }
+  })
+
+  it("keeps workspace runtime loading out of the Agent server route import", async () => {
+    vi.resetModules()
+    vi.doMock("@vite-hub/workspace", () => {
+      throw new Error("workspace should only load when a workspace-backed path is used")
+    })
+    vi.doMock("@vite-hub/workspace/runtime", () => {
+      throw new Error("workspace runtime should only load when workspace registration is used")
+    })
+    try {
+      const server = await import("../src/server/routes.ts")
+      expect(server.defineAgentChatFetchHandler).toBeTypeOf("function")
+      expect(server.defineAgentChatWebhookFetchHandler).toBeTypeOf("function")
+    }
+    finally {
+      vi.doUnmock("@vite-hub/workspace")
+      vi.doUnmock("@vite-hub/workspace/runtime")
+      vi.resetModules()
+    }
+  })
+
+  it("does not read Vercel env while handling Deno chat routes", async () => {
+    vi.resetModules()
+    let loadedVercelFunctions = false
+    let loadedAi = false
+    vi.doMock("@vercel/functions", async (importOriginal) => {
+      loadedVercelFunctions = true
+      return await importOriginal<typeof import("@vercel/functions")>()
+    })
+    vi.doMock("ai", async (importOriginal) => {
+      loadedAi = true
+      return await importOriginal<typeof import("ai")>()
+    })
+    const originalDeno = Object.getOwnPropertyDescriptor(globalThis, "Deno")
+    const originalEnv = Object.getOwnPropertyDescriptor(process, "env")
+    Object.defineProperty(globalThis, "Deno", { configurable: true, value: {} })
+    Object.defineProperty(process, "env", {
+      configurable: true,
+      value: new Proxy(process.env, {
+        get(target, property, receiver) {
+          if (property === "VERCEL") {
+            throw new Error("VERCEL env should not be read for Deno routes")
+          }
+          return Reflect.get(target, property, receiver)
+        },
+      }),
+    })
+    try {
+      const { defineAgent } = await import("../src/index.ts")
+      const { chat } = await import("../src/capabilities.ts")
+      const { defineAgentChatFetchHandler } = await import("../src/server/routes.ts")
+      const handler = defineAgentChatFetchHandler(defineAgent({
+        capabilities: [chat()],
+        run({ messages }) {
+          const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
+          return `deno ${text?.text}`
+        },
+      }) as never)
+
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        body: JSON.stringify({
+          id: "thread",
+          messages: [{
+            id: "user-1",
+            parts: [{ text: "ping", type: "text" }],
+            role: "user",
+          }],
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }), { agentName: "support" })
+
+      expect(response.status).toBe(200)
+      await expect(response.text()).resolves.toContain("deno ping")
+      expect(loadedAi).toBe(false)
+      expect(loadedVercelFunctions).toBe(false)
+    }
+    finally {
+      if (originalDeno) Object.defineProperty(globalThis, "Deno", originalDeno)
+      else Reflect.deleteProperty(globalThis, "Deno")
+      if (originalEnv) Object.defineProperty(process, "env", originalEnv)
+      vi.doUnmock("ai")
+      vi.doUnmock("@vercel/functions")
+      vi.resetModules()
+    }
+  })
+
+  it("keeps workspace loading out of the capabilities barrel for chat", async () => {
+    vi.resetModules()
+    vi.doMock("@vite-hub/workspace", () => {
+      throw new Error("workspace should only load when a workspace-backed path is used")
+    })
+    try {
+      const capabilities = await import("../src/capabilities.ts")
+      expect(capabilities.chat).toBeTypeOf("function")
+      expect(capabilities.chat()).toMatchObject({ id: "chat" })
+    }
+    finally {
+      vi.doUnmock("@vite-hub/workspace")
+      vi.resetModules()
+    }
   })
 
   it("uses the default routes when routes are true", () => {

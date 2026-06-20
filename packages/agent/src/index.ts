@@ -27,7 +27,6 @@ import {
 import type { ResolvedAgentFinishExtensionProvider } from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 import { finalizeUiMessageStreamOutput, isUIMessageStreamResult } from "./stream-output.ts"
-import { createHarnessAgentAdapter } from "./harness-agent.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -728,7 +727,7 @@ function defineBaseAgent<
           model: driver.model,
         } as never) as AgentAdapter<CALL_OPTIONS>
       : driver.kind === "harness"
-        ? createHarnessAgentAdapter<CALL_OPTIONS>(driver as never)
+        ? (await import("./harness-agent.ts")).createHarnessAgentAdapter<CALL_OPTIONS>(driver as never)
         : undefined
     if (!resolvedAdapter) {
       throw new Error("[vitehub] Agent Driver is required unless the agent defines a custom run() handler.")

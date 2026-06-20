@@ -17,6 +17,10 @@ function inferHosting(env: Record<string, string | undefined>) {
     return explicit
   }
 
+  if (typeof (globalThis as { Deno?: { openKv?: unknown } }).Deno?.openKv === "function") {
+    return "deno"
+  }
+
   return readEnv(env, "KV_REST_API_URL") ? "vercel" : undefined
 }
 

@@ -110,6 +110,23 @@ describe("schedule provider output", () => {
     expect(cleanup?.source).toContain("executeStaticSchedule")
   })
 
+  it("emits Deno cron provider wake output", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-deno-output-")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist/client",
+      rootDir,
+    })
+
+    const denoCron = join(rootDir, ".vitehub", "schedule", "deno-cron.mjs")
+    const source = await readFile(denoCron, "utf8")
+
+    expect(source).toContain("Deno.cron(`vitehub:${name}`, cron")
+    expect(source).toContain('from "@vite-hub/schedule/runtime/static"')
+    expect(source).toContain('"cleanup": "0 0 * * *"')
+    expect(source).toContain("executeStaticSchedule")
+  })
+
   it("preserves existing provider output files when adding schedule output", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-preserve-")
     const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)

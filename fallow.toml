@@ -5,6 +5,7 @@ dynamicallyLoaded = [
   "test/local/vercel-bridge-server.mjs",
   "test/local/local.mjs",
   "test/local/netlify-real-project.mjs",
+  "test/local/deno-real-project.mjs",
   "test/local/build-playground.mjs",
   "test/run-package-task.mjs",
   "docs/content.config.ts",

@@ -89,6 +89,10 @@
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js"
     },
+    "./server/routes": {
+      "types": "./dist/server/routes.d.ts",
+      "import": "./dist/server/routes.js"
+    },
     "./state/sqlite": {
       "types": "./dist/state/sqlite.d.ts",
       "import": "./dist/state/sqlite.js"

@@ -1,4 +1,4 @@
-export type KVDriver = "cloudflare-kv-binding" | "upstash" | "fs-lite"
+export type KVDriver = "cloudflare-kv-binding" | "deno-kv" | "upstash" | "fs-lite"
 
 export interface CloudflareKVStoreConfig {
   driver: "cloudflare-kv-binding"
@@ -12,6 +12,11 @@ export interface UpstashKVStoreConfig {
   url?: string
 }
 
+export interface DenoKVStoreConfig {
+  driver: "deno-kv"
+  path?: string
+}
+
 export interface FsLiteKVStoreConfig {
   driver: "fs-lite"
   base?: string
@@ -19,6 +24,7 @@ export interface FsLiteKVStoreConfig {
 
 export type KVStoreConfig =
   | CloudflareKVStoreConfig
+  | DenoKVStoreConfig
   | UpstashKVStoreConfig
   | FsLiteKVStoreConfig
 
@@ -28,12 +34,17 @@ export interface ResolvedCloudflareKVStoreConfig extends CloudflareKVStoreConfig
 
 export type ResolvedUpstashKVStoreConfig = Required<UpstashKVStoreConfig>
 
+export interface ResolvedDenoKVStoreConfig extends DenoKVStoreConfig {
+  path?: string
+}
+
 export interface ResolvedFsLiteKVStoreConfig extends FsLiteKVStoreConfig {
   base: string
 }
 
 export type ResolvedKVStoreConfig =
   | ResolvedCloudflareKVStoreConfig
+  | ResolvedDenoKVStoreConfig
   | ResolvedUpstashKVStoreConfig
   | ResolvedFsLiteKVStoreConfig
 

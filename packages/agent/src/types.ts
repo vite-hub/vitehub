@@ -23,7 +23,7 @@ export type {
   Resolvable,
 }
 
-export type AgentRuntimeName = "cloudflare-agents" | "unknown" | "vercel" | "vite"
+export type AgentRuntimeName = "cloudflare-agents" | "deno" | "unknown" | "vercel" | "vite"
 export type AgentRuntime = "auto" | AgentRuntimeName
 export type AgentExecution = "inline" | "sandbox" | "workflow"
 export type AgentRuntimeBinding =

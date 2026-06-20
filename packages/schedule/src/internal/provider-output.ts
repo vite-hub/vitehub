@@ -18,6 +18,7 @@ import type { DiscoveredScheduleDefinition } from "../types.ts"
 
 export const schedulePackageName = "@vite-hub/schedule"
 const productName = "schedule"
+const denoCronFileName = "deno-cron.mjs"
 const generatedRegistryFileName = "registry.mjs"
 
 export function resolveScheduleRuntimeEntry(metaUrl = import.meta.url) {
@@ -53,6 +54,7 @@ const scheduleDefinitionEntry = resolveScheduleDefinitionEntry()
 
 interface GeneratedScheduleArtifacts {
   cloudflareWorkerFile: string
+  denoCronFile: string
   definitions: DiscoveredScheduleDefinition[]
   generatedDir: string
   registryFile: string
@@ -521,6 +523,36 @@ function sanitizeNetlifyScheduleFunctionName(name: string): string {
   return `vitehub-schedule-${safeName || "schedule"}.mjs`
 }
 
+function renderDenoCronEntry(file: string, registryFile: string, crons: Map<string, string>) {
+  const scheduleCrons = Object.fromEntries([...crons.entries()].sort(([left], [right]) => left.localeCompare(right)))
+  return [
+    `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
+    `import { executeStaticSchedule } from "@vite-hub/schedule/runtime/static"`,
+    "",
+    `const scheduleCrons = ${JSON.stringify(scheduleCrons, null, 2)}`,
+    "",
+    "async function loadScheduleDefinition(name) {",
+    "  const loader = scheduleRegistry[name]",
+    "  if (!loader) return undefined",
+    "  const loaded = await loader()",
+    "  return loaded?.default ?? loaded",
+    "}",
+    "",
+    "for (const [name, cron] of Object.entries(scheduleCrons)) {",
+    "  Deno.cron(`vitehub:${name}`, cron, async () => {",
+    "    const definition = await loadScheduleDefinition(name)",
+    "    if (!definition) {",
+    "      throw new Error(`Missing schedule definition: ${name}`)",
+    "    }",
+    "    await executeStaticSchedule({ cron, definition, name, scheduledAt: new Date() })",
+    "  })",
+    "}",
+    "",
+    "export const vitehubScheduleDefinitions = Object.keys(scheduleCrons)",
+    "",
+  ].join("\n")
+}
+
 function createScheduleDefinitionAliasPlugin(): Plugin {
   return {
     name: "vitehub-schedule-definition-alias",
@@ -542,11 +574,12 @@ async function writeProviderEntries(rootDir: string, source?: DiscoveredSchedule
   await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
 
   const cloudflareWorkerFile = resolve(generatedDir, "cloudflare-worker.mjs")
+  const denoCronFile = resolve(generatedDir, denoCronFileName)
   const vercelServerFile = resolve(generatedDir, "vercel-server.mjs")
   await writeFile(cloudflareWorkerFile, renderProviderEntry(cloudflareWorkerFile, registryFile, "cloudflare"), "utf8")
   await writeFile(vercelServerFile, renderProviderEntry(vercelServerFile, registryFile, "vercel"), "utf8")
 
-  return { cloudflareWorkerFile, definitions, generatedDir, registryFile, vercelServerFile }
+  return { cloudflareWorkerFile, denoCronFile, definitions, generatedDir, registryFile, vercelServerFile }
 }
 
 export async function readDefinitionCrons(definitions: DiscoveredScheduleDefinition[]) {
@@ -710,6 +743,7 @@ async function writeCloudflareScheduleOutput(options: {
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.source)
   const crons = await readDefinitionCrons(artifacts.definitions)
+  await writeFile(artifacts.denoCronFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons), "utf8")
   await writeCloudflareScheduleOutput({
     bundleAlias: options.bundleAlias,
     bundleEntry: artifacts.cloudflareWorkerFile,

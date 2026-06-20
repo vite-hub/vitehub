@@ -1,15 +1,7 @@
 import { workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { normalizeAgentWorkspaceSource } from "../workspace-source-metadata.ts"
-import {
-  attachWorkspaceSourceRequestExecution,
-  createWorkspaceSourceResolutionFacade,
-  createWorkspaceTools,
-  getWorkspaceSourceRequestExecution,
-  getWorkspaceSourceRequestDescriptor,
-  isWorkspaceSourceRequestOnly,
-  workspaceSourceRequestDescriptorPath,
-} from "@vite-hub/workspace"
+import type { AccessCapabilityMetadata } from "./access-metadata.ts"
 
 import type {
   AgentCallbackContext,
@@ -41,6 +33,18 @@ import type {
   WorkspaceSourceInput,
 } from "@vite-hub/workspace"
 import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
+
+type WorkspaceAccessRuntime = Pick<
+  typeof import("@vite-hub/workspace"),
+  | "attachWorkspaceSourceRequestExecution"
+  | "createWorkspaceSourceResolutionFacade"
+  | "createWorkspaceTools"
+  | "getWorkspaceSourceRequestExecution"
+  | "isWorkspaceSourceRequestOnly"
+  | "workspaceSourceRequestDescriptorPath"
+>
+
+type WorkspaceSourceRequestExecution = ReturnType<WorkspaceAccessRuntime["getWorkspaceSourceRequestExecution"]>
 
 export type AccessRoleName = "viewer" | "admin" | (string & {})
 
@@ -250,29 +254,6 @@ interface NormalizedWorkspaceScopeSelection<TSourceName extends string = string>
   scope: string
 }
 
-interface AccessCapabilityMetadata<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
-  access: AccessCapabilityOptions<TRuntimeConfig>
-  chat: boolean
-  kind: "access"
-  workspace: boolean
-}
-
-function isAccessMetadata(value: unknown): value is AccessCapabilityMetadata {
-  return typeof value === "object"
-    && value !== null
-    && (value as { kind?: unknown }).kind === "access"
-    && typeof (value as { access?: unknown }).access === "object"
-    && (value as { access?: unknown }).access !== null
-}
-
-export function getAccessCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig>(
-  capabilities: AgentCapabilityDefinition[],
-): AccessCapabilityOptions<TRuntimeConfig>[] {
-  return capabilities
-    .map(capability => capability.id === "access" && isAccessMetadata(capability.metadata) ? capability.metadata.access : undefined)
-    .filter((options): options is AccessCapabilityOptions<TRuntimeConfig> => !!options)
-}
-
 function setWorkspaceOverride<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -285,6 +266,10 @@ function setWorkspaceOverride<
     throw new Error("[vitehub] access() could not apply Workspace Scope.")
   }
   override(workspace)
+}
+
+async function loadWorkspaceAccessRuntime(): Promise<WorkspaceAccessRuntime> {
+  return await import("@vite-hub/workspace")
 }
 
 export function access<
@@ -323,9 +308,10 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       if ("diff" in context.workspace) {
         throw new Error("[vitehub] access({ workspace }) is read-only in the first version and requires workspace.mode: \"read\".")
       }
-      const scope = await resolveWorkspaceScope(options.workspace, context)
+      const workspaceRuntime = await loadWorkspaceAccessRuntime()
+      const scope = await resolveWorkspaceScope(options.workspace, context, workspaceRuntime)
       const sourceResolution = context.workspaceDefinition
-        ? await createWorkspaceSourceResolutionFacade(context.workspace, context.workspaceDefinition, {
+        ? await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace, context.workspaceDefinition, {
             invocation: {
               context: context.context,
               run: context.run,
@@ -338,10 +324,10 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
             },
           })
         : { definition: context.workspaceDefinition, workspace: context.workspace }
-      const finalScope = finalizeResolvedWorkspaceScope(scope, sourceResolution.definition)
+      const finalScope = finalizeResolvedWorkspaceScope(scope, sourceResolution.definition, workspaceRuntime)
       const scopedWorkspace = finalScope.all
         ? sourceResolution.workspace
-        : createScopedWorkspaceFacade(sourceResolution.workspace, finalScope)
+        : createScopedWorkspaceFacade(sourceResolution.workspace, finalScope, workspaceRuntime)
       context.context.set("access", {
         workspaceScope: {
           all: finalScope.all,
@@ -371,6 +357,7 @@ async function resolveWorkspaceScope<
 >(
   options: AccessWorkspaceOptions<TRuntimeConfig, Name, TSourceName, TInputContext>,
   context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
+  workspaceRuntime: WorkspaceAccessRuntime,
 ): Promise<ResolvedWorkspaceScope> {
   const selection = normalizeSelection(await resolveSelection(options, context))
   if (!selection) {
@@ -392,19 +379,23 @@ async function resolveWorkspaceScope<
     all,
     definition,
     instructions: selection.instructions ?? normalizeScopeInstructions(definition.instructions, `Workspace Scope "${selection.scope}" instructions`),
-    materializeGrants: all ? [{ path: "" }] : scopeMaterializeGrants(definition, context.workspaceDefinition),
-    paths: all ? [""] : scopePaths(definition, context.workspaceDefinition),
+    materializeGrants: all ? [{ path: "" }] : scopeMaterializeGrants(definition, context.workspaceDefinition, workspaceRuntime),
+    paths: all ? [""] : scopePaths(definition, context.workspaceDefinition, workspaceRuntime),
     role,
     scope: selection.scope,
   }
 }
 
-function finalizeResolvedWorkspaceScope(scope: ResolvedWorkspaceScope, workspaceDefinition: WorkspaceDefinition | undefined): ResolvedWorkspaceScope {
+function finalizeResolvedWorkspaceScope(
+  scope: ResolvedWorkspaceScope,
+  workspaceDefinition: WorkspaceDefinition | undefined,
+  workspaceRuntime: WorkspaceAccessRuntime,
+): ResolvedWorkspaceScope {
   if (scope.all) return scope
   return {
     ...scope,
-    materializeGrants: scopeMaterializeGrants(scope.definition, workspaceDefinition),
-    paths: scopePaths(scope.definition, workspaceDefinition),
+    materializeGrants: scopeMaterializeGrants(scope.definition, workspaceDefinition, workspaceRuntime),
+    paths: scopePaths(scope.definition, workspaceDefinition, workspaceRuntime),
   }
 }
 
@@ -471,14 +462,18 @@ function normalizeSelection<TSourceName extends string>(value: unknown): Normali
   }
 }
 
-function scopePaths(definition: AccessWorkspaceScopeDefinition, workspaceDefinition?: WorkspaceDefinition): string[] {
+function scopePaths(
+  definition: AccessWorkspaceScopeDefinition,
+  workspaceDefinition: WorkspaceDefinition | undefined,
+  workspaceRuntime: WorkspaceAccessRuntime,
+): string[] {
   const paths = [
     ...normalizeStringList(definition.path, definition.paths),
-    ...sourcePaths(normalizeStringList(definition.source, definition.sources), workspaceDefinition),
+    ...sourcePaths(normalizeStringList(definition.source, definition.sources), workspaceDefinition, workspaceRuntime),
   ]
   for (const grant of definition.grants || []) {
     paths.push(...normalizeStringList(grant.path, grant.paths))
-    paths.push(...sourcePaths(normalizeStringList(grant.source, grant.sources), workspaceDefinition))
+    paths.push(...sourcePaths(normalizeStringList(grant.source, grant.sources), workspaceDefinition, workspaceRuntime))
   }
   const normalized = [...new Set(paths.map(path => normalizeScopePath(path)))]
   if (!normalized.length) {
@@ -487,7 +482,11 @@ function scopePaths(definition: AccessWorkspaceScopeDefinition, workspaceDefinit
   return normalized.sort((left, right) => left.length - right.length || left.localeCompare(right))
 }
 
-function scopeMaterializeGrants(definition: AccessWorkspaceScopeDefinition, workspaceDefinition?: WorkspaceDefinition): ResolvedWorkspaceMaterializeGrant[] {
+function scopeMaterializeGrants(
+  definition: AccessWorkspaceScopeDefinition,
+  workspaceDefinition: WorkspaceDefinition | undefined,
+  workspaceRuntime: WorkspaceAccessRuntime,
+): ResolvedWorkspaceMaterializeGrant[] {
   const grants: ResolvedWorkspaceMaterializeGrant[] = []
   const add = (path: string, sources?: string[]) => {
     grants.push({
@@ -496,7 +495,7 @@ function scopeMaterializeGrants(definition: AccessWorkspaceScopeDefinition, work
     })
   }
   const addSource = (source: string) => {
-    const path = sourceMaterializePath(source, workspaceDefinition)
+    const path = sourceMaterializePath(source, workspaceDefinition, workspaceRuntime)
     if (path !== undefined) add(path, [source])
   }
   for (const path of normalizeStringList(definition.path, definition.paths)) add(path)
@@ -527,16 +526,28 @@ function normalizeStringList(single: string | undefined, multiple: readonly stri
   ].filter((value): value is string => typeof value === "string" && value.trim().length > 0)
 }
 
-function sourcePaths(sources: string[], workspaceDefinition?: WorkspaceDefinition): string[] {
-  return sources.flatMap(source => sourceScopePaths(source, workspaceDefinition))
+function sourcePaths(
+  sources: string[],
+  workspaceDefinition: WorkspaceDefinition | undefined,
+  workspaceRuntime: WorkspaceAccessRuntime,
+): string[] {
+  return sources.flatMap(source => sourceScopePaths(source, workspaceDefinition, workspaceRuntime))
 }
 
-function sourceMaterializePath(source: string, workspaceDefinition?: WorkspaceDefinition): string | undefined {
-  const paths = sourceScopePaths(source, workspaceDefinition).filter(path => !path.startsWith(".vitehub/sources/"))
+function sourceMaterializePath(
+  source: string,
+  workspaceDefinition: WorkspaceDefinition | undefined,
+  workspaceRuntime: WorkspaceAccessRuntime,
+): string | undefined {
+  const paths = sourceScopePaths(source, workspaceDefinition, workspaceRuntime).filter(path => !path.startsWith(".vitehub/sources/"))
   return paths[0]
 }
 
-function sourceScopePaths(source: string, workspaceDefinition?: WorkspaceDefinition): string[] {
+function sourceScopePaths(
+  source: string,
+  workspaceDefinition: WorkspaceDefinition | undefined,
+  workspaceRuntime: WorkspaceAccessRuntime,
+): string[] {
   if (!workspaceDefinition) {
     throw new Error(`[vitehub] Workspace Scope source grant "${source}" requires a Workspace Definition.`)
   }
@@ -546,8 +557,8 @@ function sourceScopePaths(source: string, workspaceDefinition?: WorkspaceDefinit
   }
   const metadata = normalizeAgentWorkspaceSource(source, definition)
   const descriptorSource = metadata.source
-  const descriptorPath = workspaceSourceRequestDescriptorPath(source)
-  if (descriptorSource && isWorkspaceSourceRequestOnly(descriptorSource)) {
+  const descriptorPath = workspaceRuntime.workspaceSourceRequestDescriptorPath(source)
+  if (descriptorSource && workspaceRuntime.isWorkspaceSourceRequestOnly(descriptorSource)) {
     return [descriptorPath]
   }
   const mountPath = metadata.mountPath
@@ -687,10 +698,11 @@ function scopedSearchQuery(scope: ResolvedWorkspaceScope, query: WorkspaceSearch
 function createScopedWorkspaceFacade<Name extends WorkspaceName>(
   workspace: ReadonlyWorkspaceFacade<Name>,
   scope: ResolvedWorkspaceScope,
+  workspaceRuntime: WorkspaceAccessRuntime,
 ): ReadonlyWorkspaceFacade<Name> {
   let fs: ReadonlyWorkspaceFacade<Name>["fs"]
-  const sourceRequestExecution = getWorkspaceSourceRequestExecution(workspace.fs)
-  fs = attachWorkspaceSourceRequestExecution({
+  const sourceRequestExecution = workspaceRuntime.getWorkspaceSourceRequestExecution(workspace.fs)
+  fs = workspaceRuntime.attachWorkspaceSourceRequestExecution({
     async readFile(path, options) {
       const normalized = normalizeScopePath(path)
       if (!isReadablePath(scope, normalized)) throw notFound(normalized)
@@ -732,7 +744,7 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
     },
   } satisfies ReadonlyWorkspaceFacade<Name>["fs"], scopedSourceRequestExecution(() => fs, sourceRequestExecution))
 
-  const createTools = (options?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
+  const createTools = (options?: WorkspaceFacadeToolOptions) => workspaceRuntime.createWorkspaceTools(fs, {
     broadSearchPaths: options?.broadSearchPaths,
     cwd: options?.cwd,
     maxShellCalls: options?.maxShellCalls,
@@ -757,8 +769,8 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
 
 function scopedSourceRequestExecution(
   fs: () => ReadonlyWorkspaceFacade["fs"],
-  executor: ReturnType<typeof getWorkspaceSourceRequestExecution>,
-): ReturnType<typeof getWorkspaceSourceRequestExecution> {
+  executor: WorkspaceSourceRequestExecution,
+): WorkspaceSourceRequestExecution {
   if (!executor) return undefined
   return {
     async executeSourceRequest(input) {

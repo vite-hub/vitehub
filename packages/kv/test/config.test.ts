@@ -48,6 +48,46 @@ describe("normalizeKVOptions", () => {
     })
   })
 
+  it("uses Deno KV defaults when hosting resolves to Deno", () => {
+    expect(normalizeKVOptions(undefined, {
+      env: {},
+      hosting: "deno-deploy",
+    })).toEqual({
+      store: {
+        driver: "deno-kv",
+      },
+    })
+  })
+
+  it("lets Deno hosting beat ambient Upstash credentials", () => {
+    expect(normalizeKVOptions(undefined, {
+      env: {
+        KV_REST_API_TOKEN: "token",
+        KV_REST_API_URL: "https://upstash.example.com",
+      },
+      hosting: "deno",
+    })).toEqual({
+      store: {
+        driver: "deno-kv",
+      },
+    })
+  })
+
+  it("preserves an explicit Deno KV path", () => {
+    expect(normalizeKVOptions({
+      driver: "deno-kv",
+      path: ":memory:",
+    }, {
+      env: {},
+      hosting: "",
+    })).toEqual({
+      store: {
+        driver: "deno-kv",
+        path: ":memory:",
+      },
+    })
+  })
+
   it("uses masked Upstash placeholders for env-detected config", () => {
     expect(normalizeKVOptions(undefined, {
       env: {

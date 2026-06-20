@@ -7,12 +7,6 @@ import {
 } from "./capability-runtime.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import {
-  defineWorkspace,
-  getWorkspaceSourceRequestDescriptor,
-  isWorkspaceSourceRequestOnly,
-  workspaceSourceRequestDescriptorPath,
-} from "@vite-hub/workspace"
-import {
   normalizeAgentInvokerProfiles,
   resolveAgentInvoker,
 } from "./invoker.ts"
@@ -64,6 +58,18 @@ const defaultWorkspaceName = "workspace"
 const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"]
 const sourceRequestCommands = ["curl"]
 const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
+const workspaceDefinitionKeys = new Set([
+  "hooks",
+  "loaders",
+  "plugins",
+  "publish",
+  "rootDir",
+  "rules",
+  "runtime",
+  "sourceRootDir",
+  "sources",
+  "store",
+])
 
 type NormalizedWorkspaceOptions = WorkspaceAgentWorkspaceOptions & { mode: AgentCapabilityMode }
 type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapabilityMode }
@@ -145,8 +151,21 @@ export function workspaceDefinitionFromOptions<
   if (typeof options.workspace === "string") return { mode: "read" }
   const workspace = normalizeWorkspaceOptions(options.workspace)
   const { mode: _mode, ...definition } = workspace
-  defineWorkspace(definition as never)
+  assertWorkspaceDefinition(definition)
   return workspace
+}
+
+function assertWorkspaceDefinition(definition: Record<string, unknown>): void {
+  if (!definition || typeof definition !== "object") {
+    throw new TypeError("[vitehub] defineWorkspace requires a workspace definition.")
+  }
+  if ("name" in definition) {
+    throw new TypeError("[vitehub] Workspace names are inferred from definition filenames.")
+  }
+  const unsupported = Object.keys(definition).filter(key => !workspaceDefinitionKeys.has(key))
+  if (unsupported.length) {
+    throw new TypeError(`[vitehub] defineWorkspace does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.`)
+  }
 }
 
 function workspaceDefinitionWithNameFromOptions<
@@ -809,10 +828,20 @@ async function sourceVisibilityProbePaths(
   definition?: WorkspaceDefinition,
 ): Promise<string[]> {
   const descriptorSource = source.source
-  const descriptorPath = descriptorSource && getWorkspaceSourceRequestDescriptor(descriptorSource)
-    ? workspaceSourceRequestDescriptorPath(source.key)
-    : undefined
-  if (descriptorPath && descriptorSource && isWorkspaceSourceRequestOnly(descriptorSource)) {
+  let descriptorPath: string | undefined
+  let requestOnly = false
+  if (descriptorSource) {
+    const {
+      getWorkspaceSourceRequestDescriptor,
+      isWorkspaceSourceRequestOnly,
+      workspaceSourceRequestDescriptorPath,
+    } = await import("@vite-hub/workspace")
+    descriptorPath = getWorkspaceSourceRequestDescriptor(descriptorSource)
+      ? workspaceSourceRequestDescriptorPath(source.key)
+      : undefined
+    requestOnly = isWorkspaceSourceRequestOnly(descriptorSource)
+  }
+  if (descriptorPath && requestOnly) {
     return [descriptorPath]
   }
   const mountPath = normalizeSourceInstructionPath(sourceMountPath(source))

@@ -7,11 +7,13 @@ import { hasUpstashEnv, resolveUpstashStore } from "./integrations/upstash.ts"
 
 import type {
   CloudflareKVStoreConfig,
+  DenoKVStoreConfig,
   FsLiteKVStoreConfig,
   KVModuleOptions,
   KVStoreConfig,
   KVStoresConfig,
   ResolvedCloudflareKVStoreConfig,
+  ResolvedDenoKVStoreConfig,
   ResolvedFsLiteKVStoreConfig,
   ResolvedKVModuleOptions,
 } from "./types.ts"
@@ -35,12 +37,18 @@ function resolveCloudflareStore(
   )
 }
 
+function resolveDenoStore(config: Partial<DenoKVStoreConfig> = {}): ResolvedDenoKVStoreConfig {
+  const path = trimmed(config.path)
+  return path ? { driver: "deno-kv", path } : { driver: "deno-kv" }
+}
+
 function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string | undefined>) {
   switch (store.driver) {
     case "cloudflare-kv-binding": return resolveCloudflareStore(store, env)
+    case "deno-kv": return resolveDenoStore(store)
     case "upstash": return resolveUpstashStore(store)
     case "fs-lite": return resolveFsLiteStore(store)
-    default: throw new TypeError(`Unknown \`kv.driver\`: ${JSON.stringify((store as { driver: unknown }).driver)}. Expected "cloudflare-kv-binding", "upstash", or "fs-lite".`)
+    default: throw new TypeError(`Unknown \`kv.driver\`: ${JSON.stringify((store as { driver: unknown }).driver)}. Expected "cloudflare-kv-binding", "deno-kv", "upstash", or "fs-lite".`)
   }
 }
 
@@ -76,6 +84,7 @@ export function normalizeKVOptions(
   }
 
   if (explicit?.driver) return createResolvedConfig(resolveExplicitStore(explicit, env))
+  if (hosting.includes("deno")) return createResolvedConfig(resolveDenoStore())
   if (hasUpstashEnv(env)) return createResolvedConfig(resolveUpstashStore())
   if (hosting.includes("vercel")) return createResolvedConfig(resolveUpstashStore())
   if (hosting.includes("cloudflare")) return createResolvedConfig(resolveCloudflareStore({}, env))

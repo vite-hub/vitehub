@@ -33,6 +33,7 @@ export type AgentVitePlugin = Plugin & AgentCliContributingPlugin
 
 const agentPackageName = "@vite-hub/agent"
 const mergeNoExternal = createNoExternalMerger(agentPackageName)
+const generatedAgentDenoServer = ".vitehub/agent/deno-server.ts"
 const generatedAgentWebhookRouteHandler = ".vitehub/agent/chat-webhook-route.ts"
 const generatedAgentNetlifyFunction = ".vitehub/agent/netlify-function.mjs"
 const netlifyAgentFunctionName = "vitehub-agent"
@@ -168,9 +169,14 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
-function routeRegexSource(route: false | string | undefined): string {
+function routeRegexSource(route: false | string | undefined, captureParams: string[] = []): string {
   if (!route) return "(?!)"
-  return `^${normalizeNitroRoute(route).split("/").map(part => part.startsWith(":") ? "[^/]+" : escapeRegExp(part)).join("/")}$`
+  const captured = new Set(captureParams)
+  return `^${normalizeNitroRoute(route).split("/").map((part) => {
+    if (!part.startsWith(":")) return escapeRegExp(part)
+    const param = part.slice(1)
+    return captured.has(param) ? `(?<${param}>[^/]+)` : "[^/]+"
+  }).join("/")}$`
 }
 
 function routeUsesParam(route: false | string | undefined, param: string): boolean {
@@ -293,7 +299,8 @@ function generateAgentWebhookRouteHandler(
   return [
     "import { withAgentDefaults } from '@vite-hub/agent'",
     ...(options.cloudflareState ? ["import { createCloudflareAgentState } from '@vite-hub/agent/cloudflare'"] : []),
-    "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler, setWorkspaceRuntimeRegistry } from '@vite-hub/agent/server'",
+    "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server'",
+    "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/internal/runtime/state'",
     "import { createError, defineEventHandler, getRequestHeaders, getRequestURL, getRouterParam, readRawBody } from 'h3'",
     imports,
     "",
@@ -430,6 +437,134 @@ async function writeAgentWebhookRouteHandler(
   await writeFile(handlerPath, generateAgentWebhookRouteHandler(definitions, handlerPath, options), "utf8")
 }
 
+function generateAgentDenoServer(
+  definitions: DiscoveredAgentDefinition[],
+  handlerPath: string,
+  options: { chatRoute?: false | string, webhookRoute?: false | string } = {},
+): string {
+  const imports = definitions
+    .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
+    .join("\n")
+  const workspaceEntries = definitions
+    .map((definition, index) => definition.workspace
+      ? `${JSON.stringify(definition.workspace)}: async () => ({ ...agent${index}, default: { ...agent${index}.default, sourceRootDir: agent${index}.default?.sourceRootDir ?? ${JSON.stringify(resolveWorkspaceSourceRoot(definition.handler))} } })`
+      : undefined)
+    .filter(Boolean)
+    .join(",\n  ")
+  const agentEntries = definitions
+    .map((definition, index) => {
+      const agentExpression = `withAgentDefaults(resolveAgentModule(agent${index}), ${JSON.stringify({ inferredName: definition.name, workspace: definition.workspace })})`
+      return `${JSON.stringify(definition.name)}: ${agentExpression}`
+    })
+    .join(",\n  ")
+  const agentModuleEntries = definitions
+    .map((definition, index) => `${JSON.stringify(definition.name)}: agent${index}`)
+    .join(",\n  ")
+  const workspaceRuntimeLines = workspaceEntries
+    ? [
+        "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
+        "",
+        `setWorkspaceRuntimeRegistry({\n  ${workspaceEntries}\n})`,
+        "",
+      ]
+    : []
+
+  return [
+    "import { withAgentDefaults } from '@vite-hub/agent'",
+    "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server/routes'",
+    ...workspaceRuntimeLines.slice(0, 1),
+    imports,
+    "",
+    "await import('../schedule/deno-cron.mjs').catch((error) => {",
+    "  if (error instanceof TypeError && String(error.message).includes('deno-cron.mjs')) return",
+    "  throw error",
+    "})",
+    "",
+    "function resolveAgentModule(module) {",
+    "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
+    "}",
+    "",
+    "function resolveChatRouteOptions(module) {",
+    "  const chatRoute = module && typeof module === 'object' ? module.chatRoute : undefined",
+    "  return chatRoute && typeof chatRoute === 'object' ? chatRoute : undefined",
+    "}",
+    "",
+    "function jsonError(status, message) {",
+    "  return Response.json({ error: true, status, statusText: message, message }, { status })",
+    "}",
+    "",
+    "function readDenoArg(args, index, name) {",
+    "  const arg = args[index]",
+    "  if (arg === name) return { index: index + 1, value: args[index + 1] }",
+    "  if (arg.startsWith(`${name}=`)) return { index, value: arg.slice(name.length + 1) }",
+    "}",
+    "",
+    "function resolveDenoServeOptions(args) {",
+    "  const options = {}",
+    "  for (let index = 0; index < args.length; index += 1) {",
+    "    const hostArg = readDenoArg(args, index, '--host') || readDenoArg(args, index, '--hostname')",
+    "    if (hostArg) {",
+    "      if (hostArg.value) options.hostname = hostArg.value",
+    "      index = hostArg.index",
+    "      continue",
+    "    }",
+    "    const portArg = readDenoArg(args, index, '--port')",
+    "    if (portArg) {",
+    "      const port = Number(portArg.value)",
+    "      if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError('[vitehub] Deno Provider Output expected --port to be a valid TCP port.')",
+    "      options.port = port",
+    "      index = portArg.index",
+    "    }",
+    "  }",
+    "  return Object.keys(options).length ? options : undefined",
+    "}",
+    "",
+    ...workspaceRuntimeLines.slice(2),
+    `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
+    `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
+    "const chatHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, defineAgentChatFetchHandler(agent, resolveChatRouteOptions(agentModules[name]))]))",
+    "const webhookHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, defineAgentChatWebhookFetchHandler(agent)]))",
+    "const agentNames = Object.keys(agents)",
+    `const chatRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.chatRoute, ["agent"]))})`,
+    `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute, ["agent", "webhook"]))})`,
+    "",
+    "async function handleRequest(request) {",
+    "  const pathname = new URL(request.url).pathname",
+    "  const chatMatch = chatRoutePattern.exec(pathname)",
+    "  const webhookMatch = webhookRoutePattern.exec(pathname)",
+    "  const isWebhookRoute = Boolean(webhookMatch)",
+    "  const groups = (webhookMatch || chatMatch)?.groups || {}",
+    "  const agent = groups.agent || (agentNames.length === 1 ? agentNames[0] : undefined)",
+    "  const webhook = groups.webhook || ''",
+    "  const handler = agent ? (isWebhookRoute ? webhookHandlers[agent] : chatHandlers[agent]) : undefined",
+    "  if (!handler || (!chatMatch && !webhookMatch)) return jsonError(404, 'Unknown ViteHub agent route.')",
+    "  return isWebhookRoute ? await handler(request, webhook, { agentName: agent }) : await handler(request, { agentName: agent })",
+    "}",
+    "",
+    "const serveOptions = resolveDenoServeOptions(Deno.args)",
+    "if (serveOptions) {",
+    "  Deno.serve(serveOptions, handleRequest)",
+    "}",
+    "else {",
+    "  Deno.serve(handleRequest)",
+    "}",
+    "",
+  ].join("\n")
+}
+
+async function writeAgentDenoServer(
+  root: string,
+  options: { chatRoute?: false | string, webhookRoute?: false | string } = {},
+): Promise<void> {
+  const handlerPath = join(root, generatedAgentDenoServer)
+  const definitions = discoverAgentDefinitions({
+    mode: "server-agents",
+    scanDirs: [join(root, "server")],
+  })
+  await mkdir(dirname(handlerPath), { recursive: true })
+  await writeFile(handlerPath, generateAgentDenoServer(definitions, handlerPath, options), "utf8")
+}
+
 async function writeAgentNetlifyFunctionRouteHandler(
   root: string,
   options: { chatRoute?: false | string, webhookRoute?: false | string } = {},
@@ -527,15 +662,16 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     config(config) {
       agent = config.agent ?? agent
       const resolved = normalizeAgentOptions(agent)
-      const installCloudflareState = shouldInstallCloudflareAgentState(resolved)
+      const denoOutput = resolved && resolved.runtime === "deno"
+      const installCloudflareState = !denoOutput && shouldInstallCloudflareAgentState(resolved)
       const nitroHandlers = [
-        ...(resolved && resolved.routes.chat
+        ...(resolved && !denoOutput && resolved.routes.chat
           ? [{
               handler: generatedAgentWebhookRouteHandler,
               route: normalizeNitroRoute(resolved.routes.chat),
             }]
           : []),
-        ...(resolved && resolved.routes.webhooks
+        ...(resolved && !denoOutput && resolved.routes.webhooks
           ? [{
               handler: generatedAgentWebhookRouteHandler,
               route: normalizeNitroRoute(resolved.routes.webhooks),
@@ -565,13 +701,21 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       agent = config.agent ?? agent
       const normalized = normalizeAgentOptions(agent)
       if (normalized && (normalized.routes.chat || normalized.routes.webhooks)) {
-        await writeAgentWebhookRouteHandler(config.root, {
-          chatRoute: normalized.routes.chat,
-          cloudflareState: shouldInstallCloudflareAgentState(normalized),
-          webhookRoute: normalized.routes.webhooks,
-        })
-        if (config.command === "serve" && isNetlifyHosting(config)) {
-          await writeNetlifyAgentProviderOutput(config, normalized)
+        if (normalized.runtime === "deno") {
+          await writeAgentDenoServer(config.root, {
+            chatRoute: normalized.routes.chat,
+            webhookRoute: normalized.routes.webhooks,
+          })
+        }
+        else {
+          await writeAgentWebhookRouteHandler(config.root, {
+            chatRoute: normalized.routes.chat,
+            cloudflareState: shouldInstallCloudflareAgentState(normalized),
+            webhookRoute: normalized.routes.webhooks,
+          })
+          if (config.command === "serve" && isNetlifyHosting(config)) {
+            await writeNetlifyAgentProviderOutput(config, normalized)
+          }
         }
       } else if (config.command === "serve" && isNetlifyHosting(config)) {
         await cleanupNetlifyAgentProviderOutput(config)
@@ -602,6 +746,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       async handler() {
         if (!resolved || resolved.command !== "build") return
         const normalized = normalizeAgentOptions(agent)
+        if (normalized && normalized.runtime === "deno") return
         if (normalized && isNetlifyHosting(resolved) && (normalized.routes.chat || normalized.routes.webhooks)) {
           await writeNetlifyAgentProviderOutput(resolved, normalized)
         } else if (isNetlifyHosting(resolved)) {

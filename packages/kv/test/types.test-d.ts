@@ -16,6 +16,15 @@ describe("types", () => {
     expectTypeOf(store.base).toEqualTypeOf<string>()
   })
 
+  it("accepts native Deno KV store config", () => {
+    const store = {
+      driver: "deno-kv",
+      path: ":memory:",
+    } satisfies KVStoreConfig
+
+    expectTypeOf(store.path).toEqualTypeOf<string>()
+  })
+
   it("exposes the resolved module options shape", () => {
     const config = {
       store: {

@@ -502,6 +502,7 @@ describe("rateLimit capability", () => {
     })
 
     await expect(runAgent(withoutStore, runtime({ runtime: "vercel" }), {})).rejects.toThrow("requires an explicit store")
+    await expect(runAgent(withoutStore, runtime({ runtime: "deno" }), {})).rejects.toThrow("requires an explicit store")
     await expect(runAgent(withMemoryOptIn, runtime({ runtime: "vercel" }), {})).resolves.toBe("ok")
   })
 
