@@ -8,6 +8,25 @@ export {
   markdown,
   mcpResources,
 } from "./sources/index.ts"
+export type {
+  FetchSourceInput,
+  FetchSourceOptions,
+  FetchSourceRequest,
+  FetchSourceRequestOptions,
+  FetchSourceResolver,
+  FileSourceOptions,
+  GitHubSourceInput,
+  GitHubSourceOptions,
+  GitHubSourceResolver,
+  GlobSourceOptions,
+  McpResourceContent,
+  McpResourceDescriptor,
+  McpResourcesClient,
+  McpResourcesClientConfig,
+  McpResourcesRequestOptions,
+  McpResourcesServer,
+  McpResourcesSourceOptions,
+} from "./sources/index.ts"
 export { createWorkspaceTools } from "./ai.ts"
 export {
   createWorkspaceSourceResolutionFacade,
