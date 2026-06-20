@@ -54,7 +54,20 @@ export default defineConfig({
         exports["./internal/stores/github"] = "./dist/providers/github/store.js";
         exports["./internal/stores/vercel-blob"] = "./dist/providers/vercel/blob-store.js";
 
-        return exports;
+        return Object.fromEntries(
+          Object.entries(exports).map(([key, value]) => {
+            if (typeof value !== "string" || !value.endsWith(".js")) {
+              return [key, value];
+            }
+            return [
+              key,
+              {
+                types: value.replace(/\.js$/, ".d.ts"),
+                import: value,
+              },
+            ];
+          }),
+        );
       },
       inlinedDependencies: false,
     },

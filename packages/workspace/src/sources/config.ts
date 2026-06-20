@@ -6,6 +6,7 @@ import { fetch as fetchSource } from "./fetch.ts"
 import { getLiveWorkspaceSourcePaths, markLiveWorkspaceSource } from "./live.ts"
 import {
   copyWorkspaceSourceRequestMetadata,
+  assertWorkspaceSourceRequestDescriptorKey,
   getWorkspaceSourceRequestDescriptor,
   isWorkspaceSourceRequestOnly,
 } from "./request-metadata.ts"
@@ -114,6 +115,8 @@ export function normalizeWorkspaceSource(key: string, input: WorkspaceSourceInpu
   const cache = mount.cache ?? normalizeSourceCache(source) ?? false
   const sync = normalizeSourceSync(source.sync)
   const mountPath = typeof mount.path === "string" ? mount.path : key
+  const requestDescriptor = getWorkspaceSourceRequestDescriptor(source)
+  if (requestDescriptor) assertWorkspaceSourceRequestDescriptorKey(key)
   return {
     key,
     source,
@@ -125,7 +128,7 @@ export function normalizeWorkspaceSource(key: string, input: WorkspaceSourceInpu
     instructions: source.instructions,
     livePaths: getLiveWorkspaceSourcePaths(source),
     readonly: true,
-    requestDescriptor: getWorkspaceSourceRequestDescriptor(source),
+    requestDescriptor,
     requestOnly: isWorkspaceSourceRequestOnly(source),
   }
 }

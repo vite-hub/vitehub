@@ -3,6 +3,7 @@ import { posix } from "node:path"
 import { WorkspaceError } from "../core/errors.ts"
 import { contentStreamToBytes, decodeFile, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
+import { normalizeSourceItemPath, normalizeWorkspaceSourceItemPath } from "./source-items.ts"
 import { searchText } from "../core/search.ts"
 import type { ResolvedWorkspaceSource } from "./config.ts"
 import type { ResolvedSourcePath } from "./resolver.ts"
@@ -184,12 +185,12 @@ function createMaterializationEntry(
   item: WorkspaceSourceItem,
   upstreamMeta: Record<string, unknown> | undefined,
 ): MaterializationEntry {
-  const path = normalizeWorkspacePath(`${source.mountPath}/${item.path || item.key}`)
+  const { path, sourcePath } = normalizeSourceItemPath(source, item, { operation: "source materialization" })
   return {
     item,
     metadata: createLazyMaterializedMetadata({
       sourceKey: source.key,
-      sourcePath: item.key,
+      sourcePath,
       validate: source.validate,
     }, item, upstreamMeta),
     path,
@@ -225,10 +226,10 @@ async function* iterateMaterializationEntries(
 
   for (const key of await source.source.getKeys(ctx)) {
     const upstreamMeta = await source.source.getMeta?.(key, ctx)
-    const path = normalizeWorkspacePath(`${source.mountPath}/${key}`)
+    const { path, sourcePath } = normalizeWorkspaceSourceItemPath(source, key, { operation: "source materialization" })
     if (!materializationPathMatches(path, options)) continue
     const previous = materializedItemMeta(snapshot, configHash, path)
-    if (upstreamMeta && previous?.source === source.key && previous.sourcePath === key && !hasSourceMetaChanged(previous, upstreamMeta)) {
+    if (upstreamMeta && previous?.source === source.key && previous.sourcePath === sourcePath && !hasSourceMetaChanged(previous, upstreamMeta)) {
       const stat = await store.stat(path)
       if (stat?.type === "file") {
         yield {

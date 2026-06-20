@@ -63,6 +63,26 @@ describe("agent webhook verification", () => {
     expect(invoked).not.toHaveBeenCalled()
   })
 
+  it("rejects webhook trigger invocation when a configured secret header is missing", async () => {
+    const invoked = vi.fn(() => "ok")
+    const agent = defineAgent({
+      capabilities: [chat({
+        webhooks: {
+          telegram: { secretToken: "secret-token" },
+        },
+      })],
+      run: invoked,
+    })
+
+    await expect(runAgentTrigger(agent, runtime(new Request("https://example.com")), "chat.message", chatInput()))
+      .rejects
+      .toMatchObject({
+        message: "[vitehub] Webhook secret header \"x-telegram-bot-api-secret-token\" is required.",
+        statusCode: 401,
+      })
+    expect(invoked).not.toHaveBeenCalled()
+  })
+
   it("resolves chat webhook secret tokens from runtime context", async () => {
     const invoked = vi.fn(() => "ok")
     const secretToken = vi.fn(context => String(context.cloudflare?.env?.TELEGRAM_WEBHOOK_SECRET_TOKEN))

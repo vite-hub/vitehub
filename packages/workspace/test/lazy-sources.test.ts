@@ -281,6 +281,65 @@ describe("lazy sources", () => {
     await expect(store.readFile("ingestion/globex/models/orders.sql")).resolves.toBeUndefined()
   })
 
+  it("rejects keyed lazy source items that escape the source mount", async () => {
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "lazy-unsafe-keyed-path",
+      sources: {
+        docs: custom({
+          mount: { path: "docs", materialize: "lazy" },
+          async getKeys() {
+            return ["../outside.md"]
+          },
+          async getItem(key) {
+            return { key, content: "# Outside\n" }
+          },
+        }),
+      },
+    }, store)
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({
+        error: expect.stringContaining("Workspace path escapes the workspace root"),
+        status: "error",
+      })],
+    })
+    await expect(store.readFile("docs/../outside.md")).resolves.toBeUndefined()
+  })
+
+  it("rejects lazy source item paths that write reserved workspace roots", async () => {
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "lazy-unsafe-item-path",
+      sources: {
+        root: custom({
+          mount: { path: "", materialize: "lazy" },
+          async getItems() {
+            return [{
+              key: "secret",
+              path: ".vitehub/sources/secret.json",
+              content: "{}",
+            }]
+          },
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            return { key, content: "" }
+          },
+        }),
+      },
+    }, store)
+
+    await expect(view.materializeSources({ sources: ["root"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({
+        error: expect.stringContaining("Workspace source materialization item path is reserved"),
+        status: "error",
+      })],
+    })
+    await expect(store.readFile(".vitehub/sources/secret.json")).resolves.toBeUndefined()
+  })
+
   it("streams source item content into stores that support streaming writes", async () => {
     const root = await createRoot()
     const store = createLocalWorkspaceStore(root)

@@ -1,6 +1,7 @@
 import { WorkspaceError } from "../core/errors.ts"
-import { contentStreamToBytes, normalizeSafeWorkspacePath, sha256 } from "../core/path.ts"
+import { contentStreamToBytes, sha256 } from "../core/path.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, type ResolvedWorkspaceSource } from "./config.ts"
+import { normalizeSourceItemPath } from "./source-items.ts"
 import {
   readWorkspaceSourceSyncState,
   sourceSyncMetaKey,
@@ -110,21 +111,6 @@ async function getSourceItems(source: ResolvedWorkspaceSource, ctx: ReturnType<t
   return await Promise.all((await source.source.getKeys(ctx)).map(async key => await source.source.getItem(key, ctx)))
 }
 
-function normalizeSourceItemPath(source: ResolvedWorkspaceSource, item: WorkspaceSourceItem) {
-  const rawSourcePath = item.path || item.key
-  const sourcePath = normalizeSafeWorkspacePath(rawSourcePath, { allowEmpty: false })
-  if (sourcePath.split("/").some(part => part === ".git" || part === ".vitehub")) {
-    throw new WorkspaceError(`[vitehub] Workspace Source Sync item path is reserved: ${rawSourcePath}.`)
-  }
-
-  const path = normalizeSafeWorkspacePath(`${source.mountPath}/${sourcePath}`, { allowEmpty: false })
-  if (source.mountPath && !sourceMountContainsPath(source, path)) {
-    throw new WorkspaceError(`[vitehub] Workspace Source Sync item path escapes source mount: ${rawSourcePath}.`)
-  }
-
-  return { path, sourcePath }
-}
-
 async function shouldRemoveStalePath(store: WorkspaceStore, path: string, metadata: WorkspaceSourceSyncState["paths"][string]) {
   const file = await store.readFile(path)
   if (!file) return false
@@ -148,7 +134,7 @@ async function planSourceSync(
   const nextPaths: WorkspaceSourceSyncState["paths"] = {}
 
   for (const item of items) {
-    const { path, sourcePath } = normalizeSourceItemPath(source, item)
+    const { path, sourcePath } = normalizeSourceItemPath(source, item, { operation: "Source Sync" })
     if (nextPaths[path]) {
       throw new WorkspaceError(`[vitehub] Workspace Source Sync produced duplicate path: ${path}.`)
     }

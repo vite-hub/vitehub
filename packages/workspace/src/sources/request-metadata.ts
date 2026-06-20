@@ -1,3 +1,5 @@
+import { WorkspaceError } from "../core/errors.ts"
+
 import type {
   WorkspaceSource,
   WorkspaceSourceRequestDescriptor,
@@ -46,6 +48,22 @@ export function isWorkspaceSourceRequestOnly(source: WorkspaceSource): boolean {
   return requestOnlySources.has(source)
 }
 
+export function assertWorkspaceSourceRequestDescriptorKey(sourceKey: string): void {
+  const normalized = sourceKey.replace(/\\/g, "/")
+  if (
+    !normalized
+    || normalized.includes("/")
+    || normalized === "."
+    || normalized === ".."
+    || normalized === ".git"
+    || normalized === ".vitehub"
+    || normalized.endsWith(".json")
+  ) {
+    throw new WorkspaceError(`[vitehub] Workspace Source Request descriptor key must be a single safe file stem: ${sourceKey}.`)
+  }
+}
+
 export function workspaceSourceRequestDescriptorPath(sourceKey: string): string {
+  assertWorkspaceSourceRequestDescriptorKey(sourceKey)
   return `.vitehub/sources/${sourceKey}.json`
 }

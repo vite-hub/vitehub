@@ -36,15 +36,42 @@
     }
   },
   "exports": {
-    ".": "./dist/index.js",
-    "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
-    "./runtime/provider-loader": "./dist/runtime/provider-loader.js",
-    "./runtime/providers/cloudflare": "./dist/runtime/providers/cloudflare.js",
-    "./runtime/providers/vercel": "./dist/runtime/providers/vercel.js",
-    "./runtime/state": "./dist/runtime/state.js",
-    "./sandbox/providers/cloudflare": "./dist/sandbox/providers/cloudflare.js",
-    "./sandbox/providers/vercel": "./dist/sandbox/providers/vercel.js",
-    "./vite": "./dist/vite.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./runtime/empty-registry": {
+      "types": "./dist/runtime/empty-registry.d.ts",
+      "import": "./dist/runtime/empty-registry.js"
+    },
+    "./runtime/provider-loader": {
+      "types": "./dist/runtime/provider-loader.d.ts",
+      "import": "./dist/runtime/provider-loader.js"
+    },
+    "./runtime/providers/cloudflare": {
+      "types": "./dist/runtime/providers/cloudflare.d.ts",
+      "import": "./dist/runtime/providers/cloudflare.js"
+    },
+    "./runtime/providers/vercel": {
+      "types": "./dist/runtime/providers/vercel.d.ts",
+      "import": "./dist/runtime/providers/vercel.js"
+    },
+    "./runtime/state": {
+      "types": "./dist/runtime/state.d.ts",
+      "import": "./dist/runtime/state.js"
+    },
+    "./sandbox/providers/cloudflare": {
+      "types": "./dist/sandbox/providers/cloudflare.d.ts",
+      "import": "./dist/sandbox/providers/cloudflare.js"
+    },
+    "./sandbox/providers/vercel": {
+      "types": "./dist/sandbox/providers/vercel.d.ts",
+      "import": "./dist/sandbox/providers/vercel.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {

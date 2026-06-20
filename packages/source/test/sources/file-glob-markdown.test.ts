@@ -125,4 +125,17 @@ describe("@vite-hub/source local file sources", () => {
     await expect(glob({ cwd: "workspace/outside", include: "**/*.md" }).getKeys({ rootDir: root }))
       .rejects.toThrow("glob cwd escapes the source root")
   })
+
+  it("rejects file provider symlinks that escape the source root", async () => {
+    const root = await createRoot()
+    const outside = await createRoot()
+    await mkdir(join(root, "docs"), { recursive: true })
+    await writeFile(join(outside, "secret.md"), "# Secret\n")
+    await symlink(join(outside, "secret.md"), join(root, "docs", "linked.md"))
+
+    const readme = markdown({ path: "docs/linked.md", workspacePath: "linked.md" })
+
+    await expect(readme.getItem("linked.md", { rootDir: root })).rejects.toThrow("Source path escapes the source root")
+    await expect(readme.getMeta?.("linked.md", { rootDir: root })).rejects.toThrow("Source path escapes the source root")
+  })
 })
