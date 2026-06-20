@@ -97,11 +97,11 @@ _Avoid_: Source Definition, Source Loader, provider adapter
 
 **Workspace Source Binding Input**:
 The author-facing plain object form that ViteHub normalizes into a Workspace Source Binding.
-_Avoid_: Raw Source Definition, provider options only, Source Loader namespace
+_Avoid_: Raw Source Definition, provider options only, namespace helper imports
 
-**Source Namespace**:
-A convenience namespace that groups Source Loader helpers when grouped source imports are useful.
-_Avoid_: Primary source authoring surface, Workspace-owned provider namespace
+**Named Source Loader Import**:
+A direct public import of a Source Loader helper such as `file`, `glob`, or `github`.
+_Avoid_: Source namespace, Workspace-owned provider namespace
 
 **Mount**:
 The placement of a Source inside a Workspace file tree.
@@ -211,7 +211,7 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - A **Workspace Store** can be backed by a Blob Store.
 - A **Workspace** has zero or more **Sources**.
 - A **Workspace** declares Sources through one **Source Map**.
-- A **Source Namespace** contains local, inline, tree, and provider Source helpers.
+- **Named Source Loader Imports** expose local, inline, tree, and provider Source helpers.
 - A **Source Map** key is ordinary Source identity; a key such as `instructions` does not make Source content into Agent instructions.
 - A **Source** may have **Source Instructions**.
 - A **Source** may be a **Request-Only Source**.
@@ -299,7 +299,7 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - A **Workspace Source Binding Input** may reference a reusable Source Definition.
 - A **Workspace Source Binding Input** may declare inline custom Source retrieval behavior.
 - Named Source Loader imports from the Source Package are the preferred Source authoring shape.
-- A **Source Namespace** can remain a convenience, but it is not the preferred authoring shape.
+- **Named Source Loader Imports** are the public Source authoring shape.
 - A **Single-File Source** path is relative to the Workspace Source Root.
 - A **Single-File Source** can default its Mount to the Workspace root and its Source-Backed Path to the source file basename.
 - Current workspace writes target normal Workspace paths, not Source-Backed Paths.
@@ -416,7 +416,7 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - Workspace inspection was considered a separate Workspace Capability - resolved: **Workspace Tools** are derived from the Workspace Definition by default.
 - Model-facing **Workspace Tools** were considered the default Workspace surface for harness-backed Agent Drivers - resolved: use a scoped **Harness Workspace Session** or equivalent materialized filesystem by default.
 - Durable harness sessions were considered as an implicit chat or thread default - resolved: **Harness Workspace Sessions** are invocation-scoped by default and require an explicit **Harness Session Key** for reuse.
-- Local and provider Source helpers were considered separate public namespaces - resolved: use one **Source Namespace** for all public Source authoring helpers.
+- Local and provider Source helpers were considered separate public namespaces - resolved: use **Named Source Loader Imports** for all public Source authoring helpers.
 - Workspace write authority was considered as `allowWrite: true` - resolved: use **Workspace Access Mode** language such as `mode: "write"` instead of a permission boolean.
 - Per-user or per-customer context filtering was considered as instruction-only behavior - resolved: use **Workspace Scope** for the trusted runtime visibility boundary.
 - Multi-scope visibility was considered as a default merged view - resolved: use one **Selected Workspace Scope** by default, with **All-Scopes Workspace Scope** as an explicit privileged mode.
@@ -437,7 +437,7 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - A nested credentials option was considered for injected headers and cookies - resolved: use Fetch-style option names and avoid overloading credentials language.
 - Copying ofetch-style hooks was considered - resolved: borrow stable request option vocabulary, but keep public hooks deferred to a future extension boundary.
 - Duplicating request mechanics in Source Instructions was considered - resolved: let **Source Request Shapes** generate mechanical request guidance and keep **Source Instructions** for domain-specific guidance.
-- Response validation was considered for API-backed Sources - resolved: keep the first request-shaped `source.fetch()` design request-side only.
+- Response validation was considered for API-backed Sources - resolved: keep the first request-shaped `fetch()` design request-side only.
 - Controlled shell request output was considered for automatic Source materialization - resolved: keep `curl` output ephemeral by default and leave materialization to explicit Workspace policy.
 - A new Workspace template slot for controlled `curl` descriptors was considered - resolved: reuse existing Capability instruction slot templating through the `workspaceShell()` Capability contribution.
 - Method-neutral Source Request Shapes were considered - resolved: make **Source Request Shape** method-aware so bodies are not allowed on methods that do not support bodies.
@@ -445,7 +445,7 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - Treating headers and cookies as model-authored request schema fields was considered - resolved: use injected **Source Request Credentials** for headers and cookies, and do not expose secret values to the model.
 - Separate credentials for Source reads and controlled shell requests were considered - resolved: use the same **Source Request Credentials** by default.
 - Zero-argument-only request factories were considered - resolved: allow a **Source Request Callback Context** so credential factories can inspect the final validated request and trusted invocation/runtime context.
-- Full `source.fetch(() => options)` factories were considered - resolved: keep Source definitions static and restrict request factories to execution-only request additions.
+- Full `fetch(() => options)` factories were considered - resolved: keep Source definitions static and restrict request factories to execution-only request additions.
 - A single scoped request index was considered - resolved: generate one **Source Request Descriptor** per visible API-backed Source at `.vitehub/sources/<sourceKey>.json`.
 - Custom request syntax for controlled shell commands was considered - resolved: keep normal command syntax and validate the resulting request against the **Source Request Shape**.
 - Build-time Workspace assets were considered a second user-facing read surface - resolved: users read one **Workspace File Tree** while asset provenance remains internal by default.
@@ -470,7 +470,7 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - Build-time Source materialization through Workspace sync was considered - resolved: build and dev integrations own build-time materialization through the **Workspace Asset Surface**, while Workspace sync owns explicit **Source Sync**.
 - Treating Airtable as an official Workspace Source helper was considered - resolved: Airtable remains a downstream/custom Source example unless the Workspace Package explicitly adds an official adapter.
 - Treating Workspace Source declarations as raw Source Definitions was considered - resolved: use **Workspace Source Binding** for Workspace-owned placement, instructions, materialization, validation, and Source Sync Policy around Source Package retrieval.
-- Treating `source.<helper>` as the preferred Source authoring style was considered - resolved: prefer named Source Loader imports from the Source Package, with **Source Namespace** as a convenience only.
+- Treating `source.<helper>` as the preferred Source authoring style was considered - resolved: named Source Loader imports from the Source Package are the only public authoring shape.
 - Requiring every Workspace Source declaration to wrap a `source` field was considered - resolved: use **Workspace Source Binding Input** so unambiguous plain objects can infer a Source Loader while reusable or custom Source Definitions remain explicit.
 - Permissive plain-object Source inference was considered - resolved: use strong TypeScript input types and runtime normalization errors so ambiguous Source Loader option combinations fail clearly.
 - Adding project-specific file consumers to Source Sync was considered - resolved: Source Sync owns durable Workspace file-tree reconciliation, while downstream file consumption remains project composition.

@@ -6,12 +6,12 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { normalizeWorkspaceSources } from "../src/sources/config.ts"
 import { createWorkspaceSourceView } from "../src/sources/view.ts"
-import { defineWorkspace, source } from "../src/index.ts"
+import { custom, defineWorkspace, github, glob } from "../src/index.ts"
 import { resetWorkspaceRegistry } from "../src/core/registry.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { useRegisteredWorkspace } from "../src/core/registry.ts"
-const globSource = source.glob
-const githubSource = source.github
+const globSource = glob
+const githubSource = github
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 
@@ -35,7 +35,7 @@ describe("lazy sources", () => {
     const definition = {
       name: "source-view",
       sources: {
-        docs: source.custom({
+        docs: custom({
           materialize: "lazy" as const,
           async getKeys() {
             return ["foo.md"]
@@ -59,7 +59,7 @@ describe("lazy sources", () => {
 
   it("normalizes keyed source mounts and cache defaults", () => {
     const resolved = normalizeWorkspaceSources({
-      docs: source.custom({
+      docs: custom({
         materialize: "lazy",
         cache: { maxAge: 3600 },
         async getKeys() {
@@ -69,7 +69,7 @@ describe("lazy sources", () => {
           return { key, path: key, content: "" }
         },
       }),
-      skills: source.custom({
+      skills: custom({
         async getKeys() {
           return []
         },
@@ -135,7 +135,7 @@ describe("lazy sources", () => {
     registerWorkspace("lazy-docs", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        docs: source.custom({
+        docs: custom({
           materialize: "lazy",
           async getKeys() {
             return ["foo.md", "nested/bar.md"]
@@ -192,7 +192,7 @@ describe("lazy sources", () => {
     const view = createWorkspaceSourceView({
       name: "lazy-streaming",
       sources: {
-        docs: source.custom({
+        docs: custom({
           materialize: "lazy",
           async getKeys() {
             return ["a.md", "b.md"]
@@ -225,7 +225,7 @@ describe("lazy sources", () => {
     const view = createWorkspaceSourceView({
       name: "source-context-files",
       sources: {
-        mirror: source.custom({
+        mirror: custom({
           mount: {
             path: "generated",
             materialize: "lazy",
@@ -258,7 +258,7 @@ describe("lazy sources", () => {
     const view = createWorkspaceSourceView({
       name: "lazy-scoped-materialization",
       sources: {
-        ingestion: source.custom({
+        ingestion: custom({
           materialize: "lazy",
           mount: "ingestion",
           async getKeys() {
@@ -289,7 +289,7 @@ describe("lazy sources", () => {
     const view = createWorkspaceSourceView({
       name: "lazy-stream-content",
       sources: {
-        docs: source.custom({
+        docs: custom({
           materialize: "lazy",
           async getKeys() {
             return ["asset.bin"]
@@ -324,7 +324,7 @@ describe("lazy sources", () => {
     const view = createWorkspaceSourceView({
       name: "lazy-keyed-reuse",
       sources: {
-        docs: source.custom({
+        docs: custom({
           materialize: "lazy",
           async getKeys() {
             return ["a.md"]
@@ -359,7 +359,7 @@ describe("lazy sources", () => {
     const view = createWorkspaceSourceView({
       name: "lazy-keyed-resume",
       sources: {
-        docs: source.custom({
+        docs: custom({
           materialize: "lazy",
           async getKeys() {
             return ["a.md", "b.md"]
@@ -405,7 +405,7 @@ describe("lazy sources", () => {
     const view = createWorkspaceSourceView({
       name: "lazy-root-sequential-cleanup",
       sources: {
-        root: source.custom({
+        root: custom({
           materialize: "lazy",
           mount: "",
           async getKeys() {
@@ -459,7 +459,7 @@ describe("lazy sources", () => {
     registerWorkspace("lazy-writes", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        docs: source.custom({
+        docs: custom({
           materialize: "lazy",
           async getKeys() {
             return ["foo.md"]
@@ -482,7 +482,7 @@ describe("lazy sources", () => {
     registerWorkspace("lazy-root-files", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        rootFiles: source.custom({
+        rootFiles: custom({
           materialize: "lazy",
           mount: "",
           async getKeys() {
@@ -509,7 +509,7 @@ describe("lazy sources", () => {
     registerWorkspace("lazy-root-prewrite", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        rootFiles: source.custom({
+        rootFiles: custom({
           materialize: "lazy",
           mount: "",
           async getKeys() {
@@ -536,7 +536,7 @@ describe("lazy sources", () => {
     const view = createWorkspaceSourceView({
       name: "lazy-root-shadow",
       sources: {
-        rootFiles: source.custom({
+        rootFiles: custom({
           materialize: "lazy",
           mount: "",
           async getKeys() {
@@ -557,7 +557,7 @@ describe("lazy sources", () => {
     registerWorkspace("lazy-root-refresh", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        rootFiles: source.custom({
+        rootFiles: custom({
           materialize: "lazy",
           mount: "",
           async getKeys() {
@@ -589,7 +589,7 @@ describe("lazy sources", () => {
     registerWorkspace("lazy-root-scoped", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        rootFiles: source.custom({
+        rootFiles: custom({
           materialize: "lazy",
           mount: "",
           async getKeys() {
@@ -620,7 +620,7 @@ describe("lazy sources", () => {
     registerWorkspace("lazy-search", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        docs: source.custom({
+        docs: custom({
           materialize: "lazy",
           async getKeys() {
             return ["foo.md"]
@@ -653,7 +653,7 @@ describe("lazy sources", () => {
     registerWorkspace("lazy-fallback-search", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        docs: source.custom({
+        docs: custom({
           materialize: "lazy",
           async getKeys() {
             return ["foo.md", "bar.md"]
@@ -686,7 +686,7 @@ describe("lazy sources", () => {
     registerWorkspace("lazy-cache", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        docs: source.custom({
+        docs: custom({
           cache: { maxAge: 3600 },
           materialize: "lazy",
           async getKeys() {

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createWorkspaceTools, type WorkspaceShellResult } from "../src/ai.ts"
-import { source, useWorkspace } from "../src/index.ts"
+import { fetch, useWorkspace } from "../src/index.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { setWorkspaceRuntimeAssetsRegistry } from "../src/runtime/state.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
@@ -173,7 +173,7 @@ describe("createWorkspaceTools", () => {
     })
   })
 
-  it("runs controlled curl through visible source.fetch request descriptors", async () => {
+  it("runs controlled curl through visible fetch request descriptors", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "ok" }), {
       headers: { "content-type": "application/json" },
       status: 200,
@@ -189,7 +189,7 @@ describe("createWorkspaceTools", () => {
     const workspace = createWorkspace({
       name: "curl-source",
       sources: {
-        inventoryHealthSummary: source.fetch({
+        inventoryHealthSummary: fetch({
           cookies: { auth_token: "secret" },
           querySchema,
           url: "https://portal.example.com/runtime/inventory-health",
@@ -226,8 +226,8 @@ describe("createWorkspaceTools", () => {
     const workspace = createWorkspace({
       name: "curl-source-query-shape",
       sources: {
-        pageTwo: source.fetch({ query: { page: 2 }, url: "https://portal.example.com/runtime/items" }),
-        pageThree: source.fetch({ query: { page: 3 }, url: "https://portal.example.com/runtime/items" }),
+        pageTwo: fetch({ query: { page: 2 }, url: "https://portal.example.com/runtime/items" }),
+        pageThree: fetch({ query: { page: 3 }, url: "https://portal.example.com/runtime/items" }),
       },
       store: { provider: "memory" },
     })

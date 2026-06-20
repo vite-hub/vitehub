@@ -15,7 +15,7 @@ The Workspace is the file boundary. Capabilities decide which model-facing tools
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 import { workspaceShell } from '@vite-hub/agent/capabilities'
-import { source } from '@vite-hub/workspace'
+import { glob } from '@vite-hub/workspace'
 
 export default defineAgent({
   driver: {
@@ -27,7 +27,7 @@ export default defineAgent({
   },
   workspace: {
     sources: {
-      docs: source.glob({
+      docs: glob({
         cwd: '.',
         include: ['README.md', 'docs/**/*.md'],
         instructions: [
@@ -65,7 +65,7 @@ Harness-backed Agent Drivers receive Workspace state through a Harness Workspace
 import { createCodex } from '@ai-sdk/harness-codex'
 import { defineAgent } from '@vite-hub/agent'
 import { skills } from '@vite-hub/agent/capabilities'
-import { source } from '@vite-hub/workspace'
+import { file } from '@vite-hub/workspace'
 
 export default defineAgent({
   driver: {
@@ -76,7 +76,7 @@ export default defineAgent({
   workspace: {
     mode: 'write',
     sources: {
-      guide: source.file('AGENTS.md'),
+      guide: file('AGENTS.md'),
     },
   },
   capabilities: [
@@ -96,7 +96,7 @@ import { gateway } from '@ai-sdk/gateway'
 import { createTeamsAdapter } from '@chat-adapter/teams'
 import { defineAgent } from '@vite-hub/agent'
 import { access, chat, workspaceShell } from '@vite-hub/agent/capabilities'
-import { source } from '@vite-hub/workspace'
+import { file, github } from '@vite-hub/workspace'
 
 const supportChat = chat({
   platforms: () => ({
@@ -137,11 +137,11 @@ export default defineAgent({
   },
   workspace: {
     sources: {
-      supportGuide: source.file({
+      supportGuide: file({
         path: 'AGENTS.md',
         instructions: 'Use this guide for support operating rules.',
       }),
-      ingestion: source.github(({ invocation }) => {
+      ingestion: github(({ invocation }) => {
         const scope = invocation.context.get<{ customers: string[] }>('support.customerScope')
         const customer = scope?.customers[0]
         if (!customer) {
@@ -159,7 +159,7 @@ export default defineAgent({
           instructions: `Use this source only for ${customer} ingestion models and dbt behavior.`,
         }
       }),
-      forecastingEngine: source.github({
+      forecastingEngine: github({
         repo: 'quiverdk/forecasting-engine',
         instructions: [
           'Use this source for forecasting engine behavior.',

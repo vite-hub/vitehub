@@ -52,7 +52,7 @@ _Avoid_: MCP tool bridge, Agent Capability, MCP server implementation
 
 - Source retrieval and Workspace file placement were considered one concept - resolved: Source Package owns retrieval, Workspace owns file-tree placement.
 - Source Definition metadata was considered the place for Workspace Source Sync Policy - resolved: Workspace Source Bindings own Workspace-specific placement and Source Sync Policy.
-- `source.<helper>` namespace authoring was considered the preferred Source Package style - resolved: named Source Loader imports are preferred, with namespace imports as a convenience.
+- `source.<helper>` namespace authoring was considered the preferred Source Package style - resolved: named Source Loader imports are the only public Source Package authoring shape.
 - Requiring custom Workspace Sources to use Workspace-specific source helpers was considered - resolved: custom retrieval behavior can be declared as Source Package **Source Definitions** or inline Workspace Source Binding Inputs.
 - Treating `getKeys` completeness as a Source Package invariant was considered - resolved: completeness is a Workspace Source Sync concern only when a Workspace Source Binding enables stale removal.
 - MCP resources and MCP tools were considered one ViteHub integration surface - resolved: read-only MCP resources belong to Source retrieval, while executable MCP tools belong to the MCP Capability.

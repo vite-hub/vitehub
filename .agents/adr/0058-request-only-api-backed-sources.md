@@ -4,7 +4,7 @@ API-backed Sources may be **Request-Only Sources** when a useful default Source-
 
 ## Considered Options
 
-- Requiring a default Source-Backed Path for every `source.fetch()` was rejected because filtered runtime APIs often need page, user, or invocation input before a response is meaningful.
+- Requiring a default Source-Backed Path for every `fetch()` was rejected because filtered runtime APIs often need page, user, or invocation input before a response is meaningful.
 - Treating this as only a model-facing HTTP Capability was rejected because the allowed request boundary should remain tied to the Workspace Source, Workspace Scope, Source Request Descriptor, and Shell Network Grant.
 
 ## Consequences

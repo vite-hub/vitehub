@@ -105,7 +105,7 @@ async function resolveMcpClient(server: McpResourcesServer, ctx: SourceContext) 
   if (isMcpResourcesClientConfig(resolved)) {
     return { client: await createMcpClient(resolved), ownsClient: true }
   }
-  throw new TypeError("[vitehub] source.mcpResources({ server }) must resolve to an MCP client or MCP client config.")
+  throw new TypeError("[vitehub] mcpResources({ server }) must resolve to an MCP client or MCP client config.")
 }
 
 async function withMcpClient<T>(server: McpResourcesServer, ctx: SourceContext, callback: (client: McpResourcesClient) => Promise<T>) {
@@ -221,7 +221,7 @@ async function createEntries<TKey extends string>(
     if (!shouldInclude(key, options)) continue
     const existingUri = seen.get(key)
     if (existingUri) {
-      throw new SourceError(`[vitehub] source.mcpResources produced duplicate path ${JSON.stringify(key)} for ${JSON.stringify(existingUri)} and ${JSON.stringify(resource.uri)}.`)
+      throw new SourceError(`[vitehub] mcpResources produced duplicate path ${JSON.stringify(key)} for ${JSON.stringify(existingUri)} and ${JSON.stringify(resource.uri)}.`)
     }
     seen.set(key, resource.uri)
     entries.push({ contents, key, resource: resolvedResource })
@@ -252,7 +252,7 @@ function createResourceItem<TKey extends string>(
 ) {
   const content = contents.find(item => item.uri === resource.uri) || contents[0]
   if (!content) {
-    throw new SourceError(`[vitehub] source.mcpResources could not read resource ${JSON.stringify(resource.uri)}.`)
+    throw new SourceError(`[vitehub] mcpResources could not read resource ${JSON.stringify(resource.uri)}.`)
   }
   const multipleContents = contents.length > 1
   return {
@@ -273,7 +273,7 @@ function createResourceItem<TKey extends string>(
 
 export function mcpResources<const TKey extends string = string>(options: McpResourcesSourceOptions<TKey>): Source<TKey> {
   if (!options || typeof options !== "object" || !options.server) {
-    throw new TypeError("[vitehub] source.mcpResources({ server }) requires an MCP server.")
+    throw new TypeError("[vitehub] mcpResources({ server }) requires an MCP server.")
   }
 
   async function getEntries(ctx: SourceContext) {
@@ -326,7 +326,7 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
       return await withMcpClient(options.server, ctx, async (client) => {
         const entry = (await createEntries(await listAllResources(client, options.request), options, client)).find(entry => entry.key === key)
         if (!entry) {
-          throw new SourceError(`[vitehub] source.mcpResources could not find ${JSON.stringify(key)}.`)
+          throw new SourceError(`[vitehub] mcpResources could not find ${JSON.stringify(key)}.`)
         }
         const result = entry.contents ?? await readResourceContents(client, entry.resource, options.request)
         return createResourceItem(key, entry.resource, result)

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { defineWorkspace, source } from "../src/index.ts"
+import { defineWorkspace, mcpResources } from "../src/index.ts"
 import { resetWorkspaceRegistry, useRegisteredWorkspace } from "../src/core/registry.ts"
 import { registerWorkspace } from "../src/test.ts"
 
@@ -36,7 +36,7 @@ describe("MCP resource workspace sources", () => {
     registerWorkspace("nuxt-mcp", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        nuxt: source.mcpResources({
+        nuxt: mcpResources({
           mount: "nuxt",
           server: client,
         }),

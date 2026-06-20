@@ -8,7 +8,6 @@ import {
   github,
   mcpResources,
   registerSources,
-  source,
   type Source,
   type SourceItem,
   useSource,
@@ -28,8 +27,8 @@ declare global {
 describe("@vite-hub/source types", () => {
   it("types registered source names and keys", async () => {
     const staticSource = file({ content: "# Docs\n", workspacePath: "README.md" })
-    expectTypeOf(source.file({ content: "# Docs\n", workspacePath: "README.md" })).toMatchTypeOf<Source<"README.md">>()
-    expectTypeOf(source.mcpResources({ server: {
+    expectTypeOf(file({ content: "# Docs\n", workspacePath: "README.md" })).toMatchTypeOf<Source<"README.md">>()
+    expectTypeOf(mcpResources({ server: {
       async listResources() {
         return { resources: [] }
       },

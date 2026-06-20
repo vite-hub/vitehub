@@ -39,7 +39,7 @@ function createClient(): McpResourcesClient {
   }
 }
 
-describe("source.mcpResources", () => {
+describe("mcpResources", () => {
   it("lists paginated MCP resources as source paths", async () => {
     const source = mcpResources({ include: "**/*.json", server: createClient() })
 

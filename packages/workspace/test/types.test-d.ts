@@ -10,7 +10,7 @@ import { createWorkspaceTools, type WorkspaceMaterializeSourcesResult, type Work
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import * as loader from "../src/loader.ts"
 import * as publish from "../src/publish.ts"
-import { source } from "../src/index.ts"
+import { fetch, file, github, glob, markdown, mcpResources, type FetchSourceOptions, type GitHubSourceOptions, type GlobSourceOptions, type McpResourcesSourceOptions } from "../src/index.ts"
 import { hubWorkspace } from "../src/vite.ts"
 import type { Workspace, WorkspaceModuleOptions, WorkspacePlugin, WorkspaceSourceSyncResult, WorkspaceWriteInput } from "../src/core/types.ts"
 
@@ -31,11 +31,23 @@ declare global {
 }
 
 describe("workspace types", () => {
+  it("exports source helper option types from the root", () => {
+    const fetchOptions = { url: "https://status.example.com/api/summary" } satisfies FetchSourceOptions
+    const githubOptions = { repo: "acme/docs" } satisfies GitHubSourceOptions
+    const globOptions = { include: "**/*.md" } satisfies GlobSourceOptions
+    const mcpResourcesOptions = { server: { transport: { type: "http", url: "https://example.com/mcp" } } } satisfies McpResourcesSourceOptions
+
+    expectTypeOf(fetchOptions).toMatchTypeOf<FetchSourceOptions>()
+    expectTypeOf(githubOptions).toMatchTypeOf<GitHubSourceOptions>()
+    expectTypeOf(globOptions).toMatchTypeOf<GlobSourceOptions>()
+    expectTypeOf(mcpResourcesOptions).toMatchTypeOf<McpResourcesSourceOptions>()
+  })
+
   it("types the facade helpers", async () => {
     const definition = defineWorkspace({
       runtime: "sandbox",
       sources: {
-        docs: source.markdown({ path: "README.md" }),
+        docs: markdown({ path: "README.md" }),
         externalDocs: {
           include: "**/*.md",
           sync: true,
@@ -45,7 +57,7 @@ describe("workspace types", () => {
           sync: { stale: "remove" },
         },
         wrappedDocs: {
-          source: source.github({ repo: "acme/docs" }),
+          source: github({ repo: "acme/docs" }),
           sync: true,
         },
       },
@@ -72,23 +84,23 @@ describe("workspace types", () => {
         rules: { "/docs/**": { write: "update" } },
       } satisfies WorkspacePlugin],
     })
-    source.file({
+    file({
       workspacePath: "AGENTS.md",
       content: "# Instructions\n",
     })
-    source.file("AGENTS.md")
+    file("AGENTS.md")
     // @ts-expect-error inline file content requires a workspacePath
-    source.file({ content: "# Missing path\n" })
+    file({ content: "# Missing path\n" })
     // @ts-expect-error inline content cannot use a local file path
-    source.file({ path: "AGENTS.md", content: "# Instructions\n" })
-    source.github({
+    file({ path: "AGENTS.md", content: "# Instructions\n" })
+    github({
       repo: "acme/app",
       root: "docs",
       include: "**/*.md",
       exclude: "docs/drafts/**",
       instructions: "Use for hosted docs.",
     })
-    source.github(({ invocation, selectedWorkspaceScope, source: sourceContext, workspace }) => {
+    github(({ invocation, selectedWorkspaceScope, source: sourceContext, workspace }) => {
       expectTypeOf(invocation.context.get("support.customerScope")?.customers).toEqualTypeOf<Array<"acme" | "globex"> | undefined>()
       expectTypeOf(selectedWorkspaceScope?.name).toEqualTypeOf<"acme" | "globex" | "support" | undefined>()
       expectTypeOf(sourceContext.key).toEqualTypeOf<string>()
@@ -102,7 +114,7 @@ describe("workspace types", () => {
         instructions: [`Use for ${customer} ingestion models.`],
       }
     })
-    source.glob({
+    glob({
       cwd: "docs",
       dot: true,
       followSymlinks: false,
@@ -111,7 +123,7 @@ describe("workspace types", () => {
       instructions: ["Use for local docs.", "Prefer README files first."] as const,
       prefix: "content",
     })
-    source.fetch<{ status: string }, { ok: boolean }>({
+    fetch<{ status: string }, { ok: boolean }>({
       instructions: "Use for live status.",
       querySchema: {
         "~standard": {
@@ -128,7 +140,7 @@ describe("workspace types", () => {
       url: "https://status.example.com/api/summary",
       workspacePath: "status/summary.json",
     })
-    source.fetch({
+    fetch({
       body: { scope: "all" },
       cookies: { auth_token: "secret" },
       method: "POST",
@@ -138,7 +150,7 @@ describe("workspace types", () => {
       }),
       url: "https://status.example.com/query",
     })
-    source.fetch<{ status: string }, { ok: boolean }>(({ invocation, selectedWorkspaceScope, source: sourceContext, workspace }) => {
+    fetch<{ status: string }, { ok: boolean }>(({ invocation, selectedWorkspaceScope, source: sourceContext, workspace }) => {
       expectTypeOf(invocation.context.get("support.customerScope")?.customers).toEqualTypeOf<Array<"acme" | "globex"> | undefined>()
       expectTypeOf(selectedWorkspaceScope?.name).toEqualTypeOf<"acme" | "globex" | "support" | undefined>()
       expectTypeOf(sourceContext.key).toEqualTypeOf<string>()
@@ -159,7 +171,7 @@ describe("workspace types", () => {
         url: `https://status.example.com/api/${sourceContext.key}`,
       }
     })
-    source.mcpResources({
+    mcpResources({
       instructions: "Use for MCP resource docs.",
       mount: "nuxt",
       server: {
@@ -171,16 +183,16 @@ describe("workspace types", () => {
         },
       },
     })
-    // @ts-expect-error source.fetch does not expose public lifecycle hooks
-    source.fetch({ url: "https://status.example.com/api/summary", beforeRequest() {} })
-    // @ts-expect-error source.fetch uses workspacePath as its only Workspace-facing address
-    source.fetch({ url: "https://status.example.com/api/summary", mount: "status" })
-    // @ts-expect-error source.fetch uses workspacePath instead of path for Workspace placement
-    source.fetch({ url: "https://status.example.com/api/summary", path: "status.json" })
-    // @ts-expect-error source.fetch does not expose generic source validation mode
-    source.fetch({ url: "https://status.example.com/api/summary", validate: "request" })
-    // @ts-expect-error source.fetch request factories cannot redefine query
-    source.fetch({ url: "https://status.example.com/api/summary", request: () => ({ query: { region: "eu" } }) })
+    // @ts-expect-error fetch does not expose public lifecycle hooks
+    fetch({ url: "https://status.example.com/api/summary", beforeRequest() {} })
+    // @ts-expect-error fetch uses workspacePath as its only Workspace-facing address
+    fetch({ url: "https://status.example.com/api/summary", mount: "status" })
+    // @ts-expect-error fetch uses workspacePath instead of path for Workspace placement
+    fetch({ url: "https://status.example.com/api/summary", path: "status.json" })
+    // @ts-expect-error fetch does not expose generic source validation mode
+    fetch({ url: "https://status.example.com/api/summary", validate: "request" })
+    // @ts-expect-error fetch request factories cannot redefine query
+    fetch({ url: "https://status.example.com/api/summary", request: () => ({ query: { region: "eu" } }) })
     defineWorkspace({
       // @ts-expect-error workspace names are inferred from definition filenames
       name: "typed",

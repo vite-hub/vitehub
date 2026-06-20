@@ -339,7 +339,7 @@ describe("server helpers", () => {
     try {
       const { defineAgent } = await import("../src/index.ts")
       const { registerWorkspaceAgent } = await import("../src/server.ts")
-      const { defineWorkspace, source, useWorkspace } = await import("@vite-hub/workspace")
+      const { defineWorkspace, file, useWorkspace } = await import("@vite-hub/workspace")
       const agent = defineAgent({
         async run() {
           return "ok"
@@ -347,7 +347,7 @@ describe("server helpers", () => {
         workspace: defineWorkspace({
           store: { provider: "memory" },
           sources: {
-            instructions: source.file("AGENTS.md"),
+            instructions: file("AGENTS.md"),
           },
         }),
       })
@@ -377,14 +377,14 @@ describe("server helpers", () => {
     try {
       const { defineAgent } = await import("../src/index.ts")
       const { registerWorkspaceAgent } = await import("../src/server.ts")
-      const { defineWorkspace, source, useWorkspace } = await import("@vite-hub/workspace")
+      const { defineWorkspace, file, useWorkspace } = await import("@vite-hub/workspace")
       const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
       const workspaceName = "support-runtime-named-reference"
       registerWorkspace(workspaceName, defineWorkspace({
         sourceRootDir: sourceRoot,
         store: { provider: "memory" },
         sources: {
-          instructions: source.file("AGENTS.md"),
+          instructions: file("AGENTS.md"),
         },
       }))
       const agent = defineAgent({
@@ -410,7 +410,7 @@ describe("server helpers", () => {
   it("serves hosted Chat DevTools state for an explicit agent handler", async () => {
     const { defineAgent, defineAgentInvoker } = await import("../src/index.ts")
     const { defineAgentChatDevtoolsFetchHandler } = await import("../src/server.ts")
-    const { defineWorkspace, source } = await import("@vite-hub/workspace")
+    const { custom, defineWorkspace } = await import("@vite-hub/workspace")
     const profiles: Array<{ id: string, kind?: string, meta?: Record<string, unknown> }> = [{
       id: "customer:demo:support",
       kind: "customerPortal",
@@ -425,7 +425,7 @@ describe("server helpers", () => {
       workspace: defineWorkspace({
         store: { provider: "memory" },
         sources: {
-          docs: source.custom({
+          docs: custom({
             materialize: "lazy",
             mount: "docs",
             async getKeys() {

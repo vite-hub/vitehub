@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   createWorkspaceSourceResolutionFacade,
+  custom,
+  fetch,
+  github,
   resolveWorkspaceSources,
-  source,
   type WorkspaceShellResult,
   workspaceSourceRequestDescriptorPath,
   type ReadonlyWorkspaceFacade,
@@ -35,11 +37,11 @@ function scope(scope: string, paths: string[]): WorkspaceSourceResolutionOptions
 }
 
 function customerSource() {
-  return source.custom({
+  return custom({
     async resolve({ selectedWorkspaceScope }) {
       const customer = selectedWorkspaceScope?.name
       if (!customer) return false
-      return source.custom({
+      return custom({
         fingerprint: { customer },
         instructions: `Use this source for ${customer} ingestion models only.`,
         materialize: "lazy",
@@ -127,7 +129,7 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        ingestion: source.github(() => ({
+        ingestion: github(() => ({
           repo: "acme/ingestion",
           root: "dbt/acme",
           mount: "ingestion/acme",
@@ -146,7 +148,7 @@ describe("Workspace Source Resolution", () => {
     })
   })
 
-  it("resolves fetch sources from source.fetch resolvers", async () => {
+  it("resolves fetch sources from fetch resolvers", async () => {
     const resolveFetch = vi.fn(({ selectedWorkspaceScope }) => ({
       body: { customer: selectedWorkspaceScope?.name },
       method: "POST" as const,
@@ -158,7 +160,7 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventoryHealthSummary: source.fetch(resolveFetch),
+        inventoryHealthSummary: fetch(resolveFetch),
       },
     }
 
@@ -184,12 +186,12 @@ describe("Workspace Source Resolution", () => {
     })
   })
 
-  it("hides fetch sources when source.fetch resolvers return false", async () => {
+  it("hides fetch sources when fetch resolvers return false", async () => {
     const resolveFetch = vi.fn((): false => false)
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventoryHealthSummary: source.fetch(resolveFetch),
+        inventoryHealthSummary: fetch(resolveFetch),
       },
     }
 
@@ -207,9 +209,9 @@ describe("Workspace Source Resolution", () => {
       name: "support",
       sources: {
         ingestion: {
-          source: source.custom({
+          source: custom({
             async resolve() {
-              return source.custom({
+              return custom({
                 async getKeys() {
                   return ["models/orders.sql"]
                 },
@@ -247,9 +249,9 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventoryHealthSummary: source.custom({
+        inventoryHealthSummary: custom({
           async resolve() {
-            return source.fetch({
+            return fetch({
               query: { region: "eu" },
               url: "https://portal.example.com/runtime/inventory-health",
             })
@@ -297,9 +299,9 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        inventoryHealthSummary: source.custom({
+        inventoryHealthSummary: custom({
           async resolve() {
-            return source.fetch({
+            return fetch({
               cookies: { auth_token: "secret" },
               querySchema,
               request: requestFactory,
@@ -339,9 +341,9 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
-        ingestion: source.custom({
+        ingestion: custom({
           async resolve() {
-            return source.custom({
+            return custom({
               mount: "ingestion/globex",
               async getKeys() {
                 return ["models/orders.sql"]

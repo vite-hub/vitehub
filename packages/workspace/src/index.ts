@@ -1,5 +1,32 @@
 export { defineWorkspace } from "./core/define.ts"
-export * as source from "./sources/index.ts"
+export {
+  custom,
+  fetch,
+  file,
+  github,
+  glob,
+  markdown,
+  mcpResources,
+} from "./sources/index.ts"
+export type {
+  FetchSourceInput,
+  FetchSourceOptions,
+  FetchSourceRequest,
+  FetchSourceRequestOptions,
+  FetchSourceResolver,
+  FileSourceOptions,
+  GitHubSourceInput,
+  GitHubSourceOptions,
+  GitHubSourceResolver,
+  GlobSourceOptions,
+  McpResourceContent,
+  McpResourceDescriptor,
+  McpResourcesClient,
+  McpResourcesClientConfig,
+  McpResourcesRequestOptions,
+  McpResourcesServer,
+  McpResourcesSourceOptions,
+} from "./sources/index.ts"
 export { createWorkspaceTools } from "./ai.ts"
 export {
   createWorkspaceSourceResolutionFacade,

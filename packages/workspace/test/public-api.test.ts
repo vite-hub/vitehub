@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { resetWorkspaceAssetsRegistry } from "../src/asset-registry.ts"
-import { defineWorkspace, source, useWorkspace } from "../src/index.ts"
+import { defineWorkspace, file, useWorkspace } from "../src/index.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
@@ -66,11 +66,11 @@ describe("workspace public API", () => {
     registerWorkspace("api", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        docs: source.file({
+        docs: file({
           workspacePath: "README.md",
           content: "# API\n",
         }),
-        agents: source.file({
+        agents: file({
           workspacePath: "AGENTS.md",
           content: "# Instructions\n",
         }),
@@ -91,7 +91,7 @@ describe("workspace public API", () => {
     registerWorkspace("materialize-api", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        docs: source.file({
+        docs: file({
           workspacePath: "README.md",
           content: "# API\n",
           materialize: "lazy",
@@ -136,7 +136,7 @@ describe("workspace public API", () => {
     registerWorkspace("root-file", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        instructions: source.file({
+        instructions: file({
           mount: "",
           workspacePath: "AGENTS.md",
           content: "# Instructions\n",
@@ -157,7 +157,7 @@ describe("workspace public API", () => {
     registerWorkspace("root-file-mount-options", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        instructions: source.file({
+        instructions: file({
           mount: { materialize: "lazy" },
           workspacePath: "AGENTS.md",
           content: "# Instructions\n",
@@ -181,7 +181,7 @@ describe("workspace public API", () => {
       rootDir: sourceRoot,
       store: { provider: "memory" },
       sources: {
-        instructions: source.file("AGENTS.md"),
+        instructions: file("AGENTS.md"),
       },
     }))
 
@@ -208,7 +208,7 @@ describe("workspace public API", () => {
               rootDir: root,
               store: { provider: "memory" },
               sources: {
-                instructions: source.file("AGENTS.md"),
+                instructions: file("AGENTS.md"),
               },
             },
           },
@@ -222,9 +222,9 @@ describe("workspace public API", () => {
   })
 
   it("rejects unsafe local file source paths", () => {
-    expect(() => source.file("/AGENTS.md")).toThrow()
-    expect(() => source.file("C:/Users/maxi/AGENTS.md")).toThrow()
-    expect(() => source.file("../AGENTS.md")).toThrow()
+    expect(() => file("/AGENTS.md")).toThrow()
+    expect(() => file("C:/Users/maxi/AGENTS.md")).toThrow()
+    expect(() => file("../AGENTS.md")).toThrow()
   })
 
   it("enforces workspace rules before writes reach the store", async () => {
@@ -313,7 +313,7 @@ describe("workspace public API", () => {
       docs: async () => ({ default: defineWorkspace({
         store: { provider: "memory" },
         sources: {
-          repo: source.file({
+          repo: file({
             content: "# Repo\n",
             materialize: "lazy",
             mount: "repo",
@@ -345,7 +345,7 @@ describe("workspace public API", () => {
       docs: async () => ({ default: defineWorkspace({
         store: { provider: "memory" },
         sources: {
-          repo: source.file({
+          repo: file({
             content: "needle in runtime\n",
             materialize: "lazy",
             mount: "repo",
@@ -415,7 +415,7 @@ describe("workspace public API", () => {
       docs: async () => ({ default: defineWorkspace({
         store: { provider: "memory" },
         sources: {
-          docs: source.file({
+          docs: file({
             workspacePath: "README.md",
             content: "v1\n",
           }),
@@ -430,7 +430,7 @@ describe("workspace public API", () => {
       docs: async () => ({ default: defineWorkspace({
         store: { provider: "memory" },
         sources: {
-          docs: source.file({
+          docs: file({
             workspacePath: "README.md",
             content: "v2\n",
           }),
