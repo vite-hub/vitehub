@@ -171,7 +171,6 @@ export type {
   InputCommand,
   InputCommandResult,
   InputCommandRunInput,
-  InputCommandUnmatchedInput,
   InputCommandsOptions,
 } from "./input-commands.ts"
 export type {

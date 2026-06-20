@@ -350,23 +350,6 @@ describe("inputCommands", () => {
     expect(resolved.input.prompt).toBe("Please /unknown value")
   })
 
-  it("can handle unmatched command inputs with a Response", async () => {
-    const { inputCommands } = await import("../src/capabilities.ts")
-    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-
-    const resolved = await resolveAgentCapabilities({
-      capabilities: [inputCommands({
-        commands: {
-          known: { description: "Known.", run: () => "changed" },
-        },
-        unmatched: () => Response.json({ accepted: false, reason: "not_command" }),
-      })],
-    }, runtime(), { prompt: "/unknown value" })
-
-    expect(resolved.response).toBeInstanceOf(Response)
-    await expect(resolved.response!.json()).resolves.toEqual({ accepted: false, reason: "not_command" })
-  })
-
   it("runs multiple commands sequentially in textual order", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

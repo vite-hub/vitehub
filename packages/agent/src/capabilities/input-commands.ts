@@ -33,13 +33,6 @@ export interface InputCommandsOptions {
   commands: Record<string, InputCommand>
   id?: string
   trigger?: string
-  unmatched?: (input: InputCommandUnmatchedInput) => MaybePromise<Response | void>
-}
-
-export interface InputCommandUnmatchedInput {
-  context: AgentCapabilityRuntimeContext
-  input: AgentRunInput
-  text?: string
 }
 
 export interface InputCommandInvocation {
@@ -278,13 +271,11 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
       let text = target.text
       let cursor = 0
       let runs = 0
-      let matched = false
       let maxRuns = Math.max(1_000, text.length + 1)
       while (cursor <= text.length) {
         const invocation = findInputCommandInvocation(text, trigger, commands, cursor)
         if (!invocation) break
         if (++runs > maxRuns) throw new Error("[vitehub] inputCommands exceeded the maximum command expansion depth.")
-        matched = true
 
         const command = commands[invocation.name]!
         const result = await command.run({
@@ -359,11 +350,6 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
         }
         cursor = invocation.end
       }
-      if (!matched) return await options.unmatched?.({
-        context: context as AgentCapabilityRuntimeContext,
-        input,
-        text,
-      })
     },
   })
 }
