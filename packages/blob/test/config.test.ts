@@ -70,6 +70,32 @@ describe("blob config", () => {
     })
   })
 
+  it("defaults Netlify hosting to Netlify Blobs", () => {
+    expect(normalizeBlobOptions({}, {
+      env: { BLOB_READ_WRITE_TOKEN: "vercel-token" },
+      hosting: "netlify",
+    })).toEqual({
+      store: {
+        driver: "netlify-blobs",
+        name: "vitehub-blob",
+      },
+    })
+  })
+
+  it("normalizes explicit Netlify Blobs stores", () => {
+    expect(normalizeBlobOptions({
+      consistency: "strong",
+      driver: "netlify-blobs",
+      name: "assets",
+    })).toEqual({
+      store: {
+        consistency: "strong",
+        driver: "netlify-blobs",
+        name: "assets",
+      },
+    })
+  })
+
   it("resolves MinIO config from Docker-friendly env", () => {
     expect(normalizeBlobOptions({ driver: "minio" }, {
       env: {

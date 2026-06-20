@@ -1,5 +1,5 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
 import { bundleEsmEntry } from "./esbuild.ts"
@@ -34,7 +34,22 @@ interface VercelDeploymentOutputOptions extends SharedDeploymentOptions {
   staticOutputDir?: string
 }
 
+interface NetlifyFunctionDeploymentOutput {
+  bundleEntry: string
+  bundleOptions: BundleOptions
+  config?: object
+  functionName: string
+}
+
+interface NetlifyDeploymentOutputOptions extends SharedDeploymentOptions {
+  config?: object
+  configKeys?: string[]
+  functions?: NetlifyFunctionDeploymentOutput[]
+  outputRoot?: string
+}
+
 export type CloudflareProviderDeploymentOutput = Omit<CloudflareDeploymentOutputOptions, keyof SharedDeploymentOptions>
+export type NetlifyProviderDeploymentOutput = Omit<NetlifyDeploymentOutputOptions, keyof SharedDeploymentOptions>
 export type VercelProviderDeploymentOutput = Omit<VercelDeploymentOutputOptions, keyof SharedDeploymentOptions>
 
 interface CloudflareProviderDeploymentCleanup {
@@ -49,12 +64,20 @@ interface VercelProviderDeploymentCleanup {
   serverFunctionName?: string
 }
 
+interface NetlifyProviderDeploymentCleanup {
+  configKeys?: string[]
+  functionNames?: string[]
+  outputRoot?: string
+}
+
 interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
   cloudflare?: CloudflareProviderDeploymentOutput
   cleanup?: {
     cloudflare?: CloudflareProviderDeploymentCleanup
+    netlify?: NetlifyProviderDeploymentCleanup
     vercel?: VercelProviderDeploymentCleanup
   }
+  netlify?: NetlifyProviderDeploymentOutput
   vercel?: VercelProviderDeploymentOutput
 }
 
@@ -139,6 +162,27 @@ export function createDefaultVercelOutputRoot(rootDir: string): string {
   return resolve(rootDir, ".vercel", "output")
 }
 
+export function createDefaultNetlifyOutputRoot(rootDir: string): string {
+  return resolve(rootDir, ".netlify", "v1")
+}
+
+function assertNetlifyFunctionName(functionName: string): void {
+  if (!functionName || functionName.includes("\\") || functionName.split("/").some(part => !part || part === "." || part === "..")) {
+    throw new Error(`Invalid Netlify function name: ${functionName}`)
+  }
+}
+
+function resolveNetlifyFunctionFile(functionsRoot: string, functionName: string): string {
+  assertNetlifyFunctionName(functionName)
+  return resolve(functionsRoot, `${functionName}.mjs`)
+}
+
+async function appendNetlifyFunctionConfig(outfile: string, config: object | undefined): Promise<void> {
+  if (!config) return
+  const bundled = await readFile(outfile, "utf8")
+  await writeFile(outfile, `${bundled.trimEnd()}\n\nexport const config = ${JSON.stringify(config, null, 2)}\n`, "utf8")
+}
+
 async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutputOptions): Promise<void> {
   const { clientDir, staticIndex } = resolveClientOutput(options.rootDir, options.clientOutDir)
   const outputRoot = options.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir)
@@ -176,6 +220,27 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
   ])
 }
 
+async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOptions): Promise<void> {
+  const outputRoot = options.outputRoot ?? createDefaultNetlifyOutputRoot(options.rootDir)
+  const functionsRoot = resolve(outputRoot, "functions")
+  const functionWrites = (options.functions ?? []).map(async (func) => {
+    const outfile = resolveNetlifyFunctionFile(functionsRoot, func.functionName)
+    await rm(outfile, { force: true, recursive: true })
+    await mkdir(dirname(outfile), { recursive: true })
+    await bundleEsmEntry(func.bundleEntry, outfile, {
+      ...func.bundleOptions,
+      minifyIdentifiers: func.config ? true : func.bundleOptions.minifyIdentifiers,
+    })
+    await appendNetlifyFunctionConfig(outfile, func.config)
+  })
+
+  await mkdir(outputRoot, { recursive: true })
+  await Promise.all([
+    writeMergedJsonObject(resolve(outputRoot, "config.json"), options.config ?? {}, options.configKeys),
+    ...functionWrites,
+  ])
+}
+
 async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanup: CloudflareProviderDeploymentCleanup): Promise<void> {
   const outputRoot = cleanup.outputRoot ?? createDefaultCloudflareOutputRoot(rootDir)
   const writes: Array<Promise<void>> = []
@@ -196,6 +261,15 @@ async function cleanupVercelDeploymentOutput(rootDir: string, cleanup: VercelPro
   await Promise.all(writes)
 }
 
+async function cleanupNetlifyDeploymentOutput(rootDir: string, cleanup: NetlifyProviderDeploymentCleanup): Promise<void> {
+  const outputRoot = cleanup.outputRoot ?? createDefaultNetlifyOutputRoot(rootDir)
+  const functionsRoot = resolve(outputRoot, "functions")
+  const writes = (cleanup.functionNames ?? []).map(functionName =>
+    rm(resolveNetlifyFunctionFile(functionsRoot, functionName), { force: true, recursive: true }))
+  writes.push(deleteJsonObjectKeysFromFile(resolve(outputRoot, "config.json"), cleanup.configKeys))
+  await Promise.all(writes)
+}
+
 export async function writeProviderDeploymentOutputs(options: ProviderDeploymentOutputOptions): Promise<void> {
   const writes: Array<Promise<void>> = []
   if (options.cloudflare) {
@@ -206,6 +280,15 @@ export async function writeProviderDeploymentOutputs(options: ProviderDeployment
     }))
   } else if (options.cleanup?.cloudflare) {
     writes.push(cleanupCloudflareDeploymentOutput(options.rootDir, options.cleanup.cloudflare))
+  }
+  if (options.netlify) {
+    writes.push(writeNetlifyDeploymentOutput({
+      ...options.netlify,
+      clientOutDir: options.clientOutDir,
+      rootDir: options.rootDir,
+    }))
+  } else if (options.cleanup?.netlify) {
+    writes.push(cleanupNetlifyDeploymentOutput(options.rootDir, options.cleanup.netlify))
   }
   if (options.vercel) {
     writes.push(writeVercelDeploymentOutput({

@@ -12,6 +12,10 @@ vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
   copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
 }))
 
+vi.mock("@vite-hub/internal/build/deployment-output", () => ({
+  writeProviderDeploymentOutputs: vi.fn(async () => undefined),
+}))
+
 function githubSignature(secret: string, body: string) {
   return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
 }
@@ -145,6 +149,56 @@ describe("agent Vite plugin", () => {
       packages: [{ includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true }],
       rootDir: "/app",
     })
+  })
+
+  it("writes Netlify provider output for generated agent HTTP routes", async () => {
+    const { writeProviderDeploymentOutputs } = await import("@vite-hub/internal/build/deployment-output")
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-routes-"))
+    const previousHosting = process.env.VITEHUB_HOSTING
+    const previousNetlify = process.env.NETLIFY
+    try {
+      process.env.VITEHUB_HOSTING = "netlify"
+      delete process.env.NETLIFY
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const plugin = hubAgent({ routes: { chat: true, webhooks: true } })
+      const configResolved = plugin.configResolved as (config: { build?: { outDir?: string }, command: "build", root: string }) => Promise<void>
+      const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+      vi.mocked(writeProviderDeploymentOutputs).mockClear()
+
+      await configResolved({ build: { outDir: "dist/client" }, command: "build", root })
+      await closeBundle.handler()
+
+      const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
+      expect(wrapper).toContain("export default async function viteHubAgentNetlifyFunction(request, context)")
+      expect(wrapper).toContain("process.env.VITEHUB_HOSTING = 'netlify'")
+      expect(wrapper).toContain("const waitUntil = waitUntilFromContext(context)")
+      expect(wrapper).toContain("const webhook = netlifyParam(context, 'webhook')")
+      expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith({
+        clientOutDir: "dist/client",
+        netlify: {
+          functions: [{
+            bundleEntry: join(root, ".vitehub/agent/netlify-function.mjs"),
+            bundleOptions: { format: "esm", platform: "node" },
+            config: {
+              name: "vitehub-agent",
+              nodeBundler: "esbuild",
+              path: ["/api/_vitehub/agents/:agent/chat", "/api/_vitehub/agents/:agent/webhooks/:webhook"],
+            },
+            functionName: "vitehub-agent",
+          }],
+        },
+        rootDir: root,
+      })
+    }
+    finally {
+      if (typeof previousHosting === "string") process.env.VITEHUB_HOSTING = previousHosting
+      else delete process.env.VITEHUB_HOSTING
+      if (typeof previousNetlify === "string") process.env.NETLIFY = previousNetlify
+      else delete process.env.NETLIFY
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("registers configured agent webhook routes with Nitro", async () => {
@@ -329,6 +383,16 @@ describe("agent Vite plugin", () => {
       types: "./dist/cloudflare/state.d.ts",
       import: "./dist/cloudflare/state.js",
     })
+  })
+
+  it("keeps esbuild external in the Agent Vite plugin package build", async () => {
+    const config = await readFile(new URL("../vite.config.ts", import.meta.url), "utf8")
+    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
+      dependencies?: Record<string, string>
+    }
+
+    expect(config).toContain('"esbuild"')
+    expect(pkg.dependencies?.esbuild).toBe("catalog:esbuild-v27")
   })
 })
 

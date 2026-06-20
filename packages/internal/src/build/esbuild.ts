@@ -5,6 +5,7 @@ interface BundleEsmEntryOptions {
   conditions?: string[]
   external?: string[]
   format?: "esm" | "cjs"
+  minifyIdentifiers?: boolean
   platform?: "browser" | "node" | "neutral"
   plugins?: Plugin[]
 }
@@ -21,7 +22,14 @@ export async function bundleEsmEntry(
     alias: options.alias,
     banner: format === "esm" && platform === "node"
       ? {
-          js: 'import { createRequire as __createRequire } from "node:module";\nvar require = __createRequire(import.meta.url);\n',
+          js: [
+            'import { createRequire as __createRequire } from "node:module";',
+            'import { dirname as __vitehubDirname } from "node:path";',
+            'import { fileURLToPath as __vitehubFileURLToPath } from "node:url";',
+            "globalThis.require = __createRequire(import.meta.url);",
+            "globalThis.__filename = __vitehubFileURLToPath(import.meta.url);",
+            "globalThis.__dirname = __vitehubDirname(globalThis.__filename);",
+          ].join("\n"),
         }
       : undefined,
     bundle: true,
@@ -30,6 +38,7 @@ export async function bundleEsmEntry(
     external: options.external,
     format,
     logLevel: "silent",
+    minifyIdentifiers: options.minifyIdentifiers,
     outfile,
     platform,
     plugins: options.plugins,

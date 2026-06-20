@@ -312,6 +312,24 @@ describe("Vite provider outputs", () => {
     expect(runtimeContents).toContain("export const blob = createGeneratedBlobStorage()")
   })
 
+  it("generates Netlify Blobs driver reachability for selected stores", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-netlify-runtime-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+
+    await generateProviderOutputs({
+      blob: normalizeBlobOptions({}, { hosting: "netlify" }),
+      clientOutDir: "dist",
+      rootDir,
+    })
+
+    const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
+    expect(runtimeContents).toContain("drivers/netlify-blobs")
+    expect(runtimeContents).toContain("\"driver\": \"netlify-blobs\"")
+    expect(runtimeContents).toContain("\"name\": \"vitehub-blob\"")
+  })
+
   it("generates MinIO driver reachability for selected stores", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-minio-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })

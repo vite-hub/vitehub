@@ -137,6 +137,9 @@ function inferProvider(provider: unknown, hosting: string): "cloudflare" | "open
   if (provider === "cloudflare" || provider === "openworkflow" || provider === "vercel") {
     return provider
   }
+  if (hosting.includes("netlify")) {
+    throw new TypeError("`workflow.provider` cannot be inferred for Netlify hosting. Set `workflow.provider` explicitly or disable `workflow`.")
+  }
   if (hosting.includes("cloudflare")) {
     return "cloudflare"
   }

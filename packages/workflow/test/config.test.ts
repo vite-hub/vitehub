@@ -23,6 +23,11 @@ describe("workflow config", () => {
     })
   })
 
+  it("does not infer Vercel for Netlify hosting", () => {
+    expect(() => normalizeWorkflowOptions(undefined, { hosting: "netlify" })).toThrow(/cannot be inferred for Netlify/)
+    expect(normalizeWorkflowOptions({ provider: "vercel" }, { hosting: "netlify" })).toEqual({ provider: "vercel" })
+  })
+
   it("does not infer openworkflow from node hosting without Postgres config", () => {
     expect(normalizeWorkflowOptions(undefined, { hosting: "node-server" })).toEqual({
       provider: "vercel",

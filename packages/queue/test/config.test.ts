@@ -18,6 +18,11 @@ describe("normalizeQueueOptions", () => {
     })
   })
 
+  it("does not infer Vercel for Netlify hosting", () => {
+    expect(() => normalizeQueueOptions(undefined, { hosting: "netlify" })).toThrow(/cannot be inferred for Netlify/)
+    expect(normalizeQueueOptions({ provider: "vercel" }, { hosting: "netlify" })).toEqual({ provider: "vercel" })
+  })
+
   it("throws on unknown providers", () => {
     expect(() => normalizeQueueOptions({ provider: "memory" } as never)).toThrow(/Unknown `queue.provider`/)
   })

@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url"
 import { afterAll, describe, expect, it } from "vitest"
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
-import { generateProviderOutputs, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
+import { createNetlifyScheduleFunctionOutputs, generateProviderOutputs, resolveScheduleDefinitionEntry, resolveScheduleRuntimeEntry, validateProviderCron, writeVercelScheduleFunctions } from "../src/internal/provider-output.ts"
+import { discoverScheduleDefinitions } from "../src/discovery.ts"
 
 const tempDirs: string[] = []
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -67,6 +68,41 @@ describe("schedule provider output", () => {
       schedule: "0 0 * * *",
     }])
     expect(await readFile(vercelFunction, "utf8")).toContain("executeStaticSchedule")
+  })
+
+  it("creates Netlify scheduled function output contributions", async () => {
+    const rootDir = await createTempProject("vitehub-schedule-netlify-output-")
+    await writeFile(join(rootDir, "src", "AdminReport.schedule.ts"), [
+      "import { defineSchedule } from '@vite-hub/schedule'",
+      "",
+      "export default defineSchedule({ cron: '0 1 * * *', handler: () => 'ok' })",
+      "",
+    ].join("\n"), "utf8")
+    const definitions = discoverScheduleDefinitions({ rootDir })
+    const registryFile = join(rootDir, ".vitehub", "schedule", "registry.mjs")
+    const outputs = await createNetlifyScheduleFunctionOutputs({
+      definitions,
+      functionRoot: join(rootDir, "netlify", "functions"),
+      registryFile,
+    })
+
+    expect(outputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        cron: "0 0 * * *",
+        file: join(rootDir, "netlify", "functions", "vitehub-schedule-cleanup.mjs"),
+        name: "cleanup",
+      }),
+      expect.objectContaining({
+        cron: "0 1 * * *",
+        file: join(rootDir, "netlify", "functions", "vitehub-schedule-adminreport.mjs"),
+        name: "AdminReport",
+      }),
+    ]))
+    const cleanup = outputs.find(output => output.name === "cleanup")
+    expect(cleanup?.source).toContain("export const config = {")
+    expect(cleanup?.source).toContain("schedule: \"0 0 * * *\"")
+    expect(cleanup?.source).toContain("next_run")
+    expect(cleanup?.source).toContain("executeStaticSchedule")
   })
 
   it("preserves existing provider output files when adding schedule output", async () => {

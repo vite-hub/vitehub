@@ -142,6 +142,67 @@ describe("provider deployment outputs", () => {
     })
   })
 
+  it("writes Netlify functions with static config and preserves shared config keys", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultNetlifyOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const netlifyDir = createDefaultNetlifyOutputRoot(rootDir)
+    const siblingFunction = join(netlifyDir, "functions", "other.mjs")
+    vi.mocked(bundleEsmEntry).mockClear()
+    vi.mocked(bundleEsmEntry).mockImplementationOnce(async (_entryFile, outfile) => {
+      await writeFile(outfile, "export default async function handler() {}\n", "utf8")
+    })
+    await mkdir(join(netlifyDir, "functions"), { recursive: true })
+    await writeFile(siblingFunction, "export default {}")
+    await writeFile(join(netlifyDir, "config.json"), `${JSON.stringify({
+      headers: [{ for: "/old", values: { "x-old": "1" } }],
+      images: { remote_images: ["https://images.example.com/.*"] },
+      redirects: [{ from: "/old", status: 301, to: "/new" }],
+    }, null, 2)}\n`)
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist/client",
+      netlify: {
+        config: {
+          edge_functions: [{ function: "vitehub-edge", path: "/edge" }],
+          headers: [{ for: "/api/*", values: { "x-vitehub": "1" } }],
+          redirects: [{ from: "/docs", status: 200, to: "/docs/index.html" }],
+        },
+        configKeys: ["edge_functions", "headers", "redirects"],
+        functions: [{
+          bundleEntry: join(rootDir, "agent.mjs"),
+          bundleOptions: { format: "esm", platform: "node" },
+          config: {
+            name: "vitehub-agent",
+            nodeBundler: "esbuild",
+            path: ["/api/_vitehub/agents/:agent/chat", "/api/_vitehub/agents/:agent/webhooks/:webhook"],
+          },
+          functionName: "vitehub-agent",
+        }],
+      },
+      rootDir,
+    })
+
+    const functionFile = join(netlifyDir, "functions", "vitehub-agent.mjs")
+    await expect(readFile(siblingFunction, "utf8")).resolves.toBe("export default {}")
+    await expect(readFile(functionFile, "utf8")).resolves.toContain("export const config = {")
+    await expect(readFile(functionFile, "utf8")).resolves.toContain("\"nodeBundler\": \"esbuild\"")
+    expect(vi.mocked(bundleEsmEntry)).toHaveBeenCalledWith(
+      join(rootDir, "agent.mjs"),
+      functionFile,
+      { format: "esm", minifyIdentifiers: true, platform: "node" },
+    )
+    await expect(readFile(join(netlifyDir, "config.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      edge_functions: [{ function: "vitehub-edge", path: "/edge" }],
+      headers: [{ for: "/api/*", values: { "x-vitehub": "1" } }],
+      images: { remote_images: ["https://images.example.com/.*"] },
+      redirects: [{ from: "/docs", status: 200, to: "/docs/index.html" }],
+    })
+  })
+
   it("removes owned Cloudflare config keys before merging new output", async () => {
     const rootDir = await createTempProject()
     const {
