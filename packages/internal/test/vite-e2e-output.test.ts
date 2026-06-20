@@ -1,10 +1,13 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { cp, mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { execFile } from "node:child_process"
 import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
+import { resolveConfig } from "vite"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+
+import { collectViteHubProvisionSteps } from "../src/cli.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -60,6 +63,46 @@ async function readGeneratedJavaScript(outputDir: string): Promise<string> {
   return chunks.join("\n")
 }
 
+function readLiveSmokeStepEnv(stepName: string): Record<string, string> {
+  const workflow = readFileSync(resolve(repoRoot, ".github/workflows/live-smoke.yml"), "utf8")
+  const lines = workflow.split(/\r?\n/)
+  const stepStart = lines.findIndex(line => line.trim() === `- name: ${stepName}`)
+  if (stepStart === -1) {
+    throw new Error(`Missing live-smoke step: ${stepName}`)
+  }
+
+  const stepEnd = lines.findIndex((line, index) => index > stepStart && /^ {6}- name: /.test(line))
+  const stepLines = lines.slice(stepStart, stepEnd === -1 ? undefined : stepEnd)
+  const envStart = stepLines.findIndex(line => /^ {8}env:\s*$/.test(line))
+  if (envStart === -1) return {}
+
+  const env: Record<string, string> = {}
+  for (const line of stepLines.slice(envStart + 1)) {
+    const match = /^ {10}([A-Z0-9_]+):\s*(.+?)\s*$/.exec(line)
+    if (!match) break
+    env[match[1]!] = match[2]!
+  }
+  return env
+}
+
+async function withEnv<T>(env: Record<string, string>, callback: () => Promise<T>): Promise<T> {
+  const previous = new Map<string, string | undefined>()
+  for (const [key, value] of Object.entries(env)) {
+    previous.set(key, process.env[key])
+    process.env[key] = value
+  }
+
+  try {
+    return await callback()
+  }
+  finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+}
+
 afterAll(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
@@ -75,6 +118,24 @@ beforeAll(async () => {
 }, 240_000)
 
 describe("unified vite e2e hosted outputs", () => {
+  it("collects cloudflare D1 provisioning from the live-smoke e2e provision step", async () => {
+    const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-provision-")
+    const env = readLiveSmokeStepEnv("Provision Cloudflare resources")
+
+    expect(env.VITEHUB_HOSTING).toBe("cloudflare")
+    expect(env.VITEHUB_VITE_MODE).toBe("e2e")
+
+    await withEnv(env, async () => {
+      const config = await resolveConfig({ root: rootDir }, "serve", "development")
+      const stepIds = (await collectViteHubProvisionSteps(config.plugins)).map(step => step.id)
+
+      expect(stepIds).toEqual(expect.arrayContaining([
+        "database:cloudflare-d1",
+        "queue:cloudflare-queues",
+      ]))
+    })
+  }, 45_000)
+
   it("keeps the cloudflare artifact provider-pure and preserves hosted bindings", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-cf-")
 
