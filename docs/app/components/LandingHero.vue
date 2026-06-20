@@ -1414,38 +1414,42 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   place-items: center;
-  background: var(--ui-text-highlighted);
-  clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0 50%);
 }
 
-.vh-hero-recipe-shell::before,
-.vh-hero-recipe-shell::after {
-  content: "";
+.vh-hero-recipe-mark {
   position: absolute;
-  clip-path: inherit;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
 }
 
-.vh-hero-recipe-shell::before {
+.vh-hero-recipe-mark-fill {
   z-index: 2;
-  inset: 0;
-  background: var(--ui-text-highlighted);
+  fill: var(--ui-text-highlighted);
+  transform-box: fill-box;
+  transform-origin: center;
   animation: vh-hero-recipe-fill 5s cubic-bezier(0.23, 1, 0.32, 1) infinite;
 }
 
-.vh-hero-recipe-shell::after {
-  z-index: 0;
-  inset: 1.5px;
-  background: color-mix(in srgb, var(--ui-bg) 94%, var(--ui-bg-muted) 6%);
+.vh-hero-recipe-mark-stroke {
+  fill: color-mix(in srgb, var(--ui-bg) 94%, var(--ui-bg-muted) 6%);
+  stroke: var(--ui-text-highlighted);
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+  animation: vh-hero-recipe-stroke 5s cubic-bezier(0.23, 1, 0.32, 1) infinite;
 }
 
 .vh-hero-recipe-card {
   position: absolute;
-  z-index: 1;
-  inset: 1rem 0.8rem;
+  z-index: 3;
+  inset: 1rem 0.6rem;
   display: grid;
   align-content: center;
   justify-items: center;
-  gap: 0.25rem;
+  gap: 0.34rem;
   color: var(--ui-text-highlighted);
   opacity: 0;
   text-align: center;
@@ -1454,7 +1458,7 @@ onBeforeUnmount(() => {
 }
 
 .vh-hero-recipe-channel,
-.vh-hero-recipe-stack span {
+.vh-hero-recipe-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1462,26 +1466,50 @@ onBeforeUnmount(() => {
 
 .vh-hero-recipe-channel {
   gap: 0.25rem;
-  font-size: 0.74rem;
+  font-size: 0.76rem;
   font-weight: 800;
+  line-height: 1;
 }
 
-.vh-hero-recipe-stack {
+.vh-hero-recipe-bridge {
   display: grid;
-  gap: 0.12rem;
-  color: color-mix(in srgb, var(--ui-text-highlighted) 72%, var(--ui-text-muted));
-  font-size: 0.58rem;
+  grid-template-columns: minmax(0, 1fr) 0.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.18rem;
+  width: min(8.5rem, 100%);
+  color: color-mix(in srgb, var(--ui-text-highlighted) 78%, var(--ui-text-muted));
+  font-size: 0.55rem;
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 1;
 }
 
-.vh-hero-recipe-stack span {
+.vh-hero-recipe-chip {
+  min-width: 0;
   gap: 0.18rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--ui-border) 70%, transparent);
+  border-radius: 999px;
+  padding: 0.22rem 0.32rem;
+  background: color-mix(in srgb, var(--ui-bg) 78%, transparent);
+  animation: vh-hero-recipe-chip 5s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+  animation-delay: var(--vh-recipe-delay);
+  white-space: nowrap;
+}
+
+.vh-hero-recipe-flow {
+  display: block;
+  width: 0.32rem;
+  height: 0.32rem;
+  border-radius: 999px;
+  background: var(--ui-text-highlighted);
+  opacity: 0.42;
+  animation: vh-hero-recipe-flow 5s cubic-bezier(0.23, 1, 0.32, 1) infinite;
+  animation-delay: var(--vh-recipe-delay);
 }
 
 .vh-hero-recipe-card strong {
-  max-width: 10ch;
-  font-size: 0.84rem;
+  max-width: 8.5ch;
+  font-size: 0.9rem;
   font-weight: 800;
   line-height: 1.05;
 }
@@ -1669,21 +1697,21 @@ onBeforeUnmount(() => {
   }
 
   .vh-hero-recipe-card {
-    inset: 1.3rem 1rem;
-    gap: 0.35rem;
+    inset: 1.45rem 1rem;
+    gap: 0.45rem;
   }
 
   .vh-hero-recipe-channel {
-    font-size: 0.86rem;
+    font-size: 0.95rem;
   }
 
-  .vh-hero-recipe-stack {
-    gap: 0.18rem;
-    font-size: 0.68rem;
+  .vh-hero-recipe-bridge {
+    width: 9.2rem;
+    font-size: 0.64rem;
   }
 
   .vh-hero-recipe-card strong {
-    font-size: 1rem;
+    font-size: 1.1rem;
   }
 }
 
@@ -1702,7 +1730,7 @@ onBeforeUnmount(() => {
 @keyframes vh-hero-recipe-fill {
   0% {
     opacity: 1;
-    transform: scale(0.68);
+    transform: scale(0.72);
   }
 
   18% {
@@ -1714,6 +1742,18 @@ onBeforeUnmount(() => {
   100% {
     opacity: 0;
     transform: scale(1);
+  }
+}
+
+@keyframes vh-hero-recipe-stroke {
+  0%,
+  12% {
+    stroke-dashoffset: 1;
+  }
+
+  32%,
+  100% {
+    stroke-dashoffset: 0;
   }
 }
 
@@ -1734,6 +1774,30 @@ onBeforeUnmount(() => {
   100% {
     opacity: 0;
     transform: translateY(-0.15rem) scale(0.98);
+  }
+}
+
+@keyframes vh-hero-recipe-chip {
+  0%,
+  8% {
+    transform: translateY(0.08rem);
+  }
+
+  13%,
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes vh-hero-recipe-flow {
+  0%,
+  12% {
+    transform: scale(0.5);
+  }
+
+  18%,
+  100% {
+    transform: scale(1);
   }
 }
 
@@ -1913,14 +1977,24 @@ onBeforeUnmount(() => {
 
   .vh-hero-orbit-ring,
   .vh-hero-orbit-node,
-  .vh-hero-recipe-shell::before,
-  .vh-hero-recipe-card {
+  .vh-hero-recipe-mark-fill,
+  .vh-hero-recipe-mark-stroke,
+  .vh-hero-recipe-card,
+  .vh-hero-recipe-chip,
+  .vh-hero-recipe-flow {
     animation: none;
   }
 
-  .vh-hero-recipe-shell::before,
   .vh-hero-recipe-card {
     opacity: 0;
+  }
+
+  .vh-hero-recipe-mark-fill {
+    opacity: 0;
+  }
+
+  .vh-hero-recipe-mark-stroke {
+    stroke-dashoffset: 0;
   }
 
   .vh-hero-recipe-card:first-of-type {
