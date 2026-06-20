@@ -2,6 +2,9 @@ export default defineAppConfig({
   github: {
     url: "https://github.com/vite-hub/vitehub",
   },
+  socials: {
+    discord: "https://discord.gg/YTRDsRP3",
+  },
   navigation: {
     sub: "aside",
   },

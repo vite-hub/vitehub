@@ -26,6 +26,25 @@ provide("codeTree", tree);
 provide("codeTreeActive", activePath);
 
 const treeItems = computed(() => Object.entries(tree.value).map(([label, component]) => ({ label, component })));
+const postLayout = computed(() => post.value?.layout || "article");
+const isTutorialLayout = computed(() => postLayout.value === "tutorial");
+const pageUi = computed(() => ({
+  root: isTutorialLayout.value
+    ? "mx-auto grid w-full max-w-[112rem] grid-cols-1 gap-8 px-4 sm:px-6 lg:grid-cols-[minmax(0,40rem)_minmax(0,1fr)] lg:gap-8 lg:pl-8 lg:pr-0 xl:grid-cols-[minmax(0,42rem)_minmax(0,1fr)] xl:gap-9 xl:pl-12 xl:pr-0"
+    : undefined,
+  center: isTutorialLayout.value
+    ? "min-w-0 max-w-[42rem] lg:col-span-1 lg:max-w-none mx-0"
+    : "max-w-[var(--vh-content-width,860px)] mx-auto",
+  right: isTutorialLayout.value
+    ? "hidden lg:col-span-1 lg:order-none lg:block w-full min-w-0 self-stretch border-l border-default"
+    : "hidden",
+}));
+const pageHeaderUi = computed(() => isTutorialLayout.value
+  ? {
+      container: "max-w-[42rem]",
+      description: "max-w-[38rem]",
+    }
+  : undefined);
 
 const publishedDate = computed(() => post.value?.date || "");
 const formattedDate = computed(() => {
@@ -48,9 +67,9 @@ useSeoMeta({
 </script>
 
 <template>
-  <UContainer v-if="post">
-    <UPage :ui="{ center: 'max-w-[var(--vh-content-width,860px)]', right: 'hidden xl:block w-[26rem] shrink-0' }">
-      <UPageHeader :title="post.title" :description="post.description">
+  <UContainer v-if="post" :class="isTutorialLayout ? '!max-w-none !px-0 sm:!px-0 lg:!px-0' : undefined">
+    <UPage :ui="pageUi">
+      <UPageHeader :title="post.title" :description="post.description" :ui="pageHeaderUi">
         <template #headline>
           <div class="flex flex-wrap items-center gap-2 text-sm text-muted">
             <UButton
@@ -58,38 +77,52 @@ useSeoMeta({
               variant="link"
               color="neutral"
               icon="i-lucide-arrow-left"
-              label="Blog entries"
+              label="Blog"
               class="p-0"
             />
             <span v-if="formattedDate" aria-hidden="true">·</span>
             <time v-if="formattedDate" :datetime="publishedDate">{{ formattedDate }}</time>
           </div>
         </template>
+
+        <div v-if="post.authors?.length" class="mt-6 flex flex-wrap items-center gap-4">
+          <UUser
+            v-for="author in post.authors"
+            :key="author.name"
+            v-bind="author"
+            size="sm"
+            :ui="{ name: 'font-medium text-highlighted', description: 'text-muted' }"
+          />
+        </div>
       </UPageHeader>
 
-      <UPageBody prose class="docs-content blog-content pb-24">
-        <img
-          v-if="post.image"
-          :src="post.image"
-          :alt="post.title"
-          class="not-prose mb-10 aspect-[16/8] w-full rounded-sm border border-default object-cover"
-        >
+      <UPageBody prose class="docs-content blog-content max-w-[42rem] pb-24 lg:max-w-none">
         <ContentRenderer :value="post" />
       </UPageBody>
 
       <template #right>
-        <aside class="sticky top-[calc(var(--ui-header-height,56px)+1.5rem)] max-h-[calc(100vh-var(--ui-header-height,56px)-3rem)] overflow-hidden">
+        <aside
+          v-if="isTutorialLayout"
+          class="sticky top-[var(--ui-header-height,56px)] h-[calc(100vh-var(--ui-header-height,56px))] overflow-hidden"
+        >
           <ProseCodeTree
             v-if="activePath"
             :model-value="activePath"
             :items="treeItems"
             expand-all
-            class="my-0 h-full min-h-[32rem] rounded-sm border border-default"
-            :ui="{ list: 'border-default', content: '[&>div>pre]:bg-muted/50 [&>div>pre]:border-default [&>div>pre]:rounded-none' }"
+            class="my-0 h-full min-h-0 w-full rounded-none border-0 lg:!h-full lg:grid-cols-[13rem_minmax(0,1fr)] xl:grid-cols-[14rem_minmax(0,1fr)]"
+            :ui="{
+              root: 'my-0 h-full min-h-0 w-full rounded-none border-0',
+              list: 'h-full min-h-0 border-default p-1 pr-2',
+              listWithChildren: 'ms-3 border-s border-default',
+              itemWithChildren: 'ps-1 -ms-px',
+              link: 'px-1.5 py-1.5 gap-1.5',
+              content: 'h-full min-w-0 lg:!col-span-1 lg:!col-start-2 lg:!row-start-1 [&>div]:m-0 [&>div]:h-full [&>div]:min-h-0 [&>div]:w-full [&>div]:!overflow-hidden [&>div>pre]:min-h-0 [&>div>pre]:w-full [&>div>pre]:max-w-none [&>div>pre]:flex-1 [&>div>pre]:overflow-auto [&>div>pre]:bg-muted/50 [&>div>pre]:border-default [&>div>pre]:rounded-none [&>div>pre]:px-3 [&>div>pre]:py-3',
+            }"
           />
 
-          <div v-else class="border border-default p-4">
-            <DocsAsideRight :page="post" />
+          <div v-else class="grid h-full min-h-0 place-items-center text-muted">
+            <UIcon name="i-lucide-arrow-down" class="size-10 animate-bounce" />
           </div>
         </aside>
       </template>
@@ -105,5 +138,77 @@ useSeoMeta({
 .blog-content :deep(> p:first-of-type) {
   margin-top: 0;
   color: var(--ui-text-muted);
+}
+
+.blog-content :deep(.setup-collapsible) {
+  margin-block: 1.5rem;
+  overflow: hidden;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: color-mix(in srgb, var(--ui-bg-muted) 38%, transparent);
+}
+
+.blog-content :deep(.setup-collapsible > button) {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.875rem 1rem;
+  color: var(--ui-text);
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.75rem;
+  text-align: left;
+}
+
+.blog-content :deep(.setup-collapsible > button:hover) {
+  background: color-mix(in srgb, var(--ui-bg-muted) 68%, transparent);
+}
+
+.blog-content :deep(.setup-collapsible > button:focus-visible) {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: 2px;
+}
+
+.blog-content :deep(.setup-collapsible > button svg) {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  color: var(--ui-text-muted);
+}
+
+.blog-content :deep(.setup-collapsible > button span:last-child) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.blog-content :deep(.setup-collapsible [data-slot="content"]) {
+  border-top: 1px solid var(--ui-border);
+  padding: 1rem;
+  color: var(--ui-text);
+  font-size: 1rem;
+  line-height: 1.75rem;
+}
+
+.blog-content :deep(.setup-collapsible [data-slot="content"] > *:first-child) {
+  margin-top: 0;
+}
+
+.blog-content :deep(.setup-collapsible [data-slot="content"] > *:last-child) {
+  margin-bottom: 0;
+}
+
+@media (min-width: 640px) {
+  .blog-content :deep(.setup-collapsible > button),
+  .blog-content :deep(.setup-collapsible [data-slot="content"]) {
+    font-size: 0.875rem;
+    line-height: 1.5rem;
+  }
+
+  .blog-content :deep(.setup-collapsible > button) {
+    padding-block: 0.75rem;
+  }
 }
 </style>
