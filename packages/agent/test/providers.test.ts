@@ -410,17 +410,33 @@ describe("server helpers", () => {
   it("serves hosted Chat DevTools state for an explicit agent handler", async () => {
     const { defineAgent, defineAgentInvoker } = await import("../src/index.ts")
     const { defineAgentChatDevtoolsFetchHandler } = await import("../src/server.ts")
+    const { defineWorkspace, source } = await import("@vite-hub/workspace")
+    const profiles: Array<{ id: string, kind?: string, meta?: Record<string, unknown> }> = [{
+      id: "customer:demo:support",
+      kind: "customerPortal",
+      meta: { customer: "demo" },
+    }]
     const agent = defineAgent({
       invoker: defineAgentInvoker({
-        profiles: [{
-          id: "customer:demo:support",
-          kind: "customerPortal",
-          meta: { customer: "demo" },
-        }],
+        profiles,
       }),
       run: () => "unused",
-      title: "Support",
       version: "test-agent",
+      workspace: defineWorkspace({
+        store: { provider: "memory" },
+        sources: {
+          docs: source.custom({
+            materialize: "lazy",
+            mount: "docs",
+            async getKeys() {
+              return ["README.md"]
+            },
+            async getItem(key) {
+              return { content: "# Support\n", key }
+            },
+          }),
+        },
+      }),
     })
     const handler = defineAgentChatDevtoolsFetchHandler(agent as never, {
       meta: { email: "user@example.com" },
@@ -442,7 +458,7 @@ describe("server helpers", () => {
       chats: [{
         invokerProfileId: "customer:demo:support",
         name: "support",
-        title: "Support",
+        title: "support",
         uiMessages: [],
       }],
       invokerProfileId: "customer:demo:support",
@@ -454,9 +470,29 @@ describe("server helpers", () => {
       meta: { email: "user@example.com" },
       metadataStatus: "ready",
       selected: "support",
-      title: "Support",
+      title: "support",
       uiMessages: [],
       version: "test-agent",
+    })
+
+    const materializedResponse = await handler(new Request("https://example.com/__vitehub/agent/chat/devtools", {
+      body: JSON.stringify({
+        action: "materialize-source",
+        invokerProfileId: "customer:demo:support",
+        path: "docs",
+        source: "docs",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+
+    expect(materializedResponse.status).toBe(200)
+    await expect(materializedResponse.json()).resolves.toMatchObject({
+      chats: [{
+        name: "support",
+        title: "support",
+      }],
+      title: "support",
     })
   })
 

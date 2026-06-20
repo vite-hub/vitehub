@@ -704,7 +704,7 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const driver = normalizeAgentDriver(options)
-  const { capabilities, channels, description, hooks, messages, runtime, title, version, workspace } = options
+  const { capabilities, channels, description, hooks, messages, runtime, version, workspace } = options
   const run = driver.kind === "run" ? driver.run : (options as { run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS> }).run
   const baseCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
@@ -748,7 +748,6 @@ function defineBaseAgent<
     messages,
     runtime,
     run,
-    title,
     version,
     workspace,
     ...(normalizedCapabilities.length ? { capabilities: normalizedCapabilities } : {}),

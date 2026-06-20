@@ -98,7 +98,7 @@ export interface ChatDevtoolsMetadata {
   files?: ChatDevtoolsFileTreeItem[]
   instructions?: string[]
   invokerProfiles?: ChatDevtoolsInvokerProfile[]
-  title?: string
+  name?: string
   tools?: ChatDevtoolsToolDefinition[]
   version?: string
 }

@@ -265,8 +265,15 @@ function canResolveWorkspaceMetadata(agent: AgentInput<ViteAgentDevtoolsRuntimeC
   return Boolean((agent as { __vitehubWorkspaceAgent?: unknown }).__vitehubWorkspaceAgent)
 }
 
-function createStaticDevtoolsMetadata(agent: AgentInput<ViteAgentDevtoolsRuntimeContext>): ChatDevtoolsMetadata {
-  return createAgentDevtoolsMetadata(agent as never)
+function metadataWithAgentName(metadata: ChatDevtoolsMetadata, name: string): ChatDevtoolsMetadata {
+  return {
+    ...metadata,
+    name: metadata.name || name,
+  }
+}
+
+function createStaticDevtoolsMetadata(name: string, agent: AgentInput<ViteAgentDevtoolsRuntimeContext>): ChatDevtoolsMetadata {
+  return metadataWithAgentName(createAgentDevtoolsMetadata(agent as never), name)
 }
 
 function metadataStaticKey(metadata: ChatDevtoolsMetadata): string {
@@ -279,7 +286,7 @@ function createChatDevtoolsAgentEntry(
   defaults: WorkspaceAgentDefaults | undefined,
   previous: ChatDevtoolsAgentEntry | undefined,
 ): ChatDevtoolsAgentEntry {
-  const metadata = createStaticDevtoolsMetadata(agent)
+  const metadata = createStaticDevtoolsMetadata(name, agent)
   const staticKey = metadataStaticKey(metadata)
   if (previous?.metadataStaticKey === staticKey) {
     previous.agent = agent
@@ -333,7 +340,7 @@ async function startMetadataResolution(
     return
   }
 
-  entry.metadata = createStaticDevtoolsMetadata(entry.agent)
+  entry.metadata = createStaticDevtoolsMetadata(entry.name, entry.agent)
   entry.metadataStaticKey = metadataStaticKey(entry.metadata)
   entry.metadataError = undefined
   entry.metadataSelectionKey = selectionKey
@@ -345,7 +352,7 @@ async function startMetadataResolution(
   } as never)
     .then((metadata) => {
       if (entry.metadataTask !== task || entry.metadataSelectionKey !== selectionKey) return
-      entry.metadata = metadata
+      entry.metadata = metadataWithAgentName(metadata, entry.name)
       entry.metadataError = undefined
       entry.metadataStatus = "ready"
       entry.metadataTask = undefined
@@ -486,7 +493,7 @@ async function serializeState(
   const selectedSession = nextSelected ? getSession(state, nextSelected) : undefined
   const entry = nextSelected ? state.entries.get(nextSelected) : undefined
   const metadata = entry?.metadata
-  const title = selectedSession ? sessionTitle(selectedSession) || metadata?.title : metadata?.title
+  const title = selectedSession ? sessionTitle(selectedSession) || metadata?.name : metadata?.name
   const invokerProfileId = selectedSession?.invokerProfileId || (!requestedSelection.invokerFallback ? validMetadataInvokerProfileId(metadata, requestedSelection.invokerProfileId) : undefined)
   const invokerFallback = selectedSession?.invokerFallback || (!invokerProfileId && requestedSelection.invokerFallback === true)
 
@@ -748,13 +755,14 @@ async function materializeDevtoolsSource(
   entry.metadataError = undefined
 
   try {
-    entry.metadata = await materializeAgentDevtoolsSourceMetadata(entry.agent as never, {
+    const metadata = await materializeAgentDevtoolsSourceMetadata(entry.agent as never, {
       ...entry.defaults,
       input: createDevtoolsMetadataInput(metadataSelection),
       ...(input.path ? { path: input.path } : {}),
       ...(input.source ? { source: input.source } : {}),
       sources: materializedSourceKeys(entry.metadata),
     } as never)
+    entry.metadata = metadataWithAgentName(metadata, entry.name)
     entry.metadataSelectionKey = metadataSelectionKey(metadataSelection)
     entry.metadataStatus = "ready"
     entry.metadataTask = undefined

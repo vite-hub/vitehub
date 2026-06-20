@@ -716,7 +716,6 @@ type AgentSharedSettings<
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
   runtime?: AgentRuntimeBinding
-  title?: string
   version?: string
   workspace?: WorkspaceAgentWorkspaceConfig
 }
@@ -767,7 +766,6 @@ export interface AgentDefinition<
   runtime?: AgentRuntimeBinding
   resolve(context: AgentRuntimeContext<TRuntimeConfig>): Promise<AgentAdapter<CALL_OPTIONS>>
   run?(context: AgentRunContext<TRuntimeConfig, CALL_OPTIONS, WorkspaceName, TContextValues>): MaybePromise<Response | AgentRunResult | AsyncIterable<StreamEvent> | unknown>
-  title?: string
   version?: string
   workspace?: WorkspaceAgentWorkspaceConfig
 }
@@ -1125,7 +1123,7 @@ export interface AgentDevtoolsMetadata {
   files?: AgentDevtoolsFileTreeItem[]
   instructions?: string[]
   invokerProfiles?: AgentInvokerProfile[]
-  title?: string
+  name?: string
   tools?: AgentDevtoolsToolDefinition[]
   version?: string
 }
