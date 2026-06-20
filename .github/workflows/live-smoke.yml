@@ -158,6 +158,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+          VITEHUB_HOSTING: cloudflare
+          VITEHUB_VITE_MODE: e2e
         run: vp run playground:vite:provision --provider cloudflare
 
       - name: Build playground (cloudflare)
@@ -189,6 +191,8 @@ jobs:
           VERCEL_PROJECT_ID: ${{ steps.prepare_vercel.outputs.project_id }}
           VERCEL_TEAM_ID: ${{ steps.prepare_vercel.outputs.org_id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VITEHUB_HOSTING: vercel
+          VITEHUB_VITE_MODE: e2e
         run: vp run playground:vite:provision --provider vercel
 
       - name: Build playground (vercel)
