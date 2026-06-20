@@ -36,6 +36,22 @@ const mergeNoExternal = createNoExternalMerger(agentPackageName)
 const generatedAgentWebhookRouteHandler = ".vitehub/agent/chat-webhook-route.ts"
 const generatedAgentNetlifyFunction = ".vitehub/agent/netlify-function.mjs"
 const netlifyAgentFunctionName = "vitehub-agent"
+const optionalNetlifyAgentBundleExternals = [
+  "@ai-sdk/harness",
+  "@ai-sdk/harness/*",
+  "@ai-sdk/mcp",
+  "@ai-sdk/sandbox-vercel",
+  "@modelcontextprotocol/sdk/*",
+  "@vite-hub/sandbox",
+  "@vite-hub/sandbox/*",
+  "@vite-hub/shell",
+  "@vite-hub/shell/*",
+  "@vite-hub/workflow",
+  "@vite-hub/workflow/*",
+  "agents",
+  "evalite/*",
+  "vitest/*",
+]
 
 type NitroConfig = Record<string, unknown> & CloudflareAgentStateRollupTarget & CloudflareAgentStateTarget
 type RollupExternalFunction = (source: string, importer?: string, isResolved?: boolean) => boolean | null | undefined | void
@@ -168,9 +184,21 @@ function isNetlifyHosting(config: ResolvedConfig): boolean {
     target.preset,
     process.env.VITEHUB_HOSTING,
     process.env.NETLIFY ? "netlify" : undefined,
+    process.env.NETLIFY_DEV ? "netlify" : undefined,
+    process.env.NETLIFY_LOCAL ? "netlify" : undefined,
   ]
   return hosting.some(value =>
     typeof value === "string" && value.trim().toLowerCase().replaceAll("_", "-").includes("netlify"))
+}
+
+function resolveStringAliases(config: ResolvedConfig): Record<string, string> {
+  const aliases: Record<string, string> = {}
+  for (const alias of config.resolve.alias) {
+    if (typeof alias.find === "string" && typeof alias.replacement === "string") {
+      aliases[alias.find] = alias.replacement
+    }
+  }
+  return aliases
 }
 
 function resolveWorkspaceSourceRoot(file: string): string {
@@ -265,8 +293,7 @@ function generateAgentWebhookRouteHandler(
   return [
     "import { withAgentDefaults } from '@vite-hub/agent'",
     ...(options.cloudflareState ? ["import { createCloudflareAgentState } from '@vite-hub/agent/cloudflare'"] : []),
-    "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server'",
-    "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/internal/runtime/state'",
+    "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler, setWorkspaceRuntimeRegistry } from '@vite-hub/agent/server'",
     "import { createError, defineEventHandler, getRequestHeaders, getRequestURL, getRouterParam, readRawBody } from 'h3'",
     imports,
     "",
@@ -349,8 +376,7 @@ function generateAgentNetlifyFunctionRouteHandler(
 
   return [
     "import { withAgentDefaults } from '@vite-hub/agent'",
-    "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server'",
-    "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/internal/runtime/state'",
+    "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler, setWorkspaceRuntimeRegistry } from '@vite-hub/agent/server'",
     imports,
     "",
     "function resolveAgentModule(module) {",
@@ -431,6 +457,45 @@ function createNetlifyAgentFunctionConfig(options: { chatRoute?: false | string,
   }
 }
 
+async function writeNetlifyAgentProviderOutput(config: ResolvedConfig, options: ResolvedAgentModuleOptions): Promise<void> {
+  const handlerPath = await writeAgentNetlifyFunctionRouteHandler(config.root, {
+    chatRoute: options.routes.chat,
+    webhookRoute: options.routes.webhooks,
+  })
+  await writeProviderDeploymentOutputs({
+    clientOutDir: config.build?.outDir ?? "dist",
+    netlify: {
+      functions: [{
+        bundleEntry: handlerPath,
+        bundleOptions: {
+          alias: resolveStringAliases(config),
+          external: optionalNetlifyAgentBundleExternals,
+          format: "esm",
+          platform: "node",
+        },
+        config: createNetlifyAgentFunctionConfig({
+          chatRoute: options.routes.chat,
+          webhookRoute: options.routes.webhooks,
+        }),
+        functionName: netlifyAgentFunctionName,
+      }],
+    },
+    rootDir: config.root,
+  })
+}
+
+async function cleanupNetlifyAgentProviderOutput(config: ResolvedConfig): Promise<void> {
+  await writeProviderDeploymentOutputs({
+    clientOutDir: config.build?.outDir ?? "dist",
+    cleanup: {
+      netlify: {
+        functionNames: [netlifyAgentFunctionName],
+      },
+    },
+    rootDir: config.root,
+  })
+}
+
 export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   let agent: AgentModuleOptions | false | undefined = options
   let resolved: ResolvedConfig | undefined
@@ -505,6 +570,11 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           cloudflareState: shouldInstallCloudflareAgentState(normalized),
           webhookRoute: normalized.routes.webhooks,
         })
+        if (config.command === "serve" && isNetlifyHosting(config)) {
+          await writeNetlifyAgentProviderOutput(config, normalized)
+        }
+      } else if (config.command === "serve" && isNetlifyHosting(config)) {
+        await cleanupNetlifyAgentProviderOutput(config)
       }
       if (agent === false || agent?.eval === false) {
         return
@@ -533,28 +603,9 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         if (!resolved || resolved.command !== "build") return
         const normalized = normalizeAgentOptions(agent)
         if (normalized && isNetlifyHosting(resolved) && (normalized.routes.chat || normalized.routes.webhooks)) {
-          const handlerPath = await writeAgentNetlifyFunctionRouteHandler(resolved.root, {
-            chatRoute: normalized.routes.chat,
-            webhookRoute: normalized.routes.webhooks,
-          })
-          await writeProviderDeploymentOutputs({
-            clientOutDir: resolved.build?.outDir ?? "dist",
-            netlify: {
-              functions: [{
-                bundleEntry: handlerPath,
-                bundleOptions: {
-                  format: "esm",
-                  platform: "node",
-                },
-                config: createNetlifyAgentFunctionConfig({
-                  chatRoute: normalized.routes.chat,
-                  webhookRoute: normalized.routes.webhooks,
-                }),
-                functionName: netlifyAgentFunctionName,
-              }],
-            },
-            rootDir: resolved.root,
-          })
+          await writeNetlifyAgentProviderOutput(resolved, normalized)
+        } else if (isNetlifyHosting(resolved)) {
+          await cleanupNetlifyAgentProviderOutput(resolved)
         }
         await copyVercelFunctionRuntimePackages({
           packages: [{ includePeerDependencies: true, name: "@ai-sdk/mcp", optional: true }],

@@ -14,7 +14,12 @@ export interface BlobViteRuntimeConfig {
 
 function resolveHosting(input: BlobResolutionInput): string | undefined {
   const env = input.env || process.env
-  return trimmed(input.hosting) ?? readEnv(env, "VITEHUB_HOSTING")
+  const explicit = trimmed(input.hosting)
+  if (explicit) return explicit
+  const vitehubHosting = readEnv(env, "VITEHUB_HOSTING")
+  if (vitehubHosting) return vitehubHosting
+  if (readEnv(env, "NETLIFY") || readEnv(env, "NETLIFY_DEV") || readEnv(env, "NETLIFY_LOCAL")) return "netlify"
+  return undefined
 }
 
 export function resolveBlobViteConfig(

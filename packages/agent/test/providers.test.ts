@@ -163,15 +163,22 @@ describe("agent Vite plugin", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ routes: { chat: true, webhooks: true } })
-      const configResolved = plugin.configResolved as (config: { build?: { outDir?: string }, command: "build", root: string }) => Promise<void>
+      const configResolved = plugin.configResolved as (config: { build?: { outDir?: string }, command: "build", resolve: { alias: Array<{ find: string, replacement: string }> }, root: string }) => Promise<void>
       const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
 
-      await configResolved({ build: { outDir: "dist/client" }, command: "build", root })
+      await configResolved({
+        build: { outDir: "dist/client" },
+        command: "build",
+        resolve: { alias: [{ find: "#support", replacement: join(root, "support.ts") }] },
+        root,
+      })
       await closeBundle.handler()
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(wrapper).toContain("export default async function viteHubAgentNetlifyFunction(request, context)")
+      expect(wrapper).toContain("setWorkspaceRuntimeRegistry } from '@vite-hub/agent/server'")
+      expect(wrapper).not.toContain("@vite-hub/workspace/internal/runtime/state")
       expect(wrapper).toContain("process.env.VITEHUB_HOSTING = 'netlify'")
       expect(wrapper).toContain("const waitUntil = waitUntilFromContext(context)")
       expect(wrapper).toContain("const webhook = netlifyParam(context, 'webhook')")
@@ -180,7 +187,27 @@ describe("agent Vite plugin", () => {
         netlify: {
           functions: [{
             bundleEntry: join(root, ".vitehub/agent/netlify-function.mjs"),
-            bundleOptions: { format: "esm", platform: "node" },
+            bundleOptions: {
+              alias: { "#support": join(root, "support.ts") },
+              external: [
+                "@ai-sdk/harness",
+                "@ai-sdk/harness/*",
+                "@ai-sdk/mcp",
+                "@ai-sdk/sandbox-vercel",
+                "@modelcontextprotocol/sdk/*",
+                "@vite-hub/sandbox",
+                "@vite-hub/sandbox/*",
+                "@vite-hub/shell",
+                "@vite-hub/shell/*",
+                "@vite-hub/workflow",
+                "@vite-hub/workflow/*",
+                "agents",
+                "evalite/*",
+                "vitest/*",
+              ],
+              format: "esm",
+              platform: "node",
+            },
             config: {
               name: "vitehub-agent",
               nodeBundler: "esbuild",
@@ -197,6 +224,86 @@ describe("agent Vite plugin", () => {
       else delete process.env.VITEHUB_HOSTING
       if (typeof previousNetlify === "string") process.env.NETLIFY = previousNetlify
       else delete process.env.NETLIFY
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("writes Netlify provider output during Netlify local dev", async () => {
+    const { writeProviderDeploymentOutputs } = await import("@vite-hub/internal/build/deployment-output")
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-dev-routes-"))
+    const previousHosting = process.env.VITEHUB_HOSTING
+    const previousNetlifyDev = process.env.NETLIFY_DEV
+    try {
+      delete process.env.VITEHUB_HOSTING
+      process.env.NETLIFY_DEV = "true"
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const plugin = hubAgent({ routes: { chat: true } })
+      const configResolved = plugin.configResolved as (config: { build?: { outDir?: string }, command: "serve", resolve: { alias: Array<{ find: string, replacement: string }> }, root: string }) => Promise<void>
+      vi.mocked(writeProviderDeploymentOutputs).mockClear()
+
+      await configResolved({
+        build: { outDir: "dist/client" },
+        command: "serve",
+        resolve: { alias: [] },
+        root,
+      })
+
+      expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(expect.objectContaining({
+        netlify: expect.objectContaining({
+          functions: [expect.objectContaining({
+            config: expect.objectContaining({
+              path: "/api/_vitehub/agents/:agent/chat",
+            }),
+            functionName: "vitehub-agent",
+          })],
+        }),
+        rootDir: root,
+      }))
+    }
+    finally {
+      if (typeof previousHosting === "string") process.env.VITEHUB_HOSTING = previousHosting
+      else delete process.env.VITEHUB_HOSTING
+      if (typeof previousNetlifyDev === "string") process.env.NETLIFY_DEV = previousNetlifyDev
+      else delete process.env.NETLIFY_DEV
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("cleans stale Netlify agent output when generated routes are disabled", async () => {
+    const { writeProviderDeploymentOutputs } = await import("@vite-hub/internal/build/deployment-output")
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-cleanup-"))
+    const previousHosting = process.env.VITEHUB_HOSTING
+    try {
+      process.env.VITEHUB_HOSTING = "netlify"
+      const plugin = hubAgent({ routes: { chat: false, webhooks: false } })
+      const configResolved = plugin.configResolved as (config: { build?: { outDir?: string }, command: "build", resolve: { alias: [] }, root: string }) => Promise<void>
+      const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+      vi.mocked(writeProviderDeploymentOutputs).mockClear()
+
+      await configResolved({
+        build: { outDir: "dist/client" },
+        command: "build",
+        resolve: { alias: [] },
+        root,
+      })
+      await closeBundle.handler()
+
+      expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith({
+        cleanup: {
+          netlify: {
+            functionNames: ["vitehub-agent"],
+          },
+        },
+        clientOutDir: "dist/client",
+        rootDir: root,
+      })
+    }
+    finally {
+      if (typeof previousHosting === "string") process.env.VITEHUB_HOSTING = previousHosting
+      else delete process.env.VITEHUB_HOSTING
       await rm(root, { force: true, recursive: true })
     }
   })

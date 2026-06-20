@@ -58,6 +58,8 @@ import {
   chatDevtoolsSendRpc,
 } from "@vite-hub/devtools/chat-shared"
 
+export { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
+
 interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
 }
