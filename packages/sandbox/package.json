@@ -87,7 +87,6 @@
     "local-pkg": "catalog:tooling",
     "mlly": "catalog:unjs",
     "pathe": "catalog:unjs",
-    "pkg-types": "catalog:unjs",
     "rollup": "catalog:tooling",
     "scule": "catalog:unjs",
     "typescript": "catalog:tooling",
