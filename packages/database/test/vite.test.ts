@@ -56,7 +56,7 @@ describe("hubDb", () => {
       databaseNames: ["default"],
       databases: {
         default: {
-          connection: { url: "file:.data/database/sqlite.db" },
+          connection: { url: "file:.vitehub/data/database/sqlite.db" },
           migrationsDir: "server/databases/migrations",
           mode: "default",
         },
@@ -65,7 +65,7 @@ describe("hubDb", () => {
     await expect(readFile(join(rootDir, ".vitehub/database/schema/default.ts"), "utf8")).resolves.toContain("export const notes")
     await expect(readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")).resolves.toContain("server/databases/migrations")
     await expect(readFile(join(rootDir, ".vitehub/database/drizzle.config.ts"), "utf8")).resolves.toContain("dbCredentials")
-    await expect(readFile(join(rootDir, ".vitehub/database/drizzle/default.config.ts"), "utf8")).resolves.toContain("file:.data/database/sqlite.db")
+    await expect(readFile(join(rootDir, ".vitehub/database/drizzle/default.config.ts"), "utf8")).resolves.toContain("file:.vitehub/data/database/sqlite.db")
   })
 
   it("writes one Drizzle config per named database migrations directory", async () => {
@@ -81,9 +81,9 @@ describe("hubDb", () => {
     const primaryConfig = await readFile(join(rootDir, ".vitehub/database/drizzle/primary.config.ts"), "utf8")
 
     expect(analyticsConfig).toContain("server/databases/analytics/migrations")
-    expect(analyticsConfig).toContain("file:.data/database/analytics.sqlite.db")
+    expect(analyticsConfig).toContain("file:.vitehub/data/database/analytics.sqlite.db")
     expect(primaryConfig).toContain("server/databases/primary/migrations")
-    expect(primaryConfig).toContain("file:.data/database/primary.sqlite.db")
+    expect(primaryConfig).toContain("file:.vitehub/data/database/primary.sqlite.db")
   })
 
   it("keeps env-sourced Drizzle credentials as runtime expressions", async () => {
@@ -125,7 +125,7 @@ describe("hubDb", () => {
 
     const plugin = hubDb()
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({ db: false, root: rootDir } as never)
+    await configResolved({ database: false, root: rootDir } as never)
 
     expect(plugin.api.getConfig()).toBeUndefined()
   })
@@ -136,20 +136,22 @@ describe("hubDb", () => {
 
     const plugin = hubDb()
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({ db: false, root: rootDir } as never)
+    await configResolved({ database: false, root: rootDir } as never)
 
     await expect(resolveCliContributor(plugin)).resolves.toBeUndefined()
   })
 
-  it("does not contribute the DB CLI namespace when resolved config disables database CLI", async () => {
+  it("contributes provisioning but no CLI namespaces when resolved config disables database CLI", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts")
 
     const plugin = hubDb()
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
-    await configResolved({ db: { cli: false }, root: rootDir } as never)
+    await configResolved({ database: { cli: false }, root: rootDir } as never)
 
-    await expect(resolveCliContributor(plugin)).resolves.toBeUndefined()
+    const contributor = await resolveCliContributor(plugin)
+    expect(contributor?.namespaces).toEqual([])
+    expect(contributor?.provision?.map(step => step.id)).toEqual(["database:cloudflare-d1"])
   })
 
   it("exposes default schema and database registry through stable ViteHub import paths", async () => {

@@ -19,18 +19,20 @@
 - Root scripts orchestrate package scripts. They do not define package test behavior.
 - Packages own their own `src`, `test`, build, and typecheck flows.
 - Root-level tests are opt-in and only for true workspace invariants.
-- Package-local `examples/` are part of the pnpm workspace for installs and `workspace:*` linking.
+- Package-local `examples/` stay manual fixtures outside the default pnpm workspace unless a task explicitly opts them in.
 - `examples/` stays manual-only by default. It is not part of the default root `test`, `typecheck`, or `build` path.
 - Package-local config files should only exist when a package has a real local need.
 - External dependency versions are centralized in named pnpm catalogs by purpose.
+- Local development uses Vite+ with Node 24.
 
 ## Commands
 
-- `pnpm test` runs `test` in `packages/*`
-- `pnpm typecheck` runs `typecheck` in `packages/*`
-- `pnpm build` runs `build` in `packages/*`
-- `pnpm lint` stays root-owned
-- `pnpm dev:docs` and `pnpm build:docs` are explicit docs commands
+- `vp run test` runs `test` in `packages/*`
+- `vp run typecheck` runs docs and package typechecks
+- `vp run build` runs package `vp pack` builds
+- `vp run lint` stays root-owned
+- `vp run docs:dev` and `vp run docs:build` are explicit docs commands
+- `vp run verify` runs lint, typecheck, contracts, tests, and build - the full local gate
 
 ## Package Baseline
 

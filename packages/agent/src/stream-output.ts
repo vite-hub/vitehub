@@ -1,3 +1,5 @@
+import { isAsyncIterable } from "./internal/stream-result.ts"
+
 import type { MaybePromise } from "./types.ts"
 
 interface FinalizedStreamOutput<T> {
@@ -10,12 +12,6 @@ export function isUIMessageStreamResult(value: unknown): value is { toUIMessageS
   return typeof value === "object"
     && value !== null
     && typeof (value as { toUIMessageStream?: unknown }).toUIMessageStream === "function"
-}
-
-function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return typeof value === "object"
-    && value !== null
-    && Symbol.asyncIterator in value
 }
 
 export function withReadableStreamCleanup<T>(stream: ReadableStream<T>, cleanup: (error?: unknown) => Promise<void>): ReadableStream<T> {
@@ -93,8 +89,12 @@ async function writeEventsToUiMessageStream(writer: { write: (event: never) => v
       continue
     }
     if (type === "tool-result") {
-      const tool = event as { id?: unknown, output?: unknown }
-      writer.write({ type: "tool-output-available", toolCallId: tool.id, output: tool.output } as never)
+      const tool = event as { error?: unknown, id?: unknown, name?: unknown, output?: unknown }
+      if (typeof tool.error === "string") {
+        writer.write({ type: "tool-output-error", toolCallId: tool.id, toolName: tool.name, errorText: tool.error } as never)
+        continue
+      }
+      writer.write({ type: "tool-output-available", toolCallId: tool.id, toolName: tool.name, output: tool.output } as never)
       continue
     }
     if (type === "data") {
@@ -120,13 +120,15 @@ export async function finalizeUiMessageStreamOutput(
   shouldWrapOutput: boolean,
   finish: (error?: unknown) => MaybePromise<void>,
 ): Promise<FinalizedStreamOutput<unknown>> {
-  const text = textFromRenderedOutput(rendered)
-  if (!isUIMessageStreamResult(rendered) && !isAsyncIterable(rendered) && text === undefined) {
+  const hasUiMessageStream = isUIMessageStreamResult(rendered)
+  const hasAsyncIterable = isAsyncIterable(rendered)
+  const text = hasUiMessageStream || hasAsyncIterable ? undefined : textFromRenderedOutput(rendered)
+  if (!hasUiMessageStream && !hasAsyncIterable && text === undefined) {
     throw new Error("[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream().")
   }
-  const stream = isUIMessageStreamResult(rendered)
+  const stream = hasUiMessageStream
     ? rendered.toUIMessageStream()
-    : isAsyncIterable(rendered)
+    : hasAsyncIterable
       ? (await import("ai")).createUIMessageStream({
           execute: async ({ writer }) => await writeEventsToUiMessageStream(writer, rendered),
         })

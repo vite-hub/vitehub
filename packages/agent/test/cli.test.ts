@@ -4,8 +4,9 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { createAgentCliContributor, runAgentEvalCli } from "../src/cli.ts"
+import { createAgentCliContributor, runAgentDevCli, runAgentEvalCli } from "../src/cli.ts"
 import { createAgentEvaliteConfigPath, writeAgentEvaliteConfig } from "../src/internal/evalite-config.ts"
+import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue } from "../src/invocation-stream.ts"
 
 function stream() {
   let value = ""
@@ -18,15 +19,146 @@ function stream() {
   }
 }
 
+function ndjson(events: unknown[]): Response {
+  return new Response(`${events.map(event => JSON.stringify(event)).join("\n")}\n`, {
+    headers: { "content-type": "application/x-ndjson" },
+  })
+}
+
 describe("agent CLI", () => {
   it("contributes the agent eval feature", () => {
     expect(createAgentCliContributor()).toEqual({
       namespaces: [{
         description: "Agent development workflows.",
-        features: [expect.objectContaining({ name: "eval" })],
+        features: [
+          expect.objectContaining({ name: "eval" }),
+          expect.objectContaining({ name: "dev" }),
+        ],
         name: "agent",
       }],
     })
+  })
+
+  it("keeps the agent dev feature when eval is disabled", () => {
+    expect(createAgentCliContributor({ eval: false })).toEqual({
+      namespaces: [{
+        description: "Agent development workflows.",
+        features: [expect.objectContaining({ name: "dev" })],
+        name: "agent",
+      }],
+    })
+  })
+
+  it("streams a one-shot Agent Dev Loop message through the Vite endpoint", async () => {
+    const stdout = stream()
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "support", trigger: "chat.message", type: "start" },
+          { text: "hello from agent", type: "text-delta" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ name: "support", triggers: ["chat.message"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["hello", "agent"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr: stream(),
+      stdout,
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).toBe("hello from agent\n")
+    expect(fetchAgentStream).toHaveBeenCalledTimes(2)
+    const [get, post] = fetchAgentStream.mock.calls
+    expect(get?.[1]?.headers).toMatchObject({
+      accept: "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+    expect(post?.[1]?.headers).toMatchObject({
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+    expect(post?.[1]?.signal).toBeInstanceOf(AbortSignal)
+    expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
+      agent: "support",
+      messages: [{
+        parts: [{ text: "hello agent", type: "text" }],
+        role: "user",
+      }],
+    })
+  })
+
+  it("replays an Agent Trigger dev sample without chat text", async () => {
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "review", trigger: "github.webhook", type: "start" },
+          { text: "summary", type: "text-delta" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ name: "review", samples: { "github.webhook.summaryComment": { sample: "summaryComment", trigger: "github.webhook" } }, triggers: ["github.webhook"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["--agent", "review", "--trigger", "github.webhook", "--sample", "summaryComment"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr: stream(),
+      stdout: stream(),
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(0)
+    const post = fetchAgentStream.mock.calls.find(([, init]) => init?.method === "POST")
+    expect(JSON.parse(String(post?.[1]?.body))).toEqual({
+      agent: "review",
+      sample: "summaryComment",
+      trigger: "github.webhook",
+    })
+  })
+
+  it("surfaces Agent Dev Loop approval requests", async () => {
+    const stderr = stream()
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "support", trigger: "chat.message", type: "start" },
+          { id: "approval-1", name: "workspace_write", reason: "Needs write access.", type: "approval-request" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ name: "support", triggers: ["chat.message"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["hello"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr,
+      stdout: stream(),
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(1)
+    expect(stderr.output()).toContain("[approval required] workspace_write: Needs write access.")
   })
 
   it("runs Evalite through the Node runner with ViteHub defaults", async () => {

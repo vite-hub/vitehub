@@ -1,9 +1,11 @@
 import { createMessage } from "./messages.ts"
+import { normalizeAgentInvoker } from "./invoker.ts"
 
 import type {
   AgentChatAgentHookArgs,
   AgentChatOptions,
   AgentChatSessionOptions,
+  AgentInvoker,
   AgentRunInput,
   AgentRunMetadata,
   AgentRuntimeConfig,
@@ -19,7 +21,11 @@ export type UIMessageLike = {
 }
 
 export interface AgentChatMessageTriggerInput {
+  abortSignal?: AbortSignal
   history?: AgentChatOptions["history"]
+  invoker?: AgentInvoker
+  invokerProfileId?: string
+  meta?: Record<string, unknown>
   messages: UIMessageLike[]
   run?: AgentRunMetadata
   session?: {
@@ -49,7 +55,7 @@ function firstString(...values: unknown[]): string | undefined {
 }
 
 function chatIdentity(user: Record<string, unknown> | undefined, run: AgentRunMetadata | undefined): string | undefined {
-  const identity = firstString(user?.id, user?.sub, user?.email, user?.username)
+  const identity = firstString(user?.id, user?.sub, user?.email, user?.username)?.trim()
   if (!identity) return
   return run?.origin ? `${run.origin}:${identity}` : identity
 }
@@ -110,36 +116,39 @@ function uiMessagePartsToAgentParts(message: UIMessageLike): Array<MessagePart |
     if (record.type === "text" && typeof record.text === "string") return [record.text]
     if (record.type === "audio") return uiAudioPartToAgentPart(record)
     if (record.type === "dynamic-tool" || (typeof record.type === "string" && record.type.startsWith("tool-"))) {
+      const state = typeof record.state === "string" ? record.state : undefined
+      const errorText = typeof record.errorText === "string" ? record.errorText : undefined
+      const hasToolError = errorText !== undefined
+      const hasToolOutput = state === "output-available" || state === "output-denied" || state === "output-error" || record.output !== undefined || hasToolError
+      if (!hasToolOutput) {
+        return []
+      }
       const name = uiToolName(record)
       const id = uiToolId(record, name, index)
-      const state = typeof record.state === "string" ? record.state : undefined
       const call = {
         id,
         input: record.input,
         name,
-        state: state === "input-available" || state === "output-available" ? "proposed" : "running",
+        state: state === "input-available" || hasToolOutput ? "proposed" : "running",
         type: "tool-call",
       } satisfies MessagePart
-      if (state === "output-available" || state === "output-denied" || record.output !== undefined) {
-        return [
-          call,
-          {
-            id,
-            name,
-            output: record.output,
-            state: typeof record.errorText === "string" ? "failed" : "completed",
-            type: "tool-result",
-            ...(typeof record.errorText === "string" ? { error: record.errorText } : {}),
-          },
-        ]
-      }
-      return [call]
+      return [
+        call,
+        {
+          id,
+          name,
+          state: hasToolError ? "failed" : "completed",
+          type: "tool-result",
+          ...(hasToolError ? { error: errorText } : {}),
+          ...(record.output !== undefined ? { output: record.output } : {}),
+        },
+      ]
     }
     return []
   })
 }
 
-function uiMessagesToAgentMessages(messages: UIMessageLike[]): Message[] {
+export function uiMessagesToAgentMessages(messages: UIMessageLike[]): Message[] {
   return messages.map((message, index) => {
     const role = message.role === "assistant" || message.role === "system" || message.role === "tool" || message.role === "user"
       ? message.role
@@ -262,16 +271,36 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   }
   const selectedMessages = selectChatHistory(messages, triggerInput?.history ?? options.history, options.sessions, triggerInput?.session)
   const hookArgs = createChatTriggerHookArgs<TRuntimeConfig>(selectedMessages, triggerInput?.run, triggerInput?.session)
-  const identity = chatIdentity(triggerInput?.user, triggerInput?.run)
+  const userMeta: Record<string, unknown> = {}
+  for (const key of ["id", "sub", "email", "username", "name", "customer"]) {
+    const value = firstString(triggerInput?.user?.[key])?.trim()
+    if (value) userMeta[key] = value
+  }
+  const meta = Object.keys(userMeta).length || triggerInput?.meta
+    ? { ...userMeta, ...triggerInput?.meta }
+    : undefined
+  const invokerId = chatIdentity(triggerInput?.user, triggerInput?.run)
+  const invoker = triggerInput?.invoker
+    ? normalizeAgentInvoker(triggerInput.invoker, "chat.message input.invoker")
+    : invokerId
+      ? {
+          id: invokerId,
+          kind: triggerInput?.run?.origin === "devtools" ? "devtools" as const : "chat" as const,
+          ...(meta ? { meta } : {}),
+        } satisfies AgentInvoker
+      : undefined
   return {
     hookArgs,
     input: {
+      abortSignal: triggerInput?.abortSignal,
       context: {
-        ...(identity ? { "chat.identity": identity } : {}),
+        ...(invoker ? { invoker } : {}),
+        ...(triggerInput?.invokerProfileId ? { invokerProfileId: triggerInput.invokerProfileId } : {}),
         chat: {
           message: hookArgs.message,
           run: triggerInput?.run,
           session: triggerInput?.session,
+          meta: triggerInput?.meta,
           user: triggerInput?.user,
         },
       },

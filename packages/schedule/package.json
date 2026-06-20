@@ -2,49 +2,60 @@
   "name": "@vite-hub/schedule",
   "version": "0.0.1",
   "description": "Schedule primitives and definition discovery for ViteHub.",
-  "author": "onmax <maximogarciamtnez@gmail.com>",
-  "license": "Apache-2.0",
+  "keywords": [
+    "cron",
+    "schedule",
+    "vite",
+    "vitehub"
+  ],
   "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vite-hub/vitehub.git",
     "directory": "packages/schedule"
   },
-  "bugs": "https://github.com/vite-hub/vitehub/issues",
-  "keywords": [
-    "vitehub",
-    "vite",
-    "schedule",
-    "cron"
+  "files": [
+    "dist",
+    "package.json"
   ],
-  "dependencies": {
-    "cron-schedule": "catalog:workflow",
-    "esbuild": "catalog:tooling"
-  },
-  "sideEffects": false,
   "type": "module",
+  "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
+    "./nuxt": "./dist/nuxt.js",
     "./runtime": "./dist/runtime.js",
     "./runtime/state": "./dist/runtime/state.js",
     "./runtime/static": "./dist/runtime/static.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },
-  "files": [
-    "dist",
-    "package.json"
-  ],
   "scripts": {
-    "build": "tsdown --tsconfig tsconfig.build.json",
-    "dev": "tsdown --watch",
+    "build": "vp pack",
+    "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --dir . build && vitest run"
+    "test": "vp run -t @vite-hub/schedule#build && vp test"
+  },
+  "dependencies": {
+    "cron-schedule": "catalog:workflow",
+    "esbuild": "catalog:tooling"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
+    "@vite-hub/kv": "workspace:*",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
   },
   "peerDependencies": {
     "@vite-hub/kv": "workspace:*",
-    "vite": "catalog:vite8-compat"
+    "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
     "@vite-hub/kv": {
@@ -54,14 +65,7 @@
       "optional": true
     }
   },
-  "devDependencies": {
-    "@types/node": "catalog:tooling",
-    "@vite-hub/internal": "workspace:*",
-    "@vite-hub/kv": "workspace:*",
-    "publint": "catalog:tooling",
-    "tsdown": "catalog:tooling",
-    "typescript": "catalog:tooling",
-    "vite": "catalog:vite",
-    "vitest": "catalog:tooling"
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

@@ -8,11 +8,11 @@ import { promisify } from "node:util"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 
+import { normalizeBlobOptions } from "../src/config.ts"
 import { generateProviderOutputs } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
-const viteBin = join(playgroundDir, "node_modules", ".bin", "vite")
 const tempDirs: string[] = []
 const vercelBlobMock = vi.hoisted(() => ({
   del: vi.fn(async () => {}),
@@ -50,6 +50,9 @@ const vercelBlobMock = vi.hoisted(() => ({
     url: `https://blob.example/${pathname}`,
   })),
 }))
+const filesSdkMock = vi.hoisted(() => ({
+  minio: vi.fn((options: unknown) => ({ options, provider: "minio" })),
+}))
 
 vi.mock("files-sdk", () => ({
   Files: class {
@@ -83,6 +86,10 @@ vi.mock("files-sdk/vercel-blob", () => ({
   vercelBlob: (options: unknown) => ({ options, provider: "vercel-blob" }),
 }))
 
+vi.mock("files-sdk/minio", () => ({
+  minio: filesSdkMock.minio,
+}))
+
 async function createWorkspaceTempDir(prefix: string) {
   const baseDir = join(playgroundDir, ".vitest-tmp")
   await mkdir(baseDir, { recursive: true })
@@ -106,6 +113,11 @@ afterAll(async () => {
 
 afterEach(() => {
   delete process.env.BLOB_READ_WRITE_TOKEN
+  delete process.env.MINIO_ACCESS_KEY_ID
+  delete process.env.MINIO_ROOT_PASSWORD
+  delete process.env.MINIO_ROOT_USER
+  delete process.env.MINIO_SECRET_ACCESS_KEY
+  filesSdkMock.minio.mockClear()
   vercelBlobMock.del.mockClear()
   vercelBlobMock.get.mockClear()
   vercelBlobMock.head.mockClear()
@@ -115,7 +127,7 @@ afterEach(() => {
 
 describe("Vite provider outputs", () => {
   it("builds the playground and emits Cloudflare and Vercel outputs", async () => {
-    await execFileAsync(viteBin, ["build"], {
+    await execFileAsync("vp", ["build"], {
       cwd: playgroundDir,
       env: {
         ...process.env,
@@ -298,5 +310,57 @@ describe("Vite provider outputs", () => {
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
     expect(runtimeContents).toContain("store: storeName => createGeneratedBlobStorage(storeName)")
     expect(runtimeContents).toContain("export const blob = createGeneratedBlobStorage()")
+  })
+
+  it("generates MinIO driver reachability for selected stores", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-minio-runtime-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+    const blobConfig = normalizeBlobOptions({ driver: "minio" }, {
+      env: {
+        BLOB_BUCKET_NAME: "assets",
+        MINIO_ENDPOINT: "http://minio:9000",
+        MINIO_ROOT_PASSWORD: "build-password",
+        MINIO_ROOT_USER: "build-user",
+      },
+    })
+
+    await generateProviderOutputs({
+      blob: blobConfig,
+      clientOutDir: "dist",
+      rootDir,
+    })
+
+    process.env.MINIO_ROOT_PASSWORD = "runtime-password"
+    process.env.MINIO_ROOT_USER = "runtime-user"
+    const runtimeModulePath = `${pathToFileURL(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs")).href}?t=${Date.now()}`
+    const runtimeModule = await import(runtimeModulePath) as {
+      blob: {
+        put: (pathname: string, body: string) => Promise<unknown>
+      }
+    }
+    await runtimeModule.blob.put("notes/generated.txt", "hello")
+
+    const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
+    const vercelServerContents = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
+
+    expect(runtimeContents).toContain("drivers/minio")
+    expect(runtimeContents).toContain("\"driver\": \"minio\"")
+    expect(runtimeContents).toContain("\"endpoint\": \"http://minio:9000\"")
+    expect(runtimeContents).toContain("resolveRuntimeMinioBlobStore")
+    expect(runtimeContents).toContain("createDriver0(resolveRuntimeMinioBlobStore(store, process.env))")
+    expect(runtimeContents).toContain("\"accessKeyId\": \"********\"")
+    expect(runtimeContents).toContain("\"secretAccessKey\": \"********\"")
+    expect(runtimeContents).not.toContain("build-user")
+    expect(runtimeContents).not.toContain("build-password")
+    expect(vercelServerContents).toContain("resolveRuntimeMinioBlobStore")
+    expect(vercelServerContents).not.toContain("build-user")
+    expect(vercelServerContents).not.toContain("build-password")
+    expect(filesSdkMock.minio).toHaveBeenCalledWith(expect.objectContaining({
+      accessKeyId: "runtime-user",
+      secretAccessKey: "runtime-password",
+    }))
+    expect(runtimeContents).not.toContain("drivers/s3")
   })
 })

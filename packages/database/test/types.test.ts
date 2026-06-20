@@ -9,16 +9,16 @@ import type { DBModulePublicOptions } from "../src/index.ts"
 type DrizzleModule = typeof import("../src/drizzle.ts")
 
 describe("types", () => {
-  it("augments vite user config with db options", () => {
+  it("augments vite user config with database options", () => {
     const config: UserConfig = {
-      db: {
+      database: {
         cli: {
           generate: false,
         },
       },
     }
 
-    expectTypeOf(config.db).toMatchTypeOf<DBModulePublicOptions | undefined>()
+    expectTypeOf(config.database).toMatchTypeOf<DBModulePublicOptions | undefined>()
   })
 
   it("exposes drizzle types when the virtual ambient module entry is loaded", () => {

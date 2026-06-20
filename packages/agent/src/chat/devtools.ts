@@ -8,10 +8,12 @@ import {
   chatDevtoolsClearRpc,
   chatDevtoolsFeatureId,
   chatDevtoolsGetStateRpc,
+  chatDevtoolsMaterializeSourceRpc,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
   chatDevtoolsTitle,
 } from "./devtools-shared.js"
+import { readChatDevtoolsStream } from "./devtools-stream.ts"
 
 import type { Adapter, AdapterPostableMessage, FormattedContent, Message as ChatMessage, RawMessage } from "chat"
 import type { Plugin } from "vite"
@@ -21,6 +23,7 @@ import type {
   ChatDevtoolsConversation,
   ChatDevtoolsFileTreeItem,
   ChatDevtoolsMetadata,
+  ChatDevtoolsMaterializeSourceInput,
   ChatDevtoolsMessage,
   ChatDevtoolsMessageRole,
   ChatDevtoolsSendInput,
@@ -38,6 +41,7 @@ export {
   chatDevtoolsClearRpc,
   chatDevtoolsFeatureId,
   chatDevtoolsGetStateRpc,
+  chatDevtoolsMaterializeSourceRpc,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
   chatDevtoolsTitle,
@@ -48,7 +52,10 @@ export type {
   ChatDevtoolsConversation,
   ChatDevtoolsFileKind,
   ChatDevtoolsFileTreeItem,
+  ChatDevtoolsInvokerProfile,
+  ChatDevtoolsMaterializeSourceInput,
   ChatDevtoolsMetadata,
+  ChatDevtoolsMetadataStatus,
   ChatDevtoolsMessage,
   ChatDevtoolsMessageRole,
   ChatDevtoolsSendInput,
@@ -62,6 +69,7 @@ export type {
 
 export const chatDevtoolsRpcClear: string = chatDevtoolsClearRpc
 export const chatDevtoolsRpcGetState: string = chatDevtoolsGetStateRpc
+export const chatDevtoolsRpcMaterializeSource: string = chatDevtoolsMaterializeSourceRpc
 export const chatDevtoolsRpcSend: string = chatDevtoolsSendRpc
 
 export interface ChatDevtoolsTranscriptMessage {
@@ -97,13 +105,14 @@ export interface ChatDevtoolsAdapterOptions {
 
 export interface ChatDevToolsOptions {
   devtools?: false
+  meta?: Record<string, unknown>
 }
 
 export type ChatDevToolsPlugin = Plugin
 export type ChatDevToolsPanelPlugin = Plugin
 
 export type ChatDevtoolsBridgeRequest =
-  | { action: "get-state" }
+  | { action: "get-state", chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown> }
   | ({ action: "send" } & ChatDevtoolsSendInput)
   | ({ action: "clear" } & ChatDevtoolsClearInput)
 
@@ -141,7 +150,9 @@ export interface ChatDevtoolsTypingThread {
   startTyping(text?: string): Promise<unknown>
 }
 
-type ResolvedChatDevtoolsMetadata = Required<Omit<ChatDevtoolsMetadata, "title" | "version">> & Pick<ChatDevtoolsMetadata, "title" | "version">
+type ResolvedChatDevtoolsMetadata =
+  Required<Omit<ChatDevtoolsMetadata, "config" | "title" | "version">>
+  & Pick<ChatDevtoolsMetadata, "config" | "title" | "version">
 
 interface ChatDevtoolsFullStreamToolPart {
   error?: unknown
@@ -159,7 +170,11 @@ export const chatDevtoolsPanelPluginName = "@vite-hub/agent/chat/devtools-panel"
 const defaultOutputPreviewLength = 4_000
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object"
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+function optionalRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? { ...value } : undefined
 }
 
 function truncateText(value: string, length: number): string {
@@ -462,9 +477,11 @@ function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): 
   return {
     files: metadata?.files ? [...metadata.files] : [],
     instructions: metadata?.instructions ? [...metadata.instructions] : [],
+    invokerProfiles: metadata?.invokerProfiles ? [...metadata.invokerProfiles] : [],
     title: metadata?.title,
     tools: metadata?.tools ? [...metadata.tools] : [],
     version: metadata?.version,
+    ...(metadata?.config ? { config: metadata.config } : {}),
   }
 }
 
@@ -653,6 +670,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
         chats,
         files: metadata.files,
         instructions: metadata.instructions,
+        invokerProfiles: metadata.invokerProfiles,
         selected: chat && chats.some(item => item.name === chat) ? chat : chats[0]!.name,
         ...(metadata.title ? { title: metadata.title } : {}),
         tools: metadata.tools,
@@ -735,38 +753,31 @@ async function writeChatDevtoolsStream(
       throw new Error("Chat DevTools bridge did not return a stream.")
     }
 
-    const decoder = new TextDecoder()
-    const reader = response.body.getReader()
-    let pending = ""
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      pending += decoder.decode(value, { stream: true })
-      const lines = pending.split("\n")
-      pending = lines.pop() || ""
-      for (const line of lines) {
-        if (!line.trim()) continue
-        const event = JSON.parse(line) as ChatDevtoolsStreamEvent
-        if (event.type === "error") {
-          stream.write(event)
-          stream.close()
-          return
-        }
-        if (event.type === "done") {
-          const chat = "chat" in body && typeof body.chat === "string" ? body.chat : undefined
-          stream.write({
-            type: "state",
-            state: await postChatDevtoolsBridge(ctx, route, { action: "get-state", ...(chat ? { chat } : {}) }),
-          })
-          stream.close()
-          return
-        }
+    for await (const event of readChatDevtoolsStream(response.body)) {
+      if (event.type === "error") {
         stream.write(event)
+        stream.close()
+        return
       }
-    }
-    const tail = pending.trim()
-    if (tail) {
-      stream.write(JSON.parse(tail) as ChatDevtoolsStreamEvent)
+      if (event.type === "done") {
+        const chat = "chat" in body && typeof body.chat === "string" ? body.chat : undefined
+        const invokerFallback = "invokerFallback" in body && body.invokerFallback === true
+        const invokerProfileId = "invokerProfileId" in body && typeof body.invokerProfileId === "string" ? body.invokerProfileId : undefined
+        const meta = optionalRecord((body as { meta?: unknown }).meta)
+        stream.write({
+          type: "state",
+          state: await postChatDevtoolsBridge(ctx, route, {
+            action: "get-state",
+            ...(chat ? { chat } : {}),
+            ...(invokerFallback ? { invokerFallback } : {}),
+            ...(invokerProfileId ? { invokerProfileId } : {}),
+            ...(meta ? { meta } : {}),
+          }),
+        })
+        stream.close()
+        return
+      }
+      stream.write(event)
     }
     stream.close()
   }
@@ -786,6 +797,7 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
 }
 
 export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToolsPanelPlugin {
+  const defaultMeta = optionalRecord(options.meta)
   return {
     name: chatDevtoolsPanelPluginName,
     devtools: {
@@ -809,18 +821,31 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsGetStateRpc,
           type: "query",
-          setup: () => ({ handler: async () => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, { action: "get-state" }) }),
+          setup: () => ({
+            handler: async (input?: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown> }) => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, {
+              action: "get-state",
+              ...(input?.chat ? { chat: input.chat } : {}),
+              ...(input?.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
+              ...(input?.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
+              ...(input?.meta ? { meta: input.meta } : defaultMeta ? { meta: defaultMeta } : {}),
+            }),
+          }),
         }) as never)
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsSendRpc,
           type: "action",
           setup: () => ({
             handler: async (input): Promise<ChatDevtoolsSendResult> => {
+              const body = {
+                action: "send" as const,
+                ...input,
+                ...(input.meta ? {} : defaultMeta ? { meta: defaultMeta } : {}),
+              }
               if (!chatStream) {
-                return await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, { action: "send", ...input })
+                return await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, body)
               }
               const stream = chatStream.start()
-              void writeChatDevtoolsStream(ctx, chatDevtoolsBridgeRoute, { action: "send", ...input }, stream)
+              void writeChatDevtoolsStream(ctx, chatDevtoolsBridgeRoute, body, stream)
               return {
                 chats: [],
                 selected: input.chat || "",
@@ -832,7 +857,13 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
         ctx.rpc.register(defineRpcFunction({
           name: chatDevtoolsClearRpc,
           type: "action",
-          setup: () => ({ handler: async input => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, { action: "clear", ...input }) }),
+          setup: () => ({
+            handler: async input => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, {
+              action: "clear",
+              ...input,
+              ...(input.meta ? {} : defaultMeta ? { meta: defaultMeta } : {}),
+            }),
+          }),
         }) as never)
       },
     },
@@ -841,7 +872,7 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
 
 declare module "@vitejs/devtools-kit" {
   interface DevToolsRpcServerFunctions {
-    [chatDevtoolsGetStateRpc]: () => Promise<ChatDevtoolsStateResult>
+    [chatDevtoolsGetStateRpc]: (input?: { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown> }) => Promise<ChatDevtoolsStateResult>
     [chatDevtoolsSendRpc]: (input: ChatDevtoolsSendInput) => Promise<ChatDevtoolsSendResult>
     [chatDevtoolsClearRpc]: (input: ChatDevtoolsClearInput) => Promise<ChatDevtoolsStateResult>
   }

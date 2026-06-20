@@ -53,4 +53,46 @@ Use `hubBlob()` in Vite to resolve blob config and expose the `blob` runtime hel
 
 Core drivers include local `fs`, [Vercel Blob](https://vercel.com/docs/vercel-blob), [Cloudflare R2](https://developers.cloudflare.com/r2/), S3-compatible stores, and [files-sdk](https://files-sdk.dev/).
 
+## MinIO
+
+MinIO is the Docker-friendly S3-compatible path. Select it explicitly:
+
+```sh
+pnpm add files-sdk @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
+```
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  blob: {
+    driver: "minio",
+  },
+  plugins: [hubBlob()],
+})
+```
+
+ViteHub reads common Docker Compose env names:
+
+```env
+MINIO_ENDPOINT=http://minio:9000
+MINIO_ROOT_USER=minio
+MINIO_ROOT_PASSWORD=password
+BLOB_BUCKET_NAME=vitehub-blob
+```
+
+The Files SDK native `MINIO_ACCESS_KEY_ID` and `MINIO_SECRET_ACCESS_KEY` env names are also accepted.
+
+You can also keep the config self-contained:
+
+```ts
+blob: {
+  driver: "minio",
+  accessKeyId: process.env.MINIO_ROOT_USER,
+  bucket: "vitehub-blob",
+  endpoint: "http://minio:9000",
+  forcePathStyle: true,
+  secretAccessKey: process.env.MINIO_ROOT_PASSWORD,
+}
+```
+
 Learn more at [vitehub.dev](https://vitehub.dev).

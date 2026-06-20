@@ -232,7 +232,7 @@ function normalizeCloudflareConfig(
 function getDefaultConnection(name: string) {
   return {
     authToken: undefined,
-    url: name === "default" ? "file:.data/database/sqlite.db" : `file:.data/database/${name}.sqlite.db`,
+    url: name === "default" ? "file:.vitehub/data/database/sqlite.db" : `file:.vitehub/data/database/${name}.sqlite.db`,
   }
 }
 

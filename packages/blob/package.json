@@ -2,25 +2,29 @@
   "name": "@vite-hub/blob",
   "version": "0.0.1",
   "description": "Vite-first blob storage primitives and deployment integration for ViteHub.",
-  "author": "onmax <maximogarciamtnez@gmail.com>",
-  "license": "Apache-2.0",
+  "keywords": [
+    "blob",
+    "cloudflare",
+    "r2",
+    "vercel",
+    "vite",
+    "vitehub"
+  ],
   "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vite-hub/vitehub.git",
     "directory": "packages/blob"
   },
-  "bugs": "https://github.com/vite-hub/vitehub/issues",
-  "keywords": [
-    "vitehub",
-    "vite",
-    "blob",
-    "cloudflare",
-    "vercel",
-    "r2"
+  "files": [
+    "dist",
+    "package.json"
   ],
-  "sideEffects": false,
   "type": "module",
+  "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
@@ -56,16 +60,11 @@
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },
-  "files": [
-    "dist",
-    "package.json"
-  ],
   "scripts": {
-    "build": "tsdown --tsconfig tsconfig.build.json",
-    "dev": "tsdown --watch",
+    "build": "vp pack",
+    "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vite-hub/blob build && pnpm --filter @vite-hub/kv build && pnpm --filter @vite-hub/queue build && vitest run",
-    "test:e2e": "tsx ./test/e2e.ts"
+    "test": "vp run -t @vite-hub/blob#build && vp test"
   },
   "dependencies": {
     "defu": "catalog:unjs",
@@ -74,9 +73,20 @@
     "h3": "catalog:unjs",
     "pathe": "catalog:unjs"
   },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
+    "files-sdk": "catalog:storage",
+    "ofetch": "catalog:unjs",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
+  },
   "peerDependencies": {
     "files-sdk": "catalog:storage",
-    "vite": "catalog:vite8-compat"
+    "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
     "files-sdk": {
@@ -86,16 +96,7 @@
       "optional": true
     }
   },
-  "devDependencies": {
-    "@types/node": "catalog:tooling",
-    "@vite-hub/internal": "workspace:*",
-    "files-sdk": "catalog:storage",
-    "ofetch": "catalog:unjs",
-    "publint": "catalog:tooling",
-    "tsdown": "catalog:tooling",
-    "tsx": "catalog:tooling",
-    "typescript": "catalog:tooling",
-    "vite": "catalog:vite",
-    "vitest": "catalog:tooling"
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

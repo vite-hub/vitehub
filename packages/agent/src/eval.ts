@@ -11,6 +11,7 @@ import {
   type AgentRunInput,
   type AgentRuntimeContext,
   type AgentRuntimeConfig,
+  type AgentSettings,
   type AgentToolStep,
   type MaybePromise,
   type WorkspaceAgentDefinition,
@@ -194,16 +195,52 @@ function applyVariant<TRuntimeConfig extends AgentRuntimeConfig>(
   variant: AgentEvalVariant,
 ): AgentEvalAgent<TRuntimeConfig> {
   if (!isVariantOverride(variant)) return agent
+  const settings = (agent as { __vitehubAgentSettings?: AgentSettings<TRuntimeConfig> }).__vitehubAgentSettings
+  if (settings) {
+    const driver = (settings as { driver?: unknown }).driver
+    if (driver) {
+      if (typeof driver !== "object" || !("model" in driver)) {
+        throw new Error("[vitehub] Agent Evaluation variants with model or instructions require a model-backed Agent Driver.")
+      }
+      return defineAgent({
+        ...settings,
+        driver: {
+          ...driver,
+          ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),
+          ...(variant.model !== undefined ? { model: variant.model as never } : {}),
+        },
+      } as never)
+    }
+    return defineAgent({
+      ...settings,
+      ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),
+      ...(variant.model !== undefined ? { model: variant.model as never } : {}),
+    } as never)
+  }
   if (!isWorkspaceAgentDefinition(agent)) {
-    throw new Error("[vitehub] Agent Evaluation variants with model or instructions require an inspectable defineAgent({ workspace }) Agent Definition.")
+    throw new Error("[vitehub] Agent Evaluation variants with model or instructions require an Agent Definition created with defineAgent(...).")
   }
 
   const options = agent.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<TRuntimeConfig>
+  const driver = (options as { driver?: unknown }).driver
+  if (driver) {
+    if (typeof driver !== "object" || !("model" in driver)) {
+      throw new Error("[vitehub] Agent Evaluation variants with model or instructions require a model-backed Agent Driver.")
+    }
+    return defineAgent({
+      ...options,
+      driver: {
+        ...driver,
+        ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),
+        ...(variant.model !== undefined ? { model: variant.model as never } : {}),
+      },
+    } as never)
+  }
   return defineAgent({
     ...options,
     ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),
     ...(variant.model !== undefined ? { model: variant.model as never } : {}),
-  })
+  } as never)
 }
 
 function normalizeScenarios<CALL_OPTIONS>(

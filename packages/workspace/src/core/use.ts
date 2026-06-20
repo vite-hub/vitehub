@@ -8,10 +8,11 @@ import {
   type WorkspaceWriteToolMap,
 } from "../ai.ts"
 import { useWorkspaceAssets } from "../asset-registry.ts"
-import { WorkspaceNotFoundError } from "./errors.ts"
+import { WorkspaceError, WorkspaceNotFoundError } from "./errors.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern } from "./path.ts"
 import { useRegisteredWorkspace } from "./registry.ts"
+import { attachWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 
 import type { Tool, ToolSet } from "ai"
 import type {
@@ -34,12 +35,19 @@ import type {
   WorkspaceSession,
   WorkspaceStat,
   WorkspaceDiff,
+  WorkspaceMaterializeSourcesOptions,
   WorkspaceSnapshot,
+  WorkspaceSourceSyncResult,
+  WorkspaceSyncOptions,
   WriteFileOptions,
   SnapshotOptions,
 } from "./types.ts"
 
 type WorkspaceWritablePath<Name extends WorkspaceName> = WorkspaceAssetPath<Name> | (string & {})
+
+type WorkspaceWithDefinitionSync = Workspace & {
+  __syncWorkspaceDefinition?: () => Promise<void>
+}
 
 export interface UseWorkspaceOptions {
   mode?: "read" | "write"
@@ -105,8 +113,10 @@ export interface ReadonlyWorkspaceFacade<Name extends WorkspaceName = WorkspaceN
 export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   fs: WritableWorkspaceFs<Name>
+  materializeSources(options?: WorkspaceMaterializeSourcesOptions): Promise<WorkspaceMaterializeSourcesResult>
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
   startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
+  sync(options: WorkspaceSyncOptions): Promise<WorkspaceSourceSyncResult>
   tools: WorkspaceWriteToolSet
 }
 
@@ -114,6 +124,8 @@ export type WorkspaceFacade<Name extends WorkspaceName = WorkspaceName, Mode ext
   Mode extends "write" ? WritableWorkspaceFacade<Name> : ReadonlyWorkspaceFacade<Name>
 
 function normalizePath(path: string, allowEmpty = false) {
+  const reserved = normalizeSafeWorkspacePath(path, { allowEmpty, allowReserved: true })
+  if (isGeneratedSourceDescriptorPath(reserved)) return reserved
   return normalizeSafeWorkspacePath(path, { allowEmpty })
 }
 
@@ -122,7 +134,24 @@ function normalizeListPath(path = "") {
 }
 
 function normalizePattern(pattern: string | string[]) {
-  return Array.isArray(pattern) ? pattern.map(normalizeSafeWorkspacePattern) : normalizeSafeWorkspacePattern(pattern)
+  return Array.isArray(pattern) ? pattern.map(normalizeWorkspacePattern) : normalizeWorkspacePattern(pattern)
+}
+
+function normalizeWorkspacePattern(pattern: string) {
+  const reserved = normalizeSafeWorkspacePath(pattern, { allowEmpty: true, allowReserved: true, pattern: true })
+  if (isGeneratedSourceDescriptorPath(reserved)) return reserved
+  return normalizeSafeWorkspacePattern(pattern)
+}
+
+function isGeneratedSourceDescriptorPath(path: string): boolean {
+  return path === ".vitehub/sources" || path.startsWith(".vitehub/sources/")
+}
+
+async function materializeWorkspaceSources(workspace: Workspace, options?: WorkspaceMaterializeSourcesOptions) {
+  if (!workspace.materializeSources)
+    throw new WorkspaceError("[vitehub] Workspace source materialization is unavailable.")
+
+  return await workspace.materializeSources(options)
 }
 
 function createLazyWorkspace(name: WorkspaceName): Workspace {
@@ -137,7 +166,7 @@ function createLazyWorkspace(name: WorkspaceName): Workspace {
   async function resolveSyncedWorkspace() {
     const workspace = await resolveWorkspace()
     if (!syncPromise) {
-      const next = workspace.sync()
+      const next = (workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition?.() ?? Promise.resolve()
       syncPromise = next
       next.catch(() => { syncPromise = undefined })
     }
@@ -150,9 +179,9 @@ function createLazyWorkspace(name: WorkspaceName): Workspace {
     async sync(options) {
       const resolved = await resolveWorkspace()
       const next = resolved.sync(options)
-      syncPromise = next
+      syncPromise = next.then(() => undefined)
       next.catch(() => { syncPromise = undefined })
-      await next
+      return await next
     },
     async readFile(path, options) {
       return await (await resolveSyncedWorkspace()).readFile(normalizePath(path), options as never)
@@ -186,14 +215,7 @@ function createLazyWorkspace(name: WorkspaceName): Workspace {
       await (await resolveSyncedWorkspace()).rm(normalizePath(path), options)
     },
     async materializeSources(options) {
-      return await (await resolveSyncedWorkspace()).materializeSources?.(options) ?? {
-        bytes: 0,
-        directories: 0,
-        durationMs: 0,
-        files: 0,
-        path: options?.path || "",
-        sources: [],
-      }
+      return await materializeWorkspaceSources(await resolveSyncedWorkspace(), options)
     },
     async snapshot(options) {
       return await (await resolveSyncedWorkspace()).snapshot(options)
@@ -223,11 +245,18 @@ function createLazyWorkspace(name: WorkspaceName): Workspace {
     },
   } as Workspace
 
-  return workspace
+  return attachWorkspaceSourceRequestExecution(workspace, {
+    async executeSourceRequest(input) {
+      const resolved = await resolveSyncedWorkspace()
+      const executor = getWorkspaceSourceRequestExecution(resolved)
+      if (!executor) throw new Error("[vitehub] No API-backed Source request executor is available for this workspace.")
+      return await executor.executeSourceRequest(input)
+    },
+  })
 }
 
 function createWritableFs<Name extends WorkspaceName>(workspace: Workspace): WritableWorkspaceFs<Name> {
-  return {
+  return attachWorkspaceSourceRequestExecution({
     readFile: async (path, options) => await workspace.readFile(normalizePath(path), options as never),
     writeFile: async (path, content, options) => await workspace.writeFile(normalizePath(path), content, options),
     appendFile: async (path, content) => await appendWorkspaceFile(workspace, normalizePath(path), content),
@@ -248,7 +277,7 @@ function createWritableFs<Name extends WorkspaceName>(workspace: Workspace): Wri
       await workspace.rm(source, { recursive: true, force: true })
     },
     copyPath: async (from, to, options) => await copyWorkspacePath(workspace, normalizePath(from), normalizePath(to), options?.overwrite),
-  }
+  }, getWorkspaceSourceRequestExecution(workspace))
 }
 
 function useOptionalWorkspaceAssets<Name extends WorkspaceName>(name: Name): WorkspaceAssets<WorkspaceAssetPath<Name>> | undefined {
@@ -300,7 +329,7 @@ function createReadonlyFs<Name extends WorkspaceName>(
 ): ReadonlyWorkspaceFs<Name> {
   const assets = useOptionalWorkspaceAssets(name)
 
-  return {
+  return attachWorkspaceSourceRequestExecution({
     readFile: async (path, options) => {
       const normalized = normalizePath(path)
       try {
@@ -366,7 +395,7 @@ function createReadonlyFs<Name extends WorkspaceName>(
       path: options?.path || "",
       sources: [],
     },
-  }
+  }, getWorkspaceSourceRequestExecution(workspace))
 }
 
 function toReadOperations(options: WorkspaceFacadeToolOptions | undefined): WorkspaceReadOperations {
@@ -429,8 +458,10 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     return {
       diff: async options => await workspace.diff(options),
       fs: createWritableFs<Name>(workspace),
+      materializeSources: async options => await materializeWorkspaceSources(workspace, options),
       snapshot: async options => await workspace.snapshot(options),
       startSession: async options => await workspace.startSession(options),
+      sync: async options => await workspace.sync(options),
       tools,
     }
   }

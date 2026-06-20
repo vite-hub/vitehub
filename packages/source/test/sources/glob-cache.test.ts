@@ -57,6 +57,36 @@ describe("@vite-hub/source glob source cache", () => {
     expect(tinyglobby).toHaveBeenCalledTimes(2)
   })
 
+  it("evicts rejected glob listings from the key cache", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "docs"), { recursive: true })
+    vi.mocked(tinyglobby)
+      .mockRejectedValueOnce(new Error("transient failure"))
+      .mockResolvedValueOnce(["docs/README.md"])
+
+    const docs = glob({ include: "**/*.md" })
+    const ctx = { rootDir: root }
+
+    await expect(docs.getKeys(ctx)).rejects.toThrow("transient failure")
+    await expect(docs.getKeys(ctx)).resolves.toEqual(["docs/README.md"])
+    expect(tinyglobby).toHaveBeenCalledTimes(2)
+  })
+
+  it("shares one in-flight glob listing across concurrent key reads", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "docs"), { recursive: true })
+    vi.mocked(tinyglobby).mockResolvedValueOnce(["docs/README.md"])
+
+    const docs = glob({ include: "**/*.md" })
+    const ctx = { rootDir: root }
+
+    await expect(Promise.all([docs.getKeys(ctx), docs.getKeys(ctx)])).resolves.toEqual([
+      ["docs/README.md"],
+      ["docs/README.md"],
+    ])
+    expect(tinyglobby).toHaveBeenCalledTimes(1)
+  })
+
   it("reuses live glob listings for item reads and refreshes missing keys", async () => {
     const root = await createRoot()
     await mkdir(join(root, "docs"), { recursive: true })

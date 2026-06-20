@@ -55,6 +55,19 @@ describe("agent output helpers", () => {
   it("tracks tool names across stream events", () => {
     const toolNames = new Map<string, string>()
 
+    expect(toAgentStreamEvent({ id: "call-1", toolName: "confirm", type: "tool-input-start" }, toolNames)).toEqual({
+      id: "call-1",
+      input: undefined,
+      name: "confirm",
+      type: "tool-input-start",
+    })
+    expect(toAgentStreamEvent({ output: "accepted", toolCallId: "call-1", type: "tool-result" }, toolNames)).toEqual({
+      error: undefined,
+      id: "call-1",
+      name: "confirm",
+      output: "accepted",
+      type: "tool-result",
+    })
     expect(toAgentStreamEvent({ input: false, toolCallId: "call-1", toolName: "confirm", type: "tool-input-available" }, toolNames)).toEqual({
       id: "call-1",
       input: false,
@@ -70,9 +83,81 @@ describe("agent output helpers", () => {
     })
   })
 
+  it("normalizes AI SDK stream aliases", () => {
+    expect(toAgentStreamEvent({ textDelta: "x", type: "text" })).toEqual({
+      id: undefined,
+      text: "x",
+      type: "text-delta",
+    })
+    expect(toAgentStreamEvent({ args: { ok: true }, toolCallId: "call-1", toolName: "confirm", type: "tool-call" })).toEqual({
+      id: "call-1",
+      input: { ok: true },
+      name: "confirm",
+      type: "tool-call",
+    })
+  })
+
+  it("normalizes stream error chunks", () => {
+    expect(toAgentStreamEvent({ error: new Error("boom"), type: "error" })).toEqual({
+      error: "boom",
+      type: "error",
+    })
+  })
+
+  it("keeps approval events when converting normalized streams", async () => {
+    const output = (async function* () {
+      yield { id: "approval-1", input: { command: "write" }, messageId: "message-1", name: "workspace_write", reason: "Needs approval.", type: "approval-request" }
+      yield { approved: true, decidedAt: "2026-01-01T00:00:00.000Z", id: "approval-1", messageId: "message-1", reason: "Allowed.", type: "approval-decision" }
+    })()
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { id: "approval-1", input: { command: "write" }, messageId: "message-1", name: "workspace_write", reason: "Needs approval.", type: "approval-request" },
+      { approved: true, decidedAt: "2026-01-01T00:00:00.000Z", id: "approval-1", messageId: "message-1", reason: "Allowed.", type: "approval-decision" },
+      { type: "finish" },
+    ])
+  })
+
   it("converts text outputs into stream events", async () => {
     const events: unknown[] = []
     for await (const event of streamAgentOutputToEvents({ finishReason: "stop", text: "ok" })) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      { reason: "stop", type: "finish" },
+    ])
+  })
+
+  it("adds a terminal finish event to raw async iterable output", async () => {
+    const output = (async function* () {
+      yield { text: "ok", type: "text-delta" }
+    })()
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      { type: "finish" },
+    ])
+  })
+
+  it("does not duplicate an existing raw async iterable finish event", async () => {
+    const output = (async function* () {
+      yield { text: "ok", type: "text-delta" }
+      yield { finishReason: "stop", type: "finish" }
+    })()
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
       events.push(event)
     }
 
@@ -93,6 +178,44 @@ describe("agent output helpers", () => {
       { text: "ok from output", type: "text-delta" },
       { type: "usage", usageRecord },
       { reason: "stop", type: "finish" },
+    ])
+  })
+
+  it("adds a terminal finish event to fullStream output", async () => {
+    const output = {
+      fullStream: (async function* () {
+        yield { text: "ok", type: "text-delta" }
+      })(),
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      { type: "finish" },
+    ])
+  })
+
+  it("adds a terminal finish event to textStream output", async () => {
+    const output = {
+      textStream: (async function* () {
+        yield "a"
+        yield "b"
+      })(),
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "a", type: "text-delta" },
+      { text: "b", type: "text-delta" },
+      { type: "finish" },
     ])
   })
 

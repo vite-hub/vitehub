@@ -1,8 +1,24 @@
 import { describe, expect, it } from "vitest"
 
 import { normalizeWorkspaceOptions, resolveRuntimeVercelBlobWorkspaceStore } from "../src/config.ts"
+import { defineWorkspace } from "../src/core/define.ts"
 
 describe("workspace config", () => {
+  it("rejects unknown workspace definition options", () => {
+    expect(() => defineWorkspace({
+      stroe: { provider: "memory" },
+    } as never)).toThrow("[vitehub] defineWorkspace does not support option: stroe.")
+  })
+
+  it("rejects unknown workspace module config options", () => {
+    expect(() => normalizeWorkspaceOptions({
+      stores: { provider: "memory" },
+    } as never, {
+      env: {},
+      rootDir: "/repo",
+    })).toThrow("[vitehub] workspace config does not support option: stores.")
+  })
+
   it("leaves build assets enabled by default", () => {
     const config = normalizeWorkspaceOptions({}, {
       env: {},
@@ -173,16 +189,50 @@ describe("workspace config", () => {
     })
   })
 
-  it("rejects GitHub as a workspace store provider", () => {
-    expect(() => normalizeWorkspaceOptions({
+  it("preserves explicit GitHub stores and masks tokens", () => {
+    const config = normalizeWorkspaceOptions({
       store: {
+        branch: "workspace-state",
         provider: "github",
-        repo: "acme/app",
+        repository: "acme/app",
+        root: ".vitehub/workspaces/<workspace>",
         token: "secret-token",
-      } as never,
+      },
     }, {
       rootDir: "/repo",
-    })).toThrow("Unsupported workspace store provider: github")
+    })
+
+    expect(JSON.stringify(config)).not.toContain("secret-token")
+    expect(config && config.store).toEqual({
+      branch: "workspace-state",
+      provider: "github",
+      repository: "acme/app",
+      root: ".vitehub/workspaces/<workspace>",
+      token: "********",
+    })
+  })
+
+  it("resolves GitHub store options from the environment", () => {
+    const config = normalizeWorkspaceOptions({
+      store: {
+        provider: "github",
+      },
+    }, {
+      env: {
+        VITEHUB_WORKSPACE_GITHUB_BRANCH: "workspace-state",
+        VITEHUB_WORKSPACE_GITHUB_REPOSITORY: "acme/app",
+        VITEHUB_WORKSPACE_GITHUB_ROOT: "state/<workspace>",
+      },
+      rootDir: "/repo",
+    })
+
+    expect(config && config.store).toEqual({
+      branch: "workspace-state",
+      provider: "github",
+      repository: "acme/app",
+      root: "state/<workspace>",
+      token: "********",
+    })
   })
 
   it("rehydrates masked Vercel Blob tokens at runtime", () => {

@@ -3,31 +3,38 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build"
+    "build": "vp build"
   },
   "dependencies": {
     "@cloudflare/sandbox": "catalog:sandbox",
     "@vercel/blob": "catalog:storage",
     "@vercel/queue": "catalog:vercel",
     "@vercel/sandbox": "catalog:sandbox",
-    "@vitejs/devtools": "catalog:vite",
     "@vite-hub/agent": "workspace:*",
-    "@vite-hub/database": "workspace:*",
     "@vite-hub/blob": "workspace:*",
+    "@vite-hub/database": "workspace:*",
     "@vite-hub/devtools": "workspace:*",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/queue": "workspace:*",
-    "@vite-hub/schedule": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
-    "@vite-hub/workspace": "workspace:*",
+    "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
+    "@vite-hub/workspace": "workspace:*",
+    "@vitejs/devtools": "catalog:vite",
     "chat": "catalog:chat",
     "chat-state-cloudflare-do": "catalog:chat",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite"
+  },
+  "devDependencies": {
+    "@vite-hub/cli": "workspace:*",
+    "vite-plus": "catalog:tooling"
+  },
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

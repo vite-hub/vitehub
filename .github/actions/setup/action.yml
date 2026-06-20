@@ -1,17 +1,13 @@
 name: Setup
-description: Install pnpm + Node and project dependencies
+description: Install Vite+ and project dependencies
 runs:
   using: composite
   steps:
-    - uses: pnpm/action-setup@v5
+    - uses: voidzero-dev/setup-vp@v1
       with:
-        version: 10.33.0
-
-    - uses: actions/setup-node@v6
-      with:
-        node-version: 24
-        cache: pnpm
+        node-version: "24"
+        cache: true
 
     - name: Install dependencies
       shell: bash
-      run: pnpm install --frozen-lockfile
+      run: vp install --frozen-lockfile

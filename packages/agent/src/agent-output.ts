@@ -1,7 +1,10 @@
 import { ApprovalRequiredError } from "@vite-hub/runtime"
+import { isAsyncIterable } from "./internal/stream-result.ts"
 
 import type { StreamEvent } from "./messages.ts"
 import type { AgentRunResult, AgentUsageRecord } from "./types.ts"
+
+export { isAsyncIterable } from "./internal/stream-result.ts"
 
 function textFromResult(result: Record<string, unknown>): string | undefined {
   if (typeof result.text === "string") return result.text
@@ -34,12 +37,12 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
   }
 }
 
-export function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
-  return !!value && typeof value === "object" && Symbol.asyncIterator in value
-}
-
 function isUsageRecord(value: unknown): value is AgentUsageRecord {
   return typeof value === "object" && value !== null
+}
+
+function optionalMessageId(messageId: string | undefined): { messageId?: string } {
+  return messageId ? { messageId } : {}
 }
 
 export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, string>): StreamEvent | undefined {
@@ -52,27 +55,28 @@ export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, strin
 
   const value = chunk as Record<string, unknown>
   const type = String(value.type || "")
+  const messageId = typeof value.messageId === "string" ? value.messageId : undefined
   if (type === "text-delta" || type === "text") {
-    return { id: value.id as string | undefined, text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
+    return { id: value.id as string | undefined, ...optionalMessageId(messageId), ...(typeof value.role === "string" ? { role: value.role as never } : {}), text: String(value.text || value.textDelta || value.delta || ""), type: "text-delta" }
   }
   if (type === "data") {
-    return { data: value.data, id: value.id as string | undefined, messageId: value.messageId as string | undefined, type: "data" }
+    return { data: value.data, id: value.id as string | undefined, ...optionalMessageId(messageId), type: "data" }
   }
   if (type === "tool-input-start") {
     const id = String(value.id || value.toolCallId)
     const name = String(value.toolName || value.name || toolNames?.get(id) || "tool")
     toolNames?.set(id, name)
-    return { id, input: value.input, name, type: "tool-input-start" }
+    return { id, input: value.input, ...optionalMessageId(messageId), name, type: "tool-input-start" }
   }
   if (type === "tool-call" || type === "tool-input-available") {
     const id = String(value.toolCallId ?? value.id)
     const name = String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool")
     toolNames?.set(id, name)
-    return { id, input: value.input ?? value.args, name, type: "tool-call" }
+    return { id, input: value.input ?? value.args, ...optionalMessageId(messageId), name, type: "tool-call" }
   }
   if (type === "tool-result" || type === "tool-output-available") {
     const id = String(value.toolCallId ?? value.id)
-    return { error: typeof value.error === "string" ? value.error : undefined, id, name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
+    return { error: typeof value.error === "string" ? value.error : undefined, id, ...optionalMessageId(messageId), name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
   }
   if (type === "tool-error" || type === "tool-output-error") {
     const id = String(value.toolCallId ?? value.id)
@@ -81,20 +85,27 @@ export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, strin
       : typeof value.errorText === "string"
         ? value.errorText
         : String(value.error || "Unknown tool error")
-    return { error, id, name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
+    return { error, id, ...optionalMessageId(messageId), name: String(value.toolName ?? value.name ?? toolNames?.get(id) ?? "tool"), output: value.output ?? value.result, type: "tool-result" }
+  }
+  if (type === "approval-request") {
+    return { id: String(value.id), input: value.input, ...optionalMessageId(messageId), name: String(value.name || "approval"), reason: typeof value.reason === "string" ? value.reason : undefined, type: "approval-request" }
+  }
+  if (type === "approval-decision") {
+    return { approved: value.approved === true, decidedAt: value.decidedAt as Date | string | undefined, id: String(value.id), ...optionalMessageId(messageId), reason: typeof value.reason === "string" ? value.reason : undefined, type: "approval-decision" }
   }
   if (type === "error") {
     if (value.error instanceof ApprovalRequiredError) {
       const { request } = value.error
-      return { id: request.id, input: request.input, name: request.capability || request.id, reason: request.reason, type: "approval-request" }
+      return { id: request.id, input: request.input, ...optionalMessageId(messageId), name: request.capability || request.id, reason: request.reason, type: "approval-request" }
     }
-    return { error: value.error instanceof Error ? value.error.message : String(value.error || "Unknown error"), type: "error" }
+    return { error: value.error instanceof Error ? value.error.message : String(value.error || "Unknown error"), ...(typeof value.id === "string" ? { id: value.id } : {}), ...optionalMessageId(messageId), ...(value.recoverable === true ? { recoverable: true } : {}), type: "error" }
   }
   if (type === "usage" && isUsageRecord(value.usageRecord)) {
-    return { messageId: value.messageId as string | undefined, type: "usage", usageRecord: value.usageRecord }
+    return { ...optionalMessageId(messageId), type: "usage", usageRecord: value.usageRecord }
   }
   if (type === "finish") {
-    return { reason: typeof value.finishReason === "string" ? value.finishReason : undefined, type: "finish" }
+    const reason = typeof value.finishReason === "string" ? value.finishReason : typeof value.reason === "string" ? value.reason : undefined
+    return { ...optionalMessageId(messageId), ...(reason ? { reason } : {}), type: "finish" }
   }
   return undefined
 }
@@ -105,28 +116,55 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     yield { type: "finish" }
     return
   }
-  if (isAsyncIterable(value)) {
-    const toolNames = new Map<string, string>()
-    for await (const chunk of value as AsyncIterable<unknown>) {
-      const event = toAgentStreamEvent(chunk, toolNames)
-      if (event) yield event
-    }
+  if (value instanceof Response) {
+    const text = await value.text()
+    if (text) yield { text, type: "text-delta" }
+    yield { type: "finish" }
     return
   }
-  const result = value as { fullStream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> }
+  if (isAsyncIterable(value)) {
+    const toolNames = new Map<string, string>()
+    let finished = false
+    for await (const chunk of value as AsyncIterable<unknown>) {
+      const event = toAgentStreamEvent(chunk, toolNames)
+      if (!event) continue
+      if (event.type === "finish") finished = true
+      yield event
+    }
+    if (!finished) yield { type: "finish" }
+    return
+  }
+  const result = value as { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> }
   const fullStream = result.fullStream
   if (fullStream) {
     const toolNames = new Map<string, string>()
+    let finished = false
     for await (const chunk of fullStream) {
       const event = toAgentStreamEvent(chunk, toolNames)
-      if (event) yield event
+      if (!event) continue
+      if (event.type === "finish") finished = true
+      yield event
     }
+    if (!finished) yield { type: "finish" }
+    return
+  }
+  if (result.stream) {
+    const toolNames = new Map<string, string>()
+    let finished = false
+    for await (const chunk of result.stream) {
+      const event = toAgentStreamEvent(chunk, toolNames)
+      if (!event) continue
+      if (event.type === "finish") finished = true
+      yield event
+    }
+    if (!finished) yield { type: "finish" }
     return
   }
   if (result.textStream) {
     for await (const text of result.textStream) {
       yield { text, type: "text-delta" }
     }
+    yield { type: "finish" }
     return
   }
   const text = typeof value === "object" && value !== null

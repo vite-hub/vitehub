@@ -6,6 +6,7 @@ export const chatDevtoolsBridgeRoute = "/__vitehub/agent/chat/devtools"
 export const chatDevtoolsGetStateRpc = "@vite-hub/agent/chat:get-state"
 export const chatDevtoolsSendRpc = "@vite-hub/agent/chat:send"
 export const chatDevtoolsClearRpc = "@vite-hub/agent/chat:clear"
+export const chatDevtoolsMaterializeSourceRpc = "@vite-hub/agent/chat:materialize-source"
 export const chatDevtoolsStreamChannel = "@vite-hub/agent/chat:stream"
 export const chatDevtoolsAdapterName = "devtools"
 
@@ -33,6 +34,7 @@ export interface ChatDevtoolsFileTreeItem {
   materializedAt?: string
   path: string
   source?: string
+  status?: "lazy" | "updating" | "ready" | "error"
   updatedAt?: string
 }
 
@@ -46,13 +48,62 @@ export interface ChatDevtoolsToolDefinition {
   status?: "available" | "disabled"
 }
 
+export type ChatDevtoolsConfigValue = boolean | null | number | string
+
+export interface ChatDevtoolsModelMetadata {
+  dynamic?: boolean
+  id?: string
+  provider?: string
+}
+
+export interface ChatDevtoolsModelExecutionMetadata {
+  callSettings?: Record<string, ChatDevtoolsConfigValue>
+  stepLimit?: number
+  workspaceFallback?: {
+    enabled?: boolean
+    maxToolResults?: number
+  }
+}
+
+export interface ChatDevtoolsHarnessMetadata {
+  credentials?: {
+    label?: string
+    source?: string
+  }
+  provider?: string
+  sandbox?: boolean
+  sessionKey?: boolean
+}
+
+export interface ChatDevtoolsDriverMetadata {
+  execution?: ChatDevtoolsModelExecutionMetadata
+  harness?: ChatDevtoolsHarnessMetadata
+  kind: "harness" | "model" | "run"
+  model?: ChatDevtoolsModelMetadata
+}
+
+export interface ChatDevtoolsConfigMetadata {
+  driver: ChatDevtoolsDriverMetadata
+}
+
+export interface ChatDevtoolsInvokerProfile {
+  id: string
+  kind?: string
+  label?: string
+  meta?: Record<string, unknown>
+}
+
 export interface ChatDevtoolsMetadata {
+  config?: ChatDevtoolsConfigMetadata
   files?: ChatDevtoolsFileTreeItem[]
   instructions?: string[]
+  invokerProfiles?: ChatDevtoolsInvokerProfile[]
   title?: string
   tools?: ChatDevtoolsToolDefinition[]
   version?: string
 }
+
+export type ChatDevtoolsMetadataStatus = "error" | "loading" | "ready"
 
 export interface ChatDevtoolsMessage {
   createdAt: string
@@ -64,6 +115,8 @@ export interface ChatDevtoolsMessage {
 }
 
 export interface ChatDevtoolsConversation {
+  invokerFallback?: boolean
+  invokerProfileId?: string
   messages: ChatDevtoolsMessage[]
   name: string
   title?: string
@@ -72,8 +125,15 @@ export interface ChatDevtoolsConversation {
 
 export interface ChatDevtoolsStateResult {
   chats: ChatDevtoolsConversation[]
+  config?: ChatDevtoolsConfigMetadata
   files?: ChatDevtoolsFileTreeItem[]
   instructions?: string[]
+  invokerFallback?: boolean
+  invokerProfileId?: string
+  invokerProfiles?: ChatDevtoolsInvokerProfile[]
+  meta?: Record<string, unknown>
+  metadataError?: string
+  metadataStatus?: ChatDevtoolsMetadataStatus
   selected: string
   thinkingFallback?: string | null
   title?: string
@@ -84,11 +144,27 @@ export interface ChatDevtoolsStateResult {
 
 export interface ChatDevtoolsSendInput {
   chat?: string
+  invokerFallback?: boolean
+  invokerProfileId?: string
+  meta?: Record<string, unknown>
+  stream?: boolean
   text: string
 }
 
 export interface ChatDevtoolsClearInput {
   chat?: string
+  invokerFallback?: boolean
+  invokerProfileId?: string
+  meta?: Record<string, unknown>
+}
+
+export interface ChatDevtoolsMaterializeSourceInput {
+  chat?: string
+  invokerFallback?: boolean
+  invokerProfileId?: string
+  meta?: Record<string, unknown>
+  path?: string
+  source?: string
 }
 
 export interface ChatDevtoolsSendResult extends ChatDevtoolsStateResult {

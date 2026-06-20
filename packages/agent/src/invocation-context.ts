@@ -26,9 +26,9 @@ export function createAgentInvocationContextStore(initial?: object): AgentInvoca
     has(id: string): boolean {
       return values.has(id)
     },
-    set(id: string, value: unknown): void {
+    set(id: string, value: unknown, options?: { overwrite?: boolean }): void {
       assertContextId(id)
-      if (values.has(id)) {
+      if (values.has(id) && !options?.overwrite) {
         throw new Error(`[vitehub] Invocation context value "${id}" is already set.`)
       }
       values.set(id, value)

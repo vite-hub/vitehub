@@ -28,6 +28,25 @@ describe("inputCommands", () => {
     expect(resolved.input.prompt).toBe("Review this: auth changes")
   })
 
+  it("replaces command text from an initial message", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [inputCommands({
+        commands: {
+          review: {
+            description: "Review the request.",
+            run: ({ args }) => `Review this: ${args}`,
+          },
+        },
+      })],
+    }, runtime(), { message: "/review auth changes" })
+
+    expect(resolved.input.messages?.map(message => getMessageText(message))).toEqual(["Review this: auth changes"])
+    expect(resolved.input.message).toBeUndefined()
+  })
+
   it("replaces command text in the latest user message", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

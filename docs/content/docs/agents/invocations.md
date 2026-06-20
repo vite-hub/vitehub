@@ -54,6 +54,6 @@ Finish hooks are for observation, export, telemetry, or cleanup. They should not
 
 ## Invocation context values
 
-Capabilities can record typed Agent Invocation Context Values before later callbacks run. Use them for decisions such as access scope, route selection, chat identity, or gate results.
+Capabilities can record typed Agent Invocation Context Values before later callbacks run. Use them for decisions such as access scope, route selection, the resolved Agent Invoker, rate-limit decisions, or gate results.
 
 Context values do not dynamically grant Capabilities. Capability attachment remains server-configured in the Agent Definition.

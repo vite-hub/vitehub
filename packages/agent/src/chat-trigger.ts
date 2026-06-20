@@ -5,9 +5,11 @@ import type {
   AgentCapabilityDefinition,
   AgentCapabilityTypeContract,
   AgentChatAgentHookArgs,
-  AgentChatAdapterResolver,
+  AgentChatFinishExtension,
   AgentChatOptions,
+  AgentChatPlatformResolver,
   AgentChatWebhookRegistrationDefinition,
+  AgentInvocationContextStore,
   AgentRunMetadata,
   AgentRuntimeConfig,
   AgentTriggerDefinition,
@@ -33,16 +35,18 @@ type ResolvedMaybeResolvable<T> =
       ? Awaited<TResult>
       : T
 
-type AgentChatAdapterOrigin<TAdapters> =
-  Extract<keyof NonNullable<ResolvedMaybeResolvable<TAdapters>>, string>
+type AgentChatPlatformOrigin<TPlatforms> =
+  Extract<keyof NonNullable<ResolvedMaybeResolvable<TPlatforms>>, string>
 
 type AgentChatKnownOrigin<TOptions> =
-  TOptions extends { adapters?: infer TAdapters } ? AgentChatAdapterOrigin<TAdapters> : never
+  TOptions extends { platforms?: infer TPlatforms } ? AgentChatPlatformOrigin<TPlatforms> : never
 
 export type AgentChatOptionsOrigin<TOptions> =
   [AgentChatKnownOrigin<TOptions>] extends [never]
     ? string
     : AgentChatKnownOrigin<TOptions>
+
+export const agentChatContextKey = "chat"
 
 type ChatCapabilityTypeContract<TOrigin extends string = string> = AgentCapabilityTypeContract & {
   chatOrigins: TOrigin
@@ -63,19 +67,42 @@ const CHAT_WEBHOOK_DEFAULTS = {
   },
 } satisfies Record<string, Partial<AgentWebhookRegistrationDefinition> & { provider?: string }>
 
+export const CHAT_FINISH_EXTENSION_CONTEXT_KEY = "chat.finish"
+
 type KnownChatWebhookPlatform = keyof typeof CHAT_WEBHOOK_DEFAULTS
 
 export interface AgentChatRunContext<
   TMessageMetadata extends object = Record<string, unknown>,
   TUser extends object = Record<string, unknown>,
   TOrigin extends string = string,
+  TMeta extends object = Record<string, unknown>,
 > {
   chat?: {
     message?: Omit<AgentChatAgentHookArgs["message"], "metadata"> & { metadata?: TMessageMetadata }
+    meta?: TMeta
     run?: AgentRunMetadata<TOrigin>
     session?: AgentChatMessageTriggerInput["session"]
     user?: TUser
   }
+}
+
+export type AgentChatContext<
+  TMeta extends object = Record<string, unknown>,
+  TUser extends object = Record<string, unknown>,
+  TOrigin extends string = string,
+  TMessageMetadata extends object = Record<string, unknown>,
+> = NonNullable<AgentChatRunContext<TMessageMetadata, TUser, TOrigin, TMeta>["chat"]>
+
+export function getAgentChatContext<
+  TMeta extends object = Record<string, unknown>,
+  TUser extends object = Record<string, unknown>,
+  TOrigin extends string = string,
+  TMessageMetadata extends object = Record<string, unknown>,
+>(
+  input: AgentInvocationContextStore | { context: AgentInvocationContextStore },
+): AgentChatContext<TMeta, TUser, TOrigin, TMessageMetadata> | undefined {
+  const store = "get" in input ? input : input.context
+  return store.get<AgentChatContext<TMeta, TUser, TOrigin, TMessageMetadata>>(agentChatContextKey)
 }
 
 async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -89,7 +116,7 @@ async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeCo
     return resolved || undefined
   }
   if (typeof fallback === "string") return fallback
-  return "Thinking..."
+  return undefined
 }
 
 function isResolvableObject(value: unknown): value is { resolve: (...args: never[]) => unknown } {
@@ -98,7 +125,7 @@ function isResolvableObject(value: unknown): value is { resolve: (...args: never
     && typeof (value as { resolve?: unknown }).resolve === "function"
 }
 
-function isStaticAdapterMap(value: AgentChatOptions["adapters"]): value is Record<string, AgentChatAdapterResolver> {
+function isStaticPlatformMap(value: AgentChatOptions["platforms"]): value is Record<string, AgentChatPlatformResolver> {
   return typeof value === "object" && value !== null && !Array.isArray(value) && !isResolvableObject(value)
 }
 
@@ -112,8 +139,9 @@ function hasExplicitChatWebhook(options: AgentChatOptions, platform: string): bo
 
 function normalizeChatWebhookRegistrations(
   platform: string,
-  input: AgentChatWebhookRegistrationDefinition | AgentChatWebhookRegistrationDefinition[],
+  input: false | AgentChatWebhookRegistrationDefinition | AgentChatWebhookRegistrationDefinition[],
 ): AgentWebhookRegistrationDefinition[] {
+  if (input === false) return []
   const defaults: Partial<AgentWebhookRegistrationDefinition> & { provider?: string } = isKnownChatWebhookPlatform(platform)
     ? CHAT_WEBHOOK_DEFAULTS[platform]
     : { provider: platform }
@@ -128,8 +156,8 @@ function normalizeChatWebhookRegistrations(
 }
 
 function inferredChatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] {
-  if (!isStaticAdapterMap(options.adapters)) return []
-  return Object.keys(options.adapters)
+  if (!isStaticPlatformMap(options.platforms)) return []
+  return Object.keys(options.platforms)
     .filter(platform => !hasExplicitChatWebhook(options, platform))
     .flatMap(platform => normalizeChatWebhookRegistrations(platform, {}))
 }
@@ -148,6 +176,9 @@ function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
   options: AgentChatOptions<TRuntimeConfig> = {},
 ): AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, AgentChatMessageTriggerInput> {
   return {
+    ...(options.dev?.samples
+      ? { dev: { samples: options.dev.samples as Record<string, AgentChatMessageTriggerInput> } }
+      : {}),
     devtools: true,
     input: "ui-message[]",
     output: "ui-message-stream",
@@ -186,6 +217,9 @@ export function chat<
     } satisfies ChatCapabilityMetadata<TRuntimeConfig>,
     prepare(context) {
       context.state.require("chat-history", { optional: true })
+    },
+    output(context) {
+      context.finish.provide(() => context.context.get<AgentChatFinishExtension>(CHAT_FINISH_EXTENSION_CONTEXT_KEY))
     },
     triggers: {
       message: createChatMessageTrigger(options),

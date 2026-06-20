@@ -10,17 +10,21 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { collectWorkspaceStoreAssetBundle, syncDiscoveredWorkspaceAssetBundles, writeWorkspaceAssetsRegistry } from "../src/build/assets.ts"
 import { initializeWorkspaceAssetRegistry, syncWorkspaceBuildAssets } from "../src/build/integration.ts"
+import { resetWorkspaceAssetsRegistry } from "../src/asset-registry.ts"
 import { defineWorkspace, source, useWorkspace } from "../src/index.ts"
 import * as loader from "../src/loader.ts"
 import * as publish from "../src/publish.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { syncWorkspaceDefinition } from "../src/lifecycle.ts"
+import { setWorkspaceRuntimeAssetsRegistry } from "../src/runtime/state.ts"
+import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { useRegisteredWorkspace } from "../src/core/registry.ts"
 import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 import type { WorkspaceDefinition, WorkspaceStore } from "../src/core/types.ts"
 
 const tempDirs: string[] = []
+const workspaceSourceImport = pathToFileURL(join(import.meta.dirname, "../src/index.ts")).href
 
 async function createRoot() {
   const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-root-"))
@@ -32,6 +36,7 @@ afterEach(async () => {
   delete process.env.GITHUB_TOKEN
   delete (globalThis as { __env__?: Record<string, unknown> }).__env__
   setStorage(createMemoryStorage())
+  resetWorkspaceAssetsRegistry()
   vi.unstubAllGlobals()
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
@@ -398,7 +403,6 @@ describe("sources, loaders, and publishers", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("github-lazy-tree-cache")
-    await workspace.sync()
 
     await expect(workspace.list("docs")).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "docs/README.md", type: "file" }),
@@ -436,7 +440,6 @@ describe("sources, loaders, and publishers", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("github-lazy-content-cache")
-    await workspace.sync()
 
     await expect(Promise.all([
       workspace.readFile("docs/README.md"),
@@ -535,7 +538,7 @@ describe("sources, loaders, and publishers", () => {
     await writeFile(join(root, "README.md"), "# Root\n")
     await writeFile(join(directory, "README.md"), "# Directory\n")
     await writeFile(join(directory, "config.mjs"), [
-      "import { source } from '@vite-hub/workspace'",
+      `import { source } from '${workspaceSourceImport}'`,
       "export default {",
       "  sourceRootDir: '',",
       "  sources: { docs: source.glob({ include: ['README.md'] }) },",
@@ -571,7 +574,7 @@ describe("sources, loaders, and publishers", () => {
     await writeFile(join(root, "AGENTS.md"), "# Root\n")
     await writeFile(join(sourceRoot, "AGENTS.md"), "# Support\n")
     await writeFile(join(directory, "config.mjs"), [
-      "import { source } from '@vite-hub/workspace'",
+      `import { source } from '${workspaceSourceImport}'`,
       "export default {",
       "  sources: { instructions: source.file('AGENTS.md') },",
       "}",
@@ -596,6 +599,55 @@ describe("sources, loaders, and publishers", () => {
       name: "support",
     })
     expect(Buffer.from(bundles[0]!.files[0]!.content)).toEqual(Buffer.from("# Support\n"))
+  })
+
+  it("syncs explicit file sources from bundled assets when the original source root is absent", async () => {
+    const root = await createRoot()
+    const directory = join(root, "server", "agents", "support")
+    const sourceRoot = join(directory, "workspace")
+    await mkdir(sourceRoot, { recursive: true })
+    await writeFile(join(sourceRoot, "AGENTS.md"), "# Bundled Support\n")
+    await writeFile(join(directory, "config.mjs"), [
+      `import { source } from '${workspaceSourceImport}'`,
+      "export default {",
+      "  sources: { instructions: source.file('AGENTS.md') },",
+      "}",
+      "",
+    ].join("\n"))
+
+    const [bundle] = await syncDiscoveredWorkspaceAssetBundles([{
+      handler: join(directory, "config.mjs"),
+      name: "support",
+      path: join(directory, "config.mjs"),
+      source: "test",
+      sourceRootDir: sourceRoot,
+    }], root, {
+      root: join(root, ".vitehub", "workspaces"),
+      store: { provider: "memory" },
+      assets: true,
+    })
+    await rm(sourceRoot, { recursive: true, force: true })
+    setWorkspaceRuntimeAssetsRegistry({
+      support: createWorkspaceAssets(Object.fromEntries(bundle!.files.map(file => [
+        file.path,
+        {
+          load: async () => file.content,
+          mediaType: file.mediaType,
+        },
+      ]))),
+    })
+
+    const store = createMemoryWorkspaceStore()
+    await syncWorkspaceDefinition({
+      name: "support",
+      rootDir: root,
+      sourceRootDir: sourceRoot,
+      sources: { instructions: source.file("AGENTS.md") },
+    }, store)
+
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({
+      content: new TextEncoder().encode("# Bundled Support\n"),
+    })
   })
 
   it("purges stale build source files when source maps change", async () => {
@@ -628,6 +680,37 @@ describe("sources, loaders, and publishers", () => {
       sources: {},
     }, store)
     await expect(store.list("", { recursive: true })).resolves.toEqual([])
+  })
+
+  it("lets build sources read existing workspace files while syncing", async () => {
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("data/sync-report.json", {
+      path: "data/sync-report.json",
+      content: "{\"tasks\":1}",
+    })
+    let previousReport = ""
+
+    await syncWorkspaceDefinition({
+      name: "source-context-build-files",
+      sources: {
+        mirror: source.custom({
+          mount: "generated",
+          async getKeys(ctx) {
+            previousReport = await ctx.workspaceFiles!.readFile("data/sync-report.json")
+            return ["sync-report-copy.json"]
+          },
+          async getItem(key, ctx) {
+            return {
+              key,
+              content: await ctx.workspaceFiles!.readFile("data/sync-report.json"),
+            }
+          },
+        }),
+      },
+    }, store)
+
+    expect(previousReport).toBe("{\"tasks\":1}")
+    await expect(store.readFile("generated/sync-report-copy.json")).resolves.toMatchObject({ content: "{\"tasks\":1}" })
   })
 
   it("skips initial sync snapshots when a workspace has no build sources", async () => {

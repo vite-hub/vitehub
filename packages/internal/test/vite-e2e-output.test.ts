@@ -9,10 +9,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
 const repoRoot = resolve(playgroundDir, "../..")
-const viteBin = join(playgroundDir, "node_modules", ".bin", "vite")
-const workspacePackages = ["runtime", "shell", "source", "sandbox", "workspace", "agent", "blob", "ci", "cli", "database", "devtools", "env", "kv", "queue", "schedule", "workflow"] as const
+const workspacePackages = ["runtime", "shell", "source", "sandbox", "workspace", "agent", "auth", "blob", "ci", "cli", "database", "devtools", "env", "kv", "queue", "schedule", "workflow"] as const
 const tempDirs: string[] = []
 const execMaxBuffer = 16 * 1024 * 1024
+
+function resolvePlaygroundNodeModules() {
+  const nodeModules = join(playgroundDir, "node_modules")
+  return existsSync(nodeModules) ? nodeModules : resolve(playgroundDir, "../../node_modules")
+}
 
 async function createWorkspaceTempDir(prefix: string) {
   const baseDir = join(playgroundDir, ".vitest-tmp")
@@ -29,7 +33,7 @@ async function createWorkspaceTempDir(prefix: string) {
 async function createPlaygroundCopy(prefix: string) {
   const workspaceDir = await createWorkspaceTempDir(prefix)
   const rootDir = join(workspaceDir, "vite")
-  const nodeModules = join(playgroundDir, "node_modules")
+  const nodeModules = resolvePlaygroundNodeModules()
 
   await mkdir(rootDir, { recursive: true })
   await cp(resolve(playgroundDir, "../_shared"), join(workspaceDir, "_shared"), { recursive: true })
@@ -62,7 +66,7 @@ afterAll(async () => {
 
 beforeAll(async () => {
   for (const name of workspacePackages) {
-    await execFileAsync("pnpm", ["--filter", `@vite-hub/${name}`, "build"], {
+    await execFileAsync("vp", ["run", "--filter", `@vite-hub/${name}`, "build"], {
       cwd: repoRoot,
       env: process.env,
       maxBuffer: execMaxBuffer,
@@ -74,7 +78,7 @@ describe("unified vite e2e hosted outputs", () => {
   it("keeps the cloudflare artifact provider-pure and preserves hosted bindings", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-cf-")
 
-    await execFileAsync(viteBin, ["build"], {
+    await execFileAsync("vp", ["build"], {
       cwd: rootDir,
       env: {
         ...process.env,
@@ -145,7 +149,7 @@ describe("unified vite e2e hosted outputs", () => {
   it("keeps the vercel artifact unified while preserving queue server outputs", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-vercel-")
 
-    await execFileAsync(viteBin, ["build"], {
+    await execFileAsync("vp", ["build"], {
       cwd: rootDir,
       env: {
         ...process.env,
@@ -205,7 +209,7 @@ describe("unified vite e2e hosted outputs", () => {
   it("builds the env and chat playground modes", async () => {
     const envRoot = await createPlaygroundCopy("vitehub-internal-vite-env-")
 
-    await execFileAsync(viteBin, ["build"], {
+    await execFileAsync("vp", ["build"], {
       cwd: envRoot,
       env: {
         ...process.env,
@@ -220,7 +224,7 @@ describe("unified vite e2e hosted outputs", () => {
 
     const chatRoot = await createPlaygroundCopy("vitehub-internal-vite-chat-")
 
-    await execFileAsync(viteBin, ["build"], {
+    await execFileAsync("vp", ["build"], {
       cwd: chatRoot,
       env: {
         ...process.env,

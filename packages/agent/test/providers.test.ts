@@ -1,15 +1,20 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { createHmac } from "node:crypto"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { Message } from "chat"
 import { describe, expect, it, vi } from "vitest"
 
-import type { Adapter, ChatInstance, WebhookOptions } from "chat"
+import type { Adapter, ChatInstance, StreamChunk, WebhookOptions } from "chat"
 
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
   copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
 }))
+
+function githubSignature(secret: string, body: string) {
+  return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
+}
 
 function createTestChatAdapter(options: { deferMessageProcessing?: boolean, secret?: string } = {}) {
   let chatInstance: ChatInstance | undefined
@@ -25,7 +30,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, secr
         return Response.json({ ignored: true, ok: true })
       }
       const chat = rawMessage.chat as { id?: number | string } | undefined
-      const from = rawMessage.from as { id?: number | string, username?: string } | undefined
+      const from = rawMessage.from as { email?: string, id?: number | string, mail?: string, userPrincipalName?: string, username?: string } | undefined
       const date = typeof rawMessage.date === "number"
         ? new Date(rawMessage.date * 1000)
         : new Date("2026-06-10T12:00:00.000Z")
@@ -42,6 +47,9 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, secr
           : [],
         author: {
           fullName: "Maxi",
+          ...(from?.email ? { email: from.email } : {}),
+          ...(from?.mail ? { mail: from.mail } : {}),
+          ...(from?.userPrincipalName ? { userPrincipalName: from.userPrincipalName } : {}),
           isBot: false,
           isMe: false,
           userId: String(from?.id ?? "123"),
@@ -58,12 +66,16 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, secr
       if (!options.deferMessageProcessing) {
         await task
       }
+      else {
+        task.catch(() => undefined)
+      }
       return Response.json({ ok: true })
     }),
     initialize: vi.fn(async (chat: ChatInstance) => {
       chatInstance = chat
     }),
     isDM: vi.fn(() => true),
+    editMessage: vi.fn(async (threadId: string, messageId: string, message: unknown) => ({ id: messageId, raw: { message }, threadId })),
     name: "telegram",
     postMessage: vi.fn(async (threadId: string, message: unknown) => ({ id: "sent-1", raw: { message }, threadId })),
     startTyping: vi.fn(async () => {}),
@@ -71,6 +83,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, secr
   }
   return adapter as unknown as Adapter & {
     handleWebhook: ReturnType<typeof vi.fn>
+    editMessage: ReturnType<typeof vi.fn>
     postMessage: ReturnType<typeof vi.fn>
     startTyping: ReturnType<typeof vi.fn>
   }
@@ -109,29 +122,12 @@ describe("agent Vite plugin", () => {
 
   it("exposes hubAgent options through Vite config", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent({ route: true })
+    const plugin = hubAgent({ routes: { chat: true } })
     const result = typeof plugin.config === "function"
       ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
       : undefined
 
-    expect(result).toMatchObject({ agent: { route: true } })
-  })
-
-  it("registers configured agent routes with Nitro", async () => {
-    const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent({ route: "/api/_vitehub/agents/[agent]/chat" })
-    const result = typeof plugin.config === "function"
-      ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
-      : undefined
-
-    expect(result).toMatchObject({
-      nitro: {
-        handlers: [{
-          handler: ".vitehub/agent/chat-route.ts",
-          route: "/api/_vitehub/agents/:agent/chat",
-        }],
-      },
-    })
+    expect(result).toMatchObject({ agent: { routes: { chat: true } } })
   })
 
   it("materializes the MCP runtime package for Vercel build output", async () => {
@@ -153,7 +149,7 @@ describe("agent Vite plugin", () => {
 
   it("registers configured agent webhook routes with Nitro", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent({ webhooks: true })
+    const plugin = hubAgent({ routes: { webhooks: true } })
     const result = typeof plugin.config === "function"
       ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
       : undefined
@@ -168,74 +164,520 @@ describe("agent Vite plugin", () => {
     })
   })
 
-  it("keeps chat routes and webhook routes independent", async () => {
+  it("registers configured agent chat routes with Nitro", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent({
-      route: "/api/_vitehub/agents/[agent]/chat",
-      webhooks: "/hooks/[agent]/[webhook]",
-    })
+    const plugin = hubAgent({ routes: { chat: true } })
     const result = typeof plugin.config === "function"
       ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
       : undefined
 
     expect(result).toMatchObject({
       nitro: {
-        handlers: [
-          {
-            handler: ".vitehub/agent/chat-route.ts",
-            route: "/api/_vitehub/agents/:agent/chat",
-          },
-          {
-            handler: ".vitehub/agent/chat-webhook-route.ts",
-            route: "/hooks/:agent/:webhook",
-          },
-        ],
+        handlers: [{
+          handler: ".vitehub/agent/chat-webhook-route.ts",
+          route: "/api/_vitehub/agents/:agent/chat",
+        }],
       },
     })
   })
 
-  it("writes generated Nitro handlers that pass Web Requests to agent routes", async () => {
+  it("installs Cloudflare chat state bindings for generated webhook routes", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ routes: { webhooks: true } })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {
+          build: {
+            rolldownOptions: {
+              external: ["existing"],
+            },
+          },
+          nitro: {
+            cloudflare: {
+              wrangler: {
+                migrations: [{
+                  deleted_classes: ["ViteHubAgentStateDO"],
+                  tag: "delete-vitehub-agent-state-do-2026-06-11",
+                }],
+              },
+            },
+          },
+        } as never, { command: "build", mode: "production" })
+      : undefined
+    const output = result as {
+      build?: unknown
+      nitro?: {
+        cloudflare?: {
+          wrangler?: {
+            durable_objects?: { bindings?: unknown[] }
+            migrations?: unknown[]
+          }
+        }
+        rollupConfig?: {
+          external?: unknown
+          plugins?: Array<{ name?: string }>
+        }
+      }
+    }
+
+    expect(output.nitro?.cloudflare?.wrangler?.durable_objects?.bindings).toContainEqual({
+      class_name: "ViteHubAgentStateDO",
+      name: "CHAT_STATE",
+    })
+    expect(output.nitro?.cloudflare?.wrangler?.migrations).toContainEqual({
+      new_sqlite_classes: ["ViteHubAgentStateDO"],
+      tag: "vitehub-agent-state-v1",
+    })
+    expect(output.nitro?.cloudflare?.wrangler?.migrations).not.toContainEqual(expect.objectContaining({
+      deleted_classes: ["ViteHubAgentStateDO"],
+    }))
+    expect(output.nitro?.rollupConfig?.external).toEqual(["cloudflare:workers"])
+    expect(output.nitro?.rollupConfig?.plugins?.some(plugin => plugin.name === "vitehub-agent-cloudflare-state-exports:ViteHubAgentStateDO")).toBe(true)
+    expect(output.build).toBeUndefined()
+  })
+
+  it("keeps Cloudflare chat state opt-out when the state provider is memory", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ providers: { state: { provider: "memory" } }, routes: { chat: true, webhooks: true } })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
+      : undefined
+    const output = result as {
+      build?: unknown
+      nitro?: {
+        cloudflare?: unknown
+        handlers?: unknown[]
+        rollupConfig?: unknown
+      }
+    }
+
+    expect(output.nitro?.handlers).toContainEqual({
+      handler: ".vitehub/agent/chat-webhook-route.ts",
+      route: "/api/_vitehub/agents/:agent/chat",
+    })
+    expect(output.nitro?.handlers).toContainEqual({
+      handler: ".vitehub/agent/chat-webhook-route.ts",
+      route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
+    })
+    expect(output.nitro?.cloudflare).toBeUndefined()
+    expect(output.nitro?.rollupConfig).toBeUndefined()
+    expect(output.build).toBeUndefined()
+  })
+
+  it("writes generated Nitro handlers that pass Web Requests to chat webhooks", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-routes-"))
     try {
-      const plugin = hubAgent({ route: true, webhooks: true })
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const plugin = hubAgent({ routes: { chat: true, webhooks: true } })
       if (typeof plugin.configResolved === "function") {
         await plugin.configResolved.call({} as never, { root } as never)
       }
 
-      const chatRoute = await readFile(join(root, ".vitehub/agent/chat-route.ts"), "utf8")
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
-      expect(chatRoute).toContain("async function toRequest(event)")
-      expect(chatRoute).toContain("function waitUntilFromEvent(event)")
-      expect(chatRoute).toContain("return await handler(await toRequest(event), { waitUntil: waitUntilFromEvent(event) })")
+      expect(webhookRoute).toContain("defineAgentChatFetchHandler")
+      expect(webhookRoute).toContain("withAgentDefaults(resolveAgentModule")
+      expect(webhookRoute).toContain("import { createCloudflareAgentState } from '@vite-hub/agent/cloudflare'")
       expect(webhookRoute).toContain("async function toRequest(event)")
       expect(webhookRoute).toContain("function waitUntilFromEvent(event)")
+      expect(webhookRoute).toContain("function chatStateFromCloudflare(cloudflare)")
+      expect(webhookRoute).toContain("function resolveChatRouteOptions(module)")
       expect(webhookRoute).toContain("waitUntil: waitUntilFromEvent(event)")
-      expect(webhookRoute).toContain("return await handler(await toRequest(event), webhook")
+      expect(webhookRoute).toContain("state: chatStateFromCloudflare(cloudflare)")
+      expect(webhookRoute).toContain("const agentModules")
+      expect(webhookRoute).toContain("const chatHandlers")
+      expect(webhookRoute).toContain("defineAgentChatFetchHandler(agent, resolveChatRouteOptions(agentModules[name]))")
+      expect(webhookRoute).toContain("const webhookHandlers")
+      expect(webhookRoute).toContain("const webhookRoutePattern")
+      expect(webhookRoute).toContain("const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)")
+      expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook")
     }
     finally {
       await rm(root, { force: true, recursive: true })
     }
   })
+
+  it("writes generated Nitro webhook handlers for direct single-agent webhook routes", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-direct-webhook-route-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const plugin = hubAgent({ routes: { webhooks: "/api/github/webhook" } })
+      if (typeof plugin.configResolved === "function") {
+        await plugin.configResolved.call({} as never, { root } as never)
+      }
+
+      const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+
+      expect(webhookRoute).toContain("const webhookRoutePattern = new RegExp(\"^/api/github/webhook$\")")
+      expect(webhookRoute).toContain("const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)")
+      expect(webhookRoute).toContain("const webhook = ''")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("publishes the Cloudflare state Durable Object subpath", async () => {
+    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
+      exports?: Record<string, string>
+    }
+
+    expect(pkg.exports?.["./cloudflare/state"]).toBe("./dist/cloudflare/state.js")
+  })
 })
 
 describe("server helpers", () => {
-  it("rejects chat route requests without messages", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { defineAgentChatFetchHandler } = await import("../src/server.ts")
-    const handler = defineAgentChatFetchHandler(defineAgent({ run: () => "unused" }) as never)
+  it("registers workspace agents for app-owned routes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-runtime-workspace-"))
+    const sourceRoot = join(root, "support", "workspace")
+    await mkdir(sourceRoot, { recursive: true })
+    await writeFile(join(sourceRoot, "AGENTS.md"), "# Support\n")
 
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
-      body: JSON.stringify({}),
+    try {
+      const { defineAgent } = await import("../src/index.ts")
+      const { registerWorkspaceAgent } = await import("../src/server.ts")
+      const { defineWorkspace, source, useWorkspace } = await import("@vite-hub/workspace")
+      const agent = defineAgent({
+        async run() {
+          return "ok"
+        },
+        workspace: defineWorkspace({
+          store: { provider: "memory" },
+          sources: {
+            instructions: source.file("AGENTS.md"),
+          },
+        }),
+      })
+
+      const preparedAgent = registerWorkspaceAgent(agent, {
+        sourceRootDir: sourceRoot,
+        workspace: "support-runtime",
+      })
+      const workspace = useWorkspace("support-runtime")
+
+      expect(preparedAgent.__vitehubWorkspaceAgentDefaults?.workspace).toBe("support-runtime")
+      expect(preparedAgent.sourceRootDir).toBe(sourceRoot)
+      expect((preparedAgent.__vitehubWorkspaceAgentOptions.workspace as { sourceRootDir?: string }).sourceRootDir).toBe(sourceRoot)
+      expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Support\n")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("does not shadow named workspace references", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-runtime-workspace-"))
+    const sourceRoot = join(root, "registered", "workspace")
+    await mkdir(sourceRoot, { recursive: true })
+    await writeFile(join(sourceRoot, "AGENTS.md"), "# Registered\n")
+
+    try {
+      const { defineAgent } = await import("../src/index.ts")
+      const { registerWorkspaceAgent } = await import("../src/server.ts")
+      const { defineWorkspace, source, useWorkspace } = await import("@vite-hub/workspace")
+      const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
+      const workspaceName = "support-runtime-named-reference"
+      registerWorkspace(workspaceName, defineWorkspace({
+        sourceRootDir: sourceRoot,
+        store: { provider: "memory" },
+        sources: {
+          instructions: source.file("AGENTS.md"),
+        },
+      }))
+      const agent = defineAgent({
+        async run() {
+          return "ok"
+        },
+        workspace: workspaceName,
+      })
+
+      const preparedAgent = registerWorkspaceAgent(agent, {
+        sourceRootDir: join(root, "ignored", "workspace"),
+      })
+      const workspace = useWorkspace(workspaceName)
+
+      expect(preparedAgent.__vitehubWorkspaceAgentOptions.workspace).toBe(workspaceName)
+      expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Registered\n")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("serves hosted Chat DevTools state for an explicit agent handler", async () => {
+    const { defineAgent, defineAgentInvoker } = await import("../src/index.ts")
+    const { defineAgentChatDevtoolsFetchHandler } = await import("../src/server.ts")
+    const agent = defineAgent({
+      invoker: defineAgentInvoker({
+        profiles: [{
+          id: "customer:demo:support",
+          kind: "customerPortal",
+          meta: { customer: "demo" },
+        }],
+      }),
+      run: () => "unused",
+      title: "Support",
+      version: "test-agent",
+    })
+    const handler = defineAgentChatDevtoolsFetchHandler(agent as never, {
+      meta: { email: "user@example.com" },
+      name: "support",
+    })
+
+    const response = await handler(new Request("https://example.com/__vitehub/agent/chat/devtools", {
+      body: JSON.stringify({
+        action: "get-state",
+        invokerProfileId: "customer:demo:support",
+      }),
+      headers: { "content-type": "application/json" },
       method: "POST",
     }))
 
+    expect(response.status).toBe(200)
+    expect(response.headers.get("access-control-allow-origin")).toBe("*")
     await expect(response.json()).resolves.toMatchObject({
-      message: "Agent chat route requires messages.",
-      status: 400,
+      chats: [{
+        invokerProfileId: "customer:demo:support",
+        name: "support",
+        title: "Support",
+        uiMessages: [],
+      }],
+      invokerProfileId: "customer:demo:support",
+      invokerProfiles: [{
+        id: "customer:demo:support",
+        kind: "customerPortal",
+        meta: { customer: "demo" },
+      }],
+      meta: { email: "user@example.com" },
+      metadataStatus: "ready",
+      selected: "support",
+      title: "Support",
+      uiMessages: [],
+      version: "test-agent",
     })
+  })
+
+  it("serves AI SDK UI message chat requests through the chat trigger", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatFetchHandler } = await import("../src/server.ts")
+    const resolveInvoker = vi.fn(({ defaultInvoker, request }) => ({
+      id: `customer:${request.headers.get("x-customer")}`,
+      kind: "customer",
+      meta: {
+        fallback: defaultInvoker.id,
+        user: request.headers.get("x-user"),
+      },
+    }))
+    const run = vi.fn(({ context, invoker, messages, run }) => {
+      const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
+      return `echo ${text?.text} for ${invoker.id} via ${run.origin} from ${invoker.meta.user} after ${invoker.meta.fallback}`
+    })
+    const agent = defineAgent({
+      capabilities: [chat()],
+      invoker: { resolve: resolveInvoker },
+      run,
+    })
+    const handler = defineAgentChatFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        id: "portal-thread",
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+      }),
+      headers: {
+        "content-type": "application/json",
+        "x-customer": "acme",
+        "x-user": "portal-user",
+      },
+      method: "POST",
+    }), { agentName: "support" })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
+    await expect(response.text()).resolves.toContain("echo hello for customer:acme via http from portal-user after anonymous:http")
+    expect(resolveInvoker).toHaveBeenCalledWith(expect.objectContaining({
+      defaultInvoker: expect.objectContaining({
+        id: "anonymous:http",
+        kind: "anonymous",
+      }),
+      request: expect.any(Request),
+      run: expect.objectContaining({
+        channelId: "http:support",
+        origin: "http",
+        threadId: "http:support:portal-thread",
+      }),
+    }))
+  })
+
+  it("serves stream Channel chat routes with channel-owned trusted input mapping", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { stream } = await import("../src/channels.ts")
+    const { defineAgentChatFetchHandler } = await import("../src/server.ts")
+    const run = vi.fn(({ context, invoker, run }) => {
+      const chatContext = context.get("chat") as { meta?: { audience?: string }, user?: { email?: string } } | undefined
+      return `portal ${run.channelId} ${run.origin} ${run.threadId} ${invoker.id} ${chatContext?.user?.email} ${chatContext?.meta?.audience}`
+    })
+    const handler = defineAgentChatFetchHandler(defineAgent({
+      channels: {
+        portal: stream({
+          route: {
+            mapInput({ body, request }) {
+              if (request.headers.get("x-quiver-chat-token") !== "trusted") {
+                throw new Error("Invalid Quiver Chat token.")
+              }
+              return {
+                invokerProfileId: "customer:acme",
+                meta: body.meta as Record<string, unknown>,
+                run: { origin: "portal" },
+                user: body.user as Record<string, unknown>,
+              }
+            },
+          },
+        }),
+      },
+      invoker: {
+        profiles: [{
+          id: "customer:acme",
+          kind: "customerPortal",
+          meta: { scope: "acme" },
+        }],
+      },
+      run,
+    }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        id: "portal-thread",
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+        meta: { audience: "technical", customer: "acme", source: "portal" },
+        user: { email: "user@example.com" },
+      }),
+      headers: {
+        "content-type": "application/json",
+        "x-quiver-chat-token": "trusted",
+      },
+      method: "POST",
+    }), { agentName: "support" })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
+    await expect(response.text()).resolves.toContain("portal portal portal portal:portal-thread customer:acme user@example.com technical")
+    expect(run).toHaveBeenCalled()
+  })
+
+  it("returns a validation error for malformed AI SDK chat requests", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatFetchHandler } = await import("../src/server.ts")
+    const handler = defineAgentChatFetchHandler(defineAgent({
+      capabilities: [chat()],
+      run: () => "unused",
+    }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({ text: "hello" }),
+      method: "POST",
+    }))
+
     expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Agent chat payload requires a messages array.",
+    })
+  })
+
+  it("rejects client-provided identity on generated AI SDK chat routes", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatFetchHandler } = await import("../src/server.ts")
+    const handler = defineAgentChatFetchHandler(defineAgent({
+      capabilities: [chat()],
+      run: () => "unused",
+    }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+        user: { id: "spoofed" },
+      }),
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Agent chat route identity must be derived server-side with defineAgent({ invoker }).",
+    })
+  })
+
+  it("maps trusted AI SDK chat route input before invoking the chat trigger", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatFetchHandler } = await import("../src/server.ts")
+    const run = vi.fn(({ context, invoker, run }) => {
+      const chatContext = context.get("chat") as { meta?: { audience?: string }, user?: { email?: string } } | undefined
+      return `portal ${run.origin} ${invoker.id} ${invoker.meta.scope} ${chatContext?.user?.email} ${chatContext?.meta?.audience}`
+    })
+    const handler = defineAgentChatFetchHandler(defineAgent({
+      capabilities: [chat()],
+      invoker: {
+        profiles: [{
+          id: "customer:acme",
+          kind: "customerPortal",
+          meta: { scope: "acme" },
+        }],
+      },
+      run,
+    }) as never, {
+      mapInput({ body, request }) {
+        if (request.headers.get("x-quiver-chat-token") !== "trusted") {
+          throw new Error("Invalid Quiver Chat token.")
+        }
+        return {
+          invokerProfileId: "customer:acme",
+          meta: body.meta as Record<string, unknown>,
+          run: body.run as never,
+          user: body.user as Record<string, unknown>,
+        }
+      },
+    })
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+        meta: { audience: "technical", customer: "acme", source: "portal" },
+        run: { origin: "portal" },
+        user: { email: "user@example.com" },
+      }),
+      headers: {
+        "content-type": "application/json",
+        "x-quiver-chat-token": "trusted",
+      },
+      method: "POST",
+    }), { agentName: "support" })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
+    await expect(response.text()).resolves.toContain("portal portal customer:acme acme user@example.com technical")
+    expect(run).toHaveBeenCalled()
   })
 
   it("handles Chat SDK webhooks through the chat capability", async () => {
@@ -243,7 +685,14 @@ describe("server helpers", () => {
     const { access, chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
     const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
     const adapter = createTestChatAdapter()
-    const admitChat = vi.fn(({ identity }) => identity?.id === "123")
+    const admitChat = vi.fn(({ invoker }) => invoker?.id === "customer:acme")
+    const invokerResolve = vi.fn(({ defaultInvoker }) => {
+      return {
+        id: "customer:acme",
+        kind: "customer",
+        meta: defaultInvoker.meta,
+      }
+    })
     const run = vi.fn(({ messages }) => {
       const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
       return {
@@ -266,15 +715,19 @@ describe("server helpers", () => {
           },
         }),
         chat({
-          adapters: {
+          identity: ({ adapter, author }) => `${adapter}:${author.userId}`,
+          platforms: {
             telegram: () => adapter as never,
+          },
+          transcripts: {
+            maxPerUser: 50,
+            retention: "30d",
           },
           webhooks: {
             telegram: {},
           },
         }),
         usageTelemetry({
-          chat: true,
           pricing: staticModelPricing({
             "openai/gpt-test": {
               input: "0.00000010",
@@ -283,6 +736,9 @@ describe("server helpers", () => {
           }),
         }),
       ],
+      invoker: {
+        resolve: invokerResolve,
+      },
       run,
     })
     const handler = defineAgentChatWebhookFetchHandler(agent as never)
@@ -293,7 +749,7 @@ describe("server helpers", () => {
         message: {
           chat: { id: 456, type: "private" },
           date: 1781092800,
-          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          from: { email: "maxi@example.com", first_name: "Maxi", id: 123, username: "maxi" },
           message_id: 7,
           audio: { file_id: "audio-file" },
           text: "hello",
@@ -306,23 +762,19 @@ describe("server helpers", () => {
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "echo: hello" })
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", {
-      markdown: expect.stringContaining("**Usage**"),
-    })
-    expect(adapter.postMessage.mock.calls[1]![1]).toEqual({
-      markdown: expect.stringContaining("`15` total (10 in, 5 out)"),
-    })
-    expect(adapter.postMessage.mock.calls[1]![1]).toEqual({
-      markdown: expect.stringContaining("`1.20s`"),
-    })
-    expect(adapter.postMessage.mock.calls[1]![1]).toEqual({
-      markdown: expect.stringContaining("`~0.000002 USD`"),
-    })
+    expect(adapter.postMessage).toHaveBeenCalledTimes(1)
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+    expect(invokerResolve).toHaveBeenCalledOnce()
     expect(admitChat).toHaveBeenCalledWith(expect.objectContaining({
-      identity: expect.objectContaining({
-        id: "123",
-        provider: "telegram",
-        username: "maxi",
+      invoker: expect.objectContaining({
+        id: "customer:acme",
+        kind: "customer",
+        meta: expect.objectContaining({
+          email: "maxi@example.com",
+          id: "123",
+          name: "Maxi",
+          username: "maxi",
+        }),
       }),
       input: expect.objectContaining({
         message: expect.objectContaining({
@@ -336,10 +788,20 @@ describe("server helpers", () => {
       context: expect.objectContaining({
         get: expect.any(Function),
       }),
+      invoker: expect.objectContaining({
+        id: "customer:acme",
+        meta: expect.objectContaining({
+          email: "maxi@example.com",
+        }),
+      }),
       messages: [expect.objectContaining({
         metadata: expect.objectContaining({
           chat: expect.objectContaining({
             messageId: "7",
+            platform: expect.objectContaining({
+              channelId: "telegram:456",
+              threadId: "telegram:456",
+            }),
             threadId: "telegram:456",
           }),
         }),
@@ -353,10 +815,487 @@ describe("server helpers", () => {
         ],
       })],
       run: expect.objectContaining({
+        channelId: "telegram:456",
         origin: "telegram",
         runId: "telegram:7",
       }),
     }))
+  })
+
+  it("routes channel webhook custom ids through the channel adapter", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(({ messages }) => {
+      const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
+      return `echo: ${text?.text}`
+    })
+    const agent = defineAgent({
+      channels: {
+        support: http({
+          adapter: () => adapter as never,
+          webhooks: { id: "custom-support" },
+        }),
+      },
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/custom-support", {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          from: { id: 123, username: "maxi" },
+          message_id: 7,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "custom-support")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(run).toHaveBeenCalledOnce()
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      run: expect.objectContaining({
+        channelId: "support",
+        origin: "support",
+        runId: "support:7",
+      }),
+    }))
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "echo: hello" })
+  })
+
+  it("rejects unsigned chat channel webhooks before adapter dispatch", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        support: http({
+          adapter: () => adapter as never,
+          webhooks: { id: "custom-support", secretHeader: "x-test-secret", secretToken: "secret-token" },
+        }),
+      },
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/custom-support", {
+      body: "{}",
+      method: "POST",
+    }), "custom-support")
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toEqual({ error: "[vitehub] Webhook secret header \"x-test-secret\" is required." })
+    expect(adapter.handleWebhook).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("fails closed when generated chat webhook secrets resolve empty", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        support: http({
+          adapter: () => adapter as never,
+          webhooks: { id: "custom-support", secretHeader: "x-test-secret", secretToken: () => "" },
+        }),
+      },
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/custom-support", {
+      body: "{}",
+      method: "POST",
+    }), "custom-support")
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toEqual({ error: "[vitehub] Webhook registration \"custom-support\" declares secretHeader \"x-test-secret\" but no secretToken is configured. Set secretToken (from Server Env) or secretToken: false to explicitly disable verification." })
+    expect(adapter.handleWebhook).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("uses Telegram secret header defaults for generated chat webhooks", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => adapter as never,
+          webhooks: { secretToken: "secret-token" },
+        }),
+      },
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: "{}",
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toEqual({ error: "[vitehub] Webhook secret header \"x-telegram-bot-api-secret-token\" is required." })
+    expect(adapter.handleWebhook).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("rejects generated GitHub webhooks without configured secrets", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: { webhook: { invoke: () => ({ input: { prompt: "github delivery" } }) } },
+        }),
+      },
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/github", {
+      body: "{}",
+      method: "POST",
+    }), "github")
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toEqual({ error: "[vitehub] Webhook registration \"github\" declares secretHeader \"x-hub-signature-256\" but no secretToken is configured. Set secretToken (from Server Env) or secretToken: false to explicitly disable verification." })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("handles signed GitHub channel webhooks without a chat adapter", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const triggerInputs: unknown[] = []
+    const run = vi.fn(({ input, run }) => ({
+      raw: { context: input.context, run },
+      text: "accepted",
+    }))
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => {
+                triggerInputs.push(input)
+                const deliveryId = (input as { github?: { deliveryId?: string } }).github?.deliveryId || "unknown"
+                return {
+                  input: {
+                    context: { delivery: input },
+                    prompt: "github delivery",
+                  },
+                  run: {
+                    channelId: "github",
+                    origin: "github",
+                    runId: `github:${deliveryId}`,
+                  },
+                }
+              },
+            },
+          },
+          webhooks: { path: "/api/github/webhook", secretToken: "secret-token" },
+        }),
+      },
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+    const payload = {
+      action: "created",
+      comment: { body: "/review", id: 12 },
+      installation: { id: 4075547 },
+      repository: { full_name: "acme/app" },
+      sender: { login: "maxi" },
+    }
+    const body = JSON.stringify(payload)
+    const request = (signature: string) => new Request("https://example.com/api/github/webhook", {
+      body,
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-1",
+        "x-github-event": "issue_comment",
+        "x-hub-signature-256": signature,
+      },
+      method: "POST",
+    })
+
+    const response = await handler(request(githubSignature("secret-token", body)))
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ text: "accepted" })
+    expect(triggerInputs).toHaveLength(1)
+    expect(triggerInputs[0]).toMatchObject({
+      github: {
+        deliveryId: "delivery-1",
+        event: "issue_comment",
+        installationId: 4075547,
+      },
+      payload,
+      provider: "github",
+      request: {
+        method: "POST",
+        url: "https://example.com/api/github/webhook",
+      },
+      webhook: {
+        channelId: "github",
+        id: "github",
+        path: "/api/github/webhook",
+        provider: "github",
+      },
+    })
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      run: expect.objectContaining({
+        channelId: "github",
+        origin: "github",
+        runId: "github:delivery-1",
+      }),
+    }))
+
+    const rejected = await handler(request("sha256=wrong"))
+
+    expect(rejected.status).toBe(401)
+    await expect(rejected.json()).resolves.toEqual({ error: "[vitehub] Webhook secret verification failed." })
+    expect(run).toHaveBeenCalledOnce()
+
+    const unsigned = await handler(new Request("https://example.com/api/github/webhook", {
+      body,
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-unsigned",
+        "x-github-event": "issue_comment",
+      },
+      method: "POST",
+    }))
+
+    expect(unsigned.status).toBe(401)
+    await expect(unsigned.json()).resolves.toEqual({ error: "[vitehub] Webhook secret header \"x-hub-signature-256\" is required." })
+    expect(run).toHaveBeenCalledOnce()
+  })
+
+  it("handles direct single-agent GitHub channel webhook routes", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const run = vi.fn(() => "accepted")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({ input: { prompt: "github delivery" } }),
+            },
+          },
+          webhooks: { secretToken: "secret-token" },
+        }),
+      },
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+    const body = JSON.stringify({ action: "opened" })
+    const response = await handler(new Request("https://example.com/api/github/webhook", {
+      body,
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-direct",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": githubSignature("secret-token", body),
+      },
+      method: "POST",
+    }), "")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toBe("accepted")
+    expect(run).toHaveBeenCalledOnce()
+  })
+
+  it("lets signed GitHub channel webhooks return a handled response without running the agent", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const triggerInputs: unknown[] = []
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: (_context, input) => {
+                triggerInputs.push(input)
+                return Response.json({ ignored: true }, { status: 202 })
+              },
+            },
+          },
+          webhooks: { path: "/api/github/webhook", secretToken: "secret-token" },
+        }),
+      },
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+    const body = JSON.stringify({
+      action: "edited",
+      comment: { body: "not a command", id: 12 },
+      installation: { id: 4075547 },
+    })
+    const request = (signature: string) => new Request("https://example.com/api/github/webhook", {
+      body,
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-ignored",
+        "x-github-event": "issue_comment",
+        "x-hub-signature-256": signature,
+      },
+      method: "POST",
+    })
+
+    const response = await handler(request(githubSignature("secret-token", body)))
+
+    expect(response.status).toBe(202)
+    await expect(response.json()).resolves.toEqual({ ignored: true })
+    expect(triggerInputs).toHaveLength(1)
+    expect(triggerInputs[0]).toMatchObject({
+      github: {
+        deliveryId: "delivery-ignored",
+        event: "issue_comment",
+        installationId: 4075547,
+      },
+    })
+    expect(run).not.toHaveBeenCalled()
+
+    const rejected = await handler(request("sha256=wrong"))
+
+    expect(rejected.status).toBe(401)
+    await expect(rejected.json()).resolves.toEqual({ error: "[vitehub] Webhook secret verification failed." })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("does not route channel webhook arrays by unsuffixed channel id", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const agent = defineAgent({
+      channels: {
+        support: http({
+          adapter: () => createTestChatAdapter() as never,
+          webhooks: [
+            { path: "/api/support/primary" },
+            { path: "/api/support/fallback" },
+          ],
+        }),
+      },
+      run: () => "ok",
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
+      body: "{}",
+      method: "POST",
+    }), "support")
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toMatchObject({ message: "Unknown ViteHub agent webhook.", status: 404 })
+  })
+
+  it("does not route ambiguous provider webhook selectors", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: {
+        sales: http({ adapter: () => createTestChatAdapter() as never, webhooks: { id: "sales-hook" } }),
+        support: http({ adapter: () => createTestChatAdapter() as never, webhooks: { id: "support-hook" } }),
+      },
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/http", {
+      body: "{}",
+      method: "POST",
+    }), "http")
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toMatchObject({ message: "Unknown ViteHub agent webhook.", status: 404 })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("does not route ambiguous webhook paths", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const run = vi.fn(() => "unexpected")
+    const agent = defineAgent({
+      channels: {
+        primary: github({
+          triggers: { webhook: { invoke: () => ({ input: { prompt: "primary" } }) } },
+          webhooks: { id: "primary", path: "/api/github/webhook", secretToken: false },
+        }),
+        fallback: github({
+          triggers: { webhook: { invoke: () => ({ input: { prompt: "fallback" } }) } },
+          webhooks: { id: "fallback", path: "/api/github/webhook", secretToken: false },
+        }),
+      },
+      run,
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/github/webhook", {
+      body: "{}",
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toMatchObject({ message: "Unknown ViteHub agent webhook.", status: 404 })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("uses channel ids for same-kind channel webhook state", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { http } = await import("../src/channels.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const prefixes: string[] = []
+    const agent = defineAgent({
+      channels: {
+        sales: http({ adapter: () => createTestChatAdapter() as never }),
+        support: http({ adapter: () => createTestChatAdapter() as never }),
+      },
+      messages: {
+        state: ({ chat }) => {
+          prefixes.push(chat.stateKeyPrefix)
+          return undefined as never
+        },
+      },
+      run: () => "ok",
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+    const request = (webhook: string) => new Request(`https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`, {
+      body: JSON.stringify({
+        message: {
+          chat: { id: 456, type: "private" },
+          from: { id: 123, username: "maxi" },
+          message_id: 7,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    })
+
+    await expect(handler(request("support"), "support")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(request("sales"), "sales")).resolves.toMatchObject({ status: 200 })
+    expect(prefixes).toEqual(["chat:agent:support:", "chat:agent:sales:"])
   })
 
   it("does not block chat webhook handling on typing status", async () => {
@@ -368,7 +1307,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -401,6 +1340,346 @@ describe("server helpers", () => {
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "ok" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+  })
+
+  it("continues refreshing typing status after a hung typing request", async () => {
+    vi.useFakeTimers()
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    let runStarted!: () => void
+    let finishRun: () => void = () => {}
+    const runStartedPromise = new Promise<void>(resolve => {
+      runStarted = resolve
+    })
+    const finishRunPromise = new Promise<void>(resolve => {
+      finishRun = resolve
+    })
+    adapter.startTyping.mockImplementation(() => new Promise(() => {}))
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      run: async () => {
+        runStarted()
+        await finishRunPromise
+        return "ok"
+      },
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    try {
+      const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 244,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 244,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      }), "telegram")
+
+      await runStartedPromise
+      await Promise.resolve()
+      expect(adapter.startTyping).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(6000)
+      expect(adapter.startTyping).toHaveBeenCalledTimes(2)
+
+      finishRun()
+      const response = await responsePromise
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      await vi.advanceTimersByTimeAsync(2000)
+    }
+    finally {
+      finishRun()
+      vi.useRealTimers()
+    }
+  })
+
+  it("refreshes typing status until the streamed chat response is committed", async () => {
+    vi.useFakeTimers()
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    let runStarted!: () => void
+    let finishRun: () => void = () => {}
+    let commitStarted!: () => void
+    let commitResponse: () => void = () => {}
+    const runStartedPromise = new Promise<void>(resolve => {
+      runStarted = resolve
+    })
+    const finishRunPromise = new Promise<void>(resolve => {
+      finishRun = resolve
+    })
+    const commitStartedPromise = new Promise<void>(resolve => {
+      commitStarted = resolve
+    })
+    const commitResponsePromise = new Promise<void>(resolve => {
+      commitResponse = resolve
+    })
+    adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>, options?: { updateIntervalMs?: number }) => {
+      let text = ""
+      for await (const chunk of textStream) {
+        if (typeof chunk === "string") text += chunk
+        else if (chunk.type === "markdown_text") text += chunk.text
+      }
+      commitStarted()
+      await commitResponsePromise
+      return { id: "stream-1", raw: { text }, threadId }
+    })
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      run: async () => {
+        runStarted()
+        await finishRunPromise
+        return "ok"
+      },
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    try {
+      const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 144,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 144,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      }), "telegram")
+
+      await runStartedPromise
+      await Promise.resolve()
+      expect(adapter.startTyping).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(4000)
+      expect(adapter.startTyping).toHaveBeenCalledTimes(2)
+
+      await vi.advanceTimersByTimeAsync(4000)
+      expect(adapter.startTyping).toHaveBeenCalledTimes(3)
+
+      finishRun()
+      await commitStartedPromise
+      expect(adapter.stream).toHaveBeenCalledWith("telegram:456", expect.any(Object), expect.objectContaining({
+        updateIntervalMs: 1,
+      }))
+      await vi.advanceTimersByTimeAsync(4000)
+      expect(adapter.startTyping).toHaveBeenCalledTimes(4)
+
+      commitResponse()
+      const response = await responsePromise
+      const callsAfterCommit = adapter.startTyping.mock.calls.length
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      expect(adapter.editMessage).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(4000)
+      expect(adapter.startTyping).toHaveBeenCalledTimes(callsAfterCommit)
+      await vi.runOnlyPendingTimersAsync()
+    }
+    finally {
+      finishRun()
+      commitResponse()
+      vi.useRealTimers()
+    }
+  })
+
+  it("posts configured chat fallback while streamed webhook work is still running", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    let runStarted!: () => void
+    let finishRun!: () => void
+    const runStartedPromise = new Promise<void>(resolve => {
+      runStarted = resolve
+    })
+    const finishRunPromise = new Promise<void>(resolve => {
+      finishRun = resolve
+    })
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          fallbackStreamingPlaceholderText: "Working on it...",
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      run: async () => {
+        runStarted()
+        await finishRunPromise
+        return "done"
+      },
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 1045,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1045,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    await runStartedPromise
+    await Promise.resolve()
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Working on it...")
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+    await expect(Promise.race([
+      responsePromise.then(() => "settled"),
+      Promise.resolve("pending"),
+    ])).resolves.toBe("pending")
+
+    finishRun()
+    const response = await responsePromise
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "done" })
+  })
+
+  it("activates Cloudflare env while webhook work runs", async () => {
+    const { getActiveCloudflareEnv } = await import("@vite-hub/internal/runtime/cloudflare-env")
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      run: () => String(getActiveCloudflareEnv()?.OPENAI_API_KEY),
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 1046,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1046,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram", {
+      cloudflare: {
+        env: {
+          OPENAI_API_KEY: "runtime-openai-key",
+        },
+      },
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "runtime-openai-key" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+  })
+
+  it("posts chat error fallback when deferred webhook work fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter({ deferMessageProcessing: true })
+    const waitUntilTasks: Promise<unknown>[] = []
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          errorFallbackText: "No pude procesar ese mensaje.",
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      run: () => {
+        throw new Error("transcription failed")
+      },
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    try {
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 1047,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 1047,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      }), "telegram", {
+        waitUntil: task => waitUntilTasks.push(task),
+      })
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      await Promise.all(waitUntilTasks)
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "No pude procesar ese mensaje.")
+      expect(consoleError).toHaveBeenCalledWith(expect.objectContaining({
+        component: "@vite-hub/agent",
+        event: "chat.message.error",
+        thread_id: "telegram:456",
+      }))
+    }
+    finally {
+      consoleError.mockRestore()
+    }
   })
 
   it("lets chat webhooks opt out of streaming model execution", async () => {
@@ -418,7 +1697,7 @@ describe("server helpers", () => {
     const agent = {
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           stream: false,
@@ -467,7 +1746,7 @@ describe("server helpers", () => {
     const agent = {
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           stream: false,
@@ -507,14 +1786,18 @@ describe("server helpers", () => {
     }
   })
 
-  it("posts usage telemetry callbacks for non-streaming model chat webhooks", async () => {
+  it("lets agent finish hooks post usage telemetry for non-streaming model chat webhooks", async () => {
     const { chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
     const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
     const adapter = createTestChatAdapter()
-    const onUsage = vi.fn(async (record, context) => {
-      await context.sendMessage({
-        markdown: `Custom usage: \`${record.usage.totalTokens}\` tokens via ${context.provider}`,
-      })
+    const finish = vi.fn(async (event) => {
+      const chat = event.extensions.get("chat") as { provider?: string, sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
+      const usage = event.extensions.get("usage-telemetry") as { usage?: { totalTokens?: number } } | undefined
+      if (chat && usage) {
+        await chat.sendMessage?.({
+          markdown: `Custom usage: \`${usage.usage?.totalTokens}\` tokens via ${chat.provider}`,
+        })
+      }
     })
     const model = {
       generate: vi.fn(async () => ({
@@ -538,7 +1821,7 @@ describe("server helpers", () => {
     const agent = {
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           stream: false,
@@ -547,7 +1830,6 @@ describe("server helpers", () => {
           },
         }),
         usageTelemetry({
-          chat: { onUsage },
           pricing: staticModelPricing({
             "openai/gpt-test": {
               input: "0.00000010",
@@ -556,6 +1838,9 @@ describe("server helpers", () => {
           }),
         }),
       ],
+      hooks: {
+        "agent:finish": finish,
+      },
       resolve: vi.fn(async () => model),
     }
     const handler = defineAgentChatWebhookFetchHandler(agent as never)
@@ -580,7 +1865,8 @@ describe("server helpers", () => {
     expect(model.stream).not.toHaveBeenCalled()
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "generated ok" })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "Custom usage: `15` tokens via telegram" })
-    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(expect.objectContaining({
       cost: expect.objectContaining({
         amount: "0.0000018",
         currency: "USD",
@@ -596,11 +1882,230 @@ describe("server helpers", () => {
         outputTokens: 3,
         totalTokens: 15,
       },
-    }), expect.objectContaining({
-      durationMs: expect.any(Number),
+    }))
+    expect(finish.mock.calls[0]![0].extensions.get("chat")).toEqual(expect.objectContaining({
       provider: "telegram",
       sendMessage: expect.any(Function),
     }))
+  })
+
+  it("exposes chat sendMessage to agent finish hooks for chat webhooks", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const finish = vi.fn(async (event) => {
+      const chat = event.extensions.get("chat") as { provider?: string, sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
+      await chat?.sendMessage?.({ markdown: `side message via ${chat.provider}` })
+    })
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          stream: false,
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({ text: "agent answer" }),
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 88,
+        message: {
+          chat: { id: 888, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 88,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(finish).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:888", { markdown: "agent answer" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:888", { markdown: "side message via telegram" })
+  })
+
+  it("commits native streamed chat responses before flushing finish hook messages", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    const order: string[] = []
+    let streamConsumed!: () => void
+    let commitResponse!: () => void
+    const streamConsumedPromise = new Promise<void>(resolve => {
+      streamConsumed = resolve
+    })
+    const commitResponsePromise = new Promise<void>(resolve => {
+      commitResponse = resolve
+    })
+    adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>, options?: { updateIntervalMs?: number }) => {
+      let text = ""
+      for await (const chunk of textStream) {
+        if (typeof chunk === "string") text += chunk
+        else if (chunk.type === "markdown_text") text += chunk.text
+      }
+      order.push(`stream:${text}`)
+      streamConsumed()
+      await commitResponsePromise
+      order.push("stream:committed")
+      return { id: "stream-1", raw: { text }, threadId }
+    })
+    adapter.editMessage.mockImplementation(async () => {
+      throw new Error("Bad Request: message is not modified")
+    })
+    adapter.postMessage.mockImplementation(async (threadId: string, message: unknown) => {
+      order.push("post:follow-up")
+      return { id: "sent-follow-up", raw: { message }, threadId }
+    })
+    const finish = vi.fn(async (event) => {
+      const chat = event.extensions.get("chat") as { sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
+      await chat?.sendMessage?.({ markdown: "usage ok" })
+      order.push("finish:queued")
+    })
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({ text: "agent answer" }),
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 89,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 89,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    try {
+      await streamConsumedPromise
+      await expect(Promise.race([
+        responsePromise.then(() => "settled"),
+        Promise.resolve("pending"),
+      ])).resolves.toBe("pending")
+      expect(adapter.stream).toHaveBeenCalledWith("telegram:456", expect.any(Object), expect.objectContaining({
+        updateIntervalMs: 1,
+      }))
+      expect(adapter.editMessage).not.toHaveBeenCalled()
+      expect(adapter.postMessage).not.toHaveBeenCalled()
+      await expect(Promise.race([
+        responsePromise.then(() => "settled"),
+        Promise.resolve("pending"),
+      ])).resolves.toBe("pending")
+
+      commitResponse()
+      const response = await responsePromise
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      expect(adapter.editMessage).not.toHaveBeenCalled()
+      expect(adapter.postMessage).toHaveBeenCalledTimes(1)
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "usage ok" })
+      expect(finish).toHaveBeenCalledOnce()
+      expect(order.indexOf("stream:committed")).toBeLessThan(order.indexOf("post:follow-up"))
+      expect(order).toContain("stream:agent answer")
+    }
+    finally {
+      commitResponse()
+    }
+  })
+
+  it("does not fail native streamed chats when the final message is already committed", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
+    const adapter = createTestChatAdapter()
+    adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
+      let text = ""
+      for await (const chunk of textStream) {
+        if (typeof chunk === "string") text += chunk
+        else if (chunk.type === "markdown_text") text += chunk.text
+      }
+      return { id: "stream-committed", raw: { text }, threadId }
+    })
+    adapter.editMessage.mockRejectedValue(new Error("message is not modified"))
+    adapter.postMessage.mockImplementation(async (threadId: string, message: unknown) => ({ id: "sent-follow-up", raw: { message }, threadId }))
+    const finish = vi.fn(async (event) => {
+      const chat = event.extensions.get("chat") as { sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
+      await chat?.sendMessage?.({ markdown: "usage ok" })
+    })
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          errorFallbackText: "Sorry, I couldn't process that message.",
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({ text: "agent `answer`" }),
+    })
+    const handler = defineAgentChatWebhookFetchHandler(agent as never)
+
+    try {
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 90,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 90,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      }), "telegram")
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      expect(adapter.editMessage).not.toHaveBeenCalled()
+      expect(adapter.postMessage).toHaveBeenCalledTimes(1)
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "usage ok" })
+      expect(finish).toHaveBeenCalledOnce()
+      expect(consoleError).not.toHaveBeenCalled()
+    }
+    finally {
+      consoleError.mockRestore()
+    }
   })
 
   it("flushes deferred non-streaming chat webhook work before returning", async () => {
@@ -628,13 +2133,17 @@ describe("server helpers", () => {
         },
       }
     })
-    const onUsage = vi.fn(async (_record, context) => {
-      await context.sendMessage({ markdown: "usage ok" })
+    const finish = vi.fn(async (event) => {
+      const chat = event.extensions.get("chat") as { sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
+      const usage = event.extensions.get("usage-telemetry")
+      if (chat && usage) {
+        await chat.sendMessage?.({ markdown: "usage ok" })
+      }
     })
     const agent = defineAgent({
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           stream: false,
@@ -642,10 +2151,11 @@ describe("server helpers", () => {
             telegram: {},
           },
         }),
-        usageTelemetry({
-          chat: { onUsage },
-        }),
+        usageTelemetry(),
       ],
+      hooks: {
+        "agent:finish": finish,
+      },
       run,
     })
     const handler = defineAgentChatWebhookFetchHandler(agent as never)
@@ -679,17 +2189,22 @@ describe("server helpers", () => {
     expect(adapter.startTyping).not.toHaveBeenCalled()
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "ok" })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", { markdown: "usage ok" })
+    expect(finish).toHaveBeenCalledOnce()
   })
 
-  it("lets usageTelemetry chat callbacks post custom follow-up messages", async () => {
+  it("lets agent finish hooks compose usage telemetry and chat follow-up messages", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { access, chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
     const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
     const adapter = createTestChatAdapter()
-    const onUsage = vi.fn(async (record, context) => {
-      await context.sendMessage({
-        markdown: `Custom usage: \`${record.usage.totalTokens}\` tokens via ${context.provider}`,
-      })
+    const finish = vi.fn(async (event) => {
+      const chat = event.extensions.get("chat") as { provider?: string, sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
+      const usage = event.extensions.get("usage-telemetry") as { usage?: { totalTokens?: number } } | undefined
+      if (chat && usage) {
+        await chat.sendMessage?.({
+          markdown: `Custom usage: \`${usage.usage?.totalTokens}\` tokens via ${chat.provider}`,
+        })
+      }
     })
     const agent = defineAgent({
       capabilities: [
@@ -699,7 +2214,7 @@ describe("server helpers", () => {
           },
         }),
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
           webhooks: {
@@ -707,7 +2222,6 @@ describe("server helpers", () => {
           },
         }),
         usageTelemetry({
-          chat: { onUsage },
           pricing: staticModelPricing({
             "openai/gpt-test": {
               input: "0.00000010",
@@ -716,6 +2230,9 @@ describe("server helpers", () => {
           }),
         }),
       ],
+      hooks: {
+        "agent:finish": finish,
+      },
       run: () => ({
         response: {
           modelId: "openai/gpt-test",
@@ -746,20 +2263,23 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:789", { markdown: "ok" })
+    expect(adapter.editMessage).not.toHaveBeenCalled()
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:789", { markdown: "Custom usage: `15` tokens via telegram" })
-    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
+    expect(finish).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(expect.objectContaining({
       usage: {
         inputTokens: 10,
         outputTokens: 5,
         totalTokens: 15,
       },
-    }), expect.objectContaining({
+    }))
+    expect(finish.mock.calls[0]![0].extensions.get("chat")).toEqual(expect.objectContaining({
       provider: "telegram",
       sendMessage: expect.any(Function),
     }))
   })
 
-  it("lets access() reject app-specific chat identities", async () => {
+  it("lets access() reject app-specific chat invokers", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { access, chat } = await import("../src/capabilities.ts")
     const { defineAgentChatWebhookFetchHandler } = await import("../src/server.ts")
@@ -769,11 +2289,11 @@ describe("server helpers", () => {
       capabilities: [
         access({
           chat: {
-            resolve: ({ identity }) => identity?.id === "123",
+            resolve: ({ invoker }) => invoker?.id === "123",
           },
         }),
         chat({
-          adapters: { telegram: () => adapter as never },
+          platforms: { telegram: () => adapter as never },
           webhooks: {
             telegram: {},
           },
@@ -811,7 +2331,7 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          adapters: {
+          platforms: {
             telegram: () => adapter as never,
           },
         }),

@@ -24,13 +24,13 @@ Do not document tool syntax in instructions when a Capability can expose that sy
 
 ## Capability slots
 
-Capabilities may contribute named instruction blocks.
+Capabilities may contribute named instruction blocks. Place one Capability with `{{ capabilities.<id> }}`, or place every remaining Capability block with `{{ capabilities }}`.
 
 ```ts
 export default defineAgent({
   instructions: [
     'Answer from source files first.',
-    '{{ workspace }}',
+    '{{ workspace.sources }}',
     '{{ capabilities }}',
   ].join('\n\n'),
   capabilities: [

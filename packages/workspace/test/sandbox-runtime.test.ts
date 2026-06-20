@@ -146,7 +146,6 @@ describe("sandbox workspace runtime", () => {
       }),
       name: "docs",
     })
-    await workspace.sync()
     await workspace.writeFile("README.md", "# Docs\n")
 
     const session = await workspace.startSession()
@@ -184,7 +183,6 @@ describe("sandbox workspace runtime", () => {
       }),
       name: "docs",
     })
-    await workspace.sync()
     await workspace.mkdir("empty", { recursive: true })
     await workspace.writeFile("README.md", "# Docs\n")
 
@@ -196,6 +194,32 @@ describe("sandbox workspace runtime", () => {
     await session.close()
     await expect(workspace.exists("empty")).resolves.toBe(true)
     await expect(workspace.exists("stale.txt")).resolves.toBe(false)
+  })
+
+  it("commits sandbox session deletions", async () => {
+    const fake = createFakeSandbox("cloudflare")
+    const sandboxPackage = await import("@vite-hub/sandbox")
+    vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
+    setSandboxRuntimeConfig({ provider: "cloudflare", binding: "SANDBOX" })
+
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "sandbox",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+    await workspace.writeFile("old.txt", "old")
+
+    const session = await workspace.startSession()
+    await session.rm("old.txt", { force: true })
+    expect((await session.diff()).entries).toEqual([
+      expect.objectContaining({ path: "old.txt", type: "removed" }),
+    ])
+    await session.commit()
+    await session.close()
+
+    await expect(workspace.exists("old.txt")).resolves.toBe(false)
   })
 
   it("keeps lazy source files out of the initial sandbox sync until materialized", async () => {
@@ -222,7 +246,6 @@ describe("sandbox workspace runtime", () => {
       }),
       name: "docs",
     })
-    await workspace.sync()
 
     const session = await workspace.startSession()
 
@@ -252,7 +275,6 @@ describe("sandbox workspace runtime", () => {
     })
     const input = new Uint8Array([0, 159, 255, 64])
     const output = new Uint8Array([1, 2, 3, 254])
-    await workspace.sync()
     await workspace.writeFile("asset.bin", input)
 
     const session = await workspace.startSession()
@@ -278,7 +300,6 @@ describe("sandbox workspace runtime", () => {
       }),
       name: "docs",
     })
-    await workspace.sync()
     await workspace.writeFile("asset.json", "{\"ok\":false}\n", { mediaType: "application/json" })
 
     const session = await workspace.startSession()
@@ -302,7 +323,6 @@ describe("sandbox workspace runtime", () => {
       }),
       name: "docs",
     })
-    await workspace.sync()
 
     const session = await workspace.startSession()
     await session.writeFile("generated/asset.svg", "<svg />\n", { mediaType: "image/svg+xml" })
@@ -325,7 +345,6 @@ describe("sandbox workspace runtime", () => {
       }),
       name: "docs",
     })
-    await workspace.sync()
     await workspace.writeFile("docs/a.md", "target\n")
     await workspace.writeFile("notes/b.md", "target\n")
 
@@ -367,7 +386,6 @@ describe("sandbox workspace runtime", () => {
       }),
       name: "docs",
     })
-    await workspace.sync()
 
     const session = await workspace.startSession()
     await session.writeFile("docs/README.md", "# Edited\n")
@@ -391,7 +409,6 @@ describe("sandbox workspace runtime", () => {
       }),
       name: "docs",
     })
-    await workspace.sync()
     await workspace.writeFile("target", "file\n")
 
     const session = await workspace.startSession()

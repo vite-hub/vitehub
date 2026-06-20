@@ -10,10 +10,14 @@ import { getCloudflareWorkflowBindingName, getCloudflareWorkflowClassName, getCl
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
-const viteBin = join(playgroundDir, "node_modules", ".bin", "vite")
 const buildOutputTestTimeout = 60_000
 const tempNodeModuleBuildDirs = new Set([".vite-temp"])
 const tempDirs: string[] = []
+
+function resolvePlaygroundNodeModules() {
+  const nodeModules = join(playgroundDir, "node_modules")
+  return existsSync(nodeModules) ? nodeModules : resolve(playgroundDir, "../../node_modules")
+}
 
 async function createWorkspaceTempDir(prefix: string) {
   const baseDir = join(playgroundDir, ".vitest-tmp")
@@ -55,7 +59,7 @@ async function linkNodeModuleEntry(source: string, target: string) {
 async function createPlaygroundCopy(prefix: string) {
   const workspaceDir = await createWorkspaceTempDir(prefix)
   const rootDir = join(workspaceDir, "vite")
-  const nodeModules = join(playgroundDir, "node_modules")
+  const nodeModules = resolvePlaygroundNodeModules()
 
   await mkdir(rootDir, { recursive: true })
   await cp(resolve(playgroundDir, "../_shared"), join(workspaceDir, "_shared"), { recursive: true })
@@ -88,7 +92,7 @@ describe("Vite workflow provider outputs", () => {
       "",
     ].join("\n"))
 
-    await execFileAsync(viteBin, ["build"], {
+    await execFileAsync("vp", ["build"], {
       cwd: rootDir,
       env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
     })
@@ -132,7 +136,7 @@ describe("Vite workflow provider outputs", () => {
     const viteConfig = join(rootDir, "vite.config.ts")
     await writeFile(viteConfig, (await readFile(viteConfig, "utf8")).replaceAll("workflow: {},", "workflow: { provider: \"vercel\" },"))
 
-    await execFileAsync(viteBin, ["build"], {
+    await execFileAsync("vp", ["build"], {
       cwd: rootDir,
       env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
     })
@@ -152,7 +156,7 @@ describe("Vite workflow provider outputs", () => {
       ),
     )
 
-    await execFileAsync(viteBin, ["build"], {
+    await execFileAsync("vp", ["build"], {
       cwd: rootDir,
       env: { ...process.env, VITEHUB_VITE_MODE: "workflow" },
     })

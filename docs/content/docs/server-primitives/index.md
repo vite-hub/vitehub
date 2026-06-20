@@ -6,7 +6,7 @@ navigation.order: 10
 icon: i-lucide-server-cog
 ---
 
-Server primitives are the ViteHub features you can use without agents. They give app code a stable API for storage, runtime work, source files, schedules, isolated execution, and environment values.
+Server primitives are the ViteHub features you can use without agents. They give app code a stable API for authentication, storage, runtime work, source files, schedules, isolated execution, and environment values.
 
 Each primitive owns one job. You can combine them, but you should not treat them as one hidden platform runtime.
 
@@ -15,6 +15,7 @@ Each primitive owns one job. You can combine them, but you should not treat them
 | Primitive | Use it for |
 | --- | --- |
 | [Env](/docs/server-primitives/env) | Typed public and server-only runtime values. |
+| [Auth](/docs/server-primitives/auth) | Application user identity and sessions through a server-owned Auth Definition. |
 | [KV](/docs/server-primitives/kv) | Small values addressed by key. |
 | [Database](/docs/server-primitives/database) | Relational or durable application models. |
 | [Blob](/docs/server-primitives/blob) | File-shaped objects, uploads, generated artifacts, and metadata. |

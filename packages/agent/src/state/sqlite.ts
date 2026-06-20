@@ -159,8 +159,10 @@ export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
 
   async delete(key: string): Promise<void> {
     await this.cleanupExpiredStateIfDue()
-    await execute(this.driver, `DELETE FROM ${this.tables.cache} WHERE key = ?`, [key])
-    await execute(this.driver, `DELETE FROM ${this.tables.lists} WHERE key = ?`, [key])
+    await this.transaction(async (tx) => {
+      await execute(tx, `DELETE FROM ${this.tables.cache} WHERE key = ?`, [key])
+      await execute(tx, `DELETE FROM ${this.tables.lists} WHERE key = ?`, [key])
+    })
   }
 
   async dequeue(threadId: string): Promise<QueueEntry | null> {

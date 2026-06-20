@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import type { AgentRuntimeContext, AgentToolSet } from "../src/types.ts"
-import type { ReadonlyWorkspaceFacade, WorkspaceEntry, WorkspaceSearchHit, WorkspaceStat } from "@vite-hub/workspace"
+import { attachWorkspaceSourceRequestExecution, source, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceStat } from "@vite-hub/workspace"
 
 function runtime(): AgentRuntimeContext {
   return {
@@ -22,7 +22,7 @@ function directChildOf(prefix: string, path: string): boolean {
   return !path.slice(prefix.length + 1).includes("/")
 }
 
-function createWorkspace(): ReadonlyWorkspaceFacade {
+function createWorkspace(executor?: Parameters<typeof attachWorkspaceSourceRequestExecution>[1]): ReadonlyWorkspaceFacade {
   const files = new Map<string, string>([
     ["customers/acme/brief.md", "acme only"],
     ["customers/globex/brief.md", "globex only"],
@@ -37,6 +37,18 @@ function createWorkspace(): ReadonlyWorkspaceFacade {
     { path: "public", type: "directory" },
     { path: "public/readme.md", size: 6, type: "file" },
   ]
+  if (executor) {
+    files.set(".vitehub/sources/inventoryHealthSummary.json", JSON.stringify({
+      method: "GET",
+      request: { query: { region: "eu" } },
+      url: "https://portal.example.com/runtime/inventory-health",
+    }))
+    entries.push(
+      { path: ".vitehub", type: "directory" },
+      { path: ".vitehub/sources", type: "directory" },
+      { path: ".vitehub/sources/inventoryHealthSummary.json", size: files.get(".vitehub/sources/inventoryHealthSummary.json")!.length, type: "file" },
+    )
+  }
 
   const fs: ReadonlyWorkspaceFacade["fs"] = {
     async readFile(path, options) {
@@ -74,11 +86,65 @@ function createWorkspace(): ReadonlyWorkspaceFacade {
   }
 
   return {
-    fs,
+    fs: executor ? attachWorkspaceSourceRequestExecution(fs, executor) : fs,
     tools: {
       inspect: () => ({}),
       none: () => ({}),
     } as unknown as ReadonlyWorkspaceFacade["tools"],
+  }
+}
+
+function createWorkspaceWithStaleIngestion(): ReadonlyWorkspaceFacade {
+  const base = createWorkspace()
+  const staleFiles = new Map<string, string>([
+    ["ingestion/globex/models/orders.sql", "select * from globex_orders\n"],
+  ])
+  const staleEntries: WorkspaceEntry[] = [
+    { path: "ingestion", type: "directory" },
+    { path: "ingestion/globex", type: "directory" },
+    { path: "ingestion/globex/models", type: "directory" },
+    { path: "ingestion/globex/models/orders.sql", size: 28, type: "file" },
+  ]
+
+  return {
+    fs: {
+      async readFile(path, options) {
+        const content = staleFiles.get(path)
+        if (content !== undefined) return (options?.encoding === "binary" ? new TextEncoder().encode(content) : content) as never
+        return await base.fs.readFile(path, options as never)
+      },
+      async stat(path) {
+        const entry = staleEntries.find(entry => entry.path === path)
+        if (entry) return entry as WorkspaceStat
+        return await base.fs.stat(path)
+      },
+      async exists(path) {
+        return staleEntries.some(entry => entry.path === path) || await base.fs.exists(path)
+      },
+      async list(path = "", options = {}) {
+        return [
+          ...await base.fs.list(path, options),
+          ...staleEntries.filter(entry => options.recursive ? containsPath(path, entry.path) && entry.path !== path : directChildOf(path, entry.path)),
+        ]
+      },
+      async glob(pattern, options) {
+        return [...await base.fs.glob(pattern as never, options), ...staleEntries]
+      },
+      async search(query) {
+        const hits = await base.fs.search(query)
+        const paths = query.paths?.length ? query.paths : [query.cwd || ""]
+        for (const [path, content] of staleFiles) {
+          if (paths.some(prefix => containsPath(prefix, path)) && content.includes(query.pattern)) {
+            hits.push({ column: 1, line: 1, path, text: content })
+          }
+        }
+        return hits
+      },
+      async materializeSources(options = {}) {
+        return await base.fs.materializeSources!(options)
+      },
+    },
+    tools: base.tools,
   }
 }
 
@@ -91,7 +157,7 @@ describe("access capability", () => {
       capabilities: [
         access({
           chat: {
-            resolve: ({ identity }) => identity?.id === "123",
+            resolve: ({ invoker }) => invoker?.id === "123",
           },
         }),
       ],
@@ -163,54 +229,28 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(true)
   })
 
-  it("shares an Invocation Profile across access and audience capabilities", async () => {
-    const { defineInvocationProfile } = await import("../src/index.ts")
-    const { applyCapabilityInstructionSlots, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { access, audience } = await import("../src/capabilities.ts")
-
-    const profileResolver = vi.fn(({ input }) => {
-      const chat = input.get().context?.chat
-      const email = chat?.user?.email?.toLowerCase()
-      if (email === "maximo@quiver.dk") return { kind: "quiverTechnical" as const }
-      const customer = chat?.message?.metadata?.quiver?.customer
-      if (customer) return { customer, kind: "customerPortal" as const }
-      throw new Error("missing profile")
-    })
-    const supportProfile = defineInvocationProfile({
-      id: "quiver-support",
-      input: {
-        chat: {
-          message: {
-            metadata: {
-              "~standard": {
-                validate(input: unknown) {
-                  const metadata = typeof input === "object" && input !== null ? input as { quiver?: { customer?: string } } : {}
-                  return { value: metadata }
-                },
-              },
-            },
-          },
-          user: {
-            "~standard": {
-              validate(input: unknown) {
-                const user = typeof input === "object" && input !== null ? input as { email?: string } : {}
-                return { value: user }
-              },
-            },
-          },
-        },
+  it("uses Agent Invoker meta across access and prompt instructions", async () => {
+    const { applyCapabilityInstructionSlots, defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const supportAudience = defineCapability({
+      id: "support-audience",
+      prepare(context) {
+        context.instructions.add(
+          context.invoker.meta?.audience === "technical"
+            ? "Prefer implementation details."
+            : "Prefer product-level support answers.",
+        )
       },
-      resolve: profileResolver,
     })
 
     const resolved = await resolveAgentCapabilities({
       capabilities: [
         access({
-          profile: supportProfile,
           workspace: {
-            resolve({ profile }) {
-              if (profile.kind === "quiverTechnical") return { role: "admin", scope: "quiver" }
-              return { role: "viewer", scope: profile.customer }
+            resolve({ invoker }) {
+              if (invoker.kind === "quiverTechnical") return { role: "admin", scope: "quiver" }
+              const customer = typeof invoker.meta?.customer === "string" ? invoker.meta.customer : "public"
+              return { role: "viewer", scope: customer }
             },
             scopes: {
               acme: { paths: ["customers/acme"] },
@@ -218,31 +258,99 @@ describe("access capability", () => {
             },
           },
         }),
-        audience({
-          profile: supportProfile,
-          instructions({ profile }) {
-            return profile.kind === "quiverTechnical"
-              ? "Prefer implementation details."
-              : "Prefer product-level support answers."
-          },
-        }),
+        supportAudience,
       ],
     }, { ...runtime(), runtimeConfig: {} }, {
       context: {
-        chat: {
-          message: {
-            metadata: { quiver: { customer: "acme" } },
+        invoker: {
+          id: "customer:acme",
+          kind: "customerPortal",
+          meta: {
+            audience: "support",
+            customer: "acme",
           },
-          user: { email: "customer@example.com" },
         },
       },
       prompt: "check",
     }, createWorkspace())
 
-    expect(profileResolver).toHaveBeenCalledOnce()
     await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
     await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(false)
-    expect(applyCapabilityInstructionSlots("{{ audience }}", resolved.capabilityInstructions)).toBe("Prefer product-level support answers.")
+    expect(applyCapabilityInstructionSlots("{{ capabilities.support-audience }}", resolved.capabilityInstructions)).toBe("Prefer product-level support answers.")
+  })
+
+  it("adds selected Workspace Scope instructions", async () => {
+    const { applyCapabilityInstructionSlots, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "acme",
+            scopes: {
+              acme: {
+                instructions: "Workspace scope: customer acme.",
+                paths: ["customers/acme"],
+              },
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace())
+
+    await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
+    expect(applyCapabilityInstructionSlots("{{ capabilities.access.workspace }}", resolved.capabilityInstructions)).toBe("Workspace scope: customer acme.")
+  })
+
+  it("uses resolver Workspace Scope instructions before static scope instructions", async () => {
+    const { applyCapabilityInstructionSlots, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: () => ({
+              instructions: "Resolver scope guidance.",
+              role: "viewer",
+              scope: "acme",
+            }),
+            scopes: {
+              acme: {
+                instructions: "Static scope guidance.",
+                paths: ["customers/acme"],
+              },
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace())
+
+    await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
+    expect(applyCapabilityInstructionSlots("{{ capabilities.access.workspace }}", resolved.capabilityInstructions)).toBe("Resolver scope guidance.")
+  })
+
+  it("fails clearly when Workspace Scope instructions are not strings", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "acme",
+            scopes: {
+              acme: {
+                instructions: ["ok", 123] as never,
+                paths: ["customers/acme"],
+              },
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace()))
+      .rejects.toThrow("Workspace Scope \"acme\" instructions must be a string or an array of strings.")
   })
 
   it("can resolve an inline Workspace Scope definition", async () => {
@@ -320,348 +428,6 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(true)
   })
 
-  it("validates chat input schemas before resolving Workspace Scope", async () => {
-    const { defineInvocationProfile } = await import("../src/index.ts")
-    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { access } = await import("../src/capabilities.ts")
-
-    const metadataSchema = {
-      "~standard": {
-        validate(input: unknown) {
-          const metadata = typeof input === "object" && input !== null ? input as Record<string, unknown> : {}
-          const customer = typeof metadata.customer === "string" ? metadata.customer : undefined
-          return { value: { quiver: { customer } } }
-        },
-      },
-    }
-    const supportProfile = defineInvocationProfile({
-      id: "metadata-customer",
-      input: {
-        chat: {
-          message: { metadata: metadataSchema },
-        },
-      },
-      resolve: ({ input }) => input.get().context?.chat?.message?.metadata?.quiver?.customer,
-    })
-
-    const resolved = await resolveAgentCapabilities({
-      capabilities: [
-        access({
-          profile: supportProfile,
-          workspace: {
-            resolve: ({ profile }) => profile,
-            scopes: {
-              acme: { paths: ["customers/acme"] },
-            },
-          },
-        }),
-      ],
-    }, { ...runtime(), runtimeConfig: {} }, {
-      context: {
-        chat: {
-          message: {
-            metadata: { customer: "acme" },
-          },
-        },
-      },
-      prompt: "check",
-    }, createWorkspace())
-
-    await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
-    expect(resolved.input.context).toMatchObject({
-      chat: {
-        message: {
-          metadata: {
-            quiver: { customer: "acme" },
-          },
-        },
-      },
-    })
-  })
-
-  it("fails closed when chat input schema validation fails", async () => {
-    const { defineInvocationProfile } = await import("../src/index.ts")
-    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { access } = await import("../src/capabilities.ts")
-    const supportProfile = defineInvocationProfile({
-      id: "metadata-fails",
-      input: {
-        chat: {
-          message: {
-            metadata: {
-              "~standard": {
-                validate: () => ({ issues: ["missing customer"] }),
-              },
-            },
-          },
-        },
-      },
-      resolve: () => "acme",
-    })
-
-    await expect(resolveAgentCapabilities({
-      capabilities: [
-        access({
-          profile: supportProfile,
-          workspace: {
-            defaultScope: "acme",
-            scopes: {
-              acme: { paths: ["customers/acme"] },
-            },
-          },
-        }),
-      ],
-    }, { ...runtime(), runtimeConfig: {} }, {
-      context: {
-        chat: {
-          message: {
-            metadata: {},
-          },
-        },
-      },
-      prompt: "check",
-    }, createWorkspace())).rejects.toThrow("Invalid chat.message.metadata")
-  })
-
-  it("fails closed when configured chat input schema fields are missing", async () => {
-    const { defineInvocationProfile } = await import("../src/index.ts")
-    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { access } = await import("../src/capabilities.ts")
-
-    const requiredObjectSchema = (label: string) => ({
-      "~standard": {
-        validate(input: unknown) {
-          return typeof input === "object" && input !== null
-            ? { value: input as Record<string, unknown> }
-            : { issues: [`missing ${label}`] }
-        },
-      },
-    })
-    const supportProfile = defineInvocationProfile({
-      id: "metadata-and-user-required",
-      input: {
-        chat: {
-          message: { metadata: requiredObjectSchema("metadata") },
-          user: requiredObjectSchema("user"),
-        },
-      },
-      resolve: () => "acme",
-    })
-
-    await expect(resolveAgentCapabilities({
-      capabilities: [
-        access({
-          profile: supportProfile,
-          workspace: {
-            defaultScope: "acme",
-            scopes: {
-              acme: { paths: ["customers/acme"] },
-            },
-          },
-        }),
-      ],
-    }, { ...runtime(), runtimeConfig: {} }, {
-      context: {
-        chat: {
-          message: {
-            text: "check",
-          },
-        },
-      },
-      prompt: "check",
-    }, createWorkspace())).rejects.toThrow("Invalid chat.message.metadata")
-
-    await expect(resolveAgentCapabilities({
-      capabilities: [
-        access({
-          profile: supportProfile,
-          workspace: {
-            defaultScope: "acme",
-            scopes: {
-              acme: { paths: ["customers/acme"] },
-            },
-          },
-        }),
-      ],
-    }, { ...runtime(), runtimeConfig: {} }, {
-      context: {
-        chat: {
-          message: {
-            metadata: {},
-            text: "check",
-          },
-        },
-      },
-      prompt: "check",
-    }, createWorkspace())).rejects.toThrow("Invalid chat.user")
-  })
-
-  it("fails closed when configured chat input schemas receive no chat context", async () => {
-    const { defineInvocationProfile } = await import("../src/index.ts")
-    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { access } = await import("../src/capabilities.ts")
-    const supportProfile = defineInvocationProfile({
-      id: "metadata-required",
-      input: {
-        chat: {
-          message: {
-            metadata: {
-              "~standard": {
-                validate(input: unknown) {
-                  return typeof input === "object" && input !== null
-                    ? { value: input as Record<string, unknown> }
-                    : { issues: ["missing metadata"] }
-                },
-              },
-            },
-          },
-        },
-      },
-      resolve: () => "acme",
-    })
-
-    await expect(resolveAgentCapabilities({
-      capabilities: [
-        access({
-          profile: supportProfile,
-          workspace: {
-            defaultScope: "acme",
-            scopes: {
-              acme: { paths: ["customers/acme"] },
-            },
-          },
-        }),
-      ],
-    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace())).rejects.toThrow("Invalid chat.message.metadata")
-  })
-
-  it("gates profile metadata schemas by explicit chat run origin", async () => {
-    const { defineInvocationProfile } = await import("../src/index.ts")
-    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { access } = await import("../src/capabilities.ts")
-    const metadataSchema = {
-      "~standard": {
-        validate(input: unknown) {
-          const metadata = typeof input === "object" && input !== null ? input as Record<string, unknown> : {}
-          return typeof metadata.customer === "string"
-            ? { value: { quiver: { customer: metadata.customer } } }
-            : { issues: ["missing customer"] }
-        },
-      },
-    }
-    const supportProfile = defineInvocationProfile({
-      id: "support-origin",
-      input: {
-        chat: {
-          message: { metadata: metadataSchema, runOrigin: ["portal"] },
-          run: { origin: ["portal", "teams"] },
-        },
-      },
-      resolve({ input }) {
-        const chat = input.get().context?.chat
-        if (chat?.run?.origin !== "portal") {
-          return { kind: "internal" as const }
-        }
-        const metadata = chat.message?.metadata as { quiver: { customer: string } }
-        return {
-          customer: metadata.quiver.customer,
-          kind: "portal" as const,
-        }
-      },
-    })
-
-    const resolved = await resolveAgentCapabilities({
-      capabilities: [
-        access({
-          profile: supportProfile,
-          workspace: {
-            resolve({ profile }) {
-              if (profile.kind !== "portal") {
-                return { all: true, role: "admin", scope: "support" }
-              }
-              return profile.customer
-            },
-            scopes: {
-              acme: { paths: ["customers/acme"] },
-            },
-          },
-        }),
-      ],
-    }, { ...runtime(), runtimeConfig: {} }, {
-      context: {
-        chat: {
-          message: {
-            metadata: { source: "chat" },
-          },
-          run: { origin: "teams", runId: "run-1" },
-        },
-      },
-      prompt: "check",
-    }, createWorkspace())
-
-    await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(true)
-
-    await expect(resolveAgentCapabilities({
-      capabilities: [
-        access({
-          profile: supportProfile,
-          workspace: {
-            defaultScope: "acme",
-            scopes: {
-              acme: { paths: ["customers/acme"] },
-            },
-          },
-        }),
-      ],
-    }, { ...runtime(), runtimeConfig: {} }, {
-      context: {
-        chat: {
-          message: {
-            metadata: { source: "portal" },
-          },
-          run: { origin: "portal", runId: "run-2" },
-        },
-      },
-      prompt: "check",
-    }, createWorkspace())).rejects.toThrow("Invalid chat.message.metadata")
-  })
-
-  it("fails closed when configured chat run origins do not match", async () => {
-    const { defineInvocationProfile } = await import("../src/index.ts")
-    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { access } = await import("../src/capabilities.ts")
-    const supportProfile = defineInvocationProfile({
-      id: "origin-required",
-      input: {
-        chat: {
-          run: { origin: ["portal", "teams"] },
-        },
-      },
-      resolve: () => "acme",
-    })
-
-    await expect(resolveAgentCapabilities({
-      capabilities: [
-        access({
-          profile: supportProfile,
-          workspace: {
-            defaultScope: "acme",
-            scopes: {
-              acme: { paths: ["customers/acme"] },
-            },
-          },
-        }),
-      ],
-    }, { ...runtime(), runtimeConfig: {} }, {
-      context: {
-        chat: {
-          run: { origin: "http", runId: "run-1" },
-        },
-      },
-      prompt: "check",
-    }, createWorkspace())).rejects.toThrow("Invalid chat.run.origin")
-  })
-
   it("falls back to default scope when an explicit resolver returns no scope", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
@@ -723,6 +489,409 @@ describe("access capability", () => {
     expect(resolved.tools!.materialize_sources).toBeUndefined()
     expect(result.stdout).toContain("acme")
     expect(result.stdout).not.toContain("globex")
+  })
+
+  it("preserves source request execution on scoped workspace shell commands", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access, workspaceShell } = await import("../src/capabilities.ts")
+    const executeSourceRequest = vi.fn(async () => ({
+      content: JSON.stringify({ status: "ok" }),
+      status: 200,
+    }))
+    const workspaceDefinition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        inventoryHealthSummary: source.custom({
+          mount: "inventoryHealthSummary",
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            throw new Error(`unexpected read: ${key}`)
+          },
+        }),
+      },
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "support",
+            scopes: {
+              support: { source: "inventoryHealthSummary" },
+            },
+          },
+        }),
+        workspaceShell(),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace({ executeSourceRequest }), "read", { workspaceDefinition })
+    const executeShell = resolved.tools!.shell.execute as unknown as (
+      input: { command: string },
+      options: { messages: unknown[], toolCallId: string },
+    ) => Promise<{ exitCode: number, stdout: string }>
+    const result = await executeShell(
+      { command: "curl 'https://portal.example.com/runtime/inventory-health?region=eu'" },
+      { toolCallId: "test", messages: [] } as never,
+    )
+
+    expect(result).toMatchObject({ exitCode: 0, stdout: JSON.stringify({ status: "ok" }) })
+    expect(executeSourceRequest).toHaveBeenCalledWith({
+      body: undefined,
+      method: "GET",
+      url: "https://portal.example.com/runtime/inventory-health?region=eu",
+    })
+  })
+
+  it("denies scoped source request execution for hidden workspace sources", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access, workspaceShell } = await import("../src/capabilities.ts")
+    const executeSourceRequest = vi.fn(async () => ({
+      content: JSON.stringify({ status: "ok" }),
+      status: 200,
+    }))
+    const workspaceDefinition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        hiddenInventory: source.custom({
+          mount: "hiddenInventory",
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            throw new Error(`unexpected read: ${key}`)
+          },
+        }),
+        inventoryHealthSummary: source.custom({
+          mount: "inventoryHealthSummary",
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            throw new Error(`unexpected read: ${key}`)
+          },
+        }),
+      },
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "support",
+            scopes: {
+              support: { source: "inventoryHealthSummary" },
+            },
+          },
+        }),
+        workspaceShell(),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace({ executeSourceRequest }), "read", { workspaceDefinition })
+    const executeShell = resolved.tools!.shell.execute as unknown as (
+      input: { command: string },
+      options: { messages: unknown[], toolCallId: string },
+    ) => Promise<{ exitCode: number, stderr: string }>
+    const result = await executeShell(
+      { command: "curl 'https://portal.example.com/runtime/hidden-inventory'" },
+      { toolCallId: "test", messages: [] },
+    )
+
+    expect(result).toMatchObject({
+      exitCode: 126,
+      stderr: expect.stringContaining("not visible in the selected workspace scope"),
+    })
+    expect(executeSourceRequest).not.toHaveBeenCalled()
+  })
+
+  it("applies Invocation-Scoped Source Resolution after selecting Workspace Scope", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access, workspaceShell } = await import("../src/capabilities.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const { resolveWorkspaceSourceInstructionBlock } = await import("../src/workspace-agent.ts")
+    const resolverScopes: unknown[] = []
+    const invocationContext = createAgentInvocationContextStore({
+      "support.customerScope": { customers: ["acme", "globex"] },
+    })
+    const workspaceDefinition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        ingestion: source.custom({
+          async resolve({ invocation }) {
+            const scope = invocation.context.get<{ customers: string[] }>("support.customerScope")
+            resolverScopes.push(scope)
+            const customer = scope?.customers[0]
+            if (!customer) return false
+            return source.custom({
+              instructions: `Use this source for ${customer} ingestion models only.`,
+              materialize: "lazy",
+              mount: `ingestion/${customer}`,
+              async getKeys() {
+                return ["models/orders.sql"]
+              },
+              async getItem(key) {
+                return { key, path: key, content: `select * from ${customer}_orders\n` }
+              },
+            })
+          },
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            return { key, path: key, content: "" }
+          },
+        }),
+      },
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve({ context }) {
+              const scope = context.get<{ customers: string[] }>("support.customerScope")
+              const customer = scope?.customers[0]
+              if (!customer) throw new Error("missing customer")
+              return {
+                grants: [{ path: `ingestion/${customer}` }],
+                scope: customer,
+              }
+            },
+          },
+        }),
+        workspaceShell(),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace(), "read", {
+      context: invocationContext,
+      workspaceDefinition,
+    })
+
+    await expect(resolved.workspace!.fs.readFile("ingestion/acme/models/orders.sql")).resolves.toBe("select * from acme_orders\n")
+    await expect(resolved.workspace!.fs.exists("ingestion/globex/models/orders.sql")).resolves.toBe(false)
+    expect(resolverScopes).toEqual([{ customers: ["acme", "globex"] }])
+    const resolvedDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
+    await expect(resolveWorkspaceSourceInstructionBlock(resolvedDefinition, resolved.workspace)).resolves.toBe([
+      "## Workspace Sources",
+      "### ingestion\n\nUse this source for acme ingestion models only.",
+    ].join("\n\n"))
+    expect(resolved.tools!.materialize_sources).toBeUndefined()
+  })
+
+  it("narrows source grants to resolved Source mounts after Source Resolution", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const invocationContext = createAgentInvocationContextStore()
+    const workspaceDefinition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        ingestion: source.custom({
+          async resolve() {
+            return source.custom({
+              mount: "ingestion/acme",
+              async getKeys() {
+                return ["models/orders.sql"]
+              },
+              async getItem(key) {
+                return { key, path: key, content: "select * from acme_orders\n" }
+              },
+            })
+          },
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            return { key, path: key, content: "" }
+          },
+        }),
+      },
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: {
+              grants: [{ source: "ingestion" }],
+              scope: "acme",
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspaceWithStaleIngestion(), "read", {
+      context: invocationContext,
+      workspaceDefinition,
+    })
+
+    await expect(resolved.workspace!.fs.readFile("ingestion/acme/models/orders.sql")).resolves.toBe("select * from acme_orders\n")
+    await expect(resolved.workspace!.fs.exists("ingestion/globex/models/orders.sql")).resolves.toBe(false)
+    await expect(resolved.workspace!.fs.readFile("ingestion/globex/models/orders.sql")).rejects.toThrow("Workspace path does not exist")
+    expect(invocationContext.get("access")?.workspaceScope?.paths).toEqual(["ingestion/acme", ".vitehub/sources/ingestion.json"])
+    expect(Object.keys(invocationContext.toJSON()).filter(key => key.startsWith("access"))).toEqual(["access"])
+  })
+
+  it("forwards lazy Source materialization through scoped workspace facades", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const calls: unknown[] = []
+    const base = createWorkspace()
+    const workspace: ReadonlyWorkspaceFacade = {
+      ...base,
+      fs: {
+        ...base.fs,
+        async materializeSources(options = {}) {
+          calls.push(options)
+          return {
+            bytes: 10,
+            directories: 1,
+            durationMs: 2,
+            files: 1,
+            path: options.path || "",
+            sources: [
+              { mountPath: "ingestion/acme", source: "ingestion", status: "ready" },
+              { mountPath: "ingestion/globex", source: "ingestion", status: "ready" },
+            ],
+          }
+        },
+      },
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: {
+              grants: [{ path: "ingestion/acme" }],
+              scope: "acme",
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace)
+
+    await expect(resolved.workspace!.fs.materializeSources?.({
+      path: "ingestion/globex",
+      sources: ["ingestion"],
+    })).rejects.toThrow("Workspace path does not exist")
+    await expect(resolved.workspace!.fs.materializeSources?.({
+      path: "ingestion/acme",
+      sources: ["ingestion"],
+    })).resolves.toMatchObject({
+      path: "ingestion/acme",
+      sources: [{ mountPath: "ingestion/acme", source: "ingestion", status: "ready" }],
+    })
+    expect(calls).toEqual([{ path: "ingestion/acme", sources: ["ingestion"] }])
+
+    calls.length = 0
+    await expect(resolved.workspace!.fs.materializeSources?.({
+      path: "ingestion",
+      sources: ["ingestion"],
+    })).resolves.toMatchObject({
+      path: "ingestion",
+      sources: [{ mountPath: "ingestion/acme", source: "ingestion", status: "ready" }],
+    })
+    await expect(resolved.workspace!.fs.materializeSources?.()).resolves.toMatchObject({
+      path: "",
+      sources: [{ mountPath: "ingestion/acme", source: "ingestion", status: "ready" }],
+    })
+    expect(calls).toEqual([
+      { path: "ingestion/acme", sources: ["ingestion"] },
+      { path: "ingestion/acme" },
+    ])
+
+    calls.length = 0
+    const sourceScoped = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: {
+              grants: [{ source: "acme" }],
+              scope: "acme",
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace, "read", {
+      workspaceDefinition: {
+        name: "support",
+        sources: {
+          acme: source.custom({
+            materialize: "lazy",
+            mount: "ingestion/acme",
+            async getKeys() {
+              return []
+            },
+            async getItem(key) {
+              return { key, content: "" }
+            },
+          }),
+          private: source.custom({
+            materialize: "lazy",
+            mount: "ingestion/acme/private",
+            async getKeys() {
+              return []
+            },
+            async getItem(key) {
+              return { key, content: "" }
+            },
+          }),
+        },
+      },
+    })
+    await sourceScoped.workspace!.fs.materializeSources?.()
+    expect(calls).toEqual([{ path: "ingestion/acme", sources: ["acme"] }])
+  })
+
+  it("omits resolved Source Instructions when the resolved source is outside access scope", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const { resolveWorkspaceSourceInstructionBlock } = await import("../src/workspace-agent.ts")
+    const invocationContext = createAgentInvocationContextStore()
+    const workspaceDefinition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        ingestion: source.custom({
+          async resolve() {
+            return source.custom({
+              instructions: "Use this source for globex ingestion models only.",
+              mount: "ingestion/globex",
+              async getKeys() {
+                return ["models/orders.sql"]
+              },
+              async getItem(key) {
+                return { key, path: key, content: "select * from globex_orders\n" }
+              },
+            })
+          },
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            return { key, path: key, content: "" }
+          },
+        }),
+      },
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: {
+              grants: [{ path: "ingestion/acme" }],
+              scope: "acme",
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace(), "read", {
+      context: invocationContext,
+      workspaceDefinition,
+    })
+
+    await expect(resolved.workspace!.fs.exists("ingestion/globex/models/orders.sql")).resolves.toBe(false)
+    const resolvedDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
+    await expect(resolveWorkspaceSourceInstructionBlock(resolvedDefinition, resolved.workspace)).resolves.toBeUndefined()
   })
 
   it("fails closed when access is ordered after another capability", async () => {

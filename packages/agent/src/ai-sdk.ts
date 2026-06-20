@@ -1,4 +1,9 @@
 import { getMessageText } from "./messages.ts"
+import { jsonSchema } from "ai"
+import {
+  cloneWithPropertyDescriptors,
+  teeingAsyncIterableStreamDescriptor,
+} from "./internal/stream-result.ts"
 import {
   applyCapabilityInstructionSlots,
   applyCapabilityToolTransforms,
@@ -9,6 +14,10 @@ import {
   reportWorkspaceMaterialization,
   withAgentToolStepReporting,
 } from "./tool-runtime.ts"
+import {
+  aiSdkTelemetryIntegration,
+  hasAgentTraceLog,
+} from "./trace.ts"
 
 import type {
   Agent,
@@ -43,6 +52,7 @@ export interface AiSdkAdapterOptions<
   TTools extends ToolSet = ToolSet,
   Name extends WorkspaceName = WorkspaceName,
 > {
+  execution?: AiSdkModelExecutionOptions<TRuntimeConfig, TCallOptions, TTools>
   instructions?: AgentAdapterInstructions<TRuntimeConfig, Name>
   modelExecution?: AiSdkModelExecutionOptions<TRuntimeConfig, TCallOptions, TTools>
   model: ToolLoopAgentSettings<TCallOptions, TTools>["model"] | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<ToolLoopAgentSettings<TCallOptions, TTools>["model"]>)
@@ -82,43 +92,105 @@ function toTextModelMessageContent(parts: MessagePart[]): string {
   }).filter(Boolean).join("\n")
 }
 
+type AssistantContentPart = Exclude<AssistantContent, string>[number]
+type ToolContentPart = ToolContent[number]
+
 function toToolResultOutput(part: Extract<MessagePart, { type: "tool-result" }>): ToolResultPart["output"] {
-  return (part.error ? { error: part.error } : part.output ?? null) as ToolResultPart["output"]
+  if (part.error) {
+    return { type: "error-text", value: part.error } as ToolResultPart["output"]
+  }
+  const output = part.output ?? null
+  if (typeof output === "string") {
+    return { type: "text", value: output } as ToolResultPart["output"]
+  }
+  return { type: "json", value: output } as ToolResultPart["output"]
 }
 
-function toAssistantModelMessageContent(parts: MessagePart[]): AssistantContent {
-  const content: Exclude<AssistantContent, string> = []
+function toToolResultModelPart(part: Extract<MessagePart, { type: "tool-result" }>): ToolResultPart {
+  return {
+    output: toToolResultOutput(part),
+    toolCallId: part.id,
+    toolName: part.name,
+    type: "tool-result",
+  }
+}
+
+function toApprovalResponseModelPart(part: Extract<MessagePart, { type: "approval-decision" }>): ToolContentPart {
+  return {
+    approvalId: part.id,
+    approved: part.approved,
+    reason: part.reason,
+    type: "tool-approval-response",
+  }
+}
+
+function toAssistantModelMessagePart(part: MessagePart): AssistantContentPart | undefined {
+  if (part.type === "text") {
+    return { text: part.text, type: "text" as const }
+  }
+  if (part.type === "tool-call") {
+    return {
+      input: part.input ?? {},
+      toolCallId: part.id,
+      toolName: part.name,
+      type: "tool-call" as const,
+    }
+  }
+  if (part.type === "approval-request") {
+    return {
+      approvalId: part.id,
+      toolCallId: part.id,
+      type: "tool-approval-request" as const,
+    }
+  }
+}
+
+function pushAssistantModelMessage(messages: ModelMessage[], content: AssistantContentPart[]): void {
+  if (content.length) {
+    messages.push({ content, role: "assistant" })
+  }
+}
+
+function pushToolModelMessage(messages: ModelMessage[], content: ToolContent): void {
+  if (content.length) {
+    messages.push({ content, role: "tool" })
+  }
+}
+
+function toAssistantModelMessages(parts: MessagePart[]): ModelMessage[] {
+  const messages: ModelMessage[] = []
+  let assistantContent: AssistantContentPart[] = []
+  let toolContent: ToolContent = []
 
   for (const part of parts) {
-    if (part.type === "text") {
-      content.push({ text: part.text, type: "text" as const })
-    }
-    if (part.type === "tool-call") {
-      content.push({
-        input: part.input,
-        toolCallId: part.id,
-        toolName: part.name,
-        type: "tool-call" as const,
-      })
-    }
     if (part.type === "tool-result") {
-      content.push({
-        output: toToolResultOutput(part),
-        toolCallId: part.id,
-        toolName: part.name,
-        type: "tool-result" as const,
-      })
+      pushAssistantModelMessage(messages, assistantContent)
+      assistantContent = []
+      toolContent.push(toToolResultModelPart(part))
+      continue
     }
-    if (part.type === "approval-request") {
-      content.push({
-        approvalId: part.id,
-        toolCallId: part.id,
-        type: "tool-approval-request" as const,
-      })
+    if (part.type === "approval-decision") {
+      pushAssistantModelMessage(messages, assistantContent)
+      assistantContent = []
+      toolContent.push(toApprovalResponseModelPart(part))
+      continue
+    }
+    const assistantPart = toAssistantModelMessagePart(part)
+    if (assistantPart) {
+      pushToolModelMessage(messages, toolContent)
+      toolContent = []
+      assistantContent.push(assistantPart)
     }
   }
 
-  return content.length ? content : toTextModelMessageContent(parts)
+  pushAssistantModelMessage(messages, assistantContent)
+  pushToolModelMessage(messages, toolContent)
+  if (messages.length) return messages
+
+  const content = toTextModelMessageContent(parts)
+  return hasModelMessageContent(content)
+    ? [{ content, role: "assistant" }]
+    : []
 }
 
 function toToolModelMessageContent(parts: MessagePart[]): ToolContent {
@@ -126,20 +198,10 @@ function toToolModelMessageContent(parts: MessagePart[]): ToolContent {
 
   for (const part of parts) {
     if (part.type === "tool-result") {
-      content.push({
-        output: toToolResultOutput(part),
-        toolCallId: part.id,
-        toolName: part.name,
-        type: "tool-result" as const,
-      })
+      content.push(toToolResultModelPart(part))
     }
     if (part.type === "approval-decision") {
-      content.push({
-        approvalId: part.id,
-        approved: part.approved,
-        reason: part.reason,
-        type: "tool-approval-response" as const,
-      })
+      content.push(toApprovalResponseModelPart(part))
     }
   }
 
@@ -148,25 +210,21 @@ function toToolModelMessageContent(parts: MessagePart[]): ToolContent {
 
 export function toAiSdkModelMessages(messages: Message[]): ModelMessage[] {
   return messages
-    .map((message): ModelMessage | undefined => {
+    .flatMap((message): ModelMessage[] => {
       if (message.role === "assistant") {
-        const content = toAssistantModelMessageContent(message.parts)
-        return hasModelMessageContent(content)
-          ? { content, role: message.role } as ModelMessage
-          : undefined
+        return toAssistantModelMessages(message.parts)
       }
       if (message.role === "tool") {
         const content = toToolModelMessageContent(message.parts)
         return hasModelMessageContent(content)
-          ? { content, role: message.role } as ModelMessage
-          : undefined
+          ? [{ content, role: message.role } as ModelMessage]
+          : []
       }
       const content = getMessageText(message) || toTextModelMessageContent(message.parts)
       return hasModelMessageContent(content)
-        ? { content, role: message.role } as ModelMessage
-        : undefined
+        ? [{ content, role: message.role } as ModelMessage]
+        : []
     })
-    .filter((message): message is ModelMessage => Boolean(message))
 }
 
 function hasModelMessageContent(content: unknown): boolean {
@@ -310,71 +368,10 @@ function workspaceFallbackTextEvents(text: string): unknown[] {
   ]
 }
 
-function withAsyncIterator<T>(stream: ReadableStream<T>): AsyncIterable<T> & ReadableStream<T> {
-  if (typeof (stream as AsyncIterable<T>)[Symbol.asyncIterator] === "function") {
-    return stream as AsyncIterable<T> & ReadableStream<T>
-  }
-
-  Object.defineProperty(stream, Symbol.asyncIterator, {
-    configurable: true,
-    value: async function* () {
-      const reader = stream.getReader()
-      try {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) return
-          yield value
-        }
-      }
-      finally {
-        reader.releaseLock()
-      }
-    },
-  })
-  return stream as AsyncIterable<T> & ReadableStream<T>
-}
-
-function toReadableAsyncIterableStream<T>(iterable: AsyncIterable<T>): AsyncIterable<T> & ReadableStream<T> {
-  if (typeof (iterable as ReadableStream<T>).pipeThrough === "function") {
-    return withAsyncIterator(iterable as ReadableStream<T>)
-  }
-
-  const iterator = iterable[Symbol.asyncIterator]()
-  return withAsyncIterator(new ReadableStream<T>({
-    async cancel() {
-      await iterator.return?.()
-    },
-    async pull(controller) {
-      try {
-        const { done, value } = await iterator.next()
-        if (done) {
-          controller.close()
-        }
-        else {
-          controller.enqueue(value)
-        }
-      }
-      catch (error) {
-        controller.error(error)
-      }
-    },
-  }))
-}
-
 function cloneStreamTextResult<T extends object>(result: T, fullStream: AsyncIterable<unknown>): T {
-  const clone = Object.create(Object.getPrototypeOf(result)) as T
-  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(result))
-  let stream = toReadableAsyncIterableStream(fullStream)
-  Object.defineProperty(clone, "fullStream", {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const [next, branch] = stream.tee()
-      stream = withAsyncIterator(next)
-      return withAsyncIterator(branch)
-    },
+  return cloneWithPropertyDescriptors(result, {
+    fullStream: teeingAsyncIterableStreamDescriptor(fullStream),
   })
-  return clone
 }
 
 function withWorkspaceFallbackFullStream(
@@ -459,6 +456,26 @@ async function resolveTools(options: AiSdkAdapterOptions, context: AgentAdapterM
   }
 }
 
+const defaultToolInputSchema = jsonSchema({
+  additionalProperties: false,
+  properties: {},
+  type: "object",
+})
+
+function withDefaultToolInputSchemas<TTools extends Record<string, unknown> | undefined>(tools: TTools): TTools {
+  if (!tools) return tools
+  return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
+    const record = tool as { inputSchema?: unknown, type?: unknown } | undefined
+    if (!record || typeof record !== "object" || record.type === "provider" || record.type === "provider-defined" || record.inputSchema != null) {
+      return [name, tool]
+    }
+    return [name, {
+      ...record,
+      inputSchema: defaultToolInputSchema,
+    }]
+  })) as TTools
+}
+
 function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapterRunContext) {
   const {
     onRunStepFinish,
@@ -478,8 +495,10 @@ function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapt
   } & Record<string, unknown>
   const callbackContext = {
     ...context.runtime,
+    actor: context.actor,
     context: context.context,
     input: context.input,
+    invoker: context.invoker,
     run: context.runtime.run,
   }
 
@@ -512,19 +531,60 @@ function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapt
   }
 }
 
+function arrayFrom(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value
+  return value === undefined ? [] : [value]
+}
+
+function withViteHubTelemetry(settings: Record<string, unknown>, context: AgentAdapterRunContext): Record<string, unknown> {
+  if (!hasAgentTraceLog(context)) return settings
+  const existing = (settings.telemetry || settings.experimental_telemetry || {}) as {
+    integrations?: unknown
+    isEnabled?: boolean
+    recordInputs?: boolean
+    recordOutputs?: boolean
+  }
+  const globalIntegrations = Array.isArray((globalThis as { AI_SDK_TELEMETRY_INTEGRATIONS?: unknown[] }).AI_SDK_TELEMETRY_INTEGRATIONS)
+    ? (globalThis as { AI_SDK_TELEMETRY_INTEGRATIONS?: unknown[] }).AI_SDK_TELEMETRY_INTEGRATIONS!
+    : []
+  const integrations = existing.integrations === undefined ? globalIntegrations : arrayFrom(existing.integrations)
+  const telemetry = {
+    ...existing,
+    integrations: [...integrations, aiSdkTelemetryIntegration({
+      context: context.context,
+      input: context.input,
+      invoker: context.invoker,
+      run: context.runtime.run,
+      runtime: context.runtime,
+    })],
+    isEnabled: existing.isEnabled ?? true,
+    recordInputs: existing.recordInputs ?? false,
+    recordOutputs: existing.recordOutputs ?? false,
+  }
+
+  return {
+    ...settings,
+    telemetry,
+    experimental_telemetry: telemetry,
+  }
+}
+
 async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRunContext) {
   const { ToolLoopAgent, stepCountIs } = await import("ai")
+  const execution = options.execution ?? options.modelExecution
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   const metadataContext = {
     ...runtime,
+    actor: context.actor,
     context: context.context,
     fs: context.workspace?.fs,
+    invoker: context.invoker,
     workspace: context.workspace,
   } as AgentAdapterMetadataContext
   const model = await resolveValue(options.model as never, metadataContext)
-  const modelInstrumentation = options.modelExecution?.instrumentation?.model
+  const modelInstrumentation = execution?.instrumentation?.model
   const instrumentedModel = modelInstrumentation
-    ? await modelInstrumentation({ ...runtime, context: context.context, model, run: context.runtime.run })
+    ? await modelInstrumentation({ ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
   const instructions = context.instructions
     ?? applyWorkspaceSourceInstructionSlot(
@@ -532,10 +592,10 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
       context.sourceInstructions,
     )
   const adapterTools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)
-  const resolvedTools = await applyCapabilityToolTransforms({
+  const resolvedTools = withDefaultToolInputSchemas(await applyCapabilityToolTransforms({
     ...context.tools,
     ...adapterTools,
-  }, [])
+  }, []))
   const providerTools = Object.fromEntries((context.providerTools || []).map(tool => [tool.name, {
     args: tool.args || {},
     id: tool.id,
@@ -545,17 +605,20 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   const toolSet = { ...resolvedTools, ...providerTools }
   const {
     instructions: _instructions,
+    execution: _execution,
     modelExecution: _modelExecution,
     model: _model,
     tools: _tools,
   } = options
-  const stepLimit = options.modelExecution?.stepLimit
-  const baseCallSettings = { ...(options.modelExecution?.callSettings || {}) }
-  const instrumentedCallSettings = await options.modelExecution?.instrumentation?.callSettings?.({
+  const stepLimit = execution?.stepLimit
+  const baseCallSettings = { ...(execution?.callSettings || {}) }
+  const instrumentedCallSettings = await execution?.instrumentation?.callSettings?.({
     ...runtime,
+    actor: context.actor,
     callSettings: { ...baseCallSettings },
     context: context.context,
     input: context.input,
+    invoker: context.invoker,
     model: instrumentedModel,
     run: context.runtime.run,
     ...(Object.keys(toolSet).length ? { tools: toolSet as AgentToolSet } : {}),
@@ -564,7 +627,7 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
 
   return {
     agent: new ToolLoopAgent({
-      ...withRunCallbacks(settings, context),
+      ...withRunCallbacks(withViteHubTelemetry(settings, context), context),
       instructions,
       model: instrumentedModel as never,
       stopWhen: ((settings as Record<string, unknown>).stopWhen ?? stepCountIs(stepLimit ?? 20)) as never,
@@ -585,11 +648,12 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       if (context.workspace && tools && "materialize_sources" in tools) {
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.devtools?.reportToolStep)
       }
-      const result = await agent.generate(getCallInput(context) as never) as GenerateTextResult<ToolSet, never>
+      const result = await agent.generate(getCallInput(context) as never) as GenerateTextResult<ToolSet, never, never>
       const text = result.text.trim()
       if (text) return result as unknown as AgentAdapterResult
 
-      const fallback = getFallbackOptions(options.modelExecution?.workspaceFallback)
+      const execution = options.execution ?? options.modelExecution
+      const fallback = getFallbackOptions(execution?.workspaceFallback)
       if (fallback.enabled && (result.finishReason === "tool-calls" || hasToolResults(result))) {
         const synthesized = await synthesizeWorkspaceFallback(model as never, context, result, fallback.maxToolResults)
         if (synthesized) return { raw: result, text: synthesized }
@@ -617,8 +681,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     ...(staticTools ? { tools: staticTools } : {}),
     async stream(context) {
       const { agent, model } = await createAgent(options, context)
-      const result = await agent.stream(getCallInput(context) as never) as StreamTextResult<ToolSet, never>
-      return withWorkspaceFallbackStreamResult(result, model as never, context, getFallbackOptions(options.modelExecution?.workspaceFallback))
+      const result = await agent.stream(getCallInput(context) as never) as StreamTextResult<ToolSet, never, never>
+      const execution = options.execution ?? options.modelExecution
+      return withWorkspaceFallbackStreamResult(result, model as never, context, getFallbackOptions(execution?.workspaceFallback))
     },
   }
 }

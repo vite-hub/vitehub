@@ -633,7 +633,7 @@ export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinit
       }
       context.tools.add(tools)
       if (options.instructions !== false) {
-        context.instructions.add(options.instructions || "Memory tools operate on durable scoped records. Treat recalled memory as advisory and prefer the current user request when they conflict.", { id: "memory" })
+        context.instructions.add(options.instructions || "Use memory for durable facts that may matter later. Current requests win when memory conflicts.", { id: "memory" })
       }
     },
   })

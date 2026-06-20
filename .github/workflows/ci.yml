@@ -24,7 +24,7 @@ jobs:
         run: |
           report="$(mktemp)"
           set +e
-          pnpm fallow:dead-code | tee "$report"
+          vp run fallow:dead-code | tee "$report"
           status=${PIPESTATUS[0]}
           set -e
           {
@@ -34,10 +34,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
+      - run: vp run lint
+      - run: vp run typecheck
+      - run: vp run test:contracts
+      - run: vp run test
 
   docs:
     name: docs
@@ -46,5 +46,56 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
 
-      - run: pnpm --dir docs test
-      - run: pnpm docs:build
+      - run: vp run --filter vitehub-docs test
+      - run: vp run docs:build
+
+  verify-cloudflare:
+    name: verify (cloudflare)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+
+      - run: vp run build
+      - run: vp run playground:vite:build:local --provider cloudflare
+      - name: Provider Output Contract
+        run: vp run test:output:cloudflare
+      - name: Local Provider Run
+        run: vp run e2e:local --provider cloudflare
+
+  verify-vercel:
+    name: verify (vercel)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+      srh:
+        image: hiett/serverless-redis-http:latest
+        env:
+          SRH_MODE: env
+          SRH_TOKEN: local-srh-token
+          SRH_CONNECTION_STRING: redis://redis:6379
+        ports:
+          - 8079:80
+      sqld:
+        image: ghcr.io/tursodatabase/libsql-server:latest
+        ports:
+          - 8080:8080
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+
+      - run: vp run build
+      - run: vp run playground:vite:build:local --provider vercel
+      - name: Provider Output Contract
+        run: vp run test:output:vercel
+      - name: Local Provider Run
+        run: vp run e2e:local --provider vercel
+        env:
+          KV_REST_API_TOKEN: local-srh-token
+          KV_REST_API_URL: http://127.0.0.1:8079
+          TURSO_DATABASE_URL: http://127.0.0.1:8080

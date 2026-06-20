@@ -121,7 +121,7 @@ describe("drizzle runtime", () => {
 
     expect(db).toBe(databases.default.db)
     expect(databases.default.schema).toEqual({})
-    expect(() => databases.default.db.run).toThrow("[vitehub] `@vite-hub/database/drizzle` requires `hubDb()` and `db !== false`.")
+    expect(() => databases.default.db.run).toThrow("[vitehub] `@vite-hub/database/drizzle` requires `hubDb()` and `database !== false`.")
   })
 
   it("keeps db as the default database alias and serves named schemas independently", async () => {

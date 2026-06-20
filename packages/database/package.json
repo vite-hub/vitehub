@@ -2,31 +2,36 @@
   "name": "@vite-hub/database",
   "version": "0.0.1",
   "description": "Vite-first Drizzle database primitives for ViteHub.",
-  "author": "onmax <maximogarciamtnez@gmail.com>",
-  "license": "Apache-2.0",
+  "keywords": [
+    "database",
+    "db",
+    "drizzle",
+    "sqlite",
+    "vite",
+    "vitehub"
+  ],
   "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vite-hub/vitehub.git",
     "directory": "packages/database"
   },
-  "bugs": "https://github.com/vite-hub/vitehub/issues",
-  "keywords": [
-    "vitehub",
-    "vite",
-    "db",
-    "database",
-    "sqlite",
-    "drizzle"
+  "files": [
+    "dist",
+    "package.json"
   ],
-  "sideEffects": false,
   "type": "module",
+  "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
     "./cli": "./dist/cli.js",
     "./config": "./dist/config.js",
     "./drizzle": "./dist/drizzle.js",
+    "./nuxt": "./dist/nuxt.js",
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",
     "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",
@@ -34,16 +39,11 @@
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },
-  "files": [
-    "dist",
-    "package.json"
-  ],
   "scripts": {
-    "build": "tsdown --tsconfig tsconfig.build.json",
-    "dev": "tsdown --watch",
+    "build": "vp pack",
+    "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vite-hub/database build && vitest run",
-    "test:e2e": "tsx ./test/e2e.ts"
+    "test": "vp run -t @vite-hub/database#build && vp test"
   },
   "dependencies": {
     "@libsql/client": "catalog:database",
@@ -51,24 +51,26 @@
     "h3": "catalog:unjs",
     "pathe": "catalog:unjs"
   },
+  "devDependencies": {
+    "@vite-hub/internal": "workspace:*",
+    "drizzle-orm": "catalog:database",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
+  },
   "peerDependencies": {
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
-    "vite": "catalog:vite6-compat"
+    "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
     "vite": {
       "optional": true
     }
   },
-  "devDependencies": {
-    "@vite-hub/internal": "workspace:*",
-    "drizzle-orm": "catalog:database",
-    "publint": "catalog:tooling",
-    "tsdown": "catalog:tooling",
-    "tsx": "catalog:tooling",
-    "typescript": "catalog:tooling",
-    "vite": "catalog:vite",
-    "vitest": "catalog:tooling"
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

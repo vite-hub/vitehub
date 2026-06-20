@@ -34,14 +34,8 @@ describe("fetch sources", () => {
     registerWorkspace("fetch-json", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        status: source.fetch({
-          schema: {
-            "~standard": {
-              validate(input) {
-                return { value: input as { ignored: boolean, status: string } }
-              },
-            },
-          },
+        status: source.fetch<{ ignored: boolean, status: string }, { status: string }>({
+          workspacePath: "api/summary.json",
           transform: data => ({ status: data.status }),
           url: "https://status.example.com/api/summary",
         }),
@@ -49,7 +43,6 @@ describe("fetch sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("fetch-json")
-    await workspace.sync()
 
     await expect(workspace.stat("api/summary.json")).resolves.toMatchObject({ path: "api/summary.json", type: "file" })
     await expect(workspace.list("api")).resolves.toEqual([
@@ -61,21 +54,45 @@ describe("fetch sources", () => {
     expect(request).toHaveBeenCalledTimes(2)
   })
 
+  it("preserves plain-object fetch source paths", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "ok" }))
+
+    registerWorkspace("fetch-plain-object-path", defineWorkspace({
+      store: { provider: "memory" },
+      sources: {
+        status: {
+          path: "status.json",
+          url: "https://status.example.com/health",
+        },
+      },
+    }))
+
+    const fs = useWorkspace("fetch-plain-object-path").fs
+    await expect(fs.readFile("status.json")).resolves.toBe(JSON.stringify({ status: "ok" }, null, 2))
+    await expect(fs.list(".vitehub/sources")).resolves.toEqual([
+      { path: ".vitehub/sources/status.json", type: "file" },
+    ])
+    await expect(fs.readFile(".vitehub/sources/status.json")).resolves.toContain("https://status.example.com/health")
+  })
+
   it("supports text, POST request factories, and explicit paths", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(textResponse("healthy"))
+    const cookie = vi.fn(() => "session-token")
 
     registerWorkspace("fetch-text", defineWorkspace({
       store: { provider: "memory" },
       sources: {
         status: source.fetch({
+          body: { scope: "all" },
+          headers: { authorization: "Bearer secret" },
           method: "POST",
-          path: "external/status/health.txt",
-          request: () => ({
-            body: { scope: "all" },
-            headers: { authorization: "Bearer secret" },
+          request: ({ request }) => ({
+            cookies: { auth_token: cookie() },
+            headers: { "x-request-method": request.method },
           }),
           responseType: "text",
           url: "https://status.example.com/query",
+          workspacePath: "external/status/health.txt",
         }),
       },
     }))
@@ -83,10 +100,14 @@ describe("fetch sources", () => {
     const workspace = useWorkspace("fetch-text")
 
     await expect(workspace.fs.readFile("external/status/health.txt")).resolves.toBe("healthy")
+    const init = request.mock.calls[0]?.[1] as RequestInit
     expect(request).toHaveBeenCalledWith("https://status.example.com/query", expect.objectContaining({
       body: JSON.stringify({ scope: "all" }),
       method: "POST",
     }))
+    expect((init.headers as Headers).get("authorization")).toBe("Bearer secret")
+    expect((init.headers as Headers).get("cookie")).toBe("auth_token=session-token")
+    expect((init.headers as Headers).get("x-request-method")).toBe("POST")
   })
 
   it("serializes top-level JSON strings as valid JSON", async () => {
@@ -96,8 +117,8 @@ describe("fetch sources", () => {
       store: { provider: "memory" },
       sources: {
         status: source.fetch({
-          path: "external/status/string.json",
           url: "https://status.example.com/string",
+          workspacePath: "external/status/string.json",
         }),
       },
     }))
@@ -114,9 +135,9 @@ describe("fetch sources", () => {
       sources: {
         ping: source.fetch({
           method: "HEAD",
-          path: "external/status/ping.txt",
           responseType: "text",
           url: "https://status.example.com/ping",
+          workspacePath: "external/status/ping.txt",
         }),
       },
     }))
@@ -131,18 +152,14 @@ describe("fetch sources", () => {
     })).toThrow("responseType")
   })
 
-  it("requires explicit paths for query URLs and keeps source paths read-only", async () => {
-    expect(() => source.fetch({
-      url: "https://status.example.com/api/summary?region=eu",
-    })).toThrow("explicit path")
-
+  it("supports query URLs and keeps source paths read-only", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "ok" }))
     registerWorkspace("fetch-readonly", defineWorkspace({
       store: { provider: "memory" },
       sources: {
         status: source.fetch({
-          path: "status/eu.json",
           url: "https://status.example.com/api/summary?region=eu",
+          workspacePath: "status/eu.json",
         }),
       },
     }))
@@ -158,14 +175,13 @@ describe("fetch sources", () => {
       store: { provider: "memory" },
       sources: {
         status: source.fetch({
-          path: "status/summary.json",
           url: "https://status.example.com/api/summary",
+          workspacePath: "status/summary.json",
         }),
       },
     }))
 
     const workspace = await useRegisteredWorkspace("fetch-materialize")
-    await workspace.sync()
 
     await expect(workspace.diff()).resolves.toMatchObject({ entries: [] })
     await workspace.materializeSources?.({ sources: ["status"] })
@@ -185,8 +201,8 @@ describe("fetch sources", () => {
       name: "fetch-stale-listing",
       sources: {
         status: source.fetch({
-          path: "status/new.json",
           url: "https://status.example.com/new",
+          workspacePath: "status/new.json",
         }),
       },
     }, store)
@@ -205,8 +221,8 @@ describe("fetch sources", () => {
       name: "fetch-search",
       sources: {
         status: source.fetch({
-          path: "status/search.json",
           url: "https://status.example.com/search",
+          workspacePath: "status/search.json",
         }),
       },
     }, createMemoryWorkspaceStore())
@@ -229,8 +245,8 @@ describe("fetch sources", () => {
       name: "fetch-root-listing",
       sources: {
         status: source.fetch({
-          path: "summary.json",
           url: "https://status.example.com/summary",
+          workspacePath: "summary.json",
         }),
       },
     }, store)
@@ -252,8 +268,8 @@ describe("fetch sources", () => {
       name: "fetch-root-refresh",
       sources: {
         status: source.fetch({
-          path: "old.json",
           url: "https://status.example.com/old",
+          workspacePath: "old.json",
         }),
       },
     }, store)
@@ -263,12 +279,128 @@ describe("fetch sources", () => {
       name: "fetch-root-refresh",
       sources: {
         status: source.fetch({
-          path: "new.json",
           url: "https://status.example.com/new",
+          workspacePath: "new.json",
         }),
       },
     }, store)
     await expect(nextView.writeFile("old.json", "editable")).resolves.toBeUndefined()
     await expect(nextView.readFile("old.json")).resolves.toBe("editable")
+  })
+
+  it("exposes request-only fetch descriptors under .vitehub/sources", async () => {
+    const querySchema = {
+      "~standard": {
+        jsonSchema: {
+          input() {
+            return {
+              additionalProperties: false,
+              properties: {
+                region: { default: "eu", type: "string" },
+              },
+              type: "object",
+            }
+          },
+        },
+        validate(input: unknown) {
+          return { value: { region: "eu", ...(input as Record<string, unknown>) } }
+        },
+      },
+    } as const
+    const view = createWorkspaceSourceView({
+      name: "fetch-request-only",
+      sources: {
+        inventoryHealthSummary: source.fetch({
+          cookies: { auth_token: "secret" },
+          instructions: "Use for fresh filtered inventory health data.",
+          querySchema,
+          url: "https://portal.example.com/runtime/inventory-health",
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.exists(".vitehub/sources/inventoryHealthSummary.json")).resolves.toBe(true)
+    await expect(view.exists("inventoryHealthSummary")).resolves.toBe(false)
+    await expect(view.list(".vitehub/sources")).resolves.toEqual([
+      { path: ".vitehub/sources/inventoryHealthSummary.json", type: "file" },
+    ])
+    const descriptor = JSON.parse(await view.readFile(".vitehub/sources/inventoryHealthSummary.json"))
+    expect(descriptor).toEqual({
+      credentials: { cookies: ["auth_token"] },
+      method: "GET",
+      request: {
+        querySchema: {
+          additionalProperties: false,
+          properties: {
+            region: { default: "eu", type: "string" },
+          },
+          type: "object",
+        },
+      },
+      responseType: "json",
+      sourceKey: "inventoryHealthSummary",
+      url: "https://portal.example.com/runtime/inventory-health",
+    })
+    await expect(view.writeFile(".vitehub/sources/inventoryHealthSummary.json", "{}")).rejects.toThrow("read-only")
+  })
+
+  it("uses schema-derived defaults for source-backed fetch reads", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ status: "ok" }))
+    const querySchema = {
+      "~standard": {
+        jsonSchema: {
+          input() {
+            return {
+              properties: {
+                region: { default: "eu", type: "string" },
+              },
+              type: "object",
+            }
+          },
+        },
+        validate(input: unknown) {
+          return { value: { region: "eu", ...(input as Record<string, unknown>) } }
+        },
+      },
+    } as const
+    const view = createWorkspaceSourceView({
+      name: "fetch-schema-default",
+      sources: {
+        status: source.fetch({
+          querySchema,
+          url: "https://status.example.com/api/summary",
+          workspacePath: "status/summary.json",
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.readFile("status/summary.json")).resolves.toContain("\"status\": \"ok\"")
+    expect(request.mock.calls[0]?.[0]).toBe("https://status.example.com/api/summary?region=eu")
+  })
+
+  it("rejects ambiguous request part declarations", () => {
+    const schema = {
+      "~standard": {
+        jsonSchema: { input: () => ({ type: "object" }) },
+        validate: () => ({ value: {} }),
+      },
+    } as const
+
+    expect(() => source.fetch({
+      query: { region: "eu" },
+      querySchema: schema,
+      url: "https://status.example.com/query",
+    })).toThrow("either query or querySchema")
+    expect(() => source.fetch({
+      body: { scope: "all" },
+      bodySchema: schema,
+      method: "POST",
+      url: "https://status.example.com/query",
+    })).toThrow("either body or bodySchema")
+    expect(() => source.fetch({
+      body: { scope: "all" },
+      method: "GET",
+      url: "https://status.example.com/query",
+    })).toThrow("GET requests cannot declare body")
   })
 })

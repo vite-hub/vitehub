@@ -1,13 +1,14 @@
 import {
   defineAgent,
   runAgent,
-  withWorkspaceAgentDefaults,
+  withAgentDefaults,
 } from "./index.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
 import type {
   AgentInput,
+  AgentModelExecutionOptions,
   AgentModelInstrumentation,
   AgentRunInput,
   AgentRunMetadata,
@@ -66,26 +67,47 @@ function withTestModelInstrumentation<TRuntimeConfig extends AgentRuntimeConfig>
   }
 
   const workspaceAgent = agent as WorkspaceAgentDefinition<TRuntimeConfig>
-  const modelExecution = workspaceAgent.__vitehubWorkspaceAgentOptions.modelExecution
+  const driver = (workspaceAgent.__vitehubWorkspaceAgentOptions as { driver?: unknown }).driver
+  const modelDriver = typeof driver === "object" && driver !== null && "model" in driver
+    ? driver as { execution?: AgentModelExecutionOptions<TRuntimeConfig> }
+    : undefined
+  const modelExecution = modelDriver
+    ? modelDriver.execution
+    : workspaceAgent.__vitehubWorkspaceAgentOptions.modelExecution
+  if (driver && !modelDriver) {
+    return agent
+  }
   const originalInstrumentation = modelExecution?.instrumentation?.model as AgentModelInstrumentation<TRuntimeConfig> | undefined
-  return defineAgent({
-    ...workspaceAgent.__vitehubWorkspaceAgentOptions,
-    modelExecution: {
-      ...modelExecution,
-      instrumentation: {
-        ...modelExecution?.instrumentation,
-        async model(context: Parameters<AgentModelInstrumentation<TRuntimeConfig>>[0]) {
-          const model = originalInstrumentation
-            ? await originalInstrumentation(context)
-            : context.model
-          return await instrumentation({
-            ...context,
-            model,
-          })
-        },
+  const instrumentedExecution = {
+    ...modelExecution,
+    instrumentation: {
+      ...modelExecution?.instrumentation,
+      async model(context: Parameters<AgentModelInstrumentation<TRuntimeConfig>>[0]) {
+        const model = originalInstrumentation
+          ? await originalInstrumentation(context)
+          : context.model
+        return await instrumentation({
+          ...context,
+          model,
+        })
       },
     },
-  }) as AgentInput<AgentRuntimeContext<TRuntimeConfig>>
+  }
+  const nextOptions = modelDriver
+    ? {
+        ...workspaceAgent.__vitehubWorkspaceAgentOptions,
+        driver: {
+          ...(driver as Record<string, unknown>),
+          execution: instrumentedExecution,
+        },
+      }
+    : {
+        ...workspaceAgent.__vitehubWorkspaceAgentOptions,
+        modelExecution: instrumentedExecution,
+      }
+  return defineAgent({
+    ...nextOptions,
+  } as never) as AgentInput<AgentRuntimeContext<TRuntimeConfig>>
 }
 
 function createDefaultRun(name: string | undefined): AgentRunMetadata {
@@ -189,12 +211,13 @@ export function createAgentTestRunner<
     registerWorkspace(options.workspace, agent)
   }
 
-  const preparedAgent = options.workspace
-    ? withWorkspaceAgentDefaults(
-        withTestModelInstrumentation(agent, options.instrumentModel) as WorkspaceAgentDefinition<TRuntimeConfig>,
-        { name: options.name, workspace: options.workspace },
-      )
-    : withTestModelInstrumentation(agent, options.instrumentModel)
+  const instrumentedAgent = withTestModelInstrumentation(agent, options.instrumentModel)
+  const preparedAgent: AgentInput<AgentRuntimeContext<TRuntimeConfig>> = options.workspace
+    ? withAgentDefaults(
+        instrumentedAgent,
+        { inferredName: options.name, workspace: options.workspace },
+      ) as AgentInput<AgentRuntimeContext<TRuntimeConfig>>
+    : instrumentedAgent
 
   return {
     async run(input) {

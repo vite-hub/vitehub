@@ -2,25 +2,29 @@
   "name": "@vite-hub/ci",
   "version": "0.0.1",
   "description": "Provider-agnostic CI and deployment status/log primitives for ViteHub.",
-  "author": "onmax <maximogarciamtnez@gmail.com>",
-  "license": "Apache-2.0",
+  "keywords": [
+    "ci",
+    "cloudflare",
+    "deployments",
+    "github-actions",
+    "vercel",
+    "vitehub"
+  ],
   "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vite-hub/vitehub.git",
     "directory": "packages/ci"
   },
-  "bugs": "https://github.com/vite-hub/vitehub/issues",
-  "keywords": [
-    "vitehub",
-    "ci",
-    "deployments",
-    "cloudflare",
-    "vercel",
-    "github-actions"
+  "files": [
+    "dist",
+    "package.json"
   ],
-  "sideEffects": false,
   "type": "module",
+  "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
@@ -30,15 +34,11 @@
     "./vercel": "./dist/providers/vercel.js",
     "./package.json": "./package.json"
   },
-  "files": [
-    "dist",
-    "package.json"
-  ],
   "scripts": {
-    "build": "tsdown --tsconfig tsconfig.build.json",
-    "dev": "tsdown --watch",
+    "build": "vp pack",
+    "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vite-hub/ci build && vitest run"
+    "test": "vp run -t @vite-hub/ci#build && vp test"
   },
   "dependencies": {
     "ofetch": "catalog:unjs",
@@ -46,8 +46,11 @@
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
-    "tsdown": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
+  },
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

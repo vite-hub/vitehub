@@ -11,6 +11,7 @@ import { createMemoryWorkspaceStore } from "./memory.ts"
 
 import type {
   CloudflareArtifactsWorkspaceStoreOptions,
+  GitHubWorkspaceStoreOptions,
   VercelBlobWorkspaceStoreOptions,
   WorkspaceDefinition,
   WorkspaceStore,
@@ -71,6 +72,21 @@ export function resolveVercelBlobWorkspaceStore(
   }
 }
 
+export function resolveGitHubWorkspaceStore(
+  config: Partial<GitHubWorkspaceStoreOptions> = {},
+  env: Record<string, string | undefined> = process.env,
+): GitHubWorkspaceStoreOptions {
+  return {
+    branch: trimmed(config.branch) ?? readEnv(env, "WORKSPACE_GITHUB_BRANCH", "VITEHUB_WORKSPACE_GITHUB_BRANCH", "GITHUB_BRANCH") ?? "main",
+    provider: "github",
+    repository: trimmed(config.repository)
+      ?? trimmed(config.repo)
+      ?? readEnv(env, "WORKSPACE_GITHUB_REPOSITORY", "VITEHUB_WORKSPACE_GITHUB_REPOSITORY", "GITHUB_REPOSITORY"),
+    root: trimmed(config.root) ?? readEnv(env, "WORKSPACE_GITHUB_ROOT", "VITEHUB_WORKSPACE_GITHUB_ROOT") ?? ".vitehub/workspaces/<workspace>",
+    token: MASKED_WORKSPACE_RUNTIME_VALUE,
+  }
+}
+
 export function hasVercelWorkspaceBlobEnv(env: Record<string, string | undefined>): boolean {
   return Boolean(readEnv(env, "BLOB_READ_WRITE_TOKEN"))
 }
@@ -87,6 +103,7 @@ export function normalizeWorkspaceStoreOptions(
   const hosting = input.hosting || ""
 
   if (store?.provider === "cloudflare-artifacts") return resolveCloudflareArtifactsStore(store, env)
+  if (store?.provider === "github") return resolveGitHubWorkspaceStore(store, env)
   if (store?.provider === "memory") return store
   if (store?.provider === "vercel-blob") return resolveVercelBlobWorkspaceStore(store, env)
   if (store?.provider === "local" || store?.root) return defu(store, { provider: "local" as const }) as ResolvedWorkspaceStoreOptions
@@ -113,7 +130,7 @@ export function createWorkspaceStoreFromProvider(definition: WorkspaceDefinition
   })
 
   if (store?.provider === "memory") return createMemoryWorkspaceStore()
-  if (store?.provider === "cloudflare-artifacts" || store?.provider === "vercel-blob") {
+  if (store?.provider === "cloudflare-artifacts" || store?.provider === "github" || store?.provider === "vercel-blob") {
     const loader = getWorkspaceHostedStoreLoader()
     if (!loader) throw new WorkspaceError(`[vitehub] Hosted workspace store "${store.provider}" is not available in this runtime.`)
     return loader(store, definition.name)

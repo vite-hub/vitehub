@@ -1,7 +1,7 @@
 {
   "name": "vitehub-docs",
-  "description": "Server primitives for Vite.",
   "private": true,
+  "description": "Server primitives for Vite.",
   "type": "module",
   "imports": {
     "#vitehub-docs-manifest": "./.generated/docs-manifest.mjs"
@@ -12,7 +12,7 @@
     "pretest": "nuxi prepare",
     "dev": "nuxi dev",
     "build": "NODE_OPTIONS='--max-old-space-size=8192' nuxi build",
-    "test": "vitest run",
+    "test": "vp test",
     "typecheck": "nuxi prepare && ! vue-tsc --noEmit 2>&1 | grep 'error TS' | grep -Ev 'node_modules/.pnpm/docus@|docus/(app/pages/\\[\\[lang\\]\\]/\\[\\.\\.\\.slug\\]\\.vue\\(48,15\\): error TS2345|modules/config\\.ts\\(38,5\\): error TS2322)'",
     "generate": "NODE_OPTIONS='--max-old-space-size=8192' nuxi generate",
     "preview": "nuxi preview"
@@ -20,9 +20,9 @@
   "dependencies": {
     "@nuxt/content": "catalog:nuxt",
     "@nuxt/ui": "catalog:nuxt",
-    "@vueuse/core": "catalog:ui",
     "@vite-hub/agent": "workspace:*",
     "@vitejs/devtools-kit": "catalog:vite",
+    "@vueuse/core": "catalog:ui",
     "docus": "catalog:nuxt",
     "h3": "catalog:h3-v1-compat",
     "nuxt": "catalog:nuxt",
@@ -32,7 +32,11 @@
     "@iconify-json/lucide": "catalog:ui",
     "@iconify-json/simple-icons": "catalog:ui",
     "@iconify-json/vscode-icons": "catalog:ui",
+    "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue-tsc": "catalog:tooling"
+  },
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

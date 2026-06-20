@@ -15,7 +15,10 @@
 - [Blob](./contexts/blob/CONTEXT.md) - names object/file storage primitives and configured stores.
 - [Workspace](./contexts/workspace/CONTEXT.md) - names persistent file-tree state and source ingestion.
 - [Schedule](./contexts/schedule/CONTEXT.md) - names future and recurring runtime work.
+- [Verification](./contexts/verification/CONTEXT.md) - names how the workspace proves primitives work, from offline output contracts to scheduled live smoke.
 - [Agent Package](./contexts/packages/agent/CONTEXT.md) - names ownership boundaries for `@vite-hub/agent`.
+- [Auth](./contexts/auth/CONTEXT.md) - names authentication primitives, users, sessions, and their boundary with Agent Actors.
+- [Auth Package](./contexts/packages/auth/CONTEXT.md) - names ownership boundaries for `@vite-hub/auth`.
 - [Blob Package](./contexts/packages/blob/CONTEXT.md) - names ownership boundaries for `@vite-hub/blob`.
 - [Database Package](./contexts/packages/database/CONTEXT.md) - names ownership boundaries for `@vite-hub/database`.
 - [DevTools Package](./contexts/packages/devtools/CONTEXT.md) - names ownership boundaries for `@vite-hub/devtools`.
@@ -33,9 +36,13 @@
 
 - **Framework Integrations -> Packages**: Packages use framework integrations to discover definitions, generate runtime registries, and bind provider output.
 - **Framework Integrations -> DevTools**: Vite integrations register DevTools features and bridges for the hosted DevTools client.
+- **Verification -> Framework Integrations**: Provider Output Contracts and Local Provider Runs assert and execute the Provider Output that Vite Integrations generate.
 - **Capabilities -> Agents**: Agents attach Capabilities to expose user-shareable abilities.
 - **CLI -> Packages**: The ViteHub CLI can expose package-owned workflows without making each workflow a separate product.
 - **Agents -> Workspace**: Agents can reference Workspaces for persistent file-tree state.
+- **Auth -> Agents**: Auth can identify an application user and session, while Agents consume Agent Actors; future bridges may map Auth state into Agent Actors without merging the concepts.
+- **Auth Package -> Database Package**: Auth Database Placement uses the Database Package; the default co-locates Auth tables through a Package Database Contribution, while a dedicated Auth database remains explicit.
+- **Auth Package -> KV Package**: Auth Secondary Storage uses KV Store Selection and remains opt-in even when the KV Package is installed.
 - **Schedule -> Agents**: Schedule Targets can start Agent Invocations, but Schedule is not an Agent Capability.
 - **Workspace -> Blob**: Workspace Stores can use Blob Stores for persistence while Workspace owns file-tree behavior.
 - **Agents -> KV**: Agent-owned runtime behavior can use KV Stores internally when configured by ViteHub primitives.

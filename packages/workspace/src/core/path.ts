@@ -4,7 +4,7 @@ import { minimatch } from "minimatch"
 
 import { WorkspacePathError } from "./errors.ts"
 
-import type { ReadFileOptions, ReadFileResult, WorkspaceContent } from "./types.ts"
+import type { ReadFileOptions, ReadFileResult, WorkspaceContent, WorkspaceContentStream } from "./types.ts"
 
 export function normalizeWorkspacePath(path = ""): string {
   return path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "")
@@ -54,6 +54,46 @@ export function matchesAny(path: string, patterns?: string | string[]): boolean 
 
 export function contentToBytes(content: string | Uint8Array): Uint8Array {
   return typeof content === "string" ? new TextEncoder().encode(content) : content
+}
+
+function isReadableStream(value: unknown): value is ReadableStream<Uint8Array> {
+  return Boolean(value && typeof (value as { getReader?: unknown }).getReader === "function")
+}
+
+export async function* contentStreamChunks(stream: WorkspaceContentStream): AsyncGenerator<Uint8Array> {
+  if (isReadableStream(stream)) {
+    const reader = stream.getReader()
+    try {
+      while (true) {
+        const chunk = await reader.read()
+        if (chunk.done) return
+        yield chunk.value
+      }
+    }
+    finally {
+      reader.releaseLock()
+    }
+    return
+  }
+
+  yield* stream
+}
+
+export async function contentStreamToBytes(stream: WorkspaceContentStream): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for await (const chunk of contentStreamChunks(stream)) {
+    chunks.push(chunk)
+    size += chunk.byteLength
+  }
+
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
 }
 
 export function decodeFile<TOptions extends ReadFileOptions | undefined>(

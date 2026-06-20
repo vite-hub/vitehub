@@ -6,9 +6,12 @@ import type { UIMessage, UIMessagePart } from "ai"
 import {
   chatDevtoolsClearRpc,
   chatDevtoolsGetStateRpc,
+  chatDevtoolsMaterializeSourceRpc,
   chatDevtoolsSendRpc,
   chatDevtoolsStreamChannel,
+  type ChatDevtoolsConfigValue,
   type ChatDevtoolsFileTreeItem,
+  type ChatDevtoolsInvokerProfile,
   type ChatDevtoolsSendResult,
   type ChatDevtoolsStateResult,
   type ChatDevtoolsStreamEvent,
@@ -16,9 +19,24 @@ import {
   type ChatDevtoolsToolDefinition,
 } from "../../../src/chat-shared.js"
 import { resolveChatBridgeRoute } from "./bridge-route"
+import { flattenFiles, sourceRootStates, syncExpandedFilePaths, type FileRow, type SourceRootState } from "./file-tree"
 
 type ChatStatus = "ready" | "submitted" | "streaming" | "error"
 type ChatMessage = UIMessage & { chat?: string }
+type ConfirmationResult = "cancelled" | "done" | "timeout" | "undelivered"
+type SendInput = { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }
+type IntegrationSectionId = "config" | "files" | "tools" | "instructions" | "meta"
+const sendConnectTimeout = 15_000
+const sendConfirmationTimeout = 60_000
+const sendDeliveryTimeout = 3_000
+const sendConfirmationInterval = 700
+type ConfigRow = {
+  badge?: string
+  icon: string
+  label: string
+  mono?: boolean
+  value: string
+}
 
 const input = ref("")
 const promptInput = ref<HTMLTextAreaElement>()
@@ -30,6 +48,7 @@ const state = ref<ChatDevtoolsStateResult>({
   chats: [],
   files: [],
   instructions: [],
+  invokerProfiles: [],
   selected: "",
   tools: [],
 })
@@ -50,20 +69,17 @@ const chatMessages = computed(() => {
 })
 const pendingUserMessage = ref<ChatMessage | undefined>()
 const expandedFilePaths = ref(new Set<string>())
+const previousSourceRootStates = ref(new Map<string, SourceRootState>())
 const selectedFilePath = ref<string | undefined>()
-const sidebarWidth = ref(340)
+const activeIntegrationSection = ref<IntegrationSectionId>("config")
+const sidebarWidth = ref(300)
 let rpcClient: Awaited<ReturnType<typeof getDevToolsRpcClient>> | undefined
 let currentReader: { cancel: () => unknown } | undefined
+let metadataRefreshTimeout: ReturnType<typeof setTimeout> | undefined
+let metadataRefreshEpoch = 0
 let stopSidebarResize: (() => void) | undefined
 
 const disconnectedStatusMessage = "Connect through Vite DevTools to inspect a real chat runtime."
-const integrationTabs = [
-  { icon: "i-lucide-files", label: "Files", slot: "files" as const },
-  { icon: "i-lucide-wrench", label: "Tools", slot: "tools" as const },
-  { icon: "i-lucide-scroll-text", label: "Instructions", slot: "instructions" as const },
-]
-
-type FileRow = ChatDevtoolsFileTreeItem & { depth: number, expanded?: boolean }
 type FileMaterialization = {
   materialize?: string
   materialized?: boolean
@@ -79,6 +95,39 @@ const splitterStyle = computed(() => ({
 const thinkingFallback = computed(() => state.value.thinkingFallback || undefined)
 const chatTitleTarget = computed(() => normalizeChatTitle(selectedChat()?.title || state.value.title))
 const agentVersion = computed(() => state.value.version?.trim())
+const fallbackInvokerProfileId = "__vitehub_fallback__"
+const selectedInvokerProfileId = ref<string | undefined>()
+const invokerMetaStorageKey = "vitehub.chat.devtools.meta"
+const invokerMetaInput = ref("")
+const invokerMetaStorageReady = ref(false)
+const hasStoredInvokerMeta = ref(false)
+const parsedInvokerMeta = computed<{ error?: string, meta?: Record<string, unknown> }>(() => {
+  const raw = invokerMetaInput.value.trim()
+  if (!raw) return {}
+  try {
+    const meta = JSON.parse(raw) as unknown
+    return meta && typeof meta === "object" && !Array.isArray(meta)
+      ? { meta: meta as Record<string, unknown> }
+      : { error: "Meta must be a JSON object." }
+  }
+  catch {
+    return { error: "Meta must be valid JSON." }
+  }
+})
+const invokerMeta = computed(() => parsedInvokerMeta.value.meta)
+const invokerMetaError = computed(() => parsedInvokerMeta.value.error)
+const invokerProfiles = computed<ChatDevtoolsInvokerProfile[]>(() => state.value.invokerProfiles || [])
+const showInvokerSelector = computed(() => invokerProfiles.value.length > 0)
+const selectedConversationMessages = computed(() => stateUiMessages(state.value, state.value.selected))
+const isInvokerLocked = computed(() => selectedConversationMessages.value.length > 0 || messages.value.length > 0 || isBusy.value)
+const invokerSelectorTooltip = computed(() => isInvokerLocked.value ? "Clear the conversation to change invoker." : "")
+const invokerSelectItems = computed(() => [
+  ...invokerProfiles.value.map(profile => ({
+    label: profile.label || profile.kind || profile.id,
+    value: profile.id,
+  })),
+  { label: "Fallback", value: fallbackInvokerProfileId },
+])
 const recentTools = computed(() => {
   const tools = new Map<string, ChatDevtoolsTool>()
   for (const message of messages.value) {
@@ -99,6 +148,122 @@ const visibleTools = computed<ChatDevtoolsToolDefinition[]>(() => {
     status: tool.status === "error" ? "disabled" : "available",
   }))
 })
+const configRows = computed<ConfigRow[]>(() => agentConfigRows(state.value.config))
+const integrationSections = computed<Array<{ count: number, icon: string, id: IntegrationSectionId, label: string }>>(() => [
+  { count: configRows.value.length, icon: "i-lucide-settings-2", id: "config", label: "Config" },
+  { count: fileRows.value.length, icon: "i-lucide-files", id: "files", label: "Files" },
+  { count: visibleTools.value.length, icon: "i-lucide-wrench", id: "tools", label: "Tools" },
+  { count: state.value.instructions?.length || 0, icon: "i-lucide-scroll-text", id: "instructions", label: "Instructions" },
+  { count: invokerMeta.value ? Object.keys(invokerMeta.value).length : 0, icon: "i-lucide-braces", id: "meta", label: "Meta" },
+])
+const metadataStatus = computed(() => state.value.metadataStatus || "ready")
+const isMetadataLoading = computed(() => metadataStatus.value === "loading")
+const metadataError = computed(() => state.value.metadataError)
+
+function formattedConfigValue(value: ChatDevtoolsConfigValue) {
+  if (typeof value === "boolean") return value ? "true" : "false"
+  if (value === null) return "null"
+  return String(value)
+}
+
+function driverKindLabel(kind: string) {
+  if (kind === "model") return "Model-backed Agent Driver"
+  if (kind === "harness") return "Harness-backed Agent Driver"
+  if (kind === "run") return "Custom-run Agent Driver"
+  return kind
+}
+
+function workspaceFallbackLabel(value: NonNullable<NonNullable<NonNullable<ChatDevtoolsStateResult["config"]>["driver"]["execution"]>["workspaceFallback"]>) {
+  const enabled = value.enabled === false ? "disabled" : "enabled"
+  return value.maxToolResults !== undefined
+    ? `${enabled}, ${value.maxToolResults} tool results`
+    : enabled
+}
+
+function agentConfigRows(config: ChatDevtoolsStateResult["config"]): ConfigRow[] {
+  if (!config?.driver) return []
+
+  const rows: ConfigRow[] = [{
+    icon: "i-lucide-route",
+    label: "Driver",
+    value: driverKindLabel(config.driver.kind),
+  }]
+  const model = config.driver.model
+  if (model) {
+    rows.push({
+      ...(model.dynamic ? { badge: "dynamic" } : {}),
+      icon: "i-lucide-brain-circuit",
+      label: "Model",
+      mono: Boolean(model.id),
+      value: model.id || (model.dynamic ? "Dynamic model resolver" : "Configured model"),
+    })
+    if (model.provider) {
+      rows.push({
+        icon: "i-lucide-cloud",
+        label: "Provider",
+        mono: true,
+        value: model.provider,
+      })
+    }
+  }
+  const harness = config.driver.harness
+  if (harness?.provider) {
+    rows.push({
+      icon: "i-lucide-box",
+      label: "Harness",
+      mono: true,
+      value: harness.provider,
+    })
+  }
+  if (harness?.credentials?.label || harness?.credentials?.source) {
+    rows.push({
+      ...(harness.credentials.source ? { badge: harness.credentials.source } : {}),
+      icon: "i-lucide-key-round",
+      label: "Credentials",
+      value: harness.credentials.label || harness.credentials.source || "configured",
+    })
+  }
+  if (harness?.sandbox) {
+    rows.push({
+      icon: "i-lucide-box",
+      label: "Sandbox",
+      value: "configured",
+    })
+  }
+  if (harness?.sessionKey) {
+    rows.push({
+      icon: "i-lucide-link",
+      label: "Session key",
+      value: "configured",
+    })
+  }
+  const execution = config.driver.execution
+  if (execution?.stepLimit !== undefined) {
+    rows.push({
+      icon: "i-lucide-list-checks",
+      label: "Step limit",
+      mono: true,
+      value: String(execution.stepLimit),
+    })
+  }
+  if (execution?.workspaceFallback) {
+    rows.push({
+      icon: "i-lucide-undo-2",
+      label: "Workspace fallback",
+      value: workspaceFallbackLabel(execution.workspaceFallback),
+    })
+  }
+  for (const [key, value] of Object.entries(execution?.callSettings || {})) {
+    rows.push({
+      icon: "i-lucide-sliders-horizontal",
+      label: key,
+      mono: true,
+      value: formattedConfigValue(value),
+    })
+  }
+
+  return rows
+}
 
 function clearPendingMessages() {
   const pendingId = pendingUserMessage.value?.id
@@ -115,12 +280,17 @@ function normalizeChatTitle(value: string | undefined) {
 }
 
 function applyState(next: ChatDevtoolsStateResult) {
+  if (!hasStoredInvokerMeta.value && !invokerMetaInput.value.trim() && next.meta) {
+    invokerMetaInput.value = JSON.stringify(next.meta, null, 2)
+  }
   state.value = {
     files: next.files || [],
     instructions: next.instructions || [],
+    invokerProfiles: next.invokerProfiles || [],
     tools: next.tools || [],
     ...next,
   }
+  syncInvokerSelection(next)
   const chat = selectedChat(next)
   const serverMessages = chat?.uiMessages || next.uiMessages || []
   const nextMessages = [...serverMessages]
@@ -138,7 +308,53 @@ function applyState(next: ChatDevtoolsStateResult) {
 
   messages.value = nextMessages
   syncExpandedFiles(state.value.files || [])
+  if (isMetadataLoading.value) {
+    scheduleMetadataRefresh()
+  }
+  else {
+    stopMetadataRefresh()
+  }
+}
 
+function syncInvokerSelection(next: ChatDevtoolsStateResult) {
+  const profiles = next.invokerProfiles || []
+  if (!profiles.length) {
+    selectedInvokerProfileId.value = undefined
+    return
+  }
+  const selected = selectedChat(next)
+  if (selected?.invokerFallback || next.invokerFallback) {
+    selectedInvokerProfileId.value = fallbackInvokerProfileId
+    return
+  }
+  const profileId = selected?.invokerProfileId || next.invokerProfileId
+  if (profileId && profiles.some(profile => profile.id === profileId)) {
+    selectedInvokerProfileId.value = profileId
+    return
+  }
+  if (selectedInvokerProfileId.value === fallbackInvokerProfileId) {
+    return
+  }
+  if (selectedInvokerProfileId.value && profiles.some(profile => profile.id === selectedInvokerProfileId.value)) {
+    return
+  }
+  selectedInvokerProfileId.value = profiles[0]?.id
+}
+
+function selectedInvokerRequest() {
+  if (selectedInvokerProfileId.value === fallbackInvokerProfileId) {
+    return { invokerFallback: true }
+  }
+  return selectedInvokerProfileId.value
+    ? { invokerProfileId: selectedInvokerProfileId.value }
+    : {}
+}
+
+function devtoolsRequestInput() {
+  return {
+    ...selectedInvokerRequest(),
+    ...(invokerMeta.value !== undefined ? { meta: invokerMeta.value } : {}),
+  }
 }
 
 function applyStreamEvent(event: ChatDevtoolsStreamEvent) {
@@ -261,31 +477,8 @@ function renderToolOutput(tool: ChatDevtoolsTool) {
 }
 
 function syncExpandedFiles(files: ChatDevtoolsFileTreeItem[]) {
-  const expanded = new Set(expandedFilePaths.value)
-  const isInitialExpansion = expanded.size === 0
-  const visit = (items: ChatDevtoolsFileTreeItem[]) => {
-    for (const file of items) {
-      if (file.kind !== "directory") continue
-      if (file.path === "" || file.path === "/" || isInitialExpansion) {
-        expanded.add(file.path)
-      }
-      if (isInitialExpansion) {
-        visit(file.children || [])
-      }
-    }
-  }
-  visit(files)
-  expandedFilePaths.value = expanded
-}
-
-function flattenFiles(files: ChatDevtoolsFileTreeItem[], expanded: Set<string>, depth = 0): FileRow[] {
-  return files.flatMap((file) => {
-    const isExpanded = file.kind === "directory" && expanded.has(file.path)
-    return [
-      { ...file, depth, expanded: isExpanded },
-      ...(isExpanded ? flattenFiles(file.children || [], expanded, depth + 1) : []),
-    ]
-  })
+  expandedFilePaths.value = syncExpandedFilePaths(files, expandedFilePaths.value, previousSourceRootStates.value)
+  previousSourceRootStates.value = sourceRootStates(files)
 }
 
 function fileLabel(file: ChatDevtoolsFileTreeItem) {
@@ -293,6 +486,10 @@ function fileLabel(file: ChatDevtoolsFileTreeItem) {
 }
 
 function toggleFile(file: ChatDevtoolsFileTreeItem) {
+  if (isLazyFile(file)) {
+    void materializeFile(file)
+    return
+  }
   if (file.kind === "file") {
     selectedFilePath.value = file.path
     return
@@ -307,8 +504,9 @@ function toggleFile(file: ChatDevtoolsFileTreeItem) {
   expandedFilePaths.value = expanded
 }
 
-function fileMaterialization(file: ChatDevtoolsFileTreeItem): "lazy" | "materialized" | undefined {
+function fileMaterialization(file: ChatDevtoolsFileTreeItem): "lazy" | "materialized" | "updating" | undefined {
   const meta = file as ChatDevtoolsFileTreeItem & FileMaterialization
+  if (meta.status === "updating") return "updating"
   if (meta.status === "ready" || meta.materialized || meta.materializedAt) return "materialized"
   if (meta.status === "lazy" || (meta.materialized === false && meta.materialize === "lazy")) return "lazy"
   return undefined
@@ -316,6 +514,68 @@ function fileMaterialization(file: ChatDevtoolsFileTreeItem): "lazy" | "material
 
 function isLazyFile(file: ChatDevtoolsFileTreeItem) {
   return fileMaterialization(file) === "lazy" && Boolean((file as ChatDevtoolsFileTreeItem & FileMaterialization).source)
+}
+
+function fileMaterializationBadge(file: ChatDevtoolsFileTreeItem) {
+  const materialization = fileMaterialization(file)
+  if (materialization === "updating") return "Updating"
+  if (materialization === "lazy") return "Lazy"
+}
+
+function fileMaterializationColor(file: ChatDevtoolsFileTreeItem) {
+  return fileMaterialization(file) === "updating" ? "primary" : "warning"
+}
+
+function mapFileTree(
+  files: ChatDevtoolsFileTreeItem[],
+  path: string,
+  update: (file: ChatDevtoolsFileTreeItem) => ChatDevtoolsFileTreeItem,
+): ChatDevtoolsFileTreeItem[] {
+  return files.map((file) => {
+    const children = file.children ? mapFileTree(file.children, path, update) : undefined
+    const next = children ? { ...file, children } : file
+    return file.path === path ? update(next) : next
+  })
+}
+
+function setFileStatus(path: string, status: FileMaterialization["status"]) {
+  state.value = {
+    ...state.value,
+    files: mapFileTree(state.value.files || [], path, file => ({ ...file, status })),
+  }
+}
+
+async function materializeFile(file: ChatDevtoolsFileTreeItem) {
+  const source = (file as ChatDevtoolsFileTreeItem & FileMaterialization).source
+  if (!source) {
+    toggleFile(file)
+    return
+  }
+  if (invokerMetaError.value) return
+
+  metadataRefreshEpoch += 1
+  stopMetadataRefresh()
+  setFileStatus(file.path, "updating")
+  try {
+    const bridgeState = await callBridgeState({
+      action: chatDevtoolsMaterializeSourceRpc,
+      chat: state.value.selected,
+      path: file.path,
+      source,
+      ...devtoolsRequestInput(),
+    })
+    if (bridgeState) {
+      applyState(bridgeState)
+      expandedFilePaths.value = new Set([...expandedFilePaths.value, file.path])
+      error.value = undefined
+      return
+    }
+    await refreshFromBridge(state.value.selected)
+  }
+  catch (cause) {
+    setFileStatus(file.path, "error")
+    error.value = cause instanceof Error ? cause.message : "Workspace source materialization failed."
+  }
 }
 
 function hasToolOutput(tool: ChatDevtoolsTool) {
@@ -328,7 +588,7 @@ function startSidebarResize(event: PointerEvent) {
   if (event.pointerType === "mouse" && event.button !== 0) return
   event.preventDefault()
   const onMove = (moveEvent: PointerEvent) => {
-    sidebarWidth.value = Math.min(560, Math.max(280, window.innerWidth - moveEvent.clientX))
+    sidebarWidth.value = Math.min(480, Math.max(260, window.innerWidth - moveEvent.clientX))
   }
   const onUp = () => {
     document.body.style.cursor = ""
@@ -476,6 +736,22 @@ function waitForFrame() {
   return new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
 }
 
+function stopMetadataRefresh() {
+  if (!metadataRefreshTimeout) return
+  clearTimeout(metadataRefreshTimeout)
+  metadataRefreshTimeout = undefined
+}
+
+function scheduleMetadataRefresh() {
+  if (metadataRefreshTimeout || metadataStatus.value !== "loading") return
+  metadataRefreshTimeout = setTimeout(async () => {
+    metadataRefreshTimeout = undefined
+    if (metadataStatus.value === "loading") {
+      await refreshFromBridge(state.value.selected)
+    }
+  }, 700)
+}
+
 function localBridgeRoute() {
   const remoteConnection = parseRemoteConnection()
   return resolveChatBridgeRoute({
@@ -521,10 +797,16 @@ async function callBridgeState(body: Record<string, unknown>, signal?: AbortSign
   }
 }
 
-async function refresh() {
+function canApplyMetadataRefresh(epoch: number | undefined) {
+  return epoch === undefined || epoch === metadataRefreshEpoch
+}
+
+async function refresh(options: { metadataRefreshEpoch?: number } = {}) {
+  if (invokerMetaError.value) return
   if (!shouldPreferRpcBridge()) {
-    const bridgeState = await callBridgeState({ action: "get-state" })
+    const bridgeState = await callBridgeState({ action: "get-state", ...devtoolsRequestInput() })
     if (bridgeState) {
+      if (!canApplyMetadataRefresh(options.metadataRefreshEpoch)) return
       applyState(bridgeState)
       error.value = undefined
       return
@@ -532,7 +814,12 @@ async function refresh() {
   }
 
   try {
-    applyState(await callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc))
+    const next = await callRpc<ChatDevtoolsStateResult>(
+      chatDevtoolsGetStateRpc,
+      devtoolsRequestInput(),
+    )
+    if (!canApplyMetadataRefresh(options.metadataRefreshEpoch)) return
+    applyState(next)
     error.value = undefined
   }
   catch (cause) {
@@ -542,223 +829,167 @@ async function refresh() {
 }
 
 async function refreshFromBridge(chat?: string) {
+  const refreshEpoch = metadataRefreshEpoch
   if (shouldPreferRpcBridge()) {
-    await refresh()
+    await refresh({ metadataRefreshEpoch: refreshEpoch })
     return
   }
 
-  const bridgeState = await callBridgeState({ action: "get-state", ...(chat ? { chat } : {}) })
+  const bridgeState = await callBridgeState({
+    action: "get-state",
+    ...(chat ? { chat } : {}),
+    ...devtoolsRequestInput(),
+  })
   if (bridgeState) {
+    if (!canApplyMetadataRefresh(refreshEpoch)) return
     applyState(bridgeState)
     error.value = undefined
     return
   }
-  await refresh()
+  await refresh({ metadataRefreshEpoch: refreshEpoch })
 }
 
-async function pollFinalBridgeState(input: { chat?: string, text: string }, signal: AbortSignal) {
-  while (!signal.aborted) {
-    await new Promise(resolve => setTimeout(resolve, 700))
-    if (signal.aborted) break
-
-    const next = await callBridgeState({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }, signal)
-    if (!next) continue
-
-    if (hasCurrentUserMessage(next, input.chat, input.text)) {
-      if (!signal.aborted) {
-        applyState(next)
-        error.value = undefined
-      }
-    }
-    if (hasCompletedResponse(next, input.chat, input.text)) {
-      return true
-    }
+function sendStateInput(input: SendInput) {
+  return {
+    action: "get-state",
+    ...(input.chat ? { chat: input.chat } : {}),
+    ...(input.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
+    ...(input.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
+    ...(input.meta ? { meta: input.meta } : {}),
   }
-
-  return false
 }
 
-async function recoverTimedOutBridgeSend(input: { chat?: string, text: string }, signal: AbortSignal) {
+function sleep(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    const timeout = setTimeout(resolve, ms)
+    signal.addEventListener("abort", () => {
+      clearTimeout(timeout)
+      resolve()
+    }, { once: true })
+  })
+}
+
+async function waitForFinalState(
+  input: SendInput,
+  signal: AbortSignal,
+  getState: (body: ReturnType<typeof sendStateInput>, signal: AbortSignal) => Promise<ChatDevtoolsStateResult | undefined>,
+  timeout = sendConfirmationTimeout,
+): Promise<ConfirmationResult> {
   const startedAt = Date.now()
   let sawSubmittedMessage = false
 
-  while (!signal.aborted && Date.now() - startedAt < 60_000) {
-    await new Promise(resolve => setTimeout(resolve, 700))
-    if (signal.aborted) break
+  while (!signal.aborted && Date.now() - startedAt < timeout) {
+    await sleep(sendConfirmationInterval, signal)
+    if (signal.aborted) return "cancelled"
 
-    const next = await callBridgeState({ action: "get-state", ...(input.chat ? { chat: input.chat } : {}) }, signal)
+    const next = await getState(sendStateInput(input), signal).catch(() => undefined)
     if (!next) continue
-
     if (hasCurrentUserMessage(next, input.chat, input.text)) {
       sawSubmittedMessage = true
       applyState(next)
       error.value = undefined
     }
     if (hasCompletedResponse(next, input.chat, input.text)) {
-      return true
-    }
-    if (!sawSubmittedMessage && Date.now() - startedAt > 3_000) {
-      return false
-    }
-  }
-
-  return false
-}
-
-async function pollFinalRpcState(input: { chat?: string, text: string }, signal: AbortSignal) {
-  while (!signal.aborted) {
-    await new Promise(resolve => setTimeout(resolve, 700))
-    if (signal.aborted) break
-
-    try {
-      const next = await callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc)
-      if (hasCurrentUserMessage(next, input.chat, input.text)) {
-        applyState(next)
-        error.value = undefined
-      }
-      if (hasCompletedResponse(next, input.chat, input.text)) {
-        return true
-      }
-    }
-    catch {
-      if (signal.aborted) break
-    }
-  }
-
-  return false
-}
-
-async function readDirectBridgeStream(input: { chat?: string, text: string }): Promise<boolean> {
-  const abortController = new AbortController()
-  currentReader = { cancel: () => abortController.abort() }
-
-  let response: Response | undefined
-  const connectTimeoutController = new AbortController()
-  let connectTimeout: ReturnType<typeof setTimeout> | undefined
-  try {
-    connectTimeout = setTimeout(() => connectTimeoutController.abort(), 15_000)
-    response = await fetch(localBridgeRoute(), {
-        method: "POST",
-        headers: { "content-type": "text/plain" },
-        body: JSON.stringify({ action: "send", ...input, stream: true }),
-        signal: AbortSignal.any([abortController.signal, connectTimeoutController.signal]),
-      })
-  }
-  catch {
-    if (abortController.signal.aborted) {
-      currentReader = undefined
-      return true
-    }
-    if (connectTimeoutController.signal.aborted) {
-      try {
-        if (await recoverTimedOutBridgeSend(input, abortController.signal)) {
-          return true
-        }
-        error.value = "Chat DevTools bridge timed out before confirming the message."
-        return true
-      }
-      finally {
-        abortController.abort()
-        currentReader = undefined
-      }
-    }
-
-    currentReader = undefined
-    return false
-  }
-  finally {
-    if (connectTimeout) clearTimeout(connectTimeout)
-  }
-
-  if (!response.ok || !response.body) {
-    currentReader = undefined
-    return false
-  }
-
-  connected.value = true
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let pending = ""
-
-  const readStream = async (): Promise<"done" | "error" | false> => {
-    try {
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        pending += decoder.decode(value, { stream: true })
-        const lines = pending.split("\n")
-        pending = lines.pop() || ""
-        for (const line of lines) {
-          if (!line.trim()) continue
-          const event = JSON.parse(line) as ChatDevtoolsStreamEvent
-          applyStreamEvent(event)
-          if (event.type === "error") return "error"
-          if (event.type === "done") return "done"
-        }
-      }
-
-      const tail = pending.trim()
-      if (tail) {
-        const event = JSON.parse(tail) as ChatDevtoolsStreamEvent
-        applyStreamEvent(event)
-        if (event.type === "error") return "error"
-        if (event.type === "done") return "done"
-      }
       return "done"
     }
-    catch {
-      return abortController.signal.aborted ? "done" : "interrupted"
+    if (!sawSubmittedMessage && Date.now() - startedAt > sendDeliveryTimeout) {
+      return "undelivered"
     }
   }
+  return signal.aborted ? "cancelled" : "timeout"
+}
+
+async function* readJsonLines<T>(body: ReadableStream<Uint8Array>): AsyncGenerator<T> {
+  const reader = body.pipeThrough(new TextDecoderStream()).getReader()
+  let pending = ""
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      pending += value
+      const lines = pending.split("\n")
+      pending = lines.pop() || ""
+      for (const line of lines) {
+        if (line.trim()) yield JSON.parse(line) as T
+      }
+    }
+    if (pending.trim()) yield JSON.parse(pending) as T
+  }
+  finally {
+    reader.releaseLock()
+  }
+}
+
+async function applyStreamEvents(events: AsyncIterable<ChatDevtoolsStreamEvent>): Promise<boolean> {
+  for await (const event of events) {
+    applyStreamEvent(event)
+    if (event.type === "error") return false
+    if (event.type === "done") return true
+  }
+  return false
+}
+
+async function readDirectBridgeStream(input: SendInput): Promise<boolean> {
+  const startedAt = Date.now()
+  const abortController = new AbortController()
+  currentReader = { cancel: () => abortController.abort() }
+  let timedOut = false
+  const timeout = setTimeout(() => {
+    timedOut = true
+    abortController.abort()
+  }, sendConnectTimeout)
 
   try {
-    const outcome = await Promise.race([
-      readStream(),
-      pollFinalBridgeState(input, abortController.signal),
-    ])
-    if (outcome === "error") {
+    const response = await fetch(localBridgeRoute(), {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: JSON.stringify({ action: "send", ...input, stream: true }),
+      signal: abortController.signal,
+    })
+    if (!response.ok || !response.body) {
+      return false
+    }
+    connected.value = true
+    if (await applyStreamEvents(readJsonLines<ChatDevtoolsStreamEvent>(response.body))) {
       return true
     }
-    if (outcome === "done") {
-      return true
-    }
-    if (outcome === "interrupted") {
-      if (await recoverTimedOutBridgeSend(input, abortController.signal)) {
-        return true
-      }
+    const result = await waitForFinalState(input, abortController.signal, callBridgeState)
+    if (result === "done" || result === "cancelled") return true
+    if (result === "timeout") {
       error.value = "Chat DevTools bridge stream disconnected before confirming the message."
       return true
     }
-    if (!outcome || hasCompletedResponse(state.value, input.chat, input.text)) {
-      return Boolean(outcome)
+    return false
+  }
+  catch {
+    if (abortController.signal.aborted) {
+      if (!timedOut) return true
+      const recoveryController = new AbortController()
+      currentReader = { cancel: () => recoveryController.abort() }
+      const remaining = Math.max(0, sendConfirmationTimeout - (Date.now() - startedAt))
+      const result = await waitForFinalState(input, recoveryController.signal, callBridgeState, remaining)
+      if (result === "done" || result === "cancelled") return true
+      error.value = "Chat DevTools bridge timed out before confirming the message."
+      return true
     }
-
-    return await pollFinalBridgeState(input, abortController.signal)
+    return false
   }
   finally {
+    clearTimeout(timeout)
     abortController.abort()
     currentReader = undefined
   }
 }
 
-async function readRpcStream(streamId: string, input: { chat?: string, text: string }) {
+async function readRpcStream(streamId: string, input: SendInput) {
   const abortController = new AbortController()
   const reader = (rpcClient as { streaming?: { subscribe: <T>(channel: string, id: string, options?: Record<string, unknown>) => AsyncIterable<T> & { cancel: () => unknown } } } | undefined)?.streaming?.subscribe<ChatDevtoolsStreamEvent>(chatDevtoolsStreamChannel, streamId, {
     highWaterMark: 1024,
   })
   if (!reader) {
-    const timeout = setTimeout(() => abortController.abort(), 60_000)
-    try {
-      const completed = await pollFinalRpcState(input, abortController.signal)
-      if (!completed) {
-        throw new Error("Chat DevTools RPC polling timed out.")
-      }
-      return completed
-    }
-    finally {
-      clearTimeout(timeout)
-      abortController.abort()
-    }
+    const result = await waitForFinalState(input, abortController.signal, async body => await callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc, body))
+    if (result === "done" || result === "cancelled") return true
+    throw new Error("Chat DevTools RPC polling timed out.")
   }
 
   currentReader = {
@@ -768,18 +999,12 @@ async function readRpcStream(streamId: string, input: { chat?: string, text: str
     },
   }
 
-  const readStream = async () => {
-    for await (const event of reader) {
-      applyStreamEvent(event)
-      if (event.type === "error") return "error"
-      if (event.type === "done") return "done"
-    }
-    return "done"
-  }
-
   try {
-    const outcome = await readStream()
-    return outcome !== "error"
+    if (await applyStreamEvents(reader)) {
+      return true
+    }
+    const result = await waitForFinalState(input, abortController.signal, async body => await callRpc<ChatDevtoolsStateResult>(chatDevtoolsGetStateRpc, body))
+    return result === "done" || result === "cancelled"
   }
   finally {
     abortController.abort()
@@ -789,7 +1014,7 @@ async function readRpcStream(streamId: string, input: { chat?: string, text: str
 
 async function send() {
   const text = (input.value || promptInput.value?.value || "").trim()
-  if (!text || status.value !== "ready") {
+  if (!text || status.value !== "ready" || invokerMetaError.value) {
     return
   }
 
@@ -797,7 +1022,6 @@ async function send() {
   status.value = "submitted"
   error.value = undefined
   let chat: string | undefined
-  let shouldRefreshFinalState = false
 
   try {
     chat = selectedChat()?.name
@@ -808,22 +1032,22 @@ async function send() {
     await waitForFrame()
     status.value = "streaming"
 
-    const bridgeInput = { ...(chat ? { chat } : {}), text }
+    const bridgeInput = {
+      ...(chat ? { chat } : {}),
+      ...devtoolsRequestInput(),
+      text,
+    }
     if (!shouldPreferRpcBridge()) {
-      if (await readDirectBridgeStream(bridgeInput)) {
-        if (error.value) {
-          return
-        }
-        status.value = "ready"
-        await refreshFromBridge(chat)
-        return
+      if (!await readDirectBridgeStream(bridgeInput)) {
+        if (error.value) return
+        throw new Error("Chat DevTools bridge stream failed.")
       }
+      return
     }
 
     const result = await callRpc<ChatDevtoolsSendResult>(chatDevtoolsSendRpc, {
-      ...(chat ? { chat } : {}),
+      ...bridgeInput,
       stream: true,
-      text,
     })
     if (!result.streamId) {
       applyState(result)
@@ -831,8 +1055,9 @@ async function send() {
       return
     }
 
-    if (await readRpcStream(result.streamId, { ...(chat ? { chat } : {}), text })) {
-      shouldRefreshFinalState = true
+    if (!await readRpcStream(result.streamId, bridgeInput)) {
+      if (error.value) return
+      throw new Error("Chat DevTools RPC stream failed.")
     }
   }
   catch (cause) {
@@ -843,11 +1068,10 @@ async function send() {
   }
   finally {
     currentReader = undefined
-    if (shouldRefreshFinalState) {
-      status.value = "ready"
+    status.value = "ready"
+    if (!error.value) {
       await refreshFromBridge(chat)
     }
-    status.value = "ready"
   }
 }
 
@@ -870,17 +1094,21 @@ async function clear() {
     currentReader?.cancel()
     currentReader = undefined
     pendingUserMessage.value = undefined
-    const bridgeState = await callBridgeState({ action: "clear", chat: state.value.selected })
+    const invokerRequest = devtoolsRequestInput()
+    const bridgeState = await callBridgeState({ action: "clear", chat: state.value.selected, ...invokerRequest })
     applyState(bridgeState || await callRpc<ChatDevtoolsStateResult>(chatDevtoolsClearRpc, {
         chat: state.value.selected,
+        ...invokerRequest,
       }))
     error.value = undefined
   }
   catch {
     state.value = {
       chats: [{ name: state.value.selected || "dev", messages: [] }],
+      ...(state.value.config ? { config: state.value.config } : {}),
       files: state.value.files || [],
       instructions: state.value.instructions || [],
+      invokerProfiles: state.value.invokerProfiles || [],
       selected: state.value.selected || "dev",
       tools: state.value.tools || [],
     }
@@ -892,10 +1120,41 @@ async function clear() {
 }
 
 onMounted(() => {
+  const storedMeta = localStorage.getItem(invokerMetaStorageKey)
+  if (storedMeta !== null) {
+    invokerMetaInput.value = storedMeta
+    hasStoredInvokerMeta.value = true
+  }
+  invokerMetaStorageReady.value = true
   syncExpandedFiles(state.value.files || [])
   refresh()
 })
+watch(selectedInvokerProfileId, async (next, previous) => {
+  if (!next || next === previous || isInvokerLocked.value) return
+  metadataRefreshEpoch += 1
+  stopMetadataRefresh()
+  state.value = {
+    ...state.value,
+    files: [],
+    instructions: [],
+    metadataError: undefined,
+    metadataStatus: "loading",
+    tools: [],
+  }
+  await refreshFromBridge(state.value.selected)
+})
+watch(invokerMetaInput, async (next, previous) => {
+  if (!invokerMetaStorageReady.value || next === previous) return
+  hasStoredInvokerMeta.value = true
+  if (next.trim()) localStorage.setItem(invokerMetaStorageKey, next)
+  else localStorage.removeItem(invokerMetaStorageKey)
+  if (invokerMetaError.value || isBusy.value) return
+  metadataRefreshEpoch += 1
+  stopMetadataRefresh()
+  await refreshFromBridge(state.value.selected)
+})
 onBeforeUnmount(() => {
+  stopMetadataRefresh()
   stopSidebarResize?.()
 })
 </script>
@@ -904,9 +1163,9 @@ onBeforeUnmount(() => {
   <UApp>
     <main class="fixed inset-0 isolate flex min-h-0 flex-col overflow-hidden bg-default text-default antialiased">
       <UIcon name="i-lucide-terminal" class="hidden" />
-      <header class="flex h-[45px] shrink-0 items-center justify-between gap-3 border-b border-default px-4">
+      <header class="flex min-h-10 shrink-0 flex-col justify-center gap-2 border-b border-default px-3 py-2 sm:h-10 sm:flex-row sm:items-center sm:justify-between sm:py-0">
         <h1
-          class="flex min-w-0 flex-1 items-center text-base font-semibold"
+          class="flex min-w-0 items-center text-sm font-semibold sm:flex-1"
           :aria-label="chatTitleTarget"
           :title="chatTitleTarget"
         >
@@ -917,24 +1176,42 @@ onBeforeUnmount(() => {
             v-if="agentVersion"
             color="neutral"
             variant="subtle"
-            size="sm"
+            size="xs"
             class="ml-2 shrink-0"
           >
             v{{ agentVersion }}
           </UBadge>
         </h1>
-        <UButton
-          icon="i-lucide-trash-2"
-          label="Clear"
-          color="neutral"
-          variant="outline"
-          size="sm"
-          class="shrink-0"
-          @click="clear"
-        />
+        <div class="flex w-full min-w-0 items-center gap-1.5 sm:w-auto sm:shrink-0">
+          <UTooltip
+            v-if="showInvokerSelector"
+            :text="invokerSelectorTooltip"
+            :disabled="!isInvokerLocked"
+          >
+            <USelect
+              v-model="selectedInvokerProfileId"
+              :items="invokerSelectItems"
+              value-key="value"
+              label-key="label"
+              :disabled="isInvokerLocked"
+              size="xs"
+              class="min-w-0 flex-1 sm:w-48 sm:flex-none"
+              :ui="{ base: 'min-w-0' }"
+            />
+          </UTooltip>
+          <UButton
+            icon="i-lucide-trash-2"
+            label="Clear"
+            color="neutral"
+            variant="outline"
+            size="xs"
+            class="shrink-0"
+            @click="clear"
+          />
+        </div>
       </header>
 
-      <div class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(220px,40vh)] overflow-hidden lg:grid-cols-[minmax(0,1fr)_1px_minmax(280px,var(--chat-devtools-sidebar-width))] lg:grid-rows-1" :style="splitterStyle">
+      <div class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)_minmax(150px,32svh)] overflow-hidden md:grid-cols-[minmax(0,1fr)_1px_minmax(260px,var(--chat-devtools-sidebar-width))] md:grid-rows-1" :style="splitterStyle">
         <section class="flex min-h-0 flex-col overflow-hidden">
           <div class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pb-2">
             <UChatMessages
@@ -945,14 +1222,14 @@ onBeforeUnmount(() => {
               class="min-h-full px-3 py-2"
             >
               <template #content="{ content, message, parts }">
-                <div class="flex min-w-0 flex-col gap-2 text-sm/5">
+                <div class="flex w-full min-w-0 flex-col gap-2 text-sm/5">
                   <UCollapsible
                     v-if="isLoadingMessage(message) || hasToolParts(parts)"
                     :default-open="isLoadingMessage(message) || hasRunningTool(parts)"
                     :unmount-on-hide="false"
                     :ui="{
-                      root: 'min-w-0',
-                      content: 'overflow-visible',
+                      root: 'w-full min-w-0',
+                      content: 'w-full overflow-visible',
                     }"
                   >
                     <button
@@ -975,7 +1252,7 @@ onBeforeUnmount(() => {
                     </button>
 
                     <template #content>
-                      <div class="flex min-w-0 flex-col gap-2 px-px pb-px pt-2 text-xs/5">
+                      <div class="flex w-full min-w-0 flex-col gap-2 px-px pb-px pt-2 text-xs/5">
                         <UChatTool
                           v-for="part in chatToolParts(parts)"
                           :key="part.tool.id"
@@ -985,8 +1262,8 @@ onBeforeUnmount(() => {
                           variant="card"
                           :default-open="false"
                           :ui="{
-                            root: 'min-w-0 rounded-md',
-                            trigger: 'min-h-7 px-2 py-1 text-xs focus-visible:ring-1 focus-visible:ring-muted focus-visible:outline-none',
+                            root: 'w-full min-w-0 self-stretch rounded-md',
+                            trigger: 'min-h-7 w-full px-2 py-1 text-xs focus-visible:ring-1 focus-visible:ring-muted focus-visible:outline-none',
                             leading: 'size-3.5',
                             leadingIcon: 'size-3.5 opacity-70',
                             label: 'min-w-0 truncate',
@@ -1023,16 +1300,22 @@ onBeforeUnmount(() => {
                 </div>
               </template>
             </UChatMessages>
-            <div v-else class="flex h-full items-center justify-center px-4">
+            <div v-else class="flex h-full items-center justify-center px-4 py-6">
               <UEmpty
                 icon="i-lucide-message-square"
+                size="xs"
                 title="No messages yet."
-                :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent' }"
+                :ui="{
+                  root: 'border-0 ring-0 shadow-none bg-transparent gap-2 p-0',
+                  header: 'gap-1',
+                  avatar: 'mb-0 size-9 text-base',
+                  title: 'text-sm font-medium',
+                }"
               />
             </div>
           </div>
 
-          <footer class="shrink-0 border-t border-default bg-default px-2 py-2">
+          <footer class="shrink-0 border-t border-default bg-default px-2 py-1.5">
             <UAlert
               v-if="!connected"
               color="neutral"
@@ -1062,7 +1345,7 @@ onBeforeUnmount(() => {
               }"
             />
             <form
-              class="flex min-h-9 items-center gap-1 rounded-md border border-default bg-default px-2 py-1 shadow-xs"
+              class="flex min-h-8 items-center gap-1 rounded-md bg-default px-2 py-1 shadow-xs ring-1 ring-default"
               @submit.prevent="submitComposer"
             >
               <textarea
@@ -1071,13 +1354,13 @@ onBeforeUnmount(() => {
                 placeholder="Type a message..."
                 rows="1"
                 :disabled="status !== 'ready'"
-                class="h-6 max-h-24 min-h-6 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-0 py-0 text-sm/6 outline-none placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-60"
+                class="h-6 max-h-24 min-h-6 min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-0 py-0 text-base/6 outline-none placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-60 sm:text-sm/6"
                 @keydown.enter.exact.prevent="send"
               />
               <UButton
                 type="submit"
                 :icon="status === 'ready' ? 'i-lucide-arrow-up' : 'i-lucide-square'"
-                :disabled="status === 'ready' && !input.trim()"
+                :disabled="status === 'ready' && (!input.trim() || !!invokerMetaError)"
                 :aria-label="status === 'ready' ? 'Send message' : 'Stop response'"
                 color="primary"
                 size="xs"
@@ -1090,20 +1373,21 @@ onBeforeUnmount(() => {
 
         <button
           type="button"
-          class="group hidden min-h-0 cursor-col-resize bg-border outline-none transition-colors hover:bg-primary focus-visible:bg-primary lg:block"
+          class="group hidden min-h-0 cursor-col-resize bg-transparent outline-none md:block"
           aria-label="Resize integration panel"
           @pointerdown="startSidebarResize"
         >
-          <span class="block h-full w-px bg-transparent group-hover:bg-primary" />
+          <span class="mx-auto block h-full w-px bg-elevated opacity-60 group-hover:bg-primary group-hover:opacity-100 group-focus-visible:bg-primary group-focus-visible:opacity-100" />
         </button>
 
-        <aside class="min-h-0 border-t border-default p-2 lg:border-l lg:border-t-0">
+        <aside class="min-h-0 border-t border-default p-1.5 md:border-t-0 md:p-2">
           <UCard
-            variant="subtle"
+            variant="outline"
             class="flex h-full min-h-0 flex-col"
             :ui="{
-              root: 'rounded-lg',
-              body: 'flex min-h-0 flex-1 flex-col p-2 sm:p-2',
+              root: 'rounded-md',
+              header: 'p-2 sm:p-2',
+              body: 'flex min-h-0 flex-1 flex-col p-1.5 sm:p-1.5',
             }"
           >
             <template #header>
@@ -1112,22 +1396,132 @@ onBeforeUnmount(() => {
                   <UIcon name="i-lucide-plug" class="size-4 shrink-0 text-muted" />
                   <span class="truncate text-sm font-medium">Integration</span>
                 </div>
-                <UBadge color="neutral" variant="soft" size="sm">
+                <UBadge color="neutral" variant="soft" size="xs">
                   {{ state.selected || 'dev' }}
                 </UBadge>
               </div>
             </template>
 
-            <UTabs
-              :items="integrationTabs"
-              class="flex min-h-0 flex-1 flex-col"
-              :ui="{
-                list: 'shrink-0',
-                content: 'min-h-0 flex-1 overflow-y-auto pt-2',
-              }"
-            >
-              <template #files>
-                <div v-if="fileRows.length" class="space-y-1">
+            <div class="flex min-h-0 flex-1 flex-col gap-2">
+              <div
+                role="radiogroup"
+                aria-label="Integration section"
+                class="grid shrink-0 grid-cols-5 gap-1 border-b border-default pb-2 md:grid-cols-1"
+              >
+                <UButton
+                  v-for="section in integrationSections"
+                  :key="section.id"
+                  type="button"
+                  role="radio"
+                  :aria-checked="activeIntegrationSection === section.id"
+                  :icon="section.icon"
+                  :label="section.label"
+                  color="neutral"
+                  :variant="activeIntegrationSection === section.id ? 'soft' : 'ghost'"
+                  size="xs"
+                  block
+                  class="min-h-8 justify-start border-l-2"
+                  :class="activeIntegrationSection === section.id ? 'border-warning text-highlighted' : 'border-transparent text-muted'"
+                  :ui="{
+                    leadingIcon: section.id === 'files' ? 'text-warning' : section.id === 'config' ? 'text-primary' : 'text-muted',
+                    label: 'min-w-0 truncate text-left text-sm',
+                  }"
+                  @click="activeIntegrationSection = section.id"
+                >
+                  <template #trailing>
+                    <UBadge
+                      color="neutral"
+                      :variant="activeIntegrationSection === section.id ? 'soft' : 'outline'"
+                      size="xs"
+                      class="ml-auto shrink-0 tabular-nums"
+                    >
+                      {{ section.count }}
+                    </UBadge>
+                  </template>
+                </UButton>
+              </div>
+
+              <div class="min-h-0 flex-1 overflow-y-auto">
+                <template v-if="activeIntegrationSection === 'config'">
+                  <UAlert
+                    v-if="configRows.length && metadataError"
+                    color="error"
+                    variant="soft"
+                    icon="i-lucide-triangle-alert"
+                    :title="metadataError"
+                    class="mb-2"
+                    :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
+                  />
+                  <div v-if="configRows.length" class="space-y-1.5 px-1">
+                    <div
+                      v-for="row in configRows"
+                      :key="`${row.label}:${row.value}`"
+                      class="rounded-md border border-default bg-default/60 p-2"
+                    >
+                      <div class="flex min-w-0 items-start gap-2">
+                        <UIcon :name="row.icon" class="mt-0.5 size-4 shrink-0 text-muted" />
+                        <div class="min-w-0 flex-1">
+                          <div class="flex min-w-0 items-center gap-2">
+                            <span class="shrink-0 text-xs font-medium text-muted">{{ row.label }}</span>
+                            <UBadge
+                              v-if="row.badge"
+                              color="neutral"
+                              variant="soft"
+                              size="xs"
+                              class="ml-auto shrink-0"
+                            >
+                              {{ row.badge }}
+                            </UBadge>
+                          </div>
+                          <p
+                            class="mt-1 break-words text-sm text-toned"
+                            :class="row.mono ? 'font-mono text-xs/5' : 'text-sm/5'"
+                          >
+                            {{ row.value }}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <UEmpty
+                    v-else-if="metadataError"
+                    icon="i-lucide-triangle-alert"
+                    title="Config metadata failed."
+                    :description="metadataError"
+                    size="xs"
+                    :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
+                  />
+                  <UEmpty
+                    v-else
+                    icon="i-lucide-settings-2"
+                    title="No config metadata."
+                    description="This chat has not exposed Agent Driver metadata for DevTools."
+                    size="xs"
+                    :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
+                  />
+                </template>
+
+                <template v-else-if="activeIntegrationSection === 'files'">
+                <UAlert
+                  v-if="fileRows.length && metadataError"
+                  color="error"
+                  variant="soft"
+                  icon="i-lucide-triangle-alert"
+                  :title="metadataError"
+                  class="mb-2"
+                  :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
+                />
+                <div
+                  v-if="isMetadataLoading"
+                  class="flex flex-col items-center gap-2 px-2 py-6 text-center"
+                >
+                  <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
+                  <div>
+                    <p class="text-sm font-medium text-toned">Loading workspace files.</p>
+                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
+                  </div>
+                </div>
+                <div v-else-if="fileRows.length" class="space-y-1">
                   <UButton
                     v-for="file in fileRows"
                     :key="file.path"
@@ -1135,40 +1529,68 @@ onBeforeUnmount(() => {
                     :label="fileLabel(file)"
                     color="neutral"
                     :variant="selectedFilePath === file.path ? 'soft' : 'ghost'"
-                    size="sm"
+                    size="xs"
                     block
-                    class="justify-start"
-                    :style="{ paddingLeft: `${0.5 + file.depth * 1.1}rem` }"
+                    class="min-h-7 justify-start"
+                    :style="{ paddingLeft: `${0.45 + file.depth * 0.9}rem` }"
                     :ui="{
                       leadingIcon: file.kind === 'directory' ? 'text-warning' : 'text-muted',
-                      label: 'min-w-0 truncate text-left',
+                      label: 'min-w-0 truncate text-left text-sm sm:text-xs',
                     }"
                     @click="toggleFile(file)"
                   >
                     <template #trailing>
                       <UBadge
-                        v-if="isLazyFile(file)"
-                        color="warning"
+                        v-if="fileMaterializationBadge(file)"
+                        :color="fileMaterializationColor(file)"
                         variant="soft"
-                        size="sm"
+                        size="xs"
                         class="ml-auto shrink-0"
                       >
-                        Lazy
+                        {{ fileMaterializationBadge(file) }}
                       </UBadge>
                     </template>
                   </UButton>
                 </div>
                 <UEmpty
+                  v-else-if="metadataError"
+                  icon="i-lucide-triangle-alert"
+                  title="Workspace metadata failed."
+                  :description="metadataError"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
+                />
+                <UEmpty
                   v-else
                   icon="i-lucide-folder-search"
                   title="No files exposed."
                   description="This chat has not registered workspace files for DevTools."
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
               </template>
 
-              <template #tools>
-                <div v-if="visibleTools.length" class="space-y-2">
+                <template v-else-if="activeIntegrationSection === 'tools'">
+                <UAlert
+                  v-if="visibleTools.length && metadataError"
+                  color="error"
+                  variant="soft"
+                  icon="i-lucide-triangle-alert"
+                  :title="metadataError"
+                  class="mb-2"
+                  :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
+                />
+                <div
+                  v-if="isMetadataLoading"
+                  class="flex flex-col items-center gap-2 px-2 py-6 text-center"
+                >
+                  <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
+                  <div>
+                    <p class="text-sm font-medium text-toned">Loading tools.</p>
+                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
+                  </div>
+                </div>
+                <div v-else-if="visibleTools.length" class="space-y-1.5">
                   <div
                     v-for="tool in visibleTools"
                     :key="tool.name"
@@ -1184,7 +1606,7 @@ onBeforeUnmount(() => {
                           <UBadge
                             :color="toolStatusColor(tool)"
                             variant="soft"
-                            size="sm"
+                            size="xs"
                             class="ml-auto shrink-0 capitalize"
                           >
                             {{ toolStatus(tool) }}
@@ -1194,14 +1616,14 @@ onBeforeUnmount(() => {
                           {{ tool.description }}
                         </p>
                         <div v-if="tool.category || toolPresetLabel(tool)" class="mt-2 flex flex-wrap gap-1">
-                          <UBadge v-if="tool.category" color="neutral" variant="outline" size="sm">
+                          <UBadge v-if="tool.category" color="neutral" variant="outline" size="xs">
                             {{ tool.category }}
                           </UBadge>
                           <UBadge
                             v-if="toolPresetLabel(tool)"
                             color="primary"
                             variant="soft"
-                            size="sm"
+                            size="xs"
                           >
                             {{ toolPresetLabel(tool) }}
                           </UBadge>
@@ -1212,7 +1634,7 @@ onBeforeUnmount(() => {
                             :key="command"
                             color="neutral"
                             variant="soft"
-                            size="sm"
+                            size="xs"
                           >
                             {{ command }}
                           </UBadge>
@@ -1222,43 +1644,104 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
                 <UEmpty
+                  v-else-if="metadataError"
+                  icon="i-lucide-triangle-alert"
+                  title="Workspace metadata failed."
+                  :description="metadataError"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
+                />
+                <UEmpty
                   v-else
                   icon="i-lucide-wrench"
                   title="No tools exposed."
                   description="This chat has not registered tools for DevTools."
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
               </template>
 
-              <template #instructions>
-                <div v-if="state.instructions?.length" class="min-w-0 space-y-4 px-1">
+                <template v-else-if="activeIntegrationSection === 'instructions'">
+                <UAlert
+                  v-if="state.instructions?.length && metadataError"
+                  color="error"
+                  variant="soft"
+                  icon="i-lucide-triangle-alert"
+                  :title="metadataError"
+                  class="mb-2"
+                  :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
+                />
+                <div
+                  v-if="isMetadataLoading"
+                  class="flex flex-col items-center gap-2 px-2 py-6 text-center"
+                >
+                  <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
+                  <div>
+                    <p class="text-sm font-medium text-toned">Loading instructions.</p>
+                    <p class="text-xs/5 text-muted">Inspecting workspace metadata for this chat.</p>
+                  </div>
+                </div>
+                <div v-else-if="state.instructions?.length" class="min-w-0 space-y-3 px-1">
                   <div
                     v-for="(instruction, index) in state.instructions"
                     :key="index"
                   >
-                    <div class="mb-2 flex items-center gap-2">
-                      <UIcon name="i-lucide-scroll-text" class="size-4 text-muted" />
+                    <div class="mb-1.5 flex items-center gap-2">
+                      <UIcon name="i-lucide-scroll-text" class="size-4 shrink-0 text-muted" />
                       <span class="min-w-0 truncate text-sm font-medium">{{ instructionLabel(instruction) }}</span>
-                      <UBadge color="neutral" variant="soft" size="sm" class="ml-auto">
+                      <UBadge color="neutral" variant="soft" size="xs" class="ml-auto shrink-0">
                         {{ index + 1 }}
                       </UBadge>
                     </div>
                     <Suspense>
-                      <Comark class="max-w-full break-words text-sm/6 text-toned [&_code]:break-words [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:mb-1 [&_h2]:mt-3 [&_h2]:text-sm [&_h2]:font-semibold [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:my-2 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_strong]:text-highlighted [&_ul]:list-disc [&_ul]:pl-4">
+                      <Comark class="max-w-full break-words text-xs/5 text-toned [&_code]:break-words [&_code]:rounded [&_code]:bg-elevated [&_code]:px-1 [&_h1]:mb-1.5 [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:mb-1 [&_h2]:mt-2.5 [&_h2]:text-sm [&_h2]:font-semibold [&_li]:my-1 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:my-1.5 [&_pre]:overflow-x-auto [&_pre]:whitespace-pre-wrap [&_pre]:break-words [&_pre]:rounded-md [&_pre]:bg-elevated [&_pre]:p-2 [&_strong]:text-highlighted [&_ul]:list-disc [&_ul]:pl-4">
                         {{ instructionContent(instruction) }}
                       </Comark>
                     </Suspense>
                   </div>
                 </div>
                 <UEmpty
+                  v-else-if="metadataError"
+                  icon="i-lucide-triangle-alert"
+                  title="Workspace metadata failed."
+                  :description="metadataError"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
+                />
+                <UEmpty
                   v-else
                   icon="i-lucide-scroll-text"
                   title="No instructions exposed."
                   description="This chat has not registered static system instructions for DevTools."
-                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-8' }"
+                  size="xs"
+                  :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
-              </template>
-            </UTabs>
+                </template>
+                <template v-else>
+                  <div class="space-y-2 px-1">
+                    <label class="block text-xs font-medium text-muted" for="vitehub-devtools-meta">
+                      Invoker meta
+                    </label>
+                    <textarea
+                      id="vitehub-devtools-meta"
+                      v-model="invokerMetaInput"
+                      rows="10"
+                      spellcheck="false"
+                      class="min-h-40 w-full resize-none rounded-md bg-default p-2 font-mono text-xs/5 text-default outline-none ring-1 ring-default focus:ring-2 focus:ring-primary"
+                      placeholder="{&quot;email&quot;:&quot;you@example.com&quot;}"
+                    />
+                    <UAlert
+                      v-if="invokerMetaError"
+                      color="error"
+                      variant="soft"
+                      icon="i-lucide-triangle-alert"
+                      :title="invokerMetaError"
+                      :ui="{ root: 'rounded-md bg-transparent !py-1 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-1/2 size-3.5 -translate-y-1/2 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5' }"
+                    />
+                  </div>
+                </template>
+              </div>
+            </div>
           </UCard>
         </aside>
       </div>

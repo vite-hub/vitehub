@@ -6,6 +6,7 @@ import {
   createDirectoryDefinitionSource,
   createSuffixDefinitionSource,
   discoverDefinitions,
+  mergeDefinitions,
   normalizePathDefinitionName,
   normalizeSuffixDefinitionName,
 } from "@vite-hub/internal/definition-catalog"
@@ -148,8 +149,12 @@ export function discoverServerWorkspaceDefinitions(rootDir: string): DiscoveredW
   return discoverDefinitions("workspace", [...serverWorkspaceSource(rootDir)])
 }
 
-export function discoverViteWorkspaceDefinitions(rootDir: string): DiscoveredWorkspaceDefinition[] {
-  return discoverDefinitions("workspace", [...viteWorkspaceSource(rootDir)])
+export function discoverViteWorkspaceDefinitions(rootDir: string, options: { serverRootDir?: string } = {}): DiscoveredWorkspaceDefinition[] {
+  return mergeDefinitions(
+    "workspace",
+    discoverDefinitions("workspace", [...viteWorkspaceSource(rootDir)]),
+    discoverDefinitions("workspace", [...serverWorkspaceSource(options.serverRootDir || rootDir)]),
+  )
 }
 
 function createWorkspaceRegistryEntry(definition: DiscoveredWorkspaceDefinition, importExpression: string): string {

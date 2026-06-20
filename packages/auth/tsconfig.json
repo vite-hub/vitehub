@@ -1,0 +1,31 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "types": [
+      "node",
+      "vitest/globals"
+    ],
+    "baseUrl": "../..",
+    "paths": {
+      "#vitehub/auth/definition": [
+        "packages/auth/src/runtime/empty-definition.ts"
+      ],
+      "#vitehub/auth/server": [
+        "packages/auth/src/server.ts"
+      ],
+      "@vite-hub/internal/*": [
+        "packages/internal/src/*.ts"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.d.ts",
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "test/**/*.test-d.ts"
+  ],
+  "exclude": [
+    "dist"
+  ]
+}

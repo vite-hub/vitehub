@@ -16,6 +16,7 @@ type OpenWorkflowStepApi = Parameters<Parameters<OpenWorkflowClient["defineWorkf
 type OpenWorkflowImporter = <T>(specifier: string) => Promise<T>
 const defaultImporter = new Function("specifier", "return import(specifier)") as OpenWorkflowImporter
 let openWorkflowImporter = defaultImporter
+const defaultOpenWorkflowSqlitePath = ".vitehub/data/openworkflow.sqlite.db"
 
 interface OpenWorkflowRuntime {
   backend: OpenWorkflowBackend
@@ -89,16 +90,21 @@ function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowSto
 
   const postgres = config.postgres || {}
   const url = resolveRuntimeConfigValue(postgres.url) || readEnv("OPENWORKFLOW_POSTGRES_URL") || readEnv("DATABASE_URL")
-  if (!url) {
-    throw new Error("Missing OpenWorkflow storage. Set workflow.database, workflow.sqlite.path, workflow.postgres.url, OPENWORKFLOW_SQLITE_PATH, OPENWORKFLOW_POSTGRES_URL, or DATABASE_URL.")
+  if (url) {
+    return {
+      backend: "postgres",
+      namespaceId: postgres.namespaceId || readEnv("OPENWORKFLOW_NAMESPACE_ID") || "production",
+      runMigrations: postgres.runMigrations,
+      schema: postgres.schema || readEnv("OPENWORKFLOW_SCHEMA") || "openworkflow",
+      url,
+    }
   }
 
   return {
-    backend: "postgres",
-    namespaceId: postgres.namespaceId || readEnv("OPENWORKFLOW_NAMESPACE_ID") || "production",
-    runMigrations: postgres.runMigrations,
-    schema: postgres.schema || readEnv("OPENWORKFLOW_SCHEMA") || "openworkflow",
-    url,
+    backend: "sqlite",
+    namespaceId: sqlite.namespaceId || readEnv("OPENWORKFLOW_NAMESPACE_ID") || "production",
+    path: defaultOpenWorkflowSqlitePath,
+    runMigrations: sqlite.runMigrations,
   }
 }
 

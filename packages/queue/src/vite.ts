@@ -3,11 +3,17 @@ import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment
 import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 
 import { generateProviderOutputs, queuePackageName } from "./internal/vite-build.ts"
+import { createQueueProvisionStep } from "./provision.ts"
 
 import type { QueueModuleOptions } from "./types.ts"
+import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { Plugin, ResolvedConfig } from "vite"
 
-export type QueueVitePlugin = Plugin
+interface QueueProvisionContributingPlugin {
+  vitehub?: { cli?: () => Promise<ViteHubCliContributor> }
+}
+
+export type QueueVitePlugin = Plugin & QueueProvisionContributingPlugin
 
 export { createCloudflareQueueConfig, type CloudflareQueueConfig, type CloudflareQueueConfigOptions } from "./internal/vite-build.ts"
 
@@ -19,6 +25,11 @@ export function hubQueue(options?: QueueModuleOptions): QueueVitePlugin {
 
   return {
     name: "@vite-hub/queue/vite",
+    vitehub: {
+      cli: async () => {
+        return { namespaces: [], provision: [createQueueProvisionStep(() => resolved?.root ?? process.cwd())] }
+      },
+    },
     config(config) {
       queue = config.queue ?? queue
     },

@@ -22,6 +22,12 @@ pnpm add @vite-hub/agent @vite-hub/workspace ai
 
 Add the AI SDK model provider you pass to `model`.
 
+For AI SDK harness drivers, add the experimental harness packages:
+
+```sh
+pnpm add @ai-sdk/harness@canary @ai-sdk/harness-codex@canary @ai-sdk/sandbox-vercel@canary
+```
+
 ## Minimal API
 
 ```ts
@@ -32,11 +38,13 @@ import { chat, workspaceShell } from "@vite-hub/agent/capabilities"
 import { source } from "@vite-hub/workspace"
 
 export default defineAgent({
-  model: gateway("openai/gpt-5.1-mini"),
-  instructions: [
-    "Answer support questions from the workspace.",
-    "{{ sources }}",
-  ],
+  driver: {
+    model: gateway("openai/gpt-5.1-mini"),
+    instructions: [
+      "Answer support questions from the workspace.",
+      "{{ workspace.sources }}",
+    ],
+  },
   capabilities: [chat(), workspaceShell()],
   workspace: {
     sources: {
@@ -48,6 +56,39 @@ export default defineAgent({
   },
 })
 ```
+
+## Harness drivers
+
+Harness-backed agents use AI SDK `HarnessAgent` behind the ViteHub Agent Driver boundary.
+
+```ts
+// server/agents/codex/config.ts
+import { createCodex } from "@ai-sdk/harness-codex"
+import { defineAgent } from "@vite-hub/agent"
+import { skills } from "@vite-hub/agent/capabilities"
+import { source } from "@vite-hub/workspace"
+
+export default defineAgent({
+  driver: {
+    harness: createCodex({
+      model: "gpt-5.5",
+      reasoningEffort: "low",
+    }),
+    credentials: { label: "local Codex", source: "ambient" },
+  },
+  workspace: {
+    mode: "write",
+    sources: {
+      guide: source.file("AGENTS.md"),
+    },
+  },
+  capabilities: [
+    skills({ path: ".agents/skills/review" }),
+  ],
+})
+```
+
+`driver.harness` is the AI SDK harness adapter instance. `driver.sandbox` can provide an AI SDK sandbox provider; when omitted, ViteHub uses the AI SDK Vercel Sandbox default for bridge-backed harnesses. Workspace-backed harness drivers receive a Harness Workspace Session prepared from the selected Workspace. Read mode materializes files and discards sandbox changes; write mode syncs additions, updates, and deletions back through Workspace rules. V1 configures built-in harness permissions internally with the no-approval policy and does not expose a public permission option. Skills stay a Capability through `skills()` rather than becoming a root Agent Definition field. Put harness guidance in Workspace files such as `AGENTS.md`; model-facing Source Instructions are not forwarded to harness-backed Agent Drivers yet.
 
 ```ts
 // vite.config.ts

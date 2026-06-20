@@ -3,6 +3,7 @@ import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment
 import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 
 import { generateProviderOutputs, blobPackageName } from "./internal/vite-build.ts"
+import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
   BLOB_VIRTUAL_CONFIG_ID,
   BLOB_VITE_PLUGIN_NAME,
@@ -11,6 +12,7 @@ import {
 
 import type { BlobViteRuntimeConfig } from "./vite-config.ts"
 import type { BlobModuleOptions } from "./types.ts"
+import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
 
 const RESOLVED_BLOB_VIRTUAL_CONFIG_ID = `\0${BLOB_VIRTUAL_CONFIG_ID}`
@@ -22,7 +24,11 @@ export interface BlobVitePluginAPI {
   getConfig: () => BlobViteRuntimeConfig
 }
 
-export type BlobVitePlugin = Plugin & { api: BlobVitePluginAPI }
+interface BlobProvisionContributingPlugin {
+  vitehub?: { cli?: () => Promise<ViteHubCliContributor> }
+}
+
+export type BlobVitePlugin = Plugin & BlobProvisionContributingPlugin & { api: BlobVitePluginAPI }
 
 const mergeNoExternal = createNoExternalMerger(blobPackageName)
 
@@ -45,6 +51,14 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
   return {
     name: BLOB_VITE_PLUGIN_NAME,
     api: { getConfig },
+    vitehub: {
+      cli: async () => {
+        return {
+          namespaces: [],
+          provision: [createBlobCloudflareProvisionStep(() => blob), createBlobVercelProvisionStep(() => blob)],
+        }
+      },
+    },
     config(config, env) {
       command = env.command
       blob = config.blob ?? blob

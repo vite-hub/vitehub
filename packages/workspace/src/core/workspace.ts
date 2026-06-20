@@ -1,4 +1,5 @@
 import { createBasicWorkspaceSession } from "../session/basic.ts"
+import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 import { createWorkspaceSourceView } from "../sources/view.ts"
 import { createWorkspaceStoreFromProvider } from "../storage/provider.ts"
 import { getCachedWorkspaceStore } from "./workspace-cache.ts"
@@ -10,6 +11,10 @@ import type {
   WorkspaceSession,
 } from "./types.ts"
 
+type WorkspaceWithDefinitionSync = Workspace & {
+  __syncWorkspaceDefinition?: () => Promise<void>
+}
+
 function getStore(definition: WorkspaceDefinition) {
   return getCachedWorkspaceStore(definition, () => createWorkspaceStoreFromProvider(definition))
 }
@@ -20,9 +25,9 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
 
   const workspace: Workspace = {
     name: definition.name,
-    async sync() {
-      const { syncWorkspaceDefinition } = await import("../lifecycle.ts")
-      await syncWorkspaceDefinition(definition, store)
+    async sync(options) {
+      const { syncWorkspaceSources } = await import("../sources/sync.ts")
+      return await syncWorkspaceSources(definition, store, options)
     },
     async materializeSources(options) {
       return await files.materializeSources(options)
@@ -90,5 +95,10 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
     },
   }
 
-  return workspace
+  ;(workspace as WorkspaceWithDefinitionSync).__syncWorkspaceDefinition = async () => {
+    const { syncWorkspaceDefinition } = await import("../lifecycle.ts")
+    await syncWorkspaceDefinition(definition, store)
+  }
+
+  return attachWorkspaceSourceRequestExecution(workspace, createWorkspaceSourceRequestExecution(definition))
 }

@@ -12,11 +12,21 @@ import * as loader from "../src/loader.ts"
 import * as publish from "../src/publish.ts"
 import { source } from "../src/index.ts"
 import { hubWorkspace } from "../src/vite.ts"
-import type { WorkspaceModuleOptions, WorkspacePlugin, WorkspaceWriteInput } from "../src/core/types.ts"
+import type { Workspace, WorkspaceModuleOptions, WorkspacePlugin, WorkspaceSourceSyncResult, WorkspaceWriteInput } from "../src/core/types.ts"
 
 declare global {
   interface ViteHubWorkspaceAssetMap {
     typed: "AGENTS.md" | "README.md"
+  }
+
+  interface ViteHubWorkspaceSourceResolutionContextMap {
+    "support.customerScope": { customers: Array<"acme" | "globex"> }
+  }
+
+  interface ViteHubWorkspaceScopeNameMap {
+    acme: true
+    globex: true
+    support: true
   }
 }
 
@@ -24,7 +34,21 @@ describe("workspace types", () => {
   it("types the facade helpers", async () => {
     const definition = defineWorkspace({
       runtime: "sandbox",
-      sources: { docs: source.markdown({ path: "README.md" }) },
+      sources: {
+        docs: source.markdown({ path: "README.md" }),
+        externalDocs: {
+          include: "**/*.md",
+          sync: true,
+        },
+        githubDocs: {
+          repo: "acme/docs",
+          sync: { stale: "remove" },
+        },
+        wrappedDocs: {
+          source: source.github({ repo: "acme/docs" }),
+          sync: true,
+        },
+      },
       loaders: [loader.files()],
       publish: [
         publish.virtualModule({ id: "#vitehub/workspaces/typed" }),
@@ -64,6 +88,20 @@ describe("workspace types", () => {
       exclude: "docs/drafts/**",
       instructions: "Use for hosted docs.",
     })
+    source.github(({ invocation, selectedWorkspaceScope, source: sourceContext, workspace }) => {
+      expectTypeOf(invocation.context.get("support.customerScope")?.customers).toEqualTypeOf<Array<"acme" | "globex"> | undefined>()
+      expectTypeOf(selectedWorkspaceScope?.name).toEqualTypeOf<"acme" | "globex" | "support" | undefined>()
+      expectTypeOf(sourceContext.key).toEqualTypeOf<string>()
+      expectTypeOf(workspace.name).toEqualTypeOf<string>()
+      const customer = invocation.context.get("support.customerScope")?.customers[0]
+      if (!customer) return false
+      return {
+        repo: "acme/app",
+        root: `dbt/${customer}`,
+        mount: `ingestion/${customer}`,
+        instructions: [`Use for ${customer} ingestion models.`],
+      }
+    })
     source.glob({
       cwd: "docs",
       dot: true,
@@ -73,11 +111,14 @@ describe("workspace types", () => {
       instructions: ["Use for local docs.", "Prefer README files first."] as const,
       prefix: "content",
     })
-    source.fetch({
+    source.fetch<{ status: string }, { ok: boolean }>({
       instructions: "Use for live status.",
-      schema: {
+      querySchema: {
         "~standard": {
-          validate: (input: unknown) => ({ value: input as { status: string } }),
+          jsonSchema: {
+            input: () => ({ type: "object" }),
+          },
+          validate: (input: unknown) => ({ value: input as Record<string, unknown> }),
         },
       },
       transform(data) {
@@ -85,6 +126,38 @@ describe("workspace types", () => {
         return { ok: data.status === "ok" }
       },
       url: "https://status.example.com/api/summary",
+      workspacePath: "status/summary.json",
+    })
+    source.fetch({
+      body: { scope: "all" },
+      cookies: { auth_token: "secret" },
+      method: "POST",
+      request: ({ request }) => ({
+        headers: { "x-method": request.method },
+        timeout: 1000,
+      }),
+      url: "https://status.example.com/query",
+    })
+    source.fetch<{ status: string }, { ok: boolean }>(({ invocation, selectedWorkspaceScope, source: sourceContext, workspace }) => {
+      expectTypeOf(invocation.context.get("support.customerScope")?.customers).toEqualTypeOf<Array<"acme" | "globex"> | undefined>()
+      expectTypeOf(selectedWorkspaceScope?.name).toEqualTypeOf<"acme" | "globex" | "support" | undefined>()
+      expectTypeOf(sourceContext.key).toEqualTypeOf<string>()
+      expectTypeOf(workspace.name).toEqualTypeOf<string>()
+      if (!selectedWorkspaceScope) return null
+      const customer = invocation.context.get("support.customerScope")?.customers[0]
+      if (!customer) return false
+      return {
+        body: { customer },
+        method: "POST",
+        request: {
+          headers: { "x-workspace": workspace.name },
+        },
+        transform(data) {
+          expectTypeOf(data.status).toEqualTypeOf<string>()
+          return { ok: data.status === "ok" }
+        },
+        url: `https://status.example.com/api/${sourceContext.key}`,
+      }
     })
     source.mcpResources({
       instructions: "Use for MCP resource docs.",
@@ -100,10 +173,14 @@ describe("workspace types", () => {
     })
     // @ts-expect-error source.fetch does not expose public lifecycle hooks
     source.fetch({ url: "https://status.example.com/api/summary", beforeRequest() {} })
-    // @ts-expect-error source.fetch uses path as its only Workspace-facing address
+    // @ts-expect-error source.fetch uses workspacePath as its only Workspace-facing address
     source.fetch({ url: "https://status.example.com/api/summary", mount: "status" })
+    // @ts-expect-error source.fetch uses workspacePath instead of path for Workspace placement
+    source.fetch({ url: "https://status.example.com/api/summary", path: "status.json" })
     // @ts-expect-error source.fetch does not expose generic source validation mode
     source.fetch({ url: "https://status.example.com/api/summary", validate: "request" })
+    // @ts-expect-error source.fetch request factories cannot redefine query
+    source.fetch({ url: "https://status.example.com/api/summary", request: () => ({ query: { region: "eu" } }) })
     defineWorkspace({
       // @ts-expect-error workspace names are inferred from definition filenames
       name: "typed",
@@ -111,6 +188,7 @@ describe("workspace types", () => {
 
     const readonly = useWorkspace("typed")
     const writable = useWorkspace("typed", { mode: "write" })
+    const runtimeWorkspace = null as unknown as Workspace
 
     expectTypeOf(definition).toMatchTypeOf<object>()
     expectTypeOf(createWorkspaceTools(createWorkspaceAssets({
@@ -125,20 +203,31 @@ describe("workspace types", () => {
     readonly.tools()
     // @ts-expect-error read-only facade does not expose executable write sessions
     readonly.startSession()
+    // @ts-expect-error read-only facade does not expose Source Sync
+    readonly.sync({ sources: ["externalDocs"] })
     expectTypeOf(writable.tools).toMatchTypeOf<ToolSet>()
     expectTypeOf(writable.tools.writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
     expectTypeOf(writable.tools.inspect().shell).toMatchTypeOf<Tool<{ command: string }, WorkspaceShellResult>>()
     expectTypeOf(writable.tools.write().writeFile).toMatchTypeOf<Tool<{ content: string, mediaType?: string, path: string }, { path: string }>>()
     expectTypeOf(writable.startSession).toBeFunction()
+    expectTypeOf(await writable.sync({ sources: ["externalDocs"] })).toMatchTypeOf<WorkspaceSourceSyncResult>()
+    // @ts-expect-error workspace.sync requires explicit sources
+    await runtimeWorkspace.sync()
+    expectTypeOf(await runtimeWorkspace.sync({ sources: ["externalDocs"] })).toMatchTypeOf<WorkspaceSourceSyncResult>()
+    expectTypeOf(await runtimeWorkspace.sync({ details: "paths", publish: true, snapshot: { message: "sync docs" }, sources: "all" })).toMatchTypeOf<WorkspaceSourceSyncResult>()
     const workspaceOptions: WorkspaceModuleOptions = { assets: ["typed"], store: { provider: "memory" } }
+    const githubWorkspaceOptions: WorkspaceModuleOptions = { store: { branch: "main", provider: "github", repository: "acme/app", root: ".vitehub/workspaces/<workspace>" } }
     // @ts-expect-error syncOnBuild was removed in favor of assets
     const removedOptions: WorkspaceModuleOptions = { syncOnBuild: true }
     expectTypeOf(workspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()
+    expectTypeOf(githubWorkspaceOptions).toMatchTypeOf<WorkspaceModuleOptions>()
     expectTypeOf(removedOptions).toMatchTypeOf<WorkspaceModuleOptions>()
     const session = null as unknown as Awaited<ReturnType<typeof writable.startSession>>
     // @ts-expect-error runtime selection belongs in workspace config, not open options
     await writable.startSession({ runtime: "local" })
     expectTypeOf(session.exec).toBeFunction()
+    expectTypeOf(session.mkdir).toBeFunction()
+    expectTypeOf(session.rm).toBeFunction()
     expectTypeOf(session.commit).toBeFunction()
     expectTypeOf(session.close).toBeFunction()
     expectTypeOf(await readonly.fs.readFile("AGENTS.md")).toEqualTypeOf<string>()

@@ -30,6 +30,31 @@ export interface DatabaseDrizzleOptions {
   casing?: DrizzleCasing
 }
 
+export interface DatabaseLocalRuntimeOptions {
+  filename?: string
+}
+
+export interface DatabaseRuntimeD1Options {
+  binding?: string
+  databaseId?: DatabaseConfigValue
+  databaseName?: DatabaseConfigValue
+  driver: "d1"
+  local?: DatabaseLocalRuntimeOptions
+  migrationsTable?: string
+  previewDatabaseId?: DatabaseConfigValue
+}
+
+export interface DatabaseIntegrationOptions {
+  cli?: false | {
+    generate?: false
+    migrate?: false
+  }
+}
+
+export type DatabaseNuxtIntegrationOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options> & {
+  projectRoot?: string
+}
+
 export interface DatabaseDefinitionOptions<TTables extends Record<string, unknown> = Record<string, unknown>> {
   cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
@@ -84,9 +109,4 @@ export interface ResolvedDBViteConfig {
   rootDir: string
 }
 
-export type DBModulePublicOptions = false | {
-  cli?: false | {
-    generate?: false
-    migrate?: false
-  }
-}
+export type DBModulePublicOptions = false | DatabaseIntegrationOptions & Partial<DatabaseRuntimeD1Options>

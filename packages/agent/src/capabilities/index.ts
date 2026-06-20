@@ -2,10 +2,9 @@ export {
   access,
 } from "./access.ts"
 export {
-  audience,
-} from "./audience.ts"
-export {
+  agentChatContextKey,
   chat,
+  getAgentChatContext,
 } from "../chat-trigger.ts"
 export {
   entry,
@@ -20,6 +19,9 @@ export {
   fetch,
 } from "./fetch.ts"
 export {
+  git,
+} from "./git.ts"
+export {
   inputCommands,
 } from "./input-commands.ts"
 export {
@@ -32,6 +34,9 @@ export {
   rateLimit,
 } from "./rate-limit.ts"
 export {
+  repositoryHost,
+} from "./repository-host.ts"
+export {
   llmRoute,
 } from "./llm-route.ts"
 export {
@@ -42,7 +47,13 @@ export {
   schedule,
 } from "./schedule.ts"
 export {
+  subagents,
+} from "./subagents.ts"
+export {
   skills,
+} from "./skills.ts"
+export type {
+  SkillsCapabilityOptions,
 } from "./skills.ts"
 export {
   audioBytes,
@@ -69,8 +80,6 @@ export {
   mcp,
 } from "./mcp.ts"
 export {
-  formatUsageTelemetryChatMessage,
-  getUsageTelemetryChatOptions,
   normalizeAgentUsage,
   staticModelPricing,
   usageTelemetry,
@@ -81,19 +90,16 @@ export {
 } from "./web-search/index.ts"
 
 export type {
-  AudienceCapabilityOptions,
-  AudienceInstructionsResolver,
-} from "./audience.ts"
-export type {
   AccessChatContext,
-  AccessChatIdentity,
   AccessChatOptions,
   AccessChatResolver,
   AccessCapabilityOptions,
   AccessDecision,
+  AccessInvocationContextValue,
   AccessRoleName,
   AccessWorkspaceOptions,
   AccessWorkspaceOptionsFor,
+  AccessWorkspaceScopeContext,
   AccessWorkspaceResolverContext,
   AccessWorkspaceScopeDefinition,
   AccessWorkspaceScopeGrant,
@@ -104,27 +110,28 @@ export type {
 } from "./access.ts"
 export type {
   AgentChatCapabilityOrigin,
+  AgentChatContext,
   AgentChatMessageTriggerInput,
   AgentChatOptionsOrigin,
   AgentChatRunContext,
 } from "../chat-trigger.ts"
 export type {
   AgentEntryCapabilityMetadata,
-  AgentEntryChatExposure,
-  AgentEntryChatOptions,
   AgentEntryOptions,
-  AgentEntryOptionsOrigin,
 } from "./entry.ts"
 export type {
-  AgentChatAdapterResolver,
-  AgentChatAdaptersResolver,
   AgentChatAgentBindingOptions,
   AgentChatAgentHookArgs,
+  AgentChatErrorHookArgs,
   AgentChatEventHookArgs,
   AgentChatEventHooks,
-  AgentChatIdentityResolver,
+  AgentChatFinishExtension,
+  AgentChatMessage,
   AgentChatMessageHookArgs,
   AgentChatOptions,
+  AgentChatPlatformResolver,
+  AgentChatPlatformsResolver,
+  AgentChatSendMessage,
   AgentChatSessionOptions,
   AgentChatStateContext,
   AgentChatStateResolver,
@@ -157,6 +164,10 @@ export type {
   FetchCapabilityToolRequest,
 } from "./fetch.ts"
 export type {
+  GitCapabilityOptions,
+  GitCapabilityToolPolicy,
+} from "./git.ts"
+export type {
   InputCommand,
   InputCommandRunInput,
   InputCommandsOptions,
@@ -172,15 +183,31 @@ export type {
 export type {
   MemoryRateLimitStore,
   MemoryRateLimitStoreOptions,
-  RateLimitConsumeInput,
-  RateLimitConsumeResult,
+  RateLimitAction,
   RateLimitDecision,
+  RateLimitEvent,
   RateLimitIdentity,
   RateLimitIdentityResolver,
+  RateLimitLimit,
+  RateLimitLimitResolver,
   RateLimitOptions,
   RateLimitStore,
+  RateLimitStoreInput,
+  RateLimitStoreResult,
   RateLimitWindow,
 } from "./rate-limit.ts"
+export type {
+  RepositoryHostClient,
+  RepositoryHostOptions,
+  RepositoryHostProvider,
+  RepositoryHostReadOperation,
+  RepositoryHostReadRequest,
+  RepositoryHostTarget,
+  RepositoryHostTargetKind,
+  RepositoryHostToolPolicy,
+  RepositoryHostWriteOperation,
+  RepositoryHostWriteRequest,
+} from "./repository-host.ts"
 export type {
   LlmRouteDecision,
   LlmRouteOptions,
@@ -193,6 +220,11 @@ export type {
   RuntimeScheduleCapabilityOptions,
   ScheduleCapabilityToolPolicy,
 } from "./schedule.ts"
+export type {
+  SubagentDefinition,
+  SubagentsOptions,
+  SubagentToolInput,
+} from "./subagents.ts"
 export type {
   TranscribeArtifactTemplateInput,
   TranscribeArtifactsOptions,
@@ -244,15 +276,9 @@ export type {
   AgentUsagePricingContext,
   StaticModelPrice,
   UsageTelemetryCallback,
-  UsageTelemetryChatCallback,
-  UsageTelemetryChatCallbackContext,
-  UsageTelemetryChatFormatter,
-  UsageTelemetryChatMessage,
-  UsageTelemetryChatMessageContext,
-  UsageTelemetryChatOptions,
-  UsageTelemetryChatSendMessage,
   UsageTelemetryContext,
   UsageTelemetryOptions,
+  UsageTelemetrySummaryOptions,
   VercelAiGatewayPricingOptions,
 } from "./usage-telemetry.ts"
 export type {

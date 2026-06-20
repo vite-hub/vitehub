@@ -1,8 +1,8 @@
 import { WorkspaceError } from "../core/errors.ts"
-import { decodeFile, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
+import { contentStreamToBytes, decodeFile, matchesAny, normalizeWorkspacePath } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { searchText } from "../core/search.ts"
-import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath } from "./config.ts"
+import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath, workspaceSourceRequestDescriptorPath } from "./config.ts"
 import {
   hasCurrentSourceSnapshot,
   materializeWorkspaceSources,
@@ -11,6 +11,7 @@ import {
   statVirtualSourcePath,
 } from "./materialization.ts"
 import { resolveWorkspacePath } from "./resolver.ts"
+import { readWorkspaceSourceSyncState, sourceSyncMetaKey } from "./sync-state.ts"
 
 import type {
   GlobOptions,
@@ -24,6 +25,7 @@ import type {
   WorkspaceEntry,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
+  WorkspaceSourceItem,
   WorkspaceStat,
   WorkspaceStore,
   WriteFileOptions,
@@ -43,18 +45,73 @@ export interface WorkspaceSourceView {
 }
 
 export function createWorkspaceSourceView(definition: WorkspaceDefinition, store: WorkspaceStore): WorkspaceSourceView {
-  const sourceContext = createSourceContext(definition)
-  const sources = normalizeWorkspaceSources(definition.sources).filter(source => source.materialize === "lazy")
+  const sourceContext = createSourceContext(definition, undefined, store)
+  const allSources = normalizeWorkspaceSources(definition.sources)
+  const sources = allSources.filter(source => !source.requestOnly && source.materialize === "lazy")
+  const syncSources = allSources.filter(source => source.sync)
+  const descriptorSources = allSources.filter(source => source.requestDescriptor)
   const writePolicy = createWorkspaceWritePolicy(definition)
   const prepareBySource = new Map<string, Promise<void>>()
   const materializeBySource = new Map<string, Promise<void>>()
 
   function getSourceContext(source: { key: string, mountPath: string }) {
-    return createSourceContext(definition, source)
+    return createSourceContext(definition, source, store)
   }
 
   function isLazySourcePath(path: string) {
     return sources.some(source => sourceMountContainsPath(source, path))
+  }
+
+  function isSyncSourceMountPath(path: string) {
+    return syncSources.some(source => source.mountPath && sourceMountContainsPath(source, path))
+  }
+
+  function descriptorSourceForPath(path: string) {
+    return descriptorSources.find(source => workspaceSourceRequestDescriptorPath(source.key) === path)
+  }
+
+  function descriptorPathEntries(path = "", options: ListOptions = {}): WorkspaceEntry[] {
+    if (!descriptorSources.length) return []
+    const normalized = normalizeWorkspacePath(path)
+    const descriptors = descriptorSources.map(source => workspaceSourceRequestDescriptorPath(source.key))
+    if (!normalized) {
+      return options.recursive
+        ? [
+            { path: ".vitehub", type: "directory" },
+            { path: ".vitehub/sources", type: "directory" },
+            ...descriptors.map(descriptor => ({ path: descriptor, type: "file" as const })),
+          ]
+        : [{ path: ".vitehub", type: "directory" }]
+    }
+    if (normalized === ".vitehub") {
+      return options.recursive
+        ? [
+            { path: ".vitehub/sources", type: "directory" },
+            ...descriptors.map(descriptor => ({ path: descriptor, type: "file" as const })),
+          ]
+        : [{ path: ".vitehub/sources", type: "directory" }]
+    }
+    if (normalized === ".vitehub/sources") {
+      return descriptors.map(descriptor => ({ path: descriptor, type: "file" as const }))
+    }
+    if (descriptors.includes(normalized)) return [{ path: normalized, type: "file" }]
+    return []
+  }
+
+  function descriptorStat(path: string): WorkspaceStat | undefined {
+    if (descriptorSourceForPath(path)) return { path, type: "file" }
+    if (descriptorSources.length && (path === ".vitehub" || path === ".vitehub/sources")) return { path, type: "directory" }
+  }
+
+  function isDescriptorPath(path: string): boolean {
+    return descriptorSources.length > 0 && (path === ".vitehub" || path === ".vitehub/sources" || path.startsWith(".vitehub/sources/"))
+  }
+
+  function descriptorContent(source: (typeof descriptorSources)[number]) {
+    return JSON.stringify({
+      ...source.requestDescriptor,
+      sourceKey: source.key,
+    }, null, 2)
   }
 
   function isLiveSource(sourceKey: string) {
@@ -96,6 +153,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function listSourceAware(path = "", options: ListOptions = {}) {
     const storeEntries = await store.list(path, options)
     const result = new Map<string, WorkspaceEntry>(storeEntries.map(entry => [entry.path, entry]))
+    for (const entry of descriptorPathEntries(path, options)) result.set(entry.path, entry)
 
     for (const source of getLazySourcesForPath(path)) {
       await ensurePrepared(source.key)
@@ -160,6 +218,15 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       results.length = 0
     }
 
+    for (const source of descriptorSources) {
+      const entryPath = workspaceSourceRequestDescriptorPath(source.key)
+      if (query.paths?.length && !requestedPaths.some(path => !normalizeWorkspacePath(path) || sourceMountContainsPath({ mountPath: normalizeWorkspacePath(path) }, entryPath))) {
+        continue
+      }
+      results.push(...searchText(entryPath, descriptorContent(source), { ...query, limit: limit - results.length }))
+      if (results.length >= limit) return dedupeHits(results).slice(0, limit)
+    }
+
     for (const source of sources) {
       const paths = sourcePaths.get(source.key)
       if (query.paths?.length && !paths?.length && !query.paths.some(path => !normalizeWorkspacePath(path))) continue
@@ -172,7 +239,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           const sourcePath = source.livePaths[entry.path]
           if (typeof sourcePath !== "string") continue
           const item = await source.source.getItem(sourcePath, getSourceContext(source))
-          const content = item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2))
+          const content = await sourceItemContent(item)
           const text = typeof content === "string" ? content : new TextDecoder().decode(content)
           results.push(...searchText(entry.path, text, { ...query, limit: limit - results.length }))
           if (results.length >= limit) break
@@ -213,14 +280,25 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
 
   async function isSourceBackedStorePath(path: string) {
     const file = await store.readFile(path)
-    if (typeof file?.metadata?.source === "string" && sources.some(source => source.key === file.metadata?.source)) return true
+    if (typeof file?.metadata?.source === "string" && allSources.some(source => source.key === file.metadata?.source)) return true
     const stat = await store.stat(path)
     if (stat?.type !== "directory") return false
     const entries = await store.list(path, { recursive: true })
     for (const entry of entries) {
       if (entry.type !== "file") continue
       const child = await store.readFile(entry.path)
-      if (typeof child?.metadata?.source === "string" && sources.some(source => source.key === child.metadata?.source)) return true
+      if (typeof child?.metadata?.source === "string" && allSources.some(source => source.key === child.metadata?.source)) return true
+    }
+    return false
+  }
+
+  async function isSyncedStatePath(path: string) {
+    if (!store.getMeta) return false
+    for (const source of syncSources) {
+      const state = readWorkspaceSourceSyncState(await store.getMeta(sourceSyncMetaKey(source.key)))
+      if (!state) continue
+      if (state.paths[path]) return true
+      if (Object.keys(state.paths).some(item => item.startsWith(`${path}/`))) return true
     }
     return false
   }
@@ -228,19 +306,21 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   async function assertWritableResolvedStorePath(path: string, workspacePath: string, type: "source" | "store") {
     assertWritableStorePath(path, workspacePath, type)
     await materializeRootSourceForPath(workspacePath)
-    if (await isSourceBackedStorePath(workspacePath)) {
+    if (isSyncSourceMountPath(workspacePath) || await isSyncedStatePath(workspacePath) || await isSourceBackedStorePath(workspacePath)) {
       throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
     }
   }
 
   return {
     async readFile(path, options) {
+      const descriptorSource = descriptorSourceForPath(normalizeWorkspacePath(path))
+      if (descriptorSource) return decodeFile(descriptorContent(descriptorSource), options)
       const resolution = resolveWorkspacePath(definition, path)
       if (resolution.type === "source") {
         await ensurePrepared(resolution.sourceKey)
         if (isLiveSource(resolution.sourceKey)) {
           const item = await resolution.source.source.getItem(resolution.sourcePath, getSourceContext(resolution.source))
-          return decodeFile(item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2)), options)
+          return decodeFile(await sourceItemContent(item), options)
         }
         await ensureMaterialized(resolution.sourceKey)
         return await readResolvedSourceFile(resolution, store, sourceContext, options)
@@ -251,7 +331,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return decodeFile(file.content, options)
     },
     async writeFile(path, content, options) {
+      if (isDescriptorPath(normalizeWorkspacePath(path))) {
+        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+      }
       const resolution = resolveWorkspacePath(definition, path)
+      if (isDescriptorPath(resolution.workspacePath)) {
+        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+      }
       await assertWritableResolvedStorePath(path, resolution.workspacePath, resolution.type)
       const input = await writePolicy.before({
         content,
@@ -282,6 +368,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       for (const entry of await store.glob(patterns, options)) {
         result.set(entry.path, entry)
       }
+      for (const entry of descriptorPathEntries("", { recursive: true })) {
+        if (entry.type === "file" && patterns.some(pattern => matchesAny(entry.path, pattern))) result.set(entry.path, entry)
+      }
       for (const source of sources.filter(source => source.livePaths)) {
         await pruneLiveSourceStoreEntries(result, source)
         for (const entry of liveSourceEntries(source)) {
@@ -295,6 +384,8 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return await searchWorkspace(query)
     },
     async stat(path) {
+      const descriptor = descriptorStat(normalizeWorkspacePath(path))
+      if (descriptor) return descriptor
       const resolution = resolveWorkspacePath(definition, path)
       if (resolution.type === "source") {
         await ensurePrepared(resolution.sourceKey)
@@ -324,6 +415,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return await materializeWorkspaceSources(definition, store, options)
     },
     async exists(path) {
+      if (descriptorStat(normalizeWorkspacePath(path))) return true
       const resolution = resolveWorkspacePath(definition, path)
       if (resolution.type === "source") {
         await ensurePrepared(resolution.sourceKey)
@@ -340,7 +432,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return Boolean(await store.stat(resolution.workspacePath))
     },
     async mkdir(path, options) {
+      if (isDescriptorPath(normalizeWorkspacePath(path))) {
+        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+      }
       const resolution = resolveWorkspacePath(definition, path)
+      if (isDescriptorPath(resolution.workspacePath)) {
+        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+      }
       await assertWritableResolvedStorePath(path, resolution.workspacePath, resolution.type)
       const input = await writePolicy.before({
         operation: "mkdir",
@@ -358,7 +456,13 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
     },
     async rm(path, options) {
+      if (isDescriptorPath(normalizeWorkspacePath(path))) {
+        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+      }
       const resolution = resolveWorkspacePath(definition, path)
+      if (isDescriptorPath(resolution.workspacePath)) {
+        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+      }
       await assertWritableResolvedStorePath(path, resolution.workspacePath, resolution.type)
       const input = await writePolicy.before({
         operation: "rm",
@@ -410,6 +514,16 @@ function liveSourceEntries(source: ReturnType<typeof normalizeWorkspaceSources>[
     entries.set(path, { path, type: "file" })
   }
   return [...entries.values()]
+}
+
+async function sourceItemContent(item: WorkspaceSourceItem): Promise<WorkspaceContent> {
+  if (item.contentStream) {
+    if (typeof item.content !== "undefined" || typeof item.data !== "undefined") {
+      throw new WorkspaceError("[vitehub] Workspace source items cannot define contentStream with content or data.")
+    }
+    return await contentStreamToBytes(item.contentStream)
+  }
+  return item.content ?? (typeof item.data === "undefined" ? "" : JSON.stringify(item.data, null, 2))
 }
 
 function addLiveSourceEntries(

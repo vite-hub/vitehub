@@ -24,6 +24,7 @@ const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, text: string, usage?: unknown, warnings?: unknown }>>(async () => ({ finishReason: "stop", text: "ok" })))
 
 vi.mock("@vite-hub/workspace", () => ({
+  defineWorkspace: vi.fn(definition => definition),
   useWorkspace: vi.fn(() => ({
     fs: { list, readFile },
     tools: {
@@ -37,6 +38,7 @@ vi.mock("@vite-hub/workspace/test", () => ({
 }))
 
 vi.mock("ai", () => ({
+  jsonSchema: vi.fn(schema => schema),
   stepCountIs: vi.fn(count => ({ count })),
   ToolLoopAgent: class {
     constructor(public settings: Record<string, unknown>) {
@@ -141,6 +143,19 @@ describe("agent eval", () => {
     const score = await evaliteCalls[0]!.opts.scorers[0].scorer({ output })
 
     expect(output.text).toBe("async eval config")
+    expect(score.score).toBe(1)
+  })
+
+  it("passes eval runtime config into agent invocations", async () => {
+    await import("./fixtures/quiver-sku-runtime.eval.ts")
+
+    expect(evaliteCalls[0]?.name).toBe("quiver-sku-runtime")
+
+    const output = await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
+    const score = await evaliteCalls[0]!.opts.scorers[0].scorer({ output })
+
+    expect(output.text).toContain("Selected SKU RAIN-042-BLK")
+    expect(output.text).toContain("shortfall of 130")
     expect(score.score).toBe(1)
   })
 
@@ -269,6 +284,53 @@ describe("agent eval", () => {
     })
   })
 
+  it("applies replacement instruction variants for base agents", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineEval } = await import("../src/eval.ts")
+    const baseModel = { id: "base" }
+
+    defineEval({
+      agent: defineAgent({
+        instructions: "Base instructions.",
+        model: baseModel as never,
+      }),
+      name: "support",
+      scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
+      variants: [{ instructions: "Variant instructions.", name: "variant" }],
+    })
+
+    await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input, evaliteCalls[0]!.variants![0]!.input)
+
+    expect(agentSettings.at(-1)).toMatchObject({
+      instructions: "Variant instructions.",
+      model: baseModel,
+    })
+  })
+
+  it("applies model variants for base agents", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineEval } = await import("../src/eval.ts")
+    const baseModel = { id: "base" }
+    const variantModel = { id: "variant" }
+
+    defineEval({
+      agent: defineAgent({
+        instructions: "Base instructions.",
+        model: baseModel as never,
+      }),
+      name: "support",
+      scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
+      variants: [{ model: variantModel, name: "variant" }],
+    })
+
+    await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input, evaliteCalls[0]!.variants![0]!.input)
+
+    expect(agentSettings.at(-1)).toMatchObject({
+      instructions: "Base instructions.",
+      model: variantModel,
+    })
+  })
+
   it("rejects variant overrides for non-inspectable agents", async () => {
     const { defineEval } = await import("../src/eval.ts")
 
@@ -281,7 +343,7 @@ describe("agent eval", () => {
 
     await expect(evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input, evaliteCalls[0]!.variants![0]!.input))
       .rejects
-      .toThrow("Agent Evaluation variants with model or instructions require an inspectable defineAgent({ workspace }) Agent Definition.")
+      .toThrow("Agent Evaluation variants with model or instructions require an Agent Definition created with defineAgent(...).")
   })
 
   it("ignores undefined variant override fields", async () => {

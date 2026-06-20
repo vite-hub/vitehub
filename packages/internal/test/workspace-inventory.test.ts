@@ -9,6 +9,7 @@ describe("workspace inventory", () => {
   it("lists publishable ViteHub packages from the workspace", () => {
     expect(listWorkspacePackageNames(repoRoot)).toEqual([
       "agent",
+      "auth",
       "blob",
       "ci",
       "cli",
@@ -22,6 +23,7 @@ describe("workspace inventory", () => {
       "schedule",
       "shell",
       "source",
+      "vite",
       "workflow",
       "workspace",
     ])

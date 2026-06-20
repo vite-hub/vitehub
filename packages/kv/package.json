@@ -2,24 +2,28 @@
   "name": "@vite-hub/kv",
   "version": "0.0.1",
   "description": "Vite-first key-value storage primitives and integration for ViteHub.",
-  "author": "onmax <maximogarciamtnez@gmail.com>",
-  "license": "Apache-2.0",
+  "keywords": [
+    "cloudflare",
+    "kv",
+    "vercel",
+    "vite",
+    "vitehub"
+  ],
   "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vite-hub/vitehub.git",
     "directory": "packages/kv"
   },
-  "bugs": "https://github.com/vite-hub/vitehub/issues",
-  "keywords": [
-    "vitehub",
-    "vite",
-    "kv",
-    "cloudflare",
-    "vercel"
+  "files": [
+    "dist",
+    "package.json"
   ],
-  "sideEffects": false,
   "type": "module",
+  "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
@@ -27,25 +31,29 @@
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },
-  "files": [
-    "dist",
-    "package.json"
-  ],
   "scripts": {
-    "build": "tsdown --tsconfig tsconfig.build.json",
-    "dev": "tsdown --watch",
+    "build": "vp pack",
+    "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --dir ../runtime build && pnpm --dir ../shell build && pnpm --dir ../source build && pnpm --dir ../sandbox build && pnpm --dir ../workspace build && pnpm --dir ../agent build && pnpm --dir ../blob build && pnpm --dir ../database build && pnpm --dir ../env build && pnpm --dir . build && pnpm --dir ../queue build && pnpm --dir ../workflow build && vitest run",
-    "test:e2e": "tsx ./test/e2e.ts"
+    "test": "vp run -t @vite-hub/kv#build && vp test"
   },
   "dependencies": {
     "defu": "catalog:unjs",
     "exsolve": "catalog:unjs",
     "unstorage": "catalog:storage"
   },
+  "devDependencies": {
+    "@vite-hub/internal": "workspace:*",
+    "ofetch": "catalog:unjs",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
+  },
   "peerDependencies": {
     "@upstash/redis": "catalog:storage",
-    "vite": "catalog:vite6-compat"
+    "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
     "@upstash/redis": {
@@ -55,14 +63,7 @@
       "optional": true
     }
   },
-  "devDependencies": {
-    "@vite-hub/internal": "workspace:*",
-    "ofetch": "catalog:unjs",
-    "publint": "catalog:tooling",
-    "tsdown": "catalog:tooling",
-    "tsx": "catalog:tooling",
-    "typescript": "catalog:tooling",
-    "vite": "catalog:vite",
-    "vitest": "catalog:tooling"
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

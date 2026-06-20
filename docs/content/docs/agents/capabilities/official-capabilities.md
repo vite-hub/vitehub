@@ -20,6 +20,7 @@ import {
   llmGate,
   llmRoute,
   mcp,
+  rateLimit,
   sandbox,
   transcribe,
   webSearch,
@@ -32,7 +33,7 @@ import {
 | Ability | Capability | Use it when |
 | --- | --- | --- |
 | Chat behavior | `chat()` | A chat surface should start Agent Invocations and manage Chat History. |
-| App entry | `entry()` | An app-owned surface should expose a trusted Chat App Route or custom Agent Trigger. |
+| App entry | `entry()` | An app-owned surface should contribute a custom Agent Trigger. |
 | Workspace files | `workspaceShell()` | The model should inspect or edit Workspace files. |
 | Storage | `kv()`, `blob()`, `db()` | The model needs scoped access to configured storage primitives. |
 | Isolated execution | `sandbox()` | The model should run explicit commands in an isolated runtime. |
@@ -41,6 +42,32 @@ import {
 | MCP servers | `mcp()` | The Agent should consume external MCP tools. |
 | Audio input | `transcribe()` | Audio message parts should become transcript text before the Agent runs. |
 | Routing and gates | `llmRoute()`, `llmGate()` | A pre-invocation model decision should select a route or reject input. |
+| Rate limiting | `rateLimit()` | A trusted invocation budget should be checked before model execution. |
+
+## Access
+
+`access()` resolves trusted invocation access before Workspace-reading tools are exposed. Workspace scopes can include `instructions` when the selected scope should also contribute explicit model-facing guidance:
+
+```ts
+const technicalEmails = new Set(['support-engineer@example.com'])
+
+access({
+  workspace: {
+    resolve({ invoker }) {
+      const email = String(invoker.meta?.email || '').toLowerCase()
+      return technicalEmails.has(email)
+        ? { instructions: 'Use technical support detail.', role: 'admin', scope: 'support' }
+        : { instructions: 'Use customer support detail.', role: 'viewer', scope: 'customer' }
+    },
+    scopes: {
+      customer: { paths: ['customers/acme'] },
+      support: { all: true },
+    },
+  },
+})
+```
+
+Render those instructions with `{{ capabilities.access.workspace }}`. Scope grants and roles still enforce access; instructions only guide model behavior.
 
 ## Storage capabilities
 
@@ -80,3 +107,9 @@ Without an execution Capability, an Agent cannot execute programs.
 `llmRoute()` and `llmGate()` produce typed Pre-Invocation Decisions. They do not dynamically attach new Capabilities or mutate the Agent Definition.
 
 Use them to record a decision, reject a request, or let later callbacks read a typed context value.
+
+## Rate limiting
+
+`rateLimit()` runs before model execution and consumes one budget unit per Agent Invocation in the first version. By default, it uses the Agent Invoker as the trusted identity, so the same caller metadata can drive access, prompt behavior, and invocation budgets.
+
+Use the memory store only for local development, tests, and single-process hosts. Hosted runtimes should provide an explicit Rate Limit Store with `check()` and `consume()` methods so the storage boundary owns its coordination guarantees.

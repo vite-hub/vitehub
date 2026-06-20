@@ -13,7 +13,7 @@ Use KV for small key-based values. Use Blob for file-shaped objects. Use Workspa
 
 Database definitions keep schema close to the server code that owns it.
 
-```ts [server/db/schema.ts]
+```ts [server/databases/config.ts]
 import { defineDatabase } from '@vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
@@ -24,7 +24,7 @@ export const notes = sqliteTable('notes', {
 })
 
 export default defineDatabase({
-  schema: { notes },
+  tables: { notes },
 })
 ```
 
@@ -46,10 +46,12 @@ Keep database usage database-native. SQL and Drizzle are better for relational d
 
 Use named databases when one app has separate data boundaries.
 
-```ts [server/db/analytics.ts]
+```ts [server/databases/analytics/config.ts]
+import { defineDatabase } from '@vite-hub/database'
+import { events } from './schema'
+
 export default defineDatabase({
-  name: 'analytics',
-  schema,
+  tables: { events },
 })
 ```
 
@@ -57,19 +59,37 @@ Named databases should represent real ownership or operational boundaries, not j
 
 ## Cloudflare D1 binding
 
-Cloudflare uses D1 bindings. Keep binding names, database names, and database ids in integration config.
+Cloudflare uses D1 bindings. For discovered Database Definitions, keep binding names, database names, and database ids with the definition that owns the database.
 
-```ts [vite.config.ts]
-export default defineConfig({
-  db: {
-    cloudflare: {
-      binding: 'DB',
-      databaseName: 'app',
-      databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,
-    },
+```ts [server/databases/config.ts]
+export default defineDatabase({
+  cloudflare: {
+    binding: 'DB',
+    databaseName: 'app',
+    databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,
+  },
+  tables: {
+    notes,
   },
 })
 ```
+
+## Nuxt D1 host wiring
+
+Nuxt apps can declare one D1 database resource for framework-owned consumers. The Database Nuxt bridge configures Nuxt Content internally and merges the same resource into Cloudflare `d1_databases`.
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@vite-hub/database/nuxt', '@nuxt/content'],
+  database: {
+    driver: 'd1',
+    databaseName: 'app-content',
+    databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,
+  },
+})
+```
+
+Do not also hand-author normal Nuxt Content D1 config or duplicate the binding under `nitro.cloudflare.wrangler.d1_databases`.
 
 ## libSQL on Vercel
 
@@ -82,7 +102,7 @@ TURSO_AUTH_TOKEN=<token>
 
 ```ts [vite.config.ts]
 export default defineConfig({
-  db: {
+  database: {
     connection: {
       url: process.env.TURSO_DATABASE_URL,
       authToken: process.env.TURSO_AUTH_TOKEN,

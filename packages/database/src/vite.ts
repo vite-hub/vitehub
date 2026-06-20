@@ -3,10 +3,13 @@ import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment
 import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 
+import { createDbCliContributor } from "./cli.ts"
 import { resolveDBViteConfig } from "./config.ts"
 import { writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { dbPackageName, generateProviderOutputs } from "./internal/vite-build.ts"
+import { createDatabaseProvisionStep } from "./provision.ts"
 
+import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { Plugin, ResolvedConfig } from "vite"
 import type { DBModulePublicOptions, ResolvedDBViteConfig } from "./types.ts"
 
@@ -24,7 +27,7 @@ export interface DBVitePluginAPI {
 
 interface DBCliContributingPlugin {
   vitehub?: {
-    cli?: unknown
+    cli?: () => Promise<ViteHubCliContributor | undefined>
   }
 }
 
@@ -88,7 +91,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let runtimeConfig: ResolvedDBViteConfig | undefined
 
   function resolvedOptions() {
-    return resolved?.db ?? options
+    return resolved?.database ?? options
   }
 
   async function refreshRuntimeConfig() {
@@ -108,9 +111,11 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     },
     vitehub: {
       cli: async () => {
-        const { createDbCliContributor } = await import(/* @vite-ignore */ "./cli.js")
         const db = resolvedOptions()
-        return createDbCliContributor(db === false ? false : db?.cli, refreshRuntimeConfig)
+        if (db === false) return
+        const contributor = createDbCliContributor(db?.cli, refreshRuntimeConfig)
+        const provision = [createDatabaseProvisionStep(() => resolved?.root ?? process.cwd(), db)]
+        return contributor ? { ...contributor, provision } : { namespaces: [], provision }
       },
     },
     async configResolved(config) {
@@ -165,6 +170,6 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
 declare module "vite" {
   interface UserConfig {
-    db?: DBModulePublicOptions
+    database?: DBModulePublicOptions
   }
 }

@@ -7,6 +7,7 @@ const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, text: string, usage?: unknown }>>(async () => ({ finishReason: "stop", text: "ok" })))
 
 vi.mock("ai", () => ({
+  jsonSchema: vi.fn(schema => schema),
   stepCountIs: vi.fn(count => ({ count })),
   ToolLoopAgent: class {
     constructor(public settings: Record<string, unknown>) {
@@ -20,6 +21,7 @@ vi.mock("ai", () => ({
 }))
 
 vi.mock("@vite-hub/workspace", () => ({
+  defineWorkspace: vi.fn(definition => definition),
   useWorkspace: vi.fn(() => ({
     fs: { list, readFile },
     tools: {

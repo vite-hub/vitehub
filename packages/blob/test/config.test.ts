@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import {
   normalizeBlobOptions,
+  resolveRuntimeMinioBlobStore,
   resolveRuntimeVercelBlobStore,
   warnVercelBlobFallback,
 } from "../src/config.ts"
@@ -69,6 +70,56 @@ describe("blob config", () => {
     })
   })
 
+  it("resolves MinIO config from Docker-friendly env", () => {
+    expect(normalizeBlobOptions({ driver: "minio" }, {
+      env: {
+        BLOB_BUCKET_NAME: "assets",
+        MINIO_ENDPOINT: "http://minio:9000",
+        MINIO_ROOT_PASSWORD: "password",
+        MINIO_ROOT_USER: "minio",
+      },
+    })).toEqual({
+      store: {
+        accessKeyId: "********",
+        bucket: "assets",
+        driver: "minio",
+        endpoint: "http://minio:9000",
+        forcePathStyle: true,
+        region: "us-east-1",
+        secretAccessKey: "********",
+      },
+    })
+  })
+
+  it("keeps explicit MinIO config over env defaults", () => {
+    expect(normalizeBlobOptions({
+      accessKeyId: "configured-user",
+      bucket: "configured-assets",
+      driver: "minio",
+      endpoint: "http://configured-minio:9000",
+      forcePathStyle: false,
+      region: "eu-west-1",
+      secretAccessKey: "configured-password",
+    }, {
+      env: {
+        BLOB_BUCKET_NAME: "env-assets",
+        MINIO_ENDPOINT: "http://env-minio:9000",
+        MINIO_ROOT_PASSWORD: "env-password",
+        MINIO_ROOT_USER: "env-user",
+      },
+    })).toEqual({
+      store: {
+        accessKeyId: "configured-user",
+        bucket: "configured-assets",
+        driver: "minio",
+        endpoint: "http://configured-minio:9000",
+        forcePathStyle: false,
+        region: "eu-west-1",
+        secretAccessKey: "configured-password",
+      },
+    })
+  })
+
   it("throws on non-object config", () => {
     expect(() => normalizeBlobOptions("blob" as never)).toThrow("`blob` must be a plain object.")
   })
@@ -126,6 +177,59 @@ describe("blob config", () => {
       driver: "vercel-blob",
       token: "secret-token",
     })
+  })
+
+  it("rehydrates MinIO credentials at runtime", () => {
+    expect(resolveRuntimeMinioBlobStore({
+      accessKeyId: "********",
+      bucket: "assets",
+      driver: "minio",
+      endpoint: "http://minio:9000",
+      forcePathStyle: true,
+      region: "us-east-1",
+      secretAccessKey: "********",
+    }, {
+      MINIO_ROOT_PASSWORD: "password",
+      MINIO_ROOT_USER: "minio",
+    })).toEqual({
+      accessKeyId: "minio",
+      bucket: "assets",
+      driver: "minio",
+      endpoint: "http://minio:9000",
+      forcePathStyle: true,
+      region: "us-east-1",
+      secretAccessKey: "password",
+    })
+  })
+
+  it("rehydrates MinIO credentials from Files SDK env names", () => {
+    expect(resolveRuntimeMinioBlobStore({
+      accessKeyId: "********",
+      bucket: "assets",
+      driver: "minio",
+      endpoint: "http://minio:9000",
+      forcePathStyle: true,
+      region: "us-east-1",
+      secretAccessKey: "********",
+    }, {
+      MINIO_ACCESS_KEY_ID: "minio",
+      MINIO_SECRET_ACCESS_KEY: "password",
+    })).toMatchObject({
+      accessKeyId: "minio",
+      secretAccessKey: "password",
+    })
+  })
+
+  it("throws when MinIO runtime credentials are missing", () => {
+    expect(() => resolveRuntimeMinioBlobStore({
+      accessKeyId: "********",
+      bucket: "assets",
+      driver: "minio",
+      endpoint: "http://minio:9000",
+      forcePathStyle: true,
+      region: "us-east-1",
+      secretAccessKey: "********",
+    }, {})).toThrow("Missing runtime environment variable `MINIO_ACCESS_KEY_ID`, `MINIO_ACCESS_KEY`, `MINIO_ROOT_USER`, or `AWS_ACCESS_KEY_ID` for MinIO Blob.")
   })
 
   it("warns when Vercel explicitly uses fs", () => {

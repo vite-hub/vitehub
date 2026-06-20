@@ -1,9 +1,12 @@
-import { setWorkspaceRegistry, type WorkspaceRegistry } from "../core/registry.ts"
+import { registerWorkspace, setWorkspaceRegistry, type WorkspaceRegistry } from "../core/registry.ts"
 import { setWorkspaceAssetsRegistry } from "../asset-registry.ts"
 import type { WorkspaceAssetsRegistry } from "../core/types.ts"
+export { useWorkspace } from "../core/use.ts"
+export type { ReadonlyWorkspaceFacade, UseWorkspaceOptions, WritableWorkspaceFacade } from "../core/use.ts"
 export { resetWorkspaceStoreCache } from "../core/workspace-cache.ts"
 export { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader } from "./hosted-store-loader.ts"
 export { getWorkspaceRuntimeConfig, setWorkspaceRuntimeConfig } from "./config.ts"
+export { registerWorkspace }
 
 export function setWorkspaceRuntimeRegistry(registry: WorkspaceRegistry): void {
   setWorkspaceRegistry(registry)

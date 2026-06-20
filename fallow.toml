@@ -2,16 +2,24 @@ ignorePatterns = []
 
 dynamicallyLoaded = [
   ".github/scripts/*.mjs",
+  "test/local/vercel-bridge-server.mjs",
+  "test/local/local.mjs",
+  "test/local/build-playground.mjs",
+  "test/run-package-task.mjs",
   "docs/content.config.ts",
   "docs/app/assets/main.css",
   "packages/devtools/devtools/chat/app/app.vue",
   "packages/devtools/devtools/chat/app/assets/css/main.css",
   "packages/devtools/devtools/chat/nuxt.config.ts",
+  "packages/*/examples/**/src/main.ts",
   "packages/kv/examples/**/server/**",
   "packages/kv/test/helpers/*.ts",
+  "packages/kv/test/e2e.mjs",
   "packages/kv/test/**/*.test-d.ts",
   "packages/database/test/**/*.test-d.ts",
+  "packages/database/test/e2e.mjs",
   "packages/env/test/**/*.test-d.ts",
+  "packages/auth/test/**/*.test-d.ts",
   "packages/database/examples/**/server/**",
   "packages/database/examples/**/src/server.ts",
   "packages/database/examples/**/src/database/**",
@@ -33,6 +41,7 @@ dynamicallyLoaded = [
   "packages/workflow/examples/**/src/server.ts",
   "packages/workflow/examples/**/src/**/*.workflow.ts",
   "packages/blob/test/helpers/*.ts",
+  "packages/blob/test/e2e.mjs",
   "packages/blob/test/**/*.test-d.ts",
   "packages/blob/examples/**/server/**",
   "packages/blob/examples/**/src/server.ts",
@@ -50,7 +59,7 @@ dynamicallyLoaded = [
   "packages/sandbox/examples/**/server/**",
   "packages/sandbox/examples/**/src/server.ts",
   "packages/sandbox/examples/**/src/**/*.sandbox.ts",
-  "packages/workspace/test/e2e.ts",
+  "packages/workspace/test/e2e.mjs",
   "packages/workspace/test/**/*.test-d.ts",
   "packages/workspace/src/providers/cloudflare/artifacts-store.ts",
   "packages/workspace/src/providers/vercel/blob-store.ts",
@@ -68,13 +77,17 @@ dynamicallyLoaded = [
   "playground/vite/src/server-workspace.ts",
   "playground/vite/src/server-workflow.ts",
   "playground/vite/src/database/**",
+  "playground/vite/build/vite-e2e.ts",
   "playground/vite/workspaces/**",
   "playground/vite/src/**/*.schedule.ts",
   "playground/vite/src/**/*.queue.ts",
   "playground/vite/src/**/*.workflow.ts",
+  "packages/sandbox/test/e2e.mjs",
 ]
 
 ignoreDependencies = [
+  "@voidzero-dev/vite-plus-core",
+  "@voidzero-dev/vite-plus-test",
   "docus",
   "@cloudflare/sandbox",
   "@vercel/blob",
@@ -123,6 +136,10 @@ rules = { "unused-class-members" = "off" }
 
 [[overrides]]
 files = ["packages/agent/src/state/providers/cloudflare.ts"]
+rules = { "unused-class-members" = "off" }
+
+[[overrides]]
+files = ["packages/agent/src/cloudflare-state-do.ts"]
 rules = { "unused-class-members" = "off" }
 
 [[overrides]]

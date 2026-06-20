@@ -114,7 +114,7 @@ describe("resolveDBViteConfig", () => {
 
     expect(resolved?.databaseNames).toEqual(["default"])
     expect(resolved?.databases.default).toMatchObject({
-      connection: { url: "file:.data/database/sqlite.db" },
+      connection: { url: "file:.vitehub/data/database/sqlite.db" },
       dialect: "sqlite",
       migrationsDir: "server/databases/migrations",
       mode: "default",
@@ -133,7 +133,7 @@ describe("resolveDBViteConfig", () => {
     const resolved = resolveDBViteConfig(undefined, rootDir)
 
     expect(resolved?.databases.analytics).toMatchObject({
-      connection: { url: "file:.data/database/analytics.sqlite.db" },
+      connection: { url: "file:.vitehub/data/database/analytics.sqlite.db" },
       migrationsDir: "server/databases/analytics/migrations",
       mode: "named",
     })
@@ -156,7 +156,7 @@ describe("resolveDBViteConfig", () => {
 
       expect(resolveDBViteConfig(undefined, rootDir)?.databases.default.connection).toEqual({
         authToken: undefined,
-        url: "file:.data/database/sqlite.db",
+        url: "file:.vitehub/data/database/sqlite.db",
       })
     }
     finally {

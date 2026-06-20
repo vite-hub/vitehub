@@ -1,7 +1,14 @@
 import { resolveRuntimeValue } from "@vite-hub/runtime"
 
 import { workspaceOverrideSymbol } from "./access-runtime.ts"
+import { createMessage } from "./messages.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
+import {
+  createFallbackAgentInvoker,
+  ensureAgentInvokerContext,
+  resolveInputAgentInvoker,
+} from "./invoker.ts"
+import { runObservedAgentHook } from "./hooks.ts"
 import type {
   AgentAdapterInstructionsValue,
   AgentCallbackContext,
@@ -12,10 +19,14 @@ import type {
   AgentCapabilityHooks,
   AgentCapabilityMode,
   AgentCapabilityRuntimeContext,
+  AgentChannelDeliveryEffectIntent,
+  AgentChannelDeliveryFinishEffect,
   AgentFinishEvent,
   AgentFinishExtensionProvider,
+  AgentHookObserverHooks,
   AgentInstructionBlock,
   AgentInvocationContextStore,
+  AgentInvoker,
   AgentModelResolver,
   AgentOutputRenderer,
   AgentProviderToolContribution,
@@ -32,6 +43,10 @@ import type { Message } from "./messages.ts"
 import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName } from "@vite-hub/workspace"
 
 type ResolvedAgentOutputRenderer = (result: unknown) => MaybePromise<unknown>
+const defaultCapabilityRuntimePhases = ["configure", "prepare", "bind", "input", "resolve", "output"] as const
+export const channelDeliveryEffectsContextKey = "channel.delivery.effects"
+export const channelDeliveryFinishEffectsContextKey = "channel.delivery.finishEffects"
+type AgentCapabilityRuntimePhase = typeof defaultCapabilityRuntimePhases[number]
 
 export interface ResolvedAgentFinishExtensionProvider {
   id: string
@@ -39,6 +54,8 @@ export interface ResolvedAgentFinishExtensionProvider {
 }
 
 export interface AgentCapabilityRegistries {
+  deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
+  finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   outputRenderers: ResolvedAgentOutputRenderer[]
   providerTools: AgentProviderToolContribution[]
@@ -51,7 +68,7 @@ export interface AgentCapabilityOptions<
   Name extends WorkspaceName = WorkspaceName,
 > {
   capabilities?: AgentCapabilityDefinition<TRuntimeConfig, Name>[]
-  hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
+  hooks?: AgentCapabilityHooks<TRuntimeConfig, Name> & AgentHookObserverHooks
 }
 
 export interface AgentCapabilityInvocationOptions<
@@ -59,7 +76,11 @@ export interface AgentCapabilityInvocationOptions<
   Name extends WorkspaceName = WorkspaceName,
 > {
   context?: AgentInvocationContextStore
+  invoker?: AgentInvoker
   model?: AgentModelResolver<TRuntimeConfig, Name>
+  phases?: readonly AgentCapabilityRuntimePhase[]
+  resolveInstructions?: boolean
+  resolveTools?: boolean
   workspaceDefinition?: WorkspaceDefinition
 }
 
@@ -141,7 +162,14 @@ function validateAccessCapabilityOrder(capabilities: AgentCapabilityDefinition[]
 function getRunMessages(input: AgentRunInput): Message[] {
   if (input.messages) return input.messages
   if (Array.isArray(input.prompt)) return input.prompt
+  if (input.message !== undefined) return [typeof input.message === "string" ? createMessage({ role: "user", text: input.message }) : input.message]
   return []
+}
+
+function normalizeRunInput(input: AgentRunInput): AgentRunInput {
+  if (input.messages || Array.isArray(input.prompt) || input.message === undefined) return input
+  const { message: _message, ...next } = input
+  return { ...next, messages: getRunMessages(input) }
 }
 
 function withMessages(input: AgentRunInput, messages: Message[]): AgentRunInput {
@@ -156,17 +184,24 @@ async function callHooks<
 >(
   name: AgentCapabilityHookName,
   context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
-  agentHooks?: AgentCapabilityHooks<TRuntimeConfig, Name>,
+  agentHooks?: AgentCapabilityHooks<TRuntimeConfig, Name> & AgentHookObserverHooks,
 ) {
-  await context.capability.hooks?.[name]?.(context)
-  await agentHooks?.[name]?.(context)
+  await runObservedAgentHook(agentHooks, {
+    ids: { capabilityId: context.capability.id },
+    name,
+    owner: "capability",
+    phase: name.replace(/^capability:/, "").replace(/:after$/, ""),
+  }, async () => {
+    await context.capability.hooks?.[name]?.(context)
+    await agentHooks?.[name]?.(context)
+  })
 }
 
 function addInstructionBlock(
   capabilityInstructions: AgentInstructionBlock[],
   capabilityId: string,
   value: AgentAdapterInstructionsValue | false | undefined,
-  options?: { aliases?: string[], id?: string },
+  options?: { id?: string },
 ) {
   if (value === false || value === undefined) return
   const instructions = (Array.isArray(value) ? value : [value])
@@ -175,11 +210,14 @@ function addInstructionBlock(
     .join("\n\n")
   if (instructions) {
     capabilityInstructions.push({
-      ...(options?.aliases?.length ? { aliases: options.aliases } : {}),
-      id: options?.id || capabilityId,
+      id: capabilityInstructionBlockId(options?.id || capabilityId),
       instructions,
     })
   }
+}
+
+export function capabilityInstructionBlockId(capabilityId: string): string {
+  return `capabilities.${capabilityId === "workspace-shell" ? "workspaceShell" : capabilityId}`
 }
 
 function toAgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -218,16 +256,23 @@ export async function resolveAgentCapabilities<
 ): Promise<ResolvedAgentCapabilities> {
   const runtimeContext = toAgentCallbackContext(runtime)
   const invocationContext = invocationOptions.context || createAgentInvocationContextStore(input.context)
+  const invoker = invocationOptions.invoker || resolveInputAgentInvoker(input.context) || createFallbackAgentInvoker(runtime.run)
+  ensureAgentInvokerContext(invocationContext, invoker)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   validateAccessCapabilityOrder(capabilities)
-  let currentInput = input
+  let currentInput = normalizeRunInput(input)
   let currentWorkspace = workspace as ReadonlyWorkspaceFacade<Name> | undefined
   let messages = getRunMessages(currentInput)
   let tools: AgentToolSet | undefined
   const capabilityInstructions: AgentInstructionBlock[] = []
   const closeCallbacks: Array<() => MaybePromise<void>> = []
+  let hasCloseWork = false
   const toolTransforms: AgentToolTransform[] = []
+  const initialDeliveryEffectIntents = invocationContext.get<AgentChannelDeliveryEffectIntent[]>(channelDeliveryEffectsContextKey) || []
+  const initialFinishDeliveryEffectProviders = invocationContext.get<AgentChannelDeliveryFinishEffect[]>(channelDeliveryFinishEffectsContextKey) || []
   const registries: AgentCapabilityRegistries = {
+    deliveryEffectIntents: [...initialDeliveryEffectIntents],
+    finishDeliveryEffectProviders: [...initialFinishDeliveryEffectProviders],
     finishExtensionProviders: [],
     outputRenderers: [],
     providerTools: [],
@@ -252,10 +297,14 @@ export async function resolveAgentCapabilities<
   try {
     for (const capability of capabilities) {
       await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, currentWorkspace, workspaceMode)
+      const phases = invocationOptions.phases || defaultCapabilityRuntimePhases
       const metadataContext = {
         ...runtimeContext,
+        actor: invoker,
         context: invocationContext,
         fs: currentWorkspace?.fs,
+        invoker,
+        runtimeContext: runtime,
         workspace: currentWorkspace,
         workspaceDefinition: invocationOptions.workspaceDefinition,
       }
@@ -278,12 +327,30 @@ export async function resolveAgentCapabilities<
           get: () => currentInput,
           messages: () => messages,
           set(value) {
-            currentInput = value
+            currentInput = normalizeRunInput(value)
             messages = getRunMessages(currentInput)
           },
           setMessages(value) {
             messages = value
             currentInput = withMessages(currentInput, messages)
+          },
+        },
+        delivery: {
+          effect(intent) {
+            if (!intent || typeof intent !== "object" || typeof intent.kind !== "string" || !intent.kind.trim()) {
+              throw new TypeError("[vitehub] delivery.effect() requires an effect intent with a non-empty kind.")
+            }
+            const next = [...registries.deliveryEffectIntents, intent]
+            registries.deliveryEffectIntents = next
+            invocationContext.set(channelDeliveryEffectsContextKey, next, { overwrite: true })
+          },
+          finishEffect(effect) {
+            if (typeof effect !== "function" && (!effect || typeof effect !== "object" || typeof effect.kind !== "string" || !effect.kind.trim())) {
+              throw new TypeError("[vitehub] delivery.finishEffect() requires an effect intent or resolver.")
+            }
+            const next = [...registries.finishDeliveryEffectProviders, effect]
+            registries.finishDeliveryEffectProviders = next
+            invocationContext.set(channelDeliveryFinishEffectsContextKey, next, { overwrite: true })
           },
         },
         model: {
@@ -345,37 +412,43 @@ export async function resolveAgentCapabilities<
           input: trigger.input,
           invoke: input => trigger.invoke({
             ...runtimeContext,
+            actor: invoker,
             capability,
             trigger: {
               capabilityId: capability.id,
               id,
               name,
+              source: "capability",
             },
           }, input as never),
           name,
           output: trigger.output,
+          source: "capability",
         })
       }
 
-      closeCallbacks.push(async () => {
-        await callHooks("capability:close", capabilityContext, options?.hooks)
-        await capability.close?.(capabilityContext)
-        await callHooks("capability:close:after", capabilityContext, options?.hooks)
-      })
+      if (capability.close || options?.hooks?.["capability:close"] || options?.hooks?.["capability:close:after"]) {
+        hasCloseWork = true
+        closeCallbacks.push(async () => {
+          await callHooks("capability:close", capabilityContext, options?.hooks)
+          await capability.close?.(capabilityContext)
+          await callHooks("capability:close:after", capabilityContext, options?.hooks)
+        })
+      }
 
-      for (const phase of ["configure", "prepare", "bind", "input", "resolve", "output"] as const) {
+      for (const phase of phases) {
         await callHooks(`capability:${phase}`, capabilityContext, options?.hooks)
         await capability[phase]?.(capabilityContext)
         await callHooks(`capability:${phase}:after`, capabilityContext, options?.hooks)
       }
 
-      if (capability.instructions !== undefined) {
+      if (invocationOptions.resolveInstructions !== false && capability.instructions !== undefined) {
         const values = await resolveInstructionValue(capability, capabilityContext)
         for (const value of values) {
           addInstructionBlock(capabilityInstructions, capability.id, value)
         }
       }
-      if (capability.tools) {
+      if (invocationOptions.resolveTools !== false && capability.tools) {
         const resolved = await resolveRuntimeValue(capability.tools as never, capabilityContext) as unknown
         if (isToolSet(resolved)) tools = { ...tools, ...resolved }
       }
@@ -394,7 +467,7 @@ export async function resolveAgentCapabilities<
   return {
     capabilityInstructions,
     close: closeRegisteredCallbacks,
-    hasCloseCallbacks: closeCallbacks.length > 0,
+    hasCloseCallbacks: hasCloseWork,
     input: currentInput,
     messages,
     registries,
@@ -415,6 +488,8 @@ export async function resolveStaticCapabilityTools<
 ): Promise<AgentToolSet | undefined> {
   const runtimeContext = toAgentCallbackContext(runtime)
   const invocationContext = createAgentInvocationContextStore()
+  const invoker = createFallbackAgentInvoker(runtime.run)
+  ensureAgentInvokerContext(invocationContext, invoker)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   let tools: AgentToolSet | undefined
 
@@ -424,9 +499,12 @@ export async function resolveStaticCapabilityTools<
 
     const capabilityContext = {
       ...runtimeContext,
+      actor: invoker,
       context: invocationContext,
       fs: workspace?.fs,
+      invoker,
       mode: capability.mode,
+      runtimeContext: runtime,
       workspace,
     } as unknown as AgentCapabilityContext<TRuntimeConfig, Name>
     const resolved = await resolveRuntimeValue(capability.tools as never, capabilityContext as never) as unknown
@@ -473,7 +551,7 @@ export function applyCapabilityInstructionSlots(instructions: string, blocks: Ag
       return remaining.splice(0).map(block => block.instructions).join("\n\n")
     }
 
-    const selected = blocks.filter(block => instructionBlockMatchesSlot(block, slot))
+    const selected = blocks.filter(block => block.id === slot)
     if (!selected.length) {
       return match
     }
@@ -493,10 +571,6 @@ export function applyCapabilityInstructionSlots(instructions: string, blocks: Ag
 
   const appendix = remaining.map(block => block.instructions).join("\n\n")
   return [rendered.trim(), appendix.trim()].filter(Boolean).join("\n\n")
-}
-
-function instructionBlockMatchesSlot(block: AgentInstructionBlock, slot: string): boolean {
-  return block.id === slot || !!block.aliases?.includes(slot)
 }
 
 export async function applyCapabilityToolTransforms(
@@ -527,8 +601,11 @@ export async function createAgentInvocationExtensions(
 ): Promise<AgentFinishEvent["extensions"]> {
   const values = new Map<string, unknown>()
   const extensions: AgentFinishEvent["extensions"] = {
-    get<T = unknown>(capabilityId: string): T | undefined {
-      return values.get(capabilityId) as T | undefined
+    get<T = unknown>(capabilityId: string, key?: string): T | undefined {
+      const value = values.get(capabilityId)
+      if (key === undefined) return value as T | undefined
+      if (typeof value !== "object" || value === null) return undefined
+      return (value as Record<string, unknown>)[key] as T | undefined
     },
   }
   const finishEvent = { ...event, extensions } as AgentFinishEvent

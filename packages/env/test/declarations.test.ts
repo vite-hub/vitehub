@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { env } from "../src/index.ts"
 import { defaultStringSchema } from "../src/core/declarations.ts"
-import { createRuntimeRegistry, resolveEnvSource, validateEnvConfigShape } from "../src/core/resolve.ts"
+import { createRuntimeRegistry, createSourceContext, resolveEnvSource, validateEnvConfigShape } from "../src/core/resolve.ts"
 import { parseSchema } from "../src/schema.ts"
 
 describe("env declarations", () => {
@@ -78,11 +78,60 @@ describe("env declarations", () => {
       label: "git:commit",
       short: true,
     })
+    expect(env.gitRef()).toMatchObject({
+      kind: "git-ref",
+      label: "git:ref",
+    })
+    expect(env.gitSha({ short: true })).toMatchObject({
+      kind: "git-sha",
+      label: "git:sha",
+      short: true,
+    })
+    expect(env.gitTag()).toMatchObject({
+      kind: "git-tag",
+      label: "git:tag",
+    })
+    expect(env.buildTimestamp()).toMatchObject({
+      kind: "build-timestamp",
+      label: "build:timestamp",
+    })
     expect(env.custom("custom:preview", () => true)).toMatchObject({
       kind: "custom",
       label: "custom:preview",
       serializable: false,
     })
+  })
+
+  it("resolves git metadata from build env before git", async () => {
+    const explicit = createSourceContext({
+      env: {
+        GITHUB_REF_NAME: "v1.2.3",
+        GITHUB_REF_TYPE: "tag",
+        GITHUB_SHA: "github-sha",
+        GIT_REF_NAME: "main",
+        GIT_SHA: "abcdef1234567890",
+        GIT_TAG: "v9.9.9",
+      },
+      mode: "build",
+      rootDir: "/missing-git-root",
+    })
+    expect(await explicit.git.sha()).toBe("abcdef1234567890")
+    expect(await explicit.git.sha({ short: true })).toBe("abcdef1")
+    expect(await explicit.git.ref()).toBe("main")
+    expect(await explicit.git.tag()).toBe("v9.9.9")
+
+    const github = createSourceContext({
+      env: {
+        GITHUB_REF_NAME: "v1.2.3",
+        GITHUB_REF_TYPE: "tag",
+        GITHUB_SHA: "github-sha",
+      },
+      mode: "build",
+      rootDir: "/missing-git-root",
+    })
+    expect(await github.git.sha()).toBe("github-sha")
+    expect(await github.git.ref()).toBe("v1.2.3")
+    expect(await github.git.tag()).toBe("v1.2.3")
   })
 
   it("rejects flat runtime declarations in Vite config", () => {
@@ -235,6 +284,20 @@ describe("env declarations", () => {
     expect(() => createRuntimeRegistry({
       sentryDebug: env({ type: "boolean" }),
     })).toThrow("runtime values are strings")
+  })
+
+  it("rejects build-mode runtime registry declarations", () => {
+    expect(() => createRuntimeRegistry({
+      appName: env({ mode: "build" }),
+    })).toThrow("must use mode: \"runtime\"")
+  })
+
+  it("rejects invalid runtime registry values", () => {
+    expect(() => createRuntimeRegistry({
+      empty: undefined,
+    } as never)).toThrow("Invalid runtime declaration at env.empty")
+
+    expect(() => createRuntimeRegistry(null as never)).toThrow("Invalid runtime declaration at env")
   })
 
   it("rejects custom runtime registry sources", () => {

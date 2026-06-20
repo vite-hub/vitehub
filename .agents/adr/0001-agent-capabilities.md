@@ -14,4 +14,4 @@ ViteHub agents will use agent-scoped Capabilities created with `defineCapability
 
 ## Consequences
 
-The first official capabilities are `skills()`, `mcp()`, `workspaceShell()`, `sandbox()`, `kv()`, `blob()`, and `db()`. Capabilities are single-instance by default, run in user-provided order, and may contribute named instruction blocks that users place with instruction slots such as `{{ skills }}`, `{{ mcp }}`, and `{{ capabilities }}`. Capability definitions keep generic structured `metadata` for runtime configuration details, but do not carry capability-level display metadata.
+The first official capabilities are `skills()`, `mcp()`, `workspaceShell()`, `sandbox()`, `kv()`, `blob()`, and `db()`. Capabilities are single-instance by default, run in user-provided order, and may contribute named instruction blocks that users place with namespaced instruction slots such as `{{ capabilities.skills }}`, `{{ capabilities.mcp }}`, and the catch-all `{{ capabilities }}`. Bare Capability ids are not instruction slots. Capability definitions keep generic structured `metadata` for runtime configuration details, but do not carry capability-level display metadata.

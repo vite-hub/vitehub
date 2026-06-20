@@ -285,6 +285,37 @@ describe("provider deployment outputs", () => {
     expect(existsSync(join(serverDir, "node_modules", "optional-peer", "package.json"))).toBe(false)
   })
 
+  it("ignores traced Vercel runtime package directory entries", async () => {
+    vi.resetModules()
+    vi.doMock("@vercel/nft", () => ({
+      nodeFileTrace: vi.fn(async () => ({ fileList: new Set([".", "index.js"]) })),
+    }))
+
+    try {
+      const rootDir = await createTempProject()
+      const {
+        createDefaultVercelOutputRoot,
+      } = await import("../src/build/deployment-output.ts")
+      const { copyVercelFunctionRuntimePackages } = await import("../src/build/vercel-runtime-packages.ts")
+      const outputRoot = createDefaultVercelOutputRoot(rootDir)
+      const serverDir = join(outputRoot, "functions", "__server.func")
+      await writePackage(rootDir, "runtime-with-directory-entry", {
+        exports: { ".": "./index.js" },
+      })
+      await mkdir(serverDir, { recursive: true })
+
+      await copyVercelFunctionRuntimePackages({
+        packages: [{ name: "runtime-with-directory-entry" }],
+        rootDir,
+      })
+
+      expect(existsSync(join(serverDir, "node_modules", "runtime-with-directory-entry", "index.js"))).toBe(true)
+    }
+    finally {
+      vi.doUnmock("@vercel/nft")
+    }
+  })
+
   it("skips optional Vercel function runtime packages when they are not installed", async () => {
     const rootDir = await createTempProject()
     const {

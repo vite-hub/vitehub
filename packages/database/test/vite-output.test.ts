@@ -8,8 +8,12 @@ import { afterAll, describe, expect, it } from "vitest"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
-const viteBin = join(playgroundDir, "node_modules", ".bin", "vite")
 const tempDirs: string[] = []
+
+function resolvePlaygroundNodeModules() {
+  const nodeModules = join(playgroundDir, "node_modules")
+  return existsSync(nodeModules) ? nodeModules : resolve(playgroundDir, "../../node_modules")
+}
 
 async function createWorkspaceTempDir(prefix: string) {
   const baseDir = join(playgroundDir, ".vitest-tmp")
@@ -46,7 +50,7 @@ async function writeDatabaseDefinition(rootDir: string, name: string, options: {
 
 async function createDbBuildProject(prefix: string) {
   const rootDir = await createWorkspaceTempDir(prefix)
-  const nodeModules = join(playgroundDir, "node_modules")
+  const nodeModules = resolvePlaygroundNodeModules()
   await mkdir(join(rootDir, "src"), { recursive: true })
   await symlink(nodeModules, join(rootDir, "node_modules"), "dir")
   await writeFile(join(rootDir, "package.json"), "{\"type\":\"module\"}\n")
@@ -100,7 +104,7 @@ async function createDbBuildProject(prefix: string) {
 }
 
 async function runDbBuild(rootDir: string, env: NodeJS.ProcessEnv = {}) {
-  return execFileAsync(viteBin, ["build"], {
+  return execFileAsync("vp", ["build"], {
     cwd: rootDir,
     env: {
       ...process.env,

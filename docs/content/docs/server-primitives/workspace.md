@@ -41,6 +41,32 @@ Source keys are named origins. A glob, file, fetch, or GitHub source is not auto
 
 `instructions` is optional model-facing guidance for agents that use the Workspace. It does not grant access or change which files are visible.
 
+Custom Sources can read existing materialized Workspace files through `ctx.workspaceFiles`. Use this when a Source needs previous generated output, such as a sync report or cached asset metadata, while producing the next materialized files. The view is read-only and does not expose Workspace Stores, provider adapters, snapshots, diffs, or Source materialization.
+
+## Invocation-scoped source resolution
+
+Sources can resolve their concrete origin, Mount, and Source Instructions for one invocation from trusted runtime context. Use this when the same Source key should point at a narrowed origin after Access has selected a Workspace Scope.
+
+```ts
+source.github(({ invocation }) => {
+  const scope = invocation.context.get<{ customers: string[] }>('support.customerScope')
+  const customer = scope?.customers[0]
+  if (!customer)
+    return false
+
+  return {
+    repo: 'quiverdk/ingestion',
+    root: `dbt/${customer}`,
+    mount: `ingestion/${customer}`,
+    instructions: `Use this source only for ${customer} ingestion models.`,
+  }
+})
+```
+
+The resolver reads Agent Invocation Context Values and the Selected Workspace Scope, not model output. Access still enforces visibility, and scope-affecting resolved options are fingerprinted so source caches do not reuse data across scopes.
+
+Resolved Sources are evaluated at invocation time and default to lazy materialization. A resolver can return a narrowed GitHub `repo`, `root`, `mount`, and `instructions` without also declaring build-time materialization or cache options; the resolved fingerprint includes the Selected Workspace Scope so one scope cannot reuse another scope's source data.
+
 ## Use a workspace from server code
 
 ```ts [server/api/docs.get.ts]

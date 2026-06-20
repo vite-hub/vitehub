@@ -2,38 +2,47 @@
   "name": "@vite-hub/agent",
   "version": "0.0.1",
   "description": "Agent DX layer and Vite integration for ViteHub.",
-  "author": "onmax <maximogarciamtnez@gmail.com>",
-  "license": "Apache-2.0",
+  "keywords": [
+    "agent",
+    "ai",
+    "cloudflare",
+    "vercel",
+    "vite",
+    "vitehub"
+  ],
   "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vite-hub/vitehub.git",
     "directory": "packages/agent"
   },
-  "bugs": "https://github.com/vite-hub/vitehub/issues",
-  "keywords": [
-    "vitehub",
-    "vite",
-    "agent",
-    "ai",
-    "cloudflare",
-    "vercel"
+  "files": [
+    "dist",
+    "package.json"
   ],
-  "sideEffects": false,
   "type": "module",
+  "sideEffects": false,
   "types": "./dist/index.d.ts",
+  "imports": {
+    "#vitehub/agent/registry": {
+      "types": "./dist/runtime/empty-registry.d.ts",
+      "default": "./dist/runtime/empty-registry.js"
+    }
+  },
   "exports": {
     ".": "./dist/index.js",
     "./ai-sdk": "./dist/ai-sdk.js",
     "./capabilities": "./dist/capabilities.js",
-    "./capability-runtime": "./dist/capability-runtime.js",
+    "./channels": "./dist/channels.js",
     "./cli": "./dist/cli.js",
     "./cloudflare": "./dist/cloudflare.js",
     "./cloudflare/state": "./dist/cloudflare/state.js",
     "./eval": "./dist/eval.js",
     "./mcp": "./dist/mcp.js",
     "./mcp/stdio": "./dist/mcp/stdio.js",
-    "./memory": "./dist/memory.js",
     "./messages": "./dist/messages.js",
     "./runtime/empty-registry": "./dist/runtime/empty-registry.js",
     "./runtime/workflow": "./dist/runtime/workflow.js",
@@ -44,43 +53,61 @@
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
   },
-  "imports": {
-    "#vitehub/agent/registry": {
-      "types": "./dist/runtime/empty-registry.d.ts",
-      "default": "./dist/runtime/empty-registry.js"
-    }
-  },
-  "files": [
-    "dist",
-    "package.json"
-  ],
   "scripts": {
-    "build": "tsdown --tsconfig tsconfig.build.json",
-    "dev": "tsdown --watch",
+    "build": "vp pack",
+    "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit -p ./tsconfig.json",
-    "test": "pnpm --filter @vite-hub/agent... build && vitest run"
+    "test": "vp run -t @vite-hub/agent#build && vp test"
   },
   "dependencies": {
     "@libsql/client": "catalog:database",
-    "@vite-hub/runtime": "workspace:*",
-    "@vite-hub/workspace": "workspace:*",
-    "@vite-hub/devtools": "workspace:*",
     "@vercel/functions": "catalog:vercel",
     "@vercel/nft": "catalog:vercel",
+    "@vite-hub/devtools": "workspace:*",
+    "@vite-hub/runtime": "workspace:*",
+    "@vite-hub/workspace": "workspace:*",
     "@vitejs/devtools-kit": "catalog:vite",
     "chat": "catalog:chat",
     "hookable": "catalog:unjs"
   },
-  "peerDependencies": {
+  "devDependencies": {
+    "@ai-sdk/harness": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
+    "@ai-sdk/sandbox-vercel": "catalog:ai",
+    "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
+    "@vite-hub/workflow": "workspace:*",
+    "@vitejs/devtools-kit": "catalog:vite",
+    "ai": "catalog:ai",
+    "evalite": "catalog:ai",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
+  },
+  "peerDependencies": {
+    "@ai-sdk/harness": "catalog:ai",
+    "@ai-sdk/harness-codex": "catalog:ai",
+    "@ai-sdk/mcp": "catalog:ai",
+    "@ai-sdk/sandbox-vercel": "catalog:ai",
     "@vite-hub/workflow": "workspace:*",
     "agents": "catalog:ai",
     "ai": "catalog:ai-compat",
     "evalite": "catalog:ai",
-    "vite": "catalog:vite8-plus-compat"
+    "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
+    "@ai-sdk/harness": {
+      "optional": true
+    },
+    "@ai-sdk/harness-codex": {
+      "optional": true
+    },
     "@ai-sdk/mcp": {
+      "optional": true
+    },
+    "@ai-sdk/sandbox-vercel": {
       "optional": true
     },
     "@vite-hub/workflow": {
@@ -99,18 +126,7 @@
       "optional": true
     }
   },
-  "devDependencies": {
-    "@ai-sdk/mcp": "catalog:ai",
-    "@types/node": "catalog:tooling",
-    "@vite-hub/internal": "workspace:*",
-    "@vite-hub/workflow": "workspace:*",
-    "@vitejs/devtools-kit": "catalog:vite",
-    "ai": "catalog:ai",
-    "evalite": "catalog:ai",
-    "publint": "catalog:tooling",
-    "tsdown": "catalog:tooling",
-    "typescript": "catalog:tooling",
-    "vite": "catalog:vite",
-    "vitest": "catalog:tooling"
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

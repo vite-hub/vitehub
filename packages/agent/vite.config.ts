@@ -1,0 +1,48 @@
+import { defineConfig } from "vite-plus";
+
+export default defineConfig({
+  pack: {
+    tsconfig: "tsconfig.build.json",
+    deps: {
+      alwaysBundle: [/^@vite-hub\/(devtools|internal)/],
+      neverBundle: [
+        "vite",
+        "#vitehub/agent/registry",
+        "@vercel/nft",
+        "cloudflare:workers",
+        /^@chat-adapter\/telegram$/,
+        /^evalite/,
+        /^vitest/,
+      ],
+      onlyBundle: false,
+    },
+    entry: [
+      "src/ai-sdk.ts",
+      "src/capabilities.ts",
+      "src/channels.ts",
+      "src/index.ts",
+      "src/messages.ts",
+      "src/mcp.ts",
+      "src/mcp/stdio.ts",
+      "src/cloudflare.ts",
+      "src/cli.ts",
+      "src/eval.ts",
+      "src/state/sqlite.ts",
+      "src/cloudflare/state.ts",
+      "src/runtime/empty-registry.ts",
+      "src/runtime/workflow.ts",
+      "src/server.ts",
+      "src/test.ts",
+      "src/vercel.ts",
+      "src/vite.ts",
+    ],
+    exports: {
+      inlinedDependencies: false,
+    },
+    outExtensions: () => ({
+      dts: ".d.ts",
+      js: ".js",
+    }),
+    publint: true,
+  },
+});

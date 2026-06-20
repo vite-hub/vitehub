@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import type { MemoryRecord, MemoryStoreAdapter } from "../src/memory.ts"
+import type { MemoryRecord, MemoryStoreAdapter } from "../src/capabilities/memory.ts"
 
 const runtime = () => ({
   memo: vi.fn(),
@@ -110,7 +110,7 @@ describe("agent memory capability", () => {
       ],
     }, { ...runtime(), runtimeConfig: {} }, {})
 
-    const preload = capabilities.capabilityInstructions.find(block => block.id === "memory.agent")
+    const preload = capabilities.capabilityInstructions.find(block => block.id === "capabilities.memory.agent")
     expect(preload?.instructions).toContain("New workflow.")
     expect(preload?.instructions).not.toContain("Old workflow.")
   })

@@ -18,14 +18,17 @@ pnpm add @vite-hub/env
 
 ```ts
 // vite.config.ts
-import { env, envVite } from "@vite-hub/env/vite"
+import { env, hubEnv } from "@vite-hub/env/vite"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  plugins: [envVite({ prefix: "VITEHUB_" })],
+  plugins: [hubEnv({ prefix: "VITEHUB_" })],
   env: {
     public: {
       appName: env({ default: "ViteHub App", mode: "build" }),
+    },
+    server: {
+      airtableToken: env({ secret: true }),
     },
   },
 })
@@ -38,8 +41,45 @@ import { publicEnv } from "#vitehub/env/public"
 export const appName = publicEnv.appName
 ```
 
+```ts
+// server/sync.ts
+import { useServerEnv } from "#vitehub/env/server"
+
+export async function sync(event: unknown) {
+  const { airtableToken } = useServerEnv(event)
+
+  await fetch("https://api.airtable.com/v0/app/table", {
+    headers: { Authorization: `Bearer ${airtableToken.unseal()}` },
+  })
+}
+```
+
 ## Vite Integration
 
-Use `envVite()` in Vite to resolve public/build env, generate `#vitehub/env/public`, and keep environment declarations close to the app config.
+Use `hubEnv()` in Vite to resolve public/build env, generate `#vitehub/env/public` and `#vitehub/env/server`, and keep environment declarations close to the app config. Runtime secrets are read from the host environment at request time and are wrapped in `SecretEnv` until explicitly unsealed.
+
+`hubEnv()` writes generated env runtime modules to `.vitehub/env/` and generated env types to `.vitehub/types/env.d.ts`. Add `.vitehub/types/**/*.d.ts` to your `tsconfig.json` include list when TypeScript should see app-specific Public Env and Server Env fields.
+
+For hosts that do not consume Vite plugin aliases directly, compose the generated modules explicitly:
+
+```ts
+import { createEnvImportAliases, createEnvTypeScriptPaths, hubEnv } from "@vite-hub/env/vite"
+
+export default {
+  nitro: {
+    alias: createEnvImportAliases(),
+  },
+  typescript: {
+    tsConfig: {
+      compilerOptions: {
+        paths: createEnvTypeScriptPaths({ relativeTo: ".nuxt" }),
+      },
+    },
+  },
+  vite: {
+    plugins: [hubEnv()],
+  },
+}
+```
 
 Learn more at [vitehub.dev](https://vitehub.dev).

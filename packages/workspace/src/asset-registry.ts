@@ -3,18 +3,26 @@ import runtimeAssetsRegistry from "#vitehub-workspace-assets-registry"
 
 import type { WorkspaceAssetPath, WorkspaceAssets, WorkspaceAssetsRegistry, WorkspaceName } from "./core/types.ts"
 
-let assetsRegistry: WorkspaceAssetsRegistry = runtimeAssetsRegistry
+const workspaceAssetsRegistryKey = Symbol.for("vitehub.workspace.assetsRegistry")
+
+type WorkspaceAssetsRegistryGlobal = typeof globalThis & Record<symbol, WorkspaceAssetsRegistry | undefined>
+
+function workspaceAssetsRegistryGlobal(): WorkspaceAssetsRegistryGlobal {
+  const scope = globalThis as WorkspaceAssetsRegistryGlobal
+  scope[workspaceAssetsRegistryKey] ??= runtimeAssetsRegistry
+  return scope
+}
 
 export function setWorkspaceAssetsRegistry(registry: WorkspaceAssetsRegistry): void {
-  assetsRegistry = registry
+  workspaceAssetsRegistryGlobal()[workspaceAssetsRegistryKey] = registry
 }
 
 export function resetWorkspaceAssetsRegistry(): void {
-  assetsRegistry = runtimeAssetsRegistry
+  workspaceAssetsRegistryGlobal()[workspaceAssetsRegistryKey] = runtimeAssetsRegistry
 }
 
 export function useWorkspaceAssets<Name extends WorkspaceName>(name: Name): WorkspaceAssets<WorkspaceAssetPath<Name>> {
-  const assets = assetsRegistry[name]
+  const assets = workspaceAssetsRegistryGlobal()[workspaceAssetsRegistryKey]?.[name]
   if (!assets) throw new WorkspaceNotFoundError(name)
   return assets as WorkspaceAssets<WorkspaceAssetPath<Name>>
 }

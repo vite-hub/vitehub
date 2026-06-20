@@ -99,8 +99,9 @@ describe("agent capability runtime", () => {
     expect(resolved.messages.map(message => message.parts[0])).toEqual([
       expect.objectContaining({ text: "rewritten" }),
     ])
-    expect(applyCapabilityInstructionSlots("Base\n{{ skills }}", resolved.capabilityInstructions)).toBe("Base\nSkill instructions.")
-    expect(applyCapabilityInstructionSlots("Base {{ user_name }}\n{{ skills }}", resolved.capabilityInstructions)).toBe("Base {{ user_name }}\nSkill instructions.")
+    expect(resolved.capabilityInstructions.map(block => block.id)).toEqual(["capabilities.skills"])
+    expect(applyCapabilityInstructionSlots("Base\n{{ capabilities.skills }}", resolved.capabilityInstructions)).toBe("Base\nSkill instructions.")
+    expect(applyCapabilityInstructionSlots("Base {{ user_name }}\n{{ capabilities.skills }}", resolved.capabilityInstructions)).toBe("Base {{ user_name }}\nSkill instructions.")
     await expect(applyCapabilityToolTransforms(resolved.tools, resolved.toolTransforms)).resolves.toEqual({
       added: { name: "added" },
       original: { name: "original" },
@@ -134,6 +135,24 @@ describe("agent capability runtime", () => {
       chat: { user: { id: "user_1" } },
       mode: { choice: "support" },
     })
+  })
+
+  it("records Channel Delivery Effect Intents from capabilities", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "feedback",
+          prepare(context) {
+            context.delivery.effect({ intent: "started", kind: "reaction" })
+          },
+        }),
+      ],
+    }, runtime(), {})
+
+    expect(resolved.registries.deliveryEffectIntents).toEqual([{ intent: "started", kind: "reaction" }])
+    expect(resolved.input.context).toBeUndefined()
   })
 
   it("rejects duplicate invocation context values", async () => {

@@ -13,6 +13,7 @@ import { useRegisteredWorkspace } from "../src/core/registry.ts"
 const globSource = source.glob
 const githubSource = source.github
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
+import { createLocalWorkspaceStore } from "../src/storage/local.ts"
 
 const tempDirs: string[] = []
 
@@ -145,7 +146,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-docs")
-    await workspace.sync()
 
     await expect(workspace.diff()).resolves.toMatchObject({ entries: [] })
     expect(getItem).not.toHaveBeenCalled()
@@ -181,6 +181,254 @@ describe("lazy sources", () => {
     })
   })
 
+  it("streams keyed source items while materializing", async () => {
+    const order: string[] = []
+    const store = createMemoryWorkspaceStore()
+    const writeFile = store.writeFile.bind(store)
+    store.writeFile = async (...args) => {
+      order.push(`write:${args[0]}`)
+      return await writeFile(...args)
+    }
+    const view = createWorkspaceSourceView({
+      name: "lazy-streaming",
+      sources: {
+        docs: source.custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md", "b.md"]
+          },
+          async getItem(key) {
+            order.push(`get:${key}`)
+            return { key, path: key, content: `# ${key}\n` }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+
+    expect(order).toEqual([
+      "get:a.md",
+      "write:docs/a.md",
+      "get:b.md",
+      "write:docs/b.md",
+    ])
+  })
+
+  it("lets sources read existing workspace files while materializing", async () => {
+    let previousReport = ""
+    const store = createMemoryWorkspaceStore()
+    await store.writeFile("data/sync-report.json", {
+      path: "data/sync-report.json",
+      content: "{\"tasks\":1}",
+    })
+    const view = createWorkspaceSourceView({
+      name: "source-context-files",
+      sources: {
+        mirror: source.custom({
+          mount: {
+            path: "generated",
+            materialize: "lazy",
+          },
+          async getKeys(ctx) {
+            expect(await ctx.workspaceFiles?.exists("data/sync-report.json")).toBe(true)
+            expect(await ctx.workspaceFiles?.stat("data/sync-report.json")).toMatchObject({ path: "data/sync-report.json", type: "file" })
+            previousReport = await ctx.workspaceFiles!.readFile("data/sync-report.json")
+            return ["sync-report-copy.json"]
+          },
+          async getItem(key, ctx) {
+            return {
+              key,
+              content: await ctx.workspaceFiles!.readFile("data/sync-report.json"),
+            }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["mirror"] })
+
+    expect(previousReport).toBe("{\"tasks\":1}")
+    await expect(view.readFile("generated/sync-report-copy.json")).resolves.toBe("{\"tasks\":1}")
+  })
+
+  it("materializes only requested lazy source paths", async () => {
+    const getItem = vi.fn(async (key: string) => ({ key, path: key, content: `# ${key}\n` }))
+    const store = createMemoryWorkspaceStore()
+    const view = createWorkspaceSourceView({
+      name: "lazy-scoped-materialization",
+      sources: {
+        ingestion: source.custom({
+          materialize: "lazy",
+          mount: "ingestion",
+          async getKeys() {
+            return [
+              "acme/models/orders.sql",
+              "globex/models/orders.sql",
+            ]
+          },
+          getItem,
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ path: "ingestion/acme", sources: ["ingestion"] })
+
+    expect(getItem.mock.calls.map(call => call[0])).toEqual(["acme/models/orders.sql"])
+    await expect(store.readFile("ingestion/acme/models/orders.sql")).resolves.toMatchObject({
+      content: "# acme/models/orders.sql\n",
+    })
+    await expect(store.readFile("ingestion/globex/models/orders.sql")).resolves.toBeUndefined()
+  })
+
+  it("streams source item content into stores that support streaming writes", async () => {
+    const root = await createRoot()
+    const store = createLocalWorkspaceStore(root)
+    const writeFile = vi.spyOn(store, "writeFile")
+    const writeFileStream = vi.spyOn(store, "writeFileStream")
+    const view = createWorkspaceSourceView({
+      name: "lazy-stream-content",
+      sources: {
+        docs: source.custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["asset.bin"]
+          },
+          async getItem(key) {
+            return {
+              key,
+              contentStream: new ReadableStream({
+                start(controller) {
+                  controller.enqueue(new Uint8Array([0, 1, 2]))
+                  controller.enqueue(new Uint8Array([3, 4]))
+                  controller.close()
+                },
+              }),
+              mediaType: "application/octet-stream",
+            }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["docs"] })
+
+    expect(writeFile).not.toHaveBeenCalled()
+    expect(writeFileStream).toHaveBeenCalledTimes(1)
+    await expect(view.readFile("docs/asset.bin", { encoding: "binary" })).resolves.toEqual(new Uint8Array([0, 1, 2, 3, 4]))
+  })
+
+  it("reuses keyed source items with unchanged upstream metadata", async () => {
+    let ref = "one"
+    const getItem = vi.fn(async (key: string) => ({ key, path: key, content: `# ${ref}\n` }))
+    const view = createWorkspaceSourceView({
+      name: "lazy-keyed-reuse",
+      sources: {
+        docs: source.custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md"]
+          },
+          getItem,
+          async getMeta(key) {
+            return { ref }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await view.materializeSources({ sources: ["docs"] })
+    await view.materializeSources({ sources: ["docs"] })
+
+    expect(getItem).toHaveBeenCalledTimes(1)
+    await expect(view.readFile("docs/a.md")).resolves.toBe("# one\n")
+
+    ref = "two"
+    await view.materializeSources({ sources: ["docs"] })
+
+    expect(getItem).toHaveBeenCalledTimes(2)
+    await expect(view.readFile("docs/a.md")).resolves.toBe("# two\n")
+  })
+
+  it("resumes keyed source materialization after an interrupted refresh", async () => {
+    let failSecond = true
+    const getItem = vi.fn(async (key: string) => {
+      if (key === "b.md" && failSecond) throw new Error("temporary source failure")
+      return { key, path: key, content: `# ${key}\n` }
+    })
+    const view = createWorkspaceSourceView({
+      name: "lazy-keyed-resume",
+      sources: {
+        docs: source.custom({
+          materialize: "lazy",
+          async getKeys() {
+            return ["a.md", "b.md"]
+          },
+          getItem,
+          async getMeta(key) {
+            return { ref: key }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ status: "error" })],
+    })
+    failSecond = false
+    await expect(view.materializeSources({ sources: ["docs"] })).resolves.toMatchObject({
+      sources: [expect.objectContaining({ status: "ready" })],
+    })
+
+    expect(getItem.mock.calls.map(call => call[0])).toEqual(["a.md", "b.md", "b.md"])
+    await expect(view.readFile("docs/a.md")).resolves.toBe("# a.md\n")
+    await expect(view.readFile("docs/b.md")).resolves.toBe("# b.md\n")
+  })
+
+  it("checks stale root source files sequentially while refreshing", async () => {
+    let keys = ["a.bin", "b.bin", "c.bin"]
+    let activeReads = 0
+    let maxActiveReads = 0
+    const store = createMemoryWorkspaceStore()
+    const readFile = store.readFile.bind(store)
+    store.readFile = async (...args) => {
+      activeReads += 1
+      maxActiveReads = Math.max(maxActiveReads, activeReads)
+      try {
+        await new Promise(resolve => setTimeout(resolve, 1))
+        return await readFile(...args)
+      }
+      finally {
+        activeReads -= 1
+      }
+    }
+    const view = createWorkspaceSourceView({
+      name: "lazy-root-sequential-cleanup",
+      sources: {
+        root: source.custom({
+          materialize: "lazy",
+          mount: "",
+          async getKeys() {
+            return keys
+          },
+          async getItem(key) {
+            return { key, path: key, content: key }
+          },
+        }),
+      },
+    }, store)
+
+    await view.materializeSources({ sources: ["root"] })
+    keys = ["a.bin"]
+    maxActiveReads = 0
+
+    await view.materializeSources({ sources: ["root"] })
+
+    expect(maxActiveReads).toBe(1)
+    await expect(store.stat("b.bin")).resolves.toBeUndefined()
+    await expect(store.stat("c.bin")).resolves.toBeUndefined()
+  })
+
   it("uses a complete source snapshot after materialization", async () => {
     const root = await createRoot()
     await mkdir(join(root, "docs"), { recursive: true })
@@ -195,7 +443,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-glob-live")
-    await workspace.sync()
 
     await expect(workspace.list("docs")).resolves.toEqual([
       expect.objectContaining({ path: "docs/README.md", type: "file" }),
@@ -225,7 +472,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-writes")
-    await workspace.sync()
 
     await expect(workspace.writeFile("docs/foo.md", "nope")).rejects.toThrow("read-only")
     await expect(workspace.writeFile("artifacts/result.md", "ok")).resolves.toBeUndefined()
@@ -250,7 +496,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-root-files")
-    await workspace.sync()
 
     await expect(workspace.readFile("AGENTS.md")).resolves.toBe("# Instructions\n")
     await expect(workspace.writeFile("AGENTS.md", "nope")).rejects.toThrow("read-only")
@@ -278,7 +523,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-root-prewrite")
-    await workspace.sync()
 
     await expect(workspace.writeFile("AGENTS.md", "shadow")).rejects.toThrow("read-only")
     await expect(workspace.rm("docs")).rejects.toThrow("read-only")
@@ -327,7 +571,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-root-refresh")
-    await workspace.sync()
     await workspace.mkdir("generated")
     await workspace.materializeSources?.()
     await expect(workspace.readFile("nested/stale.md")).resolves.toBe("# nested/stale.md\n")
@@ -358,7 +601,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-root-scoped")
-    await workspace.sync()
 
     await expect(workspace.list("docs")).resolves.toEqual([
       expect.objectContaining({ path: "docs/guide.md", type: "file" }),
@@ -390,7 +632,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-search")
-    await workspace.sync()
 
     await expect(workspace.search({ pattern: "hello", paths: ["docs"] })).resolves.toEqual([
       { path: "docs/foo.md", line: 1, column: 1, text: "hello" },
@@ -423,7 +664,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-fallback-search")
-    await workspace.sync()
 
     await expect(workspace.search({ pattern: "hello", paths: ["docs"] })).resolves.toEqual([
       { path: "docs/foo.md", line: 1, column: 1, text: "hello world" },
@@ -458,7 +698,6 @@ describe("lazy sources", () => {
     }))
 
     const workspace = await useRegisteredWorkspace("lazy-cache")
-    await workspace.sync()
 
     await expect(workspace.readFile("docs/foo.md")).resolves.toBe("version 1\n")
     vi.setSystemTime(new Date("2026-05-05T12:30:00Z"))
