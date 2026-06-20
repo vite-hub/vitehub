@@ -1,0 +1,65 @@
+---
+title: Generated files
+description: Inspect ViteHub generated files without making them public authoring surfaces.
+navigation.order: 36
+icon: i-lucide-file-cog
+---
+
+Generated files prove how ViteHub resolved Definitions, Runtime Registries, stable imports, and Provider Output.
+Application code should use Stable ViteHub Import Paths instead of importing generated files directly.
+
+## Common generated paths
+
+| Path | Owner | Purpose |
+| --- | --- | --- |
+| `.vitehub/env/public.mjs` | Env Package | Generated Public Env runtime module. |
+| `.vitehub/env/server.mjs` | Env Package | Generated Server Env runtime module. |
+| `.vitehub/types/env.d.ts` | Env Package | Generated Public Env and Server Env types. |
+| `.vitehub/types/workspace.d.ts` | Workspace Package | Generated Workspace name types. |
+| `.vitehub/agent/chat-webhook-route.ts` | Agent Package | Generated Chat Webhook Route handler for discovered chat-capable Agents. |
+| `.vitehub/nitro/schedule/*` | Schedule Package | Narrow Nitro bridge for Schedule Provider Wake. |
+| `.vitehub/provision.json` | ViteHub CLI | Non-secret Provision State read by Vite Integrations. |
+| `.vercel/output/**` | Provider Output | Vercel Build Output generated during provider builds. |
+| `dist/<app>/wrangler.json` | Provider Output | Cloudflare worker config generated during provider builds. |
+
+## Inspect generation
+
+List generated files after Vite startup or build.
+The exact set depends on the package integrations and Provider Selection.
+
+```bash [Terminal]
+find .vitehub -maxdepth 4 -type f | sort
+```
+
+Inspect env aliases through the stable import paths.
+The generated files are implementation details behind those imports.
+
+```ts [server/config.ts]
+import { useServerEnv } from '#vitehub/env/server'
+
+const env = useServerEnv()
+```
+
+## Regenerate after edits
+
+Vite Integrations refresh generated files during dev startup, hot updates, or build hooks depending on the package.
+Restart the Vite dev server when a generated file does not match the current Definition set.
+
+```bash [Terminal]
+pnpm dev
+```
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| Stable import does not resolve | Generated type path is missing from TypeScript includes, or the Vite Integration did not run. | Add `.vitehub/types/**/*.d.ts` to `tsconfig.json` and restart Vite. |
+| Generated registry is empty | Discovery path does not match the package file convention. | Check [File conventions](/docs/reference/file-conventions). |
+| Provider output is stale | Build skipped provider output during dev or e2e mode. | Run a production-shaped build. |
+| Provision ids are missing | Provision State was never written, or env vars override it. | Run `vitehub provision run --dry-run`, then apply with credentials if needed. |
+
+## Next steps
+
+- Use [Import paths](/docs/reference/import-paths) for public import boundaries.
+- Use [Provider output](/docs/reference/provider-output) for host artifacts.
+- Use [File conventions](/docs/reference/file-conventions) for discovery rules.

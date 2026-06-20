@@ -1,15 +1,17 @@
 ---
 title: Evals
-description: Run repeatable checks against Agent Definitions and compare behavior changes.
-navigation.order: 29
+description: Run repeatable checks against Agent Definitions and score Agent Invocation behavior.
+navigation.order: 30
 icon: i-lucide-clipboard-check
 ---
 
-Agent Evals are repeatable development checks that run an Agent Definition against one or more cases and score the resulting Agent Invocations.
+Agent Evals are repeatable development checks that run an Agent Definition against one or more scenarios and score the resulting Agent Invocations. Use them when behavior matters more than one manual local test.
 
-Use evals when behavior matters more than one local manual test.
+ViteHub Agent Evals use `defineEval` and run through the Agent test runner. They preserve Agent Driver, Capability, Workspace, and runtime boundaries unless a variant explicitly overrides model-backed driver fields.
 
 ## Define an eval
+
+Create eval files beside the Agent they protect. A sibling `support.eval.ts` can import `./support`, and a folder-level `eval.ts` can infer `./config`.
 
 ```ts [server/agents/support.eval.ts]
 import { defineEval, textContains } from '@vite-hub/agent/eval'
@@ -31,14 +33,20 @@ export default defineEval({
 })
 ```
 
-## Variants
+Scenarios pass normal Agent Invocation input. Scorers receive the Agent output text, raw result, tool steps, usage, warnings, scenario name, and variant name.
 
-Variants compare model or instruction changes against a baseline.
+## Compare variants
 
-```ts
+Variants compare model or instruction changes against the same scenarios. They apply only to model-backed Agent Drivers.
+
+```ts [server/agents/support.eval.ts]
+import { defineEval, textContains } from '@vite-hub/agent/eval'
+import support from './support'
+
 export default defineEval({
   agent: support,
   scenarios,
+  scorers: [textContains('evidence')],
   variants: [
     { name: 'baseline' },
     {
@@ -49,16 +57,26 @@ export default defineEval({
 })
 ```
 
-Capability, workspace, custom run, and host-runtime changes should use another Agent Definition so the boundary is explicit.
+Use a separate Agent Definition when the change affects Capabilities, Workspace context, custom `driver.run` behavior, or host runtime configuration.
 
-## What to score
+## Run evals
 
-Good evals check:
+The Agent Vite integration writes the Evalite configuration during local setup. Run the Agent eval CLI from the workspace.
 
-- Source-grounded answers.
-- Refusal behavior.
-- Tool-use expectations.
-- No source leakage.
-- Cost or latency regressions when telemetry is attached.
+```bash [Terminal]
+pnpm vitehub agent eval server/agents/support.eval.ts
+```
 
-Keep evals close to the Agent Definition they protect.
+Use `--watch` while editing prompts or scenarios. Use `--threshold` and `--output` when the eval should feed CI or another review surface.
+
+## Score useful behavior
+
+Good evals score source-grounded answers, refusal behavior, expected tool use, no source leakage, and regressions in usage or latency when telemetry is attached.
+
+Keep evals close to the Agent Definition they protect. A small eval with clear scenarios is more useful than a broad suite that hides which boundary changed.
+
+## Next steps
+
+- Read [Agent Drivers](/docs/agents/agent-drivers) before using model variants.
+- Read [DevTools](/docs/agents/devtools) to inspect failed runs.
+- Read [Capabilities](/docs/capabilities) for scoring tool and storage behavior.

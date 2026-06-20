@@ -1,39 +1,78 @@
 ---
 title: DevTools
-description: Inspect agents, capabilities, invocations, workspace access, and traces during development.
-navigation.order: 30
+description: Inspect Agent discovery, triggers, invocations, driver metadata, Workspace context, and Capability output during development.
+navigation.order: 31
 icon: i-lucide-panels-top-left
 ---
 
-DevTools are the local inspection surface for ViteHub development. Use them to see what the Agent discovered, which Capabilities applied, and how one invocation moved through the runtime.
+The ViteHub DevTools Client is the development inspection surface shared by ViteHub packages. The Agent Package registers an Agent DevTools Feature and DevTools Bridge when `hubAgent()` is active.
 
-## What to inspect
+Use DevTools to inspect what ViteHub discovered, which Agent Driver is active, which Capabilities applied, how Workspace context resolved, and how one Agent Invocation moved through runtime state.
 
-DevTools should make these questions cheap:
+## Register the Agent feature
 
-- Which Agent Definitions were discovered?
-- Which Capabilities attached?
-- Which requirements passed or failed?
-- Which tools were exposed to the model?
-- Which Workspace files were read or written?
-- Which approvals happened?
-- Which usage and telemetry records were produced?
+Install the Agent Vite integration in the host app. The package registers its DevTools Feature automatically unless you disable Agent DevTools.
 
-## Playground behavior
+```ts [vite.config.ts]
+import { hubAgent } from '@vite-hub/agent/vite'
+import { defineConfig } from 'vite'
 
-Use a Mock Agent Adapter when the goal is deterministic local behavior without model service cost.
+export default defineConfig({
+  plugins: [hubAgent()],
+})
+```
 
-Use a real model service when the behavior being tested depends on model output.
+When the shared ViteHub DevTools Integration is present, the hosted ViteHub DevTools Client discovers package-owned features through the DevTools Discovery Surface.
 
-## Debugging capability work
+## Inspect discovery
 
-When a Capability is confusing, inspect it in this order:
+Use the Agent DevTools Feature to answer the basic discovery questions before debugging behavior.
+
+| Surface | What to verify |
+| --- | --- |
+| Agent Definitions | The expected files under `server/agents` were discovered with the expected Agent File Name. |
+| Agent Driver | The active driver is `model`, `harness`, or `run`, with expected model or harness metadata. |
+| Capabilities | The Agent attached the expected Capability Definitions and requirements. |
+| Agent Invoker Profiles | DevTools can select configured profiles before a new Chat Session starts. |
+| Workspace | Visible Sources, Source Instructions, and Workspace Scope match the selected invocation. |
+
+If discovery is wrong, fix the Agent Definition before inspecting model output.
+
+## Inspect an invocation
+
+DevTools should show each Agent Invocation through the same public runtime boundaries used by server routes and trigger consumers.
+
+| Runtime fact | Why it matters |
+| --- | --- |
+| Input and messages | Proves the trigger or route prepared the right Agent Invocation input. |
+| Agent Invoker | Shows which trusted identity Capabilities received. |
+| Run metadata | Connects the invocation to origin, channel, message, thread, or schedule facts. |
+| Tools and policy | Shows model-facing tools, approval decisions, and tool results. |
+| Usage record | Normalizes driver usage, latency, provider details, and cost context when available. |
+
+Use a deterministic Agent or custom `driver.run` when the goal is to test DevTools behavior without model-provider cost.
+
+## Debug Capabilities
+
+When Capability behavior is confusing, inspect it in Capability Lifecycle order.
 
 1. Requirement validation.
 2. Instruction contribution.
 3. Tool exposure.
 4. Policy and approval decisions.
-5. Invocation context values.
-6. Finish hook output.
+5. Agent Invocation Context Values.
+6. Finish extension output.
 
-That mirrors the Capability Lifecycle and keeps debugging anchored to the public abstraction.
+This order keeps debugging anchored to ViteHub's public model instead of package internals.
+
+## Production boundaries
+
+DevTools are development inspection tools. Do not depend on DevTools-only state as production persistence, authorization, or billing evidence.
+
+Use runtime logs, Agent Usage Records, provider output, and durable state providers for production checks.
+
+## Next steps
+
+- Read [Invocations](/docs/agents/invocations) for the lifecycle DevTools displays.
+- Read [Workspace context](/docs/agents/workspace-context) for Source and scope metadata.
+- Read [Evals](/docs/agents/evals) for repeatable behavior checks outside the playground.

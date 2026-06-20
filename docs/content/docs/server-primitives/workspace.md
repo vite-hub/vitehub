@@ -1,16 +1,17 @@
 ---
-title: Workspace and Sources
-description: Build persistent file-tree state from source origins, snapshots, diffs, and sandbox sessions.
-navigation.title: Workspace
+title: Workspace
+description: Build persistent file-tree state with rules, Source Bindings, snapshots, diffs, and sessions.
 navigation.order: 7
 icon: i-lucide-folder-git-2
 ---
 
-Workspace is a persistent file tree. Sources populate that tree. Server code and agents can inspect or mutate it only through the access you configure.
+Workspace is a named persistent file tree. Server code and agents can inspect, mutate, snapshot, diff, sync, or mount it only through the access you configure.
 
-Use Workspace when the app needs files, project context, source ingestion, snapshots, diffs, or publishable changes. Use Blob when you only need object storage.
+Workspace is not Blob or Source. Blob can back storage, Source can retrieve read-only content, but Workspace owns file-tree placement, persistence, rules, snapshots, diffs, and Source Sync.
 
 ## Define a workspace
+
+Create a Workspace Definition when the app needs durable file-tree behavior.
 
 ```ts [server/workspaces/docs.ts]
 import { defineWorkspace, glob, github } from '@vite-hub/workspace'
@@ -26,8 +27,9 @@ export default defineWorkspace({
       repo: 'acme/handbook',
       ref: 'main',
       root: 'support',
+      mount: 'handbook',
       materialize: 'lazy',
-      instructions: 'Use this handbook for support policy and escalation rules.',
+      instructions: 'Use this handbook for support policy.',
     }),
   },
   rules: {
@@ -37,13 +39,41 @@ export default defineWorkspace({
 })
 ```
 
-Source keys are named origins. A glob, file, fetch, or GitHub source is not automatically editable just because it appears in a Workspace.
+Source keys identify named origins inside the Workspace Source Map. A Source-Backed Path is read-only unless Workspace rules and runtime access allow writes elsewhere in the file tree.
 
-`instructions` is optional model-facing guidance for agents that use the Workspace. It does not grant access or change which files are visible.
+## Use it at runtime
+
+Read files from server code with `useWorkspace()`.
+
+```ts [server/api/docs.get.ts]
+import { useWorkspace } from '@vite-hub/workspace'
+
+export default defineEventHandler(async () => {
+  const workspace = useWorkspace('docs')
+  return workspace.fs.glob('**/*.md')
+})
+```
+
+Request write access only at the call site that needs mutation.
+
+```ts [server/api/drafts.post.ts]
+import { useWorkspace } from '@vite-hub/workspace'
+
+export default defineEventHandler(async (event) => {
+  const workspace = useWorkspace('docs', { mode: 'write' })
+  const body = await readBody<{ text: string }>(event)
+
+  await workspace.fs.writeFile('drafts/summary.md', body.text, {
+    mediaType: 'text/markdown',
+  })
+
+  return workspace.diff()
+})
+```
+
+## Custom Sources and source resolution
 
 Custom Sources can read existing materialized Workspace files through `ctx.workspaceFiles`. Use this when a Source needs previous generated output, such as a sync report or cached asset metadata, while producing the next materialized files. The view is read-only and does not expose Workspace Stores, provider adapters, snapshots, diffs, or Source materialization.
-
-## Invocation-scoped source resolution
 
 Sources can resolve their concrete origin, Mount, and Source Instructions for one invocation from trusted runtime context. Use this when the same Source key should point at a narrowed origin after Access has selected a Workspace Scope.
 
@@ -67,27 +97,50 @@ The resolver reads Agent Invocation Context Values and the Selected Workspace Sc
 
 Resolved Sources are evaluated at invocation time and default to lazy materialization. A resolver can return a narrowed GitHub `repo`, `root`, `mount`, and `instructions` without also declaring build-time materialization or cache options; the resolved fingerprint includes the Selected Workspace Scope so one scope cannot reuse another scope's source data.
 
-## Use a workspace from server code
+## Sync Sources
 
-```ts [server/api/docs.get.ts]
+Workspace Source Sync is an explicit Workspace lifecycle operation. It reconciles selected Source-Backed Paths into the Workspace Store when a Source Sync Policy allows it.
+
+```ts [server/tasks/sync-docs.ts]
 import { useWorkspace } from '@vite-hub/workspace'
 
-export default defineEventHandler(async () => {
-  const workspace = useWorkspace('docs')
-  return workspace.fs.glob('**/*.md')
-})
+export async function syncDocs() {
+  const workspace = useWorkspace('docs', { mode: 'write' })
+
+  return workspace.sync({
+    sources: ['handbook'],
+    snapshot: { message: 'Sync handbook source' },
+  })
+}
 ```
 
-Request write access only at the call site that needs it.
+Build and dev integrations own build-time Source materialization. Runtime `sync()` owns explicit Source Sync into Workspace Stores.
 
-```ts
-const workspace = useWorkspace('docs', { mode: 'write' })
-await workspace.fs.writeFile('drafts/summary.md', '# Summary\n')
+## Sessions and Shell
+
+Use a Workspace Session when execution should operate on a materialized file tree and then produce a diff.
+
+```ts [server/tasks/test-docs.ts]
+import { useWorkspace } from '@vite-hub/workspace'
+
+export async function testDocs() {
+  const session = await useWorkspace('docs', { mode: 'write' }).startSession()
+
+  await session.exec('pnpm', ['test'])
+  const diff = await session.diff()
+  await session.close()
+
+  return diff
+}
 ```
 
-## TypeScript names
+Workspace owns the file tree and commit behavior. [Shell](/docs/server-primitives/shell) owns controlled command sessions, and [Sandbox](/docs/server-primitives/sandbox) owns isolated execution providers.
 
-`hubWorkspace()` writes generated Workspace name types to `.vitehub/types/workspace.d.ts`. Add that generated directory to your `tsconfig.json` when you want `useWorkspace()` and related helpers to narrow to discovered Workspace names.
+## Provider output
+
+The Workspace Package discovers Workspace Definitions, generates Workspace name types, prepares build-time assets, and wires Workspace Stores. A Workspace Store can use Blob, but the public file-tree boundary stays Workspace.
+
+Add generated types when you want `useWorkspace()` to narrow discovered Workspace names.
 
 ```json [tsconfig.json]
 {
@@ -99,39 +152,14 @@ await workspace.fs.writeFile('drafts/summary.md', '# Summary\n')
 }
 ```
 
-Without that include, runtime behavior is unchanged, but Workspace names fall back to `string` in TypeScript.
+## Connect it to Agents
 
-## Rules
+Workspace is central to agents, but it is not automatically model-facing. Attach `workspaceShell()` when a model should inspect or edit Workspace files, and use `access()` when trusted invocation identity should select a Workspace Scope.
 
-Workspace rules are path-scoped write policy.
+Read [Workspace and Sources](/docs/concepts/workspace-and-sources) for the mental model and [Workspace context](/docs/agents/workspace-context) for Agent-specific composition.
 
-```ts
-rules: {
-  '/**': { write: false },
-  '/drafts/**': { write: true, maxBytes: '1mb' },
-  '/generated/**': { write: true },
-}
-```
+## Next steps
 
-Rules are enforced before writes reach the store. They are also the boundary that agent-facing Workspace Capabilities must respect.
-
-## Sandbox sessions
-
-When files need to be executed, pair Workspace with Sandbox.
-
-```ts
-const session = await useWorkspace('docs', { mode: 'write' }).startSession()
-
-await session.exec('pnpm', ['test'])
-const changes = await session.diff()
-await session.commit({ message: 'Apply generated docs update' })
-await session.close()
-```
-
-Workspace owns the file tree and diff. Sandbox owns isolated command execution.
-
-## Agent context
-
-Workspace is central to agents, but it is not automatically model-facing. To let an agent inspect files, attach a Workspace Capability such as `workspaceShell()`.
-
-Read [Workspace context for agents](/docs/agents/workspace-context) for the agent-specific model.
+- Use direct retrieval through [Source](/docs/server-primitives/source).
+- Add command inspection with [Shell](/docs/server-primitives/shell).
+- Expose file access to models through [Official capabilities](/docs/capabilities/official-capabilities).

@@ -1,50 +1,83 @@
 ---
 title: Schedule
-description: Define future and recurring runtime work without mixing it into agent capabilities.
-navigation.order: 10
+description: Declare static cron schedules and manage recurring Runtime Schedules for eligible targets.
+navigation.order: 11
 icon: i-lucide-calendar-clock
 ---
 
-Schedule is the primitive for future and recurring work. Use it for cron-like jobs, delayed tasks, and runtime-created schedules.
+Schedule owns cron-based runtime coordination, with first-version public language centered on static cron schedules and recurring Runtime Schedules. Use it for Static Schedule Definitions that produce provider cron output and Runtime Schedules that ViteHub stores durably.
 
-Schedule is not an Agent Capability. A Schedule Target can start an Agent Invocation, but the schedule itself belongs to server runtime behavior.
+Schedule is not an Agent Capability. A Schedule Target can start an Agent Invocation, but Schedule itself remains server runtime behavior.
 
-## Static schedules
+## Define a static schedule
 
-Use Static Schedule Definitions when the host needs build-time output such as cron entries.
+Use a Static Schedule Definition when the host needs build-time Provider Output such as cron entries or provider wake configuration.
 
 ```ts [server/schedules/daily-report.ts]
 import { defineSchedule } from '@vite-hub/schedule'
 
 export default defineSchedule({
   cron: '0 8 * * *',
-  async run() {
+  async handler(context) {
+    await sendDailyReport(context.scheduledAt)
+  },
+})
+```
+
+Cron expressions use the Schedule Time Base, currently UTC. The discovered file name provides the Static Schedule Definition identity.
+
+## Create recurring Runtime Schedules
+
+Runtime Schedules are dynamic cron schedules stored by ViteHub. A Runtime Schedule can target only a Runtime Schedule Target that opted into runtime reuse.
+
+```ts [server/schedules/daily-report.ts]
+import { defineSchedule } from '@vite-hub/schedule'
+
+export default defineSchedule({
+  allowRuntimeSchedules: true,
+  cron: '0 8 * * *',
+  async handler() {
     await sendDailyReport()
   },
 })
 ```
 
-## Runtime schedules
-
-Use Runtime Helpers when application code needs to create, list, or cancel future work.
+Use the `schedules` Runtime Helper from server code.
 
 ```ts [server/api/schedules.post.ts]
 import { schedules } from '@vite-hub/schedule/runtime'
 
-export default defineEventHandler(() => {
+export default defineEventHandler(async () => {
   return schedules.create({
+    cron: '30 8 * * 1-5',
+    id: 'weekday-report',
     target: 'daily-report',
-    runAt: new Date(Date.now() + 60_000),
   })
 })
 ```
 
-Runtime schedules do not automatically provision host cron output. Static discovered definitions are the source for host cron configuration.
+Runtime Schedule helpers create, list, get, update, delete, enable, and disable recurring Runtime Schedules. One-time delayed execution is not part of the first-version Scheduling vocabulary; use a recurring cron schedule, Queue delay, or Workflow design when that matches the actual behavior.
 
-## Cloudflare cron trigger
+## Provider output
 
-Cloudflare cron triggers come from generated worker configuration. Keep that output tied to static schedule definitions.
+Static Schedule Definitions can lower to Provider Output. Runtime Schedules do not automatically create new provider cron entries; a Provider Wake wakes ViteHub scheduling code so it can inspect and execute due Runtime Schedules.
 
-## Vercel Cron entry
+Cloudflare and Vercel differ in their cron and wake mechanics. Keep host-specific wiring in Schedule configuration and generated output.
 
-Vercel cron entries come from generated Vercel output. Runtime-created schedules are separate from deployment cron metadata.
+## Connect it to Agents
+
+The Schedule Capability can let an Agent read or manage allowed Runtime Schedules through Capability policy. Inline Agent Schedules start the owning Agent with Schedule Invocation Input, not a synthetic user message.
+
+Attach a Schedule Capability only when a model should manage schedules. Read [Official capabilities](/docs/capabilities/official-capabilities) for Capability modes and write policy.
+
+## Production boundaries
+
+Schedule Runs, Schedule Run Attempts, retry policy, overlap policy, and dedupe policy belong to Schedule. Naming a policy does not imply every policy is configurable in the first version.
+
+Use UTC unless a later ViteHub API explicitly introduces another Schedule Time Base.
+
+## Next steps
+
+- Use [Queue](/docs/server-primitives/queue) when a provider-supported enqueue delay is enough.
+- Use [Workflows](/docs/server-primitives/workflows) for durable orchestration.
+- Learn trigger language in [Channels API](/docs/concepts/channels-api).

@@ -19,19 +19,19 @@ Install ViteHub in my app.
 
 ::
 
-ViteHub uses feature packages. Install the package that owns the primitive or agent surface you need.
+ViteHub installs as package-owned server primitives and agent packages. Add only the packages your app uses, then register each package's Vite Integration in `vite.config.ts`.
 
 ## Prerequisites
 
-- Node 24.
+- Node 24 or newer.
 - Vite 8 or newer.
 - A server app with a `vite.config.ts` file.
 - A package manager such as `pnpm`, `npm`, `yarn`, or `bun`.
-- A local `.env` file or deployment environment variable system for host credentials.
+- A local `.env` file or provider environment variable system for host credentials.
 
-## Install a server primitive
+## Install one primitive
 
-Start with one primitive. KV is the smallest first install because it does not require a Definition file.
+KV is the smallest first server primitive because it gives ordinary server code one stable Runtime Helper and does not require a Definition file.
 
 ```bash [Terminal]
 pnpm add @vite-hub/kv
@@ -48,13 +48,13 @@ export default defineConfig({
 });
 ```
 
-Add more primitives only when your app needs them.
+Install more primitives only when the app needs them.
 
 ```bash [Terminal]
 pnpm add @vite-hub/env @vite-hub/database @vite-hub/blob @vite-hub/queue @vite-hub/workflow @vite-hub/schedule @vite-hub/sandbox @vite-hub/workspace
 ```
 
-Each package exports its own Vite Integration.
+Each package owns its Vite Integration. Register the integrations for the packages you installed.
 
 ```ts [vite.config.ts]
 import { hubBlob } from "@vite-hub/blob/vite";
@@ -84,7 +84,7 @@ export default defineConfig({
 ```
 
 ::tip
-Keep the installed set small. The docs show the complete primitive list so you can see the shape, but most apps should start with one or two packages.
+Keep the installed set small. Most apps should start with one or two primitives, then add more when a page or feature needs them.
 ::
 
 ## Install the common ViteHub preset
@@ -123,7 +123,7 @@ export default defineConfig({
 
 ## Install agents
 
-Install the agent package when you want to define model-backed actors.
+Install the Agent Package when the app needs Agent Definitions and Agent Invocations.
 
 ```bash [Terminal]
 pnpm add @vite-hub/agent @ai-sdk/gateway
@@ -140,7 +140,21 @@ export default defineConfig({
 });
 ```
 
-Agents can use server primitives through capabilities, but the agent package does not automatically expose every primitive to a model. Attach capabilities explicitly in the Agent Definition.
+Agents can use server primitives through Capabilities, but installing `@vite-hub/agent` does not expose every primitive to a model. Attach Capabilities explicitly in each Agent Definition.
+
+## Add generated types
+
+Some packages write generated types under `.vitehub/types`. Add that directory to `tsconfig.json` when a feature page tells you to use generated names or stable `#vitehub/...` imports.
+
+```json [tsconfig.json]
+{
+  "include": [
+    "server/**/*.ts",
+    "src/**/*.ts",
+    ".vitehub/types/**/*.d.ts"
+  ]
+}
+```
 
 ## Verify the installation
 
@@ -150,11 +164,10 @@ Run the development server and call one server route that imports a ViteHub Runt
 pnpm dev
 ```
 
-Confirm the app starts without missing integration errors. If a page imports `kv` but `hubKv()` is missing, ViteHub reports that mismatch during local development.
+Confirm the app starts without missing integration errors. If server code imports a package Runtime Helper but the matching Vite Integration is missing, local development should report the mismatch before deployment.
 
 ## Next steps
 
 - Continue with [First server primitive](/docs/getting-started/first-server-primitive) to store and read a KV value.
 - Continue with [First agent](/docs/getting-started/first-agent) to define and run an Agent.
-- Open [Server primitives](/docs/server-primitives) when you already know which primitive your app needs.
-- Open [Agents](/docs/agents) when the main product value is model-backed behavior.
+- Read [Vite Integrations and Provider Output](/docs/concepts/vite-integrations-and-provider-output) to understand what the integration owns.

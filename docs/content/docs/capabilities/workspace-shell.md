@@ -1,0 +1,70 @@
+---
+title: workspaceShell()
+description: Expose shell-shaped Workspace inspection and optional structured Workspace mutation tools.
+navigation.title: workspaceShell()
+navigation.order: 50
+icon: i-lucide-folder-search
+---
+
+`workspaceShell()` adds model-facing Workspace tools to an Agent.
+It exposes shell-shaped inspection by default and write tools only when the Agent's Workspace grants write mode.
+
+## What it adds
+
+The Capability contributes Workspace inspection tools in read mode and structured Workspace mutation tools in write mode.
+When Workspace Sources expose request descriptors, it also contributes instructions that tell the Agent how to inspect controlled curl access.
+
+## Minimum attach example
+
+Attach `workspaceShell()` only when the Agent should inspect the Workspace.
+Use read mode first, then switch to write mode when product behavior requires mutation.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+import { workspaceShell } from '@vite-hub/agent/capabilities'
+
+export default defineAgent({
+  driver: { model },
+  workspace,
+  capabilities: [
+    workspaceShell({ mode: 'read' }),
+  ],
+})
+```
+
+## Runtime behavior
+
+ViteHub validates Workspace requirements before the Capability resolves tools.
+In read mode, the Agent receives inspection tools from the active Workspace facade.
+In write mode, the Agent receives writable Workspace tools when the Workspace exposes them.
+
+## Requirements
+
+`workspaceShell()` requires an explicit Workspace.
+Write mode requires `workspace.mode: 'write'`.
+
+Workspace Shell is not Sandbox.
+It exposes Workspace file operations, while `sandbox()` runs allowlisted executables in an isolated runtime.
+
+## Driver support
+
+| Agent Driver | Support |
+| --- | --- |
+| Model-backed | Receives Workspace tools and optional Source request instructions. |
+| Harness-backed | Uses the scoped Workspace Session path; model-facing Workspace tools are not passed by default. |
+| Custom-run-backed | Receives the prepared Workspace facade; `driver.run` decides whether to call Workspace APIs directly. |
+
+## Inspect and verify
+
+Open DevTools and inspect the Agent's tool list.
+Read mode should expose inspection tools, and write mode should expose mutation tools only when the Workspace is writable.
+
+Try reading outside an `access()` Workspace Scope when both Capabilities are attached.
+The scoped Workspace should hide or reject paths outside the selected grants.
+
+## Reference
+
+- [Workspace context](/docs/agents/workspace-context)
+- [Workspace primitive](/docs/server-primitives/workspace)
+- [sandbox()](/docs/capabilities/sandbox)
+- Source: `packages/agent/src/capabilities/workspace-shell.ts`

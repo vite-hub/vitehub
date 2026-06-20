@@ -5,13 +5,15 @@ navigation.order: 6
 icon: i-lucide-files
 ---
 
-Blob is direct object storage. Use it for uploads, generated images, audio, video, PDFs, exports, and other file-shaped objects.
+Blob owns object storage. Use it for uploads, generated images, audio, video, PDFs, exports, and other file-shaped objects.
 
-Blob is not Workspace. Blob stores objects. Workspace owns a file tree, source ingestion, snapshots, diffs, and agent-visible file context.
+Blob is not Workspace. Blob Stores hold objects; Workspace owns file-tree behavior, Source ingestion, snapshots, diffs, and agent-visible file context.
 
-## Install and configure
+## Configure Blob
 
-```bash
+Install the package and register the Vite Integration.
+
+```bash [Terminal]
 pnpm add @vite-hub/blob
 ```
 
@@ -24,15 +26,35 @@ export default defineConfig({
 })
 ```
 
-## Write and read objects
+Choose a provider in configuration when the app needs hosted object storage.
+
+```ts [vite.config.ts]
+import { hubBlob } from '@vite-hub/blob/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubBlob()],
+  blob: {
+    driver: 'cloudflare-r2',
+    binding: 'BLOB',
+    bucketName: 'app-artifacts',
+  },
+})
+```
+
+## Use it at runtime
+
+Use the `blob` Runtime Helper from server code.
 
 ```ts [server/api/files.post.ts]
 import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ path: string; text: string }>(event)
+  const body = await readBody<{ path: string, text: string }>(event)
+
   await blob.put(body.path, body.text, {
     contentType: 'text/plain',
+    metadata: { source: 'api' },
   })
 
   return { ok: true }
@@ -54,48 +76,31 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-## Metadata and content types
+Use named Blob Stores when configuration defines multiple stores.
 
-Store the content type and relevant metadata when the object is written. Avoid guessing later.
+```ts [server/reports.ts]
+import { blob } from '@vite-hub/blob'
 
-```ts
-await blob.put('reports/q1.pdf', file, {
-  contentType: 'application/pdf',
-  metadata: {
-    report: 'q1',
-  },
-})
+export const reports = blob.store('reports')
 ```
 
-## Cloudflare R2 bucket
+## Provider output
 
-Cloudflare object storage maps to R2. Configure the binding and bucket near the integration.
+The Blob Package owns Default Blob Store behavior, named Blob Store selection, driver loading, and the Blob Driver Boundary. Provider-specific bucket names, tokens, and bindings belong in integration configuration and deployment setup.
 
-```ts [vite.config.ts]
-export default defineConfig({
-  blob: {
-    driver: 'cloudflare-r2',
-    binding: 'BLOB',
-    bucketName: 'app-artifacts',
-  },
-})
-```
+Application code should keep importing `blob` from `@vite-hub/blob` when switching providers.
 
-## Vercel Blob token
+## Connect it to Agents
 
-Vercel Blob uses the Blob token from the deployment environment.
+Direct Blob access is for server code. To let a model inspect or edit scoped object storage, attach the Blob Capability.
 
-```env [.env]
-BLOB_READ_WRITE_TOKEN=<blob-read-write-token>
-```
+Blob Capability access should use narrow prefixes and explicit write policy. Use Workspace instead when the model needs file-tree semantics, diffs, snapshots, or source-backed context.
 
-```ts [vite.config.ts]
-export default defineConfig({
-  blob: {
-    driver: 'vercel-blob',
-  },
-})
-```
+## Production boundaries
+
+Store content types and metadata at write time. Avoid guessing object type later from path names.
+
+Blob stores can back Workspace Stores, but that does not make Blob an agent-facing file tree. Workspace remains the boundary for file operations, rules, snapshots, and diffs.
 
 ## MinIO object storage
 
@@ -122,6 +127,8 @@ BLOB_BUCKET_NAME=vitehub-blob
 
 MinIO credentials are read from runtime env and stay masked in generated provider output. ViteHub accepts the Files SDK native `MINIO_ACCESS_KEY_ID` and `MINIO_SECRET_ACCESS_KEY` names plus Docker Compose aliases like `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`. `driver: 'minio'` defaults to path-style S3 requests, `us-east-1`, `http://localhost:9000`, and the `vitehub-blob` bucket when those values are not provided. Production Docker deployments should use managed `s3` or a production-grade S3-compatible store rather than relying on a single-host Compose MinIO service.
 
-## Blob and agents
+## Next steps
 
-Attach the Blob Capability only when a model should inspect or edit object storage. Keep prefixes narrow and make write behavior explicit.
+- Use [Workspace](/docs/server-primitives/workspace) for file-tree state.
+- Use [Source](/docs/server-primitives/source) for read-only retrieval.
+- Expose scoped model access through [Official capabilities](/docs/capabilities/official-capabilities).

@@ -1,17 +1,17 @@
 ---
 title: Database
-description: Model relational app data through a discovered schema and stable runtime surface.
+description: Define Drizzle-backed relational data and query it through generated ViteHub runtime surfaces.
 navigation.order: 5
 icon: i-lucide-database
 ---
 
-Database is the primitive for structured application data. Use it when the app needs relationships, constraints, migrations, joins, history, or queryable state.
+Database owns relational application data for ViteHub apps. Use it when the app needs schema, constraints, joins, migrations, history, or queryable state.
 
-Use KV for small key-based values. Use Blob for file-shaped objects. Use Workspace for file-tree state.
+Database is not KV, Blob, or Workspace. Use KV for small key-addressed values, Blob for object storage, and Workspace for file-tree state.
 
-## Define schema
+## Define a database
 
-Database definitions keep schema close to the server code that owns it.
+Database Definitions keep the Database Table Schema close to the server code that owns it.
 
 ```ts [server/databases/config.ts]
 import { defineDatabase } from '@vite-hub/database'
@@ -28,9 +28,11 @@ export default defineDatabase({
 })
 ```
 
-The discovered Database Definition is the source for runtime registry and host output. Application code should not hand-roll generated import paths.
+A project uses either one Default Database or a set of Named Databases. Do not mix both modes in one app.
 
-## Query data
+## Use it at runtime
+
+Use the generated Drizzle Runtime Surface from server code.
 
 ```ts [server/api/notes.get.ts]
 import { db, schema } from '@vite-hub/database/drizzle'
@@ -40,11 +42,7 @@ export default defineEventHandler(() => {
 })
 ```
 
-Keep database usage database-native. SQL and Drizzle are better for relational data than trying to encode relationships into KV prefixes.
-
-## Named databases
-
-Use named databases when one app has separate data boundaries.
+Use Named Databases when separate data boundaries need explicit names.
 
 ```ts [server/databases/analytics/config.ts]
 import { defineDatabase } from '@vite-hub/database'
@@ -55,64 +53,28 @@ export default defineDatabase({
 })
 ```
 
-Named databases should represent real ownership or operational boundaries, not just folders.
+Named databases should represent real ownership or operational boundaries, not folder organization.
 
-## Cloudflare D1 binding
+## Provider output
 
-Cloudflare uses D1 bindings. For discovered Database Definitions, keep binding names, database names, and database ids with the definition that owns the database.
+The Database Package discovers Database Definitions, generates the Drizzle Runtime Surface, produces generated schema artifacts, and wires provider-specific output. Provider bindings are integration details; the public database identity is the Default Database or Named Database.
 
-```ts [server/databases/config.ts]
-export default defineDatabase({
-  cloudflare: {
-    binding: 'DB',
-    databaseName: 'app',
-    databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,
-  },
-  tables: {
-    notes,
-  },
-})
-```
+Cloudflare D1 bindings, hosted libSQL URLs, and Nuxt host resources belong in Database configuration or host setup. Route code should keep using the generated Drizzle Runtime Surface.
 
-## Nuxt D1 host wiring
+## Connect it to Agents
 
-Nuxt apps can declare one D1 database resource for framework-owned consumers. The Database Nuxt bridge configures Nuxt Content internally and merges the same resource into Cloudflare `d1_databases`.
+Direct Database access is for server code. To let a model inspect schema or run guarded statements, attach the Database Capability.
 
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  modules: ['@vite-hub/database/nuxt', '@nuxt/content'],
-  database: {
-    driver: 'd1',
-    databaseName: 'app-content',
-    databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,
-  },
-})
-```
+The Database Capability is not a raw Drizzle client proxy. It uses agent-facing guardrails such as schema mode, data mode, write approvals, and the single-statement SQL guardrail. Read [Official capabilities](/docs/capabilities/official-capabilities) before exposing database access to an Agent.
 
-Do not also hand-author normal Nuxt Content D1 config or duplicate the binding under `nitro.cloudflare.wrangler.d1_databases`.
+## Production boundaries
 
-## libSQL on Vercel
+Database Table Schema is the source schema in code. Live Database Schema can diverge when migrations have not run or when an Agent has explicit schema write permission.
 
-Vercel deployments can use hosted libSQL-compatible database URLs.
+Keep provider credentials in Server Env. Keep migrations, backup behavior, and hosted database lifecycle in deployment workflows instead of hiding them in route code.
 
-```env [.env]
-TURSO_DATABASE_URL=libsql://example.turso.io
-TURSO_AUTH_TOKEN=<token>
-```
+## Next steps
 
-```ts [vite.config.ts]
-export default defineConfig({
-  database: {
-    connection: {
-      url: process.env.TURSO_DATABASE_URL,
-      authToken: process.env.TURSO_AUTH_TOKEN,
-    },
-  },
-})
-```
-
-## Using Database from an agent
-
-The Database Capability exposes guarded model-facing database tools. It is not the same as giving the model your raw app database client.
-
-Read [Capabilities](/docs/agents/capabilities) for data mode, schema mode, write approvals, and the single-statement SQL guardrail.
+- Store small key values with [KV](/docs/server-primitives/kv).
+- Store file-shaped objects with [Blob](/docs/server-primitives/blob).
+- Learn shared discovery rules in [Definitions and discovery](/docs/concepts/definitions-and-discovery).

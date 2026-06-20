@@ -1,55 +1,99 @@
 ---
 title: Instructions
-description: Compose durable agent behavior with explicit capability instruction slots.
-navigation.order: 22
+description: Compose model-facing behavior with Model Driver Instructions, Source Instructions, and Capability instruction slots.
+navigation.order: 24
 icon: i-lucide-scroll-text
 ---
 
-Instructions tell the Agent how to behave across invocations. Keep them direct, stable, and aligned with the abilities the Agent actually has.
+Model Driver Instructions are model-facing instructions configured on a model-backed Agent Driver. Put them under `defineAgent({ driver: { model, instructions } })` so ViteHub can keep model execution separate from harness and custom-run execution.
 
-## Base instructions
+Instructions should describe durable behavior, trust boundaries, and uncertainty handling. Capabilities and Sources contribute their own instruction blocks when they own the guidance.
 
-```ts
+## Add Model Driver Instructions
+
+Use strings, string arrays, or instruction callbacks for model-backed drivers. Keep the text stable and aligned with the Agent's actual Capabilities.
+
+```ts [server/agents/support.ts]
+import { gateway } from '@ai-sdk/gateway'
+import { defineAgent } from '@vite-hub/agent'
+
 export default defineAgent({
-  instructions: [
-    'You are a support engineer.',
-    'Answer from the connected workspace before using outside knowledge.',
-    'When sources do not answer the question, say that directly.',
-  ].join('\n\n'),
-  model,
+  driver: {
+    model: gateway('openai/gpt-5.1-mini'),
+    instructions: [
+      'You are a support engineer.',
+      'Answer from inspected workspace evidence before using outside knowledge.',
+      'When sources do not answer the question, say that directly.',
+    ],
+  },
 })
 ```
 
-Do not document tool syntax in instructions when a Capability can expose that syntax through tool metadata. Instructions should describe policy and behavior, not repeat API reference.
+Do not document tool syntax in instructions when a Capability can expose that syntax through tool metadata. Instructions should name policy and behavior, not repeat API reference.
 
-## Capability slots
+## Place Capability slots
 
-Capabilities may contribute named instruction blocks. Place one Capability with `{{ capabilities.<id> }}`, or place every remaining Capability block with `{{ capabilities }}`.
+Capabilities may contribute named instruction blocks. Place one Capability block with `{{ capabilities.<id> }}`, or place every remaining Capability block with `{{ capabilities }}`.
 
-```ts
+```ts [server/agents/support.ts]
+import { gateway } from '@ai-sdk/gateway'
+import { defineAgent } from '@vite-hub/agent'
+import { workspaceShell } from '@vite-hub/agent/capabilities'
+
 export default defineAgent({
-  instructions: [
-    'Answer from source files first.',
-    '{{ workspace.sources }}',
-    '{{ capabilities }}',
-  ].join('\n\n'),
+  driver: {
+    model: gateway('openai/gpt-5.1-mini'),
+    instructions: [
+      'Answer from source files first.',
+      '{{ capabilities }}',
+    ],
+  },
   capabilities: [
     workspaceShell({ mode: 'read' }),
   ],
-  model,
 })
 ```
 
-Use slots when the Agent should receive capability-owned guidance without copying it into every Agent Definition.
+Use slots when the Agent should receive Capability-owned guidance without copying that guidance into every Agent Definition.
 
-## Keep instructions scoped
+## Place Source Instructions
 
-Good instructions say:
+Sources can contribute Source Instructions. Put `{{ workspace.sources }}` where those instructions belong in the final model prompt.
 
-- What the Agent should optimize for.
-- Which sources to trust.
-- How to handle uncertainty.
-- What not to reveal or mutate.
-- When to ask for clarification.
+```ts [server/agents/docs.ts]
+import { gateway } from '@ai-sdk/gateway'
+import { defineAgent } from '@vite-hub/agent'
+import { source } from '@vite-hub/workspace'
 
-Weak instructions list every possible command, host, or package. Put those details in Capability docs, tool descriptions, and server primitive docs.
+export default defineAgent({
+  driver: {
+    model: gateway('openai/gpt-5.1-mini'),
+    instructions: [
+      'Answer from public docs.',
+      '{{ workspace.sources }}',
+    ],
+  },
+  workspace: {
+    sources: {
+      docs: source.file({
+        path: 'docs.md',
+        instructions: 'Use this source for published product behavior.',
+      }),
+    },
+  },
+})
+```
+
+Only visible Sources render Source Instructions. When Access selects a Workspace Scope, ViteHub omits hidden Source Instructions with the hidden files.
+
+## Harness and run drivers
+
+Harness-backed drivers do not receive Model Driver Instructions by default. Use harness-specific configuration or Workspace instruction surfaces instead.
+
+Custom `driver.run` code receives prepared runtime context and decides which values to read. It does not receive a composed model prompt unless your code builds one.
+
+## Next steps
+
+- Read [Agent Drivers](/docs/agents/agent-drivers) for driver-specific instruction behavior.
+- Read [Workspace context](/docs/agents/workspace-context) for Source Instructions.
+- Read [Capabilities](/docs/capabilities) for Capability-owned instruction blocks.

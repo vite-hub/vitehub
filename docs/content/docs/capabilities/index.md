@@ -1,0 +1,66 @@
+---
+title: Capabilities
+description: Attach user-shareable abilities to Agent Definitions without exposing raw runtime authority by default.
+navigation.title: Overview
+navigation.order: 1
+icon: i-lucide-blocks
+---
+
+Capabilities are user-shareable ViteHub abilities that an Agent attaches through `defineAgent({ capabilities })`.
+They can add requirements, model-facing tools, model-facing instructions, Provider Tool contributions, Agent Triggers, pre-invocation decisions, output renderers, metadata, and finish extensions.
+
+A Capability is not a server primitive.
+Server primitives give trusted app code authority.
+Capabilities decide which parts of that authority become available to an Agent Invocation and which Agent Driver can consume the result.
+
+## Capability lifecycle
+
+ViteHub applies Capabilities in the order listed on the Agent Definition.
+It validates duplicate ids, checks runtime requirements, applies Capability Trigger Contributions, and then runs configure, prepare, bind, input, resolve, and output phases for each invocation.
+
+`access()` is the only official Capability with a fixed position rule.
+Place it first when an Agent uses it, because later Capabilities may read the scoped Workspace or expose tools after access boundaries apply.
+
+## Attach a Capability
+
+Import official factories from `@vite-hub/agent/capabilities`.
+Keep the import path explicit so the Agent Package root stays focused on Agent Definition and invocation primitives.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+import { workspaceShell } from '@vite-hub/agent/capabilities'
+
+export default defineAgent({
+  driver: { model },
+  workspace,
+  capabilities: [
+    workspaceShell({ mode: 'read' }),
+  ],
+})
+```
+
+## What Capabilities can contribute
+
+| Contribution | What it changes |
+| --- | --- |
+| Requirements | Primitive, Workspace mode, Workspace path, or policy checks that must pass before the Capability applies. |
+| Instructions | Capability-owned instruction blocks that can render through `{{ capabilities }}` or a named slot. |
+| Tools | Model-facing operations exposed only to compatible Agent Drivers. |
+| Provider tools | Provider-native tool requests, such as model web search mode. |
+| Agent Triggers | Product events that start Agent Invocations through the Agent Package trigger surface. |
+| Input behavior | Pre-invocation input transforms, transcription, decisions, gates, and rate limits. |
+| Output behavior | Stream renderers, finish extensions, usage records, titles, and summaries. |
+| Metadata | Inspectable configuration for runtime diagnostics and DevTools. |
+
+## Driver boundary
+
+Capabilities attach above the Agent Driver.
+A model-backed Agent Driver can consume model-facing tools, instructions, and Provider Tool contributions.
+A harness-backed Agent Driver receives explicit harness-compatible contributions and scoped Workspace behavior, but ViteHub does not silently pass model prompts or model-facing tools into the harness.
+A custom-run-backed Agent Driver receives prepared input and invocation context; the `driver.run` implementation decides which Capability outputs to read.
+
+## Read next
+
+- [Official capabilities](/docs/capabilities/official-capabilities)
+- [Custom capabilities](/docs/capabilities/custom-capabilities)
+- [Agent definitions](/docs/agents/agent-definitions)

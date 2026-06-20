@@ -10,19 +10,42 @@ export default defineAppConfig({
   },
   ui: {
     colors: {
-      primary: "yellow",
-      neutral: "stone",
+      primary: "neutral",
+      neutral: "zinc",
       warning: "amber",
+    },
+    container: {
+      base: "w-full max-w-none mx-0 px-0",
+    },
+    header: {
+      slots: {
+        root: "bg-default border-b border-default h-[44px] sticky top-0 z-50",
+        container: "flex items-center justify-between gap-0 h-full max-w-none px-4",
+        left: "flex items-center gap-2 lg:w-[var(--vh-sidebar-width)] lg:flex-none",
+        center: "hidden lg:flex h-full",
+        right: "flex items-center justify-end gap-1.5 lg:flex-1",
+        title: "shrink-0 font-semibold text-sm text-highlighted flex items-center gap-2 tracking-normal",
+        toggle: "lg:hidden",
+      },
+    },
+    pageAside: {
+      slots: {
+        root: "hidden overflow-y-auto lg:block lg:max-h-[calc(100vh-var(--ui-header-height))] lg:sticky lg:top-(--ui-header-height) py-0 lg:pe-0",
+        topHeader: "hidden",
+        topBody: "bg-default relative pointer-events-auto flex flex-col",
+        topFooter: "hidden",
+      },
     },
     contentNavigation: {
       defaultVariants: {
         variant: "link",
+        color: "neutral",
       },
       slots: {
-        root: "space-y-1",
-        link: "text-sm text-muted transition-colors hover:text-highlighted",
-        linkLeadingIcon: "size-4 mr-2",
-        linkLabel: "truncate",
+        root: "space-y-0",
+        link: "text-sm text-muted transition-colors hover:text-highlighted rounded-none px-4 py-2 data-[active=true]:bg-muted",
+        linkLeadingIcon: "size-4 mr-2 text-muted",
+        linkTitle: "truncate",
         linkTrailing: "hidden",
       },
     },
@@ -34,17 +57,52 @@ export default defineAppConfig({
     },
     page: {
       slots: {
-        root: "flex flex-col lg:flex-row lg:gap-8 px-4 sm:px-6 lg:px-8 xl:px-12",
-        center: "flex-1 min-w-0 max-w-[var(--vh-content-width,860px)] mx-auto",
-        right: "hidden xl:block w-[var(--vh-toc-width,268px)] shrink-0",
+        root: "flex flex-col lg:!grid lg:!grid-cols-[var(--vh-sidebar-width)_minmax(0,1fr)] lg:gap-8 px-0",
+        left: "lg:!col-span-1 lg:w-[var(--vh-sidebar-width)] lg:shrink-0 lg:border-e lg:border-default",
+        center: "lg:!col-span-1 min-w-0",
+        right: "order-first lg:order-last lg:!col-span-1 lg:w-[var(--vh-toc-width)] lg:shrink-0",
+      },
+    },
+    pageHeader: {
+      slots: {
+        root: "relative border-b-0 px-4 pt-4 pb-6 sm:px-8 lg:px-4 lg:pt-14",
+        container: "flex flex-col",
+        wrapper: "contents lg:flex lg:items-start lg:justify-between lg:gap-4",
+        title: "order-1 text-[28px] leading-[42px] text-pretty font-semibold text-highlighted",
+        description: "order-2 text-lg leading-7 text-pretty text-muted",
+        links: "order-3 mt-5 flex flex-wrap items-center gap-1.5 lg:mt-0",
       },
     },
     pageBody: {
-      base: "mt-8 pb-24 space-y-12",
+      base: "mt-0 px-4 pb-24 sm:px-8 lg:px-4",
     },
+    contentSearchButton: {
+      defaultVariants: {
+        collapsed: false,
+        label: "Search",
+        variant: "ghost",
+        color: "neutral",
+        size: "sm",
+      },
+      slots: {
+        base: "w-full justify-start rounded-none border-b border-default px-4 py-3 text-muted hover:text-highlighted",
+        trailing: "ms-auto flex items-center gap-0.5",
+      },
+    } as any,
+    contentSearch: {
+      defaultVariants: {
+        placeholder: "Search",
+      },
+      slots: {
+        modal: "vitehub-content-search-modal w-[calc(100vw-1rem)] !max-w-[640px] !h-auto rounded-lg border border-default shadow-lg max-h-[calc(100dvh-1rem)] sm:max-h-[70vh]",
+        input: "[&>input]:h-14 [&>input]:text-lg",
+      },
+    } as any,
     contentToc: {
       slots: {
-        header: "text-sm font-semibold mb-3 text-highlighted",
+        root: "sticky top-(--ui-header-height) z-10 bg-default overflow-y-auto max-h-[calc(100vh-var(--ui-header-height))]",
+        container: "pt-3 pb-3 border-b border-default lg:pt-14 lg:pb-4 lg:border-b-0 flex flex-col",
+        title: "text-sm font-medium text-muted",
         links: "space-y-1",
         link: "block py-1.5 text-sm text-muted transition-colors hover:text-default",
         linkActive: "text-highlighted",
@@ -56,26 +114,61 @@ export default defineAppConfig({
       },
       callout: {
         slots: {
-          base: "border-0 border-s-2 border-dashed rounded-none bg-muted",
+          base: "rounded-none border border-dashed bg-default",
         },
         variants: {
           color: {
-            info: { base: "border-s-blue-500/50", icon: "text-blue-500" },
-            warning: { base: "border-s-amber-500/50", icon: "text-amber-500" },
-            error: { base: "border-s-red-500/50", icon: "text-red-500" },
-            success: { base: "border-s-green-500/50", icon: "text-green-500" },
+            info: { base: "border-blue-500/40 bg-default", icon: "text-blue-500" },
+            warning: { base: "border-amber-500/40 bg-default", icon: "text-amber-500" },
+            error: { base: "border-red-500/40 bg-default", icon: "text-red-500" },
+            success: { base: "border-green-500/40 bg-default", icon: "text-green-500" },
             neutral: { base: "border-s-stone-500/50" },
           },
         },
       },
+      h2: {
+        slots: {
+          base: "relative text-[22px] leading-8 text-highlighted font-semibold mt-6 mb-4 scroll-mt-[calc(48px+var(--ui-header-height))] [&>a]:focus-visible:outline-primary",
+          leading: "hidden",
+          link: "group",
+        },
+      },
+      h3: {
+        slots: {
+          base: "relative text-xl leading-7 text-highlighted font-semibold mt-8 mb-3 scroll-mt-[calc(32px+var(--ui-header-height))] [&>a]:focus-visible:outline-primary",
+          leading: "hidden",
+          link: "group",
+        },
+      },
       tabs: {
         slots: {
-          root: "rounded-none border border-default gap-0",
+          root: "rounded-none border border-default gap-0 my-5",
+          list: "rounded-none border-0 border-b border-default bg-default p-0",
+          indicator: "rounded-none bg-default shadow-none border-b border-highlighted",
+          trigger: "rounded-none px-4 py-2 text-sm text-muted data-[state=active]:text-highlighted hover:bg-transparent",
         },
       },
       tabsItem: {
-        base: "p-4",
+        base: "p-0",
       },
-    },
+      codeGroup: {
+        slots: {
+          root: "rounded-none border border-default gap-0 my-5",
+          list: "rounded-none border-0 border-b border-default bg-default p-0",
+          indicator: "rounded-none bg-default shadow-none border-b border-highlighted",
+          trigger: "rounded-none px-4 py-2 text-sm text-muted data-[state=active]:text-highlighted hover:bg-transparent",
+        },
+      },
+      pre: {
+        slots: {
+          root: "relative my-5 group",
+          header: "flex items-center gap-1.5 border border-default bg-default border-b-0 relative rounded-none px-4 py-3",
+          base: "group font-mono text-sm/6 border border-default bg-muted rounded-none px-4 py-3 whitespace-pre-wrap wrap-break-word overflow-x-auto focus:outline-none",
+        },
+      },
+      steps: {
+        base: "ms-4 border-s border-default ps-8 [counter-reset:step]",
+      },
+    } as any,
   },
 });

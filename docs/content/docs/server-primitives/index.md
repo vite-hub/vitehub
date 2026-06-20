@@ -1,56 +1,63 @@
 ---
 title: Server primitives
-description: Use ViteHub primitives directly in app and server code without creating agents.
+description: Use ViteHub primitives directly from app and server code, then expose them to agents only when needed.
 navigation.title: Overview
-navigation.order: 10
+navigation.order: 1
 icon: i-lucide-server-cog
 ---
 
-Server primitives are the ViteHub features you can use without agents. They give app code a stable API for authentication, storage, runtime work, source files, schedules, isolated execution, and environment values.
+Server primitives are ViteHub-owned server capabilities for ordinary application code. They give routes, handlers, jobs, and workers stable Runtime Helpers for auth, storage, file trees, source retrieval, runtime work, schedules, isolated execution, command execution, and environment values.
 
-Each primitive owns one job. You can combine them, but you should not treat them as one hidden platform runtime.
+Agents can use the same primitives through Capabilities, but primitives do not require an Agent Definition. Start with the server API that your app needs, then attach an agent-facing Capability only when a model should read, write, invoke, or inspect that primitive.
 
 ## Primitive map
 
 | Primitive | Use it for |
 | --- | --- |
-| [Env](/docs/server-primitives/env) | Typed public and server-only runtime values. |
-| [Auth](/docs/server-primitives/auth) | Application user identity and sessions through a server-owned Auth Definition. |
-| [KV](/docs/server-primitives/kv) | Small values addressed by key. |
-| [Database](/docs/server-primitives/database) | Relational or durable application models. |
-| [Blob](/docs/server-primitives/blob) | File-shaped objects, uploads, generated artifacts, and metadata. |
-| [Workspace and Sources](/docs/server-primitives/workspace) | Persistent file trees, source ingestion, snapshots, and diffs. |
-| [Queue](/docs/server-primitives/queue) | Background delivery outside the request path. |
-| [Workflow](/docs/server-primitives/workflow) | Durable orchestration with steps, waits, retries, and run state. |
-| [Schedule](/docs/server-primitives/schedule) | Future and recurring runtime work. |
-| [Sandbox](/docs/server-primitives/sandbox) | Isolated command and code execution. |
+| [Env](/docs/server-primitives/env) | Public Env, Server Env, Build Env, Runtime Env, and Secret Env values. |
+| [Auth](/docs/server-primitives/auth) | Better Auth server routing, sessions, Auth Database Placement, and guarded app routes. |
+| [KV](/docs/server-primitives/kv) | Small key-addressed values and lightweight state. |
+| [Database](/docs/server-primitives/database) | Drizzle-backed relational data, Default Databases, Named Databases, and generated schema. |
+| [Blob](/docs/server-primitives/blob) | Object storage for uploads, generated artifacts, binary files, and metadata. |
+| [Workspace](/docs/server-primitives/workspace) | Persistent file trees with rules, snapshots, diffs, Source Bindings, and sessions. |
+| [Source](/docs/server-primitives/source) | Typed read-only retrieval from files, globs, GitHub, markdown, MCP resources, or custom loaders. |
+| [Queue](/docs/server-primitives/queue) | Background Queue Enqueue and provider-driven Queue Delivery. |
+| [Workflows](/docs/server-primitives/workflows) | Durable Workflow Runs with provider-tracked orchestration and optional Workflow Steps. |
+| [Schedule](/docs/server-primitives/schedule) | Static cron Schedule Definitions and recurring Runtime Schedules. |
+| [Sandbox](/docs/server-primitives/sandbox) | Isolated Sandbox Runs for named execution work. |
+| [Shell](/docs/server-primitives/shell) | Controlled Shell Runtime sessions over explicit filesystem and execution boundaries. |
 
-## How primitives fit together
+## Use primitives from server code
 
-ViteHub keeps setup at the app boundary and keeps application code small. The app chooses the primitive first, then chooses host-specific configuration only where that primitive needs it.
+Most primitives expose one stable import for application code. The route calls the Runtime Helper; provider wiring stays in the package integration and Provider Output.
 
 ```ts [server/api/settings.put.ts]
 import { kv } from '@vite-hub/kv'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody(event)
-  await kv.set('settings', body)
+  await kv.set('settings', await readBody(event))
   return { ok: true }
 })
 ```
 
-That route does not know whether the backing store is local, Cloudflare, Vercel, or another driver. The Runtime Helper stays stable.
+That route does not know whether the backing KV Store uses local files, Cloudflare, Vercel, or another driver. The primitive owns the provider boundary.
 
-## Definitions and Runtime Helpers
+## Definitions, registries, and provider output
 
-Some primitives are just runtime handles. KV, Blob, and Env can often be used directly once configured.
+Some primitives work directly after configuration. Env, KV, Blob, Source, and Shell can often be called from server code without a discovered Definition.
 
-Other primitives need Definitions. A Queue worker, Workflow, Schedule target, Sandbox task, Workspace, Agent, or Database schema is declared in a file and discovered by the integration.
+Other primitives need a Definition so ViteHub can discover named work, generate a Runtime Registry, and produce host-specific Provider Output. Database schemas, Workspace Definitions, Queue Definitions, Workflow Definitions, Static Schedule Definitions, Sandbox Definitions, and Agent Definitions use that model.
 
-Read [Definitions and discovery](/docs/server-primitives/definitions) when you need to understand naming, file locations, generated registries, and why discovered names come from location instead of arbitrary inline ids.
+Read [Definitions and discovery](/docs/concepts/definitions-and-discovery) for the shared discovery model. Read [Server primitives for any host](/docs/concepts/server-primitives-for-any-host) for the broader mental model.
 
-## Host behavior lives with the feature
+## Connect primitives to agents
 
-There is no standalone host documentation path. Cloudflare, Vercel, local development, and other host details belong inside the primitive page they affect.
+Capabilities expose controlled agent-facing access to primitives. A storage Capability can expose scoped read/edit tools, a Schedule Capability can manage allowed Runtime Schedules, and `workspaceShell()` can expose file inspection through Workspace and Shell boundaries.
 
-For example, KV explains Cloudflare namespaces and Vercel-compatible credentials because the driver and credentials differ. Workflow explains generated host output because orchestration output differs. Those details should stay close to the primitive instead of becoming a separate product concept.
+Do not expose a primitive to a model just because the app uses it. Attach the relevant [Official Capability](/docs/capabilities/official-capabilities) only when the Agent needs that ability, then keep scopes, write modes, and approvals explicit.
+
+## Next steps
+
+- Build the first direct primitive with [First server primitive](/docs/getting-started/first-server-primitive).
+- Learn the shared mental model in [How ViteHub fits together](/docs/concepts/how-vitehub-fits-together).
+- Expose primitive access to agents through [Official capabilities](/docs/capabilities/official-capabilities).

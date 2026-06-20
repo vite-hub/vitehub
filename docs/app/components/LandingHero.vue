@@ -20,9 +20,93 @@ const docsPathByExample: Record<string, string> = {
   queue: "/docs/server-primitives/queue",
   sandbox: "/docs/server-primitives/sandbox",
   schedule: "/docs/server-primitives/schedule",
-  workflow: "/docs/server-primitives/workflow",
+  workflow: "/docs/server-primitives/workflows",
   workspace: "/docs/server-primitives/workspace",
 };
+
+const hostPromises = [
+  {
+    title: "No vendor lock-in",
+    icon: "i-lucide-route",
+    text: "Keep application code on ViteHub Runtime Helpers while integrations emit the files, bindings, routes, and crons each provider expects.",
+  },
+  {
+    title: "Open source forever",
+    icon: "i-lucide-git-fork",
+    text: "The framework stays inspectable, forkable, and portable instead of becoming a dashboard-only platform boundary.",
+  },
+  {
+    title: "One server layer",
+    icon: "i-lucide-boxes",
+    text: "Compose agents, storage, queues, workflows, schedules, sandboxes, workspaces, sources, auth, env, and shell from the same Vite app.",
+  },
+];
+
+const frameworkSteps = [
+  {
+    title: "Install the primitive packages",
+    eyebrow: "01 / Packages",
+    icon: "i-lucide-package-plus",
+    code: "pnpm add @vite-hub/agent @vite-hub/workspace",
+    text: "Add only the server primitives the app actually uses.",
+  },
+  {
+    title: "Register Vite integrations",
+    eyebrow: "02 / Vite Integration",
+    icon: "i-lucide-plug-zap",
+    code: "hubAgent(), hubWorkspace(), hubQueue()",
+    text: "Let packages discover definitions and prepare generated runtime output.",
+  },
+  {
+    title: "Declare definitions",
+    eyebrow: "03 / Definitions",
+    icon: "i-lucide-file-code-2",
+    code: "server/agents/support/config.ts",
+    text: "Use colocated files for agents, queues, workflows, schedules, sandboxes, and workspaces.",
+  },
+  {
+    title: "Attach capabilities",
+    eyebrow: "04 / Capabilities",
+    icon: "i-lucide-blocks",
+    code: "capabilities: [chat(), workspaceShell()]",
+    text: "Give agents controlled abilities instead of handing raw tools to the model.",
+  },
+  {
+    title: "Ground the runtime",
+    eyebrow: "05 / Workspace",
+    icon: "i-lucide-folder-tree",
+    code: "workspace: { sources }",
+    text: "Expose durable files, rules, and read-only Sources through one Workspace boundary.",
+  },
+  {
+    title: "Select providers late",
+    eyebrow: "06 / Provider Selection",
+    icon: "i-lucide-switch-camera",
+    code: "provider: 'cloudflare' | 'vercel'",
+    text: "Keep host choices in Integration Options when they affect generated output.",
+  },
+  {
+    title: "Call stable helpers",
+    eyebrow: "07 / Runtime Helpers",
+    icon: "i-lucide-terminal-square",
+    code: "runAgent(), enqueue(), useWorkspace()",
+    text: "Application routes use ViteHub imports instead of provider SDK plumbing.",
+  },
+  {
+    title: "Inspect generated output",
+    eyebrow: "08 / Provider Output",
+    icon: "i-lucide-search-code",
+    code: ".vercel/output/**, wrangler.json",
+    text: "Generated files make the host boundary inspectable by humans and agents.",
+  },
+  {
+    title: "Move without rewriting",
+    eyebrow: "09 / Portability",
+    icon: "i-lucide-unplug",
+    code: "same Definition, different Provider Output",
+    text: "ViteHub stays open source and keeps provider-specific code at the edge.",
+  },
+];
 
 const examples = getShowcaseExamples().map(e => ({ ...e, icon: e.icon || "i-lucide-box", defaultPhase: e.defaultPhase || "configure", providers: e.providers || [] }));
 const activeExample = computed(() => examples[activeTab.value]!);
@@ -30,7 +114,7 @@ const displayedFramework = computed<Framework>(() => {
   return resolveShowcaseFramework(activeExample.value, defaultFramework);
 });
 const activeDocsLink = computed(() => docsPathByExample[activeExample.value.docsPath] || docsPathByExample[activeExample.value.pkg] || "/docs");
-const getStartedLink = computed(() => activeDocsLink.value);
+const getStartedLink = computed(() => "/docs/getting-started/first-agent");
 const activePhasePaths = computed(() => getShowcasePhasePaths(activeExample.value, displayedFramework.value));
 const activeFiles = computed(() => getShowcaseFiles(activeExample.value, displayedFramework.value, activeProvider.value));
 const activeFile = computed(() => activeFiles.value.find(f => f.path === activeFilePath.value) || activeFiles.value[0]);
@@ -232,36 +316,91 @@ onBeforeUnmount(() => {
   <section class="relative overflow-hidden">
     <div class="landing-hero-gradient absolute inset-0 -z-5 pointer-events-none" />
 
-    <div class="py-24 sm:py-32">
+    <div class="py-16 sm:py-20">
       <div class="mx-auto max-w-7xl px-6 lg:px-8">
-        <div class="mx-auto text-center">
-          <h1 class="mx-auto max-w-[24ch] text-5xl font-semibold tracking-tight text-highlighted text-balance sm:text-6xl lg:text-7xl">
-            Server primitives for <span class="text-primary">every host</span>
+        <div class="text-center">
+          <p class="font-mono text-xs font-medium tracking-wide text-primary uppercase">Open source server primitives</p>
+          <h1 class="mx-auto mt-4 max-w-[18ch] text-4xl font-semibold tracking-tight text-highlighted text-balance sm:text-5xl lg:text-6xl">
+            Build once for any provider
           </h1>
-          <p class="mx-auto mt-6 max-w-[48ch] text-lg text-muted text-pretty">
-            One API surface for storage, background work, sandboxes, and agents.
+          <p class="mx-auto mt-5 max-w-[55ch] text-lg text-muted text-pretty">
+            ViteHub gives Vite apps stable Runtime Helpers, Agent Definitions, Workspaces, Sources, Capabilities, and server primitives while Vite Integrations generate the Provider Output each host needs.
           </p>
-          <div class="relative z-10 mt-10 flex items-center justify-center gap-4">
+          <div class="relative z-10 mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <NuxtLink
               :to="getStartedLink"
-              class="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-inverted transition-colors hover:bg-primary/75 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              class="inline-flex items-center gap-2 rounded-md bg-primary py-2 pr-2 pl-3 text-sm font-medium text-inverted hover:bg-primary/75 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
-              <span>Get started</span>
+              <span>Build first agent</span>
               <UIcon name="i-lucide-arrow-right" class="size-5 shrink-0" />
             </NuxtLink>
-            <a
-              href="https://github.com/vite-hub/vitehub"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="inline-flex items-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium text-default transition-colors hover:bg-elevated"
+            <NuxtLink
+              to="/docs/concepts/server-primitives-for-any-host"
+              class="inline-flex items-center gap-2 rounded-md py-2 pr-3 pl-2 text-sm font-medium text-default hover:bg-elevated"
             >
-              <UIcon name="i-simple-icons-github" class="size-5 shrink-0" />
-              <span>GitHub</span>
-            </a>
+              <UIcon name="i-lucide-server-cog" class="size-5 shrink-0" />
+              <span>Read the host model</span>
+            </NuxtLink>
           </div>
         </div>
 
-        <div class="mx-auto mt-20 max-w-5xl">
+        <dl class="mt-12 grid gap-px overflow-hidden rounded-sm border border-default bg-border text-left md:grid-cols-3">
+          <div
+            v-for="promise in hostPromises"
+            :key="promise.title"
+            class="bg-default p-5"
+          >
+            <dt class="flex items-start gap-3 text-lg font-semibold text-highlighted">
+              <UIcon :name="promise.icon" class="size-5 shrink-0 text-primary" />
+              <span class="min-w-0">{{ promise.title }}</span>
+            </dt>
+            <dd class="mt-3 text-base/7 text-muted text-pretty sm:text-sm/6">{{ promise.text }}</dd>
+          </div>
+        </dl>
+
+        <div class="mt-24 grid gap-4 text-left lg:grid-cols-[minmax(0,4fr)_minmax(0,5fr)] lg:items-end">
+          <div>
+            <p class="font-mono text-xs font-medium tracking-wide text-muted uppercase">How it fits together</p>
+            <h2 class="mt-3 max-w-[35ch] text-3xl font-semibold tracking-tight text-highlighted text-balance sm:text-4xl">
+              Define the server layer once
+            </h2>
+          </div>
+          <p class="max-w-[56ch] text-base/7 text-muted text-pretty lg:justify-self-end">
+            The framework shape is simple: declare portable Definitions, call stable Runtime Helpers, and let Provider Output handle the host-specific edge.
+          </p>
+        </div>
+
+        <dl class="mt-10 grid gap-px overflow-hidden rounded-sm border border-default bg-border text-left sm:grid-cols-2 xl:grid-cols-3">
+          <div
+            v-for="step in frameworkSteps"
+            :key="step.title"
+            class="bg-default p-4"
+          >
+            <div class="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <UIcon :name="step.icon" class="size-4 shrink-0 text-muted" />
+              <span class="max-w-full text-right font-mono text-xs leading-5 tabular-nums break-words text-muted">{{ step.eyebrow }}</span>
+            </div>
+            <dt class="text-base font-semibold text-highlighted">{{ step.title }}</dt>
+            <dd class="mt-2 text-base/7 text-muted text-pretty sm:text-sm/6">{{ step.text }}</dd>
+            <dd class="mt-4 border border-default bg-muted px-2 py-1.5 font-mono text-xs text-default">
+              <code class="block truncate">{{ step.code }}</code>
+            </dd>
+          </div>
+        </dl>
+
+        <div class="mt-24 grid gap-4 text-left lg:grid-cols-[minmax(0,4fr)_minmax(0,5fr)] lg:items-end">
+          <div>
+            <p class="font-mono text-xs font-medium tracking-wide text-muted uppercase">Code proof</p>
+            <h2 class="mt-3 max-w-[35ch] text-3xl font-semibold tracking-tight text-highlighted text-balance sm:text-4xl">
+              The provider boundary stays at the end
+            </h2>
+          </div>
+          <p class="max-w-[56ch] text-base/7 text-muted text-pretty lg:justify-self-end">
+            Switch the primitive or provider below. The app-facing Definition stays readable; ViteHub changes the generated output and runtime wiring for the selected host.
+          </p>
+        </div>
+
+        <div class="mx-auto mt-10 max-w-5xl">
           <div class="terminal-chrome overflow-hidden rounded-xl border border-black/10 dark:border-white/10 dark:shadow-none">
             <div class="flex items-center gap-3 border-b border-black/5 bg-muted/50 px-4 py-2.5 dark:border-white/5">
               <div class="flex items-center gap-1.5">
@@ -337,17 +476,18 @@ onBeforeUnmount(() => {
                 <UTooltip v-for="provider in activeExample.providers" :key="provider.id" :text="provider.label">
                   <UButton
                     :icon="provider.icon" variant="ghost" size="xs" :padded="false"
-                    class="provider-icon transition-all"
+                    class="provider-icon"
                     :class="[
                       provider.darkInvert && 'provider-icon-invert',
                       activeProvider === provider.id && 'provider-icon--active',
                     ]"
+                    :aria-label="`Use ${provider.label}`"
                     :aria-pressed="activeProvider === provider.id"
                     @click="applyFrameworkSelection(displayedFramework, { provider: provider.id })"
                   />
                 </UTooltip>
               </div>
-              <NuxtLink :to="activeDocsLink" class="flex min-w-[7rem] shrink-0 items-center justify-end gap-1 rounded-md px-2 py-0.5 text-xs font-medium text-primary transition-colors hover:text-primary/75">
+              <NuxtLink :to="activeDocsLink" class="flex min-w-[7rem] shrink-0 items-center justify-end gap-1 rounded-md px-2 py-0.5 text-xs font-medium text-primary hover:text-primary/75">
                 Read docs
                 <UIcon name="i-lucide-arrow-right" class="size-3" />
               </NuxtLink>

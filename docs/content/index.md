@@ -1,12 +1,13 @@
 ---
 title: ViteHub
-description: Server primitives and agents for ViteHub applications.
+description: Agents and server primitives for any Vite host.
 ---
 
 # ViteHub
 
-Server primitives and agents for ViteHub applications.
+ViteHub provides Agent Definitions and server primitives for Vite applications that need host-independent runtime behavior.
 
 - [Browse docs](/docs)
-- [Use server primitives](/docs/server-primitives)
 - [Create agents](/docs/agents)
+- [Use server primitives](/docs/server-primitives)
+- [Attach capabilities](/docs/capabilities)

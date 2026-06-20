@@ -24,9 +24,9 @@ export function useHighlightedCode(key: MaybeRefOrGetter<string>, code: MaybeRef
     () => codeToHtml(codeRef.value, {
       lang: languageRef.value,
       themes: {
-        light: "material-theme-lighter",
-        default: "material-theme",
-        dimmed: "material-theme-palenight",
+        light: "github-light",
+        default: "github-dark",
+        dimmed: "github-dark-dimmed",
       },
     }),
     {

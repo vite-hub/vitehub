@@ -25,10 +25,16 @@ const { page } = useDocsPage(
   rawDoc,
   getDocsPageFallback(docsPage),
 );
+
+const docsPageUi = {
+  root: "lg:!grid-cols-[minmax(0,1fr)] xl:!grid-cols-[minmax(0,1fr)_var(--vh-toc-width)]",
+  center: "lg:!col-span-1",
+  right: "hidden xl:block xl:!col-span-1 xl:w-[var(--vh-toc-width)]",
+};
 </script>
 
 <template>
-  <UPage v-if="page">
+  <UPage v-if="page" :ui="docsPageUi">
     <UPageHeader :title="page.title" :description="page.description">
       <template #links>
         <DocsPageHeaderLinks />

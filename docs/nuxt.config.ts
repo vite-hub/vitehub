@@ -1,4 +1,5 @@
 import { defineNuxtConfig } from "nuxt/config";
+import { fileURLToPath } from "node:url";
 
 export default defineNuxtConfig({
   extends: ["docus"],
@@ -17,6 +18,13 @@ export default defineNuxtConfig({
     },
   },
   css: ["~/assets/main.css"],
+  vite: {
+    resolve: {
+      alias: {
+        extend: fileURLToPath(new URL("./app/shims/extend.ts", import.meta.url)),
+      },
+    },
+  },
   icon: {
     provider: "server",
     fallbackToApi: false,

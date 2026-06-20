@@ -1,15 +1,17 @@
 ---
 title: Queue
-description: Move work outside the response path and let the host deliver jobs to a consumer.
-navigation.order: 8
+description: Enqueue background jobs and let a Queue Provider deliver them to a Queue Definition.
+navigation.order: 9
 icon: i-lucide-list-ordered
 ---
 
-Queue is the primitive for background delivery. Use it when a request should enqueue work and return before the work finishes.
+Queue owns background delivery. Use it when a request should enqueue work and return before the work finishes.
 
-Use Workflow when the work needs durable steps, waits, retries, or inspectable run state. Queue is about delivery.
+Queue is not Workflow. Queue Enqueue means the provider accepted the job; Queue Delivery later invokes the Queue Definition. Use [Workflows](/docs/server-primitives/workflows) when work needs durable orchestration, run state, waits, or inspectable progress.
 
 ## Define a queue
+
+Create a Queue Definition for provider-delivered work.
 
 ```ts [server/queues/welcome-email.ts]
 import { defineQueue } from '@vite-hub/queue'
@@ -19,44 +21,47 @@ export default defineQueue<{ email: string }>(async (job) => {
 })
 ```
 
-The queue name comes from discovery. In this example, server code calls `welcome-email`.
+The queue name comes from discovery. This file is addressed as `welcome-email` by Runtime Helpers.
 
 ## Enqueue work
+
+Use `runQueue()` from server code to enqueue a job.
 
 ```ts [server/api/signup.post.ts]
 import { runQueue } from '@vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ email: string }>(event)
-  return runQueue('welcome-email', body)
+
+  return runQueue('welcome-email', {
+    payload: { email: body.email },
+    idempotencyKey: `welcome:${body.email}`,
+  })
 })
 ```
 
-Keep the route small: validate input, enqueue work, return a result.
+The result describes enqueue status, not the handler result.
 
-## Delivery semantics
+## Delivery behavior
 
-Queue delivery is host-specific. Your handler should be idempotent and should tolerate retry.
+Queue Providers decide delivery timing, retry behavior, and provider-specific message metadata. Queue handlers should be idempotent and tolerate retry.
 
-Good queue jobs:
+Good queue jobs include emails, webhook fan-out, report generation after upload, and short external sync work. Use Workflow for long-running state machines or work that needs durable checkpoints.
 
-- Send an email.
-- Fan out webhook processing.
-- Generate a report after upload.
-- Sync a record into another service.
+## Provider output
 
-Poor queue jobs:
+The Queue Package discovers Queue Definitions, generates provider consumers, and hides provider-specific delivery details behind the Queue Provider boundary. Cloudflare queue bindings and Vercel queue topics belong in configuration and generated host output, not in job handlers.
 
-- Multi-step orchestration with waits.
-- User-visible state machines.
-- Work that must expose progress and resume points.
+Queue delay, region, retention, and idempotency are Queue Enqueue options when a provider supports them.
 
-Use [Workflow](/docs/server-primitives/workflow) for those.
+## Connect it to Agents
 
-## Cloudflare Queue binding
+Queue is a server primitive, not an Agent Capability by default. An Agent can enqueue work only when you expose that behavior through an app-owned Capability or server route.
 
-Cloudflare queue setup needs queue bindings and generated consumer output. Keep the binding details in configuration. The queue handler should stay host-neutral.
+Keep the Capability boundary product-specific. A model should not receive arbitrary queue access just because the app uses Queue internally.
 
-## Vercel Queue topic
+## Next steps
 
-Vercel queue setup needs topic and region configuration. Keep region and token setup out of the job handler.
+- Use [Workflows](/docs/server-primitives/workflows) for durable orchestration.
+- Learn shared discovery rules in [Definitions and discovery](/docs/concepts/definitions-and-discovery).
+- Expose app-owned agent actions through [Custom capabilities](/docs/capabilities/custom-capabilities).

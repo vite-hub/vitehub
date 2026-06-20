@@ -12,6 +12,7 @@ definePageMeta({
 
 const route = useRoute();
 const routeState = resolveDocsRoute(route.path);
+const isBetterAuthFixture = computed(() => route.path.includes("/docs/getting-started/better-auth-style"));
 
 const { data: rawDoc } = await useAsyncData(
   `docs:${routeState.sourcePath}`,
@@ -27,10 +28,38 @@ const { page } = useDocsPage(
   rawDoc,
   getDocsPageFallback(routeState.page),
 );
+
+useHead(() => ({
+  bodyAttrs: {
+    class: isBetterAuthFixture.value ? "better-auth-fixture" : "",
+  },
+}));
+
+const docsPageUi = computed(() => {
+  if (isBetterAuthFixture.value) {
+    return {
+      root: "better-auth-doc-page lg:!grid-cols-[minmax(0,1fr)] xl:!grid-cols-[minmax(0,796px)_var(--vh-toc-width)] xl:!gap-20",
+      center: "lg:!col-span-1 min-w-0",
+      right: "hidden xl:block xl:!col-span-1 xl:w-[var(--vh-toc-width)]",
+    };
+  }
+
+  return {
+    root: "lg:!grid-cols-[minmax(0,1fr)] xl:!grid-cols-[minmax(0,1fr)_var(--vh-toc-width)]",
+    center: "lg:!col-span-1",
+    right: "hidden xl:block xl:!col-span-1 xl:w-[var(--vh-toc-width)]",
+  };
+});
 </script>
 
 <template>
-  <UPage v-if="page">
+  <UPage v-if="page" :ui="docsPageUi">
+    <div v-if="isBetterAuthFixture" class="better-auth-mobile-doc-bar">
+      <span class="better-auth-mobile-doc-dot" aria-hidden="true" />
+      <span>Install the Package</span>
+      <UIcon name="i-lucide-chevron-down" class="ml-auto size-4 text-muted" />
+    </div>
+
     <UPageHeader :title="page.title" :description="page.description">
       <template #links>
         <DocsPageHeaderLinks />

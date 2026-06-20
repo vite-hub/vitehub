@@ -1,15 +1,17 @@
 ---
 title: Workspace context
-description: Give agents source files and file-tree state without granting unrestricted filesystem access.
-navigation.order: 25
+description: Give Agents scoped file-tree state and Sources without granting unrestricted filesystem access.
+navigation.order: 28
 icon: i-lucide-folder-search
 ---
 
-Workspace context lets an Agent inspect source files, docs, generated files, or project state.
+Workspace context gives an Agent a named Workspace File Tree and optional Sources. The Workspace owns file visibility, Source materialization, and Workspace Scope, while Capabilities decide which runtime surfaces the active Agent Driver can use.
 
-The Workspace is the file boundary. Capabilities decide which model-facing tools are exposed.
+Use Workspace context when the Agent needs project files, documentation, generated state, Source-backed paths, or controlled file mutation. Do not use it as a hidden prompt bag.
 
-## Colocate workspace context
+## Declare Sources
+
+Declare a colocated Workspace when the Agent primarily owns the file-tree context. Add Source Instructions when the model-backed driver needs guidance about a Source.
 
 ```ts [server/agents/docs/config.ts]
 import { gateway } from '@ai-sdk/gateway'
@@ -43,19 +45,27 @@ export default defineAgent({
 })
 ```
 
-## Source instructions
+The Workspace supplies files. The Workspace Shell Capability exposes read or write tools to compatible Agent Drivers.
 
-Sources can include Source Instructions. They are developer-authored guidance for how the agent should use that source; ViteHub does not infer them from provider metadata. A Source can declare them statically, or Source Resolution can return instructions for the resolved source.
+## Render Source Instructions
 
-When at least one visible source has instructions, ViteHub renders a `## Workspace Sources` block into the model instructions. Put `{{ workspace.sources }}` where that block belongs, or omit the slot and ViteHub appends it at the end. If the slot is present but no visible source has instructions, the slot is replaced with an empty string.
+ViteHub renders visible Source Instructions into a `## Workspace Sources` block for model-backed drivers. Put `{{ workspace.sources }}` where that block belongs, or omit the slot and let ViteHub append it.
 
-Only visible sources render. When `access()` selects a Workspace Scope, hidden or scoped-out source instructions are omitted along with the hidden files.
+Only visible Sources render. If Access selects a Workspace Scope, ViteHub omits hidden Source Instructions along with hidden files.
 
-## Read mode first
+## Start with read access
 
-Start with read mode. It gives the model enough visibility to inspect files without writing changes.
+Use read mode when the Agent only needs to inspect files. Use write mode only when the product expects the Agent to mutate Workspace files and Workspace Rules allow the target paths.
 
-Use write mode only when the Agent is explicitly supposed to mutate Workspace files and the Workspace rules allow the target paths.
+```ts [server/agents/docs/config.ts]
+import { workspaceShell } from '@vite-hub/agent/capabilities'
+
+export const workspaceAccess = [
+  workspaceShell({ mode: 'read' }),
+]
+```
+
+Workspace access is not process access by default. Use execution Capabilities deliberately when the Agent needs commands, shell behavior, or sandboxed mutation.
 
 ## Harness Workspace Sessions
 
@@ -87,136 +97,68 @@ export default defineAgent({
 
 Read mode materializes the selected Workspace into the harness sandbox and discards sandbox changes. Write mode syncs additions, updates, and deletions back through Workspace rules. Keep Skills behind the `skills()` Capability; ViteHub does not add root `skills`, `tools`, or `sandbox` Agent Definition fields for harness-backed Agents. Put harness guidance in Workspace files such as `AGENTS.md`; model-facing Source Instructions are not forwarded to harness-backed Agent Drivers yet.
 
-## Access scope
+## Scope by Agent Invoker
 
-Use the Access Capability when invocation identity should narrow the visible Workspace Scope.
+Use the Access Capability when the Agent Invoker should narrow the visible Workspace Scope for one Agent Invocation.
 
 ```ts [server/agents/support/config.ts]
-import { gateway } from '@ai-sdk/gateway'
-import { createTeamsAdapter } from '@chat-adapter/teams'
-import { defineAgent } from '@vite-hub/agent'
-import { access, chat, workspaceShell } from '@vite-hub/agent/capabilities'
-import { file, github } from '@vite-hub/workspace'
+import { access, workspaceShell } from '@vite-hub/agent/capabilities'
 
-const supportChat = chat({
-  platforms: () => ({
-    teams: createTeamsAdapter({
-      apiUrl: process.env.TEAMS_API_URL,
-      appId: process.env.TEAMS_APP_ID!,
-      appPassword: process.env.TEAMS_APP_PASSWORD!,
-      appTenantId: process.env.TEAMS_APP_TENANT_ID!,
-      appType: 'SingleTenant',
-    }),
-  }),
-})
-
-export default defineAgent({
-  invoker: {
-    resolve({ context, defaultInvoker }) {
-      const rawCustomer = typeof defaultInvoker.meta?.customer === 'string'
-        ? defaultInvoker.meta.customer
-        : ''
-      const customers = rawCustomer.split(',').map(customer => customer.trim()).filter(Boolean)
-      context.set('support.customerScope', { customers }, { overwrite: true })
-      return defaultInvoker
-    },
-    profiles: [
-      {
-        id: 'portal-acme',
-        kind: 'customerPortal',
-        label: 'Acme Portal',
-        meta: { audience: 'customer', customer: 'acme' },
-      },
-      {
-        id: 'support-technical',
-        kind: 'support',
-        label: 'Support Technical',
-        meta: { audience: 'technical', scope: 'all' },
-      },
-    ],
-  },
-  workspace: {
-    sources: {
-      supportGuide: file({
-        path: 'AGENTS.md',
-        instructions: 'Use this guide for support operating rules.',
-      }),
-      ingestion: github(({ invocation }) => {
-        const scope = invocation.context.get<{ customers: string[] }>('support.customerScope')
-        const customer = scope?.customers[0]
-        if (!customer) {
-          return {
-            repo: 'quiverdk/ingestion',
-            root: 'dbt',
-            instructions: 'Use this source for ingestion models and dbt behavior.',
-          }
+export const supportCapabilities = [
+  access({
+    workspace: {
+      resolve({ invoker }) {
+        if (invoker.meta?.scope === 'all') {
+          return { all: true, scope: 'support' }
         }
 
+        const customer = String(invoker.meta?.customer ?? '')
         return {
-          repo: 'quiverdk/ingestion',
-          root: `dbt/${customer}`,
-          mount: `ingestion/${customer}`,
-          instructions: `Use this source only for ${customer} ingestion models and dbt behavior.`,
+          grants: [
+            { path: 'AGENTS.md' },
+            { path: `customers/${customer}` },
+          ],
+          instructions: customer
+            ? `Answer for the ${customer} customer workspace.`
+            : 'Answer from the public support workspace.',
+          scope: customer || 'public',
         }
-      }),
-      forecastingEngine: github({
-        repo: 'quiverdk/forecasting-engine',
-        instructions: [
-          'Use this source for forecasting engine behavior.',
-          'Do not use files outside the selected Workspace Scope.',
-        ],
-      }),
-    },
-  },
-  driver: {
-    model: gateway('openai/gpt-5.1-mini'),
-    instructions: [
-      'Answer from the scoped customer workspace.',
-      '{{ capabilities.access.workspace }}',
-      '{{ workspace.sources }}',
-    ],
-  },
-  capabilities: [
-    access({
-      workspace: {
-        resolve({ context, invoker }) {
-          if (invoker.meta?.scope === 'all')
-            return { all: true, role: 'admin', scope: 'support' }
-
-          const scope = context.get<{ customers: string[] }>('support.customerScope')
-          const customer = scope?.customers[0]
-
-          if (!customer) {
-            return {
-              grants: [{ path: 'AGENTS.md' }],
-              scope: 'public',
-            }
-          }
-
-          return {
-            grants: [
-              { path: 'AGENTS.md' },
-              { source: 'forecastingEngine' },
-              { path: `ingestion/${customer}` },
-            ],
-            instructions: `Answer for the ${customer} customer workspace.`,
-            scope: customer,
-          }
-        },
       },
-    }),
-    workspaceShell({ mode: 'read' }),
-    supportChat,
-  ],
-})
+    },
+  }),
+  workspaceShell({ mode: 'read' }),
+]
 ```
 
-Agent Invoker metadata drives the access decision. The invoker resolver normalizes comma-separated customer metadata into a `support.customerScope` Agent Invocation Context Value before Access and Source Resolution run. In this example, a customer invoker can see the shared support guide, the forecasting engine source, and only that customer's ingestion path. A support invoker with `scope: 'all'` receives the explicit all-files Workspace Scope.
+Workspace Scope Instructions are explicit prompt text for the selected scope. ViteHub does not generate prompt text from scope names, grants, roles, Source metadata, or invoker metadata.
 
-Workspace Scope Instructions are explicit prompt text for the selected scope. Static scopes and resolver results can return `instructions`, and agents opt into rendering them with `{{ capabilities.access.workspace }}`. ViteHub does not generate prompt text from the scope name, grants, role, Source metadata, or invoker metadata.
+## Resolve Sources per invocation
 
-Configured Agent Invoker Profiles give DevTools and trusted Agent Trigger Consumers stable identities to select. Server-owned trigger consumers can pass an explicit app-owned `invoker` after authenticating the request, and can keep chat-only payload under chat trigger `meta`. The Chat Capability preserves `meta` under `chat.meta` and lifts it into the default chat invoker only when it derives identity from chat user data. When a request selects an Agent Invoker Profile, the selected profile keeps runtime metadata and lets profile metadata override matching keys. Chat Platform Adapters can also provide email metadata from trusted platform identity when available. V1 trusts request-provided invoker context, trigger metadata, and profile ids, so validate requests before they reach an Agent Trigger Consumer when identity affects access.
+Source Resolution can narrow a Source from trusted invocation context, such as a Selected Workspace Scope or an Agent Invocation Context Value. Source Resolution is source shaping, not authorization.
 
-Order matters. Access should run before Workspace-reading Capabilities so the scope is applied before tools are exposed.
+```ts [server/agents/support/config.ts]
+import { source } from '@vite-hub/workspace'
 
-Source Resolution is source shaping, not authorization. It can narrow a GitHub root, Mount, and Source Instructions from trusted invocation context such as Agent Invocation Context Values or the Selected Workspace Scope, but Access remains the boundary that decides which Workspace paths are visible. Scope-affecting source options are part of the resolved source fingerprint so cached source data does not cross scopes.
+export const supportSources = {
+  ingestion: source.github(({ invocation }) => {
+    const customer = invocation.context.get<{ customer?: string }>('support.customer')?.customer
+
+    return {
+      repo: 'acme/ingestion',
+      root: customer ? `dbt/${customer}` : 'dbt',
+      mount: customer ? `ingestion/${customer}` : 'ingestion',
+      instructions: customer
+        ? `Use this source only for ${customer} ingestion models.`
+        : 'Use this source for shared ingestion models.',
+    }
+  }),
+}
+```
+
+Access remains the boundary that decides which Workspace paths are visible. Source Resolution changes where visible Source-backed paths come from.
+
+## Next steps
+
+- Read [Invokers](/docs/agents/invokers) for trusted identity.
+- Read [Instructions](/docs/agents/instructions) for `{{ workspace.sources }}`.
+- Read [Capabilities](/docs/capabilities) for `access()` and `workspaceShell()`.
