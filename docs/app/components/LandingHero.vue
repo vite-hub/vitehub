@@ -79,6 +79,7 @@ const platformSignalGroups = [
       { label: "Cloudflare", icon: "i-simple-icons-cloudflare", color: "" },
       { label: "Vercel", icon: "i-simple-icons-vercel", color: "" },
       { label: "Netlify", icon: "i-simple-icons-netlify", color: "" },
+      { label: "Deno", icon: "i-simple-icons-deno", color: "" },
       { label: "Node/self-hosted", icon: "i-simple-icons-nodedotjs", color: "" },
       { label: "Any host", icon: "i-lucide-server", color: "" },
     ],
@@ -155,7 +156,7 @@ const heroProviderNodes = [
   { label: "Vercel", icon: "i-simple-icons-vercel", angle: 80 },
   { label: "Netlify", icon: "i-simple-icons-netlify", angle: 140 },
   { label: "Node", icon: "i-simple-icons-nodedotjs", angle: 200 },
-  { label: "AWS", icon: "i-simple-icons-amazonwebservices", angle: 260 },
+  { label: "Deno", icon: "i-simple-icons-deno", angle: 260 },
   { label: "Fly.io", icon: "i-simple-icons-flydotio", angle: 320 },
 ] as const;
 
@@ -975,7 +976,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <p class="sr-only">
-            ViteHub orbits an Agent Definition around Channels, Capabilities, Driver behavior, Workspace context, and provider targets such as Cloudflare, Vercel, Netlify, Node, AWS, and Fly.io. The center cycles recipes for Review, Support, Field, Onboarding, Ops, and Community Agents.
+            ViteHub orbits an Agent Definition around Channels, Capabilities, Driver behavior, Workspace context, and provider targets such as Cloudflare, Vercel, Netlify, Node, Deno, and Fly.io. The center cycles recipes for Review, Support, Field, Onboarding, Ops, and Community Agents.
           </p>
         </div>
       </div>

@@ -1,7 +1,7 @@
 ---
 title: Node and self-hosted
 description: Use ViteHub Runtime Helpers in Node-shaped hosts without pretending every primitive has unified self-hosted output.
-navigation.order: 44
+navigation.order: 45
 icon: i-lucide-server-cog
 ---
 

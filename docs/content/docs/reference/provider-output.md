@@ -15,6 +15,8 @@ It belongs to the package that owns the primitive and should not become applicat
 | Worker bundle | Cloudflare | Package integration using Cloudflare output | Runs server or primitive runtime code in Workers. |
 | `wrangler.json` entries | Cloudflare | Blob, Database, Queue, Schedule, Workflow, Sandbox, Agent state as applicable | Declares bindings, crons, durable objects, queues, and other worker config. |
 | Vercel Build Output | Vercel | Package integration using Vercel output | Writes functions, static files, routes, and function config under `.vercel/output`. |
+| Deno Agent server output | Deno | Agent Package | Writes `.vitehub/agent/deno-server.ts` for `Deno.serve` chat and webhook routes. |
+| Deno cron output | Deno | Schedule Package | Writes `.vitehub/schedule/deno-cron.mjs` for `Deno.cron` static schedule wake output. |
 | Generated Runtime Registry | Local and hosted | Package that discovers Definitions | Maps Discovery Identity to lazy-loaded Definitions. |
 | Generated Nitro handler or plugin | Nitro-shaped hosts | Package that requires a host bridge | Registers package-owned routes or runtime hooks. |
 | Provision State | Local development and build input | ViteHub CLI plus package Provision Steps | Stores non-secret provider ids under `.vitehub/provision.json`. |
@@ -56,4 +58,5 @@ Generated Provider Output may import generated files, virtual modules, or provid
 
 - [Cloudflare](/docs/frameworks-hosts/cloudflare)
 - [Vercel](/docs/frameworks-hosts/vercel)
+- [Deno](/docs/frameworks-hosts/deno)
 - [Verification](/docs/development/verification)
