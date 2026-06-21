@@ -39,6 +39,7 @@ Use the smallest page that answers the current task. Prefer raw Markdown URLs fo
 | Nitro/UnJS host | `https://vitehub.dev/raw/docs/frameworks-hosts/nitro-unjs.md` |
 | Vercel host | `https://vitehub.dev/raw/docs/frameworks-hosts/vercel.md` |
 | Cloudflare host | `https://vitehub.dev/raw/docs/frameworks-hosts/cloudflare.md` |
+| Deno host | `https://vitehub.dev/raw/docs/frameworks-hosts/deno.md` |
 | Config options | `https://vitehub.dev/raw/docs/reference/config-options.md` |
 | Import paths | `https://vitehub.dev/raw/docs/reference/import-paths.md` |
 | File conventions | `https://vitehub.dev/raw/docs/reference/file-conventions.md` |

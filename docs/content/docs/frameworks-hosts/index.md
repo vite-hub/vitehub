@@ -70,4 +70,5 @@ pnpm build
 
 - Use [File conventions](/docs/reference/file-conventions) for discovery paths.
 - Use [Provider output](/docs/reference/provider-output) for generated host artifacts.
+- Use [Deno](/docs/frameworks-hosts/deno) for generated Agent server output and Deno cron wake output.
 - Use [Local development](/docs/development) for proof paths.

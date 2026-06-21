@@ -91,9 +91,10 @@ Use `createScheduleNitroConfig()` when a Nitro integration owns config merging a
 | --- | --- | --- |
 | Cloudflare | Cron trigger output and Cloudflare schedule runtime entry wiring. | Runtime Schedules still need Provider Wake output or a long-running runner. |
 | Vercel | Vercel cron-compatible output for static schedules. | Runtime Schedules still need Provider Wake output or a long-running runner. |
+| Deno | `Deno.cron` output loaded by generated Deno Agent server output. | Runtime Schedules still need Provider Wake output or a long-running runner. |
 
 ::warning
-Provider Wake output requires a static five-field UTC cron string compatible with Cloudflare and Vercel. Runtime Schedules still need an existing Provider Wake or a long-running host to execute due schedules.
+Provider Wake output requires a static five-field UTC cron string compatible with generated provider output. Runtime Schedules still need an existing Provider Wake or a long-running host to execute due schedules.
 ::
 
 ## Define a static schedule

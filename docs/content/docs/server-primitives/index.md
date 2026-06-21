@@ -98,6 +98,7 @@ Other primitives need a Definition so ViteHub can discover named work, generate 
 | Use ViteHub's framework and host boundary | [Frameworks and hosts](/docs/frameworks-hosts) |
 | Emit Cloudflare bindings, routes, queues, workflows, crons, and workers | [Cloudflare](/docs/frameworks-hosts/cloudflare) |
 | Emit Vercel output for functions, queues, workflows, and runtime bindings | [Vercel](/docs/frameworks-hosts/vercel) |
+| Emit Deno Agent server output and Deno cron wake output | [Deno](/docs/frameworks-hosts/deno) |
 | Run the generated server output yourself | [Node/self-hosted](/docs/frameworks-hosts/node-self-hosted) |
 
 ## Connect primitives to Agents

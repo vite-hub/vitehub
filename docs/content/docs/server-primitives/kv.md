@@ -74,6 +74,7 @@ export default defineConfig({
 | `kv: false` | Disables KV runtime configuration. |
 | `kv: { driver: 'fs-lite', base?: string }` | Uses local filesystem-backed KV. Default `base`: `.data/kv`. |
 | `kv: { driver: 'cloudflare-kv-binding', binding?: string, namespaceId?: string }` | Uses Cloudflare KV. Default `binding`: `KV`. `namespaceId` can come from `KV_NAMESPACE_ID`. |
+| `kv: { driver: 'deno-kv', path?: string }` | Uses native Deno KV through `Deno.openKv()`. |
 | `kv: { driver: 'upstash', url?: string, token?: string }` | Uses Upstash REST KV. Values can come from `KV_REST_API_URL` and `KV_REST_API_TOKEN`. |
 | `kv: { stores: Record<string, KVStoreConfig> }` | Defines named KV Stores. `stores.default` is required. |
 
@@ -83,6 +84,7 @@ export default defineConfig({
 | --- | --- | --- |
 | Local filesystem | `fs-lite` | Used for local/non-hosted development when no hosted env is detected. |
 | Cloudflare KV | `cloudflare-kv-binding` | Used on Cloudflare hosting. |
+| Deno KV | `deno-kv` | Used on Deno hosting. |
 | Upstash | `upstash` | Used when Upstash env vars are present or when Vercel hosting is detected. |
 
 ## Use it at runtime
@@ -138,7 +140,7 @@ export async function recordHit(key: string) {
 
 The KV Package owns Default KV Store behavior, named KV Store selection, generated store-name types, and the KV Driver Boundary. Provider-specific namespaces, bindings, and credentials belong in integration configuration and deployment setup.
 
-Application code should keep importing `kv` from `@vite-hub/kv` when switching between local, Cloudflare, Vercel-compatible, or other drivers.
+Application code should keep importing `kv` from `@vite-hub/kv` when switching between local, Cloudflare, Deno, Vercel-compatible, or other drivers.
 
 ## Connect it to Agents
 

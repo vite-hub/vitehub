@@ -17,6 +17,8 @@ Application code should use Stable ViteHub Import Paths instead of importing gen
 | `.vitehub/types/env.d.ts` | Env Package | Generated Public Env and Server Env types. |
 | `.vitehub/types/workspace.d.ts` | Workspace Package | Generated Workspace name types. |
 | `.vitehub/agent/chat-webhook-route.ts` | Agent Package | Generated Chat Webhook Route handler for discovered chat-capable Agents. |
+| `.vitehub/agent/deno-server.ts` | Agent Package | Generated Deno server output for Agent chat and webhook routes. |
+| `.vitehub/schedule/deno-cron.mjs` | Schedule Package | Deno `Deno.cron` wake output for Static Schedule Definitions. |
 | `.vitehub/nitro/schedule/*` | Schedule Package | Narrow Nitro bridge for Schedule Provider Wake. |
 | `.vitehub/provision.json` | ViteHub CLI | Non-secret Provision State read by Vite Integrations. |
 | `.vercel/output/**` | Provider Output | Vercel Build Output generated during provider builds. |

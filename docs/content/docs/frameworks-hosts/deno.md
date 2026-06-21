@@ -1,0 +1,94 @@
+---
+title: Deno
+description: Generate Deno server output for Agent routes and Schedule wake output without making app code Deno-specific.
+navigation.order: 44
+icon: i-simple-icons-deno
+---
+
+Deno is an Agent Package runtime target and a host boundary for Deno-shaped Provider Output.
+ViteHub keeps Agent Definitions, Schedule Definitions, KV Stores, and Runtime Helpers portable; Deno-specific code stays in generated output and driver configuration.
+
+## Deno boundaries
+
+| Concern | ViteHub boundary |
+| --- | --- |
+| Agent chat and webhook routes | Agent Package writes `.vitehub/agent/deno-server.ts` when `runtime: 'deno'` and routes are enabled. |
+| Static cron schedules | Schedule Package writes `.vitehub/schedule/deno-cron.mjs` for Deno `Deno.cron` wake output. |
+| Lightweight state | KV Package can use `driver: 'deno-kv'` and native `Deno.openKv()`. |
+| Deployment | Deno Deploy owns app entrypoint configuration, environment variables, permissions, logs, and production rollout. |
+
+## Configure Deno output
+
+Select Deno on the Agent integration when generated Agent routes should run through `Deno.serve`.
+Use package-owned options for the primitives that need Deno runtime behavior.
+
+```ts [vite.config.ts]
+import { hubAgent } from '@vite-hub/agent/vite'
+import { hubKv } from '@vite-hub/kv/vite'
+import { hubSchedule } from '@vite-hub/schedule/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [
+    hubAgent({
+      runtime: 'deno',
+      routes: {
+        chat: true,
+        webhooks: true,
+      },
+    }),
+    hubKv(),
+    hubSchedule(),
+  ],
+  kv: {
+    driver: 'deno-kv',
+  },
+})
+```
+
+The generated Agent server imports discovered Agent Definitions and mounts the default chat and webhook route patterns.
+If Schedule output exists, the generated server loads `.vitehub/schedule/deno-cron.mjs` before serving requests.
+
+## Inspect output
+
+Run a production-shaped build, then inspect the generated Deno files.
+
+```bash [Terminal]
+pnpm build
+test -f .vitehub/agent/deno-server.ts
+find .vitehub -maxdepth 4 -type f | sort
+```
+
+Run the generated server locally with the Deno permission it needs for the port you choose.
+
+```bash [Terminal]
+deno run --allow-net=127.0.0.1:8787 .vitehub/agent/deno-server.ts --host 127.0.0.1 --port 8787
+```
+
+If the route uses `driver: 'deno-kv'`, include Deno KV support in the local run.
+
+```bash [Terminal]
+deno run --unstable-kv --allow-net=127.0.0.1:8787 .vitehub/agent/deno-server.ts --host 127.0.0.1 --port 8787
+```
+
+For a single discovered `support` Agent with the default chat route enabled, send a chat request to the generated route.
+
+```bash [Terminal]
+curl -X POST http://127.0.0.1:8787/api/_vitehub/agents/support/chat \
+  -H 'content-type: application/json' \
+  -d '{"id":"local","messages":[{"id":"user-1","role":"user","parts":[{"type":"text","text":"ping"}]}]}'
+```
+
+## Production notes
+
+Deno Deploy should treat `.vitehub/agent/deno-server.ts` as the generated server entrypoint.
+Do not import generated files from application code to work around deployment configuration; keep application code on Agent Definitions, Runtime Helpers, and stable ViteHub imports.
+
+Use Deno environment variables for model keys and other Runtime Env.
+If you use Deno KV, verify the deployed runtime can call `Deno.openKv()` and choose an explicit KV Store when local development should not share production state.
+
+## Next steps
+
+- Use [Provider output](/docs/reference/provider-output) for generated artifact boundaries.
+- Use [Generated files](/docs/development/generated-files) to inspect `.vitehub/**`.
+- Use [Config options](/docs/reference/config-options) for Agent `runtime` and KV `driver` placement.
