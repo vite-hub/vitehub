@@ -181,6 +181,39 @@ describe("agent output helpers", () => {
     ])
   })
 
+  it("emits usage from raw results wrapped by text output renderers", async () => {
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents({
+      raw: {
+        usage: Promise.resolve({
+          inputTokens: 10,
+          outputTokenDetails: { reasoningTokens: 3 },
+          outputTokens: 7,
+          totalTokens: 17,
+        }),
+      },
+      text: "ok",
+    })) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: {
+          usage: {
+            inputTokens: 10,
+            outputTokenDetails: { reasoningTokens: 3 },
+            outputTokens: 7,
+            totalTokens: 17,
+          },
+        },
+      },
+      { type: "finish" },
+    ])
+  })
+
   it("adds a terminal finish event to fullStream output", async () => {
     const output = {
       fullStream: (async function* () {

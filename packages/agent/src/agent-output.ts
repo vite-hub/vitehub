@@ -237,8 +237,14 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     : undefined
   if (typeof text === "string") {
     if (text) yield { text, type: "text-delta" }
-    if (isUsageRecord((value as { usageRecord?: unknown }).usageRecord)) {
-      yield { type: "usage", usageRecord: (value as { usageRecord: AgentUsageRecord }).usageRecord }
+    let usageRecord = isUsageRecord((value as { usageRecord?: unknown }).usageRecord)
+      ? (value as { usageRecord: AgentUsageRecord }).usageRecord
+      : await usageFromResult(value)
+    if (!usageRecord && isRecord(value)) {
+      usageRecord = await usageFromResult((value as { raw?: unknown }).raw)
+    }
+    if (usageRecord) {
+      yield { type: "usage", usageRecord }
     }
     yield {
       reason: typeof (value as { finishReason?: unknown }).finishReason === "string"
