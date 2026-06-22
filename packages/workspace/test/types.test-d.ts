@@ -84,6 +84,9 @@ describe("workspace types", () => {
         rules: { "/docs/**": { write: "update" } },
       } satisfies WorkspacePlugin],
     })
+    defineWorkspace({
+      runtime: "trusted-host",
+    })
     file({
       workspacePath: "AGENTS.md",
       content: "# Instructions\n",

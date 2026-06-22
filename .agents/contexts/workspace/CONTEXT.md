@@ -195,6 +195,10 @@ _Avoid_: Asset workspace, runtime workspace, merged workspace
 A runtime materialization of a Workspace that can execute commands and commit file changes back to the Workspace Store.
 _Avoid_: Open workspace, sandbox, mount
 
+**Trusted Host Workspace Runtime**:
+A trusted development and test Workspace Session runtime that materializes the Workspace on the host machine and executes commands there.
+_Avoid_: Agent Dev Loop runtime, production shell, sandbox replacement
+
 **Harness Workspace Session**:
 A scoped Workspace Session prepared for a harness-backed Agent Driver, exposing a materialized filesystem and session boundary instead of model-facing Workspace Tools by default.
 _Avoid_: Workspace Tools, prompt context, unscoped checkout
@@ -375,6 +379,8 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - A missing **Selected Workspace Scope** fails the Agent Invocation unless the developer declared a **Default Workspace Scope**.
 - A **Default Workspace Scope** is explicit configuration and never implies **All-Scopes Workspace Scope**.
 - A **Workspace Session** starts from a Workspace runtime surface and may use a Sandbox provider behind the boundary.
+- A **Workspace Session** can use the **Trusted Host Workspace Runtime** only through an explicit trusted development or test opt-in.
+- The **Trusted Host Workspace Runtime** is not implied by the **Agent Dev Loop**.
 - A **Harness Workspace Session** starts after the **Selected Workspace Scope** is resolved, so harness-backed Agent Drivers see only scoped Workspace state.
 - A **Harness Workspace Session** is invocation-scoped by default.
 - A **Harness Workspace Session** is reused across Agent Invocations only when a driver option or Capability provides an explicit **Harness Session Key**.

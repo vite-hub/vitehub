@@ -242,6 +242,7 @@ Build and dev integrations own build-time Source materialization. Runtime `sync(
 ## Sessions and Shell
 
 Use a Workspace Session when execution should operate on a materialized file tree and then produce a diff.
+`session.exec()` requires an executable Workspace runtime. Use `runtime: 'sandbox'` for hosted or untrusted execution, or `runtime: 'trusted-host'` for trusted local development and tests.
 
 ```ts [server/tasks/test-docs.ts]
 import { useWorkspace } from '@vite-hub/workspace'
@@ -258,6 +259,8 @@ export async function testDocs() {
 ```
 
 Workspace owns the file tree and commit behavior. [Shell](/docs/server-primitives/shell) owns controlled command sessions, and [Sandbox](/docs/server-primitives/sandbox) owns isolated execution providers.
+
+`runtime: 'trusted-host'` runs commands on the host machine in a temporary materialized Workspace directory and is rejected when `NODE_ENV=production`. Use it only for projects and Sources you trust.
 
 ## Provider output
 

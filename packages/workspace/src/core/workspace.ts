@@ -73,6 +73,10 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
         const { createSandboxWorkspaceSession } = await import("../session/sandbox.ts")
         return await createSandboxWorkspaceSession(definition, workspace)
       }
+      if (definition.runtime === "trusted-host") {
+        const { createTrustedHostWorkspaceSession } = await import("../session/trusted-host.ts")
+        return await createTrustedHostWorkspaceSession(definition, workspace)
+      }
 
       return createBasicWorkspaceSession(workspace)
     },
