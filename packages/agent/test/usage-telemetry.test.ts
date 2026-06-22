@@ -89,6 +89,40 @@ describe("usage telemetry", () => {
     expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(usageRecord)
   })
 
+  it("uses root model metadata when response only has an id", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry({
+          pricing: staticModelPricing({
+            "openai/gpt-test": {
+              input: "0.00000010",
+              output: "0.00000020",
+            },
+          }),
+        }),
+      ],
+      run: () => ({
+        modelId: "openai/gpt-test",
+        response: { id: "response-1" },
+        text: "ok",
+        usage: {
+          inputTokens: 10,
+          outputTokens: 5,
+        },
+      }),
+    })
+
+    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
+      usageRecord: {
+        cost: { amount: "0.000002" },
+        model: { id: "openai/gpt-test" },
+      },
+    })
+  })
+
   it("summarizes usage telemetry for finish hooks", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")

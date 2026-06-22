@@ -97,7 +97,8 @@ function readNumber(record: UnknownRecord, ...keys: string[]): number | undefine
   }
 }
 
-function readString(record: UnknownRecord, ...keys: string[]): string | undefined {
+function readString(record: UnknownRecord | undefined, ...keys: string[]): string | undefined {
+  if (!record) return
   for (const key of keys) {
     const value = record[key]
     if (typeof value === "string" && value) return value
@@ -189,7 +190,7 @@ function responseFromResult(result: UnknownRecord): AgentUsageRecord["response"]
 
 function modelFromResult(result: UnknownRecord): AgentUsageRecord["model"] | undefined {
   const response = isRecord(result.response) ? result.response : undefined
-  const id = response ? readString(response, "modelId", "model") : readString(result, "modelId", "model")
+  const id = readString(response, "modelId", "model") ?? readString(result, "modelId", "model")
   const provider = readString(result, "provider")
   if (id === undefined && provider === undefined) return
   return {

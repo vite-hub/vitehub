@@ -1235,6 +1235,16 @@ function hasTraceableStreamResult(value: unknown): boolean {
   return isAsyncIterable(result.fullStream) || isAsyncIterable(result.stream) || isAsyncIterable(result.textStream)
 }
 
+function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream: T, result: unknown): T {
+  if (typeof stream !== "object" || stream === null || typeof result !== "object" || result === null) return stream
+  Object.defineProperties(stream, Object.fromEntries(["usage", "usageRecord"].map(key => [key, {
+    configurable: true,
+    enumerable: true,
+    get: () => (result as Record<string, unknown>)[key],
+  }])))
+  return stream
+}
+
 function traceUiMessageStream<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -1617,15 +1627,20 @@ export async function streamAgentInline<
       if (output === "ui-message-stream") {
         return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, runContext), shouldWrapInvocationOutput(runContext), error => finishAgentInvocation(runContext, error === undefined ? rendered : undefined, error))
       }
-      const isStream = isAsyncIterable(rendered)
-      const stream = hasTraceableStreamResult(rendered)
+      const isStreamResult = hasTraceableStreamResult(rendered)
+      const isStream = isAsyncIterable(rendered) || isStreamResult
+      const stream = isStreamResult
         ? streamAgentOutputToEvents(rendered)
         : rendered as AsyncIterable<StreamEvent>
+      const shouldWrapOutput = shouldWrapInvocationOutput(runContext)
+      const tracedStream = maybeTraceAgentStream(stream, runContext)
       return {
-        deferFinish: isStream && shouldWrapInvocationOutput(runContext),
+        deferFinish: isStream && shouldWrapOutput,
         finishResult: rendered,
         value: isStream
-          ? maybeTraceAgentStream(stream, runContext)
+          ? withStreamResultProperties(shouldWrapOutput
+              ? withCapabilityCleanup(tracedStream, error => finishAgentInvocation(runContext, error === undefined ? rendered : undefined, error)) as AsyncIterable<StreamEvent>
+              : tracedStream, rendered)
           : rendered,
       }
     }, "[vitehub] Agent run failed and finish lifecycle also failed.", {

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createMessage, getMessageText } from "@vite-hub/agent"
 import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/runtime"
 import { chat, chatTitle, schedule, subagents } from "../src/capabilities.ts"
+import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 
 const harnessAgentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const harnessCreateSession = vi.hoisted(() => vi.fn())
@@ -40,6 +41,10 @@ afterEach(() => {
 })
 
 describe("agent message protocol", () => {
+  it("normalizes undefined tool output to JSON null", () => {
+    expect(toJsonCompatibleValue(undefined)).toBeNull()
+  })
+
   it("runs custom Agent Drivers through the invocation lifecycle", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const run = vi.fn(context => `received ${context.prompt}`)
@@ -2310,6 +2315,29 @@ describe("agent message protocol", () => {
     for await (const _event of stream as AsyncIterable<unknown>) {}
 
     expect(order).toEqual(["stream:done", "finish"])
+  })
+
+  it("streams custom run fullStream results", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      run: () => ({
+        fullStream: (async function* () {
+          yield { text: "ok", type: "text-delta" }
+          yield { type: "finish" }
+        })(),
+      }),
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+
+    const events = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      { type: "finish" },
+    ])
   })
 
   it("runs finish lifecycle when async stream output renderer setup fails", async () => {

@@ -16,6 +16,7 @@ function isAgentToolDefinition(value: unknown): value is AgentToolDefinition {
 }
 
 export function toJsonCompatibleValue(value: unknown): unknown {
+  if (value === undefined) return null
   try {
     return JSON.parse(JSON.stringify(value))
   }
