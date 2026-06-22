@@ -3304,6 +3304,44 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("omits chat thinking fallback metadata when the placeholder is unset", async () => {
+    const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chat()],
+      run: () => "ok",
+    })
+
+    const invocation = await resolveAgentTriggerInvocation(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, "chat.message", {
+      messages: [createMessage({ role: "user", text: "hello" })],
+    })
+
+    if ("response" in invocation) throw new Error("Expected chat trigger invocation input.")
+    expect(invocation.metadata).toBeUndefined()
+  })
+
+  it("preserves disabled chat thinking fallback metadata", async () => {
+    const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chat({ fallbackStreamingPlaceholderText: null })],
+      run: () => "ok",
+    })
+
+    const invocation = await resolveAgentTriggerInvocation(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, "chat.message", {
+      messages: [createMessage({ role: "user", text: "hello" })],
+    })
+
+    if ("response" in invocation) throw new Error("Expected chat trigger invocation input.")
+    expect(invocation.metadata).toEqual({ thinkingFallback: null })
+  })
+
   it("converts async stream events to AI SDK UI message streams", async () => {
     const { readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
