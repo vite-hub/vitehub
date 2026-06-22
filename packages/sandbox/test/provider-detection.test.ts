@@ -59,4 +59,26 @@ describe("provider detection", () => {
     expect(isSandboxAvailable("vercel")).toBe(true)
     expect(isSandboxAvailable("cloudflare")).toBe(true)
   })
+
+  it("does not load the Cloudflare SDK when a sandbox getter is injected", async () => {
+    vi.resetModules()
+    vi.doMock("@cloudflare/sandbox", () => {
+      throw new Error("unexpected Cloudflare SDK load")
+    })
+
+    try {
+      const { createCloudflareSandboxClient } = await import("../src/sandbox/providers/cloudflare.ts")
+      const client = await createCloudflareSandboxClient({
+        getSandbox: () => ({}) as never,
+        namespace: {} as never,
+        provider: "cloudflare",
+      })
+
+      expect(client.provider).toBe("cloudflare")
+    }
+    finally {
+      vi.doUnmock("@cloudflare/sandbox")
+      vi.resetModules()
+    }
+  })
 })

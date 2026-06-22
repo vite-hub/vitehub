@@ -433,6 +433,6 @@ describe("sandbox workspace runtime", () => {
     expect(session.exec).toBeTypeOf("function")
     expect(session.commit).toBeTypeOf("function")
     expect(session.close).toBeTypeOf("function")
-    await expect(session.exec("pnpm", ["test"])).rejects.toThrow("runtime")
+    await expect(session.exec("pnpm", ["test"])).rejects.toThrow("Workspace exec is sandbox-only today")
   })
 })

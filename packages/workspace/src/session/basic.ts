@@ -3,7 +3,7 @@ import { WorkspaceError } from "../core/errors.ts"
 import type { ExecOptions, ExecResult, Workspace, WorkspaceSession } from "../core/types.ts"
 
 function unsupportedExec(): never {
-  throw new WorkspaceError("[vitehub] Workspace does not configure an executable runtime. Set `runtime: 'sandbox'` in the workspace definition.")
+  throw new WorkspaceError("[vitehub] Workspace exec is sandbox-only today. Set `runtime: 'sandbox'` in the workspace definition and configure the Sandbox integration, or avoid session.exec(). Trusted host execution for `vitehub agent dev` is not implemented yet.")
 }
 
 export function createBasicWorkspaceSession(workspace: Workspace): WorkspaceSession {

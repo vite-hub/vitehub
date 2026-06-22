@@ -242,6 +242,7 @@ Build and dev integrations own build-time Source materialization. Runtime `sync(
 ## Sessions and Shell
 
 Use a Workspace Session when execution should operate on a materialized file tree and then produce a diff.
+`session.exec()` currently requires `runtime: 'sandbox'` on the Workspace Definition and app-level Sandbox config. `vitehub agent dev` does not add a trusted host execution runtime yet.
 
 ```ts [server/tasks/test-docs.ts]
 import { useWorkspace } from '@vite-hub/workspace'
