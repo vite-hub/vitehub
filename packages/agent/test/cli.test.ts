@@ -210,16 +210,18 @@ describe("agent CLI", () => {
     expect(stderr.output()).toContain("[approval required] workspace_write: Needs write access.")
   })
 
-  it("surfaces Agent Dev Loop tool starts", async () => {
+  it("renders Agent Dev Loop tool input, truncated output, and usage", async () => {
     const stderr = stream()
+    const longOutput = "x".repeat(1300)
     const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       if (init?.method === "POST") {
         return ndjson([
           { agent: "support", trigger: "chat.message", type: "start" },
-          { id: "tool-1", name: "workspace_read", type: "tool-input-start" },
-          { id: "tool-1", name: "workspace_read", output: { path: "README.md" }, type: "tool-result" },
+          { id: "tool-1", input: { command: "pnpm test" }, name: "shell", type: "tool-call" },
+          { id: "tool-1", name: "shell", output: longOutput, type: "tool-result" },
           { id: "tool-2", name: "workspace_list", output: { path: "." }, type: "tool-result" },
           { text: "done", type: "text-delta" },
+          { type: "usage", usageRecord: { usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
           { type: "finish" },
           { type: "done" },
         ])
@@ -240,9 +242,14 @@ describe("agent CLI", () => {
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(0)
-    expect(stderr.output()).toContain("[tool] workspace_read")
+    expect(stderr.output()).toContain("[tool] shell")
+    expect(stderr.output()).toContain(`input: {"command":"pnpm test"}`)
+    expect(stderr.output()).toContain("[truncated ")
+    expect(stderr.output()).not.toContain(longOutput)
     expect(stderr.output()).toContain("[tool] workspace_list")
-    expect(stderr.output().match(/\[tool\] workspace_read/g)).toHaveLength(1)
+    expect(stderr.output()).toContain(`output: {"path":"."}`)
+    expect(stderr.output()).toContain("[usage] 17 tokens: 10 in / 7 out; 3 reasoning tokens")
+    expect(stderr.output().match(/\[tool\] shell/g)).toHaveLength(1)
   })
 
   it("runs Evalite through the Node runner with ViteHub defaults", async () => {

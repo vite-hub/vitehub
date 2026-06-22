@@ -4,7 +4,7 @@ import { resolve } from "node:path"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
 
-import type { AgentEvalOptions } from "./types.ts"
+import type { AgentEvalOptions, AgentUsageRecord } from "./types.ts"
 import type { UIMessageLike } from "./chat-message-input.ts"
 
 interface AgentEvaliteRunnerOptions extends ResolvedAgentEvalOptions {
@@ -76,6 +76,8 @@ interface AgentDevDiscovery {
   root?: unknown
 }
 
+const devPayloadMaxLength = 1200
+
 function writeEvalUsage(context: AgentCliContext): void {
   context.stdout.write([
     "Usage: vitehub agent eval [path] [--watch] [--threshold <score>] [--output <path>] [--hide-table] [--no-cache]",
@@ -117,6 +119,59 @@ function writeDevUsage(context: AgentCliContext): void {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+function formatDevPayload(value: unknown): string | undefined {
+  if (value === undefined) return
+  const text = typeof value === "string" ? value : JSON.stringify(value)
+  if (text === undefined) return
+  return text.length > devPayloadMaxLength
+    ? `${text.slice(0, devPayloadMaxLength)}... [truncated ${text.length - devPayloadMaxLength} chars]`
+    : text
+}
+
+function writeDevPayload(context: AgentCliContext, label: string, value: unknown): void {
+  const text = formatDevPayload(value)
+  if (text === undefined) return
+  context.stderr.write(`  ${label}: ${text}\n`)
+}
+
+function usageNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : undefined
+}
+
+function formatUsageNumber(value: number): string {
+  return new Intl.NumberFormat("en-US").format(value)
+}
+
+function readUsageDetail(...records: Array<Record<string, unknown> | undefined>): number | undefined {
+  const keys = ["reasoningTokens", "reasoning_tokens", "thinkingTokens", "thinking_tokens", "reasoning", "thinking"]
+  for (const record of records) {
+    if (!record) continue
+    for (const key of keys) {
+      const value = usageNumber(record[key])
+      if (value !== undefined) return value
+    }
+  }
+}
+
+function formatUsageRecord(record: AgentUsageRecord): string | undefined {
+  const usage = record.usage
+  const input = usageNumber(usage?.inputTokens)
+  const output = usageNumber(usage?.outputTokens)
+  const total = usageNumber(usage?.totalTokens) ?? (input !== undefined && output !== undefined ? input + output : undefined)
+  const reasoning = readUsageDetail(usage?.outputTokenDetails, usage?.inputTokenDetails, usage?.details)
+  const parts: string[] = []
+  if (total !== undefined) {
+    const tokens = `${formatUsageNumber(total)} tokens`
+    parts.push(input !== undefined && output !== undefined ? `${tokens}: ${formatUsageNumber(input)} in / ${formatUsageNumber(output)} out` : tokens)
+  }
+  else if (input !== undefined || output !== undefined) {
+    parts.push([input !== undefined ? `${formatUsageNumber(input)} in` : undefined, output !== undefined ? `${formatUsageNumber(output)} out` : undefined].filter(Boolean).join(" / "))
+  }
+  if (reasoning !== undefined) parts.push(`${formatUsageNumber(reasoning)} reasoning tokens`)
+  if (!parts.length) return record.summary
+  return parts.join("; ")
 }
 
 function readOptionValue(args: string[], index: number, flag: string): string {
@@ -501,6 +556,7 @@ async function sendDevMessage(
       if (event.type === "tool-call" || event.type === "tool-input-start") {
         visibleTools.add(event.id)
         context.stderr.write(`\n[tool] ${event.name}\n`)
+        writeDevPayload(context, "input", event.input)
         continue
       }
       if (event.type === "tool-result") {
@@ -508,6 +564,13 @@ async function sendDevMessage(
           visibleTools.add(event.id)
           context.stderr.write(`\n[tool] ${event.name}\n`)
         }
+        writeDevPayload(context, "output", event.output)
+        writeDevPayload(context, "error", event.error)
+        continue
+      }
+      if (event.type === "usage") {
+        const usage = formatUsageRecord(event.usageRecord)
+        if (usage) context.stderr.write(`\n[usage] ${usage}\n`)
         continue
       }
       if (event.type === "approval-request") {
