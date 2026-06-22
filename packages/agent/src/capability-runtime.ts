@@ -25,6 +25,8 @@ import type {
   AgentFinishExtensionProvider,
   AgentHookObserverHooks,
   AgentInstructionBlock,
+  AgentInvocationExtensions,
+  AgentOutputExtensionProvider,
   AgentInvocationContextStore,
   AgentInvoker,
   AgentModelResolver,
@@ -42,7 +44,9 @@ import type { WorkspaceOverrideRuntime } from "./access-runtime.ts"
 import type { Message } from "./messages.ts"
 import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName } from "@vite-hub/workspace"
 
-type ResolvedAgentOutputRenderer = (result: unknown) => MaybePromise<unknown>
+type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentInvocationExtensions) => MaybePromise<unknown>) & {
+  providerCount: number
+}
 const defaultCapabilityRuntimePhases = ["configure", "prepare", "bind", "input", "resolve", "output"] as const
 export const channelDeliveryEffectsContextKey = "channel.delivery.effects"
 export const channelDeliveryFinishEffectsContextKey = "channel.delivery.finishEffects"
@@ -53,10 +57,16 @@ export interface ResolvedAgentFinishExtensionProvider {
   resolve: AgentFinishExtensionProvider
 }
 
+export interface ResolvedAgentOutputExtensionProvider {
+  id: string
+  resolve: AgentOutputExtensionProvider
+}
+
 export interface AgentCapabilityRegistries {
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
+  outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
   outputRenderers: ResolvedAgentOutputRenderer[]
   providerTools: AgentProviderToolContribution[]
   stateRequirements: Array<{ name: string, optional?: boolean }>
@@ -275,6 +285,7 @@ export async function resolveAgentCapabilities<
     deliveryEffectIntents: [...initialDeliveryEffectIntents],
     finishDeliveryEffectProviders: [...initialFinishDeliveryEffectProviders],
     finishExtensionProviders: [],
+    outputExtensionProviders: [],
     outputRenderers: [],
     providerTools: [],
     stateRequirements: [],
@@ -364,8 +375,25 @@ export async function resolveAgentCapabilities<
           },
         },
         output: {
+          extensions: createAgentExtensionReader(new Map()),
+          provide(value) {
+            registries.outputExtensionProviders.push({
+              id: capability.id,
+              resolve: typeof value === "function"
+                ? value as AgentOutputExtensionProvider
+                : () => value,
+            })
+          },
           render(renderer: AgentOutputRenderer) {
-            registries.outputRenderers.push(result => renderer(result, capabilityContext))
+            const resolved = ((result: unknown, extensions = createAgentExtensionReader(new Map())) => renderer(result, {
+              ...capabilityContext,
+              output: {
+                ...capabilityContext.output,
+                extensions,
+              },
+            })) as ResolvedAgentOutputRenderer
+            resolved.providerCount = registries.outputExtensionProviders.length
+            registries.outputRenderers.push(resolved)
           },
         },
         providerTools: {
@@ -602,20 +630,25 @@ export async function applyCapabilityToolTransforms(
 export async function applyOutputRenderers(
   result: unknown,
   renderers: ResolvedAgentOutputRenderer[] = [],
+  providers: ResolvedAgentOutputExtensionProvider[] = [],
 ): Promise<unknown> {
   let current = result
+  let providerIndex = 0
+  const values = new Map<string, unknown>()
+  const extensions = createAgentExtensionReader(values)
   for (const renderer of renderers) {
-    current = await renderer(current)
+    while (providerIndex < renderer.providerCount) {
+      const provider = providers[providerIndex++]
+      const value = await provider.resolve({ extensions, result: current })
+      if (value !== undefined) values.set(provider.id, value)
+    }
+    current = await renderer(current, extensions)
   }
   return current
 }
 
-export async function createAgentInvocationExtensions(
-  event: Omit<AgentFinishEvent, "extensions">,
-  providers: ResolvedAgentFinishExtensionProvider[] = [],
-): Promise<AgentFinishEvent["extensions"]> {
-  const values = new Map<string, unknown>()
-  const extensions: AgentFinishEvent["extensions"] = {
+function createAgentExtensionReader(values: Map<string, unknown>): AgentInvocationExtensions {
+  return {
     get<T = unknown>(capabilityId: string, key?: string): T | undefined {
       const value = values.get(capabilityId)
       if (key === undefined) return value as T | undefined
@@ -623,6 +656,14 @@ export async function createAgentInvocationExtensions(
       return (value as Record<string, unknown>)[key] as T | undefined
     },
   }
+}
+
+export async function createAgentInvocationExtensions(
+  event: Omit<AgentFinishEvent, "extensions">,
+  providers: ResolvedAgentFinishExtensionProvider[] = [],
+): Promise<AgentFinishEvent["extensions"]> {
+  const values = new Map<string, unknown>()
+  const extensions = createAgentExtensionReader(values)
   const finishEvent = { ...event, extensions } as AgentFinishEvent
   for (const provider of providers) {
     const value = await provider.resolve(finishEvent)

@@ -141,6 +141,71 @@ describe("usage telemetry", () => {
     })
   })
 
+  it("exposes usage summaries through output extensions", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const onUsage = vi.fn()
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry({
+          onUsage,
+          pricing: staticModelPricing({
+            "openai/gpt-test": {
+              input: "0.00000010",
+              output: "0.00000020",
+            },
+          }),
+          summary: { subject: "Review run" },
+        }),
+        defineCapability({
+          id: "usage-footer",
+          output(context) {
+            context.output.render((result, renderContext) => {
+              const usage = renderContext.output.extensions.get<{
+                summary?: string
+                usageRecord?: { usage?: { totalTokens?: number } }
+              }>("usage-telemetry")
+              return {
+                ...result as Record<string, unknown>,
+                extensionTokens: usage?.usageRecord?.usage?.totalTokens,
+                text: `${(result as { text?: string }).text}\n${usage?.summary}`,
+              }
+            })
+          },
+        }),
+      ],
+      run: () => ({
+        response: {
+          modelId: "openai/gpt-test",
+        },
+        text: "ok",
+        totalUsage: {
+          inputTokens: 1000,
+          outputTokens: 250,
+        },
+      }),
+    })
+
+    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
+      extensionTokens: 1250,
+      text: "ok\nReview run cost about $0.00015 using openai/gpt-test (1,250 tokens: 1,000 in / 250 out).",
+      usage: {
+        inputTokens: 1000,
+        outputTokens: 250,
+        totalTokens: 1250,
+      },
+      usageRecord: {
+        usage: {
+          inputTokens: 1000,
+          outputTokens: 250,
+          totalTokens: 1250,
+        },
+      },
+    })
+    expect(onUsage).toHaveBeenCalledTimes(1)
+  })
+
   it("uses app-owned usage summary formatting", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { usageTelemetry } = await import("../src/capabilities.ts")

@@ -19,6 +19,7 @@ Use the configuration example below as the starting point, then tighten modes, p
 
 The Capability wraps compatible streams and output results.
 It emits `usage` stream events when a finish chunk contains usage, attaches `usage` and `usageRecord` to final results, and calls an optional `onUsage` callback.
+Later output renderers can read `context.output.extensions.get('usage-telemetry')` for `{ usageRecord, summary }`.
 
 ## Configuration
 

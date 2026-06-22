@@ -279,6 +279,7 @@ export type {
   UsageTelemetryCallback,
   UsageTelemetryContext,
   UsageTelemetryOptions,
+  UsageTelemetryOutputExtension,
   UsageTelemetrySummaryFormatContext,
   UsageTelemetrySummaryFormatter,
   UsageTelemetrySummaryOptions,

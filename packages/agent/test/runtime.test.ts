@@ -2159,6 +2159,51 @@ describe("agent message protocol", () => {
     }
   })
 
+  it("exposes capability output extensions to later renderers by capability id", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "usage-note",
+          output(context) {
+            context.output.provide({ summary: "12 tokens", usageRecord: { id: "usage-1" } })
+          },
+        }),
+        defineCapability({
+          id: "summary-output",
+          output(context) {
+            context.output.render((result, renderContext) => {
+              const usage = renderContext.output.extensions.get<{ summary: string }>("usage-note")
+              const summary = renderContext.output.extensions.get<string>("usage-note", "summary")
+              const missing = renderContext.output.extensions.get("missing")
+              return `${result}:${usage?.summary}:${summary}:${String(missing)}`
+            })
+          },
+        }),
+      ],
+      run: () => "ok",
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok:12 tokens:12 tokens:undefined")
+  })
+
+  it("keeps one-argument output render callbacks working", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "legacy-render",
+          output(context) {
+            context.output.render(result => `${result}:rendered`)
+          },
+        }),
+      ],
+      run: () => "ok",
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok:rendered")
+  })
+
   it("runs stream finish hooks with rendered model-backed object results", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
