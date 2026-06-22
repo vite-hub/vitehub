@@ -252,6 +252,38 @@ describe("agent CLI", () => {
     expect(stderr.output().match(/\[tool\] shell/g)).toHaveLength(1)
   })
 
+  it("renders Agent Dev Loop delivery previews", async () => {
+    const stderr = stream()
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "review", trigger: "github.webhook", type: "start" },
+          { text: "summary", type: "text-delta" },
+          { channelId: "github", effect: { kind: "reply", payload: "summary" }, type: "delivery-preview" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ name: "review", triggers: ["github.webhook"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["--agent", "review", "--trigger", "github.webhook", "--input", "{}"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr,
+      stdout: stream(),
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(0)
+    expect(stderr.output()).toContain("[delivery preview] would reply on github")
+    expect(stderr.output()).toContain("payload: summary")
+  })
+
   it("runs Evalite through the Node runner with ViteHub defaults", async () => {
     const runner = vi.fn(async () => ({ exitCode: undefined }))
     const exitCode = await runAgentEvalCli(["server/agents/support.eval.ts"], {

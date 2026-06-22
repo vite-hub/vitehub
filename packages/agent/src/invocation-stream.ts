@@ -1,4 +1,5 @@
 import type { StreamEvent } from "./messages.ts"
+import type { AgentChannelDeliveryEffectIntent, AgentRunMetadata } from "./types.ts"
 
 export const agentInvocationStreamRoute = "/__vitehub/agent/invocation-stream"
 export const agentInvocationStreamHeader = "x-vitehub-agent-dev-loop"
@@ -6,6 +7,7 @@ export const agentInvocationStreamHeaderValue = "1"
 
 export type AgentInvocationStreamEvent =
   | StreamEvent
+  | { channelId?: string, effect: AgentChannelDeliveryEffectIntent, run?: AgentRunMetadata, type: "delivery-preview" }
   | { agent: string, run?: unknown, trigger?: string, type: "start" }
   | { type: "done" }
 
