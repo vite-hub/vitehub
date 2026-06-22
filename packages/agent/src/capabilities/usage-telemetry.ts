@@ -368,15 +368,28 @@ async function* withUsageTelemetryStream(
   onRecord?: (record: AgentUsageRecord) => void,
   metadataSource?: unknown,
 ): AsyncIterable<unknown> {
+  let fallbackResult: UnknownRecord | undefined
+  let recorded = false
   for await (const chunk of stream) {
     if (isRecord(chunk) && chunk.type === "finish") {
-      const usageRecord = await recordUsage(chunk, options, run, metadataSource)
+      const usageRecord = await recordUsage(chunk, options, run)
       if (usageRecord) {
+        recorded = true
         onRecord?.(usageRecord)
         yield { type: "usage", usageRecord }
       }
+      else if (isRecord(metadataSource)) {
+        fallbackResult = chunk
+      }
     }
     yield chunk
+  }
+  if (!recorded && fallbackResult) {
+    const usageRecord = await recordUsage(fallbackResult, options, run, metadataSource)
+    if (usageRecord) {
+      onRecord?.(usageRecord)
+      yield { type: "usage", usageRecord }
+    }
   }
 }
 

@@ -370,6 +370,10 @@ describe("usage telemetry", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const { streamAgentOutputToEvents } = await import("../src/agent-output.ts")
     const { usageTelemetry } = await import("../src/capabilities.ts")
+    let resolveUsage: (usage: unknown) => void
+    const usage = new Promise(resolve => {
+      resolveUsage = resolve
+    })
 
     const agent = defineAgent({
       capabilities: [
@@ -379,24 +383,32 @@ describe("usage telemetry", () => {
         fullStream: (async function* () {
           yield { text: "ok", type: "text-delta" }
           yield { finishReason: "stop", type: "finish" }
+          resolveUsage({
+            inputTokens: 10,
+            outputTokenDetails: { reasoningTokens: 3 },
+            outputTokens: 7,
+            totalTokens: 17,
+          })
         })(),
-        usage: Promise.resolve({
-          inputTokens: 10,
-          outputTokenDetails: { reasoningTokens: 3 },
-          outputTokens: 7,
-          totalTokens: 17,
-        }),
+        usage,
       }),
     })
 
     const output = await streamAgent(agent, runtime(), {})
-    const events: unknown[] = []
-    for await (const event of streamAgentOutputToEvents(output)) {
-      events.push(event)
-    }
+    const events = await Promise.race([
+      (async () => {
+        const items: unknown[] = []
+        for await (const event of streamAgentOutputToEvents(output)) {
+          items.push(event)
+        }
+        return items
+      })(),
+      new Promise<"timeout">(resolve => setTimeout(() => resolve("timeout"), 100)),
+    ])
 
     expect(events).toEqual([
       { text: "ok", type: "text-delta" },
+      { reason: "stop", type: "finish" },
       {
         type: "usage",
         usageRecord: expect.objectContaining({
@@ -408,7 +420,6 @@ describe("usage telemetry", () => {
           },
         }),
       },
-      { reason: "stop", type: "finish" },
     ])
     expect(output).toMatchObject({
       usageRecord: {
