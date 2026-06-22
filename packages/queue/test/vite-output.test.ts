@@ -129,7 +129,7 @@ describe("Vite provider outputs", () => {
     expect(vercelServerContents).toContain("@vercel/queue")
   })
 
-  it("does not preload Vercel queue without queue definitions", async () => {
+  it("preloads Vercel queue without queue definitions for direct clients", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-no-definitions-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
@@ -142,7 +142,7 @@ describe("Vite provider outputs", () => {
     })
 
     const vercelServerContents = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
-    expect(vercelServerContents).not.toContain("@vercel/queue")
+    expect(vercelServerContents).toContain("@vercel/queue")
   })
 
   it("does not preload or emit Vercel queue functions for a non-Vercel queue provider", async () => {

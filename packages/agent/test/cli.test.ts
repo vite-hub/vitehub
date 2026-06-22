@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -98,7 +98,9 @@ describe("agent CLI", () => {
   })
 
   it("loads Agent Invocation Context Values from a JSON file", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-context-"))
+    const workspaceDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-context-"))
+    const rootDir = join(workspaceDir, "app")
+    await mkdir(rootDir)
     try {
       const contextPath = join(rootDir, "context.json")
       await writeFile(contextPath, JSON.stringify({
@@ -124,7 +126,7 @@ describe("agent CLI", () => {
       })
 
       const exitCode = await runAgentDevCli(["--agent", "review", "--context", "context.json", "--prompt=/summary"], {
-        cwd: rootDir,
+        cwd: workspaceDir,
         env: {},
         rootDir,
         spawn: vi.fn(),
@@ -150,7 +152,7 @@ describe("agent CLI", () => {
       })
     }
     finally {
-      await rm(rootDir, { force: true, recursive: true })
+      await rm(workspaceDir, { force: true, recursive: true })
     }
   })
 

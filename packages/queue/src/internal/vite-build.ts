@@ -44,10 +44,6 @@ function isVercelQueueEnabled(queueConfig: NormalizedQueueOptions) {
   return queueConfig !== false && queueConfig.provider === "vercel"
 }
 
-function shouldPreloadVercelQueue(queueConfig: NormalizedQueueOptions, definitions: DiscoveredQueueDefinition[]) {
-  return isVercelQueueEnabled(queueConfig) && definitions.length > 0
-}
-
 interface GeneratedQueueArtifacts {
   cloudflareWorkerFile: string
   definitions: DiscoveredQueueDefinition[]
@@ -121,7 +117,7 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
   for (const spec of providerEntrySpecs) {
     const entryFile = resolve(generatedDir, spec.entryFile)
     const queueConfig = normalizeQueueOptions(queue, { hosting: spec.hosting }) || false
-    const preloadVercelQueue = spec.name === "vercel" && shouldPreloadVercelQueue(queueConfig, definitions)
+    const preloadVercelQueue = spec.name === "vercel" && isVercelQueueEnabled(queueConfig)
     await writeFile(entryFile, renderProviderEntry(spec, entryFile, registryFile, userAppEntry, queueConfig, preloadVercelQueue), "utf8")
     entryFiles[spec.name] = entryFile
   }

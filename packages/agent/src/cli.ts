@@ -344,13 +344,28 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
   return parsed
 }
 
-async function loadDevContext(contextPath: string, cwd: string): Promise<{ path: string, value: Record<string, unknown> }> {
-  const path = resolve(cwd, contextPath)
+function isFileNotFound(error: unknown): boolean {
+  return isRecord(error) && error.code === "ENOENT"
+}
+
+async function readDevContextFile(path: string): Promise<{ path: string, value: Record<string, unknown> }> {
   const value = JSON.parse(await readFile(path, "utf8")) as unknown
   if (!isRecord(value)) {
     throw new Error("Agent Dev Loop context file must contain a JSON object.")
   }
   return { path, value }
+}
+
+async function loadDevContext(contextPath: string, rootDir: string, cwd: string): Promise<{ path: string, value: Record<string, unknown> }> {
+  const rootPath = resolve(rootDir, contextPath)
+  try {
+    return await readDevContextFile(rootPath)
+  }
+  catch (error) {
+    const cwdPath = resolve(cwd, contextPath)
+    if (!isFileNotFound(error) || cwdPath === rootPath) throw error
+    return await readDevContextFile(cwdPath)
+  }
 }
 
 function endpointUrl(baseUrl: string): string {
@@ -592,7 +607,7 @@ export async function runAgentDevCli(
   }
   if (parsed.contextPath) {
     try {
-      const loaded = await loadDevContext(parsed.contextPath, context.cwd)
+      const loaded = await loadDevContext(parsed.contextPath, context.rootDir, context.cwd)
       parsed.context = loaded.value
       context.stdout.write(`Loaded context: ${loaded.path}\n`)
     }
