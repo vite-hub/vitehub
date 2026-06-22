@@ -531,6 +531,50 @@ function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapt
   }
 }
 
+function createUsageCapture() {
+  let resolveUsage: (usage: unknown) => void
+  let captured = false
+  let capturedUsage: unknown
+  const usage = new Promise<unknown>((resolve) => {
+    resolveUsage = resolve
+  })
+
+  return {
+    async onEnd(event: unknown) {
+      const record = typeof event === "object" && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
+      capturedUsage = record?.totalUsage ?? record?.usage
+      captured = true
+      resolveUsage(capturedUsage)
+    },
+    get captured() {
+      return captured
+    },
+    usage,
+  }
+}
+
+function withCapturedUsage(result: unknown, capture: ReturnType<typeof createUsageCapture>): unknown {
+  if (result && typeof result === "object") {
+    const record = result as Record<string, unknown>
+    if (record.usage === undefined && record.totalUsage === undefined) {
+      Object.defineProperty(record, "usage", {
+        configurable: true,
+        enumerable: true,
+        value: capture.usage,
+      })
+    }
+    return result
+  }
+
+  if (!capture.captured) return result
+
+  return {
+    raw: result,
+    text: typeof result === "string" ? result : undefined,
+    usage: capture.usage,
+  }
+}
+
 function arrayFrom(value: unknown): unknown[] {
   if (Array.isArray(value)) return value
   return value === undefined ? [] : [value]
@@ -648,7 +692,12 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       if (context.workspace && tools && "materialize_sources" in tools) {
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.devtools?.reportToolStep)
       }
-      const result = await agent.generate(getCallInput(context) as never) as GenerateTextResult<ToolSet, never, never>
+      const usageCapture = createUsageCapture()
+      const callInput = getCallInput(context) as Record<string, unknown>
+      const result = withCapturedUsage(await agent.generate({
+        ...callInput,
+        onEnd: usageCapture.onEnd,
+      } as never) as GenerateTextResult<ToolSet, never, never>, usageCapture) as GenerateTextResult<ToolSet, never, never>
       const text = result.text.trim()
       if (text) return result as unknown as AgentAdapterResult
 
@@ -681,7 +730,12 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     ...(staticTools ? { tools: staticTools } : {}),
     async stream(context) {
       const { agent, model } = await createAgent(options, context)
-      const result = await agent.stream(getCallInput(context) as never) as StreamTextResult<ToolSet, never, never>
+      const usageCapture = createUsageCapture()
+      const callInput = getCallInput(context) as Record<string, unknown>
+      const result = withCapturedUsage(await agent.stream({
+        ...callInput,
+        onEnd: usageCapture.onEnd,
+      } as never) as StreamTextResult<ToolSet, never, never>, usageCapture) as StreamTextResult<ToolSet, never, never>
       const execution = options.execution ?? options.modelExecution
       return withWorkspaceFallbackStreamResult(result, model as never, context, getFallbackOptions(execution?.workspaceFallback))
     },
