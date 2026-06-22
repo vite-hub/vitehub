@@ -327,7 +327,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
         output = invocation.response
       }
       else {
-        if (!signal.aborted) emit({ agent: entry.name, run: invocation.run, trigger: invocation.trigger.id, type: "start" })
+        if (!signal.aborted) emit({ agent: entry.name, ...(invocation.metadata ? { metadata: invocation.metadata } : {}), run: invocation.run, trigger: invocation.trigger.id, type: "start" })
         const previewAgent = withDeliveryPreviewChannels(entry.agent, event => {
           if (!signal.aborted) emit(event)
         })

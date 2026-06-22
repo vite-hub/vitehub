@@ -97,6 +97,69 @@ describe("agent CLI", () => {
     })
   })
 
+  it("renders and clears the default Agent Dev Loop thinking fallback", async () => {
+    const stderr = stream()
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "support", trigger: "chat.message", type: "start" },
+          { text: "done", type: "text-delta" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ name: "support", triggers: ["chat.message"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["hello"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr,
+      stdout: stream(),
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(0)
+    expect(stderr.output()).toBe("Thinking...\r\u001b[K")
+  })
+
+  it("uses Agent Dev Loop thinking fallback metadata", async () => {
+    const stderr = stream()
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "support", metadata: { thinkingFallback: "Reading PR..." }, trigger: "chat.message", type: "start" },
+          { id: "tool-1", input: { command: "ls" }, name: "workspaceShell", type: "tool-call" },
+          { text: "done", type: "text-delta" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ name: "support", triggers: ["chat.message"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["hello"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr,
+      stdout: stream(),
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(0)
+    expect(stderr.output()).toContain("Reading PR...\r\u001b[K")
+    expect(stderr.output()).toContain("[tool] workspaceShell")
+    expect(stderr.output()).not.toContain("Thinking...")
+  })
+
   it("loads Agent Invocation Context Values from a JSON file", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-context-"))
     const rootDir = join(workspaceDir, "app")

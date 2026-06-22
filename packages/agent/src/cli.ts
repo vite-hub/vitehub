@@ -136,6 +136,11 @@ function writeDevPayload(context: AgentCliContext, label: string, value: unknown
   context.stderr.write(`  ${label}: ${text}\n`)
 }
 
+function thinkingFallback(metadata: Record<string, unknown> | undefined): string {
+  const value = metadata?.thinkingFallback
+  return typeof value === "string" && value.trim() ? value : "Thinking..."
+}
+
 function usageNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : undefined
 }
@@ -545,21 +550,38 @@ async function sendDevMessage(
 
   let output = ""
   let needsApproval = false
+  let pendingFallback = false
+  let wroteFallback = false
   const visibleTools = new Set<string>()
+  const clearPendingFallback = () => {
+    if (!pendingFallback) return
+    context.stderr.write("\r\u001b[K")
+    pendingFallback = false
+  }
   try {
     for await (const event of readAgentInvocationStream(response.body)) {
+      if (event.type === "start") {
+        if (wroteFallback) continue
+        context.stderr.write(thinkingFallback(event.metadata))
+        pendingFallback = true
+        wroteFallback = true
+        continue
+      }
       if (event.type === "text-delta") {
+        clearPendingFallback()
         context.stdout.write(event.text)
         output += event.text
         continue
       }
       if (event.type === "tool-call" || event.type === "tool-input-start") {
+        clearPendingFallback()
         visibleTools.add(event.id)
         context.stderr.write(`\n[tool] ${event.name}\n`)
         writeDevPayload(context, "input", event.input)
         continue
       }
       if (event.type === "tool-result") {
+        clearPendingFallback()
         if (!visibleTools.has(event.id)) {
           visibleTools.add(event.id)
           context.stderr.write(`\n[tool] ${event.name}\n`)
@@ -569,11 +591,13 @@ async function sendDevMessage(
         continue
       }
       if (event.type === "usage") {
+        clearPendingFallback()
         const usage = formatUsageRecord(event.usageRecord)
         if (usage) context.stderr.write(`\n[usage] ${usage}\n`)
         continue
       }
       if (event.type === "delivery-preview") {
+        clearPendingFallback()
         context.stderr.write(`\n[delivery preview] would ${event.effect.kind}${event.channelId ? ` on ${event.channelId}` : ""}\n`)
         writeDevPayload(context, "intent", event.effect.intent)
         writeDevPayload(context, "payload", event.effect.payload)
@@ -581,15 +605,18 @@ async function sendDevMessage(
         continue
       }
       if (event.type === "approval-request") {
+        clearPendingFallback()
         context.stderr.write(`\n[approval required] ${event.name}${event.reason ? `: ${event.reason}` : ""}\n`)
         needsApproval = true
         continue
       }
       if (event.type === "approval-decision") {
+        clearPendingFallback()
         context.stderr.write(`\n[approval ${event.approved ? "approved" : "rejected"}]${event.reason ? ` ${event.reason}` : ""}\n`)
         continue
       }
       if (event.type === "error") {
+        clearPendingFallback()
         context.stderr.write(`\n${event.error}\n`)
         return
       }
@@ -602,6 +629,7 @@ async function sendDevMessage(
     }
     throw error
   }
+  clearPendingFallback()
   context.stdout.write("\n")
   if (!output && needsApproval) return
   return messages.length || output ? [...messages, assistantMessage(output, messages.length)] : []

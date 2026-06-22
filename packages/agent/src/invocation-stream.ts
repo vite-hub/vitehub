@@ -8,7 +8,7 @@ export const agentInvocationStreamHeaderValue = "1"
 export type AgentInvocationStreamEvent =
   | StreamEvent
   | { channelId?: string, effect: AgentChannelDeliveryEffectIntent, run?: AgentRunMetadata, type: "delivery-preview" }
-  | { agent: string, run?: unknown, trigger?: string, type: "start" }
+  | { agent: string, metadata?: Record<string, unknown>, run?: unknown, trigger?: string, type: "start" }
   | { type: "done" }
 
 export async function* readAgentInvocationStream(body: ReadableStream<Uint8Array>): AsyncGenerator<AgentInvocationStreamEvent> {
