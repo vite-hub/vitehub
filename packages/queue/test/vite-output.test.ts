@@ -120,7 +120,7 @@ describe("Vite provider outputs", () => {
 
     await generateProviderOutputs({
       clientOutDir: "dist",
-      queue: {},
+      queue: { provider: "vercel" },
       rootDir,
     })
 

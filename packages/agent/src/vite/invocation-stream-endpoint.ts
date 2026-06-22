@@ -69,9 +69,12 @@ function withDevContext<CALL_OPTIONS>(
   input: AgentRunInput<CALL_OPTIONS>,
   context: Record<string, unknown> | undefined,
 ): AgentRunInput<CALL_OPTIONS> {
-  return context
-    ? { ...input, context: { ...input.context, ...context } }
-    : input
+  if (!context) return input
+  const mergedContext: Record<string, unknown> = { ...input.context, ...context }
+  if (context.actor !== undefined && context.invoker === undefined) {
+    mergedContext.invoker = context.actor
+  }
+  return { ...input, context: mergedContext as AgentRunInput<CALL_OPTIONS>["context"] }
 }
 
 function headersFromNode(headers: IncomingHttpHeaders): Headers {

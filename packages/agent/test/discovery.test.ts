@@ -571,7 +571,7 @@ describe("agent chat capability discovery", () => {
       channels: {
         portal: webChat(),
       },
-      run: ({ context, messages }) => `context ${context.get<{ number: number }>("pullRequest")?.number} ${getMessageText(messages[0]!)}`,
+      run: ({ context, invoker, messages }) => `context ${context.get<{ number: number }>("pullRequest")?.number} ${invoker.id} ${getMessageText(messages[0]!)}`,
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -590,7 +590,10 @@ describe("agent chat capability discovery", () => {
 
     const response = await invokeMiddleware(handlers[0]!, {
       agent: "support",
-      context: { pullRequest: { number: 42 } },
+      context: {
+        actor: { id: "github:onmax", kind: "github" },
+        pullRequest: { number: 42 },
+      },
       messages: [{
         id: "user-1",
         parts: [{ text: "/summary", type: "text" }],
@@ -604,7 +607,7 @@ describe("agent chat capability discovery", () => {
 
     expect(events).toEqual([
       expect.objectContaining({ agent: "support", trigger: "chat.message", type: "start" }),
-      { text: "context 42 /summary", type: "text-delta" },
+      { text: "context 42 github:onmax /summary", type: "text-delta" },
       { type: "finish" },
       { type: "done" },
     ])
