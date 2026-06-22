@@ -9,6 +9,7 @@ export default defineConfig({
       "@vite-hub/sandbox": new URL("../sandbox/src/index.ts", import.meta.url).pathname,
       "#vitehub-sandbox-provider-loader": new URL("../sandbox/src/runtime/provider-loader.ts", import.meta.url).pathname,
       "#vitehub-sandbox-registry": new URL("../sandbox/src/runtime/empty-registry.ts", import.meta.url).pathname,
+      "@vite-hub/shell/workspace": new URL("../shell/src/workspace/index.ts", import.meta.url).pathname,
       "vitehub-sandbox-provider-loader": new URL("../sandbox/src/runtime/provider-loader.ts", import.meta.url).pathname,
       "virtual:vitehub-sandbox-provider-loader": new URL("../sandbox/src/runtime/provider-loader.ts", import.meta.url).pathname,
     },

@@ -214,8 +214,40 @@ describe("createWorkspaceTools", () => {
     await expect(runShell(tools, "curl -d '{\"region\":\"eu\"}' https://portal.example.com/runtime/inventory-health")).resolves.toMatchObject({
       event: "policy_denied",
       exitCode: 126,
-      stderr: expect.stringContaining("does not allow -d"),
+      stderr: expect.stringContaining("does not match a declared Source target"),
     })
+  })
+
+  it("runs controlled curl data flags through POST source request descriptors", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "ok" }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    }))
+    const bodySchema = {
+      "~standard": {
+        jsonSchema: { input: () => ({ properties: { region: { type: "string" } }, type: "object" }) },
+        validate(input: unknown) {
+          return { value: input as Record<string, unknown> }
+        },
+      },
+    } as const
+    const workspace = createWorkspace({
+      name: "curl-post-source",
+      sources: {
+        inventoryHealthSummary: fetch({
+          bodySchema,
+          method: "POST",
+          url: "https://portal.example.com/runtime/inventory-health",
+        }),
+      },
+      store: { provider: "memory" },
+    })
+
+    await expect(runShell(createWorkspaceTools(workspace), "curl -d '{\"region\":\"eu\"}' https://portal.example.com/runtime/inventory-health")).resolves.toMatchObject({
+      event: "command_finished",
+      exitCode: 0,
+    })
+    expect(request).toHaveBeenCalledTimes(1)
   })
 
   it("matches controlled curl by concrete query shape", async () => {

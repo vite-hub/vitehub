@@ -7,6 +7,7 @@ import { workspaceMountPoint } from "./filesystem.ts"
 import { cleanWorkspaceShellPath } from "./path.ts"
 
 import type { ShellObservation } from "../runtime/types.ts"
+import type { ShellNetworkGrantExecutor } from "../providers/just-bash.ts"
 import type { WorkspaceShellFileSystem } from "./filesystem.ts"
 import type { SearchableShellWorkspace } from "./types.ts"
 
@@ -16,6 +17,7 @@ interface WorkspaceInspectionCommandOptions {
   cwd?: string
   fs: WorkspaceShellFileSystem
   maxOutputLength?: number
+  networkGrants?: ShellNetworkGrantExecutor
   timeout?: number
 }
 
@@ -41,6 +43,7 @@ export async function runWorkspaceInspectionCommand(
       commands: options.commands,
       cwd: options.cwd || workspaceMountPoint,
       fs: options.fs,
+      networkGrants: options.networkGrants,
     }),
   })
   const result = await runtime.exec(command, { cwd: options.cwd || workspaceMountPoint, timeout })
