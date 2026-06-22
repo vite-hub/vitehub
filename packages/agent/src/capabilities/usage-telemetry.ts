@@ -9,6 +9,7 @@ import {
 import type {
   AgentCapabilityDefinition,
   AgentFinishEvent,
+  AgentOutputExtensionEvent,
   AgentRunMetadata,
   AgentUsage,
   AgentUsageCost,
@@ -44,6 +45,11 @@ export interface UsageTelemetryOptions {
 export interface UsageTelemetrySummaryOptions {
   format?: UsageTelemetrySummaryFormatter
   subject?: string
+}
+
+export interface UsageTelemetryOutputExtension {
+  summary?: string
+  usageRecord: AgentUsageRecord
 }
 
 export interface UsageTelemetrySummaryFormatContext {
@@ -316,6 +322,19 @@ async function usageRecordForFinish(
   return summary ? { ...withDuration, summary } : withDuration
 }
 
+async function usageRecordForOutput(
+  record: AgentUsageRecord,
+  options: UsageTelemetryOptions,
+): Promise<UsageTelemetryOutputExtension> {
+  const summaryOptions = normalizeUsageSummaryOptions(options.summary)
+  if (!summaryOptions) return { usageRecord: record }
+  const summary = await formatUsageSummary(record, summaryOptions)
+  return {
+    ...(summary ? { summary } : {}),
+    usageRecord: record,
+  }
+}
+
 async function recordUsage(
   result: UnknownRecord,
   options: UsageTelemetryOptions,
@@ -413,11 +432,18 @@ export function usageTelemetry(options: UsageTelemetryOptions = {}): AgentCapabi
       context.finish.provide((event: AgentFinishEvent) => usageRecordForFinish(isRecord(event.result)
         ? event.result.usageRecord
         : undefined, event, options))
-      context.output.render(async (result) => {
+      context.output.provide(async (event: AgentOutputExtensionEvent) => {
+        if (!isRecord(event.result) || hasUsageTelemetryStream(event.result)) return
+        const usageRecord = isRecord(event.result.usageRecord)
+          ? event.result.usageRecord as AgentUsageRecord
+          : await recordUsage(event.result, options, context.run)
+        return usageRecord ? await usageRecordForOutput(usageRecord, options) : undefined
+      })
+      context.output.render(async (result, renderContext) => {
         if (isAsyncIterable(result)) return withUsageTelemetryStream(result, options, context.run)
         if (!isRecord(result)) return result
         if (hasUsageTelemetryStream(result)) return cloneWithUsageTelemetryStream(result, options, context.run)
-        const usageRecord = await recordUsage(result, options, context.run)
+        const usageRecord = renderContext.output.extensions.get<UsageTelemetryOutputExtension>("usage-telemetry")?.usageRecord
         if (!usageRecord) return result
         return {
           ...result,

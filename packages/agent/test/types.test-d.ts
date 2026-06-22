@@ -6,10 +6,10 @@ import { defineChannel, github, http, stream, teams, telegram, webChat, type Git
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
-import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentUsageRecord } from "../src/index.ts"
+import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentUsageRecord } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import { file, github as githubSource } from "@vite-hub/workspace"
-import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatPlatformResolver, AgentChatRunContext, FetchCapabilityToolOptions, RepositoryHostClient, TranscriptionResult, UsageTelemetrySummaryOptions } from "../src/capabilities.ts"
+import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatPlatformResolver, AgentChatRunContext, FetchCapabilityToolOptions, RepositoryHostClient, TranscriptionResult, UsageTelemetryOutputExtension, UsageTelemetrySummaryOptions } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
@@ -265,6 +265,27 @@ describe("agent public types", () => {
           context.finish.provide("ok")
           // @ts-expect-error finish extensions are registered through context.finish
           context.extensions.provide("agent:finish", "ok")
+        },
+      }],
+      model: {} as never,
+    })
+
+    defineAgent({
+      capabilities: [{
+        id: "output-extension",
+        output(context) {
+          context.output.provide({ summary: "ok" })
+          context.output.provide(((event) => {
+            expectTypeOf(event.result).toEqualTypeOf<unknown>()
+            expectTypeOf(event.extensions.get("output-extension")).toEqualTypeOf<unknown>()
+            return { summary: "ok" }
+          }) satisfies AgentOutputExtensionProvider)
+          context.output.render((result, renderContext) => {
+            expectTypeOf(renderContext.output.extensions.get<{ summary: string }>("output-extension")).toEqualTypeOf<{ summary: string } | undefined>()
+            expectTypeOf(renderContext.output.extensions.get<string>("output-extension", "summary")).toEqualTypeOf<string | undefined>()
+            expectTypeOf(renderContext.output.extensions.get<UsageTelemetryOutputExtension>("usage-telemetry")).toEqualTypeOf<UsageTelemetryOutputExtension | undefined>()
+            return result
+          })
         },
       }],
       model: {} as never,

@@ -316,6 +316,11 @@ export interface AgentInvocationExtensions {
   get<T = unknown>(capabilityId: string, key: string): T | undefined
 }
 
+export interface AgentOutputExtensionEvent {
+  extensions: AgentInvocationExtensions
+  result: unknown
+}
+
 export interface AgentFinishEvent<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -449,6 +454,7 @@ export type AgentOutputRenderer = (
   result: unknown,
   context: AgentCapabilityRuntimeContext,
 ) => MaybePromise<unknown>
+export type AgentOutputExtensionProvider = (event: AgentOutputExtensionEvent) => MaybePromise<unknown>
 export type AgentFinishExtensionProvider = (event: AgentFinishEvent) => MaybePromise<unknown>
 
 export interface AgentCapabilityStateRequirement {
@@ -483,6 +489,8 @@ export interface AgentCapabilityRuntimeContext<
     resolve: (model?: AgentModelResolver<TRuntimeConfig, Name>) => Promise<AgentModelInput>
   }
   output: {
+    extensions: AgentInvocationExtensions
+    provide: (value: unknown | AgentOutputExtensionProvider) => void
     render: (renderer: AgentOutputRenderer) => void
   }
   providerTools: {
