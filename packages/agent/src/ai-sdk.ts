@@ -550,6 +550,9 @@ function createUsageCapture() {
     async onStepEnd(event: unknown) {
       capture(event)
     },
+    async onLanguageModelCallEnd(event: unknown) {
+      capture(event)
+    },
     get captured() {
       return captured
     },
@@ -562,12 +565,21 @@ function createUsageCapture() {
 function withCapturedUsage(result: unknown, capture: ReturnType<typeof createUsageCapture>): unknown {
   if (result && typeof result === "object") {
     const record = result as Record<string, unknown>
-    if (record.usage === undefined && record.totalUsage === undefined) {
-      Object.defineProperty(record, "usage", {
+    const usage = record.usage
+    const totalUsage = record.totalUsage
+    Object.defineProperty(record, "usage", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return capture.usage ?? usage
+      },
+    })
+    if (totalUsage !== undefined) {
+      Object.defineProperty(record, "totalUsage", {
         configurable: true,
         enumerable: true,
         get() {
-          return capture.usage
+          return capture.usage ?? totalUsage
         },
       })
     }
@@ -705,6 +717,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const result = withCapturedUsage(await agent.generate({
         ...callInput,
         onEnd: usageCapture.onEnd,
+        onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
         onStepEnd: usageCapture.onStepEnd,
       } as never) as GenerateTextResult<ToolSet, never, never>, usageCapture) as GenerateTextResult<ToolSet, never, never>
       const text = result.text.trim()
@@ -744,6 +757,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const result = withCapturedUsage(await agent.stream({
         ...callInput,
         onEnd: usageCapture.onEnd,
+        onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
         onStepEnd: usageCapture.onStepEnd,
       } as never) as StreamTextResult<ToolSet, never, never>, usageCapture) as StreamTextResult<ToolSet, never, never>
       const execution = options.execution ?? options.modelExecution

@@ -653,6 +653,64 @@ describe("usage telemetry", () => {
     }
   })
 
+  it("emits ToolLoopAgent model call end usage over empty stream result usage", async () => {
+    vi.doMock("ai", () => ({
+      jsonSchema: vi.fn(schema => schema),
+      stepCountIs: () => () => false,
+      ToolLoopAgent: class {
+        async stream(options: { onLanguageModelCallEnd?: (event: unknown) => unknown }) {
+          return {
+            fullStream: (async function* () {
+              yield { text: "ok", type: "text-delta" }
+              yield { finishReason: "stop", type: "finish" }
+              await options.onLanguageModelCallEnd?.({
+                usage: {
+                  inputTokens: 10,
+                  outputTokenDetails: { reasoningTokens: 3 },
+                  outputTokens: 7,
+                  totalTokens: 17,
+                },
+              })
+            })(),
+            usage: Promise.resolve({}),
+          }
+        }
+      },
+    }))
+
+    try {
+      const { defineAgent, streamAgent } = await import("../src/index.ts")
+
+      const agent = defineAgent({
+        model: {} as never,
+      })
+      const output = await streamAgent(agent, runtime(), {})
+      const events: unknown[] = []
+      for await (const event of output as AsyncIterable<unknown>) {
+        events.push(event)
+      }
+
+      expect(events).toEqual([
+        { text: "ok", type: "text-delta" },
+        {
+          type: "usage",
+          usageRecord: {
+            usage: {
+              inputTokens: 10,
+              outputTokenDetails: { reasoningTokens: 3 },
+              outputTokens: 7,
+              totalTokens: 17,
+            },
+          },
+        },
+        { reason: "stop", type: "finish" },
+      ])
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
   it("emits streamed usage from outer usage when the stream has no finish chunk", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const { streamAgentOutputToEvents } = await import("../src/agent-output.ts")
