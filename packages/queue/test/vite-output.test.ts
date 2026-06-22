@@ -83,8 +83,8 @@ describe("Vite provider outputs", () => {
     expect(vercelConsumerContents).toContain("__vitehubVercelQueue")
     expect(vercelConsumerContents).toContain("reportQueueMarker")
     expect(vercelServerContents).toContain("/api/tests/queue")
-    expect(vercelServerContents).not.toContain("__vitehubVercelQueue")
-    expect(vercelServerContents).not.toContain("@vercel/queue")
+    expect(vercelServerContents).toContain("__vitehubVercelQueue")
+    expect(vercelServerContents).toContain("@vercel/queue")
     expect(vercelConsumerTrigger).toEqual({
       consumer: "api_Svitehub_Squeues_Svercel_Swelcome-email_Swelcome-email_Dfunc",
       topic: "topic--77656c636f6d652d656d61696c",
@@ -125,6 +125,22 @@ describe("Vite provider outputs", () => {
     })
 
     expect(await readFile(join(rootDir, ".vercel", "output", "static", "index.html"), "utf8")).toContain("<title>vitehub</title>")
+    const vercelServerContents = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
+    expect(vercelServerContents).toContain("@vercel/queue")
+  })
+
+  it("does not preload Vercel queue without queue definitions", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-no-definitions-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await writeFile(join(rootDir, "dist", "index.html"), "<!doctype html><title>vitehub</title>\n", "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist",
+      queue: {},
+      rootDir,
+    })
+
     const vercelServerContents = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
     expect(vercelServerContents).not.toContain("@vercel/queue")
   })
