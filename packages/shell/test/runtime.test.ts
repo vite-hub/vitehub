@@ -21,11 +21,12 @@ import type {
 } from "../src/index.ts"
 import type {
   ReadonlyShellWorkspace,
-  WritableShellWorkspace,
 } from "../src/workspace/index.ts"
 
 // @ts-expect-error workspace contracts belong to @vite-hub/shell/workspace.
 import type { ReadonlyShellWorkspace as RootReadonlyShellWorkspace } from "../src/index.ts"
+
+type _RootReadonlyShellWorkspace = RootReadonlyShellWorkspace
 
 function createReadonlyRuntime(workspace: ReadonlyShellWorkspace) {
   return createShellRuntime({
@@ -91,6 +92,31 @@ describe("@vite-hub/shell just-bash runtime", () => {
     })
     await expect(session.startProcess("sleep 10")).rejects.toThrow("does not support long-running processes")
     await expect(session.dispose()).resolves.toMatchObject({ event: "session_disposed" })
+  })
+
+  it("runs controlled curl through the just-bash provider network boundary", async () => {
+    const workspace = new MemoryWorkspace({})
+    const executeSourceRequest = vi.fn(async () => ({ content: "ok\n" }))
+    const runtime = createShellRuntime({
+      provider: createJustBashProvider({
+        commands: ["curl"],
+        cwd: workspaceMountPoint,
+        fs: createReadonlyWorkspaceFs(workspace),
+        networkGrants: { executeSourceRequest },
+      }),
+    })
+
+    expect(runtime.boundary.network).toBe(true)
+    await expect(runtime.exec("curl -d '{\"region\":\"eu\"}' https://portal.example.com/runtime/inventory-health")).resolves.toMatchObject({
+      event: "command_finished",
+      exitCode: 0,
+      stdout: "ok\n",
+    })
+    expect(executeSourceRequest).toHaveBeenCalledWith({
+      body: { region: "eu" },
+      method: "POST",
+      url: "https://portal.example.com/runtime/inventory-health",
+    })
   })
 
   it("unregisters stopped long-running processes from session state", async () => {
