@@ -206,6 +206,57 @@ describe("usage telemetry", () => {
     expect(onUsage).toHaveBeenCalledTimes(1)
   })
 
+  it("preserves usage telemetry when later renderers wrap text output", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry(),
+        defineCapability({
+          id: "summary-output",
+          output(context) {
+            context.output.render((result) => {
+              const text = typeof result === "object" && result !== null && "text" in result
+                ? (result as { text?: unknown }).text
+                : result
+
+              return {
+                raw: text,
+                text,
+              }
+            })
+          },
+        }),
+      ],
+      run: () => ({
+        text: "ok",
+        totalUsage: {
+          inputTokens: 8,
+          outputTokens: 2,
+          totalTokens: 10,
+        },
+      }),
+    })
+
+    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
+      raw: "ok",
+      text: "ok",
+      usage: {
+        inputTokens: 8,
+        outputTokens: 2,
+        totalTokens: 10,
+      },
+      usageRecord: {
+        usage: {
+          inputTokens: 8,
+          outputTokens: 2,
+          totalTokens: 10,
+        },
+      },
+    })
+  })
+
   it("uses app-owned usage summary formatting", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { usageTelemetry } = await import("../src/capabilities.ts")
