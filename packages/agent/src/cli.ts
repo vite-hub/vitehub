@@ -1,7 +1,10 @@
+import { readFile } from "node:fs/promises"
+import { resolve } from "node:path"
+
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
 
-import type { AgentEvalOptions } from "./types.ts"
+import type { AgentEvalOptions, AgentUsageRecord } from "./types.ts"
 import type { UIMessageLike } from "./chat-message-input.ts"
 
 interface AgentEvaliteRunnerOptions extends ResolvedAgentEvalOptions {
@@ -54,10 +57,11 @@ interface ParsedEvalArgs {
 
 interface ParsedDevArgs {
   agent?: string
+  context?: Record<string, unknown>
+  contextPath?: string
   help: boolean
   input?: unknown
   message?: string
-  sample?: string
   timeout?: number
   trigger?: string
   url: string
@@ -68,9 +72,11 @@ interface AgentDevCliOptions {
 }
 
 interface AgentDevDiscovery {
-  agents?: Array<{ name?: unknown, samples?: unknown, triggers?: unknown }>
+  agents?: Array<{ name?: unknown, triggers?: unknown }>
   root?: unknown
 }
+
+const devPayloadMaxLength = 1200
 
 function writeEvalUsage(context: AgentCliContext): void {
   context.stdout.write([
@@ -94,20 +100,78 @@ function writeEvalUsage(context: AgentCliContext): void {
 
 function writeDevUsage(context: AgentCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent dev [message...] [--agent <name>] [--trigger <id>] [--sample <name>] [--input <json>] [--url <url>] [--timeout <ms>]",
+    "Usage: vitehub agent dev [message...] [--agent <name>] [--prompt <text>] [--trigger <id>] [--context <path>] [--input <json>] [--url <url>] [--timeout <ms>]",
     "",
     "Talk to a discovered Agent through a running Vite Development Server.",
     "",
     "Options:",
-    "  --agent <name>   Agent Dev Loop Target. Required when multiple Agents are compatible.",
-    "  --trigger <id>   Agent Trigger to invoke. Defaults to chat.message when available.",
-    "  --sample <name>  Agent Trigger dev sample to replay.",
-    "  --input <json>   Raw Agent Trigger input JSON for one-shot invocations.",
-    "  --url <url>      Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
-    "  --timeout <ms>   Agent Invocation timeout. Defaults to 90000.",
-    "  -h, --help       Show this help.",
+    "  --agent <name>    Agent Dev Loop Target. Required when multiple Agents are compatible.",
+    "  -p, --prompt <text>  Prompt text for a one-shot invocation.",
+    "  --trigger <id>    Agent Trigger to invoke. Defaults to chat.message when available.",
+    "  --context <path>  Agent Invocation Context Values JSON file.",
+    "  --input <json>    Raw Agent Trigger input JSON for one-shot invocations.",
+    "  --url <url>       Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
+    "  --timeout <ms>    Agent Invocation timeout. Defaults to 90000.",
+    "  -h, --help        Show this help.",
     "",
   ].join("\n"))
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+function formatDevPayload(value: unknown): string | undefined {
+  if (value === undefined) return
+  const text = typeof value === "string" ? value : JSON.stringify(value)
+  if (text === undefined) return
+  return text.length > devPayloadMaxLength
+    ? `${text.slice(0, devPayloadMaxLength)}... [truncated ${text.length - devPayloadMaxLength} chars]`
+    : text
+}
+
+function writeDevPayload(context: AgentCliContext, label: string, value: unknown): void {
+  const text = formatDevPayload(value)
+  if (text === undefined) return
+  context.stderr.write(`  ${label}: ${text}\n`)
+}
+
+function usageNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : undefined
+}
+
+function formatUsageNumber(value: number): string {
+  return new Intl.NumberFormat("en-US").format(value)
+}
+
+function readUsageDetail(...records: Array<Record<string, unknown> | undefined>): number | undefined {
+  const keys = ["reasoningTokens", "reasoning_tokens", "thinkingTokens", "thinking_tokens", "reasoning", "thinking"]
+  for (const record of records) {
+    if (!record) continue
+    for (const key of keys) {
+      const value = usageNumber(record[key])
+      if (value !== undefined) return value
+    }
+  }
+}
+
+function formatUsageRecord(record: AgentUsageRecord): string | undefined {
+  const usage = record.usage
+  const input = usageNumber(usage?.inputTokens)
+  const output = usageNumber(usage?.outputTokens)
+  const total = usageNumber(usage?.totalTokens) ?? (input !== undefined && output !== undefined ? input + output : undefined)
+  const reasoning = readUsageDetail(usage?.outputTokenDetails, usage?.inputTokenDetails, usage?.details)
+  const parts: string[] = []
+  if (total !== undefined) {
+    const tokens = `${formatUsageNumber(total)} tokens`
+    parts.push(input !== undefined && output !== undefined ? `${tokens}: ${formatUsageNumber(input)} in / ${formatUsageNumber(output)} out` : tokens)
+  }
+  else if (input !== undefined || output !== undefined) {
+    parts.push([input !== undefined ? `${formatUsageNumber(input)} in` : undefined, output !== undefined ? `${formatUsageNumber(output)} out` : undefined].filter(Boolean).join(" / "))
+  }
+  if (reasoning !== undefined) parts.push(`${formatUsageNumber(reasoning)} reasoning tokens`)
+  if (!parts.length) return record.summary
+  return parts.join("; ")
 }
 
 function readOptionValue(args: string[], index: number, flag: string): string {
@@ -263,6 +327,17 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
       parsed.agent = arg.slice("--agent=".length)
       continue
     }
+    if (arg === "-p" || arg === "--prompt") {
+      parsed.message = readOptionValue(args, index, arg).trim()
+      if (!parsed.message) throw new Error(`${arg} cannot be empty.`)
+      index++
+      continue
+    }
+    if (arg.startsWith("--prompt=")) {
+      parsed.message = arg.slice("--prompt=".length).trim()
+      if (!parsed.message) throw new Error("--prompt cannot be empty.")
+      continue
+    }
     if (arg === "--trigger") {
       parsed.trigger = readOptionValue(args, index, arg)
       index++
@@ -272,13 +347,13 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
       parsed.trigger = arg.slice("--trigger=".length)
       continue
     }
-    if (arg === "--sample") {
-      parsed.sample = readOptionValue(args, index, arg)
+    if (arg === "--context") {
+      parsed.contextPath = readOptionValue(args, index, arg)
       index++
       continue
     }
-    if (arg.startsWith("--sample=")) {
-      parsed.sample = arg.slice("--sample=".length)
+    if (arg.startsWith("--context=")) {
+      parsed.contextPath = arg.slice("--context=".length)
       continue
     }
     if (arg === "--input") {
@@ -319,8 +394,33 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
   }
 
   const text = message.join(" ").trim()
+  if (text && parsed.message) throw new Error("Pass either --prompt or message text, not both.")
   if (text) parsed.message = text
   return parsed
+}
+
+function isFileNotFound(error: unknown): boolean {
+  return isRecord(error) && error.code === "ENOENT"
+}
+
+async function readDevContextFile(path: string): Promise<{ path: string, value: Record<string, unknown> }> {
+  const value = JSON.parse(await readFile(path, "utf8")) as unknown
+  if (!isRecord(value)) {
+    throw new Error("Agent Dev Loop context file must contain a JSON object.")
+  }
+  return { path, value }
+}
+
+async function loadDevContext(contextPath: string, rootDir: string, cwd: string): Promise<{ path: string, value: Record<string, unknown> }> {
+  const rootPath = resolve(rootDir, contextPath)
+  try {
+    return await readDevContextFile(rootPath)
+  }
+  catch (error) {
+    const cwdPath = resolve(cwd, contextPath)
+    if (!isFileNotFound(error) || cwdPath === rootPath) throw error
+    return await readDevContextFile(cwdPath)
+  }
 }
 
 function endpointUrl(baseUrl: string): string {
@@ -413,9 +513,9 @@ async function sendDevMessage(
     response = await fetchImpl(url, {
       body: JSON.stringify({
         agent,
+        ...(parsed.context ? { context: parsed.context } : {}),
         ...(messages.length ? { messages } : {}),
         ...("input" in parsed ? { input: parsed.input } : {}),
-        ...(parsed.sample ? { sample: parsed.sample } : {}),
         ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
         ...(parsed.trigger ? { trigger: parsed.trigger } : {}),
       }),
@@ -445,6 +545,7 @@ async function sendDevMessage(
 
   let output = ""
   let needsApproval = false
+  const visibleTools = new Set<string>()
   try {
     for await (const event of readAgentInvocationStream(response.body)) {
       if (event.type === "text-delta") {
@@ -452,8 +553,24 @@ async function sendDevMessage(
         output += event.text
         continue
       }
-      if (event.type === "tool-call") {
+      if (event.type === "tool-call" || event.type === "tool-input-start") {
+        visibleTools.add(event.id)
         context.stderr.write(`\n[tool] ${event.name}\n`)
+        writeDevPayload(context, "input", event.input)
+        continue
+      }
+      if (event.type === "tool-result") {
+        if (!visibleTools.has(event.id)) {
+          visibleTools.add(event.id)
+          context.stderr.write(`\n[tool] ${event.name}\n`)
+        }
+        writeDevPayload(context, "output", event.output)
+        writeDevPayload(context, "error", event.error)
+        continue
+      }
+      if (event.type === "usage") {
+        const usage = formatUsageRecord(event.usageRecord)
+        if (usage) context.stderr.write(`\n[usage] ${usage}\n`)
         continue
       }
       if (event.type === "approval-request") {
@@ -551,12 +668,23 @@ export async function runAgentDevCli(
     writeDevUsage(context)
     return 0
   }
+  if (parsed.contextPath) {
+    try {
+      const loaded = await loadDevContext(parsed.contextPath, context.rootDir, context.cwd)
+      parsed.context = loaded.value
+      context.stdout.write(`Loaded context: ${loaded.path}\n`)
+    }
+    catch (error) {
+      context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+      return 1
+    }
+  }
 
   const fetchImpl = options.fetch || globalThis.fetch
   const target = await readDiscovery(parsed, context, fetchImpl)
   if (!target) return 1
 
-  if (parsed.message || parsed.sample || "input" in parsed) {
+  if (parsed.message || "input" in parsed) {
     return await sendDevMessage(target.url, target.agent, parsed.message || "", [], parsed, context, fetchImpl, new AbortController().signal) ? 0 : 1
   }
   if (!process.stdin.isTTY) {

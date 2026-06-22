@@ -462,7 +462,6 @@ describe("agent public types", () => {
           app: true,
           events: {
             pullRequestComments: {
-              dev: { samples: { review: { github: { event: "issue_comment" } } } },
               origin: "github-review",
             },
           },

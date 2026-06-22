@@ -38,6 +38,12 @@ const providerEntrySpecs: ProviderEntrySpec[] = [
   { name: "vercel", entryFile: "vercel-server.mjs", runtimeModule: "runtime/vercel-vite", factory: "createQueueVercelServer", hosting: "vercel" },
 ]
 
+type NormalizedQueueOptions = false | NonNullable<ReturnType<typeof normalizeQueueOptions>>
+
+function isVercelQueueEnabled(queueConfig: NormalizedQueueOptions) {
+  return queueConfig !== false && queueConfig.provider === "vercel"
+}
+
 interface GeneratedQueueArtifacts {
   cloudflareWorkerFile: string
   definitions: DiscoveredQueueDefinition[]
@@ -70,12 +76,12 @@ export interface CloudflareQueueConfig {
   }
 }
 
-function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registryFile: string, userAppEntry: string | undefined, queueConfig: unknown) {
+function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registryFile: string, userAppEntry: string | undefined, queueConfig: unknown, preloadVercelQueue = false) {
   const imports = [
     `import { ${spec.factory} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
     `import queueRegistry from ${JSON.stringify(`./${generatedRegistryFileName}`)}`,
   ]
-  if (spec.name === "vercel") {
+  if (preloadVercelQueue) {
     imports.unshift("import * as __vitehubVercelQueue from '@vercel/queue'")
   }
   if (userAppEntry) {
@@ -85,7 +91,7 @@ function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registr
   return [
     ...imports,
     "",
-    spec.name === "vercel" ? "globalThis.__vitehubVercelQueue = __vitehubVercelQueue" : "",
+    preloadVercelQueue ? "globalThis.__vitehubVercelQueue = __vitehubVercelQueue" : "",
     `const queueConfig = ${JSON.stringify(queueConfig, null, 2)}`,
     "",
     `export default ${spec.factory}({`,
@@ -111,7 +117,8 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
   for (const spec of providerEntrySpecs) {
     const entryFile = resolve(generatedDir, spec.entryFile)
     const queueConfig = normalizeQueueOptions(queue, { hosting: spec.hosting }) || false
-    await writeFile(entryFile, renderProviderEntry(spec, entryFile, registryFile, userAppEntry, queueConfig), "utf8")
+    const preloadVercelQueue = spec.name === "vercel" && isVercelQueueEnabled(queueConfig)
+    await writeFile(entryFile, renderProviderEntry(spec, entryFile, registryFile, userAppEntry, queueConfig, preloadVercelQueue), "utf8")
     entryFiles[spec.name] = entryFile
   }
 
@@ -194,7 +201,7 @@ function sanitizeVercelConsumerName(functionPath: string) {
   return result
 }
 
-function createVercelQueueWrapperContents(file: string, registryFile: string, name: string, queueConfig: false | ReturnType<typeof normalizeQueueOptions>) {
+function createVercelQueueWrapperContents(file: string, registryFile: string, name: string, queueConfig: NormalizedQueueOptions) {
   return [
     "import * as __vitehubVercelQueue from '@vercel/queue'",
     "import { H3 } from 'h3'",
@@ -241,7 +248,7 @@ async function writeVercelQueueFunctions(rootDir: string, queue: QueueModuleOpti
   const queueConfig = normalizeQueueOptions(queue, { hosting: "vercel" }) || false
 
   await rm(queueRoot, { force: true, recursive: true })
-  if (queueConfig === false) {
+  if (!isVercelQueueEnabled(queueConfig)) {
     return
   }
 

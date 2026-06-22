@@ -555,8 +555,8 @@ describe("agent chat capability discovery", () => {
     expect(abortSignal).toBeInstanceOf(AbortSignal)
   })
 
-  it("replays Agent Invocation Stream dev samples from message-shaped channels", async () => {
-    const root = await createTempRoot("vitehub-agent-invocation-stream-sample-")
+  it("passes Agent Dev Loop context into message-shaped channel invocations", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-context-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
 
@@ -569,21 +569,9 @@ describe("agent chat capability discovery", () => {
     }
     const agent = defineAgent({
       channels: {
-        portal: webChat({
-          dev: {
-            samples: {
-              purchaseOrderQuestion: {
-                messages: [{
-                  id: "sample-user-1",
-                  parts: [{ text: "Review purchase order 42", type: "text" }],
-                  role: "user",
-                }],
-              },
-            },
-          },
-        }),
+        portal: webChat(),
       },
-      run: ({ messages }) => `sample ${getMessageText(messages[0]!)}`,
+      run: ({ context, invoker, messages }) => `context ${context.get<{ number: number }>("pullRequest")?.number} ${invoker.id} ${getMessageText(messages[0]!)}`,
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -596,19 +584,21 @@ describe("agent chat capability discovery", () => {
     expect(JSON.parse(discovery.body)).toMatchObject({
       agents: [{
         name: "support",
-        samples: {
-          "chat.message.purchaseOrderQuestion": {
-            sample: "purchaseOrderQuestion",
-            trigger: "chat.message",
-          },
-        },
         triggers: ["chat.message"],
       }],
     })
 
     const response = await invokeMiddleware(handlers[0]!, {
       agent: "support",
-      sample: "purchaseOrderQuestion",
+      context: {
+        actor: { id: "github:onmax", kind: "github" },
+        pullRequest: { number: 42 },
+      },
+      messages: [{
+        id: "user-1",
+        parts: [{ text: "/summary", type: "text" }],
+        role: "user",
+      }],
     }, agentInvocationStreamRoute, headers)
     const events = response.body
       .trim()
@@ -617,7 +607,7 @@ describe("agent chat capability discovery", () => {
 
     expect(events).toEqual([
       expect.objectContaining({ agent: "support", trigger: "chat.message", type: "start" }),
-      { text: "sample Review purchase order 42", type: "text-delta" },
+      { text: "context 42 github:onmax /summary", type: "text-delta" },
       { type: "finish" },
       { type: "done" },
     ])
