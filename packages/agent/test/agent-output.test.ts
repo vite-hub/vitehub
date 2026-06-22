@@ -232,6 +232,45 @@ describe("agent output helpers", () => {
     ])
   })
 
+  it("prefers fullStream over async iterable stream result surfaces", async () => {
+    class StreamResult {
+      fullStream = (async function* () {
+        yield { text: "ok", type: "text-delta" }
+        yield { finishReason: "stop", type: "finish" }
+      })()
+
+      usage = Promise.resolve({
+        inputTokens: 8,
+        outputTokens: 2,
+        totalTokens: 10,
+      })
+
+      async *[Symbol.asyncIterator]() {
+        yield { text: "wrong", type: "text-delta" }
+      }
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(new StreamResult())) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: {
+          usage: {
+            inputTokens: 8,
+            outputTokens: 2,
+            totalTokens: 10,
+          },
+        },
+      },
+      { reason: "stop", type: "finish" },
+    ])
+  })
+
   it("emits usage from AI SDK finish-step chunks before finish", async () => {
     const output = {
       fullStream: (async function* () {

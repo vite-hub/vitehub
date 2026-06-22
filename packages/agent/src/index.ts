@@ -1460,7 +1460,7 @@ async function finalizeAgentInvocationResult<
       finishLifecycleStarted = shouldWrapOutput
       return response
     }
-    if (isAsyncIterable(result) && !options.finalizeRawStreams) {
+    if (isAsyncIterable(result) && !hasTraceableStreamResult(result) && !options.finalizeRawStreams) {
       finishLifecycleStarted = shouldWrapOutput
       const stream = options.wrapStream?.(result) || result
       return shouldWrapOutput ? withCapabilityCleanup(stream, error => finishAgentInvocation(context, error === undefined ? result : undefined, error)) : stream
@@ -1617,11 +1617,14 @@ export async function streamAgentInline<
         return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, runContext), shouldWrapInvocationOutput(runContext), error => finishAgentInvocation(runContext, error === undefined ? rendered : undefined, error))
       }
       const isStream = isAsyncIterable(rendered)
+      const stream = hasTraceableStreamResult(rendered)
+        ? streamAgentOutputToEvents(rendered)
+        : rendered as AsyncIterable<StreamEvent>
       return {
         deferFinish: isStream && shouldWrapInvocationOutput(runContext),
         finishResult: rendered,
         value: isStream
-          ? maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, runContext)
+          ? maybeTraceAgentStream(stream, runContext)
           : rendered,
       }
     }, "[vitehub] Agent run failed and finish lifecycle also failed.", {

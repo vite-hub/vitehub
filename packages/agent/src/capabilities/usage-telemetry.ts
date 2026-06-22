@@ -468,9 +468,9 @@ export function usageTelemetry(options: UsageTelemetryOptions = {}): AgentCapabi
         return usageRecord ? await usageRecordForOutput(usageRecord, options) : undefined
       })
       context.output.render(async (result, renderContext) => {
+        if (isRecord(result) && hasUsageTelemetryStream(result)) return cloneWithUsageTelemetryStream(result, options, context.run)
         if (isAsyncIterable(result)) return withUsageTelemetryStream(result, options, context.run)
         if (!isRecord(result)) return result
-        if (hasUsageTelemetryStream(result)) return cloneWithUsageTelemetryStream(result, options, context.run)
         const usageRecord = renderContext.output.extensions.get<UsageTelemetryOutputExtension>("usage-telemetry")?.usageRecord
         if (!usageRecord) return result
         return {

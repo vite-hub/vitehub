@@ -756,6 +756,58 @@ describe("usage telemetry", () => {
     ])
   })
 
+  it("preserves usage on stream result objects that are also async iterable", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+
+    class StreamResult {
+      fullStream = (async function* () {
+        yield { text: "ok", type: "text-delta" }
+        yield { finishReason: "stop", type: "finish" }
+      })()
+
+      usage = Promise.resolve({
+        inputTokens: 10,
+        outputTokenDetails: { reasoningTokens: 3 },
+        outputTokens: 7,
+        totalTokens: 17,
+      })
+
+      async *[Symbol.asyncIterator]() {
+        yield { text: "wrong", type: "text-delta" }
+      }
+    }
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry(),
+      ],
+      run: () => new StreamResult(),
+    })
+
+    const output = await streamAgent(agent, runtime(), {})
+    const events: unknown[] = []
+    for await (const event of output as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: expect.objectContaining({
+          usage: {
+            inputTokens: 10,
+            outputTokenDetails: { reasoningTokens: 3 },
+            outputTokens: 7,
+            totalTokens: 17,
+          },
+        }),
+      },
+      { reason: "stop", type: "finish" },
+    ])
+  })
+
   it("records streamed usage when ui-message-stream consumes result.stream", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const { usageTelemetry } = await import("../src/capabilities.ts")
