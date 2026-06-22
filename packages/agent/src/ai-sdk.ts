@@ -95,6 +95,15 @@ function toTextModelMessageContent(parts: MessagePart[]): string {
 type AssistantContentPart = Exclude<AssistantContent, string>[number]
 type ToolContentPart = ToolContent[number]
 
+function toJsonCompatibleValue(value: unknown): unknown {
+  try {
+    return JSON.parse(JSON.stringify(value))
+  }
+  catch {
+    return String(value)
+  }
+}
+
 function toToolResultOutput(part: Extract<MessagePart, { type: "tool-result" }>): ToolResultPart["output"] {
   if (part.error) {
     return { type: "error-text", value: part.error } as ToolResultPart["output"]
@@ -103,7 +112,7 @@ function toToolResultOutput(part: Extract<MessagePart, { type: "tool-result" }>)
   if (typeof output === "string") {
     return { type: "text", value: output } as ToolResultPart["output"]
   }
-  return { type: "json", value: output } as ToolResultPart["output"]
+  return { type: "json", value: toJsonCompatibleValue(output) } as ToolResultPart["output"]
 }
 
 function toToolResultModelPart(part: Extract<MessagePart, { type: "tool-result" }>): ToolResultPart {

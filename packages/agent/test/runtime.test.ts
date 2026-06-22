@@ -906,6 +906,27 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("converts structured tool history to JSON-compatible model messages", async () => {
+    const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
+
+    const messages = [
+      {
+        id: "m1",
+        parts: [
+          { id: "call-1", name: "lookup", output: { timestamp: new Date("2026-06-22T19:30:00.000Z") }, state: "completed", type: "tool-result" },
+        ],
+        role: "tool",
+      },
+    ] as unknown as Parameters<typeof toAiSdkModelMessages>[0]
+
+    expect(toAiSdkModelMessages(messages)).toEqual([
+      {
+        content: [{ output: { type: "json", value: { timestamp: "2026-06-22T19:30:00.000Z" } }, toolCallId: "call-1", toolName: "lookup", type: "tool-result" }],
+        role: "tool",
+      },
+    ])
+  })
+
   it("splits assistant tool result history into valid model messages", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 
