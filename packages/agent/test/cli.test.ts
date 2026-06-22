@@ -97,6 +97,40 @@ describe("agent CLI", () => {
     })
   })
 
+  it("accepts Agent Dev Loop discovery aliases", async () => {
+    const stdout = stream()
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "review", type: "start" },
+          { text: "summary", type: "text-delta" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ aliases: ["summary"], name: "review", triggers: ["github.webhook"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["--agent", "summary", "-p", "/summary"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr: stream(),
+      stdout,
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).toBe("summary\n")
+    const post = fetchAgentStream.mock.calls[1]
+    expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
+      agent: "summary",
+    })
+  })
+
   it("renders and clears the default Agent Dev Loop thinking fallback", async () => {
     const stderr = stream()
     const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {

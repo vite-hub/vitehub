@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/internal/runtime/state"
 
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
-import { streamAgentOutputToEvents } from "../agent-output.ts"
+import { isAsyncIterable, streamAgentOutputToEvents } from "../agent-output.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation, resolveAgentTriggers, streamAgent, withAgentDefaults } from "../index.ts"
@@ -370,7 +370,10 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
         timeout,
       }, { output: "events" })
     }
-    for await (const event of streamAgentOutputToEvents(output)) {
+    const events = isAsyncIterable(output)
+      ? output as AsyncIterable<AgentInvocationStreamEvent>
+      : streamAgentOutputToEvents(output)
+    for await (const event of events) {
       if (signal.aborted) return
       emit(event)
     }

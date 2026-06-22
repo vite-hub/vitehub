@@ -72,7 +72,7 @@ interface AgentDevCliOptions {
 }
 
 interface AgentDevDiscovery {
-  agents?: Array<{ name?: unknown, triggers?: unknown }>
+  agents?: Array<{ aliases?: unknown, name?: unknown, triggers?: unknown }>
   root?: unknown
 }
 
@@ -470,12 +470,23 @@ async function readDiscovery(
     return
   }
   const agents = (discovery.agents || []).flatMap(agent => typeof agent.name === "string" ? [agent.name] : [])
+  const agentTargets = new Map<string, string>()
+  for (const agent of discovery.agents || []) {
+    if (typeof agent.name !== "string") continue
+    agentTargets.set(agent.name, agent.name)
+    if (Array.isArray(agent.aliases)) {
+      for (const alias of agent.aliases) {
+        if (typeof alias === "string") agentTargets.set(alias, alias)
+      }
+    }
+  }
   if (parsed.agent) {
-    if (!agents.includes(parsed.agent)) {
+    const target = agentTargets.get(parsed.agent)
+    if (!target) {
       context.stderr.write(`Unknown Agent Dev Loop Target: ${parsed.agent}\n`)
       return
     }
-    return { agent: parsed.agent, url }
+    return { agent: target, url }
   }
   if (agents.length === 1) {
     return { agent: agents[0]!, url }
