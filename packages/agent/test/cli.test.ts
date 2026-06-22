@@ -208,6 +208,38 @@ describe("agent CLI", () => {
     expect(stderr.output()).toContain("[approval required] workspace_write: Needs write access.")
   })
 
+  it("surfaces Agent Dev Loop tool starts", async () => {
+    const stderr = stream()
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "support", trigger: "chat.message", type: "start" },
+          { id: "tool-1", name: "workspace_read", type: "tool-input-start" },
+          { id: "tool-1", name: "workspace_read", output: { path: "README.md" }, type: "tool-result" },
+          { text: "done", type: "text-delta" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ name: "support", triggers: ["chat.message"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["hello"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr,
+      stdout: stream(),
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(0)
+    expect(stderr.output()).toContain("[tool] workspace_read")
+  })
+
   it("runs Evalite through the Node runner with ViteHub defaults", async () => {
     const runner = vi.fn(async () => ({ exitCode: undefined }))
     const exitCode = await runAgentEvalCli(["server/agents/support.eval.ts"], {

@@ -482,7 +482,7 @@ async function sendDevMessage(
         output += event.text
         continue
       }
-      if (event.type === "tool-call") {
+      if (event.type === "tool-call" || event.type === "tool-input-start") {
         context.stderr.write(`\n[tool] ${event.name}\n`)
         continue
       }
