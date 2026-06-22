@@ -366,6 +366,62 @@ describe("usage telemetry", () => {
     })
   })
 
+  it("emits streamed usage from promise-backed stream result usage", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { streamAgentOutputToEvents } = await import("../src/agent-output.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry(),
+      ],
+      run: () => ({
+        fullStream: (async function* () {
+          yield { text: "ok", type: "text-delta" }
+          yield { finishReason: "stop", type: "finish" }
+        })(),
+        usage: Promise.resolve({
+          inputTokens: 10,
+          outputTokenDetails: { reasoningTokens: 3 },
+          outputTokens: 7,
+          totalTokens: 17,
+        }),
+      }),
+    })
+
+    const output = await streamAgent(agent, runtime(), {})
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: expect.objectContaining({
+          usage: {
+            inputTokens: 10,
+            outputTokenDetails: { reasoningTokens: 3 },
+            outputTokens: 7,
+            totalTokens: 17,
+          },
+        }),
+      },
+      { reason: "stop", type: "finish" },
+    ])
+    expect(output).toMatchObject({
+      usageRecord: {
+        usage: {
+          inputTokens: 10,
+          outputTokenDetails: { reasoningTokens: 3 },
+          outputTokens: 7,
+          totalTokens: 17,
+        },
+      },
+    })
+  })
+
   it("records streamed usage when ui-message-stream consumes result.stream", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const { usageTelemetry } = await import("../src/capabilities.ts")

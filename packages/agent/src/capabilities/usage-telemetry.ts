@@ -113,6 +113,14 @@ function readDetails(value: unknown): Record<string, number> | undefined {
   return Object.keys(details).length ? details : undefined
 }
 
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return isRecord(value) && typeof value.then === "function"
+}
+
+async function resolveUsageValue(value: unknown): Promise<unknown> {
+  return isPromiseLike(value) ? await value : value
+}
+
 function hasTokenUsage(usage: AgentUsage): boolean {
   return usage.inputTokens !== undefined
     || usage.outputTokens !== undefined
@@ -144,6 +152,13 @@ export function normalizeAgentUsage(value: unknown): AgentUsage | undefined {
   return Object.keys(value).length
     ? { details: value, raw: value }
     : undefined
+}
+
+async function usageFromResult(result: UnknownRecord, fallback?: unknown): Promise<AgentUsage | undefined> {
+  const usage = normalizeAgentUsage(await resolveUsageValue(result.totalUsage ?? result.usage))
+  if (usage) return usage
+  if (!isRecord(fallback)) return
+  return normalizeAgentUsage(await resolveUsageValue(fallback.totalUsage ?? fallback.usage))
 }
 
 function credentialSourceFromMetadata(metadata: unknown): AgentUsageRecord["credentialSource"] | undefined {
@@ -203,7 +218,7 @@ export async function createAgentUsageRecord(
   metadataSource?: unknown,
 ): Promise<AgentUsageRecord | undefined> {
   if (!isRecord(result)) return
-  const usage = normalizeAgentUsage(result.totalUsage ?? result.usage)
+  const usage = await usageFromResult(result, metadataSource)
   if (!usage) return
   const model = modelFromResult(result)
   const response = responseFromResult(result)
