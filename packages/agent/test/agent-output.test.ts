@@ -199,6 +199,56 @@ describe("agent output helpers", () => {
     ])
   })
 
+  it("emits usage from AI SDK finish-step chunks before finish", async () => {
+    const output = {
+      fullStream: (async function* () {
+        yield { text: "ok", type: "text-delta" }
+        yield {
+          type: "finish-step",
+          usage: {
+            inputTokens: 16,
+            outputTokenDetails: {
+              reasoningTokens: 2,
+            },
+            outputTokens: 4,
+            totalTokens: 20,
+          },
+        }
+        yield {
+          totalUsage: {
+            inputTokens: 16,
+            outputTokens: 4,
+            totalTokens: 20,
+          },
+          type: "finish",
+        }
+      })(),
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: {
+          usage: {
+            inputTokens: 16,
+            outputTokenDetails: {
+              reasoningTokens: 2,
+            },
+            outputTokens: 4,
+            totalTokens: 20,
+          },
+        },
+      },
+      { type: "finish" },
+    ])
+  })
+
   it("adds a terminal finish event to textStream output", async () => {
     const output = {
       textStream: (async function* () {

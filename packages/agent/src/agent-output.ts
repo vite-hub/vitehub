@@ -2,7 +2,7 @@ import { ApprovalRequiredError } from "@vite-hub/runtime"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 
 import type { StreamEvent } from "./messages.ts"
-import type { AgentRunResult, AgentUsageRecord } from "./types.ts"
+import type { AgentRunResult, AgentUsage, AgentUsageRecord } from "./types.ts"
 
 export { isAsyncIterable } from "./internal/stream-result.ts"
 
@@ -39,6 +39,52 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
 
 function isUsageRecord(value: unknown): value is AgentUsageRecord {
   return typeof value === "object" && value !== null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function readNumber(record: Record<string, unknown>, ...keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === "number" && Number.isFinite(value)) return value
+  }
+}
+
+function readDetails(value: unknown): Record<string, number> | undefined {
+  if (!isRecord(value)) return
+  const details: Record<string, number> = {}
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item === "number" && Number.isFinite(item)) details[key] = item
+  }
+  return Object.keys(details).length ? details : undefined
+}
+
+function usageFromStreamChunk(chunk: unknown): AgentUsageRecord | undefined {
+  if (!isRecord(chunk)) return
+  const type = String(chunk.type || "")
+  const rawUsage = type === "finish-step"
+    ? chunk.usage
+    : type === "finish"
+      ? chunk.totalUsage ?? chunk.usage
+      : undefined
+  if (!isRecord(rawUsage)) return
+
+  const inputTokens = readNumber(rawUsage, "inputTokens", "promptTokens", "input_tokens", "prompt_tokens")
+  const outputTokens = readNumber(rawUsage, "outputTokens", "completionTokens", "output_tokens", "completion_tokens")
+  const totalTokens = readNumber(rawUsage, "totalTokens", "tokens", "total_tokens")
+    ?? (inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined)
+  const inputTokenDetails = readDetails(rawUsage.inputTokenDetails || rawUsage.input_token_details || rawUsage.promptTokenDetails || rawUsage.prompt_token_details)
+  const outputTokenDetails = readDetails(rawUsage.outputTokenDetails || rawUsage.output_token_details || rawUsage.completionTokenDetails || rawUsage.completion_token_details)
+  const usage: AgentUsage = {
+    ...(inputTokens !== undefined ? { inputTokens } : {}),
+    ...(outputTokens !== undefined ? { outputTokens } : {}),
+    ...(totalTokens !== undefined ? { totalTokens } : {}),
+    ...(inputTokenDetails ? { inputTokenDetails } : {}),
+    ...(outputTokenDetails ? { outputTokenDetails } : {}),
+  }
+  return Object.keys(usage).length ? { usage } : undefined
 }
 
 function optionalMessageId(messageId: string | undefined): { messageId?: string } {
@@ -110,6 +156,27 @@ export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, strin
   return undefined
 }
 
+async function* streamChunksToEvents(chunks: AsyncIterable<unknown>): AsyncIterable<StreamEvent> {
+  const toolNames = new Map<string, string>()
+  let emittedUsage = false
+  let finished = false
+  for await (const chunk of chunks) {
+    if (!emittedUsage) {
+      const usageRecord = usageFromStreamChunk(chunk)
+      if (usageRecord) {
+        emittedUsage = true
+        yield { type: "usage", usageRecord }
+      }
+    }
+    const event = toAgentStreamEvent(chunk, toolNames)
+    if (!event) continue
+    if (event.type === "usage") emittedUsage = true
+    if (event.type === "finish") finished = true
+    yield event
+  }
+  if (!finished) yield { type: "finish" }
+}
+
 export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<StreamEvent> {
   if (typeof value === "string") {
     if (value) yield { text: value, type: "text-delta" }
@@ -123,41 +190,17 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     return
   }
   if (isAsyncIterable(value)) {
-    const toolNames = new Map<string, string>()
-    let finished = false
-    for await (const chunk of value as AsyncIterable<unknown>) {
-      const event = toAgentStreamEvent(chunk, toolNames)
-      if (!event) continue
-      if (event.type === "finish") finished = true
-      yield event
-    }
-    if (!finished) yield { type: "finish" }
+    yield* streamChunksToEvents(value as AsyncIterable<unknown>)
     return
   }
   const result = value as { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> }
   const fullStream = result.fullStream
   if (fullStream) {
-    const toolNames = new Map<string, string>()
-    let finished = false
-    for await (const chunk of fullStream) {
-      const event = toAgentStreamEvent(chunk, toolNames)
-      if (!event) continue
-      if (event.type === "finish") finished = true
-      yield event
-    }
-    if (!finished) yield { type: "finish" }
+    yield* streamChunksToEvents(fullStream)
     return
   }
   if (result.stream) {
-    const toolNames = new Map<string, string>()
-    let finished = false
-    for await (const chunk of result.stream) {
-      const event = toAgentStreamEvent(chunk, toolNames)
-      if (!event) continue
-      if (event.type === "finish") finished = true
-      yield event
-    }
-    if (!finished) yield { type: "finish" }
+    yield* streamChunksToEvents(result.stream)
     return
   }
   if (result.textStream) {
