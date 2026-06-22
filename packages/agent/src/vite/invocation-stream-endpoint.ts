@@ -79,6 +79,12 @@ function withDevContext<CALL_OPTIONS>(
   return { ...input, context: mergedContext as AgentRunInput<CALL_OPTIONS>["context"] }
 }
 
+function withoutDeliveryChannels(agent: AgentInput<ViteAgentDevRuntimeContext>): AgentInput<ViteAgentDevRuntimeContext> {
+  return isRecord(agent) && "channels" in agent
+    ? { ...agent, channels: undefined } as AgentInput<ViteAgentDevRuntimeContext>
+    : agent
+}
+
 function headersFromNode(headers: IncomingHttpHeaders): Headers {
   const result = new Headers()
   for (const [name, value] of Object.entries(headers)) {
@@ -309,7 +315,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
       }
       else {
         if (!signal.aborted) emit({ agent: entry.name, run: invocation.run, trigger: invocation.trigger.id, type: "start" })
-        output = await streamAgent(entry.agent as never, { ...context, ...(invocation.run ? { run: invocation.run } : {}) } as never, withDevContext(invocation.input, devContext) as never, {
+        output = await streamAgent(withoutDeliveryChannels(entry.agent) as never, { ...context, ...(invocation.run ? { run: invocation.run } : {}) } as never, withDevContext(invocation.input, devContext) as never, {
           output: "events",
         })
       }
@@ -317,7 +323,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
     else {
       const messages = messagesFromBody(body)
       if (!signal.aborted) emit({ agent: entry.name, run, type: "start" })
-      output = await streamAgent(entry.agent as never, context as never, {
+      output = await streamAgent(withoutDeliveryChannels(entry.agent) as never, context as never, {
         abortSignal: signal,
         ...(devContext || typeof body.invokerProfileId === "string"
           ? { context: { ...devContext, ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}) } }

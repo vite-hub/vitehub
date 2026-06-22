@@ -619,13 +619,23 @@ describe("agent chat capability discovery", () => {
     await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
 
     const { defineChannel } = await import("../src/channels.ts")
-    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
-    const effect = vi.fn()
+    const reactionEffect = vi.fn()
+    const replyEffect = vi.fn()
     const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "review-output",
+          prepare: context => {
+            context.delivery.effect({ kind: "reaction", payload: "queued" })
+            context.delivery.finishEffect(() => ({ kind: "reply", payload: "capability-finished" }))
+          },
+        }),
+      ],
       channels: {
         github: defineChannel("github", {
-          effects: { reply: effect },
+          effects: { reaction: reactionEffect, reply: replyEffect },
           messages: false,
           triggers: {
             webhook: {
@@ -644,8 +654,10 @@ describe("agent chat capability discovery", () => {
     })
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {})).resolves.toBe("Review completed.")
-    expect(effect).toHaveBeenCalledOnce()
-    effect.mockClear()
+    expect(reactionEffect).toHaveBeenCalledOnce()
+    expect(replyEffect).toHaveBeenCalledTimes(2)
+    reactionEffect.mockClear()
+    replyEffect.mockClear()
 
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -671,7 +683,8 @@ describe("agent chat capability discovery", () => {
       { type: "finish" },
       { type: "done" },
     ])
-    expect(effect).not.toHaveBeenCalled()
+    expect(reactionEffect).not.toHaveBeenCalled()
+    expect(replyEffect).not.toHaveBeenCalled()
   })
 
   it("serves plain Agent Definitions from the Agent Invocation Stream endpoint", async () => {
