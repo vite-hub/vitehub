@@ -388,6 +388,53 @@ describe("agent CLI", () => {
     expect(stdout.output()).toContain("done\n\n> [!NOTE]\n> Usage: cost ~$0.000004; 17 tokens: 10 in / 7 out; 3 reasoning tokens; time 2.0s; speed 3.5 tok/s")
   })
 
+  it("adds best-effort pricing to Agent Dev Loop usage notes", async () => {
+    const stderr = stream()
+    const stdout = stream()
+    const pricingFetch = vi.fn(async () => Response.json({
+      data: [{
+        id: "anthropic/claude-opus-4.8",
+        pricing: {
+          input: "0.000005",
+          output: "0.000025",
+        },
+      }],
+    }))
+    vi.stubGlobal("fetch", pricingFetch)
+    try {
+      const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return ndjson([
+            { agent: "support", trigger: "chat.message", type: "start" },
+            { text: "done", type: "text-delta" },
+            { type: "usage", usageRecord: { latency: { durationMs: 1000 }, model: { id: "claude-opus-4-8", provider: "googleVertex.anthropic.messages" }, usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } } },
+            { type: "finish" },
+          ])
+        }
+        return Response.json({
+          agents: [{ name: "support", triggers: ["chat.message"] }],
+          root: "/repo",
+        })
+      })
+
+      const exitCode = await runAgentDevCli(["hello"], {
+        cwd: "/repo",
+        env: {},
+        rootDir: "/repo",
+        spawn: vi.fn(),
+        stderr,
+        stdout,
+      }, { fetch: fetchAgentStream as never })
+
+      expect(exitCode).toBe(0)
+      expect(stdout.output()).toContain("> Usage: cost ~$0.000175; 15 tokens: 10 in / 5 out; time 1.0s; speed 5.0 tok/s")
+      expect(pricingFetch).toHaveBeenCalledTimes(1)
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("renders Agent Dev Loop delivery previews", async () => {
     const stderr = stream()
     const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {

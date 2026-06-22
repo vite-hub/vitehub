@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
+import { vercelAiGatewayPricing, type AgentUsagePricing } from "./capabilities/usage-telemetry.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
 
@@ -77,6 +78,12 @@ interface AgentDevDiscovery {
 }
 
 const devPayloadMaxLength = 1200
+
+let devUsagePricing: AgentUsagePricing | undefined
+
+function defaultDevUsagePricing() {
+  return devUsagePricing ??= vercelAiGatewayPricing()
+}
 
 function writeEvalUsage(context: AgentCliContext): void {
   context.stdout.write([
@@ -231,6 +238,22 @@ function formatUsageRecord(record: AgentUsageRecord, fallbackDurationMs?: number
 
 function formatUsageNote(summary: string): string {
   return ["> [!NOTE]", `> Usage: ${summary}`].join("\n")
+}
+
+async function enrichUsageCost(record: AgentUsageRecord): Promise<AgentUsageRecord> {
+  if (record.cost || !record.usage) return record
+  try {
+    const cost = await defaultDevUsagePricing()({
+      model: record.model,
+      response: record.response,
+      run: record.run,
+      usage: record.usage,
+    })
+    return cost ? { ...record, cost } : record
+  }
+  catch {
+    return record
+  }
 }
 
 function shellCommand(value: unknown): string | undefined {
@@ -721,7 +744,7 @@ async function sendDevMessage(
       }
       if (event.type === "usage") {
         clearPendingFallback()
-        lastUsageRecord = event.usageRecord
+        lastUsageRecord = await enrichUsageCost(event.usageRecord)
         if (finishSeen) writeUsageNote()
         continue
       }
