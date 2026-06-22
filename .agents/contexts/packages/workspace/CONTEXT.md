@@ -40,6 +40,10 @@ _Avoid_: Source Definition, Source Loader options only, provider namespace
 The Workspace Package helper that materializes selected Workspace files into a harness sandbox and syncs write-mode additions, updates, or deletions back through Workspace rules.
 _Avoid_: Agent Package file copier, harness checkout, root sandbox config
 
+**Trusted Host Workspace Runtime**:
+The Workspace Package-owned runtime that backs explicit trusted local development and test Workspace Sessions.
+_Avoid_: CLI execution mode, Agent Dev Loop option, hosted runtime
+
 ## Relationships
 
 - The **Workspace Package** owns **Workspace Definitions**.
@@ -60,6 +64,8 @@ _Avoid_: Agent Package file copier, harness checkout, root sandbox config
 - The **Workspace Runtime Surface** may expose Source Sync without making normal Workspace reads run Source Sync.
 - The **Workspace Package** owns **Harness Workspace Session Preparation** for harness-backed Agent Drivers.
 - **Harness Workspace Session Preparation** is consumed by the Agent Package; it is not an app-level sandbox workflow surface.
+- The **Workspace Package** owns the **Trusted Host Workspace Runtime** because Workspace Session materialization and commit behavior stay inside the Workspace Runtime Surface.
+- The **Trusted Host Workspace Runtime** is selected from a Workspace Definition, not from the ViteHub CLI or Agent Package.
 - Source Sync on the **Workspace Runtime Surface** requires explicit Source selection.
 - The **Workspace Runtime Surface** exposes Source Sync through the Workspace sync lifecycle rather than a separate public Source Sync method.
 - The Workspace sync lifecycle on the **Workspace Runtime Surface** requires explicit selection.

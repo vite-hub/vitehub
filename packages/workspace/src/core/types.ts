@@ -580,7 +580,7 @@ export interface WorkspaceDefinition {
   name: string
   rootDir?: string
   sourceRootDir?: string
-  runtime?: "sandbox"
+  runtime?: "sandbox" | "trusted-host"
   store?: WorkspaceStoreOptions
   sources?: Record<string, WorkspaceSourceInput>
   loaders?: WorkspaceLoader[]
