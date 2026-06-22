@@ -44,6 +44,11 @@ function isVercelQueueEnabled(queueConfig: NormalizedQueueOptions) {
   return queueConfig !== false && queueConfig.provider === "vercel"
 }
 
+function resolveOutputQueueConfig(queue: QueueModuleOptions | undefined, hosting: string): NormalizedQueueOptions {
+  if (typeof queue === "undefined") return false
+  return normalizeQueueOptions(queue, { hosting }) || false
+}
+
 interface GeneratedQueueArtifacts {
   cloudflareWorkerFile: string
   definitions: DiscoveredQueueDefinition[]
@@ -116,7 +121,7 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
   const entryFiles: Record<QueueProvider, string> = { cloudflare: "", vercel: "" }
   for (const spec of providerEntrySpecs) {
     const entryFile = resolve(generatedDir, spec.entryFile)
-    const queueConfig = normalizeQueueOptions(queue, { hosting: spec.hosting }) || false
+    const queueConfig = resolveOutputQueueConfig(queue, spec.hosting)
     const preloadVercelQueue = spec.name === "vercel" && isVercelQueueEnabled(queueConfig)
     await writeFile(entryFile, renderProviderEntry(spec, entryFile, registryFile, userAppEntry, queueConfig, preloadVercelQueue), "utf8")
     entryFiles[spec.name] = entryFile
@@ -147,7 +152,7 @@ function createCloudflareQueueBindings(definitions: DiscoveredQueueDefinition[])
 
 export async function createCloudflareQueueConfig(options: CloudflareQueueConfigOptions = {}): Promise<CloudflareQueueConfig> {
   const rootDir = resolve(process.cwd(), options.rootDir || ".")
-  const artifacts = await writeProviderEntries(rootDir, undefined)
+  const artifacts = await writeProviderEntries(rootDir, { provider: "cloudflare" })
   const queues = createCloudflareQueueBindings(artifacts.definitions)
   return {
     assets: { run_worker_first: ["/api/*"] },
@@ -245,7 +250,7 @@ function createVercelOutput(artifacts: GeneratedQueueArtifacts): VercelProviderD
 async function writeVercelQueueFunctions(rootDir: string, queue: QueueModuleOptions | undefined, artifacts: GeneratedQueueArtifacts) {
   const outputRoot = createDefaultVercelOutputRoot(rootDir)
   const queueRoot = resolve(outputRoot, "functions", "api", "vitehub", "queues", "vercel")
-  const queueConfig = normalizeQueueOptions(queue, { hosting: "vercel" }) || false
+  const queueConfig = resolveOutputQueueConfig(queue, "vercel")
 
   await rm(queueRoot, { force: true, recursive: true })
   if (!isVercelQueueEnabled(queueConfig)) {
