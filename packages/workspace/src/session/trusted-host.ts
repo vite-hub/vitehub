@@ -35,17 +35,31 @@ function toWorkspacePath(root: string, path: string) {
   return normalizeWorkspacePath(relative(root, path).split(sep).join("/"))
 }
 
-function normalizeLocalWorkspacePath(path = "", options: { allowEmpty?: boolean } = {}) {
+function isGeneratedSourceDescriptorPath(path: string): boolean {
+  return path === ".vitehub" || path === ".vitehub/sources" || /^\.vitehub\/sources\/[^/]+\.json$/.test(path)
+}
+
+function normalizeLocalWorkspacePath(path = "", options: { allowEmpty?: boolean, allowGenerated?: boolean } = {}) {
   const normalized = posix.normalize(path.replace(/\\/g, "/"))
-  return normalized === "." ? "" : normalizeSafeWorkspacePath(normalized, options)
+  const workspacePath = normalized === "." ? "" : normalized
+  const { allowGenerated, ...safeOptions } = options
+  if (allowGenerated && isGeneratedSourceDescriptorPath(workspacePath)) {
+    return normalizeSafeWorkspacePath(workspacePath, { ...safeOptions, allowReserved: true })
+  }
+  return normalizeSafeWorkspacePath(workspacePath, safeOptions)
 }
 
-function toLocalPath(root: string, path = "") {
-  return resolveInside(root, normalizeLocalWorkspacePath(path, { allowEmpty: true }))
+function normalizeSessionCwd(path = "") {
+  const normalized = path.replace(/\\/g, "/")
+  return normalizeLocalWorkspacePath(normalized.replace(/^\/workspace(?:\/|$)/, ""), { allowEmpty: true })
 }
 
-async function listLocalEntries(root: string, path = "", recursive = false): Promise<WorkspaceEntry[]> {
-  const base = toLocalPath(root, path)
+function toLocalPath(root: string, path = "", options: { allowGenerated?: boolean } = {}) {
+  return resolveInside(root, normalizeLocalWorkspacePath(path, { allowEmpty: true, allowGenerated: options.allowGenerated }))
+}
+
+async function listLocalEntries(root: string, path = "", recursive = false, options: { allowGenerated?: boolean, skipGenerated?: boolean } = {}): Promise<WorkspaceEntry[]> {
+  const base = toLocalPath(root, path, options)
   const dirents = await readdir(base, { withFileTypes: true }).catch((error) => {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
     throw error
@@ -54,9 +68,10 @@ async function listLocalEntries(root: string, path = "", recursive = false): Pro
   for (const dirent of dirents) {
     const entryPath = join(base, dirent.name)
     const workspacePath = toWorkspacePath(root, entryPath)
+    if (options.skipGenerated && isGeneratedSourceDescriptorPath(workspacePath)) continue
     if (dirent.isDirectory()) {
       entries.push({ path: workspacePath, type: "directory" })
-      if (recursive) entries.push(...await listLocalEntries(root, workspacePath, true))
+      if (recursive) entries.push(...await listLocalEntries(root, workspacePath, true, options))
       continue
     }
     if (!dirent.isFile()) continue
@@ -66,8 +81,8 @@ async function listLocalEntries(root: string, path = "", recursive = false): Pro
   return entries.sort((left, right) => left.path.localeCompare(right.path))
 }
 
-async function readLocalFile(root: string, path: string): Promise<WorkspaceFile | undefined> {
-  const target = toLocalPath(root, path)
+async function readLocalFile(root: string, path: string, options: { allowGenerated?: boolean } = {}): Promise<WorkspaceFile | undefined> {
+  const target = toLocalPath(root, path, options)
   try {
     return { content: await readFile(target), path: normalizeWorkspacePath(path) }
   }
@@ -78,7 +93,7 @@ async function readLocalFile(root: string, path: string): Promise<WorkspaceFile 
 }
 
 async function snapshotLocal(root: string, name?: string) {
-  const entries = await listLocalEntries(root, "", true)
+  const entries = await listLocalEntries(root, "", true, { allowGenerated: true, skipGenerated: true })
   const files = await Promise.all(entries.map(async (entry) => {
     if (entry.type !== "file") return entry
     const content = await readFile(toLocalPath(root, entry.path))
@@ -94,10 +109,10 @@ async function snapshotLocal(root: string, name?: string) {
 async function materializeWorkspace(workspace: Workspace, root: string) {
   const entries = await workspace.list("", { recursive: true })
   for (const entry of entries.filter(entry => entry.type === "directory"))
-    await mkdir(toLocalPath(root, entry.path), { recursive: true })
+    await mkdir(toLocalPath(root, entry.path, { allowGenerated: true }), { recursive: true })
   for (const entry of entries) {
     if (entry.type !== "file") continue
-    const target = toLocalPath(root, entry.path)
+    const target = toLocalPath(root, entry.path, { allowGenerated: true })
     await mkdir(dirname(target), { recursive: true })
     await writeFile(target, await workspace.readFile(entry.path, { encoding: "binary" }))
   }
@@ -111,6 +126,7 @@ async function commitLocalChanges(
   mediaTypes: Map<string, string>,
 ) {
   for (const entry of diff.entries) {
+    if (isGeneratedSourceDescriptorPath(entry.path)) continue
     if (entry.after?.type === "directory") {
       if (entry.before?.type === "file")
         await workspace.rm(entry.path, { force: true })
@@ -136,7 +152,7 @@ async function commitLocalChanges(
 }
 
 async function execLocal(root: string, command: string, args: string[] = [], options: ExecOptions = {}): Promise<ExecResult> {
-  const cwd = toLocalPath(root, options.cwd || "")
+  const cwd = toLocalPath(root, normalizeSessionCwd(options.cwd))
   return await new Promise((resolve) => {
     const child = spawn(command, args, {
       cwd,
@@ -146,22 +162,28 @@ async function execLocal(root: string, command: string, args: string[] = [], opt
     let stdout = ""
     let stderr = ""
     let settled = false
+    let killTimer: NodeJS.Timeout | undefined
     const timer = options.timeout
       ? setTimeout(() => {
           settled = true
           child.kill("SIGTERM")
+          killTimer = setTimeout(() => child.kill("SIGKILL"), 100)
         }, options.timeout)
       : undefined
+    const clearTimers = () => {
+      if (timer) clearTimeout(timer)
+      if (killTimer) clearTimeout(killTimer)
+    }
     child.stdout?.setEncoding("utf8")
     child.stderr?.setEncoding("utf8")
     child.stdout?.on("data", chunk => stdout += chunk)
     child.stderr?.on("data", chunk => stderr += chunk)
     child.on("error", error => {
-      if (timer) clearTimeout(timer)
+      clearTimers()
       resolve({ args, command, exitCode: 127, stderr: error instanceof Error ? error.message : String(error), stdout })
     })
     child.on("close", (code, signal) => {
-      if (timer) clearTimeout(timer)
+      clearTimers()
       resolve({
         args,
         command,
@@ -178,7 +200,7 @@ export async function createTrustedHostWorkspaceSession(
   workspace: Workspace,
 ): Promise<WorkspaceSession> {
   assertTrustedHostWorkspaceRuntimeAllowed()
-  const root = await mkdtemp(join(tmpdir(), `vitehub-workspace-${workspace.name}-`))
+  const root = await mkdtemp(join(tmpdir(), `vitehub-workspace-${workspace.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "workspace"}-`))
   let baseline = await materializeWorkspace(workspace, root)
   const mediaTypes = new Map<string, string>()
   let closed = false
@@ -196,7 +218,7 @@ export async function createTrustedHostWorkspaceSession(
   return {
     async readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>> {
       assertOpen()
-      const file = await readLocalFile(root, normalizeLocalWorkspacePath(path))
+      const file = await readLocalFile(root, normalizeLocalWorkspacePath(path, { allowGenerated: true }), { allowGenerated: true })
       if (!file) throw new WorkspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
       return decodeFile(file.content, options)
     },
@@ -223,24 +245,24 @@ export async function createTrustedHostWorkspaceSession(
     },
     async list(path = "", options = {}) {
       assertOpen()
-      return await listLocalEntries(root, path, options.recursive)
+      return await listLocalEntries(root, path, options.recursive, { allowGenerated: true })
     },
     async glob(pattern, _options = {}) {
       assertOpen()
       const patterns = Array.isArray(pattern) ? pattern : [pattern]
-      return (await listLocalEntries(root, "", true))
+      return (await listLocalEntries(root, "", true, { allowGenerated: true }))
         .filter(entry => entry.type === "file" && patterns.some(item => matchesAny(entry.path, item)))
     },
     async search(query) {
       assertOpen()
       const { searchText } = await import("../core/search.ts")
-      const searchRoots = [...new Set((query.paths?.length ? query.paths : [query.cwd || ""]).map(path => normalizeLocalWorkspacePath(path, { allowEmpty: true })))]
+      const searchRoots = [...new Set((query.paths?.length ? query.paths : [query.cwd || ""]).map(path => normalizeLocalWorkspacePath(path, { allowEmpty: true, allowGenerated: true })))]
       const scopedSearchRoots = searchRoots.filter(Boolean)
       const limit = query.limit ?? 100
       const hits: WorkspaceSearchHit[] = []
-      for (const entry of (await listLocalEntries(root, "", true)).filter(item => item.type === "file")) {
+      for (const entry of (await listLocalEntries(root, "", true, { allowGenerated: true })).filter(item => item.type === "file")) {
         if (scopedSearchRoots.length && !scopedSearchRoots.some(path => entry.path === path || entry.path.startsWith(`${path}/`))) continue
-        const text = await readFile(toLocalPath(root, entry.path), "utf8")
+        const text = await readFile(toLocalPath(root, entry.path, { allowGenerated: true }), "utf8")
         hits.push(...searchText(entry.path, text, { ...query, limit: limit - hits.length }))
         if (hits.length >= limit) break
       }
