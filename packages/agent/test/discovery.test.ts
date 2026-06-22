@@ -555,6 +555,49 @@ describe("agent chat capability discovery", () => {
     expect(abortSignal).toBeInstanceOf(AbortSignal)
   })
 
+  it("normalizes Agent Invocation Stream usage before serializing endpoint events", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-usage-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const usage = { inputTokens: 2, outputTokens: 3, totalTokens: 5 }
+    const agent = defineAgent({
+      async * run() {
+        yield { text: "hello from stream", type: "text-delta" }
+        yield { finishReason: "stop", totalUsage: usage, type: "finish" }
+      },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      messages: [{
+        id: "user-1",
+        parts: [{ text: "hello", type: "text" }],
+        role: "user",
+      }],
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+    const events = response.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+
+    expect(events).toEqual([
+      expect.objectContaining({ agent: "support", type: "start" }),
+      { text: "hello from stream", type: "text-delta" },
+      { type: "usage", usageRecord: { usage } },
+      { reason: "stop", type: "finish" },
+      { type: "done" },
+    ])
+  })
+
   it("passes Agent Dev Loop context into message-shaped channel invocations", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-context-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
