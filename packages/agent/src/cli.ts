@@ -144,8 +144,8 @@ function writeDevText(context: AgentCliContext, value: unknown): boolean {
 }
 
 function thinkingFallback(metadata: Record<string, unknown> | undefined): string | undefined {
-  if (!metadata) return "Thinking..."
-  const value = metadata?.thinkingFallback
+  if (!metadata || !Object.hasOwn(metadata, "thinkingFallback")) return "Thinking..."
+  const value = metadata.thinkingFallback
   return typeof value === "string" && value.trim() ? value : undefined
 }
 

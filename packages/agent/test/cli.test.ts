@@ -54,7 +54,7 @@ describe("agent CLI", () => {
     const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       if (init?.method === "POST") {
         return ndjson([
-          { agent: "support", trigger: "chat.message", type: "start" },
+          { agent: "support", metadata: {}, trigger: "chat.message", type: "start" },
           { text: "hello from agent", type: "text-delta" },
           { type: "finish" },
           { type: "done" },
@@ -199,7 +199,7 @@ describe("agent CLI", () => {
     const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       if (init?.method === "POST") {
         return ndjson([
-          { agent: "support", metadata: {}, trigger: "chat.message", type: "start" },
+          { agent: "support", metadata: { thinkingFallback: null }, trigger: "chat.message", type: "start" },
           { text: "done", type: "text-delta" },
           { type: "finish" },
           { type: "done" },

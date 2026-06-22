@@ -278,12 +278,12 @@ describe("agent output helpers", () => {
         yield {
           type: "finish-step",
           usage: {
-            inputTokens: 16,
+            inputTokens: 4,
             outputTokenDetails: {
               reasoningTokens: 2,
             },
-            outputTokens: 4,
-            totalTokens: 20,
+            outputTokens: 1,
+            totalTokens: 5,
           },
         }
         yield {
@@ -309,9 +309,6 @@ describe("agent output helpers", () => {
         usageRecord: {
           usage: {
             inputTokens: 16,
-            outputTokenDetails: {
-              reasoningTokens: 2,
-            },
             outputTokens: 4,
             totalTokens: 20,
           },

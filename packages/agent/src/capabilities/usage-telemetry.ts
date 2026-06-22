@@ -384,7 +384,7 @@ async function* withUsageTelemetryStream(
   let recorded = false
   for await (const chunk of stream) {
     if (isRecord(chunk) && chunk.type === "finish") {
-      const usageRecord = await recordUsage(chunk, options, run)
+      const usageRecord = await recordUsage(chunk, options, run, chunk.totalUsage !== undefined || chunk.usage !== undefined ? metadataSource : undefined)
       if (usageRecord) {
         recorded = true
         onRecord?.(usageRecord)
@@ -397,7 +397,7 @@ async function* withUsageTelemetryStream(
     yield chunk
   }
   if (!recorded && isRecord(metadataSource)) {
-    const usageRecord = await recordUsage(fallbackResult ?? metadataSource, options, run, metadataSource)
+    const usageRecord = await recordUsage(fallbackResult ? { ...metadataSource, ...fallbackResult } : metadataSource, options, run, metadataSource)
     if (usageRecord) {
       onRecord?.(usageRecord)
       yield { type: "usage", usageRecord }

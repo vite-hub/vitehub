@@ -173,29 +173,26 @@ export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, strin
 
 async function* streamChunksToEvents(chunks: AsyncIterable<unknown>, usageSource?: unknown): AsyncIterable<StreamEvent> {
   const toolNames = new Map<string, string>()
-  let emittedUsage = false
+  let usageRecord: AgentUsageRecord | undefined
+  let explicitUsageEvent = false
   let finishEvent: StreamEvent | undefined
   for await (const chunk of chunks) {
-    if (!emittedUsage) {
-      const usageRecord = usageFromStreamChunk(chunk)
-      if (usageRecord) {
-        emittedUsage = true
-        yield { type: "usage", usageRecord }
-      }
-    }
+    if (!explicitUsageEvent) usageRecord = usageFromStreamChunk(chunk) ?? usageRecord
     const event = toAgentStreamEvent(chunk, toolNames)
     if (!event) continue
-    if (event.type === "usage") emittedUsage = true
+    if (event.type === "usage") {
+      usageRecord = event.usageRecord
+      explicitUsageEvent = true
+      continue
+    }
     if (event.type === "finish") {
       finishEvent = event
       continue
     }
     yield event
   }
-  if (!emittedUsage) {
-    const usageRecord = await usageFromResult(usageSource)
-    if (usageRecord) yield { type: "usage", usageRecord }
-  }
+  usageRecord ??= await usageFromResult(usageSource)
+  if (usageRecord) yield { type: "usage", usageRecord }
   yield finishEvent ?? { type: "finish" }
 }
 

@@ -334,6 +334,7 @@ describe("usage telemetry", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const { streamAgentOutputToEvents } = await import("../src/agent-output.ts")
     const { staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const { defineAgentUsageMetadata } = await import("../src/internal/agent-usage-metadata.ts")
     const onUsage = vi.fn()
 
     const agent = defineAgent({
@@ -348,7 +349,7 @@ describe("usage telemetry", () => {
           }),
         }),
       ],
-      run: () => ({
+      run: () => defineAgentUsageMetadata({
         fullStream: (async function* () {
           yield { text: "ok", type: "text-delta" }
           yield {
@@ -365,7 +366,7 @@ describe("usage telemetry", () => {
             type: "finish",
           }
         })(),
-      }),
+      }, { credentialSource: { label: "local Codex", source: "ambient" } }),
     })
 
     const output = await streamAgent(agent, runtime(), {})
@@ -384,6 +385,10 @@ describe("usage telemetry", () => {
             currency: "USD",
             estimated: true,
             source: "custom",
+          },
+          credentialSource: {
+            label: "local Codex",
+            source: "ambient",
           },
           usage: {
             inputTokens: 10,
@@ -421,7 +426,7 @@ describe("usage telemetry", () => {
   it("emits streamed usage from promise-backed stream result usage", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const { streamAgentOutputToEvents } = await import("../src/agent-output.ts")
-    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const { staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
     let resolveUsage: (usage: unknown) => void
     const usage = new Promise(resolve => {
       resolveUsage = resolve
@@ -429,7 +434,14 @@ describe("usage telemetry", () => {
 
     const agent = defineAgent({
       capabilities: [
-        usageTelemetry(),
+        usageTelemetry({
+          pricing: staticModelPricing({
+            "openai/gpt-test": {
+              input: "0.00000010",
+              output: "0.00000020",
+            },
+          }),
+        }),
       ],
       run: () => ({
         fullStream: (async function* () {
@@ -442,6 +454,7 @@ describe("usage telemetry", () => {
             totalTokens: 17,
           })
         })(),
+        modelId: "openai/gpt-test",
         usage,
       }),
     })
@@ -463,6 +476,15 @@ describe("usage telemetry", () => {
       {
         type: "usage",
         usageRecord: expect.objectContaining({
+          cost: {
+            amount: "0.0000024",
+            currency: "USD",
+            estimated: true,
+            source: "custom",
+          },
+          model: {
+            id: "openai/gpt-test",
+          },
           usage: {
             inputTokens: 10,
             outputTokenDetails: { reasoningTokens: 3 },
