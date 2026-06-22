@@ -564,6 +564,7 @@ async function sendDevMessage(
   let needsApproval = false
   let pendingFallback = false
   let wroteFallback = false
+  let lastUsageText: string | undefined
   const visibleTools = new Set<string>()
   const clearPendingFallback = () => {
     if (!pendingFallback) return
@@ -590,8 +591,10 @@ async function sendDevMessage(
       }
       if (event.type === "tool-call" || event.type === "tool-input-start") {
         clearPendingFallback()
-        visibleTools.add(event.id)
-        context.stderr.write(`\n[tool] ${event.name}\n`)
+        if (!visibleTools.has(event.id)) {
+          visibleTools.add(event.id)
+          context.stderr.write(`\n[tool] ${event.name}\n`)
+        }
         writeDevPayload(context, "input", event.input)
         continue
       }
@@ -608,7 +611,10 @@ async function sendDevMessage(
       if (event.type === "usage") {
         clearPendingFallback()
         const usage = formatUsageRecord(event.usageRecord)
-        if (usage) context.stderr.write(`\n[usage] ${usage}\n`)
+        if (usage && usage !== lastUsageText) {
+          context.stderr.write(`\n[usage] ${usage}\n`)
+          lastUsageText = usage
+        }
         continue
       }
       if (event.type === "delivery-preview") {

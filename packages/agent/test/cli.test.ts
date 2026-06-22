@@ -344,10 +344,12 @@ describe("agent CLI", () => {
       if (init?.method === "POST") {
         return ndjson([
           { agent: "support", trigger: "chat.message", type: "start" },
+          { id: "tool-1", name: "shell", type: "tool-input-start" },
           { id: "tool-1", input: { command: "pnpm test" }, name: "shell", type: "tool-call" },
           { id: "tool-1", name: "shell", output: longOutput, type: "tool-result" },
           { id: "tool-2", name: "workspace_list", output: { path: "." }, type: "tool-result" },
           { text: "done", type: "text-delta" },
+          { type: "usage", usageRecord: { usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
           { type: "usage", usageRecord: { usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
           { type: "finish" },
           { type: "done" },
@@ -377,6 +379,7 @@ describe("agent CLI", () => {
     expect(stderr.output()).toContain(`output: {"path":"."}`)
     expect(stderr.output()).toContain("[usage] 17 tokens: 10 in / 7 out; 3 reasoning tokens")
     expect(stderr.output().match(/\[tool\] shell/g)).toHaveLength(1)
+    expect(stderr.output().match(/\[usage\] 17 tokens/g)).toHaveLength(1)
   })
 
   it("renders Agent Dev Loop delivery previews", async () => {
