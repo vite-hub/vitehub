@@ -573,6 +573,13 @@ async function sendDevMessage(
         if (usage) context.stderr.write(`\n[usage] ${usage}\n`)
         continue
       }
+      if (event.type === "delivery-preview") {
+        context.stderr.write(`\n[delivery preview] would ${event.effect.kind}${event.channelId ? ` on ${event.channelId}` : ""}\n`)
+        writeDevPayload(context, "intent", event.effect.intent)
+        writeDevPayload(context, "payload", event.effect.payload)
+        writeDevPayload(context, "metadata", event.effect.metadata)
+        continue
+      }
       if (event.type === "approval-request") {
         context.stderr.write(`\n[approval required] ${event.name}${event.reason ? `: ${event.reason}` : ""}\n`)
         needsApproval = true

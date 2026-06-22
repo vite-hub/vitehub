@@ -6,7 +6,6 @@ import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/internal/runtim
 
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
 import { streamAgentOutputToEvents } from "../agent-output.ts"
-import { channelDeliveryEffectsContextKey, channelDeliveryFinishEffectsContextKey } from "../capability-runtime.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation, resolveAgentTriggers, streamAgent, withAgentDefaults } from "../index.ts"
@@ -15,7 +14,9 @@ import { createAgentRuntimeContext } from "../runtime/context.ts"
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
 import type { ViteDevServer } from "vite"
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
+import type { AgentInvocationStreamEvent } from "../invocation-stream.ts"
 import type {
+  AgentChannelDeliveryEffectContext,
   AgentInput,
   AgentRunInput,
   AgentRunMetadata,
@@ -71,18 +72,30 @@ function withDevContext<CALL_OPTIONS>(
   context: Record<string, unknown> | undefined,
 ): AgentRunInput<CALL_OPTIONS> {
   const mergedContext: Record<string, unknown> = { ...input.context, ...context }
-  delete mergedContext[channelDeliveryEffectsContextKey]
-  delete mergedContext[channelDeliveryFinishEffectsContextKey]
   if (context?.actor !== undefined && context.invoker === undefined) {
     mergedContext.invoker = context.actor
   }
   return { ...input, context: mergedContext as AgentRunInput<CALL_OPTIONS>["context"] }
 }
 
-function withoutDeliveryChannels(agent: AgentInput<ViteAgentDevRuntimeContext>): AgentInput<ViteAgentDevRuntimeContext> {
-  return isRecord(agent) && "channels" in agent
-    ? { ...agent, channels: undefined } as AgentInput<ViteAgentDevRuntimeContext>
-    : agent
+function withDeliveryPreviewChannels(
+  agent: AgentInput<ViteAgentDevRuntimeContext>,
+  preview: (event: Extract<AgentInvocationStreamEvent, { type: "delivery-preview" }>) => void,
+): AgentInput<ViteAgentDevRuntimeContext> {
+  if (!isRecord(agent) || !isRecord(agent.channels)) return agent
+  const channels = Object.fromEntries(Object.entries(agent.channels).map(([channelId, channel]) => {
+    if (!isRecord(channel) || !isRecord(channel.effects)) return [channelId, channel]
+    const effects = Object.fromEntries(Object.keys(channel.effects).map(kind => [kind, (context: AgentChannelDeliveryEffectContext<ViteAgentDevRuntimeConfig>) => {
+      preview({
+        channelId: context.trigger?.channelId || context.run?.channelId || channelId,
+        effect: context.effect,
+        ...(context.run ? { run: context.run } : {}),
+        type: "delivery-preview",
+      })
+    }]))
+    return [channelId, { ...channel, effects }]
+  }))
+  return { ...agent, channels } as AgentInput<ViteAgentDevRuntimeContext>
 }
 
 function headersFromNode(headers: IncomingHttpHeaders): Headers {
@@ -315,7 +328,10 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
       }
       else {
         if (!signal.aborted) emit({ agent: entry.name, run: invocation.run, trigger: invocation.trigger.id, type: "start" })
-        output = await streamAgent(withoutDeliveryChannels(entry.agent) as never, { ...context, ...(invocation.run ? { run: invocation.run } : {}) } as never, withDevContext(invocation.input, devContext) as never, {
+        const previewAgent = withDeliveryPreviewChannels(entry.agent, event => {
+          if (!signal.aborted) emit(event)
+        })
+        output = await streamAgent(previewAgent as never, { ...context, ...(invocation.run ? { run: invocation.run } : {}) } as never, withDevContext(invocation.input, devContext) as never, {
           output: "events",
         })
       }
@@ -323,7 +339,10 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
     else {
       const messages = messagesFromBody(body)
       if (!signal.aborted) emit({ agent: entry.name, run, type: "start" })
-      output = await streamAgent(withoutDeliveryChannels(entry.agent) as never, context as never, {
+      const previewAgent = withDeliveryPreviewChannels(entry.agent, event => {
+        if (!signal.aborted) emit(event)
+      })
+      output = await streamAgent(previewAgent as never, context as never, {
         abortSignal: signal,
         ...(devContext || typeof body.invokerProfileId === "string"
           ? { context: { ...devContext, ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}) } }

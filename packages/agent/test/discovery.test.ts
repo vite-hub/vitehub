@@ -613,7 +613,7 @@ describe("agent chat capability discovery", () => {
     ])
   })
 
-  it("suppresses trigger Channel Delivery Effects for Agent Dev Loop channel invocations", async () => {
+  it("previews trigger Channel Delivery Effects for Agent Dev Loop channel invocations", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-effects-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
@@ -677,12 +677,15 @@ describe("agent chat capability discovery", () => {
       .split("\n")
       .map(line => JSON.parse(line))
 
-    expect(events).toEqual([
+    expect(events).toEqual(expect.arrayContaining([
       expect.objectContaining({ agent: "review", trigger: "github.webhook", type: "start" }),
+      expect.objectContaining({ channelId: "github", effect: { kind: "reaction", payload: "queued" }, type: "delivery-preview" }),
+      expect.objectContaining({ channelId: "github", effect: { kind: "reply", payload: "finished" }, type: "delivery-preview" }),
+      expect.objectContaining({ channelId: "github", effect: { kind: "reply", payload: "capability-finished" }, type: "delivery-preview" }),
       { text: "Review completed.", type: "text-delta" },
       { type: "finish" },
       { type: "done" },
-    ])
+    ]))
     expect(reactionEffect).not.toHaveBeenCalled()
     expect(replyEffect).not.toHaveBeenCalled()
   })
