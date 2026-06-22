@@ -532,24 +532,30 @@ function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapt
 }
 
 function createUsageCapture() {
-  let resolveUsage: (usage: unknown) => void
   let captured = false
   let capturedUsage: unknown
-  const usage = new Promise<unknown>((resolve) => {
-    resolveUsage = resolve
-  })
+
+  const capture = (event: unknown) => {
+    const record = typeof event === "object" && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
+    const usage = record?.totalUsage ?? record?.usage
+    if (usage === undefined) return
+    capturedUsage = usage
+    captured = true
+  }
 
   return {
     async onEnd(event: unknown) {
-      const record = typeof event === "object" && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
-      capturedUsage = record?.totalUsage ?? record?.usage
-      captured = true
-      resolveUsage(capturedUsage)
+      capture(event)
+    },
+    async onStepEnd(event: unknown) {
+      capture(event)
     },
     get captured() {
       return captured
     },
-    usage,
+    get usage() {
+      return captured ? Promise.resolve(capturedUsage) : undefined
+    },
   }
 }
 
@@ -560,7 +566,9 @@ function withCapturedUsage(result: unknown, capture: ReturnType<typeof createUsa
       Object.defineProperty(record, "usage", {
         configurable: true,
         enumerable: true,
-        value: capture.usage,
+        get() {
+          return capture.usage
+        },
       })
     }
     return result
@@ -697,6 +705,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const result = withCapturedUsage(await agent.generate({
         ...callInput,
         onEnd: usageCapture.onEnd,
+        onStepEnd: usageCapture.onStepEnd,
       } as never) as GenerateTextResult<ToolSet, never, never>, usageCapture) as GenerateTextResult<ToolSet, never, never>
       const text = result.text.trim()
       if (text) return result as unknown as AgentAdapterResult
@@ -735,6 +744,7 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const result = withCapturedUsage(await agent.stream({
         ...callInput,
         onEnd: usageCapture.onEnd,
+        onStepEnd: usageCapture.onStepEnd,
       } as never) as StreamTextResult<ToolSet, never, never>, usageCapture) as StreamTextResult<ToolSet, never, never>
       const execution = options.execution ?? options.modelExecution
       return withWorkspaceFallbackStreamResult(result, model as never, context, getFallbackOptions(execution?.workspaceFallback))
