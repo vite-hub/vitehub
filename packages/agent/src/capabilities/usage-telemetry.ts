@@ -293,6 +293,17 @@ function formatUsageDuration(durationMs: unknown): string | undefined {
   return `${(finite / 1000).toFixed(1)}s`
 }
 
+function formatUsageSpeed(record: AgentUsageRecord): string | undefined {
+  const explicit = finiteUsageNumber(record.latency?.tokensPerSecond)
+  const durationMs = finiteUsageNumber(record.latency?.durationMs)
+  const input = finiteUsageNumber(record.usage?.inputTokens)
+  const output = finiteUsageNumber(record.usage?.outputTokens)
+  const total = finiteUsageNumber(record.usage?.totalTokens)
+  const outputOrTotal = output ?? (input !== undefined && total !== undefined ? total - input : total)
+  const derived = explicit ?? (durationMs && durationMs > 0 ? (outputOrTotal ?? 0) / (durationMs / 1000) : undefined)
+  return derived && Number.isFinite(derived) ? `${derived.toFixed(1)} tok/s` : undefined
+}
+
 function normalizeUsageSummaryOptions(summary: UsageTelemetryOptions["summary"]): UsageTelemetrySummaryOptions | undefined {
   if (!summary) return
   return typeof summary === "object" && summary !== null ? summary : {}
@@ -308,7 +319,8 @@ async function formatUsageSummary(record: AgentUsageRecord, options: UsageTeleme
   const tokens = formatUsageTokens(record.usage)
   const model = record.model?.id
   const duration = formatUsageDuration(record.latency?.durationMs)
-  const run = [model ? `using ${model}` : undefined, duration ? `in ${duration}` : undefined].filter(Boolean).join(" ")
+  const speed = formatUsageSpeed(record)
+  const run = [model ? `using ${model}` : undefined, duration ? `in ${duration}` : undefined, speed ? `at ${speed}` : undefined].filter(Boolean).join(" ")
   if (cost) return `${subject} cost ${record.cost?.estimated ? "about " : ""}${cost}${run ? ` ${run}` : ""}${tokens ? ` (${tokens})` : ""}.`
   if (tokens) return `${subject} used ${tokens}${run ? ` ${run}` : ""}.`
   if (run) return `${subject} ran ${run}.`

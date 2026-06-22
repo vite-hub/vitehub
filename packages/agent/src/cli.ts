@@ -168,13 +168,43 @@ function readUsageDetail(...records: Array<Record<string, unknown> | undefined>)
   }
 }
 
-function formatUsageRecord(record: AgentUsageRecord): string | undefined {
+function formatUsageDuration(durationMs: unknown): string | undefined {
+  const finite = usageNumber(durationMs)
+  if (finite === undefined) return
+  return `${(finite / 1000).toFixed(1)}s`
+}
+
+function formatUsageCost(cost: AgentUsageRecord["cost"]): string | undefined {
+  if (!cost?.amount) return
+  const amount = cost.amount.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "")
+  return `${cost.estimated ? "~" : ""}${cost.currency === "USD" ? `$${amount}` : `${amount} ${cost.currency}`}`
+}
+
+function formatUsageSpeed(record: AgentUsageRecord, durationMs?: number): string | undefined {
+  const explicit = typeof record.latency?.tokensPerSecond === "number" && Number.isFinite(record.latency.tokensPerSecond)
+    ? record.latency.tokensPerSecond
+    : undefined
+  const duration = usageNumber(record.latency?.durationMs) ?? durationMs
+  const durationSeconds = duration === undefined ? undefined : duration / 1000
+  const input = usageNumber(record.usage?.inputTokens)
+  const output = usageNumber(record.usage?.outputTokens)
+  const total = usageNumber(record.usage?.totalTokens)
+  const outputOrTotal = output ?? (input !== undefined && total !== undefined ? total - input : total)
+  const derived = explicit ?? (durationSeconds !== undefined && durationSeconds > 0 ? (outputOrTotal ?? 0) / durationSeconds : undefined)
+  return derived && Number.isFinite(derived) ? `${derived.toFixed(1)} tok/s` : undefined
+}
+
+function formatUsageRecord(record: AgentUsageRecord, fallbackDurationMs?: number): string | undefined {
   const usage = record.usage
   const input = usageNumber(usage?.inputTokens)
   const output = usageNumber(usage?.outputTokens)
   const total = usageNumber(usage?.totalTokens) ?? (input !== undefined && output !== undefined ? input + output : undefined)
   const reasoning = readUsageDetail(usage?.outputTokenDetails, usage?.inputTokenDetails, usage?.details)
+  const cost = formatUsageCost(record.cost)
+  const duration = formatUsageDuration(record.latency?.durationMs ?? fallbackDurationMs)
+  const speed = formatUsageSpeed(record, fallbackDurationMs)
   const parts: string[] = []
+  if (cost) parts.push(`cost ${cost}`)
   if (total !== undefined) {
     const tokens = `${formatUsageNumber(total)} tokens`
     parts.push(input !== undefined && output !== undefined ? `${tokens}: ${formatUsageNumber(input)} in / ${formatUsageNumber(output)} out` : tokens)
@@ -183,6 +213,8 @@ function formatUsageRecord(record: AgentUsageRecord): string | undefined {
     parts.push([input !== undefined ? `${formatUsageNumber(input)} in` : undefined, output !== undefined ? `${formatUsageNumber(output)} out` : undefined].filter(Boolean).join(" / "))
   }
   if (reasoning !== undefined) parts.push(`${formatUsageNumber(reasoning)} reasoning tokens`)
+  if (duration) parts.push(`time ${duration}`)
+  if (speed) parts.push(`speed ${speed}`)
   if (!parts.length) return record.summary
   return parts.join("; ")
 }
@@ -558,6 +590,7 @@ async function sendDevMessage(
   signal?: AbortSignal,
 ): Promise<UIMessageLike[] | undefined> {
   const messages = text ? [...history, userMessage(text, history.length)] : history
+  const startedAt = Date.now()
   let response: Response
   try {
     response = await fetchImpl(url, {
@@ -598,13 +631,15 @@ async function sendDevMessage(
   let pendingFallback = false
   let wroteFallback = false
   let fallbackTimer: ReturnType<typeof setInterval> | undefined
-  let lastUsageText: string | undefined
+  let lastUsageRecord: AgentUsageRecord | undefined
   let wroteUsageNote = false
   let finishSeen = false
   const visibleTools = new Set<string>()
   const writeUsageNote = () => {
-    if (!lastUsageText || wroteUsageNote) return
-    context.stdout.write(`${output && !output.endsWith("\n") ? "\n" : ""}\n${formatUsageNote(lastUsageText)}\n`)
+    if (!lastUsageRecord || wroteUsageNote) return
+    const usage = formatUsageRecord(lastUsageRecord, Date.now() - startedAt)
+    if (!usage) return
+    context.stdout.write(`${output && !output.endsWith("\n") ? "\n" : ""}\n${formatUsageNote(usage)}\n`)
     wroteUsageNote = true
   }
   const clearPendingFallback = () => {
@@ -613,7 +648,7 @@ async function sendDevMessage(
       fallbackTimer = undefined
     }
     if (!pendingFallback) return
-    context.stderr.write("\r\u001b[K")
+    context.stderr.write("\r\u001b[K\u001B[?25h")
     pendingFallback = false
   }
   const startFallback = (fallback: string) => {
@@ -623,6 +658,7 @@ async function sendDevMessage(
     const write = () => {
       context.stderr.write(`\r${base}${frames[frame++ % frames.length]}`)
     }
+    context.stderr.write("\u001B[?25l")
     write()
     fallbackTimer = setInterval(write, 250)
     ;(fallbackTimer as { unref?: () => void }).unref?.()
@@ -667,8 +703,7 @@ async function sendDevMessage(
       }
       if (event.type === "usage") {
         clearPendingFallback()
-        const usage = formatUsageRecord(event.usageRecord)
-        if (usage) lastUsageText = usage
+        lastUsageRecord = event.usageRecord
         if (finishSeen) writeUsageNote()
         continue
       }
@@ -705,6 +740,7 @@ async function sendDevMessage(
     }
   }
   catch (error) {
+    clearPendingFallback()
     if (signal?.aborted || error instanceof DOMException && error.name === "AbortError") {
       context.stderr.write("\n[aborted]\n")
       return history

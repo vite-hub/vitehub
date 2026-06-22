@@ -158,7 +158,7 @@ describe("agent CLI", () => {
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(0)
-    expect(stderr.output()).toBe("\rThinking...\r\u001b[K")
+    expect(stderr.output()).toBe("\u001B[?25l\rThinking...\r\u001b[K\u001B[?25h")
   })
 
   it("uses Agent Dev Loop thinking fallback metadata", async () => {
@@ -189,7 +189,7 @@ describe("agent CLI", () => {
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(0)
-    expect(stderr.output()).toContain("\rReading PR...\r\u001b[K")
+    expect(stderr.output()).toContain("\u001B[?25l\rReading PR...\r\u001b[K\u001B[?25h")
     expect(stderr.output()).toContain("[tool] ls")
     expect(stderr.output()).not.toContain("Thinking...")
   })
@@ -350,8 +350,8 @@ describe("agent CLI", () => {
           { id: "tool-1", name: "shell", output: { command: "cat file.md", exitCode: 0, stderr: "", stdout: longOutput }, type: "tool-result" },
           { id: "tool-2", name: "workspace_list", output: { path: "." }, type: "tool-result" },
           { text: "done", type: "text-delta" },
-          { type: "usage", usageRecord: { usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
-          { type: "usage", usageRecord: { usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
+          { type: "usage", usageRecord: { cost: { amount: "0.00000400", currency: "USD", estimated: true, source: "estimated" }, latency: { durationMs: 2000, tokensPerSecond: 3.5 }, usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
+          { type: "usage", usageRecord: { cost: { amount: "0.00000400", currency: "USD", estimated: true, source: "estimated" }, latency: { durationMs: 2000, tokensPerSecond: 3.5 }, usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
           { type: "finish" },
           { type: "done" },
         ])
@@ -381,7 +381,7 @@ describe("agent CLI", () => {
     expect(stderr.output()).toContain(`output: {"path":"."}`)
     expect(stderr.output()).not.toContain("[usage]")
     expect(stderr.output().match(/\[tool\] cat file\.md/g)).toHaveLength(1)
-    expect(stdout.output()).toContain("done\n\n> [!NOTE]\n> Usage: 17 tokens: 10 in / 7 out; 3 reasoning tokens")
+    expect(stdout.output()).toContain("done\n\n> [!NOTE]\n> Usage: cost ~$0.000004; 17 tokens: 10 in / 7 out; 3 reasoning tokens; time 2.0s; speed 3.5 tok/s")
   })
 
   it("renders Agent Dev Loop delivery previews", async () => {

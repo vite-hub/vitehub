@@ -137,7 +137,7 @@ describe("usage telemetry", () => {
       latency: {
         durationMs: expect.any(Number),
       },
-      summary: expect.stringMatching(/^Review run cost about \$0\.00015 using openai\/gpt-test in \d+\.\ds \(1,250 tokens: 1,000 in \/ 250 out\)\.$/),
+      summary: expect.stringMatching(/^Review run cost about \$0\.00015 using openai\/gpt-test in \d+\.\ds at \d+\.\d tok\/s \(1,250 tokens: 1,000 in \/ 250 out\)\.$/),
     })
   })
 
@@ -306,6 +306,7 @@ describe("usage telemetry", () => {
       },
       run: () => ({
         text: "ok",
+        durationMs: 2000,
         totalUsage: {
           inputTokens: 1000,
           totalTokens: 1250,
@@ -325,7 +326,7 @@ describe("usage telemetry", () => {
     expect(finish).toHaveBeenCalledTimes(1)
     const usageRecord = finish.mock.calls[0]![0].extensions.get("usage-telemetry")
     expect(usageRecord).toMatchObject({
-      summary: expect.stringMatching(/^Review run used 1,250 tokens: 1,000 in \/ 250 out in \d+\.\ds\.$/),
+      summary: expect.stringMatching(/^Review run used 1,250 tokens: 1,000 in \/ 250 out in \d+\.\ds at \d+\.\d tok\/s\.$/),
     })
   })
 
