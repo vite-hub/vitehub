@@ -39,6 +39,10 @@ function isGeneratedSourceDescriptorPath(path: string): boolean {
   return path === ".vitehub" || path === ".vitehub/sources" || /^\.vitehub\/sources\/[^/]+\.json$/.test(path)
 }
 
+function isUncommittedSessionPath(path: string): boolean {
+  return isGeneratedSourceDescriptorPath(path) || path.split("/").includes(".git")
+}
+
 function normalizeLocalWorkspacePath(path = "", options: { allowEmpty?: boolean, allowGenerated?: boolean } = {}) {
   const normalized = posix.normalize(path.replace(/\\/g, "/"))
   const workspacePath = normalized === "." ? "" : normalized
@@ -51,14 +55,14 @@ function normalizeLocalWorkspacePath(path = "", options: { allowEmpty?: boolean,
 
 function normalizeSessionCwd(path = "") {
   const normalized = path.replace(/\\/g, "/")
-  return normalizeLocalWorkspacePath(normalized.replace(/^\/workspace(?:\/|$)/, ""), { allowEmpty: true })
+  return normalizeLocalWorkspacePath(normalized.replace(/^\/workspace(?:\/|$)/, ""), { allowEmpty: true, allowGenerated: true })
 }
 
 function toLocalPath(root: string, path = "", options: { allowGenerated?: boolean } = {}) {
   return resolveInside(root, normalizeLocalWorkspacePath(path, { allowEmpty: true, allowGenerated: options.allowGenerated }))
 }
 
-async function listLocalEntries(root: string, path = "", recursive = false, options: { allowGenerated?: boolean, skipGenerated?: boolean } = {}): Promise<WorkspaceEntry[]> {
+async function listLocalEntries(root: string, path = "", recursive = false, options: { allowGenerated?: boolean, skipUncommitted?: boolean } = {}): Promise<WorkspaceEntry[]> {
   const base = toLocalPath(root, path, options)
   const dirents = await readdir(base, { withFileTypes: true }).catch((error) => {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
@@ -68,7 +72,7 @@ async function listLocalEntries(root: string, path = "", recursive = false, opti
   for (const dirent of dirents) {
     const entryPath = join(base, dirent.name)
     const workspacePath = toWorkspacePath(root, entryPath)
-    if (options.skipGenerated && isGeneratedSourceDescriptorPath(workspacePath)) continue
+    if (options.skipUncommitted && isUncommittedSessionPath(workspacePath)) continue
     if (dirent.isDirectory()) {
       entries.push({ path: workspacePath, type: "directory" })
       if (recursive) entries.push(...await listLocalEntries(root, workspacePath, true, options))
@@ -93,7 +97,7 @@ async function readLocalFile(root: string, path: string, options: { allowGenerat
 }
 
 async function snapshotLocal(root: string, name?: string) {
-  const entries = await listLocalEntries(root, "", true, { allowGenerated: true, skipGenerated: true })
+  const entries = await listLocalEntries(root, "", true, { allowGenerated: true, skipUncommitted: true })
   const files = await Promise.all(entries.map(async (entry) => {
     if (entry.type !== "file") return entry
     const content = await readFile(toLocalPath(root, entry.path))
@@ -126,7 +130,7 @@ async function commitLocalChanges(
   mediaTypes: Map<string, string>,
 ) {
   for (const entry of diff.entries) {
-    if (isGeneratedSourceDescriptorPath(entry.path)) continue
+    if (isUncommittedSessionPath(entry.path)) continue
     if (entry.after?.type === "directory") {
       if (entry.before?.type === "file")
         await workspace.rm(entry.path, { force: true })
@@ -152,7 +156,7 @@ async function commitLocalChanges(
 }
 
 async function execLocal(root: string, command: string, args: string[] = [], options: ExecOptions = {}): Promise<ExecResult> {
-  const cwd = toLocalPath(root, normalizeSessionCwd(options.cwd))
+  const cwd = toLocalPath(root, normalizeSessionCwd(options.cwd), { allowGenerated: true })
   return await new Promise((resolve) => {
     const child = spawn(command, args, {
       cwd,
@@ -201,7 +205,10 @@ export async function createTrustedHostWorkspaceSession(
 ): Promise<WorkspaceSession> {
   assertTrustedHostWorkspaceRuntimeAllowed()
   const root = await mkdtemp(join(tmpdir(), `vitehub-workspace-${workspace.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "workspace"}-`))
-  let baseline = await materializeWorkspace(workspace, root)
+  let baseline = await materializeWorkspace(workspace, root).catch(async (error) => {
+    await rm(root, { force: true, recursive: true })
+    throw error
+  })
   const mediaTypes = new Map<string, string>()
   let closed = false
 

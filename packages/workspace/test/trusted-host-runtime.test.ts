@@ -1,7 +1,13 @@
+import { readdir } from "node:fs/promises"
+import { tmpdir } from "node:os"
+
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineWorkspace, fetch as fetchSource } from "../src/index.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
+import { createTrustedHostWorkspaceSession } from "../src/session/trusted-host.ts"
+
+import type { Workspace } from "../src/core/types.ts"
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -113,8 +119,8 @@ describe("trusted host workspace runtime", () => {
     const session = await workspace.startSession()
     const result = await session.exec(process.execPath, [
       "-e",
-      "process.stdout.write(require('node:fs').readFileSync('.vitehub/sources/inventory.json', 'utf8'))",
-    ])
+      "process.stdout.write(require('node:fs').readFileSync('inventory.json', 'utf8'))",
+    ], { cwd: "/workspace/.vitehub/sources" })
 
     expect(result.exitCode).toBe(0)
     expect(JSON.parse(result.stdout)).toMatchObject({
@@ -123,6 +129,50 @@ describe("trusted host workspace runtime", () => {
     })
     await expect(session.writeFile(".vitehub/sources/inventory.json", "{}")).rejects.toThrow()
     await session.close()
+  })
+
+  it("ignores git metadata when committing host session changes", async () => {
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "trusted-host",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+
+    const session = await workspace.startSession()
+    const result = await session.exec(process.execPath, [
+      "-e",
+      "const fs = require('node:fs'); fs.mkdirSync('.git', { recursive: true }); fs.writeFileSync('.git/config', 'ignored\\n'); fs.writeFileSync('tracked.txt', 'kept\\n')",
+    ])
+
+    expect(result.exitCode).toBe(0)
+    expect((await session.diff()).entries).toEqual([
+      expect.objectContaining({ path: "tracked.txt", type: "added" }),
+    ])
+    await session.commit()
+    await session.close()
+
+    await expect(workspace.readFile("tracked.txt")).resolves.toBe("kept\n")
+  })
+
+  it("removes the temporary root when materialization fails", async () => {
+    const name = `cleanup-${Date.now()}`
+    const before = new Set(await readdir(tmpdir()))
+    const workspace = {
+      name,
+      async list() {
+        return [{ path: "seed.txt", type: "file" as const }]
+      },
+      async readFile() {
+        throw new Error("source failed")
+      },
+    } as unknown as Workspace
+
+    await expect(createTrustedHostWorkspaceSession({ name } as never, workspace)).rejects.toThrow("source failed")
+    const leaked = (await readdir(tmpdir()))
+      .filter(entry => entry.startsWith(`vitehub-workspace-${name}-`) && !before.has(entry))
+    expect(leaked).toEqual([])
   })
 
   it("sanitizes nested workspace names in temporary directory prefixes", async () => {
