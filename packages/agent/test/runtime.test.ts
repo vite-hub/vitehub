@@ -3567,6 +3567,28 @@ describe("agent message protocol", () => {
     expect(resolved).toEqual(expect.any(Object))
   })
 
+  it("converts static capability tool execution results to JSON-compatible values", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = defineAgent({
+      model: {} as never,
+      capabilities: [{
+        id: "lookup-tools",
+        tools: {
+          lookup: {
+            execute: (_input: unknown) => ({ timestamp: new Date("2026-06-22T19:30:00.000Z") }),
+            name: "lookup",
+          },
+        },
+      }],
+    })
+    const resolved = await agent.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
+
+    await expect(resolved.tools.lookup!.execute({})).resolves.toEqual({
+      timestamp: "2026-06-22T19:30:00.000Z",
+    })
+  })
+
   it("resolves static subagent tools with the resolved runtime context", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const browserAgent = {

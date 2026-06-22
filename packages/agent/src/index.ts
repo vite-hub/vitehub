@@ -30,6 +30,7 @@ import { finalizeUiMessageStreamOutput, isUIMessageStreamResult } from "./stream
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
+  withJsonCompatibleToolOutputs,
 } from "./tool-runtime.ts"
 import {
   traceAgentInvocationError,
@@ -761,7 +762,7 @@ function defineBaseAgent<
         ? await resolveStaticCapabilityTools({ capabilities: normalizedCapabilities }, resolvedContext)
         : undefined
       const capabilityTools = Object.keys(resolvedTools || {}).length
-        ? withAgentToolStepReporting(applyAgentToolPolicies(resolvedTools) || {}, context.devtools?.reportToolStep)
+        ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(resolvedTools) || {}), context.devtools?.reportToolStep)
         : undefined
       return capabilityTools
         ? { ...adapterInstance, tools: capabilityTools }
@@ -1125,7 +1126,7 @@ async function createAgentInvocationContext<
     })
     const transformedTools = await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
     const tools = Object.keys(transformedTools || {}).length
-      ? withAgentToolStepReporting(applyAgentToolPolicies(transformedTools) || {}, context.devtools?.reportToolStep)
+      ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {}), context.devtools?.reportToolStep)
       : undefined
     const activeWorkspace = capabilities.workspace || workspace
     const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
