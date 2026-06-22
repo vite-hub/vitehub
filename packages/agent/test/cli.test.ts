@@ -160,6 +160,36 @@ describe("agent CLI", () => {
     expect(stderr.output()).not.toContain("Thinking...")
   })
 
+  it("respects disabled Agent Dev Loop thinking fallback metadata", async () => {
+    const stderr = stream()
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "support", metadata: {}, trigger: "chat.message", type: "start" },
+          { text: "done", type: "text-delta" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ name: "support", triggers: ["chat.message"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["hello"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr,
+      stdout: stream(),
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(0)
+    expect(stderr.output()).toBe("")
+  })
+
   it("loads Agent Invocation Context Values from a JSON file", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-context-"))
     const rootDir = join(workspaceDir, "app")

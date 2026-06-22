@@ -136,9 +136,10 @@ function writeDevPayload(context: AgentCliContext, label: string, value: unknown
   context.stderr.write(`  ${label}: ${text}\n`)
 }
 
-function thinkingFallback(metadata: Record<string, unknown> | undefined): string {
+function thinkingFallback(metadata: Record<string, unknown> | undefined): string | undefined {
+  if (!metadata) return "Thinking..."
   const value = metadata?.thinkingFallback
-  return typeof value === "string" && value.trim() ? value : "Thinking..."
+  return typeof value === "string" && value.trim() ? value : undefined
 }
 
 function usageNumber(value: unknown): number | undefined {
@@ -562,8 +563,11 @@ async function sendDevMessage(
     for await (const event of readAgentInvocationStream(response.body)) {
       if (event.type === "start") {
         if (wroteFallback) continue
-        context.stderr.write(thinkingFallback(event.metadata))
-        pendingFallback = true
+        const fallback = thinkingFallback(event.metadata)
+        if (fallback) {
+          context.stderr.write(fallback)
+          pendingFallback = true
+        }
         wroteFallback = true
         continue
       }
