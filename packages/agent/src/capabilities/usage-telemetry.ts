@@ -384,8 +384,8 @@ async function* withUsageTelemetryStream(
     }
     yield chunk
   }
-  if (!recorded && fallbackResult) {
-    const usageRecord = await recordUsage(fallbackResult, options, run, metadataSource)
+  if (!recorded && isRecord(metadataSource)) {
+    const usageRecord = await recordUsage(fallbackResult ?? metadataSource, options, run, metadataSource)
     if (usageRecord) {
       onRecord?.(usageRecord)
       yield { type: "usage", usageRecord }
