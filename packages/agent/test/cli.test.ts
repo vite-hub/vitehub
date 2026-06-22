@@ -158,7 +158,7 @@ describe("agent CLI", () => {
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(0)
-    expect(stderr.output()).toBe("Thinking...\r\u001b[K")
+    expect(stderr.output()).toBe("\rThinking...\r\u001b[K")
   })
 
   it("uses Agent Dev Loop thinking fallback metadata", async () => {
@@ -189,8 +189,8 @@ describe("agent CLI", () => {
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(0)
-    expect(stderr.output()).toContain("Reading PR...\r\u001b[K")
-    expect(stderr.output()).toContain("[tool] workspaceShell")
+    expect(stderr.output()).toContain("\rReading PR...\r\u001b[K")
+    expect(stderr.output()).toContain("[tool] ls")
     expect(stderr.output()).not.toContain("Thinking...")
   })
 
@@ -337,16 +337,17 @@ describe("agent CLI", () => {
     expect(stderr.output()).toContain("[approval required] workspace_write: Needs write access.")
   })
 
-  it("renders Agent Dev Loop tool input, truncated output, and usage", async () => {
+  it("renders Agent Dev Loop tool output and final usage note", async () => {
     const stderr = stream()
+    const stdout = stream()
     const longOutput = "x".repeat(1300)
     const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       if (init?.method === "POST") {
         return ndjson([
           { agent: "support", trigger: "chat.message", type: "start" },
           { id: "tool-1", name: "shell", type: "tool-input-start" },
-          { id: "tool-1", input: { command: "pnpm test" }, name: "shell", type: "tool-call" },
-          { id: "tool-1", name: "shell", output: longOutput, type: "tool-result" },
+          { id: "tool-1", input: { command: "cat file.md" }, name: "shell", type: "tool-call" },
+          { id: "tool-1", name: "shell", output: { command: "cat file.md", exitCode: 0, stderr: "", stdout: longOutput }, type: "tool-result" },
           { id: "tool-2", name: "workspace_list", output: { path: "." }, type: "tool-result" },
           { text: "done", type: "text-delta" },
           { type: "usage", usageRecord: { usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
@@ -367,19 +368,20 @@ describe("agent CLI", () => {
       rootDir: "/repo",
       spawn: vi.fn(),
       stderr,
-      stdout: stream(),
+      stdout,
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(0)
-    expect(stderr.output()).toContain("[tool] shell")
-    expect(stderr.output()).toContain(`input: {"command":"pnpm test"}`)
+    expect(stderr.output()).toContain("[tool] cat file.md")
+    expect(stderr.output()).not.toContain(`input: {"command":"cat file.md"}`)
     expect(stderr.output()).toContain("[truncated ")
     expect(stderr.output()).not.toContain(longOutput)
+    expect(stderr.output()).toContain("---")
     expect(stderr.output()).toContain("[tool] workspace_list")
     expect(stderr.output()).toContain(`output: {"path":"."}`)
-    expect(stderr.output()).toContain("[usage] 17 tokens: 10 in / 7 out; 3 reasoning tokens")
-    expect(stderr.output().match(/\[tool\] shell/g)).toHaveLength(1)
-    expect(stderr.output().match(/\[usage\] 17 tokens/g)).toHaveLength(1)
+    expect(stderr.output()).not.toContain("[usage]")
+    expect(stderr.output().match(/\[tool\] cat file\.md/g)).toHaveLength(1)
+    expect(stdout.output()).toContain("done\n\n> [!NOTE]\n> Usage: 17 tokens: 10 in / 7 out; 3 reasoning tokens")
   })
 
   it("renders Agent Dev Loop delivery previews", async () => {

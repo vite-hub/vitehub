@@ -136,6 +136,13 @@ function writeDevPayload(context: AgentCliContext, label: string, value: unknown
   context.stderr.write(`  ${label}: ${text}\n`)
 }
 
+function writeDevText(context: AgentCliContext, value: unknown): boolean {
+  const text = formatDevPayload(value)
+  if (text === undefined) return false
+  context.stderr.write(text.endsWith("\n") ? text : `${text}\n`)
+  return true
+}
+
 function thinkingFallback(metadata: Record<string, unknown> | undefined): string | undefined {
   if (!metadata) return "Thinking..."
   const value = metadata?.thinkingFallback
@@ -178,6 +185,32 @@ function formatUsageRecord(record: AgentUsageRecord): string | undefined {
   if (reasoning !== undefined) parts.push(`${formatUsageNumber(reasoning)} reasoning tokens`)
   if (!parts.length) return record.summary
   return parts.join("; ")
+}
+
+function formatUsageNote(summary: string): string {
+  return ["> [!NOTE]", `> Usage: ${summary}`].join("\n")
+}
+
+function shellCommand(value: unknown): string | undefined {
+  if (!isRecord(value) || typeof value.command !== "string") return
+  const command = value.command.trim()
+  return command && !command.includes("\n") ? command : undefined
+}
+
+function toolHeader(name: string, input?: unknown, output?: unknown): string {
+  return `[tool] ${shellCommand(input) ?? shellCommand(output) ?? name}`
+}
+
+function writeShellOutput(context: AgentCliContext, output: unknown, error: unknown): boolean {
+  if (!isRecord(output)) return false
+  const stdout = typeof output.stdout === "string" && output.stdout ? output.stdout : undefined
+  const stderr = typeof output.stderr === "string" && output.stderr ? output.stderr : undefined
+  if (!stdout && !stderr && error === undefined) return false
+  if (stdout) writeDevText(context, stdout)
+  if (stderr) writeDevPayload(context, "stderr", stderr)
+  writeDevPayload(context, "error", error)
+  context.stderr.write("---\n")
+  return true
 }
 
 function readOptionValue(args: string[], index: number, flag: string): string {
@@ -564,22 +597,43 @@ async function sendDevMessage(
   let needsApproval = false
   let pendingFallback = false
   let wroteFallback = false
+  let fallbackTimer: ReturnType<typeof setInterval> | undefined
   let lastUsageText: string | undefined
+  let wroteUsageNote = false
+  let finishSeen = false
   const visibleTools = new Set<string>()
+  const writeUsageNote = () => {
+    if (!lastUsageText || wroteUsageNote) return
+    context.stdout.write(`${output && !output.endsWith("\n") ? "\n" : ""}\n${formatUsageNote(lastUsageText)}\n`)
+    wroteUsageNote = true
+  }
   const clearPendingFallback = () => {
+    if (fallbackTimer) {
+      clearInterval(fallbackTimer)
+      fallbackTimer = undefined
+    }
     if (!pendingFallback) return
     context.stderr.write("\r\u001b[K")
     pendingFallback = false
+  }
+  const startFallback = (fallback: string) => {
+    const base = fallback.trim().replace(/\.+$/, "")
+    const frames = [".", "..", "..."]
+    let frame = 2
+    const write = () => {
+      context.stderr.write(`\r${base}${frames[frame++ % frames.length]}`)
+    }
+    write()
+    fallbackTimer = setInterval(write, 250)
+    ;(fallbackTimer as { unref?: () => void }).unref?.()
+    pendingFallback = true
   }
   try {
     for await (const event of readAgentInvocationStream(response.body)) {
       if (event.type === "start") {
         if (wroteFallback) continue
         const fallback = thinkingFallback(event.metadata)
-        if (fallback) {
-          context.stderr.write(fallback)
-          pendingFallback = true
-        }
+        if (fallback) startFallback(fallback)
         wroteFallback = true
         continue
       }
@@ -591,30 +645,37 @@ async function sendDevMessage(
       }
       if (event.type === "tool-call" || event.type === "tool-input-start") {
         clearPendingFallback()
+        if (event.type === "tool-input-start" && event.input === undefined) continue
         if (!visibleTools.has(event.id)) {
           visibleTools.add(event.id)
-          context.stderr.write(`\n[tool] ${event.name}\n`)
+          context.stderr.write(`\n${toolHeader(event.name, event.input)}\n`)
         }
-        writeDevPayload(context, "input", event.input)
+        if (!shellCommand(event.input)) writeDevPayload(context, "input", event.input)
         continue
       }
       if (event.type === "tool-result") {
         clearPendingFallback()
         if (!visibleTools.has(event.id)) {
           visibleTools.add(event.id)
-          context.stderr.write(`\n[tool] ${event.name}\n`)
+          context.stderr.write(`\n${toolHeader(event.name, undefined, event.output)}\n`)
         }
-        writeDevPayload(context, "output", event.output)
-        writeDevPayload(context, "error", event.error)
+        if (!writeShellOutput(context, event.output, event.error)) {
+          writeDevPayload(context, "output", event.output)
+          writeDevPayload(context, "error", event.error)
+        }
         continue
       }
       if (event.type === "usage") {
         clearPendingFallback()
         const usage = formatUsageRecord(event.usageRecord)
-        if (usage && usage !== lastUsageText) {
-          context.stderr.write(`\n[usage] ${usage}\n`)
-          lastUsageText = usage
-        }
+        if (usage) lastUsageText = usage
+        if (finishSeen) writeUsageNote()
+        continue
+      }
+      if (event.type === "finish" || event.type === "done") {
+        clearPendingFallback()
+        finishSeen = true
+        writeUsageNote()
         continue
       }
       if (event.type === "delivery-preview") {

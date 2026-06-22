@@ -1555,7 +1555,7 @@ describe("agent message protocol", () => {
 
   it("feeds GitHub PR comment commands through input commands and write-back effects", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { inputCommands } = await import("../src/capabilities.ts")
+    const { inputCommands, usageTelemetry } = await import("../src/capabilities.ts")
     const { github } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
@@ -1648,7 +1648,7 @@ describe("agent message protocol", () => {
             },
           },
         },
-      })],
+      }), usageTelemetry({ summary: { subject: "Review run" } })],
       channels: {
         github: github({
           app: {
@@ -1668,11 +1668,16 @@ describe("agent message protocol", () => {
       },
       run: (context) => {
         expect(context.prompt).toBe("")
-        return "Review completed."
+        return {
+          text: "Review completed.",
+          totalUsage: { inputTokens: 10, outputTokens: 5 },
+        }
       },
     })
 
-    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", input)).resolves.toBe("Review completed.")
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", input)).resolves.toMatchObject({
+      text: "Review completed.",
+    })
 
     expect(fetcher).toHaveBeenCalledWith(
       "https://api.github.test/app/installations/123/access_tokens",
@@ -1699,7 +1704,7 @@ describe("agent message protocol", () => {
     expect(fetcher).toHaveBeenCalledWith(
       "https://api.github.test/repos/vite-hub/vitehub/issues/42/comments",
       expect.objectContaining({
-        body: JSON.stringify({ body: "Review completed." }),
+        body: expect.stringContaining("\"body\":\"Review completed.\\n\\n> [!NOTE]\\n> Review run used 15 tokens: 10 in / 5 out"),
         method: "POST",
       }),
     )
