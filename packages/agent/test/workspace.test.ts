@@ -1320,7 +1320,10 @@ describe("defineAgent workspace option", () => {
     await agent.run!(context({ vertex: { model: "gemini" } }))
 
     expect(toolResolver).toHaveBeenCalledTimes(1)
-    expect(agentSettings.at(-1)?.tools).toEqual({ shell })
+    const resolvedShell = (agentSettings.at(-1)?.tools as { shell?: typeof shell } | undefined)?.shell
+    expect(resolvedShell).toEqual(expect.objectContaining({ inputSchema: {} }))
+    await resolvedShell?.execute({ command: "rg defineAgent" })
+    expect(shell.execute).toHaveBeenCalledWith({ command: "rg defineAgent" })
   })
 
   it("reports explicitly attached workspace tool usage when execution starts and finishes", async () => {

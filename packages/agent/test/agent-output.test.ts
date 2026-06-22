@@ -214,6 +214,52 @@ describe("agent output helpers", () => {
     ])
   })
 
+  it("includes model metadata in derived raw-result usage records", async () => {
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents({
+      raw: {
+        durationMs: 1000,
+        provider: "googleVertex.anthropic.messages",
+        response: {
+          id: "resp_1",
+          modelId: "claude-opus-4-8",
+          timestamp: "2026-06-22T20:00:00.000Z",
+        },
+        usage: Promise.resolve({
+          inputTokens: 10,
+          outputTokens: 5,
+          totalTokens: 15,
+        }),
+      },
+      text: "ok",
+    })) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: {
+          model: {
+            id: "claude-opus-4-8",
+            provider: "googleVertex.anthropic.messages",
+          },
+          response: {
+            id: "resp_1",
+            timestamp: "2026-06-22T20:00:00.000Z",
+          },
+          usage: {
+            inputTokens: 10,
+            outputTokens: 5,
+            totalTokens: 15,
+          },
+        },
+      },
+      { type: "finish" },
+    ])
+  })
+
   it("adds a terminal finish event to fullStream output", async () => {
     const output = {
       fullStream: (async function* () {

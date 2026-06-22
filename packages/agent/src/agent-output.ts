@@ -52,6 +52,14 @@ function readNumber(record: Record<string, unknown>, ...keys: string[]): number 
   }
 }
 
+function readString(record: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
+  if (!record) return
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === "string" && value) return value
+  }
+}
+
 function readDetails(value: unknown): Record<string, number> | undefined {
   if (!isRecord(value)) return
   const details: Record<string, number> = {}
@@ -69,7 +77,33 @@ async function resolveUsageValue(value: unknown): Promise<unknown> {
   return isPromiseLike(value) ? await value : value
 }
 
-function usageRecordFromUsage(rawUsage: unknown): AgentUsageRecord | undefined {
+function modelFromResult(result: unknown): AgentUsageRecord["model"] | undefined {
+  if (!isRecord(result)) return
+  const response = isRecord(result.response) ? result.response : undefined
+  const id = readString(response, "modelId", "model") ?? readString(result, "modelId", "model")
+  const provider = readString(result, "provider")
+  if (id === undefined && provider === undefined) return
+  return {
+    ...(id !== undefined ? { id } : {}),
+    ...(provider !== undefined ? { provider } : {}),
+  }
+}
+
+function responseFromResult(result: unknown): AgentUsageRecord["response"] | undefined {
+  if (!isRecord(result)) return
+  const response = isRecord(result.response) ? result.response : undefined
+  const id = readString(response, "id")
+  const timestamp = response?.timestamp
+  const finishReason = result.finishReason
+  if (id === undefined && timestamp === undefined) return
+  return {
+    ...(finishReason !== undefined ? { finishReason } : {}),
+    ...(id !== undefined ? { id } : {}),
+    ...((timestamp instanceof Date || typeof timestamp === "string") ? { timestamp } : {}),
+  }
+}
+
+function usageRecordFromUsage(rawUsage: unknown, metadataSource?: unknown): AgentUsageRecord | undefined {
   if (!isRecord(rawUsage)) return
   const inputTokens = readNumber(rawUsage, "inputTokens", "promptTokens", "input_tokens", "prompt_tokens")
   const outputTokens = readNumber(rawUsage, "outputTokens", "completionTokens", "output_tokens", "completion_tokens")
@@ -84,7 +118,14 @@ function usageRecordFromUsage(rawUsage: unknown): AgentUsageRecord | undefined {
     ...(inputTokenDetails ? { inputTokenDetails } : {}),
     ...(outputTokenDetails ? { outputTokenDetails } : {}),
   }
-  return Object.keys(usage).length ? { usage } : undefined
+  if (!Object.keys(usage).length) return
+  const model = modelFromResult(metadataSource)
+  const response = responseFromResult(metadataSource)
+  return {
+    ...(model ? { model } : {}),
+    ...(response ? { response } : {}),
+    usage,
+  }
 }
 
 function usageFromStreamChunk(chunk: unknown): AgentUsageRecord | undefined {
@@ -94,12 +135,12 @@ function usageFromStreamChunk(chunk: unknown): AgentUsageRecord | undefined {
     ? chunk.usage
     : type === "finish"
       ? chunk.totalUsage ?? chunk.usage
-      : undefined)
+      : undefined, chunk)
 }
 
 async function usageFromResult(result: unknown): Promise<AgentUsageRecord | undefined> {
   if (!isRecord(result)) return
-  return usageRecordFromUsage(await resolveUsageValue(result.totalUsage ?? result.usage))
+  return usageRecordFromUsage(await resolveUsageValue(result.totalUsage ?? result.usage), result)
 }
 
 function optionalMessageId(messageId: string | undefined): { messageId?: string } {
