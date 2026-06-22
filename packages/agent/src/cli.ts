@@ -143,6 +143,16 @@ function writeDevText(context: AgentCliContext, value: unknown): boolean {
   return true
 }
 
+function toolTextOutput(value: unknown, seen = new Set<unknown>()): string | undefined {
+  if (!isRecord(value) || seen.has(value)) return
+  seen.add(value)
+  if (typeof value.text === "string" && value.text.trim()) return value.text
+  for (const key of ["output", "result", "raw"]) {
+    const text = toolTextOutput(value[key], seen)
+    if (text) return text
+  }
+}
+
 function thinkingFallback(metadata: Record<string, unknown> | undefined): string | undefined {
   if (!metadata || !Object.hasOwn(metadata, "thinkingFallback")) return "Thinking..."
   const value = metadata.thinkingFallback
@@ -241,6 +251,14 @@ function writeShellOutput(context: AgentCliContext, output: unknown, error: unkn
   if (stdout) writeDevText(context, stdout)
   if (stderr) writeDevPayload(context, "stderr", stderr)
   writeDevPayload(context, "error", error)
+  context.stderr.write("---\n")
+  return true
+}
+
+function writeToolTextOutput(context: AgentCliContext, output: unknown): boolean {
+  const text = toolTextOutput(output)
+  if (!text) return false
+  writeDevText(context, text)
   context.stderr.write("---\n")
   return true
 }
@@ -695,7 +713,7 @@ async function sendDevMessage(
           visibleTools.add(event.id)
           context.stderr.write(`\n${toolHeader(event.name, undefined, event.output)}\n`)
         }
-        if (!writeShellOutput(context, event.output, event.error)) {
+        if (!writeShellOutput(context, event.output, event.error) && !writeToolTextOutput(context, event.output)) {
           writeDevPayload(context, "output", event.output)
           writeDevPayload(context, "error", event.error)
         }

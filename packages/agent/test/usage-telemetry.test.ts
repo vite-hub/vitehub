@@ -1132,6 +1132,13 @@ describe("usage telemetry", () => {
     const fetch = vi.fn(async () => Response.json({
       data: [
         {
+          id: "anthropic/claude-opus-4.8",
+          pricing: {
+            input: "0.000005",
+            output: "0.000025",
+          },
+        },
+        {
           id: "openai/gpt-test",
           pricing: {
             input: "0.00000010",
@@ -1161,6 +1168,18 @@ describe("usage telemetry", () => {
         outputTokens: 1,
       },
     })).resolves.toMatchObject({ amount: "0.0000003" })
+    await expect(pricing({
+      model: { id: "claude-opus-4-8", provider: "googleVertex.anthropic.messages" },
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+      },
+    })).resolves.toEqual({
+      amount: "0.000175",
+      currency: "USD",
+      estimated: true,
+      source: "vercel-ai-gateway",
+    })
     expect(fetch).toHaveBeenCalledTimes(1)
   })
 })

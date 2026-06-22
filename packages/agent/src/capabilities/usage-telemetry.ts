@@ -558,6 +558,34 @@ function normalizeVercelPrice(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined
 }
 
+function addModelIdCandidate(candidates: string[], value: string | undefined) {
+  if (value && !candidates.includes(value)) candidates.push(value)
+}
+
+function normalizeAnthropicGatewayModelId(id: string): string {
+  return id
+    .replace(/^anthropic\//, "")
+    .replace(/^claude-(\d+)-(\d+)-/, "claude-$1.$2-")
+    .replace(/(.+-\d+)-(\d+)$/, "$1.$2")
+}
+
+function vercelGatewayModelIdCandidates(model: AgentUsageRecord["model"] | undefined): string[] {
+  const modelId = typeof model?.id === "string" ? model.id.trim() : ""
+  if (!modelId) return []
+  const candidates: string[] = []
+  addModelIdCandidate(candidates, modelId)
+
+  const unscoped = modelId.includes("/") ? modelId.slice(modelId.lastIndexOf("/") + 1) : modelId
+  const provider = typeof model?.provider === "string" ? model.provider.toLowerCase() : ""
+  const isAnthropic = modelId.startsWith("anthropic/") || unscoped.startsWith("claude-") || provider.includes("anthropic")
+  if (isAnthropic) {
+    addModelIdCandidate(candidates, `anthropic/${unscoped}`)
+    addModelIdCandidate(candidates, `anthropic/${normalizeAnthropicGatewayModelId(unscoped)}`)
+  }
+
+  return candidates
+}
+
 export function vercelAiGatewayPricing(options: VercelAiGatewayPricingOptions = {}): AgentUsagePricing {
   const fetcher = options.fetch || globalThis.fetch
   const modelsUrl = options.modelsUrl || vercelAiGatewayModelsUrl
@@ -586,9 +614,10 @@ export function vercelAiGatewayPricing(options: VercelAiGatewayPricingOptions = 
 
   return async ({ model, usage }) => {
     if (!hasTokenUsage(usage)) return
-    const modelId = model?.id
-    if (!modelId) return
-    const price = (await loadPrices())[modelId]
+    const catalog = await loadPrices()
+    const price = vercelGatewayModelIdCandidates(model)
+      .map(modelId => catalog[modelId])
+      .find((item): item is StaticModelPrice => Boolean(item))
     if (!price) return
     return {
       amount: pricedTokens(usage, price),

@@ -349,6 +349,7 @@ describe("agent CLI", () => {
           { id: "tool-1", input: { command: "cat file.md" }, name: "shell", type: "tool-call" },
           { id: "tool-1", name: "shell", output: { command: "cat file.md", exitCode: 0, stderr: "", stdout: longOutput }, type: "tool-result" },
           { id: "tool-2", name: "workspace_list", output: { path: "." }, type: "tool-result" },
+          { id: "tool-3", name: "run_summary", output: { raw: { raw: { steps: longOutput } }, text: "summary body" }, type: "tool-result" },
           { text: "done", type: "text-delta" },
           { type: "usage", usageRecord: { cost: { amount: "0.00000400", currency: "USD", estimated: true, source: "estimated" }, latency: { durationMs: 2000, tokensPerSecond: 3.5 }, usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
           { type: "usage", usageRecord: { cost: { amount: "0.00000400", currency: "USD", estimated: true, source: "estimated" }, latency: { durationMs: 2000, tokensPerSecond: 3.5 }, usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
@@ -379,6 +380,9 @@ describe("agent CLI", () => {
     expect(stderr.output()).toContain("---")
     expect(stderr.output()).toContain("[tool] workspace_list")
     expect(stderr.output()).toContain(`output: {"path":"."}`)
+    expect(stderr.output()).toContain("[tool] run_summary")
+    expect(stderr.output()).toContain("summary body")
+    expect(stderr.output()).not.toContain(`output: {"raw"`)
     expect(stderr.output()).not.toContain("[usage]")
     expect(stderr.output().match(/\[tool\] cat file\.md/g)).toHaveLength(1)
     expect(stdout.output()).toContain("done\n\n> [!NOTE]\n> Usage: cost ~$0.000004; 17 tokens: 10 in / 7 out; 3 reasoning tokens; time 2.0s; speed 3.5 tok/s")
