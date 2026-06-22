@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises"
+import { resolve } from "node:path"
+
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
 
@@ -54,10 +57,11 @@ interface ParsedEvalArgs {
 
 interface ParsedDevArgs {
   agent?: string
+  context?: Record<string, unknown>
+  contextPath?: string
   help: boolean
   input?: unknown
   message?: string
-  sample?: string
   timeout?: number
   trigger?: string
   url: string
@@ -68,7 +72,7 @@ interface AgentDevCliOptions {
 }
 
 interface AgentDevDiscovery {
-  agents?: Array<{ name?: unknown, samples?: unknown, triggers?: unknown }>
+  agents?: Array<{ name?: unknown, triggers?: unknown }>
   root?: unknown
 }
 
@@ -94,20 +98,24 @@ function writeEvalUsage(context: AgentCliContext): void {
 
 function writeDevUsage(context: AgentCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent dev [message...] [--agent <name>] [--trigger <id>] [--sample <name>] [--input <json>] [--url <url>] [--timeout <ms>]",
+    "Usage: vitehub agent dev [message...] [--agent <name>] [--trigger <id>] [--context <path>] [--input <json>] [--url <url>] [--timeout <ms>]",
     "",
     "Talk to a discovered Agent through a running Vite Development Server.",
     "",
     "Options:",
-    "  --agent <name>   Agent Dev Loop Target. Required when multiple Agents are compatible.",
-    "  --trigger <id>   Agent Trigger to invoke. Defaults to chat.message when available.",
-    "  --sample <name>  Agent Trigger dev sample to replay.",
-    "  --input <json>   Raw Agent Trigger input JSON for one-shot invocations.",
-    "  --url <url>      Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
-    "  --timeout <ms>   Agent Invocation timeout. Defaults to 90000.",
-    "  -h, --help       Show this help.",
+    "  --agent <name>    Agent Dev Loop Target. Required when multiple Agents are compatible.",
+    "  --trigger <id>    Agent Trigger to invoke. Defaults to chat.message when available.",
+    "  --context <path>  Agent Invocation Context Values JSON file.",
+    "  --input <json>    Raw Agent Trigger input JSON for one-shot invocations.",
+    "  --url <url>       Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
+    "  --timeout <ms>    Agent Invocation timeout. Defaults to 90000.",
+    "  -h, --help        Show this help.",
     "",
   ].join("\n"))
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
 function readOptionValue(args: string[], index: number, flag: string): string {
@@ -272,13 +280,13 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
       parsed.trigger = arg.slice("--trigger=".length)
       continue
     }
-    if (arg === "--sample") {
-      parsed.sample = readOptionValue(args, index, arg)
+    if (arg === "--context") {
+      parsed.contextPath = readOptionValue(args, index, arg)
       index++
       continue
     }
-    if (arg.startsWith("--sample=")) {
-      parsed.sample = arg.slice("--sample=".length)
+    if (arg.startsWith("--context=")) {
+      parsed.contextPath = arg.slice("--context=".length)
       continue
     }
     if (arg === "--input") {
@@ -321,6 +329,15 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
   const text = message.join(" ").trim()
   if (text) parsed.message = text
   return parsed
+}
+
+async function loadDevContext(contextPath: string, cwd: string): Promise<{ path: string, value: Record<string, unknown> }> {
+  const path = resolve(cwd, contextPath)
+  const value = JSON.parse(await readFile(path, "utf8")) as unknown
+  if (!isRecord(value)) {
+    throw new Error("Agent Dev Loop context file must contain a JSON object.")
+  }
+  return { path, value }
 }
 
 function endpointUrl(baseUrl: string): string {
@@ -413,9 +430,9 @@ async function sendDevMessage(
     response = await fetchImpl(url, {
       body: JSON.stringify({
         agent,
+        ...(parsed.context ? { context: parsed.context } : {}),
         ...(messages.length ? { messages } : {}),
         ...("input" in parsed ? { input: parsed.input } : {}),
-        ...(parsed.sample ? { sample: parsed.sample } : {}),
         ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
         ...(parsed.trigger ? { trigger: parsed.trigger } : {}),
       }),
@@ -551,12 +568,23 @@ export async function runAgentDevCli(
     writeDevUsage(context)
     return 0
   }
+  if (parsed.contextPath) {
+    try {
+      const loaded = await loadDevContext(parsed.contextPath, context.cwd)
+      parsed.context = loaded.value
+      context.stdout.write(`Loaded context: ${loaded.path}\n`)
+    }
+    catch (error) {
+      context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+      return 1
+    }
+  }
 
   const fetchImpl = options.fetch || globalThis.fetch
   const target = await readDiscovery(parsed, context, fetchImpl)
   if (!target) return 1
 
-  if (parsed.message || parsed.sample || "input" in parsed) {
+  if (parsed.message || "input" in parsed) {
     return await sendDevMessage(target.url, target.agent, parsed.message || "", [], parsed, context, fetchImpl, new AbortController().signal) ? 0 : 1
   }
   if (!process.stdin.isTTY) {

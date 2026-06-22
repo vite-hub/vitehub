@@ -265,9 +265,6 @@ export interface AgentTriggerDefinition<
   CALL_OPTIONS = unknown,
   TContext extends AgentCallbackContext<TRuntimeConfig> = AgentTriggerContext<TRuntimeConfig, Name>,
 > {
-  dev?: {
-    samples?: Record<string, TInput>
-  }
   devtools?: boolean | Record<string, unknown>
   input?: unknown
   invoke: (context: TContext, input: TInput) => MaybePromise<AgentTriggerInvokeResult<CALL_OPTIONS>>
@@ -283,9 +280,6 @@ export interface ResolvedAgentTriggerDefinition<
   capabilityId?: string
   channelId?: string
   definition: AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS>
-  dev?: {
-    samples?: Record<string, TInput>
-  }
   devtools?: boolean | Record<string, unknown>
   id: `${string}.${string}`
   input?: unknown
@@ -982,9 +976,6 @@ export interface AgentChatFinishExtension {
 export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   concurrency?: AgentMessageConcurrency
   dedupeTtlMs?: number
-  dev?: {
-    samples?: Record<string, unknown>
-  }
   errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   fallbackStreamingPlaceholderText?: string | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   history?: AgentChatAgentBindingOptions["history"]
@@ -1003,9 +994,6 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
 
 export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapter?: AgentChatPlatformResolver<TRuntimeConfig>
-  dev?: {
-    samples?: Record<string, unknown>
-  }
   effects?: AgentChannelDeliveryEffects<TRuntimeConfig>
   identity?: IdentityResolver
   kind: string

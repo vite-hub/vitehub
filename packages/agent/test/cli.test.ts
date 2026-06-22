@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -97,38 +97,85 @@ describe("agent CLI", () => {
     })
   })
 
-  it("replays an Agent Trigger dev sample without chat text", async () => {
-    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-      if (init?.method === "POST") {
-        return ndjson([
-          { agent: "review", trigger: "github.webhook", type: "start" },
-          { text: "summary", type: "text-delta" },
-          { type: "finish" },
-          { type: "done" },
-        ])
-      }
-      return Response.json({
-        agents: [{ name: "review", samples: { "github.webhook.summaryComment": { sample: "summaryComment", trigger: "github.webhook" } }, triggers: ["github.webhook"] }],
-        root: "/repo",
+  it("loads Agent Invocation Context Values from a JSON file", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-context-"))
+    try {
+      const contextPath = join(rootDir, "context.json")
+      await writeFile(contextPath, JSON.stringify({
+        pullRequest: {
+          repository: "acme/repo",
+          trigger: { command: "/summary" },
+        },
+      }), "utf8")
+      const stdout = stream()
+      const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return ndjson([
+            { agent: "review", trigger: "github.webhook", type: "start" },
+            { text: "summary", type: "text-delta" },
+            { type: "finish" },
+            { type: "done" },
+          ])
+        }
+        return Response.json({
+          agents: [{ name: "review", triggers: ["chat.message"] }],
+          root: rootDir,
+        })
       })
-    })
 
-    const exitCode = await runAgentDevCli(["--agent", "review", "--trigger", "github.webhook", "--sample", "summaryComment"], {
-      cwd: "/repo",
-      env: {},
-      rootDir: "/repo",
-      spawn: vi.fn(),
-      stderr: stream(),
-      stdout: stream(),
-    }, { fetch: fetchAgentStream as never })
+      const exitCode = await runAgentDevCli(["--agent", "review", "--context", "context.json", "/summary"], {
+        cwd: rootDir,
+        env: {},
+        rootDir,
+        spawn: vi.fn(),
+        stderr: stream(),
+        stdout,
+      }, { fetch: fetchAgentStream as never })
 
-    expect(exitCode).toBe(0)
-    const post = fetchAgentStream.mock.calls.find(([, init]) => init?.method === "POST")
-    expect(JSON.parse(String(post?.[1]?.body))).toEqual({
-      agent: "review",
-      sample: "summaryComment",
-      trigger: "github.webhook",
-    })
+      expect(exitCode).toBe(0)
+      expect(stdout.output()).toBe(`Loaded context: ${contextPath}\nsummary\n`)
+      const post = fetchAgentStream.mock.calls.find(([, init]) => init?.method === "POST")
+      expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
+        agent: "review",
+        context: {
+          pullRequest: {
+            repository: "acme/repo",
+            trigger: { command: "/summary" },
+          },
+        },
+        messages: [{
+          parts: [{ text: "/summary", type: "text" }],
+          role: "user",
+        }],
+      })
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects non-object Agent Dev Loop context files", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-context-"))
+    try {
+      await writeFile(join(rootDir, "context.json"), "[1,2,3]", "utf8")
+      const stderr = stream()
+      const fetchAgentStream = vi.fn()
+      const exitCode = await runAgentDevCli(["--context", "context.json", "hello"], {
+        cwd: rootDir,
+        env: {},
+        rootDir,
+        spawn: vi.fn(),
+        stderr,
+        stdout: stream(),
+      }, { fetch: fetchAgentStream as never })
+
+      expect(exitCode).toBe(1)
+      expect(fetchAgentStream).not.toHaveBeenCalled()
+      expect(stderr.output()).toContain("Agent Dev Loop context file must contain a JSON object.")
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
   })
 
   it("surfaces Agent Dev Loop approval requests", async () => {

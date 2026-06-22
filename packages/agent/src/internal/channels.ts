@@ -31,15 +31,6 @@ function hasMessageOverrides<TRuntimeConfig extends AgentRuntimeConfig>(
   return !!messages && Object.keys(messages).length > 0
 }
 
-function addDevSamples(target: Record<string, unknown>, samples: Record<string, unknown> | undefined): void {
-  for (const [name, sample] of Object.entries(samples || {})) {
-    if (Object.prototype.hasOwnProperty.call(target, name)) {
-      throw new TypeError(`[vitehub] Duplicate Agent Channel dev sample: ${name}. Use unique sample names across message-shaped Channels.`)
-    }
-    target[name] = sample
-  }
-}
-
 export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRuntimeConfig>(
   channels: AgentChannels<TRuntimeConfig> | undefined,
   messages: AgentMessageChannelSettings<TRuntimeConfig> | undefined,
@@ -54,13 +45,11 @@ export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRunti
   let messageChannelCount = 0
   const channelIdentities: NonNullable<AgentChatOptions<TRuntimeConfig>["identity"]>[] = []
   const channelMessageOverrides: AgentMessageChannelSettings<TRuntimeConfig>[] = []
-  const channelDevSamples: Record<string, unknown> = {}
 
   for (const [channelId, channelDefinition] of entries) {
     if (channelDefinition.messages === false) continue
     hasMessageChannel = true
     messageChannelCount += 1
-    addDevSamples(channelDevSamples, channelDefinition.dev?.samples)
     if (hasMessageOverrides(channelDefinition.messages)) {
       channelMessageOverrides.push(channelDefinition.messages)
     }
@@ -96,13 +85,6 @@ export function resolveAgentChannelChatOptions<TRuntimeConfig extends AgentRunti
       throw new TypeError("[vitehub] Channel-local messages options are only supported when an Agent defines one message-shaped Channel. Move shared settings to defineAgent({ messages }) until Channel-scoped chat triggers land.")
     }
     Object.assign(options, channelMessageOverrides[0])
-  }
-  if (Object.keys(channelDevSamples).length) {
-    addDevSamples(channelDevSamples, options.dev?.samples as Record<string, unknown> | undefined)
-    options.dev = {
-      ...options.dev,
-      samples: channelDevSamples,
-    }
   }
   if (Object.keys(platforms).length) options.platforms = platforms
   if (Object.keys(webhooks).length) options.webhooks = webhooks

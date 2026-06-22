@@ -33,7 +33,6 @@ export type {
 } from "./types.ts"
 export interface AgentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapter?: AgentChannelDefinition<TRuntimeConfig>["adapter"]
-  dev?: AgentChannelDefinition<TRuntimeConfig>["dev"]
   effects?: AgentChannelDefinition<TRuntimeConfig>["effects"]
   identity?: AgentChannelDefinition<TRuntimeConfig>["identity"]
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
@@ -175,7 +174,6 @@ declare global {
 }
 
 export interface GitHubPullRequestCommentEventOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
-  dev?: AgentTriggerDefinition<TRuntimeConfig>["dev"]
   ignored?: (reason: string) => Response
   origin?: string
   reply?: boolean | AgentChannelDeliveryFinishEffect
@@ -780,7 +778,6 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
   const options = pullRequestComments === true ? {} : pullRequestComments
   return {
     webhook: {
-      ...(options.dev ? { dev: options.dev } : {}),
       async invoke(context, input): Promise<AgentTriggerInvokeResult> {
         const payload = inputPayloadOrBody(input)
         const command = githubPullRequestCommandFromInput(isRecord(input) ? { ...input, payload } : { payload })
