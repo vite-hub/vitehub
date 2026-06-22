@@ -61,16 +61,16 @@ function readDetails(value: unknown): Record<string, number> | undefined {
   return Object.keys(details).length ? details : undefined
 }
 
-function usageFromStreamChunk(chunk: unknown): AgentUsageRecord | undefined {
-  if (!isRecord(chunk)) return
-  const type = String(chunk.type || "")
-  const rawUsage = type === "finish-step"
-    ? chunk.usage
-    : type === "finish"
-      ? chunk.totalUsage ?? chunk.usage
-      : undefined
-  if (!isRecord(rawUsage)) return
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return isRecord(value) && typeof value.then === "function"
+}
 
+async function resolveUsageValue(value: unknown): Promise<unknown> {
+  return isPromiseLike(value) ? await value : value
+}
+
+function usageRecordFromUsage(rawUsage: unknown): AgentUsageRecord | undefined {
+  if (!isRecord(rawUsage)) return
   const inputTokens = readNumber(rawUsage, "inputTokens", "promptTokens", "input_tokens", "prompt_tokens")
   const outputTokens = readNumber(rawUsage, "outputTokens", "completionTokens", "output_tokens", "completion_tokens")
   const totalTokens = readNumber(rawUsage, "totalTokens", "tokens", "total_tokens")
@@ -85,6 +85,21 @@ function usageFromStreamChunk(chunk: unknown): AgentUsageRecord | undefined {
     ...(outputTokenDetails ? { outputTokenDetails } : {}),
   }
   return Object.keys(usage).length ? { usage } : undefined
+}
+
+function usageFromStreamChunk(chunk: unknown): AgentUsageRecord | undefined {
+  if (!isRecord(chunk)) return
+  const type = String(chunk.type || "")
+  return usageRecordFromUsage(type === "finish-step"
+    ? chunk.usage
+    : type === "finish"
+      ? chunk.totalUsage ?? chunk.usage
+      : undefined)
+}
+
+async function usageFromResult(result: unknown): Promise<AgentUsageRecord | undefined> {
+  if (!isRecord(result)) return
+  return usageRecordFromUsage(await resolveUsageValue(result.totalUsage ?? result.usage))
 }
 
 function optionalMessageId(messageId: string | undefined): { messageId?: string } {
@@ -156,10 +171,10 @@ export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, strin
   return undefined
 }
 
-async function* streamChunksToEvents(chunks: AsyncIterable<unknown>): AsyncIterable<StreamEvent> {
+async function* streamChunksToEvents(chunks: AsyncIterable<unknown>, usageSource?: unknown): AsyncIterable<StreamEvent> {
   const toolNames = new Map<string, string>()
   let emittedUsage = false
-  let finished = false
+  let finishEvent: StreamEvent | undefined
   for await (const chunk of chunks) {
     if (!emittedUsage) {
       const usageRecord = usageFromStreamChunk(chunk)
@@ -171,10 +186,17 @@ async function* streamChunksToEvents(chunks: AsyncIterable<unknown>): AsyncItera
     const event = toAgentStreamEvent(chunk, toolNames)
     if (!event) continue
     if (event.type === "usage") emittedUsage = true
-    if (event.type === "finish") finished = true
+    if (event.type === "finish") {
+      finishEvent = event
+      continue
+    }
     yield event
   }
-  if (!finished) yield { type: "finish" }
+  if (!emittedUsage) {
+    const usageRecord = await usageFromResult(usageSource)
+    if (usageRecord) yield { type: "usage", usageRecord }
+  }
+  yield finishEvent ?? { type: "finish" }
 }
 
 export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<StreamEvent> {
@@ -196,11 +218,11 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   const result = value as { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> }
   const fullStream = result.fullStream
   if (fullStream) {
-    yield* streamChunksToEvents(fullStream)
+    yield* streamChunksToEvents(fullStream, result)
     return
   }
   if (result.stream) {
-    yield* streamChunksToEvents(result.stream)
+    yield* streamChunksToEvents(result.stream, result)
     return
   }
   if (result.textStream) {
