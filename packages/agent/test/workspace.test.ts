@@ -470,6 +470,17 @@ describe("defineAgent workspace option", () => {
     expect(useWorkspace).toHaveBeenCalledWith("docs")
   })
 
+  it("marks synthetic workspace runs with the shared runtime symbol", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = defineAgent({
+      workspace: {},
+      model: {} as never,
+    })
+
+    expect(agent.run && Symbol.for("vitehub.syntheticWorkspaceRun") in agent.run).toBe(true)
+  })
+
   it("joins array instructions", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
