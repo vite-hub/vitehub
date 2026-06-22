@@ -927,6 +927,21 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("converts live tool execution results to JSON-compatible values", async () => {
+    const { withJsonCompatibleToolOutputs } = await import("../src/tool-runtime.ts")
+
+    const tools = withJsonCompatibleToolOutputs({
+      lookup: {
+        execute: (_input: unknown) => ({ timestamp: new Date("2026-06-22T19:30:00.000Z") }),
+        name: "lookup",
+      },
+    })
+
+    await expect(tools.lookup.execute?.({})).resolves.toEqual({
+      timestamp: "2026-06-22T19:30:00.000Z",
+    })
+  })
+
   it("splits assistant tool result history into valid model messages", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 

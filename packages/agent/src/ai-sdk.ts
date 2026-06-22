@@ -13,6 +13,8 @@ import {
   applyAgentToolPolicies,
   reportWorkspaceMaterialization,
   withAgentToolStepReporting,
+  withJsonCompatibleToolOutputs,
+  toJsonCompatibleValue,
 } from "./tool-runtime.ts"
 import {
   aiSdkTelemetryIntegration,
@@ -94,15 +96,6 @@ function toTextModelMessageContent(parts: MessagePart[]): string {
 
 type AssistantContentPart = Exclude<AssistantContent, string>[number]
 type ToolContentPart = ToolContent[number]
-
-function toJsonCompatibleValue(value: unknown): unknown {
-  try {
-    return JSON.parse(JSON.stringify(value))
-  }
-  catch {
-    return String(value)
-  }
-}
 
 function toToolResultOutput(part: Extract<MessagePart, { type: "tool-result" }>): ToolResultPart["output"] {
   if (part.error) {
@@ -457,7 +450,7 @@ async function resolveInstructions(options: AiSdkAdapterOptions, context: AgentA
 async function resolveTools(options: AiSdkAdapterOptions, context: AgentAdapterMetadataContext, reportToolStep?: AgentAdapterRunContext["devtools"] extends infer T ? T extends { reportToolStep?: infer R } ? R : never : never) {
   if (!options.tools) return undefined
   const resolved = await resolveValue(options.tools as never, context)
-  const tools = applyAgentToolPolicies(resolved as AgentToolSet | undefined) || {}
+  const tools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(resolved as AgentToolSet | undefined) || {})
   const { materialize_sources: materializeSources, ...reportableTools } = tools
   return {
     ...withAgentToolStepReporting(reportableTools, reportToolStep as never),
@@ -713,7 +706,7 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
 
 export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
   const staticTools = typeof options.tools === "object" && options.tools
-    ? withAgentToolStepReporting(applyAgentToolPolicies(options.tools as AgentToolSet) || {})
+    ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(options.tools as AgentToolSet) || {}))
     : undefined
   return {
     async generate(context) {
