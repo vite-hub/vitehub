@@ -57,14 +57,17 @@ Then attach the Agent Dev Loop from another terminal.
 pnpm vitehub agent dev --agent support --url http://localhost:5173
 ```
 
-Pass a message for a one-shot invocation, or omit the message to enter an interactive session.
+Pass a message or `--prompt` for a one-shot invocation, or omit both to enter an interactive session.
 
 ```bash [Terminal]
 pnpm vitehub agent dev "/summary" --agent support
+pnpm vitehub agent dev --agent support --prompt "/summary"
+pnpm vitehub agent dev --agent support -p "/summary"
 ```
 
 Use `--context` when the invocation needs trusted Agent Invocation Context Values that would normally come from a Channel, route, or webhook.
-The file can live anywhere in the app, but it must contain one JSON object.
+The file can live anywhere in the app, but colocating it as `server/agents/<agent>/dev.context.json` keeps local Agent fixtures next to the Agent Definition without making them part of production behavior.
+It must contain one JSON object.
 
 ```json [server/agents/support/dev.context.json]
 {
@@ -81,6 +84,7 @@ The file can live anywhere in the app, but it must contain one JSON object.
 
 ```bash [Terminal]
 pnpm vitehub agent dev --agent support --context server/agents/support/dev.context.json
+pnpm vitehub agent dev --agent support --context server/agents/support/dev.context.json -p "/summary"
 ```
 
 Expected output includes the resolved context file path before the Agent Invocation starts.

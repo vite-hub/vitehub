@@ -98,12 +98,13 @@ function writeEvalUsage(context: AgentCliContext): void {
 
 function writeDevUsage(context: AgentCliContext): void {
   context.stdout.write([
-    "Usage: vitehub agent dev [message...] [--agent <name>] [--trigger <id>] [--context <path>] [--input <json>] [--url <url>] [--timeout <ms>]",
+    "Usage: vitehub agent dev [message...] [--agent <name>] [--prompt <text>] [--trigger <id>] [--context <path>] [--input <json>] [--url <url>] [--timeout <ms>]",
     "",
     "Talk to a discovered Agent through a running Vite Development Server.",
     "",
     "Options:",
     "  --agent <name>    Agent Dev Loop Target. Required when multiple Agents are compatible.",
+    "  -p, --prompt <text>  Prompt text for a one-shot invocation.",
     "  --trigger <id>    Agent Trigger to invoke. Defaults to chat.message when available.",
     "  --context <path>  Agent Invocation Context Values JSON file.",
     "  --input <json>    Raw Agent Trigger input JSON for one-shot invocations.",
@@ -271,6 +272,17 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
       parsed.agent = arg.slice("--agent=".length)
       continue
     }
+    if (arg === "-p" || arg === "--prompt") {
+      parsed.message = readOptionValue(args, index, arg).trim()
+      if (!parsed.message) throw new Error(`${arg} cannot be empty.`)
+      index++
+      continue
+    }
+    if (arg.startsWith("--prompt=")) {
+      parsed.message = arg.slice("--prompt=".length).trim()
+      if (!parsed.message) throw new Error("--prompt cannot be empty.")
+      continue
+    }
     if (arg === "--trigger") {
       parsed.trigger = readOptionValue(args, index, arg)
       index++
@@ -327,6 +339,7 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
   }
 
   const text = message.join(" ").trim()
+  if (text && parsed.message) throw new Error("Pass either --prompt or message text, not both.")
   if (text) parsed.message = text
   return parsed
 }

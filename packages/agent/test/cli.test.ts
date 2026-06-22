@@ -66,7 +66,7 @@ describe("agent CLI", () => {
       })
     })
 
-    const exitCode = await runAgentDevCli(["hello", "agent"], {
+    const exitCode = await runAgentDevCli(["-p", "hello agent"], {
       cwd: "/repo",
       env: {},
       rootDir: "/repo",
@@ -123,7 +123,7 @@ describe("agent CLI", () => {
         })
       })
 
-      const exitCode = await runAgentDevCli(["--agent", "review", "--context", "context.json", "/summary"], {
+      const exitCode = await runAgentDevCli(["--agent", "review", "--context", "context.json", "--prompt=/summary"], {
         cwd: rootDir,
         env: {},
         rootDir,
