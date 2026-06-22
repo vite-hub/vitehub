@@ -6,6 +6,7 @@ import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/internal/runtim
 
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
 import { streamAgentOutputToEvents } from "../agent-output.ts"
+import { channelDeliveryEffectsContextKey, channelDeliveryFinishEffectsContextKey } from "../capability-runtime.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation, resolveAgentTriggers, streamAgent, withAgentDefaults } from "../index.ts"
@@ -69,9 +70,10 @@ function withDevContext<CALL_OPTIONS>(
   input: AgentRunInput<CALL_OPTIONS>,
   context: Record<string, unknown> | undefined,
 ): AgentRunInput<CALL_OPTIONS> {
-  if (!context) return input
   const mergedContext: Record<string, unknown> = { ...input.context, ...context }
-  if (context.actor !== undefined && context.invoker === undefined) {
+  delete mergedContext[channelDeliveryEffectsContextKey]
+  delete mergedContext[channelDeliveryFinishEffectsContextKey]
+  if (context?.actor !== undefined && context.invoker === undefined) {
     mergedContext.invoker = context.actor
   }
   return { ...input, context: mergedContext as AgentRunInput<CALL_OPTIONS>["context"] }

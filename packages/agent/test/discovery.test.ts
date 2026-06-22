@@ -613,6 +613,67 @@ describe("agent chat capability discovery", () => {
     ])
   })
 
+  it("suppresses trigger Channel Delivery Effects for Agent Dev Loop channel invocations", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-effects-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
+
+    const { defineChannel } = await import("../src/channels.ts")
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const effect = vi.fn()
+    const agent = defineAgent({
+      channels: {
+        github: defineChannel("github", {
+          effects: { reply: effect },
+          messages: false,
+          triggers: {
+            webhook: {
+              invoke: context => ({
+                delivery: {
+                  finishEffects: () => ({ kind: "reply", payload: "finished" }),
+                },
+                input: { prompt: "review" },
+                run: { channelId: context.trigger.channelId, origin: "github", runId: "github-run" },
+              }),
+            },
+          },
+        }),
+      },
+      run: () => "Review completed.",
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {})).resolves.toBe("Review completed.")
+    expect(effect).toHaveBeenCalledOnce()
+    effect.mockClear()
+
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "review",
+      input: {},
+      trigger: "github.webhook",
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+    const events = response.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+
+    expect(events).toEqual([
+      expect.objectContaining({ agent: "review", trigger: "github.webhook", type: "start" }),
+      { text: "Review completed.", type: "text-delta" },
+      { type: "finish" },
+      { type: "done" },
+    ])
+    expect(effect).not.toHaveBeenCalled()
+  })
+
   it("serves plain Agent Definitions from the Agent Invocation Stream endpoint", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-plain-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
