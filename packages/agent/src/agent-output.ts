@@ -229,6 +229,11 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     for await (const text of result.textStream) {
       yield { text, type: "text-delta" }
     }
+    let usageRecord = isUsageRecord((value as { usageRecord?: unknown }).usageRecord)
+      ? (value as { usageRecord: AgentUsageRecord }).usageRecord
+      : await usageFromResult(value)
+    if (!usageRecord && isRecord(value)) usageRecord = await usageFromResult(value.raw)
+    if (usageRecord) yield { type: "usage", usageRecord }
     yield { type: "finish" }
     return
   }

@@ -302,6 +302,39 @@ describe("agent output helpers", () => {
     ])
   })
 
+  it("emits usage from promise-backed textStream results", async () => {
+    const output = {
+      textStream: (async function* () {
+        yield "ok"
+      })(),
+      usage: Promise.resolve({
+        inputTokens: 8,
+        outputTokens: 2,
+        totalTokens: 10,
+      }),
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: {
+          usage: {
+            inputTokens: 8,
+            outputTokens: 2,
+            totalTokens: 10,
+          },
+        },
+      },
+      { type: "finish" },
+    ])
+  })
+
   it("reads fullStream getters once while converting stream events", async () => {
     let reads = 0
     const output = {
