@@ -103,7 +103,7 @@ function responseFromResult(result: unknown): AgentUsageRecord["response"] | und
   }
 }
 
-function usageRecordFromUsage(rawUsage: unknown, metadataSource?: unknown): AgentUsageRecord | undefined {
+function usageRecordFromUsage(rawUsage: unknown, metadataSource?: unknown, fallbackMetadataSource?: unknown): AgentUsageRecord | undefined {
   if (!isRecord(rawUsage)) return
   const inputTokens = readNumber(rawUsage, "inputTokens", "promptTokens", "input_tokens", "prompt_tokens")
   const outputTokens = readNumber(rawUsage, "outputTokens", "completionTokens", "output_tokens", "completion_tokens")
@@ -119,8 +119,8 @@ function usageRecordFromUsage(rawUsage: unknown, metadataSource?: unknown): Agen
     ...(outputTokenDetails ? { outputTokenDetails } : {}),
   }
   if (!Object.keys(usage).length) return
-  const model = modelFromResult(metadataSource)
-  const response = responseFromResult(metadataSource)
+  const model = modelFromResult(metadataSource) ?? modelFromResult(fallbackMetadataSource)
+  const response = responseFromResult(metadataSource) ?? responseFromResult(fallbackMetadataSource)
   return {
     ...(model ? { model } : {}),
     ...(response ? { response } : {}),
@@ -128,14 +128,26 @@ function usageRecordFromUsage(rawUsage: unknown, metadataSource?: unknown): Agen
   }
 }
 
-function usageFromStreamChunk(chunk: unknown): AgentUsageRecord | undefined {
+function withFallbackUsageMetadata(record: AgentUsageRecord, fallbackMetadataSource: unknown): AgentUsageRecord {
+  const model = record.model ?? modelFromResult(fallbackMetadataSource)
+  const response = record.response ?? responseFromResult(fallbackMetadataSource)
+  return model || response
+    ? {
+        ...record,
+        ...(model ? { model } : {}),
+        ...(response ? { response } : {}),
+      }
+    : record
+}
+
+function usageFromStreamChunk(chunk: unknown, fallbackMetadataSource?: unknown): AgentUsageRecord | undefined {
   if (!isRecord(chunk)) return
   const type = String(chunk.type || "")
   return usageRecordFromUsage(type === "finish-step"
     ? chunk.usage
     : type === "finish"
       ? chunk.totalUsage ?? chunk.usage
-      : undefined, chunk)
+      : undefined, chunk, fallbackMetadataSource)
 }
 
 async function usageFromResult(result: unknown): Promise<AgentUsageRecord | undefined> {
@@ -218,11 +230,11 @@ async function* streamChunksToEvents(chunks: AsyncIterable<unknown>, usageSource
   let explicitUsageEvent = false
   let finishEvent: StreamEvent | undefined
   for await (const chunk of chunks) {
-    if (!explicitUsageEvent) usageRecord = usageFromStreamChunk(chunk) ?? usageRecord
+    if (!explicitUsageEvent) usageRecord = usageFromStreamChunk(chunk, usageSource) ?? usageRecord
     const event = toAgentStreamEvent(chunk, toolNames)
     if (!event) continue
     if (event.type === "usage") {
-      usageRecord = event.usageRecord
+      usageRecord = withFallbackUsageMetadata(event.usageRecord, usageSource)
       explicitUsageEvent = true
       continue
     }

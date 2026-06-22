@@ -597,6 +597,40 @@ function withCapturedUsage(result: unknown, capture: ReturnType<typeof createUsa
   }
 }
 
+function readModelString(value: unknown, ...keys: string[]): string | undefined {
+  if (!value || typeof value !== "object") return
+  const record = value as Record<string, unknown>
+  for (const key of keys) {
+    const item = record[key]
+    if (typeof item === "string" && item) return item
+  }
+}
+
+function withResolvedModelMetadata(result: unknown, model: unknown): unknown {
+  const modelId = readModelString(model, "modelId", "model")
+  const provider = readModelString(model, "provider", "providerId")
+  if ((modelId === undefined && provider === undefined) || !result || typeof result !== "object") {
+    return result
+  }
+
+  const record = result as Record<string, unknown>
+  if (modelId !== undefined && record.modelId === undefined) {
+    Object.defineProperty(record, "modelId", {
+      configurable: true,
+      enumerable: true,
+      value: modelId,
+    })
+  }
+  if (provider !== undefined && record.provider === undefined) {
+    Object.defineProperty(record, "provider", {
+      configurable: true,
+      enumerable: true,
+      value: provider,
+    })
+  }
+  return result
+}
+
 function arrayFrom(value: unknown): unknown[] {
   if (Array.isArray(value)) return value
   return value === undefined ? [] : [value]
@@ -716,12 +750,12 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       }
       const usageCapture = createUsageCapture()
       const callInput = getCallInput(context) as Record<string, unknown>
-      const result = withCapturedUsage(await agent.generate({
+      const result = withResolvedModelMetadata(withCapturedUsage(await agent.generate({
         ...callInput,
         onEnd: usageCapture.onEnd,
         onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
         onStepEnd: usageCapture.onStepEnd,
-      } as never) as GenerateTextResult<ToolSet, never, never>, usageCapture) as GenerateTextResult<ToolSet, never, never>
+      } as never) as GenerateTextResult<ToolSet, never, never>, usageCapture), model) as GenerateTextResult<ToolSet, never, never>
       const text = result.text.trim()
       if (text) return result as unknown as AgentAdapterResult
 
@@ -756,12 +790,12 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const { agent, model } = await createAgent(options, context)
       const usageCapture = createUsageCapture()
       const callInput = getCallInput(context) as Record<string, unknown>
-      const result = withCapturedUsage(await agent.stream({
+      const result = withResolvedModelMetadata(withCapturedUsage(await agent.stream({
         ...callInput,
         onEnd: usageCapture.onEnd,
         onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
         onStepEnd: usageCapture.onStepEnd,
-      } as never) as StreamTextResult<ToolSet, never, never>, usageCapture) as StreamTextResult<ToolSet, never, never>
+      } as never) as StreamTextResult<ToolSet, never, never>, usageCapture), model) as StreamTextResult<ToolSet, never, never>
       const execution = options.execution ?? options.modelExecution
       return withWorkspaceFallbackStreamResult(result, model as never, context, getFallbackOptions(execution?.workspaceFallback))
     },

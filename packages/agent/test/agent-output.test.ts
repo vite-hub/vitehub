@@ -364,6 +364,48 @@ describe("agent output helpers", () => {
     ])
   })
 
+  it("inherits model metadata from stream result usage records", async () => {
+    const output = {
+      fullStream: (async function* () {
+        yield { text: "ok", type: "text-delta" }
+        yield {
+          totalUsage: {
+            inputTokens: 16,
+            outputTokens: 4,
+            totalTokens: 20,
+          },
+          type: "finish",
+        }
+      })(),
+      modelId: "claude-opus-4-8",
+      provider: "googleVertex.anthropic.messages",
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: {
+          model: {
+            id: "claude-opus-4-8",
+            provider: "googleVertex.anthropic.messages",
+          },
+          usage: {
+            inputTokens: 16,
+            outputTokens: 4,
+            totalTokens: 20,
+          },
+        },
+      },
+      { type: "finish" },
+    ])
+  })
+
   it("adds a terminal finish event to textStream output", async () => {
     const output = {
       textStream: (async function* () {
