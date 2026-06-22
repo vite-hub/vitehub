@@ -216,6 +216,7 @@ describe("agent CLI", () => {
           { agent: "support", trigger: "chat.message", type: "start" },
           { id: "tool-1", name: "workspace_read", type: "tool-input-start" },
           { id: "tool-1", name: "workspace_read", output: { path: "README.md" }, type: "tool-result" },
+          { id: "tool-2", name: "workspace_list", output: { path: "." }, type: "tool-result" },
           { text: "done", type: "text-delta" },
           { type: "finish" },
           { type: "done" },
@@ -238,6 +239,8 @@ describe("agent CLI", () => {
 
     expect(exitCode).toBe(0)
     expect(stderr.output()).toContain("[tool] workspace_read")
+    expect(stderr.output()).toContain("[tool] workspace_list")
+    expect(stderr.output().match(/\[tool\] workspace_read/g)).toHaveLength(1)
   })
 
   it("runs Evalite through the Node runner with ViteHub defaults", async () => {

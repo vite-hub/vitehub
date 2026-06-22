@@ -475,6 +475,7 @@ async function sendDevMessage(
 
   let output = ""
   let needsApproval = false
+  const visibleTools = new Set<string>()
   try {
     for await (const event of readAgentInvocationStream(response.body)) {
       if (event.type === "text-delta") {
@@ -483,7 +484,15 @@ async function sendDevMessage(
         continue
       }
       if (event.type === "tool-call" || event.type === "tool-input-start") {
+        visibleTools.add(event.id)
         context.stderr.write(`\n[tool] ${event.name}\n`)
+        continue
+      }
+      if (event.type === "tool-result") {
+        if (!visibleTools.has(event.id)) {
+          visibleTools.add(event.id)
+          context.stderr.write(`\n[tool] ${event.name}\n`)
+        }
         continue
       }
       if (event.type === "approval-request") {
