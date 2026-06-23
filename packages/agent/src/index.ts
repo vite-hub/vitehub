@@ -1134,6 +1134,12 @@ function mergeAgentWorkspaceDefinition(
   }
 }
 
+function hasWorkspaceDefinitionOverlay(definition: WorkspaceDefinition | undefined): boolean {
+  if (!definition) return false
+  const { name: _name, sources, mode: _mode, ...fields } = definition as WorkspaceDefinition & { mode?: AgentCapabilityMode }
+  return Object.keys(fields).length > 0 || Object.keys(sources || {}).length > 0
+}
+
 async function registerResolvedAgentWorkspaceDefinition(name: string, definition: WorkspaceDefinition | undefined): Promise<void> {
   if (!definition) return
   const { name: _name, ...workspace } = definition
@@ -1179,7 +1185,7 @@ async function createAgentInvocationContext<
     if (workspaceName && ownsWorkspaceDefinition && configuredWorkspaceDefinition && !registeredWorkspaceDefinition) {
       await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
     }
-    const workspaceUseOptions = !registeredWorkspaceDefinition && !ownsWorkspaceDefinition && resolvedWorkspaceDefinition
+    const workspaceUseOptions = !ownsWorkspaceDefinition && hasWorkspaceDefinitionOverlay(configuredDefinitionForMerge) && resolvedWorkspaceDefinition
       ? { definition: resolvedWorkspaceDefinition }
       : undefined
     const workspaceModule = workspaceName ? await import("@vite-hub/workspace") : undefined
