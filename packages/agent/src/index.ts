@@ -875,7 +875,7 @@ export interface DefineAgent {
     >,
   >(
     options: TOptions & { capabilities?: TCapabilities } & ValidateWorkspaceAgentOptions<TOptions>,
-  ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>
+  ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, TCapabilities>
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
@@ -889,7 +889,7 @@ export interface DefineAgent {
       AgentCapabilitiesInvocationContextValues<TCapabilities>,
       TCapabilities
     > & { capabilities?: TCapabilities, workspace?: never },
-  ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
+  ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>>
 }
 
 function createWorkspaceAgentDefinition<
