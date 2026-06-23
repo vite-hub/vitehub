@@ -1535,6 +1535,40 @@ describe("defineAgent workspace option", () => {
     ])
   })
 
+  it("synthesizes streamed answers from stream-only AI SDK results", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    agentStream.mockResolvedValueOnce({
+      stream: (async function* () {
+        yield {
+          output: { stdout: "screenshots/login-version-badge-desktop.png" },
+          toolCallId: "call-1",
+          type: "tool-output-available",
+        }
+        yield { finishReason: "tool-calls", type: "finish" }
+      })(),
+    } as never)
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { error: undefined, id: "call-1", name: "tool", output: { stdout: "screenshots/login-version-badge-desktop.png" }, type: "tool-result" },
+      { id: "workspace-fallback", text: "fallback answer", type: "text-delta" },
+      { reason: "workspace-fallback", type: "finish" },
+    ])
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining("screenshots/login-version-badge-desktop.png"),
+    }))
+  })
+
   it("preserves stream result methods when wrapping workspace fallback streams", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     class StreamResult {

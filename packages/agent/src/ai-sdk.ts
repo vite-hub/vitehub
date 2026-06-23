@@ -421,10 +421,11 @@ function workspaceFallbackTextEvents(text: string): unknown[] {
   return [{ id: "workspace-fallback", text, type: "text-delta" }]
 }
 
-function cloneStreamTextResult<T extends object>(result: T, fullStream: AsyncIterable<unknown>): T {
-  return cloneWithPropertyDescriptors(result, {
-    fullStream: teeingAsyncIterableStreamDescriptor(fullStream),
-  })
+function cloneStreamTextResult<T extends object>(result: T, streams: { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown> }): T {
+  return cloneWithPropertyDescriptors(result, Object.fromEntries(Object.entries(streams).map(([key, stream]) => [
+    key,
+    teeingAsyncIterableStreamDescriptor(stream),
+  ])))
 }
 
 function withWorkspaceFallbackFullStream(
@@ -479,15 +480,25 @@ function withWorkspaceFallbackFullStream(
   })()
 }
 
-function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterable<unknown> }>(
+function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown> }>(
   result: T,
   model: ToolLoopAgentSettings["model"],
   context: AgentAdapterRunContext,
   fallback: Required<AiSdkWorkspaceFallbackOptions>,
   capturedEvidence?: () => string[],
 ): T {
-  if (!fallback.enabled || !result.fullStream) return result
-  return cloneStreamTextResult(result as object, withWorkspaceFallbackFullStream(result.fullStream, model, context, fallback.maxToolResults, capturedEvidence)) as T
+  if (!fallback.enabled) return result
+  if (result.fullStream) {
+    return cloneStreamTextResult(result as object, {
+      fullStream: withWorkspaceFallbackFullStream(result.fullStream, model, context, fallback.maxToolResults, capturedEvidence),
+    }) as T
+  }
+  if (result.stream) {
+    return cloneStreamTextResult(result as object, {
+      stream: withWorkspaceFallbackFullStream(result.stream, model, context, fallback.maxToolResults, capturedEvidence),
+    }) as T
+  }
+  return result
 }
 
 async function resolveValue<T>(value: T | ((context: AgentAdapterMetadataContext) => MaybePromise<T>), context: AgentAdapterMetadataContext): Promise<T> {
