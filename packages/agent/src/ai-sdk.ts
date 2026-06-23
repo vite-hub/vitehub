@@ -418,12 +418,7 @@ function finishEventReason(event: unknown): string | undefined {
 }
 
 function workspaceFallbackTextEvents(text: string): unknown[] {
-  const id = "workspace-fallback"
-  return [
-    { id, type: "text-start" },
-    { id, text, type: "text-delta" },
-    { id, type: "text-end" },
-  ]
+  return [{ id: "workspace-fallback", text, type: "text-delta" }]
 }
 
 function cloneStreamTextResult<T extends object>(result: T, fullStream: AsyncIterable<unknown>): T {
