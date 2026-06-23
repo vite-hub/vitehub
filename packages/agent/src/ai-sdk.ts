@@ -391,14 +391,18 @@ function withWorkspaceFallbackFullStream(
 ): AsyncIterable<unknown> {
   return (async function* () {
     let text = ""
+    let textAfterLastToolResult = ""
     const evidence: string[] = []
     let finishEvent: unknown
 
     for await (const event of stream) {
-      text += streamEventText(event) || ""
+      const eventText = streamEventText(event) || ""
+      text += eventText
+      textAfterLastToolResult += eventText
       const output = streamToolResultOutput(event)
       if (output !== undefined && evidence.length < maxToolResults) {
         evidence.push(JSON.stringify(output).slice(0, 4000))
+        textAfterLastToolResult = ""
       }
       const type = streamEventType(event)
       if (type === "finish" || type === "abort") {
@@ -408,7 +412,8 @@ function withWorkspaceFallbackFullStream(
       yield event
     }
 
-    if ((text.trim() && finishEventReason(finishEvent) !== "tool-calls") || evidence.length === 0) {
+    const hasFinalText = evidence.length ? textAfterLastToolResult.trim() : text.trim()
+    if ((hasFinalText && finishEventReason(finishEvent) !== "tool-calls") || evidence.length === 0) {
       if (finishEvent) yield finishEvent
       return
     }
