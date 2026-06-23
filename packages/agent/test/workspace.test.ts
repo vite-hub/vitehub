@@ -1473,6 +1473,44 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
+  it("synthesizes streamed answers from captured tool execution results", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const runBrowser = vi.fn(async () => ({ text: "Browser evidence from execute: screenshots/login-version-badge-desktop.png" }))
+    agentStream.mockImplementationOnce(async function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
+      await this.settings.tools.run_browser.execute({ message: "capture one desktop screenshot" })
+
+      return {
+        fullStream: (async function* () {
+          yield { id: "msg-1", text: "I will capture browser evidence.", type: "text-delta" }
+          yield { finishReason: "tool-calls", type: "finish" }
+        })(),
+      }
+    })
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+      capabilities: [{
+        id: "subagents",
+        tools: {
+          run_browser: { execute: runBrowser },
+        } as never,
+      }],
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(runBrowser).toHaveBeenCalledWith({ message: "capture one desktop screenshot" })
+    expect(events).toContainEqual({ id: "workspace-fallback", text: "fallback answer", type: "text-delta" })
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining("Browser evidence from execute"),
+    }))
+  })
+
   it("emits streamed workspace fallback text before finish events", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     agentStream.mockResolvedValueOnce({

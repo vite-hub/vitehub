@@ -330,18 +330,51 @@ async function synthesizeWorkspaceFallbackFromEvidence(
 
 function createWorkspaceFallbackEvidenceCapture(maxToolResults: number) {
   const evidence: string[] = []
+  const seen = new Set<string>()
 
   return {
     collect(event: unknown) {
       for (const output of collectToolResultOutputs(event)) {
         if (evidence.length >= maxToolResults) break
-        evidence.push(JSON.stringify(output).slice(0, 4000))
+        const text = JSON.stringify(output).slice(0, 4000)
+        if (seen.has(text)) continue
+        seen.add(text)
+        evidence.push(text)
       }
     },
     evidence() {
       return evidence.slice()
     },
   }
+}
+
+function withWorkspaceFallbackToolEvidence<TTools extends AgentToolSet | undefined>(
+  tools: TTools,
+  capture?: ReturnType<typeof createWorkspaceFallbackEvidenceCapture>,
+): TTools {
+  if (!capture || !tools || typeof tools !== "object") return tools
+
+  return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
+    if (!tool || typeof tool !== "object" || typeof (tool as { execute?: unknown }).execute !== "function") {
+      return [name, tool]
+    }
+
+    const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
+    return [name, {
+      ...tool,
+      async execute(input: unknown, ...args: unknown[]) {
+        try {
+          const output = await execute.call(tool, input, ...args)
+          capture.collect({ output, toolName: name, type: "tool-result" })
+          return output
+        }
+        catch (error) {
+          capture.collect({ error: error instanceof Error ? error.message : String(error), toolName: name, type: "tool-error" })
+          throw error
+        }
+      },
+    }]
+  })) as TTools
 }
 
 function streamEventText(event: unknown): string | undefined {
@@ -748,7 +781,11 @@ function withViteHubTelemetry(settings: Record<string, unknown>, context: AgentA
   }
 }
 
-async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRunContext) {
+async function createAgent(
+  options: AiSdkAdapterOptions,
+  context: AgentAdapterRunContext,
+  fallbackCapture?: ReturnType<typeof createWorkspaceFallbackEvidenceCapture>,
+) {
   const { ToolLoopAgent, stepCountIs } = await import("ai")
   const execution = options.execution ?? options.modelExecution
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
@@ -770,10 +807,10 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
     context.sourceInstructions,
   )
   const adapterTools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)
-  const resolvedTools = withDefaultToolInputSchemas(await applyCapabilityToolTransforms({
+  const resolvedTools = withDefaultToolInputSchemas(withWorkspaceFallbackToolEvidence(await applyCapabilityToolTransforms({
     ...context.tools,
     ...adapterTools,
-  }, []))
+  }, []), fallbackCapture))
   const providerTools = Object.fromEntries((context.providerTools || []).map(tool => [tool.name, {
     args: tool.args || {},
     id: tool.id,
@@ -822,12 +859,17 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     : undefined
   return {
     async generate(context) {
-      const { agent, model, tools } = await createAgent(options, context)
+      const callInput = getCallInput(context) as Record<string, unknown>
+      const execution = options.execution ?? options.modelExecution
+      const fallback = getFallbackOptions(execution?.workspaceFallback)
+      const fallbackCapture = fallback.enabled
+        ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
+        : undefined
+      const { agent, model, tools } = await createAgent(options, context, fallbackCapture)
       if (context.workspace && tools && "materialize_sources" in tools) {
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.devtools?.reportToolStep)
       }
       const usageCapture = createUsageCapture()
-      const callInput = getCallInput(context) as Record<string, unknown>
       const result = withResolvedModelMetadata(withCapturedUsage(await agent.generate({
         ...callInput,
         onEnd: usageCapture.onEnd,
@@ -835,10 +877,9 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         onStepEnd: usageCapture.onStepEnd,
       } as never) as GenerateTextResult<ToolSet, never, never>, usageCapture), model) as GenerateTextResult<ToolSet, never, never>
       const text = result.text.trim()
-      const execution = options.execution ?? options.modelExecution
-      const fallback = getFallbackOptions(execution?.workspaceFallback)
       if (fallback.enabled && (result.finishReason === "tool-calls" || !text && hasToolResults(result))) {
         const synthesized = await synthesizeWorkspaceFallback(model as never, context, result, fallback.maxToolResults)
+          ?? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [])
         if (synthesized) return { raw: result, text: synthesized }
       }
       if (text) return result as unknown as AgentAdapterResult
@@ -864,13 +905,13 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     name: "ai-sdk",
     ...(staticTools ? { tools: staticTools } : {}),
     async stream(context) {
-      const { agent, model } = await createAgent(options, context)
       const usageCapture = createUsageCapture()
       const execution = options.execution ?? options.modelExecution
       const fallback = getFallbackOptions(execution?.workspaceFallback)
       const fallbackCapture = fallback.enabled
         ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
         : undefined
+      const { agent, model } = await createAgent(options, context, fallbackCapture)
       const captureStep = async (event: unknown) => {
         await usageCapture.onStepEnd(event)
         fallbackCapture?.collect(event)
