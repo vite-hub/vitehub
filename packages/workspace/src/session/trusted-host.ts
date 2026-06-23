@@ -125,6 +125,12 @@ function normalizeSessionPaths(options?: WorkspaceSessionOptions): string[] | un
   return paths.sort((left, right) => left.length - right.length || left.localeCompare(right))
 }
 
+function assertDiffInsideSessionPaths(diff: WorkspaceDiff, paths: string[] | undefined) {
+  if (!paths) return
+  const entry = diff.entries.find(entry => !paths.some(path => entry.path === path || entry.path.startsWith(`${path}/`)))
+  if (entry) throw new WorkspaceError(`[vitehub] Workspace session path ${entry.path} is outside the session scope.`)
+}
+
 async function sessionEntries(workspace: Workspace, options?: WorkspaceSessionOptions): Promise<WorkspaceEntry[]> {
   const paths = normalizeSessionPaths(options)
   if (!paths) return await workspace.list("", { recursive: true })
@@ -236,6 +242,7 @@ export async function createTrustedHostWorkspaceSession(
 ): Promise<WorkspaceSession> {
   assertTrustedHostWorkspaceRuntimeAllowed(definition)
   const root = await mkdtemp(join(tmpdir(), `vitehub-workspace-${workspace.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "workspace"}-`))
+  const sessionPaths = normalizeSessionPaths(options)
   let baseline = await materializeWorkspace(workspace, root, options).catch(async (error) => {
     await rm(root, { force: true, recursive: true })
     throw error
@@ -311,6 +318,7 @@ export async function createTrustedHostWorkspaceSession(
     },
     async commit(options) {
       const diff = await currentDiff()
+      assertDiffInsideSessionPaths(diff, sessionPaths)
       await commitLocalChanges(root, workspace, diff, mediaTypes)
       baseline = await snapshotLocal(root, options?.message || "local-commit")
     },

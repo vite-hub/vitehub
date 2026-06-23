@@ -46,7 +46,7 @@ export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
   if (options.database !== false) plugins.push(hubDb(options.database))
   if (options.blob !== false) plugins.push(hubBlob(options.blob))
   if (options.kv !== false) plugins.push(hubKv(options.kv))
-  if (options.queue) plugins.push(hubQueue(options.queue === true ? undefined : options.queue))
+  if (options.queue) plugins.push(hubQueue(options.queue === true ? {} : options.queue))
   if (options.sandbox !== false) plugins.push(hubSandbox(options.sandbox))
   if (options.schedule !== false) plugins.push(hubSchedule(options.schedule))
   if (options.workflow !== false) plugins.push(hubWorkflow(options.workflow))

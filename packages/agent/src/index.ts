@@ -51,6 +51,7 @@ import {
   isWorkspaceAgentOptions,
   resolveWorkspaceAgentDefaultInstructions,
   resolveWorkspaceSourceInstructionBlock,
+  workspaceAgentOwnsWorkspaceDefinition,
   workspaceDefinitionFromOptions,
   workspaceModeFromOptions,
   workspaceNameFromOptions,
@@ -1101,10 +1102,14 @@ function mergeWorkspaceSources(
   configured: WorkspaceDefinition["sources"] | undefined,
 ): WorkspaceDefinition["sources"] | undefined {
   if (!registered && !configured) return undefined
-  return {
-    ...registered,
-    ...configured,
+  const sources = { ...registered }
+  for (const [key, source] of Object.entries(configured || {})) {
+    if (key in sources) {
+      throw new Error(`[vitehub] Workspace source "${key}" is already defined.`)
+    }
+    sources[key] = source
   }
+  return sources
 }
 
 function mergeAgentWorkspaceDefinition(
@@ -1114,18 +1119,19 @@ function mergeAgentWorkspaceDefinition(
 ): WorkspaceDefinition | undefined {
   if (!registered && !configured) return undefined
   if (!registered) return configured ? { ...configured, name } : undefined
-  if (!configured) {
-    registered.name ||= name
-    return registered
-  }
+  if (!configured) return { ...registered, name: registered.name || name }
 
   const { name: _configuredName, sources: configuredSources, ...configuredFields } = configured as WorkspaceDefinition & { mode?: AgentCapabilityMode }
   const { mode: _mode, ...configuredDefinitionFields } = configuredFields
-  Object.assign(registered, configuredDefinitionFields, {
+  if (!Object.keys(configuredDefinitionFields).length && !Object.keys(configuredSources || {}).length) {
+    return registered
+  }
+  return {
+    ...registered,
+    ...configuredDefinitionFields,
     name: registered.name || name,
     sources: mergeWorkspaceSources(registered.sources, configuredSources),
-  })
-  return registered
+  }
 }
 
 async function registerResolvedAgentWorkspaceDefinition(name: string, definition: WorkspaceDefinition | undefined): Promise<void> {
@@ -1163,16 +1169,21 @@ async function createAgentInvocationContext<
     const registeredWorkspaceDefinition = workspaceName
       ? await resolveRegisteredAgentWorkspaceDefinition(workspaceName)
       : undefined
+    const ownsWorkspaceDefinition = workspaceDefinition ? workspaceAgentOwnsWorkspaceDefinition(workspaceDefinition) : false
     const resolvedWorkspaceDefinition = workspaceName
-      ? mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredWorkspaceDefinition)
+      ? mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, ownsWorkspaceDefinition || registeredWorkspaceDefinition ? configuredWorkspaceDefinition : undefined)
       : undefined
-    if (workspaceName && configuredWorkspaceDefinition && resolvedWorkspaceDefinition !== registeredWorkspaceDefinition) {
+    if (workspaceName && ownsWorkspaceDefinition && configuredWorkspaceDefinition && !registeredWorkspaceDefinition) {
       await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
     }
-    const workspace = workspaceName
+    const workspaceUseOptions = !ownsWorkspaceDefinition && resolvedWorkspaceDefinition && resolvedWorkspaceDefinition !== registeredWorkspaceDefinition
+      ? { definition: resolvedWorkspaceDefinition }
+      : undefined
+    const workspaceModule = workspaceName ? await import("@vite-hub/workspace") : undefined
+    const workspace = workspaceName && workspaceModule
       ? workspaceMode === "write"
-        ? (await import("@vite-hub/workspace")).useWorkspace(workspaceName, { mode: "write" })
-        : (await import("@vite-hub/workspace")).useWorkspace(workspaceName)
+        ? workspaceModule.useWorkspace(workspaceName, workspaceUseOptions ? { ...workspaceUseOptions, mode: "write" } : { mode: "write" })
+        : workspaceUseOptions ? workspaceModule.useWorkspace(workspaceName, workspaceUseOptions) : workspaceModule.useWorkspace(workspaceName)
       : undefined
     const capabilityOptions = definition?.capabilities?.length
       ? { capabilities: definition.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: definition.hooks as never }
@@ -1187,7 +1198,7 @@ async function createAgentInvocationContext<
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
     const inputHook = definition?.hooks?.["agent:input"]
-    if (inputHook) {
+    if (inputHook && !capabilities.response) {
       try {
         await runObservedAgentHook(definition?.hooks as AgentHookObserverHooks | undefined, {
           name: "agent:input",

@@ -106,6 +106,12 @@ function normalizeSessionPaths(options?: WorkspaceSessionOptions): string[] | un
   return paths.sort((left, right) => left.length - right.length || left.localeCompare(right))
 }
 
+function assertDiffInsideSessionPaths(diff: WorkspaceDiff, paths: string[] | undefined) {
+  if (!paths) return
+  const entry = diff.entries.find(entry => !paths.some(path => entry.path === path || entry.path.startsWith(`${path}/`)))
+  if (entry) throw new WorkspaceError(`[vitehub] Workspace session path ${entry.path} is outside the session scope.`)
+}
+
 async function sessionEntries(workspace: Workspace, options?: WorkspaceSessionOptions): Promise<WorkspaceEntry[]> {
   const paths = normalizeSessionPaths(options)
   if (!paths) return await workspace.list("", { recursive: true })
@@ -182,6 +188,7 @@ export async function createSandboxWorkspaceSession(
   }
 
   const sandbox = await sandboxPackage.createSandboxWithConfig(sandboxConfig)
+  const sessionPaths = normalizeSessionPaths(options)
   let baseline = await materializeWorkspace(workspace, sandbox, options)
   const mediaTypes = new Map<string, string>()
   let closed = false
@@ -254,6 +261,7 @@ export async function createSandboxWorkspaceSession(
     },
     async commit(options) {
       const diff = await currentDiff()
+      assertDiffInsideSessionPaths(diff, sessionPaths)
       await commitSandboxChanges(sandbox, workspace, diff, mediaTypes)
       baseline = await snapshotSandbox(sandbox, options?.message || "sandbox-commit")
     },

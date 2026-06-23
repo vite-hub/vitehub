@@ -89,6 +89,33 @@ describe("agent message protocol", () => {
     expect(run).toHaveBeenCalledTimes(1)
   })
 
+  it("skips agent input hooks after a capability handles the input", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const handled = new Response("handled")
+    const run = vi.fn(() => "ok")
+    const inputHook = vi.fn(() => {
+      throw new Error("should not run")
+    })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "handled",
+          input: () => handled,
+        }),
+      ],
+      driver: { run },
+      hooks: {
+        "agent:input": inputHook,
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      prompt: "review",
+    })).resolves.toBe(handled)
+    expect(inputHook).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it("emits invocation Trace Events without persisting prompt content", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()

@@ -57,9 +57,38 @@ function skillSourceKey(path: string): string {
   return `skill.${suffix}`
 }
 
+function rebaseMountedFileSource(source: WorkspaceSourceInput, mountPath: string): WorkspaceSourceInput {
+  const normalizedMount = normalizeSkillPath(mountPath)
+  if (!normalizedMount) return source
+  if (typeof source === "string") {
+    const workspacePath = workspacePathInsideMount(source, normalizedMount)
+    return workspacePath ? { path: source, workspacePath } : source
+  }
+  if (!isPlainFileSource(source) || typeof source.workspacePath === "string") return source
+  const workspacePath = workspacePathInsideMount(source.path, normalizedMount)
+  return workspacePath ? { ...source, workspacePath } as WorkspaceSourceInput : source
+}
+
+function isPlainFileSource(source: WorkspaceSourceInput): source is { path: string, workspacePath?: string } {
+  if (!source || typeof source !== "object") return false
+  if (!("path" in source) || typeof source.path !== "string") return false
+  return !("repo" in source)
+    && !("root" in source)
+    && !("include" in source)
+    && !("url" in source)
+    && !("source" in source)
+    && !("server" in source)
+    && !("getKeys" in source)
+}
+
+function workspacePathInsideMount(path: string, mountPath: string) {
+  const normalized = normalizeSkillPath(path)
+  return normalized.startsWith(`${mountPath}/`) ? normalized.slice(mountPath.length + 1) : undefined
+}
+
 function sourceBinding(source: WorkspaceSourceInput, mountPath: string): WorkspaceSourceInput {
   return {
-    source,
+    source: rebaseMountedFileSource(source, mountPath),
     mount: mountPath,
   }
 }
@@ -140,6 +169,7 @@ function skillShellInputSchema() {
 function skillShellTools(
   mode: AgentCapabilityMode,
   options: Required<Pick<SkillsCapabilityOptions, "maxOutputLength">> & Pick<SkillsCapabilityOptions, "timeout">,
+  directoryPath: string,
   getSession: () => Promise<WorkspaceSession>,
 ): AgentToolSet {
   return {
@@ -157,7 +187,7 @@ function skillShellTools(
         const session = await getSession()
         try {
           const result = await session.exec("bash", ["-lc", command], {
-            cwd: value.cwd,
+            cwd: value.cwd ?? directoryPath,
             timeout: value.timeout ?? options.timeout,
           })
           if (mode === "write" && result.exitCode === 0) await session.commit({ message: "skill shell" })
@@ -166,7 +196,7 @@ function skillShellTools(
           return {
             args: result.args,
             command,
-            cwd: value.cwd || "",
+            cwd: value.cwd ?? directoryPath,
             exitCode: result.exitCode,
             outputTruncated: stdout.truncated || stderr.truncated,
             stderr: stderr.output,
@@ -188,7 +218,8 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
   const normalizedPath = normalizeSkillPath(path)
   const shellExecution = normalizeShellExecution(options.shellExecution)
   const maxOutputLength = options.maxOutputLength ?? defaultMaxOutputLength
-  const skillPath = normalizedPath.endsWith("/SKILL.md")
+  const workspaceRequirementMode = shellExecution ? "write" : "read"
+  const skillPath = normalizedPath === skillFilename || normalizedPath.endsWith("/SKILL.md")
     ? normalizedPath
     : `${normalizedPath}/SKILL.md`
   const directoryPath = skillDirectory(skillPath)
@@ -204,7 +235,7 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
       if (!isSkillShellWorkspace(workspace)) {
         throw new Error("[vitehub] skills({ shellExecution }) requires an executable workspace session.")
       }
-      return await workspace.startSession({ paths: [directoryPath || normalizedPath] })
+      return await workspace.startSession({ paths: [directoryPath] })
     }
   }
 
@@ -224,14 +255,19 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
       ...(shellExecution ? { shellExecution } : {}),
       ...(workspaceSources ? { sourceKey: Object.keys(workspaceSources)[0] } : {}),
     },
-    requires: [{ primitive: "workspace", workspace: { mode: shellExecution === "write" ? "write" : "read", paths: [skillPath], required: true } }],
+    prepare(context) {
+      if (shellExecution && !isSkillShellWorkspace(context.workspace)) {
+        throw new Error("[vitehub] skills({ shellExecution }) requires an executable workspace session.")
+      }
+    },
+    requires: [{ primitive: "workspace", workspace: { mode: workspaceRequirementMode, paths: [skillPath], required: true } }],
     ...(workspaceSources ? { workspaceSources } : {}),
     ...(shellExecution
       ? {
           tools: context => skillShellTools(shellExecution, {
             maxOutputLength,
             timeout: options.timeout,
-          }, getSessionResolver(context)),
+          }, directoryPath, getSessionResolver(context)),
         }
       : {}),
   })

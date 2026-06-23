@@ -222,6 +222,29 @@ describe("sandbox workspace runtime", () => {
     await expect(workspace.exists("old.txt")).resolves.toBe(false)
   })
 
+  it("rejects changes outside scoped sandbox session paths", async () => {
+    const fake = createFakeSandbox("cloudflare")
+    const sandboxPackage = await import("@vite-hub/sandbox")
+    vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
+    setSandboxRuntimeConfig({ provider: "cloudflare", binding: "SANDBOX" })
+
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "sandbox",
+        store: { provider: "memory" },
+      }),
+      name: "review",
+    })
+    await workspace.writeFile("skills/browser/SKILL.md", "# Browser\n")
+
+    const session = await workspace.startSession({ paths: ["skills/browser"] })
+    await session.writeFile("screenshots/login-version-badge-desktop.png", "png\n")
+
+    await expect(session.commit()).rejects.toThrow("outside the session scope")
+    await session.close()
+    await expect(workspace.exists("screenshots/login-version-badge-desktop.png")).resolves.toBe(false)
+  })
+
   it("keeps lazy source files out of the initial sandbox sync until materialized", async () => {
     const fake = createFakeSandbox("cloudflare")
     const sandboxPackage = await import("@vite-hub/sandbox")

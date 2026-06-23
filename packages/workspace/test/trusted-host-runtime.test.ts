@@ -42,7 +42,7 @@ describe("trusted host workspace runtime", () => {
     await expect(workspace.readFile("generated/result.txt")).resolves.toBe("done\n")
   })
 
-  it("commits new files under globstar writable directories from scoped sessions", async () => {
+  it("rejects changes outside scoped session paths", async () => {
     const workspace = createWorkspace({
       ...defineWorkspace({
         runtime: "trusted-host",
@@ -65,10 +65,10 @@ describe("trusted host workspace runtime", () => {
     ])
 
     expect(result.exitCode).toBe(0)
-    await expect(session.commit()).resolves.toBeUndefined()
+    await expect(session.commit()).rejects.toThrow("outside the session scope")
     await session.close()
 
-    await expect(workspace.readFile("screenshots/login-version-badge-desktop.png")).resolves.toBe("png\n")
+    await expect(workspace.exists("screenshots/login-version-badge-desktop.png")).resolves.toBe(false)
   })
 
   it("scopes command cwd inside the materialized workspace", async () => {

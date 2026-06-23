@@ -206,7 +206,7 @@ function hasSourceMethods(input: Record<string, unknown>) {
 
 function fileSourceKey(input: Record<string, unknown>): string {
   if (typeof input.workspacePath === "string") return normalizeAgentSourcePath(input.workspacePath, { allowEmpty: false })
-  if (typeof input.path === "string") return normalizeAgentSourcePath(basename(normalizeAgentSourcePath(input.path, { allowEmpty: false })), { allowEmpty: false })
+  if (typeof input.path === "string") return normalizeAgentSourcePath(input.path, { allowEmpty: false })
   throw new TypeError("[vitehub] file requires a path or workspacePath.")
 }
 

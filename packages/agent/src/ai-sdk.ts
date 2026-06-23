@@ -494,11 +494,7 @@ function withWorkspaceFallbackFullStream(
     }
 
     const fallbackEvidence = evidence.length ? evidence : capturedEvidence?.() ?? []
-    const hasFinalText = evidence.length
-      ? textAfterLastToolResult.trim()
-      : fallbackEvidence.length
-        ? ""
-        : text.trim()
+    const hasFinalText = evidence.length ? textAfterLastToolResult.trim() : text.trim()
     if ((hasFinalText && finishEventReason(finishEvent) !== "tool-calls") || fallbackEvidence.length === 0) {
       if (finishEvent) yield finishEvent
       return
