@@ -1,8 +1,9 @@
 import { resolveRuntimeValue } from "@vite-hub/runtime"
 
-import { workspaceOverrideSymbol } from "./access-runtime.ts"
+import { hasTrustedWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "./access-runtime.ts"
 import { createMessage } from "./messages.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
+import { normalizeAgentWorkspaceSource } from "./workspace-source-metadata.ts"
 import {
   createFallbackAgentInvoker,
   ensureAgentInvokerContext,
@@ -14,6 +15,7 @@ import type {
   AgentCallbackContext,
   AgentCapabilityContext,
   AgentCapabilityDefinition,
+  AgentCapabilityWorkspaceContribution,
   AgentCapabilityTypeContract,
   AgentCapabilityHookName,
   AgentCapabilityHooks,
@@ -42,7 +44,7 @@ import type {
 } from "./types.ts"
 import type { WorkspaceOverrideRuntime } from "./access-runtime.ts"
 import type { Message } from "./messages.ts"
-import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName } from "@vite-hub/workspace"
+import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName, WorkspaceSelectedScope, WorkspaceSource, WorkspaceSourceInput } from "@vite-hub/workspace"
 
 type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentInvocationExtensions) => MaybePromise<unknown>) & {
   providerCount: number
@@ -71,6 +73,7 @@ export interface AgentCapabilityRegistries {
   providerTools: AgentProviderToolContribution[]
   stateRequirements: Array<{ name: string, optional?: boolean }>
   triggers: ResolvedAgentTriggerDefinition[]
+  workspaceContributions: Array<{ capabilityId: string, rules: string[], sources: string[] }>
 }
 
 export interface AgentCapabilityOptions<
@@ -105,6 +108,7 @@ export interface ResolvedAgentCapabilities {
   toolTransforms: AgentToolTransform[]
   tools?: AgentToolSet
   workspace?: ReadonlyWorkspaceFacade
+  workspaceDefinition?: WorkspaceDefinition
 }
 
 function assertCapabilityId(id: unknown): asserts id is string {
@@ -254,6 +258,295 @@ function toAgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig>(
   return context
 }
 
+function pathContains(container: string, path: string): boolean {
+  return !container || path === container || path.startsWith(`${container}/`)
+}
+
+function pathsConflict(left: string, right: string): boolean {
+  return pathContains(left, right) || pathContains(right, left)
+}
+
+function isPlainRecord(input: unknown): input is Record<string, unknown> {
+  return !!input && typeof input === "object" && !Array.isArray(input)
+}
+
+function ruleConflictBase(pattern: string): string {
+  const wildcard = pattern.search(/[*{[(?]/)
+  const base = wildcard === -1 ? pattern : pattern.slice(0, wildcard)
+  return base.replace(/\/+$/, "")
+}
+
+function rulesConflict(left: string, right: string): boolean {
+  if (left === right) return true
+  const leftBase = ruleConflictBase(left)
+  const rightBase = ruleConflictBase(right)
+  return !leftBase || !rightBase || pathsConflict(leftBase, rightBase)
+}
+
+function workspaceRulePatterns(definition: WorkspaceDefinition): string[] {
+  return [
+    ...Object.keys(definition.rules || {}),
+    ...(definition.plugins || []).flatMap(plugin => Object.keys(plugin.rules || {})),
+  ]
+}
+
+type WorkspaceContributionRuntime = Pick<
+  typeof import("@vite-hub/workspace"),
+  | "createWorkspaceSourceResolutionFacade"
+  | "isWorkspaceSourceRequestOnly"
+  | "workspaceSourceRequestDescriptorPath"
+>
+
+function isRequestOnlyWorkspaceSource(runtime: WorkspaceContributionRuntime, source: WorkspaceSource | undefined): boolean {
+  return Boolean(source && runtime.isWorkspaceSourceRequestOnly(source))
+}
+
+function normalizedContributionSource(
+  key: string,
+  source: WorkspaceSourceInput,
+  runtime: WorkspaceContributionRuntime,
+): { mountPath: string, requestOnly: boolean } {
+  const metadata = normalizeAgentWorkspaceSource(key, source)
+  return {
+    mountPath: metadata.mountPath,
+    requestOnly: isRequestOnlyWorkspaceSource(runtime, metadata.source),
+  }
+}
+
+function sourceScopePath(runtime: WorkspaceContributionRuntime, key: string, source: { mountPath: string, requestOnly: boolean }): string {
+  return source.requestOnly ? runtime.workspaceSourceRequestDescriptorPath(key) : source.mountPath
+}
+
+function sourcesConflict(left: { mountPath: string, requestOnly: boolean }, right: { mountPath: string, requestOnly: boolean }): boolean {
+  if (left.requestOnly || right.requestOnly) return false
+  return pathsConflict(left.mountPath, right.mountPath)
+}
+
+function assertWorkspaceContribution(
+  capabilityId: string,
+  contribution: AgentCapabilityWorkspaceContribution,
+  definition: WorkspaceDefinition,
+  runtime: WorkspaceContributionRuntime,
+) {
+  const sources = contribution.sources || {}
+  const rules = contribution.rules || {}
+  const sourceEntries = Object.entries(sources)
+  const rulePatterns = Object.keys(rules)
+  const contributionSources: Array<{ key: string, mountPath: string, requestOnly: boolean }> = []
+
+  for (const [key, source] of sourceEntries) {
+    if (definition.sources?.[key]) {
+      throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with an existing Workspace Source.`)
+    }
+    const contributedSource = normalizedContributionSource(key, source, runtime)
+    for (const existing of contributionSources) {
+      if (sourcesConflict(existing, contributedSource)) {
+        throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with contributed Workspace Source "${existing.key}" at mount "${contributedSource.mountPath || "."}".`)
+      }
+    }
+    contributionSources.push({ key, ...contributedSource })
+    for (const [existingKey, existingSource] of Object.entries(definition.sources || {})) {
+      const existing = normalizedContributionSource(existingKey, existingSource, runtime)
+      if (sourcesConflict(existing, contributedSource)) {
+        throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with Workspace Source "${existingKey}" at mount "${contributedSource.mountPath || "."}".`)
+      }
+    }
+  }
+
+  for (const pattern of rulePatterns) {
+    for (const existingPattern of workspaceRulePatterns(definition)) {
+      if (rulesConflict(existingPattern, pattern)) {
+        throw new Error(`[vitehub] ${capabilityId}() workspace contribution rule "${pattern}" conflicts with existing Workspace Rule "${existingPattern}".`)
+      }
+    }
+  }
+}
+
+async function workspacePathExists(workspace: ReadonlyWorkspaceFacade, path: string): Promise<boolean> {
+  if (!path) {
+    try {
+      return Boolean((await workspace.fs.list("" as never)).length)
+    }
+    catch {
+      return false
+    }
+  }
+  if (await workspace.fs.exists(path as never)) return true
+  try {
+    return Boolean((await workspace.fs.list(path as never)).length)
+  }
+  catch {
+    return false
+  }
+}
+
+async function assertResolvedWorkspaceContributionSources(
+  registries: AgentCapabilityRegistries["workspaceContributions"],
+  definition: WorkspaceDefinition,
+  selectedWorkspaceScope: WorkspaceSelectedScope | undefined,
+  workspace: ReadonlyWorkspaceFacade,
+  runtime: WorkspaceContributionRuntime,
+) {
+  const contributed = new Map<string, string>()
+  for (const contribution of registries) {
+    for (const source of contribution.sources) contributed.set(source, contribution.capabilityId)
+  }
+
+  for (const [key, capabilityId] of contributed) {
+    const source = definition.sources?.[key]
+    if (!source) continue
+    const contributedSource = normalizedContributionSource(key, source, runtime)
+    if (!selectedScopeContainsSource(runtime, selectedWorkspaceScope, key, contributedSource)) {
+      throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" is outside the selected Workspace Scope.`)
+    }
+    for (const [existingKey, existingSource] of Object.entries(definition.sources || {})) {
+      if (existingKey === key) continue
+      const existing = normalizedContributionSource(existingKey, existingSource, runtime)
+      if (sourcesConflict(existing, contributedSource)) {
+        const label = contributed.has(existingKey) ? "contributed Workspace Source" : "Workspace Source"
+        throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with ${label} "${existingKey}" at mount "${contributedSource.mountPath || "."}".`)
+      }
+    }
+    if (!contributedSource.requestOnly && await workspacePathExists(workspace, contributedSource.mountPath)) {
+      throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with an existing Workspace path at mount "${contributedSource.mountPath}".`)
+    }
+  }
+}
+
+function selectedWorkspaceScopeFromContext(context: AgentInvocationContextStore): WorkspaceSelectedScope | undefined {
+  if (!hasTrustedWorkspaceAccessScope(context)) return
+  const access = context.get<{ workspaceScope?: { all?: boolean, paths?: readonly string[], role?: string, scope?: string } }>("access")
+  const scope = access?.workspaceScope
+  if (!scope?.scope) return
+  return {
+    all: scope.all === true,
+    name: scope.scope,
+    paths: scope.paths,
+    role: scope.role,
+  }
+}
+
+function selectedScopeContainsMount(scope: WorkspaceSelectedScope | undefined, mountPath: string): boolean {
+  if (!scope || scope.all) return true
+  if (!mountPath) return Boolean(scope.paths?.includes(""))
+  return Boolean(scope.paths?.some(path => pathContains(path, mountPath)))
+}
+
+function selectedScopeContainsSource(
+  runtime: WorkspaceContributionRuntime,
+  scope: WorkspaceSelectedScope | undefined,
+  key: string,
+  source: { mountPath: string, requestOnly: boolean },
+): boolean {
+  return selectedScopeContainsMount(scope, sourceScopePath(runtime, key, source))
+}
+
+function assertStaticWorkspaceContributionSourcesInScope(
+  registries: AgentCapabilityRegistries["workspaceContributions"],
+  definition: WorkspaceDefinition,
+  selectedWorkspaceScope: WorkspaceSelectedScope | undefined,
+  runtime: WorkspaceContributionRuntime,
+) {
+  if (!selectedWorkspaceScope || selectedWorkspaceScope.all) return
+  const contributed = new Map<string, string>()
+  for (const contribution of registries) {
+    for (const source of contribution.sources) contributed.set(source, contribution.capabilityId)
+  }
+  for (const [key, capabilityId] of contributed) {
+    const source = definition.sources?.[key]
+    if (!source) continue
+    const metadata = normalizeAgentWorkspaceSource(key, source)
+    if (metadata.source?.resolve) continue
+    const contributedSource = {
+      mountPath: metadata.mountPath,
+      requestOnly: isRequestOnlyWorkspaceSource(runtime, metadata.source),
+    }
+    if (!selectedScopeContainsSource(runtime, selectedWorkspaceScope, key, contributedSource)) {
+      throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" is outside the selected Workspace Scope.`)
+    }
+  }
+}
+
+function withInvocationReadableSource(input: WorkspaceSourceInput): WorkspaceSourceInput {
+  if (typeof input === "string") return { source: input, materialize: "lazy" }
+  if (!isPlainRecord(input)) return input
+  const mount = input.mount
+  if (input.materialize !== undefined || input.sync !== undefined || isPlainRecord(mount) && mount.materialize !== undefined) {
+    return input
+  }
+  return { ...input, materialize: "lazy" } as WorkspaceSourceInput
+}
+
+function withInvocationReadableSources(sources: Record<string, WorkspaceSourceInput>): Record<string, WorkspaceSourceInput> {
+  return Object.fromEntries(Object.entries(sources).map(([key, source]) => [key, withInvocationReadableSource(source)]))
+}
+
+async function applyCapabilityWorkspaceContributions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  capabilities: AgentCapabilityDefinition<TRuntimeConfig, Name>[],
+  context: Omit<AgentCapabilityContext<TRuntimeConfig, Name>, "capability" | "mode"> & {
+    workspace: ReadonlyWorkspaceFacade<Name>
+    workspaceDefinition: WorkspaceDefinition
+  },
+  workspaceMode: AgentCapabilityMode,
+): Promise<{ definition: WorkspaceDefinition, registries: AgentCapabilityRegistries["workspaceContributions"], workspace: ReadonlyWorkspaceFacade<Name> } | undefined> {
+  let definition = context.workspaceDefinition
+  const registries: AgentCapabilityRegistries["workspaceContributions"] = []
+  const workspaceRuntime = await import("@vite-hub/workspace")
+
+  for (const capability of capabilities) {
+    if (!capability.workspace) continue
+    await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, context.workspace, workspaceMode)
+    const resolved = typeof capability.workspace === "function"
+      ? await capability.workspace({
+          ...context,
+          mode: capability.mode,
+        })
+      : capability.workspace
+    if (!resolved) continue
+
+    assertWorkspaceContribution(capability.id, resolved, definition, workspaceRuntime)
+    const sources = withInvocationReadableSources(resolved.sources || {})
+    const rules = resolved.rules || {}
+    definition = {
+      ...definition,
+      rules: Object.keys(rules).length ? { ...definition.rules, ...rules } : definition.rules,
+      sources: Object.keys(sources).length ? { ...definition.sources, ...sources } : definition.sources,
+    }
+    registries.push({
+      capabilityId: capability.id,
+      rules: Object.keys(rules),
+      sources: Object.keys(sources),
+    })
+  }
+
+  if (!registries.length) return
+  const selectedWorkspaceScope = selectedWorkspaceScopeFromContext(context.context)
+  assertStaticWorkspaceContributionSourcesInScope(registries, definition, selectedWorkspaceScope, workspaceRuntime)
+  const sourceResolution = await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace, definition, {
+    invocation: {
+      context: context.context,
+      run: context.run,
+    },
+    overlay: true,
+    selectedWorkspaceScope,
+  })
+  await assertResolvedWorkspaceContributionSources(
+    registries,
+    sourceResolution.definition,
+    selectedWorkspaceScope,
+    context.workspace,
+    workspaceRuntime,
+  )
+  return {
+    definition: sourceResolution.definition,
+    registries,
+    workspace: sourceResolution.workspace,
+  }
+}
+
 async function resolveInstructionValue<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -289,6 +582,7 @@ export async function resolveAgentCapabilities<
   validateAccessCapabilityOrder(capabilities)
   let currentInput = normalizeRunInput(input)
   let currentWorkspace = workspace as ReadonlyWorkspaceFacade<Name> | undefined
+  let currentWorkspaceDefinition = invocationOptions.workspaceDefinition
   let messages = getRunMessages(currentInput)
   let tools: AgentToolSet | undefined
   const capabilityInstructions: AgentInstructionBlock[] = []
@@ -306,6 +600,7 @@ export async function resolveAgentCapabilities<
     providerTools: [],
     stateRequirements: [],
     triggers: [],
+    workspaceContributions: [],
   }
 
   async function closeRegisteredCallbacks() {
@@ -322,8 +617,35 @@ export async function resolveAgentCapabilities<
     if (errors.length > 1) throw new AggregateError(errors, "[vitehub] Multiple capability close callbacks failed.")
   }
 
+  let workspaceContributionsApplied = false
+  async function applyWorkspaceContributions() {
+    if (workspaceContributionsApplied) return
+    workspaceContributionsApplied = true
+    if (!currentWorkspace || !currentWorkspaceDefinition) return
+    const sourceResolvedDefinition = hasTrustedWorkspaceSourceResolutionDefinition(invocationContext)
+      ? invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
+      : undefined
+    if (sourceResolvedDefinition) currentWorkspaceDefinition = sourceResolvedDefinition
+    const workspaceContribution = await applyCapabilityWorkspaceContributions(capabilities, {
+      ...runtimeContext,
+      actor: invoker,
+      context: invocationContext,
+      fs: currentWorkspace.fs,
+      invoker,
+      runtimeContext: runtime,
+      workspace: currentWorkspace,
+      workspaceDefinition: currentWorkspaceDefinition,
+    }, workspaceMode)
+    if (workspaceContribution) {
+      currentWorkspace = workspaceContribution.workspace
+      currentWorkspaceDefinition = workspaceContribution.definition
+      registries.workspaceContributions = workspaceContribution.registries
+    }
+  }
+
   try {
     for (const capability of capabilities) {
+      if (capability.id !== "access") await applyWorkspaceContributions()
       await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, currentWorkspace, workspaceMode)
       const phases = invocationOptions.phases || defaultCapabilityRuntimePhases
       const metadataContext = {
@@ -334,7 +656,7 @@ export async function resolveAgentCapabilities<
         invoker,
         runtimeContext: runtime,
         workspace: currentWorkspace,
-        workspaceDefinition: invocationOptions.workspaceDefinition,
+        workspaceDefinition: currentWorkspaceDefinition,
       }
       let capabilityContext: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
       capabilityContext = {
@@ -500,6 +822,7 @@ export async function resolveAgentCapabilities<
           }
         }
       }
+      if (capability.id === "access") await applyWorkspaceContributions()
 
       if (invocationOptions.resolveInstructions !== false && capability.instructions !== undefined) {
         const values = await resolveInstructionValue(capability, capabilityContext)
@@ -512,6 +835,7 @@ export async function resolveAgentCapabilities<
         if (isToolSet(resolved)) tools = { ...tools, ...resolved }
       }
     }
+    await applyWorkspaceContributions()
   }
   catch (error) {
     try {
@@ -533,6 +857,7 @@ export async function resolveAgentCapabilities<
     toolTransforms,
     tools,
     workspace: currentWorkspace,
+    workspaceDefinition: currentWorkspaceDefinition,
   }
 }
 

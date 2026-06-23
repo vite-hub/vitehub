@@ -37,6 +37,9 @@ export {
   repositoryHost,
 } from "./repository-host.ts"
 export {
+  pullRequestContext,
+} from "./pull-request-context.ts"
+export {
   llmRoute,
 } from "./llm-route.ts"
 export {
@@ -209,6 +212,13 @@ export type {
   RepositoryHostWriteOperation,
   RepositoryHostWriteRequest,
 } from "./repository-host.ts"
+export type {
+  PullRequestContextOptions,
+  PullRequestContextResolver,
+  PullRequestContextRules,
+  PullRequestContextSources,
+  PullRequestContextValue,
+} from "./pull-request-context.ts"
 export type {
   LlmRouteDecision,
   LlmRouteOptions,

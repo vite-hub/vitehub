@@ -1,4 +1,4 @@
-import { workspaceOverrideSymbol } from "../access-runtime.ts"
+import { markTrustedWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { normalizeAgentWorkspaceSource } from "../workspace-source-metadata.ts"
 import type { AccessCapabilityMetadata } from "./access-metadata.ts"
@@ -40,6 +40,7 @@ type WorkspaceAccessRuntime = Pick<
   | "createWorkspaceSourceResolutionFacade"
   | "createWorkspaceTools"
   | "getWorkspaceSourceRequestExecution"
+  | "hasWorkspaceSourceResolvers"
   | "isWorkspaceSourceRequestOnly"
   | "workspaceSourceRequestDescriptorPath"
 >
@@ -310,6 +311,9 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       }
       const workspaceRuntime = await loadWorkspaceAccessRuntime()
       const scope = await resolveWorkspaceScope(options.workspace, context, workspaceRuntime)
+      const hasSourceResolvers = context.workspaceDefinition
+        ? workspaceRuntime.hasWorkspaceSourceResolvers(context.workspaceDefinition)
+        : false
       const sourceResolution = context.workspaceDefinition
         ? await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace, context.workspaceDefinition, {
             invocation: {
@@ -325,9 +329,10 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
           })
         : { definition: context.workspaceDefinition, workspace: context.workspace }
       const finalScope = finalizeResolvedWorkspaceScope(scope, sourceResolution.definition, workspaceRuntime)
+      const workspaceForScope = hasSourceResolvers ? sourceResolution.workspace : context.workspace
       const scopedWorkspace = finalScope.all
-        ? sourceResolution.workspace
-        : createScopedWorkspaceFacade(sourceResolution.workspace, finalScope, workspaceRuntime)
+        ? workspaceForScope
+        : createScopedWorkspaceFacade(workspaceForScope, finalScope, workspaceRuntime)
       context.context.set("access", {
         workspaceScope: {
           all: finalScope.all,
@@ -336,9 +341,11 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
           scope: finalScope.scope,
         },
       })
+      markTrustedWorkspaceAccessScope(context.context)
       context.instructions.add(finalScope.instructions, { id: "access.workspace" })
       if (sourceResolution.definition && sourceResolution.definition !== context.workspaceDefinition) {
         context.context.set("workspace.sourceResolution.definition", sourceResolution.definition)
+        markTrustedWorkspaceSourceResolutionDefinition(context.context)
       }
       setWorkspaceOverride(context, scopedWorkspace)
     },

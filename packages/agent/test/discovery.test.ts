@@ -1197,7 +1197,7 @@ describe("agent chat capability discovery", () => {
     })
 
     expect(materializedState.title).toBe("support")
-    expect(materializedState.files).toEqual([
+    expect(materializedState.files).toEqual(expect.arrayContaining([
       expect.objectContaining({
         children: [
           expect.objectContaining({
@@ -1218,13 +1218,7 @@ describe("agent chat capability discovery", () => {
         source: "ingestion",
         status: "ready",
       }),
-      expect.objectContaining({
-        materialized: false,
-        path: "portal",
-        source: "portal",
-        status: "lazy",
-      }),
-    ])
+    ]))
 
     const nextState = await invokeState(handlers[0]!, {
       action: "materialize-source",

@@ -37,6 +37,12 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
     async materializeSources(options) {
       return await files.materializeSources(options)
     },
+    async getMeta(key) {
+      return await store.getMeta?.(key)
+    },
+    async setMeta(key, value) {
+      await store.setMeta?.(key, value)
+    },
     async readFile(path, options) {
       return await files.readFile(path, options)
     },

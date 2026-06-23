@@ -2683,6 +2683,61 @@ describe("defineAgent workspace option", () => {
     expect(createWorkspaceSourceResolutionFacade).toHaveBeenCalledOnce()
   })
 
+  it("renders Capability Workspace Contribution source instructions in resolved DevTools metadata", async () => {
+    const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
+    const { access, pullRequestContext } = await import("../src/capabilities.ts")
+    exists.mockResolvedValue(false)
+    list.mockResolvedValue([])
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    const metadataWorkspace = readonlyWorkspaceFacade()
+    metadataWorkspace.fs.exists = vi.fn(async path => path === "pull-request")
+    createWorkspaceSourceResolutionFacade.mockImplementationOnce(async (workspace, definition) => ({
+      definition: { ...(definition as object) },
+      workspace,
+    }))
+    createWorkspaceSourceResolutionFacade.mockImplementationOnce(async (_workspace, definition) => ({
+      definition,
+      workspace: metadataWorkspace,
+    }))
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      capabilities: [
+        access({
+          workspace: {
+            resolve: { role: "admin", scope: "review" },
+            scopes: {
+              review: { all: true },
+            },
+          },
+        }),
+        pullRequestContext({
+          sources: {
+            pullRequest: {
+              instructions: "Use this source for pull-request review material.",
+              mount: "pull-request",
+              async getKeys() {
+                return []
+              },
+              async getItem(key: string) {
+                return { content: "", key }
+              },
+            },
+          },
+        }),
+      ],
+      instructions: "Answer from the workspace.\n\n{{ workspace.sources }}",
+      model: {} as never,
+    }), { workspace: "support" })
+
+    await expect(resolveAgentDevtoolsMetadata(agent)).resolves.toMatchObject({
+      instructions: [[
+        "Answer from the workspace.",
+        "## Workspace Sources",
+        "### pullRequest\n\nUse this source for pull-request review material.",
+      ].join("\n\n")],
+    })
+  })
+
   it("flattens virtual workspace AGENTS.md while keeping sibling instruction files", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     list.mockResolvedValue([

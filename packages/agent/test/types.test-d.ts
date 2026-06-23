@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, defineAgentInvoker, type AgentActor, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDefinition, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
-import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
+import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -9,7 +9,7 @@ import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentUsageRecord } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import { file, github as githubSource } from "@vite-hub/workspace"
-import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatPlatformResolver, AgentChatRunContext, FetchCapabilityToolOptions, RepositoryHostClient, TranscriptionResult, UsageTelemetryOutputExtension, UsageTelemetrySummaryOptions } from "../src/capabilities.ts"
+import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatPlatformResolver, AgentChatRunContext, FetchCapabilityToolOptions, PullRequestContextValue, RepositoryHostClient, TranscriptionResult, UsageTelemetryOutputExtension, UsageTelemetrySummaryOptions } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
@@ -93,6 +93,18 @@ describe("agent public types", () => {
           mode: "write",
           policy: "require-approval",
           provider: "github",
+        }),
+        pullRequestContext({
+          context: {
+            number: 12,
+            repository: "acme/app",
+          } satisfies PullRequestContextValue,
+          rules: {
+            "artifacts/review/**": { write: true },
+          },
+          sources: {
+            pullRequest: file({ mount: "pull-request", path: "README.md" }),
+          },
         }),
         skills(),
         skills({ path: "skills/agent-browser", source: githubSource({ repo: "vercel/vercel-plugin", root: "skills/agent-browser" }) }),

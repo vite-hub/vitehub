@@ -9,6 +9,7 @@ import {
   type WorkspaceShellResult,
   workspaceSourceRequestDescriptorPath,
   type ReadonlyWorkspaceFacade,
+  type WritableWorkspaceFacade,
   type WorkspaceDefinition,
   type WorkspaceSourceResolutionOptions,
 } from "../src/index.ts"
@@ -88,6 +89,52 @@ function facade(workspace: ReturnType<typeof createWorkspace>): ReadonlyWorkspac
     tools: {
       inspect: () => ({}),
       none: () => ({}),
+    } as never,
+  }
+}
+
+function writableFacade(workspace: ReturnType<typeof createWorkspace>): WritableWorkspaceFacade {
+  return {
+    diff: async options => await workspace.diff(options),
+    fs: {
+      appendFile: async (path, content) => {
+        const current = await workspace.readFile(path).catch(() => "")
+        await workspace.writeFile(path, `${current}${content}`)
+      },
+      copyPath: async (from, to) => {
+        await workspace.writeFile(to, await workspace.readFile(from, { encoding: "binary" }))
+      },
+      exists: async path => await workspace.exists(path),
+      glob: async (pattern, options) => await workspace.glob(pattern as never, options),
+      list: async (path, options) => await workspace.list(path || "", options),
+      mkdir: async (path, options) => await workspace.mkdir(path, options),
+      movePath: async (from, to) => {
+        await workspace.writeFile(to, await workspace.readFile(from, { encoding: "binary" }))
+        await workspace.rm(from, { force: true, recursive: true })
+      },
+      readFile: async (path, options) => await workspace.readFile(path, options as never),
+      rm: async (path, options) => await workspace.rm(path, options),
+      search: async query => await workspace.search(query),
+      stat: async path => await workspace.stat(path),
+      writeFile: async (path, content, options) => await workspace.writeFile(path, content, options),
+    },
+    getMeta: async key => await workspace.getMeta?.(key),
+    materializeSources: async options => await workspace.materializeSources?.(options) ?? {
+      bytes: 0,
+      directories: 0,
+      durationMs: 0,
+      files: 0,
+      path: options?.path || "",
+      sources: [],
+    },
+    setMeta: async (key, value) => await workspace.setMeta?.(key, value),
+    snapshot: async options => await workspace.snapshot(options),
+    startSession: async options => await workspace.startSession(options),
+    sync: async options => await workspace.sync(options),
+    tools: {
+      inspect: () => ({}),
+      none: () => ({}),
+      write: () => ({}),
     } as never,
   }
 }
@@ -249,6 +296,9 @@ describe("Workspace Source Resolution", () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
+        hiddenInventory: fetch({
+          url: "https://portal.example.com/runtime/hidden-inventory",
+        }),
         inventoryHealthSummary: custom({
           async resolve() {
             return fetch({
@@ -329,9 +379,19 @@ describe("Workspace Source Resolution", () => {
     ) as WorkspaceShellResult
 
     expect(result).toMatchObject({ exitCode: 0, stdout: JSON.stringify({ status: "ok" }, null, 2) })
+    const hiddenResult = await workspace.tools.shell.execute!(
+      { command: "curl 'https://portal.example.com/runtime/hidden-inventory'" },
+      { toolCallId: "test", messages: [] } as never,
+    ) as WorkspaceShellResult
+
+    expect(hiddenResult).toMatchObject({
+      exitCode: 126,
+      stderr: expect.stringContaining("not visible in the selected workspace scope"),
+    })
     const init = request.mock.calls[0]?.[1] as RequestInit
     expect((init.headers as Headers).get("cookie")).toBe("auth_token=secret")
     expect((init.headers as Headers).get("x-scope")).toBe("support")
+    expect(request).toHaveBeenCalledOnce()
     expect(requestFactory).toHaveBeenCalledWith(expect.objectContaining({
       selectedWorkspaceScope: expect.objectContaining({ name: "support" }),
     }))
@@ -368,6 +428,46 @@ describe("Workspace Source Resolution", () => {
     expect(resolved.sources).toEqual({})
   })
 
+  it("keeps scoped-out static sources hidden in overlays", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        privateDocs: custom({
+          materialize: "lazy",
+          mount: "private",
+          async getKeys() {
+            return ["secret.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "secret\n" }
+          },
+        }),
+        publicDocs: custom({
+          materialize: "lazy",
+          mount: "public",
+          async getKeys() {
+            return ["README.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "public\n" }
+          },
+        }),
+      },
+    }
+
+    const { definition: resolvedDefinition, workspace } = await createWorkspaceSourceResolutionFacade(
+      facade(base),
+      definition,
+      { ...scope("public", ["public"]), overlay: true },
+    )
+
+    expect(resolvedDefinition.sources).toHaveProperty("publicDocs")
+    expect(resolvedDefinition.sources).not.toHaveProperty("privateDocs")
+    await expect(workspace.fs.readFile("public/README.md")).resolves.toBe("public\n")
+    await expect(workspace.fs.exists("private/secret.md")).resolves.toBe(false)
+  })
+
   it("layers resolved source-backed paths over the base Workspace without persistent cross-scope materialization", async () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     await base.writeFile("notes.md", "base workspace\n")
@@ -388,5 +488,208 @@ describe("Workspace Source Resolution", () => {
     await expect(workspace.fs.readFile("ingestion/acme/models/orders.sql")).resolves.toBe("select * from acme_orders\n")
     await expect(workspace.fs.exists("ingestion/globex/models/orders.sql")).resolves.toBe(false)
     await expect(base.exists("ingestion/acme/models/orders.sql")).resolves.toBe(false)
+  })
+
+  it("preserves base Workspace files for non-lazy sources in overlays", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    await base.writeFile("docs/README.md", "# Docs\n")
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          mount: "docs",
+          async getKeys() {
+            return ["README.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Source docs\n" }
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+
+    await expect(workspace.fs.readFile("docs/README.md")).resolves.toBe("# Docs\n")
+  })
+
+  it("does not serve stale base files as lazy source output in overlays", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    await base.writeFile("ingestion/acme/old.sql", "stale\n")
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        ingestion: custom({
+          materialize: "lazy",
+          mount: "ingestion/acme",
+          async getKeys() {
+            return ["models/orders.sql"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "select 1\n" }
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+
+    await expect(workspace.fs.readFile("ingestion/acme/models/orders.sql")).resolves.toBe("select 1\n")
+    await expect(workspace.fs.readFile("ingestion/acme/old.sql")).rejects.toThrow("does not exist")
+  })
+
+  it("keeps source-backed paths read-only in writable overlays", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      rules: {
+        "artifacts/**": { write: true },
+        "artifacts/review.md": { write: true, maxBytes: 2 },
+      },
+      sources: {
+        pullRequest: custom({
+          materialize: "lazy",
+          mount: "pull-request",
+          async getKeys() {
+            return ["body.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Pull request\n" }
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    const writable = workspace as WritableWorkspaceFacade
+
+    await expect(writable.fs.readFile("pull-request/body.md")).resolves.toBe("# Pull request\n")
+    await expect(writable.fs.writeFile("pull-request/body.md", "nope")).rejects.toThrow("read-only")
+    await expect(writable.fs.mkdir("pull-request/new")).rejects.toThrow("read-only")
+    await expect(writable.fs.rm("pull-request/body.md")).rejects.toThrow("read-only")
+    await expect(writable.fs.copyPath("pull-request/body.md", "pull-request/copy.md")).rejects.toThrow("read-only")
+
+    await expect(writable.fs.writeFile("artifacts/review.md", "nope")).rejects.toThrow("limits writes")
+    await writable.fs.writeFile("artifacts/review.md", "ok")
+    await writable.fs.copyPath("pull-request/body.md", "artifacts/body.md")
+    await expect(writable.fs.movePath("pull-request/body.md", "artifacts/moved.md")).rejects.toThrow("read-only")
+    await expect(base.readFile("artifacts/review.md")).resolves.toBe("ok")
+    await expect(base.readFile("artifacts/body.md")).resolves.toBe("# Pull request\n")
+    await expect(base.exists("artifacts/moved.md")).resolves.toBe(false)
+  })
+
+  it("syncs contributed sources through writable overlays", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          mount: "docs",
+          sync: true,
+          async getKeys() {
+            return ["README.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Docs\n" }
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+
+    await expect((workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
+      status: "ready",
+      sources: [expect.objectContaining({ source: "docs", status: "ready" })],
+    })
+    await expect(base.readFile("docs/README.md")).resolves.toBe("# Docs\n")
+  })
+
+  it("persists Source Sync state across writable overlay facades", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    let keys = ["README.md", "old.md"]
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          mount: "docs",
+          sync: { stale: "remove" },
+          async getKeys() {
+            return keys
+          },
+          async getItem(key) {
+            return { key, path: key, content: `# ${key}\n` }
+          },
+        }),
+      },
+    }
+
+    const first = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    await expect((first.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
+      status: "ready",
+    })
+    await expect(base.readFile("docs/old.md")).resolves.toBe("# old.md\n")
+
+    keys = ["README.md"]
+    const second = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    await expect((second.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
+      status: "ready",
+      sources: [expect.objectContaining({
+        counts: expect.objectContaining({ removed: 1 }),
+      })],
+    })
+    await expect(base.exists("docs/old.md")).resolves.toBe(false)
+  })
+
+  it("starts writable overlay sessions from contributed sources and rules", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      rules: {
+        "artifacts/**": { write: true },
+      },
+      sources: {
+        pullRequest: custom({
+          materialize: "lazy",
+          mount: "pull-request",
+          async getKeys() {
+            return ["body.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Pull request\n" }
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    const session = await (workspace as WritableWorkspaceFacade).startSession()
+
+    await expect(session.readFile("pull-request/body.md")).resolves.toBe("# Pull request\n")
+    await expect(session.writeFile("pull-request/body.md", "nope")).rejects.toThrow("read-only")
+    await session.writeFile("artifacts/session.md", "ok")
+    await session.commit({ message: "session" })
+    await expect(base.readFile("artifacts/session.md")).resolves.toBe("ok")
   })
 })

@@ -1,19 +1,34 @@
 import { createWorkspaceTools } from "../ai.ts"
 import { normalizeWorkspacePath } from "../core/path.ts"
+import { createWorkspaceWritePolicy } from "../core/rules.ts"
+import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
+import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
-import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources } from "./config.ts"
-import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution } from "./request-execution.ts"
+import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources, workspaceSourceRequestDescriptorPath } from "./config.ts"
+import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "./request-execution.ts"
 import { resolveWorkspacePath } from "./resolver.ts"
 import { createWorkspaceSourceView } from "./view.ts"
 
-import type { WorkspaceFacadeToolOptions, ReadonlyWorkspaceFacade, WorkspaceReadToolSet } from "../core/use.ts"
 import type {
+  ReadonlyWorkspaceFacade,
+  WorkspaceFacadeToolOptions,
+  WorkspaceReadToolSet,
+  WorkspaceWriteToolSet,
+  WritableWorkspaceFacade,
+  WritableWorkspaceFacadeToolOptions,
+} from "../core/use.ts"
+import type {
+  GlobOptions,
   ListOptions,
+  Workspace,
   WorkspaceDefinition,
   WorkspaceEntry,
+  WorkspaceFile,
   WorkspaceName,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
+  WorkspaceStore,
+  WorkspaceWriteInput,
   WorkspaceSelectedScope,
   WorkspaceSource,
   WorkspaceSourceInput,
@@ -24,6 +39,7 @@ import type {
 
 export interface WorkspaceSourceResolutionOptions {
   invocation: WorkspaceSourceResolutionInvocation<object>
+  overlay?: boolean
   selectedWorkspaceScope?: WorkspaceSelectedScope<string>
 }
 
@@ -32,17 +48,193 @@ export interface WorkspaceSourceResolutionFacade<Name extends WorkspaceName = Wo
   workspace: ReadonlyWorkspaceFacade<Name>
 }
 
+type WorkspaceMetadataTarget = {
+  getMeta?(key: string): Promise<unknown>
+  setMeta?(key: string, value: unknown): Promise<void>
+}
+
 export function hasWorkspaceSourceResolvers(definition: Pick<WorkspaceDefinition, "sources"> | undefined): boolean {
   return normalizeWorkspaceSources(definition?.sources).some(source => typeof source.source.resolve === "function")
+}
+
+function isWritableWorkspaceFacade<Name extends WorkspaceName>(workspace: ReadonlyWorkspaceFacade<Name>): workspace is WritableWorkspaceFacade<Name> {
+  return typeof (workspace as WritableWorkspaceFacade<Name>).fs.writeFile === "function"
+}
+
+function writeOperations(options: WritableWorkspaceFacadeToolOptions | undefined) {
+  return {
+    appendFile: options?.appendFile !== false,
+    copyPath: options?.copyPath !== false,
+    deletePath: options?.deletePath !== false,
+    makeDir: options?.makeDir !== false,
+    movePath: options?.movePath !== false,
+    writeFile: options?.writeFile !== false,
+  }
+}
+
+function createOverlaySourceStore<Name extends WorkspaceName>(
+  workspace: ReadonlyWorkspaceFacade<Name>,
+  fallback: (path: string) => boolean,
+): WorkspaceStore {
+  const memory = createMemoryWorkspaceStore()
+
+  async function readBaseFile(path: string): Promise<WorkspaceFile | undefined> {
+    if (!fallback(path)) return
+    if (!await workspace.fs.exists(path as never)) return
+    const stat = await workspace.fs.stat(path as never).catch(() => undefined)
+    if (stat?.type === "directory") return
+    return {
+      content: await workspace.fs.readFile(path as never, { encoding: "binary" } as never) as Uint8Array,
+      mediaType: stat?.mediaType,
+      path,
+    }
+  }
+
+  async function baseEntries(path = "", options?: ListOptions) {
+    try {
+      return (await workspace.fs.list(path as never, options)).filter(entry => fallback(entry.path))
+    }
+    catch {
+      return []
+    }
+  }
+
+  async function baseGlob(pattern: string | string[], options?: GlobOptions) {
+    try {
+      return (await workspace.fs.glob(pattern as never, options)).filter(entry => fallback(entry.path))
+    }
+    catch {
+      return []
+    }
+  }
+
+  async function baseStat(path: string) {
+    if (!fallback(path)) return
+    try {
+      return await workspace.fs.stat(path as never)
+    }
+    catch {
+      return undefined
+    }
+  }
+
+  return {
+    async readFile(path) {
+      return await memory.readFile(path) || await readBaseFile(path)
+    },
+    async writeFile(path, file) {
+      await memory.writeFile(path, file)
+    },
+    async list(path, options) {
+      return mergeEntries(await baseEntries(path, options), await memory.list(path, options))
+    },
+    async glob(pattern, options) {
+      return mergeEntries(await baseGlob(pattern, options), await memory.glob(pattern, options))
+    },
+    async stat(path) {
+      return await memory.stat(path) || await baseStat(path)
+    },
+    async mkdir(path, options) {
+      await memory.mkdir(path, options)
+    },
+    async rm(path, options) {
+      await memory.rm(path, options)
+    },
+    async snapshot(options) {
+      return await memory.snapshot(options)
+    },
+    async diff(options) {
+      return await memory.diff(options)
+    },
+    async getMeta(key) {
+      return await memory.getMeta?.(key)
+    },
+    async setMeta(key, value) {
+      await memory.setMeta?.(key, value)
+    },
+  }
+}
+
+function createWritableFacadeStore(workspace: WritableWorkspaceFacade): WorkspaceStore {
+  const meta = new Map<string, unknown>()
+  const metadata = workspace as WritableWorkspaceFacade & WorkspaceMetadataTarget
+  return {
+    async readFile(path) {
+      try {
+        const stat = await workspace.fs.stat(path as never)
+        if (stat.type === "directory") return
+        return {
+          content: await workspace.fs.readFile(path as never, { encoding: "binary" } as never) as Uint8Array,
+          mediaType: stat.mediaType,
+          path,
+        }
+      }
+      catch {
+        return undefined
+      }
+    },
+    async writeFile(path, file) {
+      await workspace.fs.writeFile(path as never, file.content, { mediaType: file.mediaType })
+    },
+    async list(path, options) {
+      return await workspace.fs.list(path as never, options)
+    },
+    async glob(pattern, options) {
+      return await workspace.fs.glob(pattern as never, options)
+    },
+    async stat(path) {
+      try {
+        return await workspace.fs.stat(path as never)
+      }
+      catch {
+        return undefined
+      }
+    },
+    async mkdir(path, options) {
+      await workspace.fs.mkdir(path as never, options)
+    },
+    async rm(path, options) {
+      await workspace.fs.rm(path as never, options)
+    },
+    async snapshot(options) {
+      return await workspace.snapshot(options)
+    },
+    async diff(options) {
+      return await workspace.diff(options)
+    },
+    async getMeta(key) {
+      if (metadata.getMeta) return await metadata.getMeta(key)
+      return meta.get(key)
+    },
+    async setMeta(key, value) {
+      if (metadata.setMeta) {
+        await metadata.setMeta(key, value)
+        return
+      }
+      meta.set(key, value)
+    },
+  }
+}
+
+async function startOverlayWorkspaceSession(definition: WorkspaceDefinition, workspace: Workspace) {
+  if (definition.runtime === "sandbox") {
+    const { createSandboxWorkspaceSession } = await import("../session/sandbox.ts")
+    return await createSandboxWorkspaceSession(definition, workspace)
+  }
+  if (definition.runtime === "trusted-host") {
+    const { createTrustedHostWorkspaceSession } = await import("../session/trusted-host.ts")
+    return await createTrustedHostWorkspaceSession(definition, workspace)
+  }
+  return createBasicWorkspaceSession(workspace)
 }
 
 export async function resolveWorkspaceSources(
   definition: WorkspaceDefinition,
   options: WorkspaceSourceResolutionOptions,
 ): Promise<WorkspaceDefinition> {
-  if (!hasWorkspaceSourceResolvers(definition)) return definition
+  if (!hasWorkspaceSourceResolvers(definition) && !options.selectedWorkspaceScope) return definition
 
-  const sources: Record<string, WorkspaceSource> = {}
+  const sources: Record<string, WorkspaceSourceInput> = {}
   for (const [key, source] of Object.entries(definition.sources || {})) {
     const resolved = await resolveWorkspaceSource(definition, key, source, options)
     if (resolved) sources[key] = resolved
@@ -62,10 +254,11 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
   const resolvedDefinition = await resolveWorkspaceSources(definition, options)
   const sourceRequestExecution = createWorkspaceSourceRequestExecution(resolvedDefinition, {
     selectedWorkspaceScope: options.selectedWorkspaceScope,
-  })
-  if (resolvedDefinition === definition && !sourceRequestExecution) return { definition, workspace }
+  }) ?? getWorkspaceSourceRequestExecution(workspace.fs)
+  if (!options.overlay && resolvedDefinition === definition && !sourceRequestExecution) return { definition, workspace }
 
-  const sourceView = createWorkspaceSourceView(resolvedDefinition, createMemoryWorkspaceStore())
+  const sourceView = createWorkspaceSourceView(resolvedDefinition, createOverlaySourceStore(workspace, path => !isLazySourcePath(resolvedDefinition, path)))
+  const materializeSources = async (options = {}) => await sourceView.materializeSources(options)
   const fs: ReadonlyWorkspaceFacade<Name>["fs"] = attachWorkspaceSourceRequestExecution({
     async readFile(path, options) {
       if (isSourcePath(resolvedDefinition, path) || await sourceViewHasPath(resolvedDefinition, sourceView, path)) {
@@ -107,9 +300,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       ])
       return mergeHits(filterBaseHits(resolvedDefinition, baseHits), sourceHits).slice(0, query.limit ?? 100)
     },
-    async materializeSources(options = {}) {
-      return await sourceView.materializeSources(options)
-    },
+    materializeSources,
   }, sourceRequestExecution)
 
   const createTools = (options?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
@@ -129,6 +320,144 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
   tools.inspect = createTools as unknown as WorkspaceReadToolSet["inspect"]
   tools.none = (() => ({})) as WorkspaceReadToolSet["none"]
 
+  if (isWritableWorkspaceFacade(workspace)) {
+    const writePolicy = createWorkspaceWritePolicy(resolvedDefinition)
+    const syncStore = createWritableFacadeStore(workspace)
+    let writeWorkspace!: Workspace
+
+    async function previousStat(path: string) {
+      try {
+        return await workspace.fs.stat(path as never)
+      }
+      catch {
+        return undefined
+      }
+    }
+
+    async function writeWithPolicy(
+      input: Omit<WorkspaceWriteInput, "previous" | "rule" | "workspace">,
+      write: (input: WorkspaceWriteInput) => Promise<void>,
+    ) {
+      await sourceView.assertWritable(input.path)
+      const next = await writePolicy.before({
+        ...input,
+        path: normalizeWorkspacePath(input.path),
+        previous: await previousStat(input.path),
+        workspace: resolvedDefinition.name,
+      })
+      try {
+        await sourceView.assertWritable(next.path)
+        await write(next)
+        await writePolicy.after(next)
+      }
+      catch (error) {
+        await writePolicy.error(next, error)
+        throw error
+      }
+    }
+
+    const writeFs: WritableWorkspaceFacade<Name>["fs"] = attachWorkspaceSourceRequestExecution({
+      appendFile: async (path, content) => await appendWorkspaceFile(writeWorkspace, path, content),
+      copyPath: async (from, to, options) => await copyWorkspacePath(writeWorkspace, from, to, options?.overwrite),
+      exists: fs.exists,
+      glob: fs.glob,
+      list: fs.list,
+      mkdir: async (path, options) => await writeWithPolicy({
+        operation: "mkdir",
+        path,
+      }, async input => await workspace.fs.mkdir(input.path as never, options)),
+      movePath: async (from, to, options) => {
+        await sourceView.assertWritable(from)
+        await sourceView.assertWritable(to)
+        await copyWorkspacePath(writeWorkspace, from, to, options?.overwrite)
+        await writeWorkspace.rm(from, { recursive: true, force: true })
+      },
+      readFile: fs.readFile,
+      rm: async (path, options) => await writeWithPolicy({
+        operation: "rm",
+        path,
+      }, async input => await workspace.fs.rm(input.path as never, options)),
+      search: fs.search,
+      stat: fs.stat,
+      writeFile: async (path, content, options) => await writeWithPolicy({
+        content,
+        mediaType: options?.mediaType,
+        operation: "writeFile",
+        path,
+      }, async input => await workspace.fs.writeFile(input.path as never, input.content ?? content, input.mediaType === undefined ? options : { ...options, mediaType: input.mediaType })),
+    }, sourceRequestExecution)
+    writeWorkspace = attachWorkspaceSourceRequestExecution({
+      name: resolvedDefinition.name,
+      diff: workspace.diff,
+      exists: writeFs.exists,
+      glob: writeFs.glob,
+      list: writeFs.list,
+      materializeSources,
+      mkdir: writeFs.mkdir,
+      readFile: writeFs.readFile,
+      rm: writeFs.rm,
+      search: writeFs.search,
+      snapshot: workspace.snapshot,
+      startSession: async () => await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace),
+      stat: writeFs.stat,
+      sync: async (options) => {
+        const { syncWorkspaceSources } = await import("./sync.ts")
+        return await syncWorkspaceSources(resolvedDefinition, syncStore, options)
+      },
+      writeFile: writeFs.writeFile,
+      mount(options) {
+        const mode = options?.mode || "read-only"
+        return {
+          workspace: writeWorkspace,
+          mode,
+          target: options?.target || "/workspace",
+          async diff() {
+            return await writeWorkspace.diff()
+          },
+          async commit() {
+            await writeWorkspace.snapshot({ name: "mount-commit" })
+          },
+          async export() {
+            return await writeWorkspace.snapshot({ name: "mount-export" })
+          },
+        }
+      },
+    }, sourceRequestExecution)
+    const createWriteTools = (options?: WritableWorkspaceFacadeToolOptions) => createWorkspaceTools(writeWorkspace as never, {
+      broadSearchPaths: options?.broadSearchPaths,
+      cwd: options?.cwd,
+      maxShellCalls: options?.maxShellCalls,
+      maxOutputLength: options?.maxOutputLength,
+      operations: {
+        list: options?.list,
+        materialize: options?.materialize ?? true,
+        read: options?.read,
+        search: options?.search,
+        write: writeOperations(options),
+      },
+      timeout: options?.timeout,
+    })
+    const writeTools = createWriteTools() as WorkspaceWriteToolSet
+    writeTools.inspect = createTools as unknown as WorkspaceWriteToolSet["inspect"]
+    writeTools.none = (() => ({})) as WorkspaceWriteToolSet["none"]
+    writeTools.write = createWriteTools as unknown as WorkspaceWriteToolSet["write"]
+    const writableWorkspace: WritableWorkspaceFacade<Name> = {
+      ...workspace,
+      diff: writeWorkspace.diff,
+      fs: writeFs,
+      materializeSources,
+      snapshot: writeWorkspace.snapshot,
+      startSession: writeWorkspace.startSession,
+      sync: writeWorkspace.sync,
+      tools: writeTools,
+    }
+
+    return {
+      definition: resolvedDefinition,
+      workspace: writableWorkspace,
+    }
+  }
+
   return {
     definition: resolvedDefinition,
     workspace: {
@@ -143,10 +472,10 @@ async function resolveWorkspaceSource(
   key: string,
   input: WorkspaceSourceInput,
   options: WorkspaceSourceResolutionOptions,
-): Promise<WorkspaceSource | undefined> {
+): Promise<WorkspaceSourceInput | undefined> {
   const declared = normalizeWorkspaceSource(key, input)
   const source = declared.source
-  if (!source.resolve) return source
+  if (!source.resolve) return selectedScopeIntersectsSource(options.selectedWorkspaceScope, declared) ? input : undefined
 
   const context: WorkspaceSourceResolutionContext<object, string> = {
     invocation: options.invocation,
@@ -167,7 +496,7 @@ async function resolveWorkspaceSource(
 
   const resolvedSource = withResolvedSourceRuntimeDefaults(applyResolvedWorkspaceSourceBinding(input, resolved))
   const normalized = normalizeWorkspaceSource(key, resolvedSource)
-  if (!selectedScopeIntersectsMount(options.selectedWorkspaceScope, normalized.mountPath)) return undefined
+  if (!selectedScopeIntersectsSource(options.selectedWorkspaceScope, normalized)) return undefined
 
   return copyWorkspaceSourceMetadata(resolvedSource, {
     ...resolvedSource,
@@ -222,6 +551,7 @@ function isPlainRecord(input: unknown): input is Record<string, unknown> {
 }
 
 function isSourcePath(definition: WorkspaceDefinition, path: string): boolean {
+  if (isWorkspaceMetadataPath(path)) return false
   return resolveWorkspacePath(definition, path).type === "source"
 }
 
@@ -236,9 +566,28 @@ async function sourceViewHasPath(definition: WorkspaceDefinition, sourceView: Re
 }
 
 function sourcePathIntersects(definition: WorkspaceDefinition, path: string): boolean {
+  if (isWorkspaceMetadataPath(path)) return sourceDescriptorPathIntersects(definition, path)
   return normalizeWorkspaceSources(definition.sources)
     .filter(source => source.materialize !== "none")
     .some(source => pathIntersects(source.mountPath, path))
+}
+
+function isWorkspaceMetadataPath(path: string): boolean {
+  const normalized = normalizeWorkspacePath(path)
+  return normalized === ".vitehub" || normalized.startsWith(".vitehub/")
+}
+
+function sourceDescriptorPathIntersects(definition: WorkspaceDefinition, path: string): boolean {
+  const normalized = normalizeWorkspacePath(path)
+  return normalizeWorkspaceSources(definition.sources)
+    .some(source => source.requestDescriptor && pathIntersects(workspaceSourceRequestDescriptorPath(source.key), normalized))
+}
+
+function isLazySourcePath(definition: WorkspaceDefinition, path: string): boolean {
+  const normalized = normalizeWorkspacePath(path)
+  return normalizeWorkspaceSources(definition.sources)
+    .filter(source => source.materialize === "lazy")
+    .some(source => pathIntersects(source.mountPath, normalized))
 }
 
 function searchQueryTargetsSource(definition: WorkspaceDefinition, query: WorkspaceSearchQuery): boolean {
@@ -271,9 +620,15 @@ function mergeHits(base: WorkspaceSearchHit[], source: WorkspaceSearchHit[]): Wo
   })
 }
 
-function selectedScopeIntersectsMount(scope: WorkspaceSelectedScope | undefined, mountPath: string): boolean {
+function selectedScopeIntersectsSource(
+  scope: WorkspaceSelectedScope | undefined,
+  source: ReturnType<typeof normalizeWorkspaceSources>[number],
+): boolean {
   if (!scope || scope.all) return true
-  return Boolean(scope.paths?.some(path => pathIntersects(path, mountPath)))
+  return Boolean(scope.paths?.some((path) => {
+    if (source.requestDescriptor && pathIntersects(path, workspaceSourceRequestDescriptorPath(source.key))) return true
+    return !source.requestOnly && pathIntersects(path, source.mountPath)
+  }))
 }
 
 function pathContains(container: string, path: string): boolean {

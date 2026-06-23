@@ -697,7 +697,7 @@ function accessCapabilityRequiresWorkspace(capability: NormalizedCapability): bo
 function validateNonWorkspaceCapabilities(capabilities: NormalizedCapability[], hasWorkspace: boolean): void {
   if (hasWorkspace) return
   for (const capability of capabilities) {
-    if (capability.id === "workspace-shell" || capability.id === "sandbox" || accessCapabilityRequiresWorkspace(capability)) {
+    if (capability.workspace || capability.id === "workspace-shell" || capability.id === "sandbox" || accessCapabilityRequiresWorkspace(capability)) {
       const name = capability.id === "workspace-shell" ? "workspaceShell" : capability.id
       throw new Error(`[vitehub] ${name}() requires an explicit workspace.`)
     }
@@ -1238,7 +1238,7 @@ async function createAgentInvocationContext<
       : undefined
     const activeWorkspace = capabilities.workspace || workspace
     const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
-    const activeWorkspaceDefinition = sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
+    const activeWorkspaceDefinition = capabilities.workspaceDefinition || sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
     const workspaceScope = invocationContext.get("access")?.workspaceScope
     const sourceInstructions = activeWorkspaceDefinition && activeWorkspace
       ? await resolveWorkspaceSourceInstructionBlock(

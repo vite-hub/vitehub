@@ -103,6 +103,10 @@ _Avoid_: Raw Source Definition, provider options only, namespace helper imports
 A direct public import of a Source Loader helper such as `file`, `glob`, or `github`.
 _Avoid_: Source namespace, Workspace-owned provider namespace
 
+**Capability Workspace Contribution**:
+An invocation-scoped contribution from a Capability that adds inspectable Workspace Source Bindings or Workspace Rules without mutating the Colocated Workspace Definition.
+_Avoid_: Hidden Workspace mutation, dynamic Source, Capability Workspace, publication sink
+
 **Mount**:
 The placement of a Source inside a Workspace file tree.
 _Avoid_: Source
@@ -297,6 +301,10 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - A **Source Map** may accept **Workspace Source Binding Inputs** that normalize into Workspace Source Bindings.
 - A **Workspace Source Binding** can reference a Source Package **Source Definition**.
 - A **Workspace Source Binding** owns Mount, Source Instructions, materialization mode, validation, and Source Sync Policy for that Source inside one Workspace.
+- A **Capability Workspace Contribution** can add Workspace Source Bindings for one Agent Invocation before Workspace Tools, Source Instructions, or Workspace Sessions are built.
+- A **Capability Workspace Contribution** is inspectable runtime input, not hidden mutation of the Colocated Workspace Definition.
+- A **Capability Workspace Contribution** fails loudly on Source key, rule, Mount, and path conflicts.
+- A **Capability Workspace Contribution** cannot broaden the Selected Workspace Scope or make hidden Sources visible.
 - A **Workspace Source Binding Input** may infer a Source Loader from unambiguous Source Loader options.
 - A **Workspace Source Binding Input** should use TypeScript types to prevent ambiguous Source Loader option combinations.
 - Runtime normalization of a **Workspace Source Binding Input** should reject ambiguous Source Loader option combinations.
@@ -308,6 +316,7 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - A **Single-File Source** can default its Mount to the Workspace root and its Source-Backed Path to the source file basename.
 - Current workspace writes target normal Workspace paths, not Source-Backed Paths.
 - Capability-persisted artifacts, such as Transcription Artifacts, target normal Workspace paths and remain subject to Workspace Rules.
+- Capability-contributed artifact paths require explicit Workspace Rules; a Capability Workspace Contribution does not make writes allowed by default.
 - **Source Sync** is distinct from normal workspace writes.
 - **Source Sync** is a lifecycle operation over existing Sources, not a separate Source kind.
 - **Source Sync** requires explicit Source selection.

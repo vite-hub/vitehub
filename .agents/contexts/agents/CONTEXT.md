@@ -327,6 +327,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - DevTools can select configured **Agent Invoker Profiles** before a new Chat Session starts, but does not switch invokers in the middle of one conversation.
 - Chat History is explicit application behavior and is not enabled by default.
 - **Agent Invocation Context Values** can be produced by Pre-Invocation Decisions and read by later Agent or Capability callbacks.
+- **Agent Invocation Context Values** can carry small trusted product metadata, such as pull-request identity facts, while larger review material stays in Workspace Sources.
 - **Agent Invocation Context Values** do not grant Capabilities dynamically.
 - **Agent Invocation Context Value** ids must be unique per Agent so every invocation has one writer per context value.
 - **Agent Memory** can outlive one conversation.
