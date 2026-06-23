@@ -108,6 +108,7 @@ describe("agent public types", () => {
         }),
         skills(),
         skills({ path: "skills/agent-browser", source: githubSource({ repo: "vercel/vercel-plugin", root: "skills/agent-browser" }) }),
+        skills({ path: "skills/agent-browser", shellExecution: "write", source: githubSource({ repo: "vercel/vercel-plugin", root: "skills/agent-browser" }) }),
         skills({ shellExecution: "read" }),
         skills({ shellExecution: "write" }),
         sandbox({ commands: ["node"] }),
@@ -175,6 +176,9 @@ describe("agent public types", () => {
 
     // @ts-expect-error skills shell execution mode must be read or write
     skills({ shellExecution: "allow" })
+
+    // @ts-expect-error skills delegates shell options to Workspace Shell tools
+    skills({ shellExecution: "read", timeout: 1000 })
 
     // @ts-expect-error git mode must be read or write
     git({ mode: "remote-write" })
