@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, defineAgentInvoker, type AgentActor, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDefinition, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
-import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
+import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceExec, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -57,6 +57,9 @@ describe("agent public types", () => {
         git(),
         git({ mode: "read" }),
         git({ mode: "write", policy: "require-approval" }),
+        workspaceExec({ commands: ["agent-browser", "/Users/maxi/quiver/agents/node_modules/.bin/agent-browser"] }),
+        workspaceExec({ commands: ["agent-browser"], mode: "read", timeout: 1_000 }),
+        workspaceExec({ commands: ["agent-browser"], mode: "write" }),
         inputCommands({
           commands: {
             review: {
@@ -182,6 +185,18 @@ describe("agent public types", () => {
 
     // @ts-expect-error git mode must be read or write
     git({ mode: "remote-write" })
+
+    // @ts-expect-error workspaceExec requires configured commands
+    workspaceExec()
+
+    // @ts-expect-error workspaceExec requires configured commands
+    workspaceExec({})
+
+    // @ts-expect-error workspaceExec mode must be read or write
+    workspaceExec({ commands: ["agent-browser"], mode: "execute" })
+
+    // @ts-expect-error workspaceExec timeout must be a number
+    workspaceExec({ commands: ["agent-browser"], timeout: "1000" })
 
     const invocationContext: AgentInvocationContextStore = {
       entries: () => new Map<string, unknown>().entries(),
