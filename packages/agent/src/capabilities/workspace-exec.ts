@@ -30,6 +30,11 @@ type WorkspaceExecWorkspace = {
 }
 
 const unsafeCommand = /[\s\x00-\x1F\x7F]/
+const blockedEnvKeys = new Set([
+  "NODE_OPTIONS",
+  "NODE_PATH",
+  "PATH",
+])
 
 function validateCommands(commands: unknown): string[] {
   if (!Array.isArray(commands) || !commands.length) {
@@ -71,8 +76,17 @@ function envRecord(value: unknown): Record<string, string> | undefined {
     throw new TypeError("[vitehub] workspace_exec env must be an object with string values.")
   }
   const env = value as Record<string, unknown>
-  if (Object.values(env).some(item => typeof item !== "string")) {
-    throw new TypeError("[vitehub] workspace_exec env must be an object with string values.")
+  for (const [key, item] of Object.entries(env)) {
+    if (!key || key.includes("=") || key.includes("\0")) {
+      throw new TypeError("[vitehub] workspace_exec env keys must be valid environment variable names.")
+    }
+    const normalizedKey = key.toUpperCase()
+    if (blockedEnvKeys.has(normalizedKey) || normalizedKey.startsWith("LD_") || normalizedKey.startsWith("DYLD_")) {
+      throw new TypeError("[vitehub] workspace_exec env cannot override PATH or loader-related variables.")
+    }
+    if (typeof item !== "string") {
+      throw new TypeError("[vitehub] workspace_exec env must be an object with string values.")
+    }
   }
   return env as Record<string, string>
 }

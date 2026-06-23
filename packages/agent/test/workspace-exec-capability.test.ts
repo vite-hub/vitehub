@@ -80,6 +80,17 @@ describe("workspaceExec capability", () => {
     expect(session.close).toHaveBeenCalledOnce()
   })
 
+  it("rejects env overrides that affect command resolution or loading", async () => {
+    const { startSession, tools } = await capabilityTools()
+
+    await expect(tools.workspace_exec!.execute?.({
+      command: "agent-browser",
+      env: { PATH: "/workspace/bin", NODE_OPTIONS: "--require ./loader.js" },
+    })).rejects.toThrow("cannot override PATH or loader-related variables")
+
+    expect(startSession).not.toHaveBeenCalled()
+  })
+
   it("commits successful write-mode commands", async () => {
     const { session, tools } = await capabilityTools(workspaceExec({ commands: ["agent-browser"], mode: "write" }))
 
