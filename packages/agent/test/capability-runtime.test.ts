@@ -544,7 +544,7 @@ describe("agent capability runtime", () => {
     await expect(resolved.workspace?.fs.readFile("pull-request/summary.md")).resolves.toBe("review context")
     const resolvedWorkspace = resolved.workspace as unknown as ReturnType<typeof writableWorkspace>
     await resolvedWorkspace.fs.writeFile("artifacts/review.md", "ok")
-    expect(workspace.fs.writeFile).toHaveBeenCalledWith("artifacts/review.md", "ok")
+    expect(workspace.fs.writeFile).toHaveBeenCalledWith("artifacts/review.md", "ok", undefined)
     expect(resolvedWorkspace.tools.write).toEqual(expect.any(Function))
   })
 

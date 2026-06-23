@@ -1,5 +1,4 @@
 import { resolveRuntimeValue } from "@vite-hub/runtime"
-import { createWorkspaceSourceResolutionFacade } from "@vite-hub/workspace"
 
 import { workspaceOverrideSymbol } from "./access-runtime.ts"
 import { createMessage } from "./messages.ts"
@@ -409,6 +408,7 @@ async function applyCapabilityWorkspaceContributions<
   }
 
   if (!registries.length) return
+  const { createWorkspaceSourceResolutionFacade } = await import("@vite-hub/workspace")
   const sourceResolution = await createWorkspaceSourceResolutionFacade(context.workspace, definition, {
     invocation: {
       context: context.context,
