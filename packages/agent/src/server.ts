@@ -6,8 +6,8 @@ interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
 }
 
-import { withAgentDefaults } from "./index.ts"
-import { workspaceNameFromOptions } from "./workspace-agent.ts"
+import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition } from "./index.ts"
+import { workspaceDefinitionFromOptions, workspaceNameFromOptions } from "./workspace-agent.ts"
 
 import type { AgentRuntimeConfig } from "./types.ts"
 import type { WorkspaceAgentDefaults, WorkspaceAgentDefinition } from "./workspace-agent.ts"
@@ -32,14 +32,18 @@ export function registerWorkspaceAgent<
     workspace: options.workspace,
   }) as WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>
   const workspaceOptions = preparedAgent.__vitehubWorkspaceAgentOptions
-  if (typeof workspaceOptions.workspace === "string") return preparedAgent
+  if (!workspaceAgentOwnsWorkspaceDefinition(preparedAgent)) return preparedAgent
   const sourceRootDir = preparedAgent.sourceRootDir ?? options.sourceRootDir
   if (sourceRootDir !== undefined) {
+    const configuredWorkspace = workspaceOptions.workspace as Record<string, unknown> & { sourceRootDir?: string }
     const workspace = {
-      ...workspaceOptions.workspace,
-      sourceRootDir: workspaceOptions.workspace.sourceRootDir ?? sourceRootDir,
+      ...configuredWorkspace,
+      sourceRootDir: configuredWorkspace.sourceRootDir ?? sourceRootDir,
     }
-    Object.assign(preparedAgent, workspace, {
+    Object.assign(preparedAgent, workspaceDefinitionFromOptions({
+      ...workspaceOptions,
+      workspace,
+    } as never), {
       __vitehubWorkspaceAgentOptions: {
         ...workspaceOptions,
         workspace,

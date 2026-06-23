@@ -686,11 +686,10 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   const instrumentedModel = modelInstrumentation
     ? await modelInstrumentation({ ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
-  const instructions = context.instructions
-    ?? applyWorkspaceSourceInstructionSlot(
-      applyCapabilityInstructionSlots(await resolveInstructions(options, metadataContext), context.capabilityInstructions),
-      context.sourceInstructions,
-    )
+  const instructions = applyWorkspaceSourceInstructionSlot(
+    applyCapabilityInstructionSlots(context.instructions ?? await resolveInstructions(options, metadataContext), context.capabilityInstructions),
+    context.sourceInstructions,
+  )
   const adapterTools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)
   const resolvedTools = withDefaultToolInputSchemas(await applyCapabilityToolTransforms({
     ...context.tools,

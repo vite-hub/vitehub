@@ -571,6 +571,67 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toBe("Use colocated workspace instructions.")
   })
 
+  it("keeps source instructions with colocated default model instructions", async () => {
+    const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
+    tempRoots.push(sourceRootDir)
+    await writeLocalFile(join(sourceRootDir, "instructions.md"), "Use colocated workspace instructions.\n")
+    readFile.mockResolvedValueOnce("Use colocated workspace instructions.\n")
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {
+        sourceRootDir,
+        sources: {
+          docs: { instructions: "Use docs for product behavior.", name: "docs" } as never,
+        },
+      },
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(agentSettings.at(-1)?.instructions).toBe([
+      "Use colocated workspace instructions.",
+      "## Workspace Sources",
+      "### docs\n\nUse docs for product behavior.",
+    ].join("\n\n"))
+  })
+
+  it("reads materialized colocated instructions without host fs", async () => {
+    const processWithBuiltins = globalThis.process as typeof process & {
+      getBuiltinModule?: (name: string) => unknown
+    }
+    const getBuiltinModule = processWithBuiltins.getBuiltinModule
+    processWithBuiltins.getBuiltinModule = () => undefined
+    readFile.mockResolvedValueOnce("Use materialized workspace instructions.\n")
+
+    try {
+      const { defineAgent } = await import("../src/index.ts")
+      const agent = withAgentDefaults(defineAgent({
+        workspace: {
+          sourceRootDir: "/runtime/server/agents/support",
+          sources: {
+            __vitehubAgentInstructions: {
+              materialize: "build",
+              mount: "",
+              path: "instructions.md",
+              workspacePath: "AGENTS.md",
+            },
+          },
+        },
+        model: {} as never,
+      }), { workspace: "docs" })
+
+      await agent.run!(context())
+
+      expect(readFile).toHaveBeenCalledWith("AGENTS.md")
+      expect(agentSettings.at(-1)?.instructions).toBe("Use materialized workspace instructions.")
+    }
+    finally {
+      processWithBuiltins.getBuiltinModule = getBuiltinModule
+    }
+  })
+
   it("keeps explicit model instructions ahead of colocated instructions.md", async () => {
     const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
     tempRoots.push(sourceRootDir)

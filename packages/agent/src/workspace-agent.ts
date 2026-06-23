@@ -842,7 +842,8 @@ export async function resolveWorkspaceAgentDefaultInstructions<
   workspace: ReadonlyWorkspaceFacade<Name>,
 ): Promise<string | undefined> {
   if (!shouldUseColocatedAgentInstructions(options)) return undefined
-  if (!hasColocatedAgentInstructions(workspaceDefinitionFromOptions(options).sourceRootDir)) return undefined
+  const definition = workspaceDefinitionFromOptions(options)
+  if (!definition.sources || !(colocatedAgentInstructionsSourceKey in definition.sources)) return undefined
   try {
     const content = (await workspace.fs.readFile(colocatedAgentInstructionsWorkspacePath as never)).trim()
     if (content) return content
