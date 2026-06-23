@@ -6,10 +6,29 @@ import type { AgentRunResult, AgentUsage, AgentUsageRecord } from "./types.ts"
 
 export { isAsyncIterable } from "./internal/stream-result.ts"
 
+function textFromContent(content: unknown): string | undefined {
+  if (!Array.isArray(content)) return
+
+  const text = content.flatMap((part) => {
+    if (typeof part === "string") return [part]
+    if (!part || typeof part !== "object") return []
+
+    const record = part as Record<string, unknown>
+    if (record.type !== "text" && record.type !== "text-delta") return []
+
+    const value = record.text ?? record.textDelta ?? record.delta
+    return typeof value === "string" ? [value] : []
+  }).join("")
+
+  return text ? text : undefined
+}
+
 function textFromResult(result: Record<string, unknown>): string | undefined {
   if (typeof result.text === "string") return result.text
   if (typeof result.output === "string") return result.output
   if (typeof result._output === "string") return result._output
+  const contentText = textFromContent(result.content)
+  if (contentText) return contentText
 
   const steps = result.steps
   if (Array.isArray(steps)) {
@@ -17,6 +36,8 @@ function textFromResult(result: Record<string, unknown>): string | undefined {
       if (step && typeof step === "object" && typeof (step as { text?: unknown }).text === "string") {
         return (step as { text: string }).text
       }
+      const stepContentText = textFromContent((step as { content?: unknown }).content)
+      if (stepContentText) return stepContentText
     }
   }
 }
