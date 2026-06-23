@@ -470,6 +470,17 @@ describe("defineAgent workspace option", () => {
     expect(useWorkspace).toHaveBeenCalledWith("docs")
   })
 
+  it("marks synthetic workspace runs with the shared runtime symbol", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = defineAgent({
+      workspace: {},
+      model: {} as never,
+    })
+
+    expect(agent.run && Symbol.for("vitehub.syntheticWorkspaceRun") in agent.run).toBe(true)
+  })
+
   it("joins array instructions", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
@@ -1309,7 +1320,10 @@ describe("defineAgent workspace option", () => {
     await agent.run!(context({ vertex: { model: "gemini" } }))
 
     expect(toolResolver).toHaveBeenCalledTimes(1)
-    expect(agentSettings.at(-1)?.tools).toEqual({ shell })
+    const resolvedShell = (agentSettings.at(-1)?.tools as { shell?: typeof shell } | undefined)?.shell
+    expect(resolvedShell).toEqual(expect.objectContaining({ inputSchema: {} }))
+    await resolvedShell?.execute({ command: "rg defineAgent" })
+    expect(shell.execute).toHaveBeenCalledWith({ command: "rg defineAgent" })
   })
 
   it("reports explicitly attached workspace tool usage when execution starts and finishes", async () => {

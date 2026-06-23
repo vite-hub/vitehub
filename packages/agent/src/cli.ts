@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
+import { vercelAiGatewayPricing, type AgentUsagePricing } from "./capabilities/usage-telemetry.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
 
@@ -72,11 +73,17 @@ interface AgentDevCliOptions {
 }
 
 interface AgentDevDiscovery {
-  agents?: Array<{ name?: unknown, triggers?: unknown }>
+  agents?: Array<{ aliases?: unknown, name?: unknown, triggers?: unknown }>
   root?: unknown
 }
 
 const devPayloadMaxLength = 1200
+
+let devUsagePricing: AgentUsagePricing | undefined
+
+function defaultDevUsagePricing() {
+  return devUsagePricing ??= vercelAiGatewayPricing()
+}
 
 function writeEvalUsage(context: AgentCliContext): void {
   context.stdout.write([
@@ -136,6 +143,29 @@ function writeDevPayload(context: AgentCliContext, label: string, value: unknown
   context.stderr.write(`  ${label}: ${text}\n`)
 }
 
+function writeDevText(context: AgentCliContext, value: unknown): boolean {
+  const text = formatDevPayload(value)
+  if (text === undefined) return false
+  context.stderr.write(text.endsWith("\n") ? text : `${text}\n`)
+  return true
+}
+
+function toolTextOutput(value: unknown, seen = new Set<unknown>()): string | undefined {
+  if (!isRecord(value) || seen.has(value)) return
+  seen.add(value)
+  if (typeof value.text === "string" && value.text.trim()) return value.text
+  for (const key of ["output", "result", "raw"]) {
+    const text = toolTextOutput(value[key], seen)
+    if (text) return text
+  }
+}
+
+function thinkingFallback(metadata: Record<string, unknown> | undefined): string | undefined {
+  if (!metadata || !Object.hasOwn(metadata, "thinkingFallback")) return "Thinking..."
+  const value = metadata.thinkingFallback
+  return typeof value === "string" && value.trim() ? value : undefined
+}
+
 function usageNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.trunc(value) : undefined
 }
@@ -155,13 +185,43 @@ function readUsageDetail(...records: Array<Record<string, unknown> | undefined>)
   }
 }
 
-function formatUsageRecord(record: AgentUsageRecord): string | undefined {
+function formatUsageDuration(durationMs: unknown): string | undefined {
+  const finite = usageNumber(durationMs)
+  if (finite === undefined) return
+  return `${(finite / 1000).toFixed(1)}s`
+}
+
+function formatUsageCost(cost: AgentUsageRecord["cost"]): string | undefined {
+  if (!cost?.amount) return
+  const amount = cost.amount.replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "")
+  return `${cost.estimated ? "~" : ""}${cost.currency === "USD" ? `$${amount}` : `${amount} ${cost.currency}`}`
+}
+
+function formatUsageSpeed(record: AgentUsageRecord, durationMs?: number): string | undefined {
+  const explicit = typeof record.latency?.tokensPerSecond === "number" && Number.isFinite(record.latency.tokensPerSecond)
+    ? record.latency.tokensPerSecond
+    : undefined
+  const duration = usageNumber(record.latency?.durationMs) ?? durationMs
+  const durationSeconds = duration === undefined ? undefined : duration / 1000
+  const input = usageNumber(record.usage?.inputTokens)
+  const output = usageNumber(record.usage?.outputTokens)
+  const total = usageNumber(record.usage?.totalTokens)
+  const outputOrTotal = output ?? (input !== undefined && total !== undefined ? total - input : total)
+  const derived = explicit ?? (durationSeconds !== undefined && durationSeconds > 0 ? (outputOrTotal ?? 0) / durationSeconds : undefined)
+  return derived && Number.isFinite(derived) ? `${derived.toFixed(1)} tok/s` : undefined
+}
+
+function formatUsageRecord(record: AgentUsageRecord, fallbackDurationMs?: number): string | undefined {
   const usage = record.usage
   const input = usageNumber(usage?.inputTokens)
   const output = usageNumber(usage?.outputTokens)
   const total = usageNumber(usage?.totalTokens) ?? (input !== undefined && output !== undefined ? input + output : undefined)
   const reasoning = readUsageDetail(usage?.outputTokenDetails, usage?.inputTokenDetails, usage?.details)
+  const cost = formatUsageCost(record.cost)
+  const duration = formatUsageDuration(record.latency?.durationMs ?? fallbackDurationMs)
+  const speed = formatUsageSpeed(record, fallbackDurationMs)
   const parts: string[] = []
+  if (cost) parts.push(`cost ${cost}`)
   if (total !== undefined) {
     const tokens = `${formatUsageNumber(total)} tokens`
     parts.push(input !== undefined && output !== undefined ? `${tokens}: ${formatUsageNumber(input)} in / ${formatUsageNumber(output)} out` : tokens)
@@ -170,8 +230,60 @@ function formatUsageRecord(record: AgentUsageRecord): string | undefined {
     parts.push([input !== undefined ? `${formatUsageNumber(input)} in` : undefined, output !== undefined ? `${formatUsageNumber(output)} out` : undefined].filter(Boolean).join(" / "))
   }
   if (reasoning !== undefined) parts.push(`${formatUsageNumber(reasoning)} reasoning tokens`)
+  if (duration) parts.push(`time ${duration}`)
+  if (speed) parts.push(`speed ${speed}`)
   if (!parts.length) return record.summary
   return parts.join("; ")
+}
+
+function formatUsageNote(summary: string): string {
+  return ["> [!NOTE]", `> Usage: ${summary}`].join("\n")
+}
+
+async function enrichUsageCost(record: AgentUsageRecord): Promise<AgentUsageRecord> {
+  if (record.cost || !record.usage) return record
+  try {
+    const cost = await defaultDevUsagePricing()({
+      model: record.model,
+      response: record.response,
+      run: record.run,
+      usage: record.usage,
+    })
+    return cost ? { ...record, cost } : record
+  }
+  catch {
+    return record
+  }
+}
+
+function shellCommand(value: unknown): string | undefined {
+  if (!isRecord(value) || typeof value.command !== "string") return
+  const command = value.command.trim()
+  return command && !command.includes("\n") ? command : undefined
+}
+
+function toolHeader(name: string, input?: unknown, output?: unknown): string {
+  return `[tool] ${shellCommand(input) ?? shellCommand(output) ?? name}`
+}
+
+function writeShellOutput(context: AgentCliContext, output: unknown, error: unknown): boolean {
+  if (!isRecord(output)) return false
+  const stdout = typeof output.stdout === "string" && output.stdout ? output.stdout : undefined
+  const stderr = typeof output.stderr === "string" && output.stderr ? output.stderr : undefined
+  if (!stdout && !stderr && error === undefined) return false
+  if (stdout) writeDevText(context, stdout)
+  if (stderr) writeDevPayload(context, "stderr", stderr)
+  writeDevPayload(context, "error", error)
+  context.stderr.write("---\n")
+  return true
+}
+
+function writeToolTextOutput(context: AgentCliContext, output: unknown): boolean {
+  const text = toolTextOutput(output)
+  if (!text) return false
+  writeDevText(context, text)
+  context.stderr.write("---\n")
+  return true
 }
 
 function readOptionValue(args: string[], index: number, flag: string): string {
@@ -464,12 +576,23 @@ async function readDiscovery(
     return
   }
   const agents = (discovery.agents || []).flatMap(agent => typeof agent.name === "string" ? [agent.name] : [])
+  const agentTargets = new Map<string, string>()
+  for (const agent of discovery.agents || []) {
+    if (typeof agent.name !== "string") continue
+    agentTargets.set(agent.name, agent.name)
+    if (Array.isArray(agent.aliases)) {
+      for (const alias of agent.aliases) {
+        if (typeof alias === "string") agentTargets.set(alias, alias)
+      }
+    }
+  }
   if (parsed.agent) {
-    if (!agents.includes(parsed.agent)) {
+    const target = agentTargets.get(parsed.agent)
+    if (!target) {
       context.stderr.write(`Unknown Agent Dev Loop Target: ${parsed.agent}\n`)
       return
     }
-    return { agent: parsed.agent, url }
+    return { agent: target, url }
   }
   if (agents.length === 1) {
     return { agent: agents[0]!, url }
@@ -508,6 +631,7 @@ async function sendDevMessage(
   signal?: AbortSignal,
 ): Promise<UIMessageLike[] | undefined> {
   const messages = text ? [...history, userMessage(text, history.length)] : history
+  const startedAt = Date.now()
   let response: Response
   try {
     response = await fetchImpl(url, {
@@ -545,35 +669,93 @@ async function sendDevMessage(
 
   let output = ""
   let needsApproval = false
+  let pendingFallback = false
+  let wroteFallback = false
+  let fallbackTimer: ReturnType<typeof setInterval> | undefined
+  let lastUsageRecord: AgentUsageRecord | undefined
+  let wroteUsageNote = false
+  let finishSeen = false
   const visibleTools = new Set<string>()
+  const writeUsageNote = () => {
+    if (!lastUsageRecord || wroteUsageNote) return
+    const usage = formatUsageRecord(lastUsageRecord, Date.now() - startedAt)
+    if (!usage) return
+    context.stdout.write(`${output && !output.endsWith("\n") ? "\n" : ""}\n${formatUsageNote(usage)}\n`)
+    wroteUsageNote = true
+  }
+  const clearPendingFallback = () => {
+    if (fallbackTimer) {
+      clearInterval(fallbackTimer)
+      fallbackTimer = undefined
+    }
+    if (!pendingFallback) return
+    context.stderr.write("\r\u001b[K\u001B[?25h")
+    pendingFallback = false
+  }
+  const startFallback = (fallback: string) => {
+    const base = fallback.trim().replace(/\.+$/, "")
+    const frames = [".", "..", "..."]
+    let frame = 2
+    const write = () => {
+      context.stderr.write(`\r${base}${frames[frame++ % frames.length]}`)
+    }
+    context.stderr.write("\u001B[?25l")
+    write()
+    fallbackTimer = setInterval(write, 250)
+    ;(fallbackTimer as { unref?: () => void }).unref?.()
+    pendingFallback = true
+  }
   try {
     for await (const event of readAgentInvocationStream(response.body)) {
+      if (event.type === "start") {
+        if (wroteFallback) continue
+        const fallback = thinkingFallback(event.metadata)
+        if (fallback) startFallback(fallback)
+        wroteFallback = true
+        continue
+      }
       if (event.type === "text-delta") {
+        clearPendingFallback()
         context.stdout.write(event.text)
         output += event.text
         continue
       }
       if (event.type === "tool-call" || event.type === "tool-input-start") {
-        visibleTools.add(event.id)
-        context.stderr.write(`\n[tool] ${event.name}\n`)
-        writeDevPayload(context, "input", event.input)
+        clearPendingFallback()
+        if (event.type === "tool-input-start" && event.input === undefined) continue
+        if (!visibleTools.has(event.id)) {
+          visibleTools.add(event.id)
+          context.stderr.write(`\n${toolHeader(event.name, event.input)}\n`)
+        }
+        if (!shellCommand(event.input)) writeDevPayload(context, "input", event.input)
         continue
       }
       if (event.type === "tool-result") {
+        clearPendingFallback()
         if (!visibleTools.has(event.id)) {
           visibleTools.add(event.id)
-          context.stderr.write(`\n[tool] ${event.name}\n`)
+          context.stderr.write(`\n${toolHeader(event.name, undefined, event.output)}\n`)
         }
-        writeDevPayload(context, "output", event.output)
-        writeDevPayload(context, "error", event.error)
+        if (!writeShellOutput(context, event.output, event.error) && !writeToolTextOutput(context, event.output)) {
+          writeDevPayload(context, "output", event.output)
+          writeDevPayload(context, "error", event.error)
+        }
         continue
       }
       if (event.type === "usage") {
-        const usage = formatUsageRecord(event.usageRecord)
-        if (usage) context.stderr.write(`\n[usage] ${usage}\n`)
+        clearPendingFallback()
+        lastUsageRecord = await enrichUsageCost(event.usageRecord)
+        if (finishSeen) writeUsageNote()
+        continue
+      }
+      if (event.type === "finish" || event.type === "done") {
+        clearPendingFallback()
+        finishSeen = true
+        writeUsageNote()
         continue
       }
       if (event.type === "delivery-preview") {
+        clearPendingFallback()
         context.stderr.write(`\n[delivery preview] would ${event.effect.kind}${event.channelId ? ` on ${event.channelId}` : ""}\n`)
         writeDevPayload(context, "intent", event.effect.intent)
         writeDevPayload(context, "payload", event.effect.payload)
@@ -581,27 +763,32 @@ async function sendDevMessage(
         continue
       }
       if (event.type === "approval-request") {
+        clearPendingFallback()
         context.stderr.write(`\n[approval required] ${event.name}${event.reason ? `: ${event.reason}` : ""}\n`)
         needsApproval = true
         continue
       }
       if (event.type === "approval-decision") {
+        clearPendingFallback()
         context.stderr.write(`\n[approval ${event.approved ? "approved" : "rejected"}]${event.reason ? ` ${event.reason}` : ""}\n`)
         continue
       }
       if (event.type === "error") {
+        clearPendingFallback()
         context.stderr.write(`\n${event.error}\n`)
         return
       }
     }
   }
   catch (error) {
+    clearPendingFallback()
     if (signal?.aborted || error instanceof DOMException && error.name === "AbortError") {
       context.stderr.write("\n[aborted]\n")
       return history
     }
     throw error
   }
+  clearPendingFallback()
   context.stdout.write("\n")
   if (!output && needsApproval) return
   return messages.length || output ? [...messages, assistantMessage(output, messages.length)] : []

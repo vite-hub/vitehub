@@ -649,6 +649,10 @@ function finishUsageSummary(event: AgentFinishEvent): string | undefined {
   return isRecord(usage) ? maybeString(usage.summary) : undefined
 }
 
+function githubNote(body: string): string {
+  return `> [!NOTE]\n${body.split("\n").map(line => `> ${line}`).join("\n")}`
+}
+
 function githubPullRequestCommentReplyEffect(event: AgentFinishEvent): AgentChannelDeliveryEffectIntent | undefined {
   const text = finishResultText(event.result)
   if (!text) return
@@ -656,7 +660,7 @@ function githubPullRequestCommentReplyEffect(event: AgentFinishEvent): AgentChan
   const summary = finishUsageSummary(event)
   return {
     kind: "reply",
-    payload: summary ? `${body}\n\n> ${summary}` : body,
+    payload: summary ? `${body}\n\n${githubNote(summary)}` : body,
   }
 }
 

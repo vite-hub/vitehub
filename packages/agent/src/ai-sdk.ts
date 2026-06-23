@@ -13,6 +13,8 @@ import {
   applyAgentToolPolicies,
   reportWorkspaceMaterialization,
   withAgentToolStepReporting,
+  withJsonCompatibleToolOutputs,
+  toJsonCompatibleValue,
 } from "./tool-runtime.ts"
 import {
   aiSdkTelemetryIntegration,
@@ -103,7 +105,7 @@ function toToolResultOutput(part: Extract<MessagePart, { type: "tool-result" }>)
   if (typeof output === "string") {
     return { type: "text", value: output } as ToolResultPart["output"]
   }
-  return { type: "json", value: output } as ToolResultPart["output"]
+  return { type: "json", value: toJsonCompatibleValue(output) } as ToolResultPart["output"]
 }
 
 function toToolResultModelPart(part: Extract<MessagePart, { type: "tool-result" }>): ToolResultPart {
@@ -448,7 +450,7 @@ async function resolveInstructions(options: AiSdkAdapterOptions, context: AgentA
 async function resolveTools(options: AiSdkAdapterOptions, context: AgentAdapterMetadataContext, reportToolStep?: AgentAdapterRunContext["devtools"] extends infer T ? T extends { reportToolStep?: infer R } ? R : never : never) {
   if (!options.tools) return undefined
   const resolved = await resolveValue(options.tools as never, context)
-  const tools = applyAgentToolPolicies(resolved as AgentToolSet | undefined) || {}
+  const tools = withJsonCompatibleToolOutputs(applyAgentToolPolicies(resolved as AgentToolSet | undefined) || {})
   const { materialize_sources: materializeSources, ...reportableTools } = tools
   return {
     ...withAgentToolStepReporting(reportableTools, reportToolStep as never),
@@ -529,6 +531,104 @@ function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapt
         }
       : experimental_onToolCallFinish ? { experimental_onToolCallFinish } : {}),
   }
+}
+
+function createUsageCapture() {
+  let captured = false
+  let capturedUsage: unknown
+
+  const capture = (event: unknown) => {
+    const record = typeof event === "object" && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
+    const usage = record?.totalUsage ?? record?.usage
+    if (usage === undefined) return
+    capturedUsage = usage
+    captured = true
+  }
+
+  return {
+    async onEnd(event: unknown) {
+      capture(event)
+    },
+    async onStepEnd(event: unknown) {
+      capture(event)
+    },
+    async onLanguageModelCallEnd(event: unknown) {
+      capture(event)
+    },
+    get captured() {
+      return captured
+    },
+    get usage() {
+      return captured ? Promise.resolve(capturedUsage) : undefined
+    },
+  }
+}
+
+function withCapturedUsage(result: unknown, capture: ReturnType<typeof createUsageCapture>): unknown {
+  if (result && typeof result === "object") {
+    const record = result as Record<string, unknown>
+    const usage = record.usage
+    const totalUsage = record.totalUsage
+    Object.defineProperty(record, "usage", {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return capture.usage ?? usage
+      },
+    })
+    if (totalUsage !== undefined) {
+      Object.defineProperty(record, "totalUsage", {
+        configurable: true,
+        enumerable: true,
+        get() {
+          return capture.usage ?? totalUsage
+        },
+      })
+    }
+    return result
+  }
+
+  if (!capture.captured) return result
+
+  return {
+    raw: result,
+    text: typeof result === "string" ? result : undefined,
+    usage: capture.usage,
+  }
+}
+
+function readModelString(value: unknown, ...keys: string[]): string | undefined {
+  if (!value || typeof value !== "object") return
+  const record = value as Record<string, unknown>
+  for (const key of keys) {
+    const item = record[key]
+    if (typeof item === "string" && item) return item
+  }
+}
+
+function withResolvedModelMetadata(result: unknown, model: unknown): unknown {
+  const modelId = readModelString(model, "modelId", "model")
+  const provider = readModelString(model, "provider", "providerId")
+  if ((modelId === undefined && provider === undefined) || !result || typeof result !== "object") {
+    return result
+  }
+
+  const record = result as Record<string, unknown>
+  if (modelId !== undefined && record.modelId === undefined) {
+    Object.defineProperty(record, "modelId", {
+      configurable: true,
+      enumerable: true,
+      value: modelId,
+    })
+  }
+  if (provider !== undefined && record.provider === undefined) {
+    Object.defineProperty(record, "provider", {
+      configurable: true,
+      enumerable: true,
+      value: provider,
+    })
+  }
+  return result
 }
 
 function arrayFrom(value: unknown): unknown[] {
@@ -640,7 +740,7 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
 
 export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
   const staticTools = typeof options.tools === "object" && options.tools
-    ? withAgentToolStepReporting(applyAgentToolPolicies(options.tools as AgentToolSet) || {})
+    ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(options.tools as AgentToolSet) || {}))
     : undefined
   return {
     async generate(context) {
@@ -648,7 +748,14 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       if (context.workspace && tools && "materialize_sources" in tools) {
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.devtools?.reportToolStep)
       }
-      const result = await agent.generate(getCallInput(context) as never) as GenerateTextResult<ToolSet, never, never>
+      const usageCapture = createUsageCapture()
+      const callInput = getCallInput(context) as Record<string, unknown>
+      const result = withResolvedModelMetadata(withCapturedUsage(await agent.generate({
+        ...callInput,
+        onEnd: usageCapture.onEnd,
+        onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
+        onStepEnd: usageCapture.onStepEnd,
+      } as never) as GenerateTextResult<ToolSet, never, never>, usageCapture), model) as GenerateTextResult<ToolSet, never, never>
       const text = result.text.trim()
       if (text) return result as unknown as AgentAdapterResult
 
@@ -681,7 +788,14 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     ...(staticTools ? { tools: staticTools } : {}),
     async stream(context) {
       const { agent, model } = await createAgent(options, context)
-      const result = await agent.stream(getCallInput(context) as never) as StreamTextResult<ToolSet, never, never>
+      const usageCapture = createUsageCapture()
+      const callInput = getCallInput(context) as Record<string, unknown>
+      const result = withResolvedModelMetadata(withCapturedUsage(await agent.stream({
+        ...callInput,
+        onEnd: usageCapture.onEnd,
+        onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
+        onStepEnd: usageCapture.onStepEnd,
+      } as never) as StreamTextResult<ToolSet, never, never>, usageCapture), model) as StreamTextResult<ToolSet, never, never>
       const execution = options.execution ?? options.modelExecution
       return withWorkspaceFallbackStreamResult(result, model as never, context, getFallbackOptions(execution?.workspaceFallback))
     },

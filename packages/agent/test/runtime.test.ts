@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createMessage, getMessageText } from "@vite-hub/agent"
 import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/runtime"
 import { chat, chatTitle, schedule, subagents } from "../src/capabilities.ts"
+import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 
 const harnessAgentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const harnessCreateSession = vi.hoisted(() => vi.fn())
@@ -40,6 +41,10 @@ afterEach(() => {
 })
 
 describe("agent message protocol", () => {
+  it("normalizes undefined tool output to JSON null", () => {
+    expect(toJsonCompatibleValue(undefined)).toBeNull()
+  })
+
   it("runs custom Agent Drivers through the invocation lifecycle", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const run = vi.fn(context => `received ${context.prompt}`)
@@ -906,6 +911,42 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("converts structured tool history to JSON-compatible model messages", async () => {
+    const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
+
+    const messages = [
+      {
+        id: "m1",
+        parts: [
+          { id: "call-1", name: "lookup", output: { timestamp: new Date("2026-06-22T19:30:00.000Z") }, state: "completed", type: "tool-result" },
+        ],
+        role: "tool",
+      },
+    ] as unknown as Parameters<typeof toAiSdkModelMessages>[0]
+
+    expect(toAiSdkModelMessages(messages)).toEqual([
+      {
+        content: [{ output: { type: "json", value: { timestamp: "2026-06-22T19:30:00.000Z" } }, toolCallId: "call-1", toolName: "lookup", type: "tool-result" }],
+        role: "tool",
+      },
+    ])
+  })
+
+  it("converts live tool execution results to JSON-compatible values", async () => {
+    const { withJsonCompatibleToolOutputs } = await import("../src/tool-runtime.ts")
+
+    const tools = withJsonCompatibleToolOutputs({
+      lookup: {
+        execute: (_input: unknown) => ({ timestamp: new Date("2026-06-22T19:30:00.000Z") }),
+        name: "lookup",
+      },
+    })
+
+    await expect(tools.lookup.execute?.({})).resolves.toEqual({
+      timestamp: "2026-06-22T19:30:00.000Z",
+    })
+  })
+
   it("splits assistant tool result history into valid model messages", async () => {
     const { toAiSdkModelMessages } = await import("../src/ai-sdk.ts")
 
@@ -1555,7 +1596,7 @@ describe("agent message protocol", () => {
 
   it("feeds GitHub PR comment commands through input commands and write-back effects", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
-    const { inputCommands } = await import("../src/capabilities.ts")
+    const { inputCommands, usageTelemetry } = await import("../src/capabilities.ts")
     const { github } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
@@ -1648,7 +1689,7 @@ describe("agent message protocol", () => {
             },
           },
         },
-      })],
+      }), usageTelemetry({ summary: { subject: "Review run" } })],
       channels: {
         github: github({
           app: {
@@ -1668,11 +1709,16 @@ describe("agent message protocol", () => {
       },
       run: (context) => {
         expect(context.prompt).toBe("")
-        return "Review completed."
+        return {
+          text: "Review completed.",
+          totalUsage: { inputTokens: 10, outputTokens: 5 },
+        }
       },
     })
 
-    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", input)).resolves.toBe("Review completed.")
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", input)).resolves.toMatchObject({
+      text: "Review completed.",
+    })
 
     expect(fetcher).toHaveBeenCalledWith(
       "https://api.github.test/app/installations/123/access_tokens",
@@ -1699,7 +1745,7 @@ describe("agent message protocol", () => {
     expect(fetcher).toHaveBeenCalledWith(
       "https://api.github.test/repos/vite-hub/vitehub/issues/42/comments",
       expect.objectContaining({
-        body: JSON.stringify({ body: "Review completed." }),
+        body: expect.stringContaining("\"body\":\"Review completed.\\n\\n> [!NOTE]\\n> Review run used 15 tokens: 10 in / 5 out"),
         method: "POST",
       }),
     )
@@ -2269,6 +2315,29 @@ describe("agent message protocol", () => {
     for await (const _event of stream as AsyncIterable<unknown>) {}
 
     expect(order).toEqual(["stream:done", "finish"])
+  })
+
+  it("streams custom run fullStream results", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      run: () => ({
+        fullStream: (async function* () {
+          yield { text: "ok", type: "text-delta" }
+          yield { type: "finish" }
+        })(),
+      }),
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+
+    const events = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      { type: "finish" },
+    ])
   })
 
   it("runs finish lifecycle when async stream output renderer setup fails", async () => {
@@ -3299,6 +3368,44 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("omits chat thinking fallback metadata when the placeholder is unset", async () => {
+    const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chat()],
+      run: () => "ok",
+    })
+
+    const invocation = await resolveAgentTriggerInvocation(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, "chat.message", {
+      messages: [createMessage({ role: "user", text: "hello" })],
+    })
+
+    if ("response" in invocation) throw new Error("Expected chat trigger invocation input.")
+    expect(invocation.metadata).toBeUndefined()
+  })
+
+  it("preserves disabled chat thinking fallback metadata", async () => {
+    const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chat({ fallbackStreamingPlaceholderText: null })],
+      run: () => "ok",
+    })
+
+    const invocation = await resolveAgentTriggerInvocation(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, "chat.message", {
+      messages: [createMessage({ role: "user", text: "hello" })],
+    })
+
+    if ("response" in invocation) throw new Error("Expected chat trigger invocation input.")
+    expect(invocation.metadata).toEqual({ thinkingFallback: null })
+  })
+
   it("converts async stream events to AI SDK UI message streams", async () => {
     const { readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
@@ -3486,6 +3593,28 @@ describe("agent message protocol", () => {
     })
 
     expect(resolved).toEqual(expect.any(Object))
+  })
+
+  it("converts static capability tool execution results to JSON-compatible values", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = defineAgent({
+      model: {} as never,
+      capabilities: [{
+        id: "lookup-tools",
+        tools: {
+          lookup: {
+            execute: (_input: unknown) => ({ timestamp: new Date("2026-06-22T19:30:00.000Z") }),
+            name: "lookup",
+          },
+        },
+      }],
+    })
+    const resolved = await agent.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }) as unknown as { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> }
+
+    await expect(resolved.tools.lookup!.execute({})).resolves.toEqual({
+      timestamp: "2026-06-22T19:30:00.000Z",
+    })
   })
 
   it("resolves static subagent tools with the resolved runtime context", async () => {

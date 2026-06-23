@@ -51,6 +51,7 @@ interface AgentInvocationStreamBody {
 
 interface AgentInvocationStreamEntry {
   agent: AgentInput<ViteAgentDevRuntimeContext>
+  aliases?: string[]
   name: string
   triggers: Record<string, ResolvedAgentTriggerDefinition<ViteAgentDevRuntimeContext>>
 }
@@ -175,11 +176,24 @@ function resolveWorkspaceSourceRoot(file: string): string {
     : dirname(file)
 }
 
-function installServerAgentWorkspaceRegistry(server: ViteDevServer, definitions: DiscoveredAgentDefinition[]): void {
-  setWorkspaceRuntimeRegistry(Object.fromEntries(definitions
-    .filter(definition => definition.workspace)
-    .map(definition => [
-      definition.workspace!,
+function declaredWorkspaceAgentName(agent: AgentInput<ViteAgentDevRuntimeContext> | undefined): string | undefined {
+  const options = isRecord(agent) && isRecord(agent.__vitehubWorkspaceAgentOptions) ? agent.__vitehubWorkspaceAgentOptions : undefined
+  return typeof options?.name === "string" && options.name ? options.name : undefined
+}
+
+function agentAliases(definition: DiscoveredAgentDefinition, agent: AgentInput<ViteAgentDevRuntimeContext>): string[] | undefined {
+  const declaredName = declaredWorkspaceAgentName(agent)
+  return declaredName && declaredName !== definition.name ? [declaredName] : undefined
+}
+
+function installServerAgentWorkspaceRegistry(
+  server: ViteDevServer,
+  entries: Array<{ aliases?: string[], definition: DiscoveredAgentDefinition }>,
+): void {
+  setWorkspaceRuntimeRegistry(Object.fromEntries(entries
+    .filter(entry => entry.definition.workspace)
+    .flatMap(({ aliases, definition }) => [definition.workspace!, ...(aliases || [])].map(name => [
+      name,
       async () => {
         const mod = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
         return {
@@ -190,7 +204,7 @@ function installServerAgentWorkspaceRegistry(server: ViteDevServer, definitions:
           },
         }
       },
-    ])))
+    ]))))
 }
 
 async function loadDiscoveredAgent(
@@ -207,14 +221,18 @@ async function discoverStreamAgents(server: ViteDevServer): Promise<AgentInvocat
     mode: "server-agents",
     scanDirs: [join(server.config.root, "server")],
   })
-  installServerAgentWorkspaceRegistry(server, definitions)
-  const context = createDiscoveryContext()
-  const entries: AgentInvocationStreamEntry[] = []
+  const loaded = []
   for (const definition of definitions) {
     const agent = await loadDiscoveredAgent(server, definition)
     if (!agent) continue
+    loaded.push({ agent, aliases: agentAliases(definition, agent), definition })
+  }
+  installServerAgentWorkspaceRegistry(server, loaded)
+  const context = createDiscoveryContext()
+  const entries: AgentInvocationStreamEntry[] = []
+  for (const { agent, aliases, definition } of loaded) {
     const triggers = await resolveAgentTriggers(agent as never, context as never)
-    entries.push({ agent, name: definition.name, triggers })
+    entries.push({ agent, ...(aliases ? { aliases } : {}), name: definition.name, triggers })
   }
   return entries
 }
@@ -222,6 +240,7 @@ async function discoverStreamAgents(server: ViteDevServer): Promise<AgentInvocat
 function selectedEntry(entries: AgentInvocationStreamEntry[], name: string | undefined): AgentInvocationStreamEntry {
   if (name) {
     const entry = entries.find(item => item.name === name)
+      ?? entries.find(item => item.aliases?.includes(name))
     if (!entry) throw new Response(`Unknown Agent Dev Loop Target: ${name}`, { status: 404 })
     return entry
   }
@@ -304,6 +323,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
   if (req.method === "GET") {
     return Response.json({
       agents: entries.map(entry => ({
+        ...(entry.aliases?.length ? { aliases: entry.aliases } : {}),
         name: entry.name,
         triggers: Object.keys(entry.triggers),
       })),
@@ -327,7 +347,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
         output = invocation.response
       }
       else {
-        if (!signal.aborted) emit({ agent: entry.name, run: invocation.run, trigger: invocation.trigger.id, type: "start" })
+        if (!signal.aborted) emit({ agent: entry.name, ...(invocation.metadata ? { metadata: invocation.metadata } : {}), run: invocation.run, trigger: invocation.trigger.id, type: "start" })
         const previewAgent = withDeliveryPreviewChannels(entry.agent, event => {
           if (!signal.aborted) emit(event)
         })

@@ -237,6 +237,13 @@ function removeInputCommandText(input: AgentRunInput, target: InputCommandTarget
   })
 }
 
+function commandReplacementText(targetText: string, invocation: InputCommandInvocation, replacement: string): string {
+  if (replacement || targetText.slice(0, invocation.start).trim() || targetText.slice(invocation.end).trim()) {
+    return replacement
+  }
+  return invocation.text
+}
+
 function mergeInputCommandResult(input: AgentRunInput, result: Partial<AgentRunInput>): AgentRunInput {
   const next: AgentRunInput = {
     ...input,
@@ -301,17 +308,18 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
             cursor = text === previousText ? invocation.end : 0
             continue
           }
-          text = `${text.slice(0, invocation.start)}${result}${text.slice(invocation.end)}`
+          const replacement = commandReplacementText(text, invocation, result)
+          text = `${text.slice(0, invocation.start)}${replacement}${text.slice(invocation.end)}`
           input = replaceTargetText(input, target, text, {
             end: invocation.end,
-            replacement: result,
+            replacement,
             start: invocation.start,
           })
           context.input.set(input)
           target = getInputCommandTarget(input)
           if (!target) return
           maxRuns = Math.max(maxRuns, text.length + 1)
-          cursor = result === invocation.text ? invocation.end : invocation.start
+          cursor = replacement === invocation.text ? invocation.end : invocation.start
           continue
         }
 

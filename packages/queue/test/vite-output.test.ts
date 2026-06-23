@@ -145,6 +145,24 @@ describe("Vite provider outputs", () => {
     expect(vercelServerContents).toContain("@vercel/queue")
   })
 
+  it("does not preload or emit Vercel queue functions when queue config is omitted", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-omitted-provider-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "dist", "index.html"), "<!doctype html><title>vitehub</title>\n", "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist",
+      queue: undefined,
+      rootDir,
+    })
+
+    const vercelServerContents = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
+    expect(vercelServerContents).not.toContain("@vercel/queue")
+    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel"))).toBe(false)
+  })
+
   it("does not preload or emit Vercel queue functions for a non-Vercel queue provider", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-cloudflare-provider-")
     await mkdir(join(rootDir, "src"), { recursive: true })

@@ -2,7 +2,7 @@ import { ApprovalRequiredError } from "@vite-hub/runtime"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 
 import type { StreamEvent } from "./messages.ts"
-import type { AgentRunResult, AgentUsageRecord } from "./types.ts"
+import type { AgentRunResult, AgentUsage, AgentUsageRecord } from "./types.ts"
 
 export { isAsyncIterable } from "./internal/stream-result.ts"
 
@@ -39,6 +39,120 @@ export function toAgentRunResult(value: unknown): AgentRunResult {
 
 function isUsageRecord(value: unknown): value is AgentUsageRecord {
   return typeof value === "object" && value !== null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function readNumber(record: Record<string, unknown>, ...keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === "number" && Number.isFinite(value)) return value
+  }
+}
+
+function readString(record: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
+  if (!record) return
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === "string" && value) return value
+  }
+}
+
+function readDetails(value: unknown): Record<string, number> | undefined {
+  if (!isRecord(value)) return
+  const details: Record<string, number> = {}
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item === "number" && Number.isFinite(item)) details[key] = item
+  }
+  return Object.keys(details).length ? details : undefined
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return isRecord(value) && typeof value.then === "function"
+}
+
+async function resolveUsageValue(value: unknown): Promise<unknown> {
+  return isPromiseLike(value) ? await value : value
+}
+
+function modelFromResult(result: unknown): AgentUsageRecord["model"] | undefined {
+  if (!isRecord(result)) return
+  const response = isRecord(result.response) ? result.response : undefined
+  const id = readString(response, "modelId", "model") ?? readString(result, "modelId", "model")
+  const provider = readString(result, "provider")
+  if (id === undefined && provider === undefined) return
+  return {
+    ...(id !== undefined ? { id } : {}),
+    ...(provider !== undefined ? { provider } : {}),
+  }
+}
+
+function responseFromResult(result: unknown): AgentUsageRecord["response"] | undefined {
+  if (!isRecord(result)) return
+  const response = isRecord(result.response) ? result.response : undefined
+  const id = readString(response, "id")
+  const timestamp = response?.timestamp
+  const finishReason = result.finishReason
+  if (id === undefined && timestamp === undefined) return
+  return {
+    ...(finishReason !== undefined ? { finishReason } : {}),
+    ...(id !== undefined ? { id } : {}),
+    ...((timestamp instanceof Date || typeof timestamp === "string") ? { timestamp } : {}),
+  }
+}
+
+function usageRecordFromUsage(rawUsage: unknown, metadataSource?: unknown, fallbackMetadataSource?: unknown): AgentUsageRecord | undefined {
+  if (!isRecord(rawUsage)) return
+  const inputTokens = readNumber(rawUsage, "inputTokens", "promptTokens", "input_tokens", "prompt_tokens")
+  const outputTokens = readNumber(rawUsage, "outputTokens", "completionTokens", "output_tokens", "completion_tokens")
+  const totalTokens = readNumber(rawUsage, "totalTokens", "tokens", "total_tokens")
+    ?? (inputTokens !== undefined && outputTokens !== undefined ? inputTokens + outputTokens : undefined)
+  const inputTokenDetails = readDetails(rawUsage.inputTokenDetails || rawUsage.input_token_details || rawUsage.promptTokenDetails || rawUsage.prompt_token_details)
+  const outputTokenDetails = readDetails(rawUsage.outputTokenDetails || rawUsage.output_token_details || rawUsage.completionTokenDetails || rawUsage.completion_token_details)
+  const usage: AgentUsage = {
+    ...(inputTokens !== undefined ? { inputTokens } : {}),
+    ...(outputTokens !== undefined ? { outputTokens } : {}),
+    ...(totalTokens !== undefined ? { totalTokens } : {}),
+    ...(inputTokenDetails ? { inputTokenDetails } : {}),
+    ...(outputTokenDetails ? { outputTokenDetails } : {}),
+  }
+  if (!Object.keys(usage).length) return
+  const model = modelFromResult(metadataSource) ?? modelFromResult(fallbackMetadataSource)
+  const response = responseFromResult(metadataSource) ?? responseFromResult(fallbackMetadataSource)
+  return {
+    ...(model ? { model } : {}),
+    ...(response ? { response } : {}),
+    usage,
+  }
+}
+
+function withFallbackUsageMetadata(record: AgentUsageRecord, fallbackMetadataSource: unknown): AgentUsageRecord {
+  const model = record.model ?? modelFromResult(fallbackMetadataSource)
+  const response = record.response ?? responseFromResult(fallbackMetadataSource)
+  return model || response
+    ? {
+        ...record,
+        ...(model ? { model } : {}),
+        ...(response ? { response } : {}),
+      }
+    : record
+}
+
+function usageFromStreamChunk(chunk: unknown, fallbackMetadataSource?: unknown): AgentUsageRecord | undefined {
+  if (!isRecord(chunk)) return
+  const type = String(chunk.type || "")
+  return usageRecordFromUsage(type === "finish-step"
+    ? chunk.usage
+    : type === "finish"
+      ? chunk.totalUsage ?? chunk.usage
+      : undefined, chunk, fallbackMetadataSource)
+}
+
+async function usageFromResult(result: unknown): Promise<AgentUsageRecord | undefined> {
+  if (!isRecord(result)) return
+  return usageRecordFromUsage(await resolveUsageValue(result.totalUsage ?? result.usage), result)
 }
 
 function optionalMessageId(messageId: string | undefined): { messageId?: string } {
@@ -110,6 +224,31 @@ export function toAgentStreamEvent(chunk: unknown, toolNames?: Map<string, strin
   return undefined
 }
 
+async function* streamChunksToEvents(chunks: AsyncIterable<unknown>, usageSource?: unknown): AsyncIterable<StreamEvent> {
+  const toolNames = new Map<string, string>()
+  let usageRecord: AgentUsageRecord | undefined
+  let explicitUsageEvent = false
+  let finishEvent: StreamEvent | undefined
+  for await (const chunk of chunks) {
+    if (!explicitUsageEvent) usageRecord = usageFromStreamChunk(chunk, usageSource) ?? usageRecord
+    const event = toAgentStreamEvent(chunk, toolNames)
+    if (!event) continue
+    if (event.type === "usage") {
+      usageRecord = withFallbackUsageMetadata(event.usageRecord, usageSource)
+      explicitUsageEvent = true
+      continue
+    }
+    if (event.type === "finish") {
+      finishEvent = event
+      continue
+    }
+    yield event
+  }
+  usageRecord ??= await usageFromResult(usageSource)
+  if (usageRecord) yield { type: "usage", usageRecord }
+  yield finishEvent ?? { type: "finish" }
+}
+
 export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<StreamEvent> {
   if (typeof value === "string") {
     if (value) yield { text: value, type: "text-delta" }
@@ -122,49 +261,32 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     yield { type: "finish" }
     return
   }
-  if (isAsyncIterable(value)) {
-    const toolNames = new Map<string, string>()
-    let finished = false
-    for await (const chunk of value as AsyncIterable<unknown>) {
-      const event = toAgentStreamEvent(chunk, toolNames)
-      if (!event) continue
-      if (event.type === "finish") finished = true
-      yield event
-    }
-    if (!finished) yield { type: "finish" }
+  const result = value && typeof value === "object"
+    ? value as { fullStream?: unknown, stream?: unknown, textStream?: unknown }
+    : undefined
+  const fullStream = result?.fullStream
+  if (isAsyncIterable(fullStream)) {
+    yield* streamChunksToEvents(fullStream, result)
     return
   }
-  const result = value as { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown>, textStream?: AsyncIterable<string> }
-  const fullStream = result.fullStream
-  if (fullStream) {
-    const toolNames = new Map<string, string>()
-    let finished = false
-    for await (const chunk of fullStream) {
-      const event = toAgentStreamEvent(chunk, toolNames)
-      if (!event) continue
-      if (event.type === "finish") finished = true
-      yield event
-    }
-    if (!finished) yield { type: "finish" }
+  if (isAsyncIterable(result?.stream)) {
+    yield* streamChunksToEvents(result.stream, result)
     return
   }
-  if (result.stream) {
-    const toolNames = new Map<string, string>()
-    let finished = false
-    for await (const chunk of result.stream) {
-      const event = toAgentStreamEvent(chunk, toolNames)
-      if (!event) continue
-      if (event.type === "finish") finished = true
-      yield event
-    }
-    if (!finished) yield { type: "finish" }
-    return
-  }
-  if (result.textStream) {
+  if (isAsyncIterable<string>(result?.textStream)) {
     for await (const text of result.textStream) {
       yield { text, type: "text-delta" }
     }
+    let usageRecord = isUsageRecord((value as { usageRecord?: unknown }).usageRecord)
+      ? (value as { usageRecord: AgentUsageRecord }).usageRecord
+      : await usageFromResult(value)
+    if (!usageRecord && isRecord(value)) usageRecord = await usageFromResult(value.raw)
+    if (usageRecord) yield { type: "usage", usageRecord }
     yield { type: "finish" }
+    return
+  }
+  if (isAsyncIterable(value)) {
+    yield* streamChunksToEvents(value as AsyncIterable<unknown>)
     return
   }
   const text = typeof value === "object" && value !== null
@@ -172,8 +294,14 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     : undefined
   if (typeof text === "string") {
     if (text) yield { text, type: "text-delta" }
-    if (isUsageRecord((value as { usageRecord?: unknown }).usageRecord)) {
-      yield { type: "usage", usageRecord: (value as { usageRecord: AgentUsageRecord }).usageRecord }
+    let usageRecord = isUsageRecord((value as { usageRecord?: unknown }).usageRecord)
+      ? (value as { usageRecord: AgentUsageRecord }).usageRecord
+      : await usageFromResult(value)
+    if (!usageRecord && isRecord(value)) {
+      usageRecord = await usageFromResult((value as { raw?: unknown }).raw)
+    }
+    if (usageRecord) {
+      yield { type: "usage", usageRecord }
     }
     yield {
       reason: typeof (value as { finishReason?: unknown }).finishReason === "string"
