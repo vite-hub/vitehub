@@ -81,17 +81,21 @@ export interface CloudflareQueueConfig {
   }
 }
 
-function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registryFile: string, userAppEntry: string | undefined, queueConfig: unknown) {
+function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registryFile: string, userAppEntry: string | undefined, queueConfig: unknown, preloadVercelQueue = false) {
   const imports = [
     `import { ${spec.factory} } from ${JSON.stringify(createImportPath(entryFile, resolveRuntimeModule(spec.runtimeModule)))}`,
     `import queueRegistry from ${JSON.stringify(`./${generatedRegistryFileName}`)}`,
   ]
+  if (preloadVercelQueue) {
+    imports.unshift("import * as __vitehubVercelQueue from '@vercel/queue'")
+  }
   if (userAppEntry) {
     imports.push(`import queueApp from ${JSON.stringify(createImportPath(entryFile, userAppEntry))}`)
   }
 
   return [
     ...imports,
+    preloadVercelQueue ? "globalThis.__vitehubVercelQueue = __vitehubVercelQueue" : "",
     "",
     `const queueConfig = ${JSON.stringify(queueConfig, null, 2)}`,
     "",
@@ -118,7 +122,8 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
   for (const spec of providerEntrySpecs) {
     const entryFile = resolve(generatedDir, spec.entryFile)
     const queueConfig = resolveOutputQueueConfig(queue, spec.hosting)
-    await writeFile(entryFile, renderProviderEntry(spec, entryFile, registryFile, userAppEntry, queueConfig), "utf8")
+    const preloadVercelQueue = spec.name === "vercel" && definitions.length > 0 && isVercelQueueEnabled(queueConfig)
+    await writeFile(entryFile, renderProviderEntry(spec, entryFile, registryFile, userAppEntry, queueConfig, preloadVercelQueue), "utf8")
     entryFiles[spec.name] = entryFile
   }
 

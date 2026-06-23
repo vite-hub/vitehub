@@ -84,8 +84,7 @@ describe("Vite provider outputs", () => {
     expect(vercelConsumerContents).toContain("@vercel/queue")
     expect(vercelConsumerContents).toContain("reportQueueMarker")
     expect(vercelServerContents).toContain("/api/tests/queue")
-    expect(vercelServerContents).not.toContain("import * as __vitehubVercelQueue from")
-    expect(vercelServerContents).not.toContain("globalThis.__vitehubVercelQueue =")
+    expect(vercelServerContents).toContain("globalThis.__vitehubVercelQueue =")
     expect(vercelConsumerTrigger).toEqual({
       consumer: "api_Svitehub_Squeues_Svercel_Swelcome-email_Swelcome-email_Dfunc",
       topic: "topic--77656c636f6d652d656d61696c",
@@ -127,7 +126,7 @@ describe("Vite provider outputs", () => {
 
     expect(await readFile(join(rootDir, ".vercel", "output", "static", "index.html"), "utf8")).toContain("<title>vitehub</title>")
     const vercelServerContents = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
-    expect(vercelServerContents).not.toContain("globalThis.__vitehubVercelQueue =")
+    expect(vercelServerContents).toContain("globalThis.__vitehubVercelQueue =")
   })
 
   it("does not preload Vercel queue without queue definitions", async () => {
