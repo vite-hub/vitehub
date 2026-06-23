@@ -1170,13 +1170,16 @@ async function createAgentInvocationContext<
       ? await resolveRegisteredAgentWorkspaceDefinition(workspaceName)
       : undefined
     const ownsWorkspaceDefinition = workspaceDefinition ? workspaceAgentOwnsWorkspaceDefinition(workspaceDefinition) : false
+    const configuredDefinitionForMerge = ownsWorkspaceDefinition && registeredWorkspaceDefinition
+      ? undefined
+      : configuredWorkspaceDefinition
     const resolvedWorkspaceDefinition = workspaceName
-      ? mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, ownsWorkspaceDefinition || registeredWorkspaceDefinition ? configuredWorkspaceDefinition : undefined)
+      ? mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
       : undefined
     if (workspaceName && ownsWorkspaceDefinition && configuredWorkspaceDefinition && !registeredWorkspaceDefinition) {
       await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
     }
-    const workspaceUseOptions = !ownsWorkspaceDefinition && resolvedWorkspaceDefinition && resolvedWorkspaceDefinition !== registeredWorkspaceDefinition
+    const workspaceUseOptions = !registeredWorkspaceDefinition && !ownsWorkspaceDefinition && resolvedWorkspaceDefinition
       ? { definition: resolvedWorkspaceDefinition }
       : undefined
     const workspaceModule = workspaceName ? await import("@vite-hub/workspace") : undefined
