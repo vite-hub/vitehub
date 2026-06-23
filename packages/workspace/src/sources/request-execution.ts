@@ -1,5 +1,5 @@
 import { createSourceContext, normalizeWorkspaceSources } from "./config.ts"
-import { getWorkspaceSourceRequestExecutor } from "./request-metadata.ts"
+import { getWorkspaceSourceRequestExecutor, workspaceSourceRequestDescriptorPath } from "./request-metadata.ts"
 
 import type {
   WorkspaceDefinition,
@@ -34,6 +34,7 @@ export function createWorkspaceSourceRequestExecution(
 ): WorkspaceSourceRequestExecutionTarget | undefined {
   const sources = normalizeWorkspaceSources(definition.sources)
     .filter(source => source.requestDescriptor && getWorkspaceSourceRequestExecutor(source.source))
+    .filter(source => sourceRequestVisible(source, options.selectedWorkspaceScope))
 
   if (!sources.length) return undefined
 
@@ -61,6 +62,24 @@ export function createWorkspaceSourceRequestExecution(
       }, undefined, { selectedWorkspaceScope: options.selectedWorkspaceScope }))
     },
   }
+}
+
+function sourceRequestVisible(
+  source: ReturnType<typeof normalizeWorkspaceSources>[number],
+  scope: WorkspaceSelectedScope | undefined,
+): boolean {
+  if (!scope || scope.all) return true
+  const descriptorPath = workspaceSourceRequestDescriptorPath(source.key)
+  return Boolean(scope.paths?.some(path => pathIntersects(path, descriptorPath) || !source.requestOnly && pathIntersects(path, source.mountPath)))
+}
+
+function pathContains(container: string, path: string): boolean {
+  if (!container || !path) return container === path
+  return path === container || path.startsWith(`${container}/`)
+}
+
+function pathIntersects(left: string, right: string): boolean {
+  return pathContains(left, right) || pathContains(right, left)
 }
 
 function sameRequestTarget(left: string, right: string): boolean {

@@ -5,7 +5,7 @@ import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
 import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources } from "./config.ts"
-import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution } from "./request-execution.ts"
+import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "./request-execution.ts"
 import { resolveWorkspacePath } from "./resolver.ts"
 import { createWorkspaceSourceView } from "./view.ts"
 
@@ -150,6 +150,61 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
   }
 }
 
+function createWritableFacadeStore(workspace: WritableWorkspaceFacade): WorkspaceStore {
+  const meta = new Map<string, unknown>()
+  return {
+    async readFile(path) {
+      try {
+        const stat = await workspace.fs.stat(path as never)
+        if (stat.type === "directory") return
+        return {
+          content: await workspace.fs.readFile(path as never, { encoding: "binary" } as never) as Uint8Array,
+          mediaType: stat.mediaType,
+          path,
+        }
+      }
+      catch {
+        return undefined
+      }
+    },
+    async writeFile(path, file) {
+      await workspace.fs.writeFile(path as never, file.content, { mediaType: file.mediaType })
+    },
+    async list(path, options) {
+      return await workspace.fs.list(path as never, options)
+    },
+    async glob(pattern, options) {
+      return await workspace.fs.glob(pattern as never, options)
+    },
+    async stat(path) {
+      try {
+        return await workspace.fs.stat(path as never)
+      }
+      catch {
+        return undefined
+      }
+    },
+    async mkdir(path, options) {
+      await workspace.fs.mkdir(path as never, options)
+    },
+    async rm(path, options) {
+      await workspace.fs.rm(path as never, options)
+    },
+    async snapshot(options) {
+      return await workspace.snapshot(options)
+    },
+    async diff(options) {
+      return await workspace.diff(options)
+    },
+    async getMeta(key) {
+      return meta.get(key)
+    },
+    async setMeta(key, value) {
+      meta.set(key, value)
+    },
+  }
+}
+
 async function startOverlayWorkspaceSession(definition: WorkspaceDefinition, workspace: Workspace) {
   if (definition.runtime === "sandbox") {
     const { createSandboxWorkspaceSession } = await import("../session/sandbox.ts")
@@ -188,7 +243,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
   const resolvedDefinition = await resolveWorkspaceSources(definition, options)
   const sourceRequestExecution = createWorkspaceSourceRequestExecution(resolvedDefinition, {
     selectedWorkspaceScope: options.selectedWorkspaceScope,
-  })
+  }) ?? getWorkspaceSourceRequestExecution(workspace.fs)
   if (!options.overlay && resolvedDefinition === definition && !sourceRequestExecution) return { definition, workspace }
 
   const sourceView = createWorkspaceSourceView(resolvedDefinition, createOverlaySourceStore(workspace, path => !isLazySourcePath(resolvedDefinition, path)))
@@ -300,6 +355,8 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         path,
       }, async input => await workspace.fs.mkdir(input.path as never, options)),
       movePath: async (from, to, options) => {
+        await sourceView.assertWritable(from)
+        await sourceView.assertWritable(to)
         await copyWorkspacePath(writeWorkspace, from, to, options?.overwrite)
         await writeWorkspace.rm(from, { recursive: true, force: true })
       },
@@ -331,7 +388,10 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       snapshot: workspace.snapshot,
       startSession: async () => await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace),
       stat: writeFs.stat,
-      sync: workspace.sync,
+      sync: async (options) => {
+        const { syncWorkspaceSources } = await import("./sync.ts")
+        return await syncWorkspaceSources(resolvedDefinition, createWritableFacadeStore(workspace), options)
+      },
       writeFile: writeFs.writeFile,
       mount(options) {
         const mode = options?.mode || "read-only"

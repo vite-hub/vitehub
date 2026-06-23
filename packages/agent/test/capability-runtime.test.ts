@@ -483,6 +483,33 @@ describe("agent capability runtime", () => {
     })).rejects.toThrow('workspace contribution source "repository" conflicts with an existing Workspace path at mount ""')
   })
 
+  it("allows request-only capability workspace sources in non-empty Workspaces", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { fetch } = await import("@vite-hub/workspace")
+    const workspace = emptyWorkspace()
+    workspace.fs.list.mockResolvedValue([{ path: "README.md", type: "file" }] as never)
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              inventory: fetch({ url: "https://portal.example.com/runtime/inventory-health" }),
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, workspace as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    expect(resolved.workspaceDefinition?.sources).toHaveProperty("inventory")
+  })
+
   it("resolves capability workspace sources after access selects Workspace Scope", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
@@ -639,6 +666,48 @@ describe("agent capability runtime", () => {
     await expect(runAgent(agent, runtime(), {
       context: { mode: "technical" },
     })).rejects.toThrow('Invocation context value "mode" is already set')
+  })
+
+  it("ignores caller-supplied source-resolution definitions while applying workspace contributions", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "review",
+          workspace: {
+            rules: {
+              "artifacts/**": { write: true },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {
+      context: {
+        "workspace.sourceResolution.definition": {
+          name: "review",
+          sources: {
+            injected: {
+              mount: "injected",
+              async getKeys() {
+                return ["secret.md"]
+              },
+              async getItem(key: string) {
+                return { content: "secret", key }
+              },
+            },
+          },
+        },
+      },
+    }, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    expect(resolved.workspaceDefinition?.sources).toEqual({})
+    expect(resolved.workspaceDefinition?.rules).toHaveProperty("artifacts/**")
   })
 
   it("closes streamed and Response outputs after consumption", async () => {

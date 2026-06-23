@@ -1,6 +1,6 @@
 import { resolveRuntimeValue } from "@vite-hub/runtime"
 
-import { workspaceOverrideSymbol } from "./access-runtime.ts"
+import { hasTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "./access-runtime.ts"
 import { createMessage } from "./messages.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import { normalizeAgentWorkspaceSource } from "./workspace-source-metadata.ts"
@@ -345,6 +345,7 @@ async function assertResolvedWorkspaceContributionSources(
   definition: WorkspaceDefinition,
   selectedWorkspaceScope: WorkspaceSelectedScope | undefined,
   workspace: ReadonlyWorkspaceFacade,
+  isSourceRequestOnly: (key: string, source: WorkspaceSourceInput) => boolean,
 ) {
   const contributed = new Map<string, string>()
   for (const contribution of registries) {
@@ -366,7 +367,7 @@ async function assertResolvedWorkspaceContributionSources(
         throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with ${label} "${existingKey}" at mount "${mountPath || "."}".`)
       }
     }
-    if (await workspacePathExists(workspace, mountPath)) {
+    if (!isSourceRequestOnly(key, source) && await workspacePathExists(workspace, mountPath)) {
       throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with an existing Workspace path at mount "${mountPath}".`)
     }
   }
@@ -443,7 +444,7 @@ async function applyCapabilityWorkspaceContributions<
   }
 
   if (!registries.length) return
-  const { createWorkspaceSourceResolutionFacade } = await import("@vite-hub/workspace")
+  const { createWorkspaceSourceResolutionFacade, isWorkspaceSourceRequestOnly } = await import("@vite-hub/workspace")
   const selectedWorkspaceScope = selectedWorkspaceScopeFromContext(context.context)
   const sourceResolution = await createWorkspaceSourceResolutionFacade(context.workspace, definition, {
     invocation: {
@@ -453,7 +454,16 @@ async function applyCapabilityWorkspaceContributions<
     overlay: true,
     selectedWorkspaceScope,
   })
-  await assertResolvedWorkspaceContributionSources(registries, sourceResolution.definition, selectedWorkspaceScope, context.workspace)
+  await assertResolvedWorkspaceContributionSources(
+    registries,
+    sourceResolution.definition,
+    selectedWorkspaceScope,
+    context.workspace,
+    (key, source) => {
+      const metadata = normalizeAgentWorkspaceSource(key, source)
+      return Boolean(metadata.source && isWorkspaceSourceRequestOnly(metadata.source))
+    },
+  )
   return {
     definition: sourceResolution.definition,
     registries,
@@ -536,7 +546,9 @@ export async function resolveAgentCapabilities<
     if (workspaceContributionsApplied) return
     workspaceContributionsApplied = true
     if (!currentWorkspace || !currentWorkspaceDefinition) return
-    const sourceResolvedDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
+    const sourceResolvedDefinition = hasTrustedWorkspaceSourceResolutionDefinition(invocationContext)
+      ? invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
+      : undefined
     if (sourceResolvedDefinition) currentWorkspaceDefinition = sourceResolvedDefinition
     const workspaceContribution = await applyCapabilityWorkspaceContributions(capabilities, {
       ...runtimeContext,
