@@ -861,15 +861,17 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
       const fallbackCapture = fallback.enabled
         ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
         : undefined
+      const captureStep = async (event: unknown) => {
+        await usageCapture.onStepEnd(event)
+        fallbackCapture?.collect(event)
+      }
       const callInput = getCallInput(context) as Record<string, unknown>
       const result = withResolvedModelMetadata(withCapturedUsage(await agent.stream({
         ...callInput,
         onEnd: usageCapture.onEnd,
         onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
-        async onStepEnd(event: unknown) {
-          await usageCapture.onStepEnd(event)
-          fallbackCapture?.collect(event)
-        },
+        onStepEnd: captureStep,
+        onStepFinish: captureStep,
       } as never) as StreamTextResult<ToolSet, never, never>, usageCapture), model) as StreamTextResult<ToolSet, never, never>
       return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)
     },

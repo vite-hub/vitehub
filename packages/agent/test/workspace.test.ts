@@ -1434,11 +1434,11 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
-  it("synthesizes streamed answers from step callback tool results", async () => {
+  it("synthesizes streamed answers from step finish callback tool results", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     agentStream.mockImplementationOnce(async (input: unknown) => {
-      const callInput = input as { onStepEnd?: (event: unknown) => Promise<void> }
-      await callInput.onStepEnd?.({
+      const callInput = input as { onStepFinish?: (event: unknown) => Promise<void> }
+      await callInput.onStepFinish?.({
         toolResults: [
           {
             output: { text: "Browser evidence from callback: screenshots/login-version-badge-desktop.png" },
