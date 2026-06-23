@@ -25,6 +25,7 @@ const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ f
 
 vi.mock("@vite-hub/workspace", () => ({
   defineWorkspace: vi.fn(definition => definition),
+  resolveRegisteredWorkspaceDefinition: vi.fn(() => undefined),
   useWorkspace: vi.fn(() => ({
     fs: { list, readFile },
     tools: {

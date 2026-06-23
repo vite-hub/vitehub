@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import {
   clearSources,
   defineSources,
+  file,
   glob,
   markdown,
   registerSources,
@@ -27,6 +28,20 @@ afterEach(async () => {
 })
 
 describe("@vite-hub/source local file sources", () => {
+  it("preserves relative file paths as default workspace paths", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "docs"), { recursive: true })
+    await writeFile(join(root, "docs", "README.md"), "# Docs\n")
+
+    const readme = file("docs/README.md")
+
+    await expect(readme.getKeys({ rootDir: root })).resolves.toEqual(["docs/README.md"])
+    await expect(readme.getItem("docs/README.md", { rootDir: root })).resolves.toMatchObject({
+      path: "docs/README.md",
+      mediaType: "text/markdown",
+    })
+  })
+
   it("loads file, markdown, and glob providers", async () => {
     const root = await createRoot()
     await mkdir(join(root, "docs"), { recursive: true })

@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 
+const queueMocks = vi.hoisted(() => ({
+  hubQueue: vi.fn(() => ({ name: "@vite-hub/queue/vite" })),
+}))
+
 vi.mock("@vite-hub/agent", () => ({ defineAgent: "define-agent" }))
 vi.mock("@vite-hub/agent/capabilities", () => ({ workspaceShell: "workspace-shell" }))
 vi.mock("@vite-hub/agent/channels", () => ({ stream: "stream-channel" }))
@@ -9,7 +13,7 @@ vi.mock("@vite-hub/database/vite", () => ({ hubDb: () => ({ name: "@vite-hub/dat
 vi.mock("@vite-hub/devtools", () => ({ hubDevtools: () => ({ name: "@vite-hub/devtools" }) }))
 vi.mock("@vite-hub/env/vite", () => ({ env: "env-helper", hubEnv: () => ({ name: "@vite-hub/env/vite" }) }))
 vi.mock("@vite-hub/kv/vite", () => ({ hubKv: () => ({ name: "@vite-hub/kv/vite" }) }))
-vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: () => ({ name: "@vite-hub/queue/vite" }) }))
+vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: queueMocks.hubQueue }))
 vi.mock("@vite-hub/sandbox/vite", () => ({ hubSandbox: () => ({ name: "@vite-hub/sandbox/vite" }) }))
 vi.mock("@vite-hub/schedule/vite", () => ({ hubSchedule: () => ({ name: "@vite-hub/schedule/vite" }) }))
 vi.mock("@vite-hub/workflow/vite", () => ({ hubWorkflow: () => ({ name: "@vite-hub/workflow/vite" }) }))
@@ -33,14 +37,13 @@ describe("vitehub", () => {
       "@vite-hub/database/vite",
       "@vite-hub/blob/vite",
       "@vite-hub/kv/vite",
-      "@vite-hub/queue/vite",
       "@vite-hub/sandbox/vite",
       "@vite-hub/schedule/vite",
       "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
       "@vite-hub/devtools",
     ])
-    expect(pluginNames(vitehub({ database: false, devtools: false, kv: false, queue: false }))).toEqual([
+    expect(pluginNames(vitehub({ database: false, devtools: false, kv: false }))).toEqual([
       "@vite-hub/env/vite",
       "@vite-hub/agent/vite",
       "@vite-hub/blob/vite",
@@ -49,6 +52,11 @@ describe("vitehub", () => {
       "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
     ])
+    queueMocks.hubQueue.mockClear()
+    expect(pluginNames(vitehub({ queue: true }))).toContain("@vite-hub/queue/vite")
+    expect(queueMocks.hubQueue).toHaveBeenLastCalledWith({})
+    expect(pluginNames(vitehub({ queue: { provider: "cloudflare" } }))).toContain("@vite-hub/queue/vite")
+    expect(queueMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "cloudflare" })
   })
 
   it("can be used as one nested Vite plugin entry", () => {

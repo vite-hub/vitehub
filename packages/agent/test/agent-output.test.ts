@@ -52,6 +52,24 @@ describe("agent output helpers", () => {
     expect(toAgentRunResult(value).text).toBe("latest")
   })
 
+  it("falls back to AI SDK v7 step content text", () => {
+    const value = {
+      finishReason: "stop",
+      steps: [
+        { content: [{ text: "older", type: "text" }] },
+        {
+          content: [
+            { output: { ok: true }, toolCallId: "call-1", toolName: "lookup", type: "tool-result" },
+            { text: "latest", type: "text" },
+            { textDelta: " result", type: "text-delta" },
+          ],
+        },
+      ],
+    }
+
+    expect(toAgentRunResult(value).text).toBe("latest result")
+  })
+
   it("tracks tool names across stream events", () => {
     const toolNames = new Map<string, string>()
 

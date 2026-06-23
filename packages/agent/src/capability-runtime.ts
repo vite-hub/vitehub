@@ -163,6 +163,22 @@ export function normalizeCapabilities(
   })
 }
 
+export function capabilityWorkspaceSources(
+  capabilities: AgentCapabilityDefinition[] | undefined,
+): WorkspaceDefinition["sources"] | undefined {
+  const normalized = normalizeCapabilities(capabilities)
+  const sources: NonNullable<WorkspaceDefinition["sources"]> = {}
+  for (const capability of normalized) {
+    for (const [key, source] of Object.entries(capability.workspaceSources || {})) {
+      if (key in sources) {
+        throw new Error(`[vitehub] Duplicate workspace source "${key}" contributed by capabilities.`)
+      }
+      sources[key] = source
+    }
+  }
+  return Object.keys(sources).length ? sources : undefined
+}
+
 function validateAccessCapabilityOrder(capabilities: AgentCapabilityDefinition[]): void {
   const accessIndex = capabilities.findIndex(capability => capability.id === "access")
   if (accessIndex > 0) {

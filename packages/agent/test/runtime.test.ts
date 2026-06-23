@@ -6,6 +6,8 @@ import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/
 import { chat, chatTitle, schedule, subagents } from "../src/capabilities.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 
+import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
+
 const harnessAgentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const harnessCreateSession = vi.hoisted(() => vi.fn())
 const harnessGenerate = vi.hoisted(() => vi.fn())
@@ -56,6 +58,62 @@ describe("agent message protocol", () => {
     expect(run).toHaveBeenCalledWith(expect.objectContaining({
       prompt: "hello",
     }))
+  })
+
+  it("runs agent input hooks once before driver execution and can abort", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const run = vi.fn(() => "ok")
+    const inputHook = vi.fn((context) => {
+      if (!context.input.context?.pullRequest) {
+        throw new Error("Missing GitHub field: context.pullRequest")
+      }
+    })
+    const agent = defineAgent({
+      driver: { run },
+      hooks: {
+        "agent:input": inputHook,
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      context: { pullRequest: true as never },
+      prompt: "review",
+    })).resolves.toBe("ok")
+    expect(inputHook).toHaveBeenCalledTimes(1)
+    expect(run).toHaveBeenCalledTimes(1)
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      prompt: "review",
+    })).rejects.toThrow("Missing GitHub field: context.pullRequest")
+    expect(inputHook).toHaveBeenCalledTimes(2)
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+
+  it("skips agent input hooks after a capability handles the input", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const handled = new Response("handled")
+    const run = vi.fn(() => "ok")
+    const inputHook = vi.fn(() => {
+      throw new Error("should not run")
+    })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "handled",
+          input: () => handled,
+        }),
+      ],
+      driver: { run },
+      hooks: {
+        "agent:input": inputHook,
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      prompt: "review",
+    })).resolves.toBe(handled)
+    expect(inputHook).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
   })
 
   it("emits invocation Trace Events without persisting prompt content", async () => {
@@ -523,6 +581,37 @@ describe("agent message protocol", () => {
       },
       text: "browser report",
     })
+  })
+
+  it("shares named workspace references across subagent runAgent calls", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { registerWorkspaceAgent } = await import("../src/server.ts")
+    const workspaceName = `shared-agent-workspace-${Math.random().toString(36).slice(2)}`
+    const summaryAgent = defineAgent({
+      workspace: { name: workspaceName, mode: "write" },
+      async run({ workspace }) {
+        await (workspace as WritableWorkspaceFacade).fs.writeFile("summary.md", "summary")
+        return "summary written"
+      },
+    })
+    const reviewerAgent = registerWorkspaceAgent(defineAgent({
+      workspace: {
+        mode: "write",
+        store: { provider: "memory" },
+      },
+      async run(context) {
+        const workspace = context.workspace as WritableWorkspaceFacade
+        await workspace.fs.writeFile("review.md", "review")
+        await runAgent(summaryAgent, context as never, { message: "write summary" })
+        return await workspace.fs.readFile("summary.md")
+      },
+    }), { workspace: workspaceName })
+
+    await expect(runAgent(reviewerAgent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { message: "review" })).resolves.toBe("summary")
   })
 
   it("rejects duplicate generated subagent tool names", async () => {

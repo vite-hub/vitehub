@@ -12,6 +12,7 @@ import { WorkspaceError, WorkspaceNotFoundError } from "./errors.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern } from "./path.ts"
 import { useRegisteredWorkspace } from "./registry.ts"
+import { createWorkspace } from "./workspace.ts"
 import { attachWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
 
 import type { Tool, ToolSet } from "ai"
@@ -24,6 +25,7 @@ import type {
   ReadFileResult,
   RmOptions,
   Workspace,
+  WorkspaceDefinition,
   WorkspaceAssetPath,
   WorkspaceAssets,
   WorkspaceContent,
@@ -50,6 +52,7 @@ type WorkspaceWithDefinitionSync = Workspace & {
 }
 
 export interface UseWorkspaceOptions {
+  definition?: WorkspaceDefinition
   mode?: "read" | "write"
 }
 
@@ -154,12 +157,12 @@ async function materializeWorkspaceSources(workspace: Workspace, options?: Works
   return await workspace.materializeSources(options)
 }
 
-function createLazyWorkspace(name: WorkspaceName): Workspace {
+function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefinition): Workspace {
   let workspacePromise: Promise<Workspace> | undefined
   let syncPromise: Promise<void> | undefined
 
   async function resolveWorkspace() {
-    workspacePromise ||= useRegisteredWorkspace(name)
+    workspacePromise ||= definition ? Promise.resolve(createWorkspace(definition)) : useRegisteredWorkspace(name)
     return await workspacePromise
   }
 
@@ -431,7 +434,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options: { 
 export function useWorkspace<Name extends WorkspaceName>(name: Name, options: { mode: "write" }): WritableWorkspaceFacade<Name>
 export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: UseWorkspaceOptions): ReadonlyWorkspaceFacade<Name> | WritableWorkspaceFacade<Name> {
   if (options?.mode === "write") {
-    const workspace = createLazyWorkspace(name)
+    const workspace = createLazyWorkspace(name, options.definition)
     const createTools = (opts?: WritableWorkspaceFacadeToolOptions) => createWorkspaceTools(workspace, {
       broadSearchPaths: opts?.broadSearchPaths,
       cwd: opts?.cwd,
@@ -466,7 +469,7 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     }
   }
 
-  const fs = createReadonlyFs(name, createLazyWorkspace(name))
+  const fs = createReadonlyFs(name, createLazyWorkspace(name, options?.definition))
   const createTools = (opts?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
     broadSearchPaths: opts?.broadSearchPaths,
     cwd: opts?.cwd,

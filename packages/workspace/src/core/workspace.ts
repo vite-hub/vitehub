@@ -8,6 +8,7 @@ import type {
   WorkspaceDefinition,
   WorkspaceMount,
   WorkspaceMountOptions,
+  WorkspaceRuntime,
   WorkspaceSession,
 } from "./types.ts"
 
@@ -17,6 +18,10 @@ type WorkspaceWithDefinitionSync = Workspace & {
 
 function getStore(definition: WorkspaceDefinition) {
   return getCachedWorkspaceStore(definition, () => createWorkspaceStoreFromProvider(definition))
+}
+
+function workspaceRuntimeType(runtime: WorkspaceRuntime | undefined) {
+  return typeof runtime === "string" ? runtime : runtime?.type
 }
 
 export function createWorkspace(definition: WorkspaceDefinition): Workspace {
@@ -68,14 +73,15 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
     async diff(options) {
       return await store.diff(options)
     },
-    async startSession(_options): Promise<WorkspaceSession> {
-      if (definition.runtime === "sandbox") {
+    async startSession(options): Promise<WorkspaceSession> {
+      const runtime = workspaceRuntimeType(definition.runtime)
+      if (runtime === "sandbox") {
         const { createSandboxWorkspaceSession } = await import("../session/sandbox.ts")
-        return await createSandboxWorkspaceSession(definition, workspace)
+        return await createSandboxWorkspaceSession(definition, workspace, options)
       }
-      if (definition.runtime === "trusted-host") {
+      if (runtime === "trusted-host") {
         const { createTrustedHostWorkspaceSession } = await import("../session/trusted-host.ts")
-        return await createTrustedHostWorkspaceSession(definition, workspace)
+        return await createTrustedHostWorkspaceSession(definition, workspace, options)
       }
 
       return createBasicWorkspaceSession(workspace)

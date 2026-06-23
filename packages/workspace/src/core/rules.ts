@@ -87,7 +87,8 @@ function matchRule(policy: NormalizedWorkspacePolicy, path: string): ResolvedWor
   const normalized = normalizeWorkspacePath(path)
   let matched: ResolvedWorkspaceRule | undefined
   for (const rule of policy.rules) {
-    if (minimatch(normalized, rule.pattern, { dot: true })) matched = rule
+    const globstarDirectory = rule.pattern.endsWith("/**") ? rule.pattern.slice(0, -3) : undefined
+    if (minimatch(normalized, rule.pattern, { dot: true }) || normalized === globstarDirectory) matched = rule
   }
   return matched
 }

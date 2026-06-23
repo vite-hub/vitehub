@@ -214,6 +214,11 @@ function resolveWorkspaceSourceRoot(file: string): string {
     : dirname(file)
 }
 
+function hasColocatedAgentInstructions(sourceRootDir: string): boolean {
+  const file = join(sourceRootDir, "instructions.md")
+  return existsSync(file) && statSync(file).isFile()
+}
+
 function moduleImportSpecifier(fromFile: string, targetFile: string): string {
   const specifier = relative(dirname(fromFile), targetFile).replace(/\\/g, "/")
   return specifier.startsWith(".") ? specifier : `./${specifier}`
@@ -279,14 +284,18 @@ function generateAgentWebhookRouteHandler(
     .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
     .join("\n")
   const workspaceEntries = definitions
-    .map((definition, index) => definition.workspace
-      ? `${JSON.stringify(definition.workspace)}: async () => ({ ...agent${index}, default: { ...agent${index}.default, sourceRootDir: agent${index}.default?.sourceRootDir ?? ${JSON.stringify(resolveWorkspaceSourceRoot(definition.handler))} } })`
-      : undefined)
+    .map((definition, index) => {
+      const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
+      return definition.workspace
+        ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, agent${index}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(hasColocatedAgentInstructions(sourceRootDir))})`
+        : undefined
+    })
     .filter(Boolean)
     .join(",\n  ")
   const agentEntries = definitions
     .map((definition, index) => {
-      const agentExpression = `withAgentDefaults(resolveAgentModule(agent${index}), ${JSON.stringify({ inferredName: definition.name, workspace: definition.workspace })})`
+      const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
+      const agentExpression = `withAgentDefaults(withWorkspaceSourceRoot(resolveAgentModule(agent${index}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(hasColocatedAgentInstructions(sourceRootDir))}), ${JSON.stringify({ inferredName: definition.name, workspace: definition.workspace })})`
       return `${JSON.stringify(definition.name)}: ${agentExpression}`
     })
     .join(",\n  ")
@@ -297,7 +306,7 @@ function generateAgentWebhookRouteHandler(
   const webhookSelector = webhookRoute.includes("[webhook]") ? "getRouterParam(event, 'webhook')" : "''"
 
   return [
-    "import { withAgentDefaults } from '@vite-hub/agent'",
+    "import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition } from '@vite-hub/agent'",
     ...(options.cloudflareState ? ["import { createCloudflareAgentState } from '@vite-hub/agent/cloudflare'"] : []),
     "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server'",
     "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/internal/runtime/state'",
@@ -311,6 +320,22 @@ function generateAgentWebhookRouteHandler(
     "function resolveChatRouteOptions(module) {",
     "  const chatRoute = module && typeof module === 'object' ? module.chatRoute : undefined",
     "  return chatRoute && typeof chatRoute === 'object' ? chatRoute : undefined",
+    "}",
+    "",
+    "function withWorkspaceSourceRoot(agent, sourceRootDir, colocatedInstructions) {",
+    "  const options = agent?.__vitehubWorkspaceAgentOptions",
+    "  const workspace = options?.workspace",
+    "  if (!workspace || typeof workspace !== 'object' || 'name' in workspace) return agent",
+    "  const sources = colocatedInstructions && !(workspace.sources && '__vitehubAgentInstructions' in workspace.sources)",
+    "    ? { __vitehubAgentInstructions: { materialize: 'build', mount: '', path: 'instructions.md', workspacePath: 'AGENTS.md' }, ...workspace.sources }",
+    "    : workspace.sources",
+    "  return { ...agent, ...(sources ? { sources } : {}), sourceRootDir: agent.sourceRootDir ?? sourceRootDir, __vitehubWorkspaceAgentOptions: { ...options, workspace: { ...workspace, ...(sources ? { sources } : {}), sourceRootDir: workspace.sourceRootDir ?? sourceRootDir } } }",
+    "}",
+    "",
+    "function workspaceRegistryEntry(name, module, sourceRootDir, colocatedInstructions) {",
+    "  const agent = withWorkspaceSourceRoot(resolveAgentModule(module), sourceRootDir, colocatedInstructions)",
+    "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
+    "  return [name, async () => ({ ...module, default: agent })]",
     "}",
     "",
     "async function toRequest(event) {",
@@ -328,7 +353,7 @@ function generateAgentWebhookRouteHandler(
     ...generatedRuntimeHelpers(),
     ...(options.cloudflareState ? generatedCloudflareChatStateHelper() : []),
     "",
-    `setWorkspaceRuntimeRegistry({${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}})`,
+    `setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].filter(Boolean)))`,
     "",
     `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
     `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
@@ -365,14 +390,18 @@ function generateAgentNetlifyFunctionRouteHandler(
     .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
     .join("\n")
   const workspaceEntries = definitions
-    .map((definition, index) => definition.workspace
-      ? `${JSON.stringify(definition.workspace)}: async () => ({ ...agent${index}, default: { ...agent${index}.default, sourceRootDir: agent${index}.default?.sourceRootDir ?? ${JSON.stringify(resolveWorkspaceSourceRoot(definition.handler))} } })`
-      : undefined)
+    .map((definition, index) => {
+      const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
+      return definition.workspace
+        ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, agent${index}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(hasColocatedAgentInstructions(sourceRootDir))})`
+        : undefined
+    })
     .filter(Boolean)
     .join(",\n  ")
   const agentEntries = definitions
     .map((definition, index) => {
-      const agentExpression = `withAgentDefaults(resolveAgentModule(agent${index}), ${JSON.stringify({ inferredName: definition.name, workspace: definition.workspace })})`
+      const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
+      const agentExpression = `withAgentDefaults(withWorkspaceSourceRoot(resolveAgentModule(agent${index}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(hasColocatedAgentInstructions(sourceRootDir))}), ${JSON.stringify({ inferredName: definition.name, workspace: definition.workspace })})`
       return `${JSON.stringify(definition.name)}: ${agentExpression}`
     })
     .join(",\n  ")
@@ -382,7 +411,7 @@ function generateAgentNetlifyFunctionRouteHandler(
   const webhookSelector = routeUsesParam(options.webhookRoute, "webhook") ? "netlifyParam(context, 'webhook')" : "''"
 
   return [
-    "import { withAgentDefaults } from '@vite-hub/agent'",
+    "import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition } from '@vite-hub/agent'",
     "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler, setWorkspaceRuntimeRegistry } from '@vite-hub/agent/server'",
     imports,
     "",
@@ -395,9 +424,25 @@ function generateAgentNetlifyFunctionRouteHandler(
     "  return chatRoute && typeof chatRoute === 'object' ? chatRoute : undefined",
     "}",
     "",
+    "function withWorkspaceSourceRoot(agent, sourceRootDir, colocatedInstructions) {",
+    "  const options = agent?.__vitehubWorkspaceAgentOptions",
+    "  const workspace = options?.workspace",
+    "  if (!workspace || typeof workspace !== 'object' || 'name' in workspace) return agent",
+    "  const sources = colocatedInstructions && !(workspace.sources && '__vitehubAgentInstructions' in workspace.sources)",
+    "    ? { __vitehubAgentInstructions: { materialize: 'build', mount: '', path: 'instructions.md', workspacePath: 'AGENTS.md' }, ...workspace.sources }",
+    "    : workspace.sources",
+    "  return { ...agent, ...(sources ? { sources } : {}), sourceRootDir: agent.sourceRootDir ?? sourceRootDir, __vitehubWorkspaceAgentOptions: { ...options, workspace: { ...workspace, ...(sources ? { sources } : {}), sourceRootDir: workspace.sourceRootDir ?? sourceRootDir } } }",
+    "}",
+    "",
+    "function workspaceRegistryEntry(name, module, sourceRootDir, colocatedInstructions) {",
+    "  const agent = withWorkspaceSourceRoot(resolveAgentModule(module), sourceRootDir, colocatedInstructions)",
+    "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
+    "  return [name, async () => ({ ...module, default: agent })]",
+    "}",
+    "",
     ...generatedNetlifyRuntimeHelpers(),
     "",
-    `setWorkspaceRuntimeRegistry({${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}})`,
+    `setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].filter(Boolean)))`,
     "",
     `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
     `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
@@ -446,14 +491,18 @@ function generateAgentDenoServer(
     .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
     .join("\n")
   const workspaceEntries = definitions
-    .map((definition, index) => definition.workspace
-      ? `${JSON.stringify(definition.workspace)}: async () => ({ ...agent${index}, default: { ...agent${index}.default, sourceRootDir: agent${index}.default?.sourceRootDir ?? ${JSON.stringify(resolveWorkspaceSourceRoot(definition.handler))} } })`
-      : undefined)
+    .map((definition, index) => {
+      const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
+      return definition.workspace
+        ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, agent${index}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(hasColocatedAgentInstructions(sourceRootDir))})`
+        : undefined
+    })
     .filter(Boolean)
     .join(",\n  ")
   const agentEntries = definitions
     .map((definition, index) => {
-      const agentExpression = `withAgentDefaults(resolveAgentModule(agent${index}), ${JSON.stringify({ inferredName: definition.name, workspace: definition.workspace })})`
+      const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
+      const agentExpression = `withAgentDefaults(withWorkspaceSourceRoot(resolveAgentModule(agent${index}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(hasColocatedAgentInstructions(sourceRootDir))}), ${JSON.stringify({ inferredName: definition.name, workspace: definition.workspace })})`
       return `${JSON.stringify(definition.name)}: ${agentExpression}`
     })
     .join(",\n  ")
@@ -464,13 +513,13 @@ function generateAgentDenoServer(
     ? [
         "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
         "",
-        `setWorkspaceRuntimeRegistry({\n  ${workspaceEntries}\n})`,
+        `setWorkspaceRuntimeRegistry(Object.fromEntries([\n  ${workspaceEntries}\n].filter(Boolean)))`,
         "",
       ]
     : []
 
   return [
-    "import { withAgentDefaults } from '@vite-hub/agent'",
+    "import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition } from '@vite-hub/agent'",
     "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server/routes'",
     ...workspaceRuntimeLines.slice(0, 1),
     imports,
@@ -487,6 +536,22 @@ function generateAgentDenoServer(
     "function resolveChatRouteOptions(module) {",
     "  const chatRoute = module && typeof module === 'object' ? module.chatRoute : undefined",
     "  return chatRoute && typeof chatRoute === 'object' ? chatRoute : undefined",
+    "}",
+    "",
+    "function withWorkspaceSourceRoot(agent, sourceRootDir, colocatedInstructions) {",
+    "  const options = agent?.__vitehubWorkspaceAgentOptions",
+    "  const workspace = options?.workspace",
+    "  if (!workspace || typeof workspace !== 'object' || 'name' in workspace) return agent",
+    "  const sources = colocatedInstructions && !(workspace.sources && '__vitehubAgentInstructions' in workspace.sources)",
+    "    ? { __vitehubAgentInstructions: { materialize: 'build', mount: '', path: 'instructions.md', workspacePath: 'AGENTS.md' }, ...workspace.sources }",
+    "    : workspace.sources",
+    "  return { ...agent, ...(sources ? { sources } : {}), sourceRootDir: agent.sourceRootDir ?? sourceRootDir, __vitehubWorkspaceAgentOptions: { ...options, workspace: { ...workspace, ...(sources ? { sources } : {}), sourceRootDir: workspace.sourceRootDir ?? sourceRootDir } } }",
+    "}",
+    "",
+    "function workspaceRegistryEntry(name, module, sourceRootDir, colocatedInstructions) {",
+    "  const agent = withWorkspaceSourceRoot(resolveAgentModule(module), sourceRootDir, colocatedInstructions)",
+    "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
+    "  return [name, async () => ({ ...module, default: agent })]",
     "}",
     "",
     "function jsonError(status, message) {",

@@ -22,11 +22,20 @@ import type {
   WorkspaceSearchHit,
   WorkspaceSession,
   WriteFileOptions,
+  WorkspaceSessionOptions,
 } from "../core/types.ts"
 
-function assertTrustedHostWorkspaceRuntimeAllowed() {
+function trustedHostRuntimeAllowsProduction(definition: WorkspaceDefinition) {
+  const runtime = definition.runtime
+  return typeof runtime === "object"
+    && runtime !== null
+    && runtime.type === "trusted-host"
+    && runtime.allowProduction === true
+}
+
+function assertTrustedHostWorkspaceRuntimeAllowed(definition: WorkspaceDefinition) {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-  if (env?.NODE_ENV === "production") {
+  if (env?.NODE_ENV === "production" && !trustedHostRuntimeAllowsProduction(definition)) {
     throw new WorkspaceError("[vitehub] Workspace runtime `trusted-host` is only available outside production. Use `runtime: 'sandbox'` for hosted executable workspaces.")
   }
 }
@@ -110,8 +119,35 @@ async function snapshotLocal(root: string, name?: string) {
   return await createSnapshotFromEntries(files, name)
 }
 
-async function materializeWorkspace(workspace: Workspace, root: string) {
-  const entries = await workspace.list("", { recursive: true })
+function normalizeSessionPaths(options?: WorkspaceSessionOptions): string[] | undefined {
+  const paths = [...new Set((options?.paths || []).map(path => normalizeLocalWorkspacePath(path, { allowEmpty: true, allowGenerated: true })))]
+  if (!paths.length || paths.includes("")) return undefined
+  return paths.sort((left, right) => left.length - right.length || left.localeCompare(right))
+}
+
+function assertDiffInsideSessionPaths(diff: WorkspaceDiff, paths: string[] | undefined) {
+  if (!paths) return
+  const entry = diff.entries.find(entry => !paths.some(path => entry.path === path || entry.path.startsWith(`${path}/`)))
+  if (entry) throw new WorkspaceError(`[vitehub] Workspace session path ${entry.path} is outside the session scope.`)
+}
+
+async function sessionEntries(workspace: Workspace, options?: WorkspaceSessionOptions): Promise<WorkspaceEntry[]> {
+  const paths = normalizeSessionPaths(options)
+  if (!paths) return await workspace.list("", { recursive: true })
+
+  const entries = new Map<string, WorkspaceEntry>()
+  for (const path of paths) {
+    const stat = await workspace.stat(path)
+    entries.set(stat.path, stat)
+    if (stat.type === "directory") {
+      for (const entry of await workspace.list(path, { recursive: true })) entries.set(entry.path, entry)
+    }
+  }
+  return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path))
+}
+
+async function materializeWorkspace(workspace: Workspace, root: string, options?: WorkspaceSessionOptions) {
+  const entries = await sessionEntries(workspace, options)
   for (const entry of entries.filter(entry => entry.type === "directory"))
     await mkdir(toLocalPath(root, entry.path, { allowGenerated: true }), { recursive: true })
   for (const entry of entries) {
@@ -200,12 +236,14 @@ async function execLocal(root: string, command: string, args: string[] = [], opt
 }
 
 export async function createTrustedHostWorkspaceSession(
-  _definition: WorkspaceDefinition,
+  definition: WorkspaceDefinition,
   workspace: Workspace,
+  options?: WorkspaceSessionOptions,
 ): Promise<WorkspaceSession> {
-  assertTrustedHostWorkspaceRuntimeAllowed()
+  assertTrustedHostWorkspaceRuntimeAllowed(definition)
   const root = await mkdtemp(join(tmpdir(), `vitehub-workspace-${workspace.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "workspace"}-`))
-  let baseline = await materializeWorkspace(workspace, root).catch(async (error) => {
+  const sessionPaths = normalizeSessionPaths(options)
+  let baseline = await materializeWorkspace(workspace, root, options).catch(async (error) => {
     await rm(root, { force: true, recursive: true })
     throw error
   })
@@ -280,6 +318,7 @@ export async function createTrustedHostWorkspaceSession(
     },
     async commit(options) {
       const diff = await currentDiff()
+      assertDiffInsideSessionPaths(diff, sessionPaths)
       await commitLocalChanges(root, workspace, diff, mediaTypes)
       baseline = await snapshotLocal(root, options?.message || "local-commit")
     },

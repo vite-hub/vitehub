@@ -1,5 +1,6 @@
 import {
   applyCapabilityInstructionSlots,
+  capabilityWorkspaceSources,
   capabilityInstructionBlockId,
   normalizeCapabilities,
   normalizeMode,
@@ -34,7 +35,6 @@ import type {
   AgentInput,
   AgentInstructionBlock,
   AgentModelInput,
-  AgentModelResolver,
   AgentRunInput,
   AgentRuntimeConfig,
   AgentRuntimeContext,
@@ -55,6 +55,9 @@ import type {
 } from "@vite-hub/workspace"
 
 const defaultWorkspaceName = "workspace"
+const colocatedAgentInstructionsPath = "instructions.md"
+const colocatedAgentInstructionsWorkspacePath = "AGENTS.md"
+const colocatedAgentInstructionsSourceKey = "__vitehubAgentInstructions"
 const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"]
 const sourceRequestCommands = ["curl"]
 const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
@@ -70,6 +73,7 @@ const workspaceDefinitionKeys = new Set([
   "sources",
   "store",
 ])
+const workspaceReferenceKeys = new Set(["mode", "name"])
 
 type NormalizedWorkspaceOptions = WorkspaceAgentWorkspaceOptions & { mode: AgentCapabilityMode }
 type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapabilityMode }
@@ -83,7 +87,7 @@ export type WorkspaceAgentOptions<
   TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = AgentCapabilityDefinition<TRuntimeConfig>[] | undefined,
 > = AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities> & {
   name?: string
-  workspace: WorkspaceAgentWorkspaceConfig
+  workspace: WorkspaceAgentWorkspaceConfig<_Name>
 }
 
 export type WorkspaceAgentDefinition<
@@ -122,12 +126,38 @@ export interface AgentDevtoolsSourceMaterializationOptions<
 }
 
 export function normalizeWorkspaceOptions(workspace: WorkspaceAgentWorkspaceConfig): NormalizedWorkspaceOptions {
-  if (typeof workspace === "string") {
-    return { mode: "read" }
-  }
+  if (isWorkspaceReference(workspace)) return { mode: normalizeMode(workspace.mode, "Workspace") }
+  if (typeof workspace === "string") return { mode: "read" }
   return {
     ...workspace,
     mode: normalizeMode(workspace.mode, "Workspace"),
+  }
+}
+
+function isWorkspaceReference(workspace: WorkspaceAgentWorkspaceConfig): workspace is { mode?: AgentCapabilityMode, name: string } {
+  return typeof workspace === "object"
+    && workspace !== null
+    && "name" in workspace
+    && typeof workspace.name === "string"
+}
+
+export function workspaceAgentOwnsWorkspaceDefinition(agent: unknown): boolean {
+  const options = typeof agent === "object" && agent !== null
+    ? (agent as { __vitehubWorkspaceAgentOptions?: { workspace?: unknown } }).__vitehubWorkspaceAgentOptions
+    : undefined
+  const workspace = options?.workspace
+  return typeof workspace === "object"
+    && workspace !== null
+    && !isWorkspaceReference(workspace as WorkspaceAgentWorkspaceConfig)
+}
+
+function assertWorkspaceReference(reference: { name: string }): void {
+  if (!reference.name.trim()) {
+    throw new TypeError("[vitehub] Workspace reference requires a non-empty string name.")
+  }
+  const unsupported = Object.keys(reference).filter(key => !workspaceReferenceKeys.has(key))
+  if (unsupported.length) {
+    throw new TypeError(`[vitehub] Workspace reference does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.`)
   }
 }
 
@@ -139,6 +169,7 @@ export function workspaceNameFromOptions<
   defaults: WorkspaceAgentDefaults<Name> = {},
 ): Name | string {
   if (typeof options.workspace === "string") return options.workspace
+  if (isWorkspaceReference(options.workspace)) return options.workspace.name
   return options.name || defaults.workspace || defaults.name || defaultWorkspaceName
 }
 
@@ -148,11 +179,23 @@ export function workspaceDefinitionFromOptions<
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
 ): WorkspaceAgentWorkspaceOptions {
-  if (typeof options.workspace === "string") return { mode: "read" }
+  if (typeof options.workspace === "string") {
+    return withCapabilityWorkspaceSources({ mode: "read" }, options.capabilities as AgentCapabilityDefinition[] | undefined)
+  }
+  if (isWorkspaceReference(options.workspace)) {
+    assertWorkspaceReference(options.workspace)
+    return withCapabilityWorkspaceSources(
+      normalizeWorkspaceOptions(options.workspace),
+      options.capabilities as AgentCapabilityDefinition[] | undefined,
+    )
+  }
   const workspace = normalizeWorkspaceOptions(options.workspace)
   const { mode: _mode, ...definition } = workspace
   assertWorkspaceDefinition(definition)
-  return workspace
+  return withColocatedAgentInstructions(withCapabilityWorkspaceSources(
+    workspace,
+    options.capabilities as AgentCapabilityDefinition[] | undefined,
+  ))
 }
 
 function assertWorkspaceDefinition(definition: Record<string, unknown>): void {
@@ -165,6 +208,55 @@ function assertWorkspaceDefinition(definition: Record<string, unknown>): void {
   const unsupported = Object.keys(definition).filter(key => !workspaceDefinitionKeys.has(key))
   if (unsupported.length) {
     throw new TypeError(`[vitehub] defineWorkspace does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.`)
+  }
+}
+
+function withCapabilityWorkspaceSources(
+  workspace: NormalizedWorkspaceOptions,
+  capabilities: AgentCapabilityDefinition[] | undefined,
+): NormalizedWorkspaceOptions {
+  const contributed = capabilityWorkspaceSources(capabilities)
+  if (!contributed) return workspace
+  const sources = { ...workspace.sources }
+  for (const [key, source] of Object.entries(contributed)) {
+    if (key in sources) {
+      throw new Error(`[vitehub] Workspace source "${key}" is already defined.`)
+    }
+    sources[key] = source
+  }
+  return {
+    ...workspace,
+    sources,
+  }
+}
+
+function hasColocatedAgentInstructions(sourceRootDir: string | undefined): boolean {
+  if (!sourceRootDir) return false
+  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
+  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  if (!fs || !path) return false
+  try {
+    return fs.statSync(path.join(sourceRootDir, colocatedAgentInstructionsPath)).isFile()
+  }
+  catch {
+    return false
+  }
+}
+
+function withColocatedAgentInstructions(workspace: NormalizedWorkspaceOptions): NormalizedWorkspaceOptions {
+  if (!hasColocatedAgentInstructions(workspace.sourceRootDir)) return workspace
+  if (workspace.sources && colocatedAgentInstructionsSourceKey in workspace.sources) return workspace
+  return {
+    ...workspace,
+    sources: {
+      [colocatedAgentInstructionsSourceKey]: {
+        materialize: "build",
+        mount: "",
+        path: colocatedAgentInstructionsPath,
+        workspacePath: colocatedAgentInstructionsWorkspacePath,
+      },
+      ...workspace.sources,
+    },
   }
 }
 
@@ -213,6 +305,14 @@ function modelDriverInstructions<
       : undefined
   }
   return (options as { instructions?: AgentAdapterInstructions<TRuntimeConfig, Name> }).instructions
+}
+
+function shouldUseColocatedAgentInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): boolean {
+  return modelDriverInstructions(options) === undefined
+    && normalizeAgentDriver(options as AgentSettings<TRuntimeConfig>).kind === "model"
 }
 
 function workspaceShellMetadataCommands(mode: AgentCapabilityMode, sourceRequests = false) {
@@ -706,6 +806,9 @@ function workspaceMetadataInstructions<
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
 ): string[] {
   const configuredInstructions = modelDriverInstructions(options)
+  const defaultInstructions = shouldUseColocatedAgentInstructions(options)
+    ? readColocatedAgentInstructions(options)
+    : undefined
   const parts = Array.isArray(configuredInstructions) ? configuredInstructions : [configuredInstructions]
   const instructions = parts.flatMap((part) => {
     if (typeof part === "string" && part.trim().length > 0) return [part]
@@ -716,6 +819,7 @@ function workspaceMetadataInstructions<
     }
     return []
   })
+  if (defaultInstructions) instructions.unshift(defaultInstructions)
   const renderedInstructions = applyPassiveCapabilityInstructionSlots(
     instructions.join("\n\n"),
     staticCapabilityInstructionBlocks(options),
@@ -743,6 +847,38 @@ function readLocalWorkspaceInstructions<
   }
 }
 
+function readColocatedAgentInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): string | undefined {
+  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
+  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  const sourceRootDir = workspaceDefinitionFromOptions(options).sourceRootDir
+  if (!fs || !path || !hasColocatedAgentInstructions(sourceRootDir)) return undefined
+  try {
+    const content = fs.readFileSync(path.join(sourceRootDir!, colocatedAgentInstructionsPath), "utf8").trim()
+    if (content) return content
+  }
+  catch {}
+}
+
+export async function resolveWorkspaceAgentDefaultInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+  workspace: ReadonlyWorkspaceFacade<Name>,
+): Promise<string | undefined> {
+  if (!shouldUseColocatedAgentInstructions(options)) return undefined
+  const definition = workspaceDefinitionFromOptions(options)
+  if (!definition.sources || !(colocatedAgentInstructionsSourceKey in definition.sources)) return undefined
+  try {
+    const content = (await workspace.fs.readFile(colocatedAgentInstructionsWorkspacePath as never)).trim()
+    if (content) return content
+  }
+  catch {}
+}
+
 async function resolveWorkspaceMetadataInstructions<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -758,6 +894,9 @@ async function resolveWorkspaceMetadataInstructions<
     workspace,
   }
   const configuredInstructions = modelDriverInstructions(options)
+  const defaultInstructions = shouldUseColocatedAgentInstructions(options)
+    ? await resolveWorkspaceAgentDefaultInstructions(options, workspace)
+    : undefined
   const parts = Array.isArray(configuredInstructions) ? configuredInstructions : [configuredInstructions]
   const instructions = await Promise.all(parts.map(part => typeof part === "function"
     ? part(instructionContext as never)
@@ -766,6 +905,7 @@ async function resolveWorkspaceMetadataInstructions<
     .flatMap(part => Array.isArray(part) ? part : [part])
     .map(part => part?.trim())
     .filter((part): part is string => Boolean(part))
+  if (defaultInstructions) baseInstructions.unshift(defaultInstructions)
   const renderedInstructions = applyPassiveCapabilityInstructionSlots(
     baseInstructions.join("\n\n"),
     capabilityBlocks,

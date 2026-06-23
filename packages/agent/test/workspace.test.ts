@@ -1,6 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { mkdtemp, rm, writeFile as writeLocalFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
-import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade } from "@vite-hub/workspace"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade, WorkspaceSourceInput } from "@vite-hub/workspace"
 
 const readFile = vi.fn()
 const writeFile = vi.fn()
@@ -14,8 +18,10 @@ const createWorkspaceTools = vi.fn(() => ({}))
 const createWorkspaceSourceResolutionFacade = vi.fn(async (workspace: ReadonlyWorkspaceFacade | WritableWorkspaceFacade, definition: unknown) => ({ definition, workspace }))
 const getWorkspaceSourceRequestDescriptor = vi.fn((_: unknown): { method: string, url: string } | undefined => undefined)
 const isWorkspaceSourceRequestOnly = vi.fn((_: unknown): boolean => false)
+const resolveRegisteredWorkspaceDefinition = vi.fn()
 const resolveWorkspaceAutoCommit = vi.fn()
 const workspaceSourceRequestDescriptorPath = vi.fn((source: string) => `.vitehub/sources/${source}.json`)
+const tempRoots: string[] = []
 const useWorkspace = vi.fn<() => ReadonlyWorkspaceFacade | WritableWorkspaceFacade>(() => ({
   diff,
   fs: { exists, list, readFile, writeFile },
@@ -104,6 +110,7 @@ vi.mock("@vite-hub/workspace", async (importOriginal) => {
     getWorkspaceSourceRequestDescriptor,
     isWorkspaceSourceRequestOnly,
     prepareHarnessWorkspaceSession,
+    resolveRegisteredWorkspaceDefinition,
     resolveWorkspaceAutoCommit,
     workspaceSourceRequestDescriptorPath,
     useWorkspace,
@@ -134,6 +141,10 @@ function readonlyWorkspaceFacade(): ReadonlyWorkspaceFacade {
 }
 
 describe("defineAgent workspace option", () => {
+  afterEach(async () => {
+    await Promise.all(tempRoots.splice(0).map(root => rm(root, { force: true, recursive: true })))
+  })
+
   beforeEach(() => {
     agentSettings.length = 0
     harnessAgentSettings.length = 0
@@ -170,6 +181,8 @@ describe("defineAgent workspace option", () => {
     readFile.mockReset()
     writeFile.mockReset()
     snapshot.mockReset()
+    resolveRegisteredWorkspaceDefinition.mockReset()
+    resolveRegisteredWorkspaceDefinition.mockResolvedValue(undefined)
     resolveWorkspaceAutoCommit.mockReset()
     resolveWorkspaceAutoCommit.mockReturnValue(undefined)
     tools.mockClear()
@@ -232,6 +245,44 @@ describe("defineAgent workspace option", () => {
     await expect(agent.run!(context())).resolves.toBe("ok")
   })
 
+  it("adds generic model instructions for mounted skills", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    useWorkspace.mockReturnValueOnce({
+      diff,
+      fs: { exists, list, readFile, writeFile },
+      snapshot,
+      startSession: vi.fn(),
+      tools: Object.assign(tools, {
+        inspect: inspectTools,
+        none: vi.fn(() => ({})),
+        readonly: inspectTools,
+      }),
+    } as unknown as WritableWorkspaceFacade)
+    exists.mockResolvedValue(true)
+    readFile.mockResolvedValueOnce([
+      "---",
+      "name: agent-browser",
+      "description: Browser automation CLI for AI agents.",
+      "---",
+      "# Agent Browser",
+    ].join("\n"))
+
+    const agent = defineAgent({
+      capabilities: [skills({ path: "skills/agent-browser", shellExecution: "write" })],
+      model: {} as never,
+      workspace: { mode: "write" },
+    })
+
+    await agent.run!(context())
+
+    expect(readFile).toHaveBeenCalledWith("skills/agent-browser/SKILL.md")
+    expect(agentSettings.at(-1)?.instructions).toContain("Skill \"agent-browser\" is mounted at `skills/agent-browser`.")
+    expect(agentSettings.at(-1)?.instructions).toContain("Description: Browser automation CLI for AI agents.")
+    expect(agentSettings.at(-1)?.instructions).toContain("Read `skills/agent-browser/SKILL.md` before using this skill.")
+    expect(agentSettings.at(-1)?.instructions).toContain("Use the `skill_shell` tool")
+  })
+
   it("records opt-in skill shell execution mode", async () => {
     const { skills } = await import("../src/capabilities.ts")
 
@@ -239,6 +290,340 @@ describe("defineAgent workspace option", () => {
     expect(skills({ shellExecution: "read" }).metadata).toMatchObject({ shellExecution: "read" })
     expect(skills({ shellExecution: "write" }).metadata).toMatchObject({ shellExecution: "write" })
     expect(() => skills({ shellExecution: "execute" as never })).toThrow("skills({ shellExecution })")
+  })
+
+  it("lets skills() contribute a mounted workspace source", async () => {
+    const { skills } = await import("../src/capabilities.ts")
+    const { workspaceDefinitionFromOptions } = await import("../src/workspace-agent.ts")
+
+    const definition = workspaceDefinitionFromOptions({
+      capabilities: [
+        skills({
+          path: "skills/agent-browser",
+          source: {
+            include: ["SKILL.md", "references/**"],
+            materialize: "build",
+            repo: "vercel/vercel-plugin",
+            root: "skills/agent-browser",
+          } as never,
+        }),
+      ],
+      model: {} as never,
+      workspace: {},
+    })
+
+    expect(definition.sources?.["skill.agent-browser"]).toEqual({
+      mount: "skills/agent-browser",
+      source: {
+        include: ["SKILL.md", "references/**"],
+        materialize: "build",
+        repo: "vercel/vercel-plugin",
+        root: "skills/agent-browser",
+      },
+    })
+  })
+
+  it("rebases file skill sources under the configured skill path", async () => {
+    const { skills } = await import("../src/capabilities.ts")
+    const { workspaceDefinitionFromOptions } = await import("../src/workspace-agent.ts")
+
+    const definition = workspaceDefinitionFromOptions({
+      capabilities: [
+        skills({
+          path: "skills/agent-browser",
+          source: { path: "skills/agent-browser/SKILL.md" },
+        }),
+      ],
+      model: {} as never,
+      workspace: {},
+    })
+
+    expect(definition.sources?.["skill.agent-browser"]).toEqual({
+      mount: "skills/agent-browser",
+      source: {
+        path: "skills/agent-browser/SKILL.md",
+        workspacePath: "SKILL.md",
+      },
+    })
+  })
+
+  it("mounts skill sources at the configured skill path", async () => {
+    const { skills } = await import("../src/capabilities.ts")
+    const { workspaceDefinitionFromOptions } = await import("../src/workspace-agent.ts")
+
+    const definition = workspaceDefinitionFromOptions({
+      capabilities: [
+        skills({
+          path: "skills/agent-browser",
+          source: {
+            mount: "vercel-plugin",
+            repo: "vercel/vercel-plugin",
+            root: "skills/agent-browser",
+          } as never,
+        }),
+      ],
+      model: {} as never,
+      workspace: {},
+    })
+
+    expect(definition.sources?.["skill.agent-browser"]).toEqual({
+      mount: "skills/agent-browser",
+      source: {
+        mount: "vercel-plugin",
+        repo: "vercel/vercel-plugin",
+        root: "skills/agent-browser",
+      },
+    })
+  })
+
+  it("bubbles subagent skill sources into the parent workspace definition", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills, subagents } = await import("../src/capabilities.ts")
+    const { workspaceDefinitionFromOptions } = await import("../src/workspace-agent.ts")
+
+    const browserAgent = defineAgent({
+      capabilities: [
+        skills({
+          path: "skills/agent-browser",
+          source: {
+            materialize: "build",
+            repo: "vercel/vercel-plugin",
+            root: "skills/agent-browser",
+          } as never,
+        }),
+      ],
+      model: {} as never,
+      workspace: { name: "review", mode: "write" },
+    })
+    const reviewerAgent = defineAgent({
+      capabilities: [
+        subagents({
+          agents: {
+            browser: {
+              agent: browserAgent,
+              description: "Collect browser evidence.",
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+      workspace: { mode: "write" },
+    })
+    const options = (reviewerAgent as unknown as { __vitehubWorkspaceAgentOptions: Parameters<typeof workspaceDefinitionFromOptions>[0] }).__vitehubWorkspaceAgentOptions
+
+    expect(workspaceDefinitionFromOptions(options).sources?.["skill.agent-browser"]).toEqual({
+      mount: "skills/agent-browser",
+      source: {
+        materialize: "build",
+        repo: "vercel/vercel-plugin",
+        root: "skills/agent-browser",
+      },
+    })
+  })
+
+  it("adds capability sources to shared named workspace references for one invocation", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
+    const workspaceName = `review-${Math.random().toString(36).slice(2)}`
+    const registeredDefinition: {
+      name: string
+      sources: Record<string, WorkspaceSourceInput>
+      store: { provider: "memory" }
+    } = {
+      name: workspaceName,
+      sources: {
+        instructions: { path: "AGENTS.md" } as never,
+      },
+      store: { provider: "memory" as const },
+    }
+    registerWorkspace(workspaceName, {
+      sources: registeredDefinition.sources,
+      store: registeredDefinition.store,
+    })
+    resolveRegisteredWorkspaceDefinition.mockResolvedValueOnce(registeredDefinition)
+    exists.mockResolvedValue(true)
+
+    const agent = defineAgent({
+      capabilities: [
+        skills({
+          path: "skills/agent-browser",
+          source: {
+            materialize: "build",
+            repo: "vercel/vercel-plugin",
+            root: "skills/agent-browser",
+          } as never,
+        }),
+      ],
+      model: {} as never,
+      workspace: { name: workspaceName, mode: "write" },
+    })
+
+    await agent.run!(context())
+
+    expect(registeredDefinition.sources?.instructions).toEqual({ path: "AGENTS.md" })
+    expect(registeredDefinition.sources?.["skill.agent-browser"]).toBeUndefined()
+    expect(useWorkspace).toHaveBeenCalledWith(workspaceName, {
+      definition: expect.objectContaining({
+        sources: {
+          instructions: { path: "AGENTS.md" },
+          "skill.agent-browser": {
+            mount: "skills/agent-browser",
+            source: {
+              materialize: "build",
+              repo: "vercel/vercel-plugin",
+              root: "skills/agent-browser",
+            },
+          },
+        },
+        store: { provider: "memory" },
+      }),
+      mode: "write",
+    })
+  })
+
+  it("rejects duplicate capability source keys on shared named workspace references", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const workspaceName = `review-${Math.random().toString(36).slice(2)}`
+    resolveRegisteredWorkspaceDefinition.mockResolvedValueOnce({
+      name: workspaceName,
+      sources: {
+        instructions: { path: "AGENTS.md" } as never,
+      },
+      store: { provider: "memory" as const },
+    })
+    const agent = defineAgent({
+      capabilities: [
+        skills({
+          path: "skills/agent-browser",
+          source: {
+            materialize: "build",
+            repo: "vercel/vercel-plugin",
+            root: "skills/agent-browser",
+          } as never,
+          sourceKey: "instructions",
+        }),
+      ],
+      model: {} as never,
+      workspace: { name: workspaceName, mode: "write" },
+    })
+
+    await expect(agent.run!(context())).rejects.toThrow('Workspace source "instructions" is already defined.')
+  })
+
+  it("exposes opt-in skill shell execution through a workspace session", async () => {
+    const session = {
+      close: vi.fn(),
+      commit: vi.fn(),
+      exec: vi.fn(async () => ({
+        args: ["-lc", "agent-browser snapshot -i"],
+        command: "bash",
+        exitCode: 0,
+        stderr: "",
+        stdout: "snapshot",
+      })),
+    }
+    const startSession = vi.fn(async () => session)
+    useWorkspace.mockReturnValueOnce({
+      diff,
+      fs: { exists, list, readFile, writeFile },
+      snapshot,
+      startSession,
+      tools: Object.assign(tools, {
+        inspect: inspectTools,
+        none: vi.fn(() => ({})),
+        readonly: inspectTools,
+      }),
+    } as unknown as WritableWorkspaceFacade)
+    agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
+      const output = await this.settings.tools.skill_shell.execute({ command: "agent-browser snapshot -i" })
+      return { finishReason: "stop", text: JSON.stringify(output) }
+    })
+    exists.mockResolvedValue(true)
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [skills({ path: "skills/agent-browser", shellExecution: "write" })],
+      model: {} as never,
+      workspace: { mode: "write" },
+    })
+
+    await expect(agent.run!(context())).resolves.toContain("snapshot")
+    expect(startSession).toHaveBeenCalledWith({ paths: ["skills/agent-browser"] })
+    expect(session.exec).toHaveBeenCalledWith("bash", ["-lc", "agent-browser snapshot -i"], {
+      cwd: "skills/agent-browser",
+      timeout: undefined,
+    })
+    expect(session.commit).toHaveBeenCalledWith({ message: "skill shell" })
+    expect(session.close).toHaveBeenCalledTimes(1)
+  })
+
+  it("scopes root skill shell sessions to the workspace root", async () => {
+    const session = {
+      close: vi.fn(),
+      commit: vi.fn(),
+      exec: vi.fn(async () => ({
+        args: ["-lc", "echo root"],
+        command: "bash",
+        exitCode: 0,
+        stderr: "",
+        stdout: "root",
+      })),
+    }
+    const startSession = vi.fn(async () => session)
+    useWorkspace.mockReturnValueOnce({
+      diff,
+      fs: { exists, list, readFile, writeFile },
+      snapshot,
+      startSession,
+      tools: Object.assign(tools, {
+        inspect: inspectTools,
+        none: vi.fn(() => ({})),
+        readonly: inspectTools,
+      }),
+    } as unknown as WritableWorkspaceFacade)
+    agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
+      const output = await this.settings.tools.skill_shell.execute({ command: "echo root" })
+      return { finishReason: "stop", text: JSON.stringify(output) }
+    })
+    exists.mockResolvedValue(true)
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [skills({ path: "SKILL.md", shellExecution: "write" })],
+      model: {} as never,
+      workspace: { mode: "write" },
+    })
+
+    await expect(agent.run!(context())).resolves.toContain("root")
+    expect(startSession).toHaveBeenCalledWith({ paths: [""] })
+    expect(session.exec).toHaveBeenCalledWith("bash", ["-lc", "echo root"], {
+      cwd: "",
+      timeout: undefined,
+    })
+  })
+
+  it("requires writable workspace mode for read-mode skill shell execution", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [skills({ path: "skills/agent-browser", shellExecution: "read" })],
+      model: {} as never,
+      workspace: {},
+    })
+
+    await expect(agent.run!(context())).rejects.toThrow('skills() requires workspace.mode: "write"')
+    expect(agentGenerate).not.toHaveBeenCalled()
+  })
+
+  it("uses full file source paths as probe keys", async () => {
+    const { normalizeAgentWorkspaceSource } = await import("../src/workspace-source-metadata.ts")
+
+    expect(normalizeAgentWorkspaceSource("summaryInstructions", { path: ".agents/summary/AGENTS.md" } as never).probeKeys).toEqual([".agents/summary/AGENTS.md"])
   })
 
   it("requires writable workspace for write-mode skill shell execution", async () => {
@@ -265,6 +650,33 @@ describe("defineAgent workspace option", () => {
     })
 
     await expect(agent.run!(context())).rejects.toThrow("git() requires workspace.mode: \"write\"")
+  })
+
+  it("uses write mode for named workspace references", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { workspaceShell } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [workspaceShell({ mode: "write" })],
+      model: {} as never,
+      workspace: { name: "docs", mode: "write" },
+    })
+
+    await agent.run!(context())
+
+    expect(useWorkspace).toHaveBeenCalledWith("docs", { mode: "write" })
+  })
+
+  it("rejects mixed named workspace references and colocated definitions", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    expect(() => defineAgent({
+      model: {} as never,
+      workspace: {
+        name: "docs",
+        sources: {},
+      } as never,
+    })).toThrow("[vitehub] Workspace reference does not support option: sources.")
   })
 
   it("creates a workspace and agent definition without resolving workspace until run", async () => {
@@ -457,6 +869,150 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toBe("Use workspace sources.")
   })
 
+  it("uses colocated instructions.md as default model instructions", async () => {
+    const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
+    tempRoots.push(sourceRootDir)
+    await writeLocalFile(join(sourceRootDir, "instructions.md"), "Use colocated workspace instructions.\n")
+    readFile.mockResolvedValueOnce("Use colocated workspace instructions.\n")
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: { sourceRootDir },
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    expect((agent as { sources?: unknown }).sources).toMatchObject({
+      __vitehubAgentInstructions: {
+        mount: "",
+        path: "instructions.md",
+        workspacePath: "AGENTS.md",
+      },
+    })
+
+    await agent.run!(context())
+
+    expect(readFile).toHaveBeenCalledWith("AGENTS.md")
+    expect(agentSettings.at(-1)?.instructions).toBe("Use colocated workspace instructions.")
+  })
+
+  it("keeps source instructions with colocated default model instructions", async () => {
+    const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
+    tempRoots.push(sourceRootDir)
+    await writeLocalFile(join(sourceRootDir, "instructions.md"), "Use colocated workspace instructions.\n")
+    readFile.mockResolvedValueOnce("Use colocated workspace instructions.\n")
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {
+        sourceRootDir,
+        sources: {
+          docs: { instructions: "Use docs for product behavior.", name: "docs" } as never,
+        },
+      },
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(agentSettings.at(-1)?.instructions).toBe([
+      "Use colocated workspace instructions.",
+      "## Workspace Sources",
+      "### docs\n\nUse docs for product behavior.",
+    ].join("\n\n"))
+  })
+
+  it("reads materialized colocated instructions without host fs", async () => {
+    const processWithBuiltins = globalThis.process as typeof process & {
+      getBuiltinModule?: (name: string) => unknown
+    }
+    const getBuiltinModule = processWithBuiltins.getBuiltinModule
+    processWithBuiltins.getBuiltinModule = () => undefined
+    readFile.mockResolvedValueOnce("Use materialized workspace instructions.\n")
+
+    try {
+      const { defineAgent } = await import("../src/index.ts")
+      const agent = withAgentDefaults(defineAgent({
+        workspace: {
+          sourceRootDir: "/runtime/server/agents/support",
+          sources: {
+            __vitehubAgentInstructions: {
+              materialize: "build",
+              mount: "",
+              path: "instructions.md",
+              workspacePath: "AGENTS.md",
+            },
+          },
+        },
+        model: {} as never,
+      }), { workspace: "docs" })
+
+      await agent.run!(context())
+
+      expect(readFile).toHaveBeenCalledWith("AGENTS.md")
+      expect(agentSettings.at(-1)?.instructions).toBe("Use materialized workspace instructions.")
+    }
+    finally {
+      processWithBuiltins.getBuiltinModule = getBuiltinModule
+    }
+  })
+
+  it("keeps explicit model instructions ahead of colocated instructions.md", async () => {
+    const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
+    tempRoots.push(sourceRootDir)
+    await writeLocalFile(join(sourceRootDir, "instructions.md"), "Use colocated workspace instructions.\n")
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: { sourceRootDir },
+      instructions: "Use explicit instructions.",
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(readFile).not.toHaveBeenCalledWith("AGENTS.md")
+    expect(agentSettings.at(-1)?.instructions).toBe("Use explicit instructions.")
+  })
+
+  it("keeps explicit model driver instructions ahead of colocated instructions.md", async () => {
+    const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
+    tempRoots.push(sourceRootDir)
+    await writeLocalFile(join(sourceRootDir, "instructions.md"), "Use colocated workspace instructions.\n")
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: { sourceRootDir },
+      driver: {
+        instructions: "Use explicit driver instructions.",
+        model: {} as never,
+      },
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(readFile).not.toHaveBeenCalledWith("AGENTS.md")
+    expect(agentSettings.at(-1)?.instructions).toBe("Use explicit driver instructions.")
+  })
+
+  it("does not load ordinary workspace AGENTS.md as implicit instructions", async () => {
+    readFile.mockResolvedValueOnce("Ordinary workspace instructions.\n")
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {
+        sources: {
+          guide: { path: "AGENTS.md" },
+        },
+      },
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(readFile).not.toHaveBeenCalledWith("AGENTS.md")
+    expect(agentSettings.at(-1)?.instructions).toBe("")
+  })
+
   it("rebinds synthetic workspace runs when applying discovered defaults", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
@@ -528,6 +1084,50 @@ describe("defineAgent workspace option", () => {
 
     expect(readFile).toHaveBeenCalledWith("AGENTS.md")
     expect(agentSettings.at(-1)?.instructions).toBe("Workspace instructions")
+  })
+
+  it("uses the registered workspace definition for named reference instructions", async () => {
+    readFile.mockResolvedValueOnce("Summary instructions")
+    const { defineAgent } = await import("../src/index.ts")
+    const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
+    const workspaceName = `shared-reference-${Math.random().toString(36).slice(2)}`
+    const workspaceDefinition = {
+      sources: {
+        summaryInstructions: { instructions: "Use the summary instructions.", name: "summary" } as never,
+      },
+      store: { provider: "memory" as const },
+    }
+    registerWorkspace(workspaceName, workspaceDefinition)
+    resolveRegisteredWorkspaceDefinition.mockResolvedValueOnce(workspaceDefinition)
+
+    const agent = defineAgent({
+      workspace: { name: workspaceName, mode: "write" },
+      instructions: async ({ fs }) => await fs.readFile(".agents/summary/AGENTS.md"),
+      model: {} as never,
+    })
+
+    await agent.run!(context())
+
+    expect(readFile).toHaveBeenCalledWith(".agents/summary/AGENTS.md")
+    expect(agentSettings.at(-1)?.instructions).toBe([
+      "Summary instructions",
+      "## Workspace Sources",
+      "### summaryInstructions\n\nUse the summary instructions.",
+    ].join("\n\n"))
+  })
+
+  it("does not create placeholder definitions for unregistered named references", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const workspaceName = `missing-reference-${Math.random().toString(36).slice(2)}`
+
+    const agent = defineAgent({
+      workspace: { name: workspaceName, mode: "write" },
+      model: {} as never,
+    })
+
+    await agent.run!(context())
+
+    expect(useWorkspace).toHaveBeenCalledWith(workspaceName, { mode: "write" })
   })
 
   it("appends visible source instructions by default", async () => {
@@ -894,6 +1494,219 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
+  it("synthesizes streamed answers when tool loops finish with tool calls after pre-tool text", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    agentStream.mockResolvedValueOnce({
+      fullStream: (async function* () {
+        yield { id: "msg-1", text: "I will inspect the workspace first.", type: "text-delta" }
+        yield {
+          output: { stdout: "summary.md:1: final summary from subagent" },
+          toolCallId: "call-1",
+          type: "tool-output-available",
+        }
+        yield { finishReason: "tool-calls", type: "finish" }
+      })(),
+    })
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toContainEqual({ id: "workspace-fallback", text: "fallback answer", type: "text-delta" })
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining("summary.md:1"),
+    }))
+  })
+
+  it("synthesizes streamed answers when tool output follows pre-tool text without final text", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    agentStream.mockResolvedValueOnce({
+      fullStream: (async function* () {
+        yield { id: "msg-1", text: "I will inspect the workspace first.", type: "text-delta" }
+        yield {
+          output: { stdout: "screenshots/login-version-badge-desktop.png" },
+          toolCallId: "call-1",
+          type: "tool-output-available",
+        }
+        yield { finishReason: "stop", type: "finish" }
+      })(),
+    })
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toContainEqual({ id: "workspace-fallback", text: "fallback answer", type: "text-delta" })
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining("screenshots/login-version-badge-desktop.png"),
+    }))
+  })
+
+  it("synthesizes streamed answers from finish-step tool results", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    agentStream.mockResolvedValueOnce({
+      fullStream: (async function* () {
+        yield { id: "msg-1", text: "I will inspect the workspace first.", type: "text-delta" }
+        yield {
+          toolResults: [
+            {
+              output: { text: "Browser evidence: screenshots/login-version-badge-desktop.png" },
+              toolCallId: "call-1",
+              toolName: "run_browser",
+            },
+          ],
+          type: "finish-step",
+        }
+        yield { finishReason: "tool-calls", type: "finish" }
+      })(),
+    })
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toContainEqual({ id: "workspace-fallback", text: "fallback answer", type: "text-delta" })
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining("screenshots/login-version-badge-desktop.png"),
+    }))
+  })
+
+  it("synthesizes streamed answers from step finish callback tool results", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    agentStream.mockImplementationOnce(async (input: unknown) => {
+      const callInput = input as { onStepFinish?: (event: unknown) => Promise<void> }
+      await callInput.onStepFinish?.({
+        toolResults: [
+          {
+            output: { text: "Browser evidence from callback: screenshots/login-version-badge-desktop.png" },
+            toolCallId: "call-1",
+            toolName: "run_browser",
+          },
+        ],
+      })
+
+      return {
+        fullStream: (async function* () {
+          yield { id: "msg-1", text: "I will inspect the workspace first.", type: "text-delta" }
+          yield { finishReason: "tool-calls", type: "finish" }
+        })(),
+      }
+    })
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toContainEqual({ id: "workspace-fallback", text: "fallback answer", type: "text-delta" })
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining("Browser evidence from callback"),
+    }))
+  })
+
+  it("keeps final stream text when callback evidence is only supporting evidence", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    agentStream.mockImplementationOnce(async (input: unknown) => {
+      const callInput = input as { onStepFinish?: (event: unknown) => Promise<void> }
+      await callInput.onStepFinish?.({
+        toolResults: [
+          {
+            output: { text: "Browser evidence from callback: screenshots/login-version-badge-desktop.png" },
+            toolCallId: "call-1",
+            toolName: "run_browser",
+          },
+        ],
+      })
+
+      return {
+        fullStream: (async function* () {
+          yield { id: "msg-1", text: "Final review summary.", type: "text-delta" }
+          yield { finishReason: "stop", type: "finish" }
+        })(),
+      }
+    })
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toContainEqual({ id: "msg-1", text: "Final review summary.", type: "text-delta" })
+    expect(events).not.toContainEqual({ id: "workspace-fallback", text: "fallback answer", type: "text-delta" })
+    expect(generateText).not.toHaveBeenCalled()
+  })
+
+  it("synthesizes streamed answers from captured tool execution results", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const runBrowser = vi.fn(async () => ({ text: "Browser evidence from execute: screenshots/login-version-badge-desktop.png" }))
+    agentStream.mockImplementationOnce(async function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
+      await this.settings.tools.run_browser.execute({ message: "capture one desktop screenshot" })
+
+      return {
+        fullStream: (async function* () {
+          yield { id: "msg-1", text: "I will capture browser evidence.", type: "text-delta" }
+          yield { finishReason: "tool-calls", type: "finish" }
+        })(),
+      }
+    })
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+      capabilities: [{
+        id: "subagents",
+        tools: {
+          run_browser: { execute: runBrowser },
+        } as never,
+      }],
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(runBrowser).toHaveBeenCalledWith({ message: "capture one desktop screenshot" })
+    expect(events).toContainEqual({ id: "workspace-fallback", text: "fallback answer", type: "text-delta" })
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining("Browser evidence from execute"),
+    }))
+  })
+
   it("emits streamed workspace fallback text before finish events", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     agentStream.mockResolvedValueOnce({
@@ -954,6 +1767,66 @@ describe("defineAgent workspace option", () => {
       { id: "workspace-fallback", text: "fallback answer", type: "text-delta" },
       { reason: "workspace-fallback", type: "finish" },
     ])
+  })
+
+  it("synthesizes streamed answers from stream-only AI SDK results", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    agentStream.mockResolvedValueOnce({
+      stream: (async function* () {
+        yield {
+          output: { stdout: "screenshots/login-version-badge-desktop.png" },
+          toolCallId: "call-1",
+          type: "tool-output-available",
+        }
+        yield { finishReason: "tool-calls", type: "finish" }
+      })(),
+    } as never)
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toContainEqual({ id: "workspace-fallback", text: "fallback answer", type: "text-delta" })
+    expect(events).toContainEqual({ reason: "workspace-fallback", type: "finish" })
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining("screenshots/login-version-badge-desktop.png"),
+    }))
+  })
+
+  it("synthesizes streamed answers from async iterable AI SDK results", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    agentStream.mockResolvedValueOnce((async function* () {
+      yield {
+        output: { stdout: "screenshots/login-version-badge-desktop.png" },
+        toolCallId: "call-1",
+        type: "tool-output-available",
+      }
+      yield { finishReason: "tool-calls", type: "finish" }
+    })() as never)
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toContainEqual({ id: "workspace-fallback", text: "fallback answer", type: "text-delta" })
+    expect(events).toContainEqual({ finishReason: "workspace-fallback", type: "finish" })
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining("screenshots/login-version-badge-desktop.png"),
+    }))
   })
 
   it("preserves stream result methods when wrapping workspace fallback streams", async () => {

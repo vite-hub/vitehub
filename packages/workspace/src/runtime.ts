@@ -9,6 +9,7 @@ export {
 export {
   registerWorkspace,
   resetWorkspaceStoreCache,
+  resolveRegisteredWorkspaceDefinition,
   setWorkspaceRuntimeAssetsRegistry,
   setWorkspaceRuntimeRegistry,
   useWorkspace,

@@ -2,6 +2,7 @@ import { getMessageText } from "./messages.ts"
 import { jsonSchema } from "ai"
 import {
   cloneWithPropertyDescriptors,
+  isAsyncIterable,
   teeingAsyncIterableStreamDescriptor,
 } from "./internal/stream-result.ts"
 import {
@@ -275,9 +276,8 @@ function collectToolResults(
   const parts: string[] = []
 
   for (const step of result.steps || []) {
-    for (const content of step.content || []) {
-      if (content.type !== "tool-result") continue
-      parts.push(JSON.stringify(content.output).slice(0, 4000))
+    for (const output of collectToolResultOutputs(step)) {
+      parts.push(JSON.stringify(output).slice(0, 4000))
       if (parts.length >= maxToolResults) return parts
     }
   }
@@ -286,7 +286,7 @@ function collectToolResults(
 }
 
 function hasToolResults(result: { steps?: Array<{ content?: Array<{ type: string }> }> }) {
-  return result.steps?.some(step => step.content?.some(content => content.type === "tool-result")) || false
+  return result.steps?.some(step => collectToolResultOutputs(step).length > 0) || false
 }
 
 function getPromptText(context: AgentAdapterRunContext) {
@@ -328,6 +328,55 @@ async function synthesizeWorkspaceFallbackFromEvidence(
   return summary.text.trim() || undefined
 }
 
+function createWorkspaceFallbackEvidenceCapture(maxToolResults: number) {
+  const evidence: string[] = []
+  const seen = new Set<string>()
+
+  return {
+    collect(event: unknown) {
+      for (const output of collectToolResultOutputs(event)) {
+        if (evidence.length >= maxToolResults) break
+        const text = JSON.stringify(output).slice(0, 4000)
+        if (seen.has(text)) continue
+        seen.add(text)
+        evidence.push(text)
+      }
+    },
+    evidence() {
+      return evidence.slice()
+    },
+  }
+}
+
+function withWorkspaceFallbackToolEvidence<TTools extends AgentToolSet | undefined>(
+  tools: TTools,
+  capture?: ReturnType<typeof createWorkspaceFallbackEvidenceCapture>,
+): TTools {
+  if (!capture || !tools || typeof tools !== "object") return tools
+
+  return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
+    if (!tool || typeof tool !== "object" || typeof (tool as { execute?: unknown }).execute !== "function") {
+      return [name, tool]
+    }
+
+    const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
+    return [name, {
+      ...tool,
+      async execute(input: unknown, ...args: unknown[]) {
+        try {
+          const output = await execute.call(tool, input, ...args)
+          capture.collect({ output, toolName: name, type: "tool-result" })
+          return output
+        }
+        catch (error) {
+          capture.collect({ error: error instanceof Error ? error.message : String(error), toolName: name, type: "tool-error" })
+          throw error
+        }
+      },
+    }]
+  })) as TTools
+}
+
 function streamEventText(event: unknown): string | undefined {
   if (typeof event === "string") return event
   if (typeof event !== "object" || event === null) return undefined
@@ -337,16 +386,50 @@ function streamEventText(event: unknown): string | undefined {
   return typeof text === "string" ? text : undefined
 }
 
-function streamToolResultOutput(event: unknown): unknown {
-  if (typeof event !== "object" || event === null) return undefined
-  const record = event as { error?: unknown, errorText?: unknown, output?: unknown, result?: unknown, type?: unknown }
-  if (record.type === "tool-result" || record.type === "tool-output-available") {
-    return record.output ?? record.result
+function recordFrom(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null ? value as Record<string, unknown> : undefined
+}
+
+function pushDefinedOutput(outputs: unknown[], output: unknown): void {
+  if (output !== undefined) outputs.push(output)
+}
+
+function collectToolResultOutputs(value: unknown): unknown[] {
+  const record = recordFrom(value)
+  if (!record) return []
+  const type = typeof record.type === "string" ? record.type : undefined
+  const outputs: unknown[] = []
+
+  if (type === "tool-result" || type === "tool-output-available") {
+    pushDefinedOutput(outputs, record.output ?? record.result)
   }
-  if (record.type === "tool-error" || record.type === "tool-output-error") {
-    return record.error ?? record.errorText ?? record.output ?? record.result
+  if (type === "tool-error" || type === "tool-output-error") {
+    pushDefinedOutput(outputs, record.error ?? record.errorText ?? record.output ?? record.result)
   }
-  return undefined
+
+  for (const key of ["content", "toolResults", "tool_outputs", "toolOutputs"]) {
+    const items = record[key]
+    if (!Array.isArray(items)) continue
+    for (const item of items) {
+      const itemRecord = recordFrom(item)
+      if (!itemRecord) continue
+      if (key === "toolResults" || key === "tool_outputs" || key === "toolOutputs") {
+        pushDefinedOutput(outputs, itemRecord.output ?? itemRecord.result ?? itemRecord.error ?? itemRecord.errorText)
+        continue
+      }
+      outputs.push(...collectToolResultOutputs(itemRecord))
+    }
+  }
+
+  const stepOutputs = collectToolResultOutputs(record.step)
+  if (stepOutputs.length) outputs.push(...stepOutputs)
+
+  return outputs
+}
+
+function streamToolResultOutputs(event: unknown): unknown[] {
+  if (typeof event !== "object" || event === null) return []
+  return collectToolResultOutputs(event)
 }
 
 function streamEventType(event: unknown): string | undefined {
@@ -361,19 +444,22 @@ function workspaceFallbackFinishEvent(finishEvent: unknown): unknown {
     : { finishReason: "workspace-fallback", type: "finish" }
 }
 
-function workspaceFallbackTextEvents(text: string): unknown[] {
-  const id = "workspace-fallback"
-  return [
-    { id, type: "text-start" },
-    { id, text, type: "text-delta" },
-    { id, type: "text-end" },
-  ]
+function finishEventReason(event: unknown): string | undefined {
+  if (typeof event !== "object" || event === null) return undefined
+  const record = event as { finishReason?: unknown, reason?: unknown }
+  const reason = record.finishReason ?? record.reason
+  return typeof reason === "string" ? reason : undefined
 }
 
-function cloneStreamTextResult<T extends object>(result: T, fullStream: AsyncIterable<unknown>): T {
-  return cloneWithPropertyDescriptors(result, {
-    fullStream: teeingAsyncIterableStreamDescriptor(fullStream),
-  })
+function workspaceFallbackTextEvents(text: string): unknown[] {
+  return [{ id: "workspace-fallback", text, type: "text-delta" }]
+}
+
+function cloneStreamTextResult<T extends object>(result: T, streams: { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown> }): T {
+  return cloneWithPropertyDescriptors(result, Object.fromEntries(Object.entries(streams).map(([key, stream]) => [
+    key,
+    teeingAsyncIterableStreamDescriptor(stream),
+  ])))
 }
 
 function withWorkspaceFallbackFullStream(
@@ -381,17 +467,23 @@ function withWorkspaceFallbackFullStream(
   model: ToolLoopAgentSettings["model"],
   context: AgentAdapterRunContext,
   maxToolResults: number,
+  capturedEvidence?: () => string[],
 ): AsyncIterable<unknown> {
   return (async function* () {
     let text = ""
+    let textAfterLastToolResult = ""
     const evidence: string[] = []
     let finishEvent: unknown
 
     for await (const event of stream) {
-      text += streamEventText(event) || ""
-      const output = streamToolResultOutput(event)
-      if (output !== undefined && evidence.length < maxToolResults) {
+      const eventText = streamEventText(event) || ""
+      text += eventText
+      textAfterLastToolResult += eventText
+      const outputs = streamToolResultOutputs(event)
+      for (const output of outputs) {
+        if (evidence.length >= maxToolResults) break
         evidence.push(JSON.stringify(output).slice(0, 4000))
+        textAfterLastToolResult = ""
       }
       const type = streamEventType(event)
       if (type === "finish" || type === "abort") {
@@ -401,12 +493,14 @@ function withWorkspaceFallbackFullStream(
       yield event
     }
 
-    if (text.trim() || evidence.length === 0) {
+    const fallbackEvidence = evidence.length ? evidence : capturedEvidence?.() ?? []
+    const hasFinalText = evidence.length ? textAfterLastToolResult.trim() : text.trim()
+    if ((hasFinalText && finishEventReason(finishEvent) !== "tool-calls") || fallbackEvidence.length === 0) {
       if (finishEvent) yield finishEvent
       return
     }
 
-    const synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, evidence)
+    const synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, fallbackEvidence)
     if (synthesized) {
       yield* workspaceFallbackTextEvents(synthesized)
       yield workspaceFallbackFinishEvent(finishEvent)
@@ -416,14 +510,28 @@ function withWorkspaceFallbackFullStream(
   })()
 }
 
-function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterable<unknown> }>(
+function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterable<unknown>, stream?: AsyncIterable<unknown> }>(
   result: T,
   model: ToolLoopAgentSettings["model"],
   context: AgentAdapterRunContext,
   fallback: Required<AiSdkWorkspaceFallbackOptions>,
+  capturedEvidence?: () => string[],
 ): T {
-  if (!fallback.enabled || !result.fullStream) return result
-  return cloneStreamTextResult(result as object, withWorkspaceFallbackFullStream(result.fullStream, model, context, fallback.maxToolResults)) as T
+  if (!fallback.enabled) return result
+  if (result.fullStream) {
+    return cloneStreamTextResult(result as object, {
+      fullStream: withWorkspaceFallbackFullStream(result.fullStream, model, context, fallback.maxToolResults, capturedEvidence),
+    }) as T
+  }
+  if (result.stream) {
+    return cloneStreamTextResult(result as object, {
+      stream: withWorkspaceFallbackFullStream(result.stream, model, context, fallback.maxToolResults, capturedEvidence),
+    }) as T
+  }
+  if (isAsyncIterable(result)) {
+    return withWorkspaceFallbackFullStream(result, model, context, fallback.maxToolResults, capturedEvidence) as unknown as T
+  }
+  return result
 }
 
 async function resolveValue<T>(value: T | ((context: AgentAdapterMetadataContext) => MaybePromise<T>), context: AgentAdapterMetadataContext): Promise<T> {
@@ -669,7 +777,11 @@ function withViteHubTelemetry(settings: Record<string, unknown>, context: AgentA
   }
 }
 
-async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRunContext) {
+async function createAgent(
+  options: AiSdkAdapterOptions,
+  context: AgentAdapterRunContext,
+  fallbackCapture?: ReturnType<typeof createWorkspaceFallbackEvidenceCapture>,
+) {
   const { ToolLoopAgent, stepCountIs } = await import("ai")
   const execution = options.execution ?? options.modelExecution
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
@@ -686,16 +798,15 @@ async function createAgent(options: AiSdkAdapterOptions, context: AgentAdapterRu
   const instrumentedModel = modelInstrumentation
     ? await modelInstrumentation({ ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
-  const instructions = context.instructions
-    ?? applyWorkspaceSourceInstructionSlot(
-      applyCapabilityInstructionSlots(await resolveInstructions(options, metadataContext), context.capabilityInstructions),
-      context.sourceInstructions,
-    )
+  const instructions = applyWorkspaceSourceInstructionSlot(
+    applyCapabilityInstructionSlots(context.instructions ?? await resolveInstructions(options, metadataContext), context.capabilityInstructions),
+    context.sourceInstructions,
+  )
   const adapterTools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)
-  const resolvedTools = withDefaultToolInputSchemas(await applyCapabilityToolTransforms({
+  const resolvedTools = withDefaultToolInputSchemas(withWorkspaceFallbackToolEvidence(await applyCapabilityToolTransforms({
     ...context.tools,
     ...adapterTools,
-  }, []))
+  }, []), fallbackCapture))
   const providerTools = Object.fromEntries((context.providerTools || []).map(tool => [tool.name, {
     args: tool.args || {},
     id: tool.id,
@@ -744,12 +855,17 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     : undefined
   return {
     async generate(context) {
-      const { agent, model, tools } = await createAgent(options, context)
+      const callInput = getCallInput(context) as Record<string, unknown>
+      const execution = options.execution ?? options.modelExecution
+      const fallback = getFallbackOptions(execution?.workspaceFallback)
+      const fallbackCapture = fallback.enabled
+        ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
+        : undefined
+      const { agent, model, tools } = await createAgent(options, context, fallbackCapture)
       if (context.workspace && tools && "materialize_sources" in tools) {
         await reportWorkspaceMaterialization(tools as AgentToolSet, context.devtools?.reportToolStep)
       }
       const usageCapture = createUsageCapture()
-      const callInput = getCallInput(context) as Record<string, unknown>
       const result = withResolvedModelMetadata(withCapturedUsage(await agent.generate({
         ...callInput,
         onEnd: usageCapture.onEnd,
@@ -757,14 +873,12 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         onStepEnd: usageCapture.onStepEnd,
       } as never) as GenerateTextResult<ToolSet, never, never>, usageCapture), model) as GenerateTextResult<ToolSet, never, never>
       const text = result.text.trim()
-      if (text) return result as unknown as AgentAdapterResult
-
-      const execution = options.execution ?? options.modelExecution
-      const fallback = getFallbackOptions(execution?.workspaceFallback)
-      if (fallback.enabled && (result.finishReason === "tool-calls" || hasToolResults(result))) {
+      if (fallback.enabled && (result.finishReason === "tool-calls" || !text && hasToolResults(result))) {
         const synthesized = await synthesizeWorkspaceFallback(model as never, context, result, fallback.maxToolResults)
+          ?? await synthesizeWorkspaceFallbackFromEvidence(model as never, context, fallbackCapture?.evidence() ?? [])
         if (synthesized) return { raw: result, text: synthesized }
       }
+      if (text) return result as unknown as AgentAdapterResult
 
       return result as unknown as AgentAdapterResult
     },
@@ -787,17 +901,26 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     name: "ai-sdk",
     ...(staticTools ? { tools: staticTools } : {}),
     async stream(context) {
-      const { agent, model } = await createAgent(options, context)
       const usageCapture = createUsageCapture()
+      const execution = options.execution ?? options.modelExecution
+      const fallback = getFallbackOptions(execution?.workspaceFallback)
+      const fallbackCapture = fallback.enabled
+        ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
+        : undefined
+      const { agent, model } = await createAgent(options, context, fallbackCapture)
+      const captureStep = async (event: unknown) => {
+        await usageCapture.onStepEnd(event)
+        fallbackCapture?.collect(event)
+      }
       const callInput = getCallInput(context) as Record<string, unknown>
       const result = withResolvedModelMetadata(withCapturedUsage(await agent.stream({
         ...callInput,
         onEnd: usageCapture.onEnd,
         onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
-        onStepEnd: usageCapture.onStepEnd,
+        onStepEnd: captureStep,
+        onStepFinish: captureStep,
       } as never) as StreamTextResult<ToolSet, never, never>, usageCapture), model) as StreamTextResult<ToolSet, never, never>
-      const execution = options.execution ?? options.modelExecution
-      return withWorkspaceFallbackStreamResult(result, model as never, context, getFallbackOptions(execution?.workspaceFallback))
+      return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)
     },
   }
 }

@@ -95,8 +95,8 @@ function renderProviderEntry(spec: ProviderEntrySpec, entryFile: string, registr
 
   return [
     ...imports,
-    "",
     preloadVercelQueue ? "globalThis.__vitehubVercelQueue = __vitehubVercelQueue" : "",
+    "",
     `const queueConfig = ${JSON.stringify(queueConfig, null, 2)}`,
     "",
     `export default ${spec.factory}({`,
@@ -122,7 +122,7 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
   for (const spec of providerEntrySpecs) {
     const entryFile = resolve(generatedDir, spec.entryFile)
     const queueConfig = resolveOutputQueueConfig(queue, spec.hosting)
-    const preloadVercelQueue = spec.name === "vercel" && isVercelQueueEnabled(queueConfig)
+    const preloadVercelQueue = spec.name === "vercel" && definitions.length > 0 && isVercelQueueEnabled(queueConfig)
     await writeFile(entryFile, renderProviderEntry(spec, entryFile, registryFile, userAppEntry, queueConfig, preloadVercelQueue), "utf8")
     entryFiles[spec.name] = entryFile
   }

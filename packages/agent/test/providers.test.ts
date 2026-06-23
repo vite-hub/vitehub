@@ -474,7 +474,7 @@ describe("agent Vite plugin", () => {
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
       expect(webhookRoute).toContain("defineAgentChatFetchHandler")
-      expect(webhookRoute).toContain("withAgentDefaults(resolveAgentModule")
+      expect(webhookRoute).toContain("withAgentDefaults(withWorkspaceSourceRoot(resolveAgentModule")
       expect(webhookRoute).toContain("import { createCloudflareAgentState } from '@vite-hub/agent/cloudflare'")
       expect(webhookRoute).toContain("async function toRequest(event)")
       expect(webhookRoute).toContain("function waitUntilFromEvent(event)")
@@ -534,6 +534,7 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents", "support"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support", "config.ts"), "import { defineAgent } from '@vite-hub/agent'\nexport default defineAgent({ workspace: {}, async run() { return 'ok' } })", "utf8")
+      await writeFile(join(root, "server", "agents", "support", "instructions.md"), "Use support instructions.\n", "utf8")
       const plugin = hubAgent({ routes: { chat: true }, runtime: "deno" })
       if (typeof plugin.configResolved === "function") {
         await plugin.configResolved.call({} as never, { root } as never)
@@ -542,7 +543,13 @@ describe("agent Vite plugin", () => {
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
 
       expect(denoServer).toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
-      expect(denoServer).toContain("setWorkspaceRuntimeRegistry({\n  \"support\": async () =>")
+      expect(denoServer).toContain("workspaceAgentOwnsWorkspaceDefinition")
+      expect(denoServer).toContain("withWorkspaceSourceRoot(resolveAgentModule(agent0)")
+      expect(denoServer).toContain("workspaceRegistryEntry(\"support\", agent0")
+      expect(denoServer).toContain("__vitehubAgentInstructions")
+      expect(denoServer).toContain(", true)")
+      expect(denoServer).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
+      expect(denoServer).not.toContain("\"support\": async ()")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -675,6 +682,45 @@ describe("server helpers", () => {
       const workspace = useWorkspace(workspaceName)
 
       expect(preparedAgent.__vitehubWorkspaceAgentOptions.workspace).toBe(workspaceName)
+      expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Registered\n")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("does not register object workspace references as definitions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-runtime-workspace-"))
+    const sourceRoot = join(root, "registered", "workspace")
+    await mkdir(sourceRoot, { recursive: true })
+    await writeFile(join(sourceRoot, "AGENTS.md"), "# Registered\n")
+
+    try {
+      const { defineAgent } = await import("../src/index.ts")
+      const { registerWorkspaceAgent } = await import("../src/server.ts")
+      const { defineWorkspace, file, useWorkspace } = await import("@vite-hub/workspace")
+      const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
+      const workspaceName = "support-runtime-object-reference"
+      registerWorkspace(workspaceName, defineWorkspace({
+        sourceRootDir: sourceRoot,
+        store: { provider: "memory" },
+        sources: {
+          instructions: file("AGENTS.md"),
+        },
+      }))
+      const agent = defineAgent({
+        async run() {
+          return "ok"
+        },
+        workspace: { mode: "write", name: workspaceName },
+      })
+
+      const preparedAgent = registerWorkspaceAgent(agent, {
+        sourceRootDir: join(root, "ignored", "workspace"),
+      })
+      const workspace = useWorkspace(workspaceName)
+
+      expect(preparedAgent.__vitehubWorkspaceAgentOptions.workspace).toEqual({ mode: "write", name: workspaceName })
       expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Registered\n")
     }
     finally {

@@ -95,6 +95,7 @@ describe("agent public types", () => {
           provider: "github",
         }),
         skills(),
+        skills({ path: "skills/agent-browser", source: githubSource({ repo: "vercel/vercel-plugin", root: "skills/agent-browser" }) }),
         skills({ shellExecution: "read" }),
         skills({ shellExecution: "write" }),
         sandbox({ commands: ["node"] }),
@@ -297,10 +298,33 @@ describe("agent public types", () => {
       tools: {},
     })
 
-    // @ts-expect-error workspace mode must be read or write
     defineAgent({
       model: {} as never,
+      // @ts-expect-error workspace mode must be read or write
       workspace: { mode: "mutable" },
+    })
+
+    defineAgent({
+      model: {} as never,
+      workspace: "review",
+    })
+
+    defineAgent({
+      capabilities: [workspaceShell({ mode: "write" })],
+      model: {} as never,
+      workspace: { name: "review", mode: "write" },
+    })
+
+    // @ts-expect-error workspace reference mode must be read or write
+    defineAgent({
+      model: {} as never,
+      workspace: { name: "review", mode: "mutable" },
+    })
+
+    // @ts-expect-error named workspace references cannot include colocated Workspace Definition options
+    defineAgent({
+      model: {} as never,
+      workspace: { name: "review", sources: {} },
     })
 
     defineAgent({
@@ -754,6 +778,13 @@ describe("agent public types", () => {
           },
         }),
       ],
+      hooks: {
+        "agent:input"({ context }) {
+          const accessContext = context.get("access")
+          expectTypeOf(accessContext).toMatchTypeOf<AccessInvocationContextValue<"demo" | "quiver"> | undefined>()
+          expectTypeOf(accessContext?.workspaceScope?.scope).toEqualTypeOf<"demo" | "quiver" | undefined>()
+        },
+      },
       run({ actor, context }) {
         const accessContext = context.get("access")
         expectTypeOf(actor.id).toEqualTypeOf<string>()

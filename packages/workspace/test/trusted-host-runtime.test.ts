@@ -42,6 +42,35 @@ describe("trusted host workspace runtime", () => {
     await expect(workspace.readFile("generated/result.txt")).resolves.toBe("done\n")
   })
 
+  it("rejects changes outside scoped session paths", async () => {
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "trusted-host",
+        rules: {
+          "screenshots/**": { write: true },
+          "skills/**": { write: true },
+          "**": { write: false },
+        },
+        store: { provider: "memory" },
+      }),
+      name: "review",
+    })
+    await workspace.writeFile("skills/browser/SKILL.md", "# Browser\n")
+    await workspace.writeFile("screenshots/.gitkeep", "")
+
+    const session = await workspace.startSession({ paths: ["skills/browser"] })
+    const result = await session.exec(process.execPath, [
+      "-e",
+      "const fs = require('node:fs'); fs.mkdirSync('screenshots', { recursive: true }); fs.writeFileSync('screenshots/login-version-badge-desktop.png', 'png\\n')",
+    ])
+
+    expect(result.exitCode).toBe(0)
+    await expect(session.commit()).rejects.toThrow("outside the session scope")
+    await session.close()
+
+    await expect(workspace.exists("screenshots/login-version-badge-desktop.png")).resolves.toBe(false)
+  })
+
   it("scopes command cwd inside the materialized workspace", async () => {
     const workspace = createWorkspace({
       ...defineWorkspace({
@@ -131,6 +160,37 @@ describe("trusted host workspace runtime", () => {
     await session.close()
   })
 
+  it("can materialize only selected paths in a local session", async () => {
+    const workspace = {
+      name: "review",
+      async stat(path: string) {
+        if (path === "skills/agent-browser") return { path, type: "directory" as const }
+        if (path === "skills/agent-browser/SKILL.md") return { path, size: 10, type: "file" as const }
+        throw new Error(`unexpected stat: ${path}`)
+      },
+      async list(path: string) {
+        if (path === "") throw new Error("root list should not be used")
+        if (path === "skills/agent-browser") return [{ path: "skills/agent-browser/SKILL.md", size: 10, type: "file" as const }]
+        return []
+      },
+      async readFile(path: string) {
+        if (path === "skills/agent-browser/SKILL.md") return "# Browser\n"
+        throw new Error(`unexpected read: ${path}`)
+      },
+    } as unknown as Workspace
+
+    const session = await createTrustedHostWorkspaceSession({ name: "review", runtime: "trusted-host" }, workspace, {
+      paths: ["skills/agent-browser"],
+    })
+    const result = await session.exec(process.execPath, [
+      "-e",
+      "process.stdout.write(require('node:fs').readFileSync('skills/agent-browser/SKILL.md', 'utf8'))",
+    ])
+
+    expect(result).toMatchObject({ exitCode: 0, stdout: "# Browser\n" })
+    await session.close()
+  })
+
   it("ignores git metadata when committing host session changes", async () => {
     const workspace = createWorkspace({
       ...defineWorkspace({
@@ -206,5 +266,26 @@ describe("trusted host workspace runtime", () => {
     })
 
     await expect(workspace.startSession()).rejects.toThrow("only available outside production")
+  })
+
+  it("allows trusted host sessions in production when explicitly opted in", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: { type: "trusted-host", allowProduction: true },
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+    await workspace.writeFile("README.md", "# Docs\n")
+
+    const session = await workspace.startSession()
+    const result = await session.exec(process.execPath, [
+      "-e",
+      "process.stdout.write(require('node:fs').readFileSync('README.md', 'utf8'))",
+    ])
+
+    expect(result).toMatchObject({ exitCode: 0, stdout: "# Docs\n" })
+    await session.close()
   })
 })

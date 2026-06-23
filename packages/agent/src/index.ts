@@ -49,7 +49,9 @@ import {
 } from "./trigger-runtime.ts"
 import {
   isWorkspaceAgentOptions,
+  resolveWorkspaceAgentDefaultInstructions,
   resolveWorkspaceSourceInstructionBlock,
+  workspaceAgentOwnsWorkspaceDefinition,
   workspaceDefinitionFromOptions,
   workspaceModeFromOptions,
   workspaceNameFromOptions,
@@ -79,8 +81,8 @@ import type {
   AgentChatOptions,
   AgentHandlerOptions,
   AgentInput,
+  AgentInputHook,
   AgentInstructionBlock,
-  AgentInvocationHooks,
   AgentInvocationContextStore,
   AgentInvocationContextValues,
   AgentHookObserverHooks,
@@ -195,6 +197,7 @@ export type {
   AgentHarnessSandboxInput,
   AgentHarnessSessionKey,
   AgentInput,
+  AgentInputHook,
   AgentInstructionBlock,
   AgentIntegrationOption,
   AgentHookObserver,
@@ -282,6 +285,7 @@ export {
   createAgentDevtoolsMetadata,
   materializeAgentDevtoolsSourceMetadata,
   resolveAgentDevtoolsMetadata,
+  workspaceAgentOwnsWorkspaceDefinition,
 } from "./workspace-agent.ts"
 
 export {
@@ -873,7 +877,7 @@ export interface DefineAgent {
     >,
   >(
     options: TOptions & { capabilities?: TCapabilities } & ValidateWorkspaceAgentOptions<TOptions>,
-  ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>
+  ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, TCapabilities>
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
@@ -887,7 +891,7 @@ export interface DefineAgent {
       AgentCapabilitiesInvocationContextValues<TCapabilities>,
       TCapabilities
     > & { capabilities?: TCapabilities, workspace?: never },
-  ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
+  ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>>
 }
 
 function createWorkspaceAgentDefinition<
@@ -1059,6 +1063,7 @@ type AgentInvocationContext<
   outputRenderers: AgentCapabilityRegistries["outputRenderers"]
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
   sourceInstructions?: string
+  instructions?: string
   startedAt: number
   actor: AgentInvoker
   invoker: AgentInvoker
@@ -1076,10 +1081,70 @@ function toAgentAdapterRunContext<
 ): AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig> {
   return {
     ...context,
-    instructions: undefined,
+    instructions: context.instructions,
     runtime: context.runtimeContext,
     workspace: context.workspace as ReadonlyWorkspaceFacade<WorkspaceName> | undefined,
   }
+}
+
+async function resolveRegisteredAgentWorkspaceDefinition(name: string): Promise<WorkspaceDefinition | undefined> {
+  try {
+    return await (await import("@vite-hub/workspace")).resolveRegisteredWorkspaceDefinition(name)
+  }
+  catch (error) {
+    if (error instanceof Error && error.name === "WorkspaceNotFoundError") return undefined
+    throw error
+  }
+}
+
+function mergeWorkspaceSources(
+  registered: WorkspaceDefinition["sources"] | undefined,
+  configured: WorkspaceDefinition["sources"] | undefined,
+): WorkspaceDefinition["sources"] | undefined {
+  if (!registered && !configured) return undefined
+  const sources = { ...registered }
+  for (const [key, source] of Object.entries(configured || {})) {
+    if (key in sources) {
+      throw new Error(`[vitehub] Workspace source "${key}" is already defined.`)
+    }
+    sources[key] = source
+  }
+  return sources
+}
+
+function mergeAgentWorkspaceDefinition(
+  name: string,
+  registered: WorkspaceDefinition | undefined,
+  configured: WorkspaceDefinition | undefined,
+): WorkspaceDefinition | undefined {
+  if (!registered && !configured) return undefined
+  if (!registered) return configured ? { ...configured, name } : undefined
+  if (!configured) return { ...registered, name: registered.name || name }
+
+  const { name: _configuredName, sources: configuredSources, ...configuredFields } = configured as WorkspaceDefinition & { mode?: AgentCapabilityMode }
+  const { mode: _mode, ...configuredDefinitionFields } = configuredFields
+  if (!Object.keys(configuredDefinitionFields).length && !Object.keys(configuredSources || {}).length) {
+    return registered
+  }
+  return {
+    ...registered,
+    ...configuredDefinitionFields,
+    name: registered.name || name,
+    sources: mergeWorkspaceSources(registered.sources, configuredSources),
+  }
+}
+
+function hasWorkspaceDefinitionOverlay(definition: WorkspaceDefinition | undefined): boolean {
+  if (!definition) return false
+  const { name: _name, sources, mode: _mode, ...fields } = definition as WorkspaceDefinition & { mode?: AgentCapabilityMode }
+  return Object.keys(fields).length > 0 || Object.keys(sources || {}).length > 0
+}
+
+async function registerResolvedAgentWorkspaceDefinition(name: string, definition: WorkspaceDefinition | undefined): Promise<void> {
+  if (!definition) return
+  const { name: _name, ...workspace } = definition
+  const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
+  registerWorkspace(name, workspace)
 }
 
 async function createAgentInvocationContext<
@@ -1104,13 +1169,30 @@ async function createAgentInvocationContext<
       ? workspaceNameFromOptions(workspaceOptions, workspaceDefinition?.__vitehubWorkspaceAgentDefaults)
       : workspaceDefinition?.__vitehubWorkspaceAgentDefaults?.workspace
     const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
-    const resolvedWorkspaceDefinition = workspaceOptions && workspaceName
+    const configuredWorkspaceDefinition = workspaceOptions && workspaceName
       ? { ...workspaceDefinitionFromOptions(workspaceOptions), name: workspaceName }
       : undefined
-    const workspace = workspaceName
+    const registeredWorkspaceDefinition = workspaceName
+      ? await resolveRegisteredAgentWorkspaceDefinition(workspaceName)
+      : undefined
+    const ownsWorkspaceDefinition = workspaceDefinition ? workspaceAgentOwnsWorkspaceDefinition(workspaceDefinition) : false
+    const configuredDefinitionForMerge = ownsWorkspaceDefinition && registeredWorkspaceDefinition
+      ? undefined
+      : configuredWorkspaceDefinition
+    const resolvedWorkspaceDefinition = workspaceName
+      ? mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
+      : undefined
+    if (workspaceName && ownsWorkspaceDefinition && configuredWorkspaceDefinition && !registeredWorkspaceDefinition) {
+      await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
+    }
+    const workspaceUseOptions = !ownsWorkspaceDefinition && hasWorkspaceDefinitionOverlay(configuredDefinitionForMerge) && resolvedWorkspaceDefinition
+      ? { definition: resolvedWorkspaceDefinition }
+      : undefined
+    const workspaceModule = workspaceName ? await import("@vite-hub/workspace") : undefined
+    const workspace = workspaceName && workspaceModule
       ? workspaceMode === "write"
-        ? (await import("@vite-hub/workspace")).useWorkspace(workspaceName, { mode: "write" })
-        : (await import("@vite-hub/workspace")).useWorkspace(workspaceName)
+        ? workspaceModule.useWorkspace(workspaceName, workspaceUseOptions ? { ...workspaceUseOptions, mode: "write" } : { mode: "write" })
+        : workspaceUseOptions ? workspaceModule.useWorkspace(workspaceName, { ...workspaceUseOptions, mode: "read" }) : workspaceModule.useWorkspace(workspaceName)
       : undefined
     const capabilityOptions = definition?.capabilities?.length
       ? { capabilities: definition.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: definition.hooks as never }
@@ -1124,6 +1206,32 @@ async function createAgentInvocationContext<
       model: agentModel as never,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
+    const inputHook = definition?.hooks?.["agent:input"]
+    if (inputHook && !capabilities.response) {
+      try {
+        await runObservedAgentHook(definition?.hooks as AgentHookObserverHooks | undefined, {
+          name: "agent:input",
+          owner: "agent",
+          phase: "input",
+        }, () => inputHook({
+          ...callbackContext,
+          actor: invoker,
+          context: invocationContext,
+          input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
+          invoker,
+          run: context.run,
+        }))
+      }
+      catch (error) {
+        try {
+          await capabilities.close()
+        }
+        catch (closeError) {
+          throw new AggregateError([error, closeError], "[vitehub] Agent input hook failed and cleanup also failed.")
+        }
+        throw error
+      }
+    }
     const transformedTools = await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
     const tools = Object.keys(transformedTools || {}).length
       ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {}), context.devtools?.reportToolStep)
@@ -1137,6 +1245,9 @@ async function createAgentInvocationContext<
           activeWorkspaceDefinition,
           workspaceScope && !workspaceScope.all ? activeWorkspace as ReadonlyWorkspaceFacade : undefined,
         )
+      : undefined
+    const instructions = workspaceOptions && activeWorkspace
+      ? await resolveWorkspaceAgentDefaultInstructions(workspaceOptions, activeWorkspace as ReadonlyWorkspaceFacade)
       : undefined
 
     const invocation = {
@@ -1155,6 +1266,7 @@ async function createAgentInvocationContext<
       handledResponse: capabilities.response,
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
+      instructions,
       invoker,
       messages: capabilities.messages,
       outputExtensionProviders: capabilities.registries.outputExtensionProviders,
