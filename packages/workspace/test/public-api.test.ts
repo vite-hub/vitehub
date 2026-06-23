@@ -191,6 +191,26 @@ describe("workspace public API", () => {
     await expect(workspace.fs.exists("instructions/AGENTS.md")).resolves.toBe(false)
   })
 
+  it("preserves nested local file source paths in the workspace", async () => {
+    const root = await createRoot()
+    const sourceRoot = join(root, "server", "agents", "review", "workspace")
+    await mkdir(join(sourceRoot, ".agents", "summary"), { recursive: true })
+    await writeFile(join(sourceRoot, ".agents", "summary", "AGENTS.md"), "# Summary\n")
+
+    registerWorkspace("nested-source-file", defineWorkspace({
+      rootDir: sourceRoot,
+      store: { provider: "memory" },
+      sources: {
+        summaryInstructions: file(".agents/summary/AGENTS.md"),
+      },
+    }))
+
+    const workspace = useWorkspace("nested-source-file")
+
+    expect(await workspace.fs.readFile(".agents/summary/AGENTS.md")).toBe("# Summary\n")
+    await expect(workspace.fs.exists("AGENTS.md")).resolves.toBe(false)
+  })
+
   it("keeps runtime-injected source roots on colocated agent workspaces", async () => {
     const root = await createRoot()
     const sourceRoot = join(root, "server", "agents", "support", "workspace")
