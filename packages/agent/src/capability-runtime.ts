@@ -31,6 +31,7 @@ import type {
   AgentOutputExtensionProvider,
   AgentInvocationContextStore,
   AgentInvoker,
+  AgentModelExecutionInstrumentation,
   AgentModelResolver,
   AgentOutputRenderer,
   AgentProviderToolContribution,
@@ -68,6 +69,7 @@ export interface AgentCapabilityRegistries {
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
+  modelExecutionInstrumentation: AgentModelExecutionInstrumentation[]
   outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
   outputRenderers: ResolvedAgentOutputRenderer[]
   providerTools: AgentProviderToolContribution[]
@@ -595,6 +597,7 @@ export async function resolveAgentCapabilities<
     deliveryEffectIntents: [...initialDeliveryEffectIntents],
     finishDeliveryEffectProviders: [...initialFinishDeliveryEffectProviders],
     finishExtensionProviders: [],
+    modelExecutionInstrumentation: [],
     outputExtensionProviders: [],
     outputRenderers: [],
     providerTools: [],
@@ -710,6 +713,11 @@ export async function resolveAgentCapabilities<
               throw new Error(`[vitehub] ${capability.id}() requires a model option or an agent model.`)
             }
             return await resolveRuntimeValue(resolver as never, metadataContext as never) as unknown
+          },
+        },
+        modelExecution: {
+          instrument(instrumentation) {
+            registries.modelExecutionInstrumentation.push(instrumentation)
           },
         },
         output: {

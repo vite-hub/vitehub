@@ -1990,6 +1990,72 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)).not.toHaveProperty("modelExecution")
   })
 
+  it("lets capabilities instrument workspace agent model execution", async () => {
+    const { observability } = await import("../src/capabilities.ts")
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const baseModel = { id: "base" }
+    const driverModel = { id: "driver" }
+    const capabilityModel = { id: "capability" }
+    const driverInstrumentModel = vi.fn(() => driverModel as never)
+    const capabilityInstrumentModel = vi.fn(() => capabilityModel as never)
+    const driverInstrumentCallSettings = vi.fn(({ callSettings }) => ({
+      temperature: callSettings.temperature,
+      topK: 1,
+    }))
+    const capabilityInstrumentCallSettings = vi.fn(({ callSettings }) => ({
+      metadata: { topK: callSettings.topK },
+    }))
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      capabilities: [
+        observability({
+          instrumentation: {
+            callSettings: capabilityInstrumentCallSettings,
+            model: capabilityInstrumentModel,
+          },
+        }),
+        defineCapability({
+          id: "finish-extension-trap",
+          configure(context) {
+            context.finish.provide(() => {
+              throw new Error("finish extension should not run")
+            })
+          },
+        }),
+      ],
+      modelExecution: {
+        callSettings: {
+          temperature: 0.2,
+        },
+        instrumentation: {
+          callSettings: driverInstrumentCallSettings,
+          model: driverInstrumentModel,
+        },
+      },
+      model: baseModel as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(driverInstrumentModel).toHaveBeenCalledWith(expect.objectContaining({ model: baseModel }))
+    expect(capabilityInstrumentModel).toHaveBeenCalledWith(expect.objectContaining({ model: driverModel }))
+    expect(driverInstrumentCallSettings).toHaveBeenCalledWith(expect.objectContaining({
+      callSettings: expect.objectContaining({ temperature: 0.2 }),
+      model: capabilityModel,
+    }))
+    expect(capabilityInstrumentCallSettings).toHaveBeenCalledWith(expect.objectContaining({
+      callSettings: expect.objectContaining({ temperature: 0.2, topK: 1 }),
+      model: capabilityModel,
+    }))
+    expect(agentSettings.at(-1)).toMatchObject({
+      metadata: { topK: 1 },
+      model: capabilityModel,
+      temperature: 0.2,
+      topK: 1,
+    })
+  })
+
   it("lets workspace agents instrument AI SDK call settings per run", async () => {
     const execute = vi.fn(async () => "workspace result")
     const instrumentCallSettings = vi.fn(({ callSettings }) => ({
