@@ -710,6 +710,55 @@ describe("agent chat capability discovery", () => {
     }
   })
 
+  it("prefers exact dev loop agent names over aliases", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-exact-name-")
+    await mkdir(join(root, "server", "agents", "review"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "review", "config.ts"), "export default {}", "utf8")
+    await writeFile(join(root, "server", "agents", "summary.ts"), "export default {}", "utf8")
+
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const headers = {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    }
+    const aliasAgent = defineAgent({
+      name: "summary",
+      run: () => "alias",
+      workspace: {},
+    })
+    const exactAgent = defineAgent({
+      run: () => "exact",
+    })
+    const { handlers, server } = createFakeServer(root, { default: aliasAgent })
+    server.ssrLoadModule.mockImplementation(async (...args: unknown[]) => String(args[0] || "").includes("/summary.ts")
+      ? { default: exactAgent }
+      : { default: aliasAgent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "summary",
+      messages: [{
+        id: "user-1",
+        parts: [{ text: "hello", type: "text" }],
+        role: "user",
+      }],
+    }, agentInvocationStreamRoute, headers)
+    const events = response.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+
+    expect(events).toEqual([
+      expect.objectContaining({ agent: "summary", type: "start" }),
+      { text: "exact", type: "text-delta" },
+      { type: "finish" },
+      { type: "done" },
+    ])
+  })
+
   it("previews trigger Channel Delivery Effects for Agent Dev Loop channel invocations", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-effects-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

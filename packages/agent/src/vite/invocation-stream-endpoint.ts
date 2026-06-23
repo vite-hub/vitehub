@@ -239,7 +239,8 @@ async function discoverStreamAgents(server: ViteDevServer): Promise<AgentInvocat
 
 function selectedEntry(entries: AgentInvocationStreamEntry[], name: string | undefined): AgentInvocationStreamEntry {
   if (name) {
-    const entry = entries.find(item => item.name === name || item.aliases?.includes(name))
+    const entry = entries.find(item => item.name === name)
+      ?? entries.find(item => item.aliases?.includes(name))
     if (!entry) throw new Response(`Unknown Agent Dev Loop Target: ${name}`, { status: 404 })
     return entry
   }
