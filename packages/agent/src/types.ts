@@ -1058,9 +1058,20 @@ export type AgentToolSet = Record<string, AgentToolDefinition>
 
 export interface WorkspaceAgentWorkspaceOptions extends Omit<WorkspaceDefinitionInput, "name"> {
   mode?: AgentCapabilityMode
+  name?: never
 }
 
-export type WorkspaceAgentWorkspaceConfig = WorkspaceName | WorkspaceAgentWorkspaceOptions
+export type WorkspaceAgentWorkspaceReference<Name extends WorkspaceName = WorkspaceName> = {
+  mode?: AgentCapabilityMode
+  name: Name
+} & {
+  [Key in keyof Omit<WorkspaceAgentWorkspaceOptions, "mode" | "name">]?: never
+}
+
+export type WorkspaceAgentWorkspaceConfig<Name extends WorkspaceName = WorkspaceName> =
+  | Name
+  | WorkspaceAgentWorkspaceReference<Name>
+  | WorkspaceAgentWorkspaceOptions
 
 export interface AgentDevtoolsFileTreeItem {
   children?: AgentDevtoolsFileTreeItem[]

@@ -267,6 +267,33 @@ describe("defineAgent workspace option", () => {
     await expect(agent.run!(context())).rejects.toThrow("git() requires workspace.mode: \"write\"")
   })
 
+  it("uses write mode for named workspace references", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { workspaceShell } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [workspaceShell({ mode: "write" })],
+      model: {} as never,
+      workspace: { name: "docs", mode: "write" },
+    })
+
+    await agent.run!(context())
+
+    expect(useWorkspace).toHaveBeenCalledWith("docs", { mode: "write" })
+  })
+
+  it("rejects mixed named workspace references and colocated definitions", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    expect(() => defineAgent({
+      model: {} as never,
+      workspace: {
+        name: "docs",
+        sources: {},
+      } as never,
+    })).toThrow("[vitehub] Workspace reference does not support option: sources.")
+  })
+
   it("creates a workspace and agent definition without resolving workspace until run", async () => {
     const { useWorkspace } = await import("@vite-hub/workspace")
     const { defineAgent } = await import("../src/index.ts")

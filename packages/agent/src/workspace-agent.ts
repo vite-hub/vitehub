@@ -34,7 +34,6 @@ import type {
   AgentInput,
   AgentInstructionBlock,
   AgentModelInput,
-  AgentModelResolver,
   AgentRunInput,
   AgentRuntimeConfig,
   AgentRuntimeContext,
@@ -70,6 +69,7 @@ const workspaceDefinitionKeys = new Set([
   "sources",
   "store",
 ])
+const workspaceReferenceKeys = new Set(["mode", "name"])
 
 type NormalizedWorkspaceOptions = WorkspaceAgentWorkspaceOptions & { mode: AgentCapabilityMode }
 type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapabilityMode }
@@ -83,7 +83,7 @@ export type WorkspaceAgentOptions<
   TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = AgentCapabilityDefinition<TRuntimeConfig>[] | undefined,
 > = AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities> & {
   name?: string
-  workspace: WorkspaceAgentWorkspaceConfig
+  workspace: WorkspaceAgentWorkspaceConfig<_Name>
 }
 
 export type WorkspaceAgentDefinition<
@@ -122,12 +122,28 @@ export interface AgentDevtoolsSourceMaterializationOptions<
 }
 
 export function normalizeWorkspaceOptions(workspace: WorkspaceAgentWorkspaceConfig): NormalizedWorkspaceOptions {
-  if (typeof workspace === "string") {
-    return { mode: "read" }
-  }
+  if (isWorkspaceReference(workspace)) return { mode: normalizeMode(workspace.mode, "Workspace") }
+  if (typeof workspace === "string") return { mode: "read" }
   return {
     ...workspace,
     mode: normalizeMode(workspace.mode, "Workspace"),
+  }
+}
+
+function isWorkspaceReference(workspace: WorkspaceAgentWorkspaceConfig): workspace is { mode?: AgentCapabilityMode, name: string } {
+  return typeof workspace === "object"
+    && workspace !== null
+    && "name" in workspace
+    && typeof workspace.name === "string"
+}
+
+function assertWorkspaceReference(reference: { name: string }): void {
+  if (!reference.name.trim()) {
+    throw new TypeError("[vitehub] Workspace reference requires a non-empty string name.")
+  }
+  const unsupported = Object.keys(reference).filter(key => !workspaceReferenceKeys.has(key))
+  if (unsupported.length) {
+    throw new TypeError(`[vitehub] Workspace reference does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.`)
   }
 }
 
@@ -139,6 +155,7 @@ export function workspaceNameFromOptions<
   defaults: WorkspaceAgentDefaults<Name> = {},
 ): Name | string {
   if (typeof options.workspace === "string") return options.workspace
+  if (isWorkspaceReference(options.workspace)) return options.workspace.name
   return options.name || defaults.workspace || defaults.name || defaultWorkspaceName
 }
 
@@ -149,6 +166,10 @@ export function workspaceDefinitionFromOptions<
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
 ): WorkspaceAgentWorkspaceOptions {
   if (typeof options.workspace === "string") return { mode: "read" }
+  if (isWorkspaceReference(options.workspace)) {
+    assertWorkspaceReference(options.workspace)
+    return normalizeWorkspaceOptions(options.workspace)
+  }
   const workspace = normalizeWorkspaceOptions(options.workspace)
   const { mode: _mode, ...definition } = workspace
   assertWorkspaceDefinition(definition)

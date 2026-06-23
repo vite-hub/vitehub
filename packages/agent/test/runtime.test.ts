@@ -5,6 +5,8 @@ import { createMessage, getMessageText } from "@vite-hub/agent"
 import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/runtime"
 import { chat, chatTitle, schedule, subagents } from "../src/capabilities.ts"
 
+import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
+
 const harnessAgentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const harnessCreateSession = vi.hoisted(() => vi.fn())
 const harnessGenerate = vi.hoisted(() => vi.fn())
@@ -518,6 +520,37 @@ describe("agent message protocol", () => {
       },
       text: "browser report",
     })
+  })
+
+  it("shares named workspace references across subagent runAgent calls", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { registerWorkspaceAgent } = await import("../src/server.ts")
+    const workspaceName = `shared-agent-workspace-${Math.random().toString(36).slice(2)}`
+    const summaryAgent = defineAgent({
+      workspace: { name: workspaceName, mode: "write" },
+      async run({ workspace }) {
+        await (workspace as WritableWorkspaceFacade).fs.writeFile("summary.md", "summary")
+        return "summary written"
+      },
+    })
+    const reviewerAgent = registerWorkspaceAgent(defineAgent({
+      workspace: {
+        mode: "write",
+        store: { provider: "memory" },
+      },
+      async run(context) {
+        const workspace = context.workspace as WritableWorkspaceFacade
+        await workspace.fs.writeFile("review.md", "review")
+        await runAgent(summaryAgent, context as never, { message: "write summary" })
+        return await workspace.fs.readFile("summary.md")
+      },
+    }), { workspace: workspaceName })
+
+    await expect(runAgent(reviewerAgent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { message: "review" })).resolves.toBe("summary")
   })
 
   it("rejects duplicate generated subagent tool names", async () => {
