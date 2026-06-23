@@ -14,6 +14,7 @@ const createWorkspaceTools = vi.fn(() => ({}))
 const createWorkspaceSourceResolutionFacade = vi.fn(async (workspace: ReadonlyWorkspaceFacade | WritableWorkspaceFacade, definition: unknown) => ({ definition, workspace }))
 const getWorkspaceSourceRequestDescriptor = vi.fn((_: unknown): { method: string, url: string } | undefined => undefined)
 const isWorkspaceSourceRequestOnly = vi.fn((_: unknown): boolean => false)
+const resolveRegisteredWorkspaceDefinition = vi.fn()
 const resolveWorkspaceAutoCommit = vi.fn()
 const workspaceSourceRequestDescriptorPath = vi.fn((source: string) => `.vitehub/sources/${source}.json`)
 const useWorkspace = vi.fn<() => ReadonlyWorkspaceFacade | WritableWorkspaceFacade>(() => ({
@@ -104,6 +105,7 @@ vi.mock("@vite-hub/workspace", async (importOriginal) => {
     getWorkspaceSourceRequestDescriptor,
     isWorkspaceSourceRequestOnly,
     prepareHarnessWorkspaceSession,
+    resolveRegisteredWorkspaceDefinition,
     resolveWorkspaceAutoCommit,
     workspaceSourceRequestDescriptorPath,
     useWorkspace,
@@ -170,6 +172,8 @@ describe("defineAgent workspace option", () => {
     readFile.mockReset()
     writeFile.mockReset()
     snapshot.mockReset()
+    resolveRegisteredWorkspaceDefinition.mockReset()
+    resolveRegisteredWorkspaceDefinition.mockResolvedValue(undefined)
     resolveWorkspaceAutoCommit.mockReset()
     resolveWorkspaceAutoCommit.mockReturnValue(undefined)
     tools.mockClear()
@@ -265,6 +269,33 @@ describe("defineAgent workspace option", () => {
     })
 
     await expect(agent.run!(context())).rejects.toThrow("git() requires workspace.mode: \"write\"")
+  })
+
+  it("uses write mode for named workspace references", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { workspaceShell } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [workspaceShell({ mode: "write" })],
+      model: {} as never,
+      workspace: { name: "docs", mode: "write" },
+    })
+
+    await agent.run!(context())
+
+    expect(useWorkspace).toHaveBeenCalledWith("docs", { mode: "write" })
+  })
+
+  it("rejects mixed named workspace references and colocated definitions", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    expect(() => defineAgent({
+      model: {} as never,
+      workspace: {
+        name: "docs",
+        sources: {},
+      } as never,
+    })).toThrow("[vitehub] Workspace reference does not support option: sources.")
   })
 
   it("creates a workspace and agent definition without resolving workspace until run", async () => {
@@ -528,6 +559,36 @@ describe("defineAgent workspace option", () => {
 
     expect(readFile).toHaveBeenCalledWith("AGENTS.md")
     expect(agentSettings.at(-1)?.instructions).toBe("Workspace instructions")
+  })
+
+  it("uses the registered workspace definition for named reference instructions", async () => {
+    readFile.mockResolvedValueOnce("Summary instructions")
+    const { defineAgent } = await import("../src/index.ts")
+    const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
+    const workspaceName = `shared-reference-${Math.random().toString(36).slice(2)}`
+    const workspaceDefinition = {
+      sources: {
+        summaryInstructions: { instructions: "Use the summary instructions.", name: "summary" } as never,
+      },
+      store: { provider: "memory" as const },
+    }
+    registerWorkspace(workspaceName, workspaceDefinition)
+    resolveRegisteredWorkspaceDefinition.mockResolvedValueOnce(workspaceDefinition)
+
+    const agent = defineAgent({
+      workspace: { name: workspaceName, mode: "write" },
+      instructions: async ({ fs }) => await fs.readFile(".agents/summary/AGENTS.md"),
+      model: {} as never,
+    })
+
+    await agent.run!(context())
+
+    expect(readFile).toHaveBeenCalledWith(".agents/summary/AGENTS.md")
+    expect(agentSettings.at(-1)?.instructions).toBe([
+      "Summary instructions",
+      "## Workspace Sources",
+      "### summaryInstructions\n\nUse the summary instructions.",
+    ].join("\n\n"))
   })
 
   it("appends visible source instructions by default", async () => {

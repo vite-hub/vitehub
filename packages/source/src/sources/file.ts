@@ -25,17 +25,13 @@ export type FileSourceOptions<TKey extends string = string> =
 
 type FileSourceInput<TKey extends string = string> = FileSourceOptions<TKey> | TKey
 
-function basename(path: string) {
-  return path.replace(/\\/g, "/").split("/").filter(Boolean).pop() || path
-}
-
 function normalizeFileSourceOptions<TKey extends string>(input: FileSourceInput<TKey>): FileSourceOptions<TKey> {
   return typeof input === "string" ? { path: input } : input
 }
 
 function sourceKey<TKey extends string>(options: FileSourceOptions<TKey>): TKey {
   if (options.workspacePath) return normalizeSourcePath(options.workspacePath) as TKey
-  if ("path" in options && options.path) return normalizeSourcePath(basename(normalizeSafeSourcePath(options.path))) as TKey
+  if ("path" in options && options.path) return normalizeSourcePath(normalizeSafeSourcePath(options.path)) as TKey
   throw new TypeError("[vitehub] file requires a path or workspacePath.")
 }
 

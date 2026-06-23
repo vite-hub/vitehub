@@ -10,6 +10,7 @@ import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation, resolveAgentTriggers, streamAgent, withAgentDefaults } from "../index.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
+import { workspaceAgentOwnsWorkspaceDefinition } from "../workspace-agent.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
 import type { ViteDevServer } from "vite"
@@ -188,10 +189,10 @@ function agentAliases(definition: DiscoveredAgentDefinition, agent: AgentInput<V
 
 function installServerAgentWorkspaceRegistry(
   server: ViteDevServer,
-  entries: Array<{ aliases?: string[], definition: DiscoveredAgentDefinition }>,
+  entries: Array<{ agent: AgentInput<ViteAgentDevRuntimeContext>, aliases?: string[], definition: DiscoveredAgentDefinition }>,
 ): void {
   setWorkspaceRuntimeRegistry(Object.fromEntries(entries
-    .filter(entry => entry.definition.workspace)
+    .filter(entry => entry.definition.workspace && workspaceAgentOwnsWorkspaceDefinition(entry.agent))
     .flatMap(({ aliases, definition }) => [definition.workspace!, ...(aliases || [])].map(name => [
       name,
       async () => {

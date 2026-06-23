@@ -47,6 +47,19 @@ export default defineAgent({
 
 The Workspace supplies files. The Workspace Shell Capability exposes read or write tools to compatible Agent Drivers.
 
+## Reuse a Workspace
+
+Use a string when another Agent should read an existing Workspace. Use `{ name, mode: 'write' }` when it should write artifacts into that same Workspace File Tree.
+
+```ts [server/agents/summary/config.ts]
+export default defineAgent({
+  workspace: { name: 'review', mode: 'write' },
+  capabilities: [
+    workspaceShell({ mode: 'write' }),
+  ],
+})
+```
+
 ## Render Source Instructions
 
 ViteHub renders visible Source Instructions into a `## Workspace Sources` block for model-backed drivers. Put `{{ workspace.sources }}` where that block belongs, or omit the slot and let ViteHub append it.

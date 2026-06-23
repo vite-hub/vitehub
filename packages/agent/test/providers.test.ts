@@ -542,7 +542,10 @@ describe("agent Vite plugin", () => {
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
 
       expect(denoServer).toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
-      expect(denoServer).toContain("setWorkspaceRuntimeRegistry({\n  \"support\": async () =>")
+      expect(denoServer).toContain("workspaceAgentOwnsWorkspaceDefinition")
+      expect(denoServer).toContain("workspaceRegistryEntry(\"support\", agent0")
+      expect(denoServer).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
+      expect(denoServer).not.toContain("\"support\": async ()")
     }
     finally {
       await rm(root, { force: true, recursive: true })

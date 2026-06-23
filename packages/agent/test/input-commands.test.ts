@@ -46,6 +46,24 @@ describe("inputCommands", () => {
     expect(resolved.input.prompt).toBe("/summary")
   })
 
+  it("keeps command-only message text when a string handler returns empty args", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [inputCommands({
+        commands: {
+          review: {
+            description: "Review the request.",
+            run: ({ args }) => args,
+          },
+        },
+      })],
+    }, runtime(), { messages: [createMessage({ role: "user", text: "/review" })] })
+
+    expect(resolved.input.messages?.map(message => getMessageText(message))).toEqual(["/review"])
+  })
+
   it("replaces command text from an initial message", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

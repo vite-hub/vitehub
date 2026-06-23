@@ -280,7 +280,7 @@ function generateAgentWebhookRouteHandler(
     .join("\n")
   const workspaceEntries = definitions
     .map((definition, index) => definition.workspace
-      ? `${JSON.stringify(definition.workspace)}: async () => ({ ...agent${index}, default: { ...agent${index}.default, sourceRootDir: agent${index}.default?.sourceRootDir ?? ${JSON.stringify(resolveWorkspaceSourceRoot(definition.handler))} } })`
+      ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, agent${index}, ${JSON.stringify(resolveWorkspaceSourceRoot(definition.handler))})`
       : undefined)
     .filter(Boolean)
     .join(",\n  ")
@@ -297,7 +297,7 @@ function generateAgentWebhookRouteHandler(
   const webhookSelector = webhookRoute.includes("[webhook]") ? "getRouterParam(event, 'webhook')" : "''"
 
   return [
-    "import { withAgentDefaults } from '@vite-hub/agent'",
+    "import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition } from '@vite-hub/agent'",
     ...(options.cloudflareState ? ["import { createCloudflareAgentState } from '@vite-hub/agent/cloudflare'"] : []),
     "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server'",
     "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/internal/runtime/state'",
@@ -311,6 +311,11 @@ function generateAgentWebhookRouteHandler(
     "function resolveChatRouteOptions(module) {",
     "  const chatRoute = module && typeof module === 'object' ? module.chatRoute : undefined",
     "  return chatRoute && typeof chatRoute === 'object' ? chatRoute : undefined",
+    "}",
+    "",
+    "function workspaceRegistryEntry(name, module, sourceRootDir) {",
+    "  if (!workspaceAgentOwnsWorkspaceDefinition(resolveAgentModule(module))) return",
+    "  return [name, async () => ({ ...module, default: { ...module.default, sourceRootDir: module.default?.sourceRootDir ?? sourceRootDir } })]",
     "}",
     "",
     "async function toRequest(event) {",
@@ -328,7 +333,7 @@ function generateAgentWebhookRouteHandler(
     ...generatedRuntimeHelpers(),
     ...(options.cloudflareState ? generatedCloudflareChatStateHelper() : []),
     "",
-    `setWorkspaceRuntimeRegistry({${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}})`,
+    `setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].filter(Boolean)))`,
     "",
     `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
     `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
@@ -366,7 +371,7 @@ function generateAgentNetlifyFunctionRouteHandler(
     .join("\n")
   const workspaceEntries = definitions
     .map((definition, index) => definition.workspace
-      ? `${JSON.stringify(definition.workspace)}: async () => ({ ...agent${index}, default: { ...agent${index}.default, sourceRootDir: agent${index}.default?.sourceRootDir ?? ${JSON.stringify(resolveWorkspaceSourceRoot(definition.handler))} } })`
+      ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, agent${index}, ${JSON.stringify(resolveWorkspaceSourceRoot(definition.handler))})`
       : undefined)
     .filter(Boolean)
     .join(",\n  ")
@@ -382,7 +387,7 @@ function generateAgentNetlifyFunctionRouteHandler(
   const webhookSelector = routeUsesParam(options.webhookRoute, "webhook") ? "netlifyParam(context, 'webhook')" : "''"
 
   return [
-    "import { withAgentDefaults } from '@vite-hub/agent'",
+    "import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition } from '@vite-hub/agent'",
     "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler, setWorkspaceRuntimeRegistry } from '@vite-hub/agent/server'",
     imports,
     "",
@@ -395,9 +400,14 @@ function generateAgentNetlifyFunctionRouteHandler(
     "  return chatRoute && typeof chatRoute === 'object' ? chatRoute : undefined",
     "}",
     "",
+    "function workspaceRegistryEntry(name, module, sourceRootDir) {",
+    "  if (!workspaceAgentOwnsWorkspaceDefinition(resolveAgentModule(module))) return",
+    "  return [name, async () => ({ ...module, default: { ...module.default, sourceRootDir: module.default?.sourceRootDir ?? sourceRootDir } })]",
+    "}",
+    "",
     ...generatedNetlifyRuntimeHelpers(),
     "",
-    `setWorkspaceRuntimeRegistry({${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}})`,
+    `setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].filter(Boolean)))`,
     "",
     `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
     `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
@@ -447,7 +457,7 @@ function generateAgentDenoServer(
     .join("\n")
   const workspaceEntries = definitions
     .map((definition, index) => definition.workspace
-      ? `${JSON.stringify(definition.workspace)}: async () => ({ ...agent${index}, default: { ...agent${index}.default, sourceRootDir: agent${index}.default?.sourceRootDir ?? ${JSON.stringify(resolveWorkspaceSourceRoot(definition.handler))} } })`
+      ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, agent${index}, ${JSON.stringify(resolveWorkspaceSourceRoot(definition.handler))})`
       : undefined)
     .filter(Boolean)
     .join(",\n  ")
@@ -464,13 +474,13 @@ function generateAgentDenoServer(
     ? [
         "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
         "",
-        `setWorkspaceRuntimeRegistry({\n  ${workspaceEntries}\n})`,
+        `setWorkspaceRuntimeRegistry(Object.fromEntries([\n  ${workspaceEntries}\n].filter(Boolean)))`,
         "",
       ]
     : []
 
   return [
-    "import { withAgentDefaults } from '@vite-hub/agent'",
+    "import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition } from '@vite-hub/agent'",
     "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server/routes'",
     ...workspaceRuntimeLines.slice(0, 1),
     imports,
@@ -487,6 +497,11 @@ function generateAgentDenoServer(
     "function resolveChatRouteOptions(module) {",
     "  const chatRoute = module && typeof module === 'object' ? module.chatRoute : undefined",
     "  return chatRoute && typeof chatRoute === 'object' ? chatRoute : undefined",
+    "}",
+    "",
+    "function workspaceRegistryEntry(name, module, sourceRootDir) {",
+    "  if (!workspaceAgentOwnsWorkspaceDefinition(resolveAgentModule(module))) return",
+    "  return [name, async () => ({ ...module, default: { ...module.default, sourceRootDir: module.default?.sourceRootDir ?? sourceRootDir } })]",
     "}",
     "",
     "function jsonError(status, message) {",

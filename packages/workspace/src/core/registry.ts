@@ -100,6 +100,10 @@ async function resolveWorkspaceDefinition(name: string): Promise<WorkspaceDefini
   return definition
 }
 
+export async function resolveRegisteredWorkspaceDefinition(name: string): Promise<WorkspaceDefinition> {
+  return resolveWorkspaceDefinition(name)
+}
+
 export async function useRegisteredWorkspace(name: string): Promise<Workspace> {
   const definition = await resolveWorkspaceDefinition(name)
   return createWorkspace(definition)

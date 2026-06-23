@@ -283,6 +283,7 @@ export {
   createAgentDevtoolsMetadata,
   materializeAgentDevtoolsSourceMetadata,
   resolveAgentDevtoolsMetadata,
+  workspaceAgentOwnsWorkspaceDefinition,
 } from "./workspace-agent.ts"
 
 export {
@@ -1083,6 +1084,16 @@ function toAgentAdapterRunContext<
   }
 }
 
+async function resolveRegisteredAgentWorkspaceDefinition(name: string): Promise<WorkspaceDefinition | undefined> {
+  try {
+    return await (await import("@vite-hub/workspace")).resolveRegisteredWorkspaceDefinition(name)
+  }
+  catch (error) {
+    if (error instanceof Error && error.name === "WorkspaceNotFoundError") return undefined
+    throw error
+  }
+}
+
 async function createAgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -1105,8 +1116,11 @@ async function createAgentInvocationContext<
       ? workspaceNameFromOptions(workspaceOptions, workspaceDefinition?.__vitehubWorkspaceAgentDefaults)
       : workspaceDefinition?.__vitehubWorkspaceAgentDefaults?.workspace
     const workspaceMode = workspaceOptions ? workspaceModeFromOptions(workspaceOptions) : "read"
-    const resolvedWorkspaceDefinition = workspaceOptions && workspaceName
+    const configuredWorkspaceDefinition = workspaceOptions && workspaceName
       ? { ...workspaceDefinitionFromOptions(workspaceOptions), name: workspaceName }
+      : undefined
+    const resolvedWorkspaceDefinition = workspaceName
+      ? await resolveRegisteredAgentWorkspaceDefinition(workspaceName) || configuredWorkspaceDefinition
       : undefined
     const workspace = workspaceName
       ? workspaceMode === "write"

@@ -26,6 +26,7 @@ import {
 import { createChatDevtoolsStreamResponse } from "../devtools-stream.ts"
 import { createAgentRuntimeContext } from "../../runtime/context.ts"
 import { discoverAgentDefinitions } from "../../discovery.ts"
+import { workspaceAgentOwnsWorkspaceDefinition } from "../../workspace-agent.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
 import type { UIMessage } from "ai"
@@ -147,10 +148,13 @@ function resolveWorkspaceSourceRoot(file: string): string {
     : dirname(file)
 }
 
-function installServerAgentWorkspaceRegistry(server: ViteDevServer, definitions: DiscoveredAgentDefinition[]): void {
-  setWorkspaceRuntimeRegistry(Object.fromEntries(definitions
-    .filter(definition => definition.workspace)
-    .map(definition => [
+function installServerAgentWorkspaceRegistry(
+  server: ViteDevServer,
+  entries: Array<{ agent: AgentInput<ViteAgentDevtoolsRuntimeContext>, definition: DiscoveredAgentDefinition }>,
+): void {
+  setWorkspaceRuntimeRegistry(Object.fromEntries(entries
+    .filter(entry => entry.definition.workspace && workspaceAgentOwnsWorkspaceDefinition(entry.agent))
+    .map(({ definition }) => [
       definition.workspace!,
       async () => {
         const mod = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
@@ -374,11 +378,16 @@ async function discoverChatAgents(server: ViteDevServer, state: ChatDevtoolsBrid
     mode: "server-agents",
     scanDirs: [join(server.config.root, "server")],
   }).sort((left, right) => left.name.localeCompare(right.name))
-  installServerAgentWorkspaceRegistry(server, definitions)
 
+  const loaded = []
   for (const definition of definitions) {
     const agent = await loadDiscoveredAgent(server, definition)
     if (!agent) continue
+    loaded.push({ agent, definition })
+  }
+  installServerAgentWorkspaceRegistry(server, loaded)
+
+  for (const { agent, definition } of loaded) {
     const triggers = await resolveAgentTriggers(agent as never, context as never)
     const trigger = triggers["chat.message"]
     if (!trigger || trigger.devtools === false) continue
