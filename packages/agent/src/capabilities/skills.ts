@@ -49,27 +49,6 @@ function skillDirectory(skillPath: string): string {
     : skillPath === skillFilename ? "" : skillPath
 }
 
-function normalizeMountPath(path: string): string {
-  return path.replace(/^\/+/, "").replace(/\/+$/, "")
-}
-
-function sourceMountPath(input: WorkspaceSourceInput): string | undefined {
-  if (!input || typeof input !== "object" || Array.isArray(input)) return
-  const record = input as Record<string, unknown>
-  const mount = record.mount
-  if (typeof mount === "string") return normalizeMountPath(mount)
-  if (mount && typeof mount === "object" && typeof (mount as { path?: unknown }).path === "string") {
-    return normalizeMountPath((mount as { path: string }).path)
-  }
-}
-
-function assertSourceMountMatchesPath(source: WorkspaceSourceInput, mountPath: string): void {
-  const explicitMount = sourceMountPath(source)
-  if (explicitMount !== undefined && explicitMount !== mountPath) {
-    throw new Error(`[vitehub] skills({ source }) mount "${explicitMount}" must match path "${mountPath}".`)
-  }
-}
-
 function skillSourceKey(path: string): string {
   const suffix = (path || "root")
     .replace(/^skills\//, "")
@@ -79,7 +58,6 @@ function skillSourceKey(path: string): string {
 }
 
 function sourceBinding(source: WorkspaceSourceInput, mountPath: string): WorkspaceSourceInput {
-  assertSourceMountMatchesPath(source, mountPath)
   return {
     source,
     mount: mountPath,

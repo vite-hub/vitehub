@@ -312,17 +312,33 @@ describe("defineAgent workspace option", () => {
     })
   })
 
-  it("rejects skill sources mounted away from the skill path", async () => {
+  it("mounts skill sources at the configured skill path", async () => {
     const { skills } = await import("../src/capabilities.ts")
+    const { workspaceDefinitionFromOptions } = await import("../src/workspace-agent.ts")
 
-    expect(() => skills({
-      path: "skills/agent-browser",
+    const definition = workspaceDefinitionFromOptions({
+      capabilities: [
+        skills({
+          path: "skills/agent-browser",
+          source: {
+            mount: "vercel-plugin",
+            repo: "vercel/vercel-plugin",
+            root: "skills/agent-browser",
+          } as never,
+        }),
+      ],
+      model: {} as never,
+      workspace: {},
+    })
+
+    expect(definition.sources?.["skill.agent-browser"]).toEqual({
+      mount: "skills/agent-browser",
       source: {
-        mount: "other",
+        mount: "vercel-plugin",
         repo: "vercel/vercel-plugin",
         root: "skills/agent-browser",
-      } as never,
-    })).toThrow("skills({ source }) mount \"other\" must match path \"skills/agent-browser\"")
+      },
+    })
   })
 
   it("bubbles subagent skill sources into the parent workspace definition", async () => {

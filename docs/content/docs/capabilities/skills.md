@@ -77,7 +77,7 @@ With `source`, ViteHub still uses normal Workspace Source materialization, visib
 
 `skills()` requires an explicit Workspace with read access to the configured skill file.
 The path can point to a directory or directly to a `SKILL.md` file.
-When `source` is configured, the source mount must match the configured skill directory.
+When `source` is configured, `path` is the canonical mount. ViteHub mounts the source at the configured skill directory even when the source helper has its own default mount.
 
 ## Driver support
 
