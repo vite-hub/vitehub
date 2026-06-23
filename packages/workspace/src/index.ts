@@ -56,6 +56,7 @@ export type {
 } from "./sources/resolution.ts"
 export type * from "./ai.ts"
 export { resolveWorkspaceAutoCommit } from "./core/rules.ts"
+export { resolveRegisteredWorkspaceDefinition } from "./core/registry.ts"
 export { useWorkspace } from "./core/use.ts"
 export type * from "./core/use.ts"
 export type * from "./core/types.ts"

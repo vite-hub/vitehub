@@ -557,6 +557,34 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toBe("Workspace instructions")
   })
 
+  it("uses the registered workspace definition for named reference instructions", async () => {
+    readFile.mockResolvedValueOnce("Summary instructions")
+    const { defineAgent } = await import("../src/index.ts")
+    const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
+    const workspaceName = `shared-reference-${Math.random().toString(36).slice(2)}`
+    registerWorkspace(workspaceName, {
+      sources: {
+        summaryInstructions: { instructions: "Use the summary instructions.", name: "summary" } as never,
+      },
+      store: { provider: "memory" },
+    })
+
+    const agent = defineAgent({
+      workspace: { name: workspaceName, mode: "write" },
+      instructions: async ({ fs }) => await fs.readFile(".agents/summary/AGENTS.md"),
+      model: {} as never,
+    })
+
+    await agent.run!(context())
+
+    expect(readFile).toHaveBeenCalledWith(".agents/summary/AGENTS.md")
+    expect(agentSettings.at(-1)?.instructions).toBe([
+      "Summary instructions",
+      "## Workspace Sources",
+      "### summaryInstructions\n\nUse the summary instructions.",
+    ].join("\n\n"))
+  })
+
   it("appends visible source instructions by default", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
