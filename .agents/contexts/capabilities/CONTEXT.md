@@ -28,6 +28,10 @@ _Avoid_: Chat helper, DevTools bridge, raw server route, server-only bucket
 A Capability-owned contribution that may feed the active Agent Driver, such as model-facing instructions, model-facing tools, or an explicitly supported harness-compatible input.
 _Avoid_: Raw tool, root instructions, implicit harness prompt, dynamic Capability
 
+**Capability Workspace Contribution**:
+An add-only, invocation-scoped Capability contribution that adds inspectable Workspace Source Bindings or Workspace Rules before driver-facing Workspace surfaces are built.
+_Avoid_: Workspace Definition mutator, hidden Source, dynamic Capability, output sink
+
 **Capability Requirement**:
 A primitive, workspace mode, or workspace path that a Capability needs before it can be applied to an Agent.
 _Avoid_: Capability dependency, plugin dependency
@@ -156,6 +160,10 @@ _Avoid_: Provider SDK passthrough, raw API client, gh wrapper
 A provider-hosted proposed repository change, called a pull request by GitHub and Bitbucket and a merge request by GitLab.
 _Avoid_: PR as canonical term, MR as canonical term, change
 
+**Pull Request Context Capability**:
+A Capability for pull-request and review product events that contributes Agent Triggers, typed Agent Invocation Context Values, and lazy Workspace Sources for review material.
+_Avoid_: prSummary, Repository Host Capability, markdown renderer, GitHub publication sink
+
 **Transcription**:
 An Official Capability that turns audio input parts into transcript text before an Agent runs.
 _Avoid_: Voice Input, audio support, voice plugin
@@ -243,6 +251,8 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A model-backed **Agent Driver** may receive model-facing tools and model-facing instructions from **Capability Driver Contributions**.
 - A harness-backed **Agent Driver** receives only explicitly supported harness-compatible **Capability Driver Contributions**; model-facing prompt and tool assumptions must not be silently passed into the harness.
 - A custom-run-backed **Agent Driver** receives prepared invocation context and Capability runtime effects; custom `run` code decides which Capability outputs to consume.
+- A **Capability Definition** may provide **Capability Workspace Contributions** when trusted invocation context should add review, artifact, or other product-specific Workspace inputs before the Agent Driver sees Workspace surfaces.
+- **Capability Workspace Contributions** are add-only and invocation-scoped; they fail on Source key, rule, Mount, and path conflicts instead of merging silently.
 - A **Capability** may contribute **Agent Invocation Context Values** or Channel Delivery Effect Intents, but it does not execute Channel Delivery Effects or call platform-specific Channel APIs directly.
 - Capabilities model reusable Agent abilities; app-owned product reachability belongs to **Channels** unless the product event has earned a reusable Capability name.
 - The **Access Capability** may contribute **Workspace Scope Instructions** from a static Workspace Scope or Workspace Scope Resolver result.
@@ -327,6 +337,10 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - **Change Request** file-list reads are Repository Host reads; repository source diffs and git history still belong to Source, Workspace Source, or Git-aware capabilities.
 - **Change Request** is the cross-provider term for pull-request and merge-request shaped objects; provider-native names stay in provider metadata.
 - Repository Host Capability write mode starts with narrow comment and reaction effects; approval, merge, branch update, status/check write, issue edit, repository settings, content, secrets, workflow, and raw API mutations need separate future design.
+- A **Pull Request Context Capability** owns trusted review intake, not model-facing repository collaboration tools or publication sinks.
+- A **Pull Request Context Capability** can contribute Sources such as `pullRequest`, `pullRequestFiles`, `pullRequestReviews`, and `pullRequestChecks`, but those Sources remain Workspace inputs governed by Workspace Scope and Workspace Rules.
+- A **Pull Request Context Capability** should keep full review material in lazy Live Sources or Request-Only Sources and keep only small trusted pull-request metadata in Agent Invocation Context Values.
+- A **Pull Request Context Capability** can require explicit Workspace Rules for artifact writes such as `artifacts/review/**`, but it cannot grant new Capabilities or broaden Access-selected Workspace Scope.
 - Chat History is not a standalone **Capability** in the current stack.
 - Agent Memory is separate from Chat History and Chat Sessions.
 - User-defined Capabilities use the same **Capability Definition** shape as official helpers.
