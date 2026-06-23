@@ -275,9 +275,8 @@ function collectToolResults(
   const parts: string[] = []
 
   for (const step of result.steps || []) {
-    for (const content of step.content || []) {
-      if (content.type !== "tool-result") continue
-      parts.push(JSON.stringify(content.output).slice(0, 4000))
+    for (const output of collectToolResultOutputs(step)) {
+      parts.push(JSON.stringify(output).slice(0, 4000))
       if (parts.length >= maxToolResults) return parts
     }
   }
@@ -286,7 +285,7 @@ function collectToolResults(
 }
 
 function hasToolResults(result: { steps?: Array<{ content?: Array<{ type: string }> }> }) {
-  return result.steps?.some(step => step.content?.some(content => content.type === "tool-result")) || false
+  return result.steps?.some(step => collectToolResultOutputs(step).length > 0) || false
 }
 
 function getPromptText(context: AgentAdapterRunContext) {
@@ -337,16 +336,50 @@ function streamEventText(event: unknown): string | undefined {
   return typeof text === "string" ? text : undefined
 }
 
-function streamToolResultOutput(event: unknown): unknown {
-  if (typeof event !== "object" || event === null) return undefined
-  const record = event as { error?: unknown, errorText?: unknown, output?: unknown, result?: unknown, type?: unknown }
-  if (record.type === "tool-result" || record.type === "tool-output-available") {
-    return record.output ?? record.result
+function recordFrom(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null ? value as Record<string, unknown> : undefined
+}
+
+function pushDefinedOutput(outputs: unknown[], output: unknown): void {
+  if (output !== undefined) outputs.push(output)
+}
+
+function collectToolResultOutputs(value: unknown): unknown[] {
+  const record = recordFrom(value)
+  if (!record) return []
+  const type = typeof record.type === "string" ? record.type : undefined
+  const outputs: unknown[] = []
+
+  if (type === "tool-result" || type === "tool-output-available") {
+    pushDefinedOutput(outputs, record.output ?? record.result)
   }
-  if (record.type === "tool-error" || record.type === "tool-output-error") {
-    return record.error ?? record.errorText ?? record.output ?? record.result
+  if (type === "tool-error" || type === "tool-output-error") {
+    pushDefinedOutput(outputs, record.error ?? record.errorText ?? record.output ?? record.result)
   }
-  return undefined
+
+  for (const key of ["content", "toolResults", "tool_outputs", "toolOutputs"]) {
+    const items = record[key]
+    if (!Array.isArray(items)) continue
+    for (const item of items) {
+      const itemRecord = recordFrom(item)
+      if (!itemRecord) continue
+      if (key === "toolResults" || key === "tool_outputs" || key === "toolOutputs") {
+        pushDefinedOutput(outputs, itemRecord.output ?? itemRecord.result ?? itemRecord.error ?? itemRecord.errorText)
+        continue
+      }
+      outputs.push(...collectToolResultOutputs(itemRecord))
+    }
+  }
+
+  const stepOutputs = collectToolResultOutputs(record.step)
+  if (stepOutputs.length) outputs.push(...stepOutputs)
+
+  return outputs
+}
+
+function streamToolResultOutputs(event: unknown): unknown[] {
+  if (typeof event !== "object" || event === null) return []
+  return collectToolResultOutputs(event)
 }
 
 function streamEventType(event: unknown): string | undefined {
@@ -399,8 +432,9 @@ function withWorkspaceFallbackFullStream(
       const eventText = streamEventText(event) || ""
       text += eventText
       textAfterLastToolResult += eventText
-      const output = streamToolResultOutput(event)
-      if (output !== undefined && evidence.length < maxToolResults) {
+      const outputs = streamToolResultOutputs(event)
+      for (const output of outputs) {
+        if (evidence.length >= maxToolResults) break
         evidence.push(JSON.stringify(output).slice(0, 4000))
         textAfterLastToolResult = ""
       }
