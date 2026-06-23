@@ -90,6 +90,27 @@ export default defineEventHandler(async (event) => {
 
 Agent Trigger Consumers call the trigger surface. They do not own the Capability behavior that registered the trigger.
 
+## Input lifecycle
+
+Use an Agent Input Hook when an Agent needs to validate trusted invocation context before its Agent Driver runs. Input hooks run once per Agent Invocation after Capabilities prepare input.
+
+```ts [server/agents/review.ts]
+import { defineAgent } from '@vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    run: () => 'ok',
+  },
+  hooks: {
+    'agent:input'(context) {
+      if (!context.input.context?.pullRequest) {
+        throw new Error('Missing GitHub field: context.pullRequest')
+      }
+    },
+  },
+})
+```
+
 ## Finish lifecycle
 
 Use an Agent Finish Hook to observe the completed invocation. Finish hooks are appropriate for usage export, trace collection, cleanup, or product-side notifications.

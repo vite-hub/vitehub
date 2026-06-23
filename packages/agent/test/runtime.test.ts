@@ -58,6 +58,35 @@ describe("agent message protocol", () => {
     }))
   })
 
+  it("runs agent input hooks once before driver execution and can abort", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const run = vi.fn(() => "ok")
+    const inputHook = vi.fn((context) => {
+      if (!context.input.context?.pullRequest) {
+        throw new Error("Missing GitHub field: context.pullRequest")
+      }
+    })
+    const agent = defineAgent({
+      driver: { run },
+      hooks: {
+        "agent:input": inputHook,
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      context: { pullRequest: true as never },
+      prompt: "review",
+    })).resolves.toBe("ok")
+    expect(inputHook).toHaveBeenCalledTimes(1)
+    expect(run).toHaveBeenCalledTimes(1)
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      prompt: "review",
+    })).rejects.toThrow("Missing GitHub field: context.pullRequest")
+    expect(inputHook).toHaveBeenCalledTimes(2)
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+
   it("emits invocation Trace Events without persisting prompt content", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()

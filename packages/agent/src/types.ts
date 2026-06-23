@@ -343,11 +343,17 @@ export type AgentFinishHook<
   CALL_OPTIONS = unknown,
 > = (event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void>
 
+export type AgentInputHook<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> = (context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void>
+
 export interface AgentInvocationHooks<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > {
   "agent:finish"?: AgentFinishHook<TRuntimeConfig, CALL_OPTIONS>
+  "agent:input"?: AgentInputHook<TRuntimeConfig, CALL_OPTIONS>
 }
 
 export type AgentHookOwner = "agent" | "capability" | "channel" | "runtime" | "integration" | (string & {})
