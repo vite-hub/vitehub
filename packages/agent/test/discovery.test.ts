@@ -555,6 +555,49 @@ describe("agent chat capability discovery", () => {
     expect(abortSignal).toBeInstanceOf(AbortSignal)
   })
 
+  it("normalizes Agent Invocation Stream usage before serializing endpoint events", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-usage-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const usage = { inputTokens: 2, outputTokens: 3, totalTokens: 5 }
+    const agent = defineAgent({
+      async * run() {
+        yield { text: "hello from stream", type: "text-delta" }
+        yield { finishReason: "stop", totalUsage: usage, type: "finish" }
+      },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      messages: [{
+        id: "user-1",
+        parts: [{ text: "hello", type: "text" }],
+        role: "user",
+      }],
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+    const events = response.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+
+    expect(events).toEqual([
+      expect.objectContaining({ agent: "support", type: "start" }),
+      { text: "hello from stream", type: "text-delta" },
+      { type: "usage", usageRecord: { usage } },
+      { reason: "stop", type: "finish" },
+      { type: "done" },
+    ])
+  })
+
   it("passes Agent Dev Loop context into message-shaped channel invocations", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-context-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -608,6 +651,109 @@ describe("agent chat capability discovery", () => {
     expect(events).toEqual([
       expect.objectContaining({ agent: "support", trigger: "chat.message", type: "start" }),
       { text: "context 42 github:onmax /summary", type: "text-delta" },
+      { type: "finish" },
+      { type: "done" },
+    ])
+  })
+
+  it("accepts declared workspace agent names as dev loop aliases", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-alias-")
+    await mkdir(join(root, "server", "agents", "review"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "review", "config.ts"), "export default {}", "utf8")
+
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const headers = {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    }
+    const agent = defineAgent({
+      name: "summary",
+      run: () => "ok",
+      workspace: {},
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const discovery = await invokeMiddleware(handlers[0]!, {}, agentInvocationStreamRoute, {
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    }, "GET")
+    expect(JSON.parse(discovery.body)).toMatchObject({
+      agents: [{
+        aliases: ["summary"],
+        name: "review",
+      }],
+    })
+
+    for (const name of ["summary", "review"]) {
+      const response = await invokeMiddleware(handlers[0]!, {
+        agent: name,
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+      }, agentInvocationStreamRoute, headers)
+      const events = response.body
+        .trim()
+        .split("\n")
+        .map(line => JSON.parse(line))
+
+      expect(events).toEqual([
+        expect.objectContaining({ agent: "review", type: "start" }),
+        { text: "ok", type: "text-delta" },
+        { type: "finish" },
+        { type: "done" },
+      ])
+    }
+  })
+
+  it("prefers exact dev loop agent names over aliases", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-exact-name-")
+    await mkdir(join(root, "server", "agents", "review"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "review", "config.ts"), "export default {}", "utf8")
+    await writeFile(join(root, "server", "agents", "summary.ts"), "export default {}", "utf8")
+
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const headers = {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    }
+    const aliasAgent = defineAgent({
+      name: "summary",
+      run: () => "alias",
+      workspace: {},
+    })
+    const exactAgent = defineAgent({
+      run: () => "exact",
+    })
+    const { handlers, server } = createFakeServer(root, { default: aliasAgent })
+    server.ssrLoadModule.mockImplementation(async (...args: unknown[]) => String(args[0] || "").includes("/summary.ts")
+      ? { default: exactAgent }
+      : { default: aliasAgent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "summary",
+      messages: [{
+        id: "user-1",
+        parts: [{ text: "hello", type: "text" }],
+        role: "user",
+      }],
+    }, agentInvocationStreamRoute, headers)
+    const events = response.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+
+    expect(events).toEqual([
+      expect.objectContaining({ agent: "summary", type: "start" }),
+      { text: "exact", type: "text-delta" },
       { type: "finish" },
       { type: "done" },
     ])

@@ -54,7 +54,7 @@ describe("agent CLI", () => {
     const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       if (init?.method === "POST") {
         return ndjson([
-          { agent: "support", trigger: "chat.message", type: "start" },
+          { agent: "support", metadata: {}, trigger: "chat.message", type: "start" },
           { text: "hello from agent", type: "text-delta" },
           { type: "finish" },
           { type: "done" },
@@ -95,6 +95,133 @@ describe("agent CLI", () => {
         role: "user",
       }],
     })
+  })
+
+  it("accepts Agent Dev Loop discovery aliases", async () => {
+    const stdout = stream()
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "review", type: "start" },
+          { text: "summary", type: "text-delta" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ aliases: ["summary"], name: "review", triggers: ["github.webhook"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["--agent", "summary", "-p", "/summary"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr: stream(),
+      stdout,
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).toBe("summary\n")
+    const post = fetchAgentStream.mock.calls[1]
+    expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
+      agent: "summary",
+    })
+  })
+
+  it("renders and clears the default Agent Dev Loop thinking fallback", async () => {
+    const stderr = stream()
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "support", trigger: "chat.message", type: "start" },
+          { text: "done", type: "text-delta" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ name: "support", triggers: ["chat.message"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["hello"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr,
+      stdout: stream(),
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(0)
+    expect(stderr.output()).toBe("\u001B[?25l\rThinking...\r\u001b[K\u001B[?25h")
+  })
+
+  it("uses Agent Dev Loop thinking fallback metadata", async () => {
+    const stderr = stream()
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "support", metadata: { thinkingFallback: "Reading PR..." }, trigger: "chat.message", type: "start" },
+          { id: "tool-1", input: { command: "ls" }, name: "workspaceShell", type: "tool-call" },
+          { text: "done", type: "text-delta" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ name: "support", triggers: ["chat.message"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["hello"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr,
+      stdout: stream(),
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(0)
+    expect(stderr.output()).toContain("\u001B[?25l\rReading PR...\r\u001b[K\u001B[?25h")
+    expect(stderr.output()).toContain("[tool] ls")
+    expect(stderr.output()).not.toContain("Thinking...")
+  })
+
+  it("respects disabled Agent Dev Loop thinking fallback metadata", async () => {
+    const stderr = stream()
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "support", metadata: { thinkingFallback: null }, trigger: "chat.message", type: "start" },
+          { text: "done", type: "text-delta" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ name: "support", triggers: ["chat.message"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["hello"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr,
+      stdout: stream(),
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(0)
+    expect(stderr.output()).toBe("")
   })
 
   it("loads Agent Invocation Context Values from a JSON file", async () => {
@@ -210,18 +337,22 @@ describe("agent CLI", () => {
     expect(stderr.output()).toContain("[approval required] workspace_write: Needs write access.")
   })
 
-  it("renders Agent Dev Loop tool input, truncated output, and usage", async () => {
+  it("renders Agent Dev Loop tool output and final usage note", async () => {
     const stderr = stream()
+    const stdout = stream()
     const longOutput = "x".repeat(1300)
     const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       if (init?.method === "POST") {
         return ndjson([
           { agent: "support", trigger: "chat.message", type: "start" },
-          { id: "tool-1", input: { command: "pnpm test" }, name: "shell", type: "tool-call" },
-          { id: "tool-1", name: "shell", output: longOutput, type: "tool-result" },
+          { id: "tool-1", name: "shell", type: "tool-input-start" },
+          { id: "tool-1", input: { command: "cat file.md" }, name: "shell", type: "tool-call" },
+          { id: "tool-1", name: "shell", output: { command: "cat file.md", exitCode: 0, stderr: "", stdout: longOutput }, type: "tool-result" },
           { id: "tool-2", name: "workspace_list", output: { path: "." }, type: "tool-result" },
+          { id: "tool-3", name: "run_summary", output: { raw: { raw: { steps: longOutput } }, text: "summary body" }, type: "tool-result" },
           { text: "done", type: "text-delta" },
-          { type: "usage", usageRecord: { usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
+          { type: "usage", usageRecord: { cost: { amount: "0.00000400", currency: "USD", estimated: true, source: "estimated" }, latency: { durationMs: 2000, tokensPerSecond: 3.5 }, usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
+          { type: "usage", usageRecord: { cost: { amount: "0.00000400", currency: "USD", estimated: true, source: "estimated" }, latency: { durationMs: 2000, tokensPerSecond: 3.5 }, usage: { inputTokens: 10, outputTokenDetails: { reasoningTokens: 3 }, outputTokens: 7, totalTokens: 17 } } },
           { type: "finish" },
           { type: "done" },
         ])
@@ -238,18 +369,70 @@ describe("agent CLI", () => {
       rootDir: "/repo",
       spawn: vi.fn(),
       stderr,
-      stdout: stream(),
+      stdout,
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(0)
-    expect(stderr.output()).toContain("[tool] shell")
-    expect(stderr.output()).toContain(`input: {"command":"pnpm test"}`)
+    expect(stderr.output()).toContain("[tool] cat file.md")
+    expect(stderr.output()).not.toContain(`input: {"command":"cat file.md"}`)
     expect(stderr.output()).toContain("[truncated ")
     expect(stderr.output()).not.toContain(longOutput)
+    expect(stderr.output()).toContain("---")
     expect(stderr.output()).toContain("[tool] workspace_list")
     expect(stderr.output()).toContain(`output: {"path":"."}`)
-    expect(stderr.output()).toContain("[usage] 17 tokens: 10 in / 7 out; 3 reasoning tokens")
-    expect(stderr.output().match(/\[tool\] shell/g)).toHaveLength(1)
+    expect(stderr.output()).toContain("[tool] run_summary")
+    expect(stderr.output()).toContain("summary body")
+    expect(stderr.output()).not.toContain(`output: {"raw"`)
+    expect(stderr.output()).not.toContain("[usage]")
+    expect(stderr.output().match(/\[tool\] cat file\.md/g)).toHaveLength(1)
+    expect(stdout.output()).toContain("done\n\n> [!NOTE]\n> Usage: cost ~$0.000004; 17 tokens: 10 in / 7 out; 3 reasoning tokens; time 2.0s; speed 3.5 tok/s")
+  })
+
+  it("adds best-effort pricing to Agent Dev Loop usage notes", async () => {
+    const stderr = stream()
+    const stdout = stream()
+    const pricingFetch = vi.fn(async () => Response.json({
+      data: [{
+        id: "anthropic/claude-opus-4.8",
+        pricing: {
+          input: "0.000005",
+          output: "0.000025",
+        },
+      }],
+    }))
+    vi.stubGlobal("fetch", pricingFetch)
+    try {
+      const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return ndjson([
+            { agent: "support", trigger: "chat.message", type: "start" },
+            { text: "done", type: "text-delta" },
+            { type: "usage", usageRecord: { latency: { durationMs: 1000 }, model: { id: "claude-opus-4-8", provider: "googleVertex.anthropic.messages" }, usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } } },
+            { type: "finish" },
+          ])
+        }
+        return Response.json({
+          agents: [{ name: "support", triggers: ["chat.message"] }],
+          root: "/repo",
+        })
+      })
+
+      const exitCode = await runAgentDevCli(["hello"], {
+        cwd: "/repo",
+        env: {},
+        rootDir: "/repo",
+        spawn: vi.fn(),
+        stderr,
+        stdout,
+      }, { fetch: fetchAgentStream as never })
+
+      expect(exitCode).toBe(0)
+      expect(stdout.output()).toContain("> Usage: cost ~$0.000175; 15 tokens: 10 in / 5 out; time 1.0s; speed 5.0 tok/s")
+      expect(pricingFetch).toHaveBeenCalledTimes(1)
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it("renders Agent Dev Loop delivery previews", async () => {

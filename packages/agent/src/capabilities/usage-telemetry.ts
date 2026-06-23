@@ -97,7 +97,8 @@ function readNumber(record: UnknownRecord, ...keys: string[]): number | undefine
   }
 }
 
-function readString(record: UnknownRecord, ...keys: string[]): string | undefined {
+function readString(record: UnknownRecord | undefined, ...keys: string[]): string | undefined {
+  if (!record) return
   for (const key of keys) {
     const value = record[key]
     if (typeof value === "string" && value) return value
@@ -111,6 +112,14 @@ function readDetails(value: unknown): Record<string, number> | undefined {
     if (typeof item === "number" && Number.isFinite(item)) details[key] = item
   }
   return Object.keys(details).length ? details : undefined
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return isRecord(value) && typeof value.then === "function"
+}
+
+async function resolveUsageValue(value: unknown): Promise<unknown> {
+  return isPromiseLike(value) ? await value : value
 }
 
 function hasTokenUsage(usage: AgentUsage): boolean {
@@ -146,6 +155,13 @@ export function normalizeAgentUsage(value: unknown): AgentUsage | undefined {
     : undefined
 }
 
+async function usageFromResult(result: UnknownRecord, fallback?: unknown): Promise<AgentUsage | undefined> {
+  const usage = normalizeAgentUsage(await resolveUsageValue(result.totalUsage ?? result.usage))
+  if (usage) return usage
+  if (!isRecord(fallback)) return
+  return normalizeAgentUsage(await resolveUsageValue(fallback.totalUsage ?? fallback.usage))
+}
+
 function credentialSourceFromMetadata(metadata: unknown): AgentUsageRecord["credentialSource"] | undefined {
   if (!isRecord(metadata) || !isRecord(metadata.credentialSource)) return
   const source = metadata.credentialSource.source
@@ -174,7 +190,7 @@ function responseFromResult(result: UnknownRecord): AgentUsageRecord["response"]
 
 function modelFromResult(result: UnknownRecord): AgentUsageRecord["model"] | undefined {
   const response = isRecord(result.response) ? result.response : undefined
-  const id = response ? readString(response, "modelId", "model") : readString(result, "modelId", "model")
+  const id = readString(response, "modelId", "model") ?? readString(result, "modelId", "model")
   const provider = readString(result, "provider")
   if (id === undefined && provider === undefined) return
   return {
@@ -203,7 +219,7 @@ export async function createAgentUsageRecord(
   metadataSource?: unknown,
 ): Promise<AgentUsageRecord | undefined> {
   if (!isRecord(result)) return
-  const usage = normalizeAgentUsage(result.totalUsage ?? result.usage)
+  const usage = await usageFromResult(result, metadataSource)
   if (!usage) return
   const model = modelFromResult(result)
   const response = responseFromResult(result)
@@ -278,6 +294,17 @@ function formatUsageDuration(durationMs: unknown): string | undefined {
   return `${(finite / 1000).toFixed(1)}s`
 }
 
+function formatUsageSpeed(record: AgentUsageRecord): string | undefined {
+  const explicit = finiteUsageNumber(record.latency?.tokensPerSecond)
+  const durationMs = finiteUsageNumber(record.latency?.durationMs)
+  const input = finiteUsageNumber(record.usage?.inputTokens)
+  const output = finiteUsageNumber(record.usage?.outputTokens)
+  const total = finiteUsageNumber(record.usage?.totalTokens)
+  const outputOrTotal = output ?? (input !== undefined && total !== undefined ? total - input : total)
+  const derived = explicit ?? (durationMs && durationMs > 0 ? (outputOrTotal ?? 0) / (durationMs / 1000) : undefined)
+  return derived && Number.isFinite(derived) ? `${derived.toFixed(1)} tok/s` : undefined
+}
+
 function normalizeUsageSummaryOptions(summary: UsageTelemetryOptions["summary"]): UsageTelemetrySummaryOptions | undefined {
   if (!summary) return
   return typeof summary === "object" && summary !== null ? summary : {}
@@ -293,7 +320,8 @@ async function formatUsageSummary(record: AgentUsageRecord, options: UsageTeleme
   const tokens = formatUsageTokens(record.usage)
   const model = record.model?.id
   const duration = formatUsageDuration(record.latency?.durationMs)
-  const run = [model ? `using ${model}` : undefined, duration ? `in ${duration}` : undefined].filter(Boolean).join(" ")
+  const speed = formatUsageSpeed(record)
+  const run = [model ? `using ${model}` : undefined, duration ? `in ${duration}` : undefined, speed ? `at ${speed}` : undefined].filter(Boolean).join(" ")
   if (cost) return `${subject} cost ${record.cost?.estimated ? "about " : ""}${cost}${run ? ` ${run}` : ""}${tokens ? ` (${tokens})` : ""}.`
   if (tokens) return `${subject} used ${tokens}${run ? ` ${run}` : ""}.`
   if (run) return `${subject} ran ${run}.`
@@ -353,15 +381,28 @@ async function* withUsageTelemetryStream(
   onRecord?: (record: AgentUsageRecord) => void,
   metadataSource?: unknown,
 ): AsyncIterable<unknown> {
+  let fallbackResult: UnknownRecord | undefined
+  let recorded = false
   for await (const chunk of stream) {
     if (isRecord(chunk) && chunk.type === "finish") {
-      const usageRecord = await recordUsage(chunk, options, run, metadataSource)
+      const usageRecord = await recordUsage(chunk, options, run, chunk.totalUsage !== undefined || chunk.usage !== undefined ? metadataSource : undefined)
       if (usageRecord) {
+        recorded = true
         onRecord?.(usageRecord)
         yield { type: "usage", usageRecord }
       }
+      else if (isRecord(metadataSource)) {
+        fallbackResult = chunk
+      }
     }
     yield chunk
+  }
+  if (!recorded && isRecord(metadataSource)) {
+    const usageRecord = await recordUsage(fallbackResult ? { ...metadataSource, ...fallbackResult } : metadataSource, options, run, metadataSource)
+    if (usageRecord) {
+      onRecord?.(usageRecord)
+      yield { type: "usage", usageRecord }
+    }
   }
 }
 
@@ -440,9 +481,9 @@ export function usageTelemetry(options: UsageTelemetryOptions = {}): AgentCapabi
         return usageRecord ? await usageRecordForOutput(usageRecord, options) : undefined
       })
       context.output.render(async (result, renderContext) => {
+        if (isRecord(result) && hasUsageTelemetryStream(result)) return cloneWithUsageTelemetryStream(result, options, context.run)
         if (isAsyncIterable(result)) return withUsageTelemetryStream(result, options, context.run)
         if (!isRecord(result)) return result
-        if (hasUsageTelemetryStream(result)) return cloneWithUsageTelemetryStream(result, options, context.run)
         const usageRecord = renderContext.output.extensions.get<UsageTelemetryOutputExtension>("usage-telemetry")?.usageRecord
         if (!usageRecord) return result
         return {
@@ -518,6 +559,34 @@ function normalizeVercelPrice(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined
 }
 
+function addModelIdCandidate(candidates: string[], value: string | undefined) {
+  if (value && !candidates.includes(value)) candidates.push(value)
+}
+
+function normalizeAnthropicGatewayModelId(id: string): string {
+  return id
+    .replace(/^anthropic\//, "")
+    .replace(/^claude-(\d+)-(\d+)-/, "claude-$1.$2-")
+    .replace(/(.+-\d+)-(\d+)$/, "$1.$2")
+}
+
+function vercelGatewayModelIdCandidates(model: AgentUsageRecord["model"] | undefined): string[] {
+  const modelId = typeof model?.id === "string" ? model.id.trim() : ""
+  if (!modelId) return []
+  const candidates: string[] = []
+  addModelIdCandidate(candidates, modelId)
+
+  const unscoped = modelId.includes("/") ? modelId.slice(modelId.lastIndexOf("/") + 1) : modelId
+  const provider = typeof model?.provider === "string" ? model.provider.toLowerCase() : ""
+  const isAnthropic = modelId.startsWith("anthropic/") || unscoped.startsWith("claude-") || provider.includes("anthropic")
+  if (isAnthropic) {
+    addModelIdCandidate(candidates, `anthropic/${unscoped}`)
+    addModelIdCandidate(candidates, `anthropic/${normalizeAnthropicGatewayModelId(unscoped)}`)
+  }
+
+  return candidates
+}
+
 export function vercelAiGatewayPricing(options: VercelAiGatewayPricingOptions = {}): AgentUsagePricing {
   const fetcher = options.fetch || globalThis.fetch
   const modelsUrl = options.modelsUrl || vercelAiGatewayModelsUrl
@@ -546,9 +615,10 @@ export function vercelAiGatewayPricing(options: VercelAiGatewayPricingOptions = 
 
   return async ({ model, usage }) => {
     if (!hasTokenUsage(usage)) return
-    const modelId = model?.id
-    if (!modelId) return
-    const price = (await loadPrices())[modelId]
+    const catalog = await loadPrices()
+    const price = vercelGatewayModelIdCandidates(model)
+      .map(modelId => catalog[modelId])
+      .find((item): item is StaticModelPrice => Boolean(item))
     if (!price) return
     return {
       amount: pricedTokens(usage, price),

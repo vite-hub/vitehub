@@ -28,6 +28,24 @@ describe("inputCommands", () => {
     expect(resolved.input.prompt).toBe("Review this: auth changes")
   })
 
+  it("keeps command-only text when a string handler returns empty args", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [inputCommands({
+        commands: {
+          summary: {
+            description: "Summarize the request.",
+            run: ({ args }) => args,
+          },
+        },
+      })],
+    }, runtime(), { prompt: "/summary" })
+
+    expect(resolved.input.prompt).toBe("/summary")
+  })
+
   it("replaces command text from an initial message", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

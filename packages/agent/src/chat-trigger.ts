@@ -108,12 +108,13 @@ export function getAgentChatContext<
 async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeConfig>(
   options: AgentChatOptions<TRuntimeConfig>,
   args: AgentChatAgentHookArgs<TRuntimeConfig>,
-): Promise<string | undefined> {
+): Promise<string | null | undefined> {
   const fallback = options.fallbackStreamingPlaceholderText
-  if (fallback === null) return undefined
+  if (fallback === null) return null
   if (typeof fallback === "function") {
     const resolved = await fallback(args)
-    return resolved || undefined
+    if (resolved === null) return null
+    return typeof resolved === "string" ? resolved : undefined
   }
   if (typeof fallback === "string") return fallback
   return undefined
@@ -182,11 +183,10 @@ function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
     webhooks: chatWebhookRegistrations(options),
     async invoke(_context, triggerInput) {
       const { hookArgs, input } = createChatMessageTriggerInput(options, triggerInput)
+      const thinkingFallback = await resolveChatThinkingFallback(options, hookArgs)
       return {
         input,
-        metadata: {
-          thinkingFallback: await resolveChatThinkingFallback(options, hookArgs),
-        },
+        ...(thinkingFallback !== undefined ? { metadata: { thinkingFallback } } : {}),
         run: triggerInput.run,
       }
     },

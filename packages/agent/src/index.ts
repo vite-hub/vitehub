@@ -30,6 +30,7 @@ import { finalizeUiMessageStreamOutput, isUIMessageStreamResult } from "./stream
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
+  withJsonCompatibleToolOutputs,
 } from "./tool-runtime.ts"
 import {
   traceAgentInvocationError,
@@ -315,7 +316,7 @@ export type {
   AgentChatRunContext,
 } from "./chat-trigger.ts"
 
-const syntheticWorkspaceRun = Symbol("vitehub.syntheticWorkspaceRun")
+const syntheticWorkspaceRun = Symbol.for("vitehub.syntheticWorkspaceRun")
 const baseAgentResolve = Symbol("vitehub.baseAgentResolve")
 const baseAgentModel = Symbol("vitehub.baseAgentModel")
 
@@ -761,7 +762,7 @@ function defineBaseAgent<
         ? await resolveStaticCapabilityTools({ capabilities: normalizedCapabilities }, resolvedContext)
         : undefined
       const capabilityTools = Object.keys(resolvedTools || {}).length
-        ? withAgentToolStepReporting(applyAgentToolPolicies(resolvedTools) || {}, context.devtools?.reportToolStep)
+        ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(resolvedTools) || {}), context.devtools?.reportToolStep)
         : undefined
       return capabilityTools
         ? { ...adapterInstance, tools: capabilityTools }
@@ -1125,7 +1126,7 @@ async function createAgentInvocationContext<
     })
     const transformedTools = await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
     const tools = Object.keys(transformedTools || {}).length
-      ? withAgentToolStepReporting(applyAgentToolPolicies(transformedTools) || {}, context.devtools?.reportToolStep)
+      ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {}), context.devtools?.reportToolStep)
       : undefined
     const activeWorkspace = capabilities.workspace || workspace
     const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
@@ -1232,6 +1233,16 @@ function hasTraceableStreamResult(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false
   const result = value as { fullStream?: unknown, stream?: unknown, textStream?: unknown }
   return isAsyncIterable(result.fullStream) || isAsyncIterable(result.stream) || isAsyncIterable(result.textStream)
+}
+
+function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream: T, result: unknown): T {
+  if (typeof stream !== "object" || stream === null || typeof result !== "object" || result === null) return stream
+  Object.defineProperties(stream, Object.fromEntries(["usage", "usageRecord"].map(key => [key, {
+    configurable: true,
+    enumerable: true,
+    get: () => (result as Record<string, unknown>)[key],
+  }])))
+  return stream
 }
 
 function traceUiMessageStream<
@@ -1460,7 +1471,7 @@ async function finalizeAgentInvocationResult<
       finishLifecycleStarted = shouldWrapOutput
       return response
     }
-    if (isAsyncIterable(result) && !options.finalizeRawStreams) {
+    if (isAsyncIterable(result) && !hasTraceableStreamResult(result) && !options.finalizeRawStreams) {
       finishLifecycleStarted = shouldWrapOutput
       const stream = options.wrapStream?.(result) || result
       return shouldWrapOutput ? withCapabilityCleanup(stream, error => finishAgentInvocation(context, error === undefined ? result : undefined, error)) : stream
@@ -1616,12 +1627,20 @@ export async function streamAgentInline<
       if (output === "ui-message-stream") {
         return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, runContext), shouldWrapInvocationOutput(runContext), error => finishAgentInvocation(runContext, error === undefined ? rendered : undefined, error))
       }
-      const isStream = isAsyncIterable(rendered)
+      const isStreamResult = hasTraceableStreamResult(rendered)
+      const isStream = isAsyncIterable(rendered) || isStreamResult
+      const stream = isStreamResult
+        ? streamAgentOutputToEvents(rendered)
+        : rendered as AsyncIterable<StreamEvent>
+      const shouldWrapOutput = shouldWrapInvocationOutput(runContext)
+      const tracedStream = maybeTraceAgentStream(stream, runContext)
       return {
-        deferFinish: isStream && shouldWrapInvocationOutput(runContext),
+        deferFinish: isStream && shouldWrapOutput,
         finishResult: rendered,
         value: isStream
-          ? maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, runContext)
+          ? withStreamResultProperties(shouldWrapOutput
+              ? withCapabilityCleanup(tracedStream, error => finishAgentInvocation(runContext, error === undefined ? rendered : undefined, error)) as AsyncIterable<StreamEvent>
+              : tracedStream, rendered)
           : rendered,
       }
     }, "[vitehub] Agent run failed and finish lifecycle also failed.", {

@@ -15,6 +15,16 @@ function isAgentToolDefinition(value: unknown): value is AgentToolDefinition {
   return typeof value === "object" && value !== null && "name" in value && typeof (value as { name?: unknown }).name === "string"
 }
 
+export function toJsonCompatibleValue(value: unknown): unknown {
+  if (value === undefined) return null
+  try {
+    return JSON.parse(JSON.stringify(value))
+  }
+  catch {
+    return String(value)
+  }
+}
+
 function createApprovalRequest(name: string, input: unknown, reason?: string) {
   return {
     capability: name,
@@ -74,6 +84,24 @@ export function applyAgentToolPolicies<TTools extends Record<string, unknown>>(t
       return [name, tool]
     }
     return [name, withToolPolicy(tool)]
+  })) as TTools
+}
+
+export function withJsonCompatibleToolOutputs<TTools extends AgentToolSet>(tools: TTools): TTools {
+  if (!tools || typeof tools !== "object") return tools
+
+  return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
+    if (!tool || typeof tool !== "object" || typeof (tool as { execute?: unknown }).execute !== "function") {
+      return [name, tool]
+    }
+
+    const execute = (tool as { execute: (...args: unknown[]) => unknown }).execute
+    return [name, {
+      ...tool,
+      async execute(input: unknown, ...args: unknown[]) {
+        return toJsonCompatibleValue(await execute.call(tool, input, ...args))
+      },
+    }]
   })) as TTools
 }
 

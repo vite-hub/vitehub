@@ -181,6 +181,85 @@ describe("agent output helpers", () => {
     ])
   })
 
+  it("emits usage from raw results wrapped by text output renderers", async () => {
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents({
+      raw: {
+        usage: Promise.resolve({
+          inputTokens: 10,
+          outputTokenDetails: { reasoningTokens: 3 },
+          outputTokens: 7,
+          totalTokens: 17,
+        }),
+      },
+      text: "ok",
+    })) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: {
+          usage: {
+            inputTokens: 10,
+            outputTokenDetails: { reasoningTokens: 3 },
+            outputTokens: 7,
+            totalTokens: 17,
+          },
+        },
+      },
+      { type: "finish" },
+    ])
+  })
+
+  it("includes model metadata in derived raw-result usage records", async () => {
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents({
+      raw: {
+        durationMs: 1000,
+        provider: "googleVertex.anthropic.messages",
+        response: {
+          id: "resp_1",
+          modelId: "claude-opus-4-8",
+          timestamp: "2026-06-22T20:00:00.000Z",
+        },
+        usage: Promise.resolve({
+          inputTokens: 10,
+          outputTokens: 5,
+          totalTokens: 15,
+        }),
+      },
+      text: "ok",
+    })) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: {
+          model: {
+            id: "claude-opus-4-8",
+            provider: "googleVertex.anthropic.messages",
+          },
+          response: {
+            id: "resp_1",
+            timestamp: "2026-06-22T20:00:00.000Z",
+          },
+          usage: {
+            inputTokens: 10,
+            outputTokens: 5,
+            totalTokens: 15,
+          },
+        },
+      },
+      { type: "finish" },
+    ])
+  })
+
   it("adds a terminal finish event to fullStream output", async () => {
     const output = {
       fullStream: (async function* () {
@@ -195,6 +274,134 @@ describe("agent output helpers", () => {
 
     expect(events).toEqual([
       { text: "ok", type: "text-delta" },
+      { type: "finish" },
+    ])
+  })
+
+  it("prefers fullStream over async iterable stream result surfaces", async () => {
+    class StreamResult {
+      fullStream = (async function* () {
+        yield { text: "ok", type: "text-delta" }
+        yield { finishReason: "stop", type: "finish" }
+      })()
+
+      usage = Promise.resolve({
+        inputTokens: 8,
+        outputTokens: 2,
+        totalTokens: 10,
+      })
+
+      async *[Symbol.asyncIterator]() {
+        yield { text: "wrong", type: "text-delta" }
+      }
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(new StreamResult())) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: {
+          usage: {
+            inputTokens: 8,
+            outputTokens: 2,
+            totalTokens: 10,
+          },
+        },
+      },
+      { reason: "stop", type: "finish" },
+    ])
+  })
+
+  it("emits usage from AI SDK finish-step chunks before finish", async () => {
+    const output = {
+      fullStream: (async function* () {
+        yield { text: "ok", type: "text-delta" }
+        yield {
+          type: "finish-step",
+          usage: {
+            inputTokens: 4,
+            outputTokenDetails: {
+              reasoningTokens: 2,
+            },
+            outputTokens: 1,
+            totalTokens: 5,
+          },
+        }
+        yield {
+          totalUsage: {
+            inputTokens: 16,
+            outputTokens: 4,
+            totalTokens: 20,
+          },
+          type: "finish",
+        }
+      })(),
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: {
+          usage: {
+            inputTokens: 16,
+            outputTokens: 4,
+            totalTokens: 20,
+          },
+        },
+      },
+      { type: "finish" },
+    ])
+  })
+
+  it("inherits model metadata from stream result usage records", async () => {
+    const output = {
+      fullStream: (async function* () {
+        yield { text: "ok", type: "text-delta" }
+        yield {
+          totalUsage: {
+            inputTokens: 16,
+            outputTokens: 4,
+            totalTokens: 20,
+          },
+          type: "finish",
+        }
+      })(),
+      modelId: "claude-opus-4-8",
+      provider: "googleVertex.anthropic.messages",
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: {
+          model: {
+            id: "claude-opus-4-8",
+            provider: "googleVertex.anthropic.messages",
+          },
+          usage: {
+            inputTokens: 16,
+            outputTokens: 4,
+            totalTokens: 20,
+          },
+        },
+      },
       { type: "finish" },
     ])
   })
@@ -215,6 +422,39 @@ describe("agent output helpers", () => {
     expect(events).toEqual([
       { text: "a", type: "text-delta" },
       { text: "b", type: "text-delta" },
+      { type: "finish" },
+    ])
+  })
+
+  it("emits usage from promise-backed textStream results", async () => {
+    const output = {
+      textStream: (async function* () {
+        yield "ok"
+      })(),
+      usage: Promise.resolve({
+        inputTokens: 8,
+        outputTokens: 2,
+        totalTokens: 10,
+      }),
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: {
+          usage: {
+            inputTokens: 8,
+            outputTokens: 2,
+            totalTokens: 10,
+          },
+        },
+      },
       { type: "finish" },
     ])
   })
