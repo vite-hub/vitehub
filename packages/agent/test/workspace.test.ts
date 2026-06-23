@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade } from "@vite-hub/workspace"
+import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade, WorkspaceSourceInput } from "@vite-hub/workspace"
 
 const readFile = vi.fn()
 const writeFile = vi.fn()
@@ -389,9 +389,13 @@ describe("defineAgent workspace option", () => {
   it("registers capability sources on shared named workspace references", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
-    const { registerWorkspace, resolveRegisteredWorkspaceDefinition: resolveRuntimeWorkspaceDefinition } = await import("@vite-hub/workspace/runtime")
+    const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
     const workspaceName = `review-${Math.random().toString(36).slice(2)}`
-    const registeredDefinition = {
+    const registeredDefinition: {
+      name: string
+      sources: Record<string, WorkspaceSourceInput>
+      store: { provider: "memory" }
+    } = {
       name: workspaceName,
       sources: {
         instructions: { path: "AGENTS.md" } as never,
@@ -422,9 +426,8 @@ describe("defineAgent workspace option", () => {
 
     await agent.run!(context())
 
-    const resolved = await resolveRuntimeWorkspaceDefinition(workspaceName)
-    expect(resolved.sources?.instructions).toEqual({ path: "AGENTS.md" })
-    expect(resolved.sources?.["skill.agent-browser"]).toEqual({
+    expect(registeredDefinition.sources?.instructions).toEqual({ path: "AGENTS.md" })
+    expect(registeredDefinition.sources?.["skill.agent-browser"]).toEqual({
       mount: "skills/agent-browser",
       source: {
         materialize: "build",

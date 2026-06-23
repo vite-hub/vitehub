@@ -1114,16 +1114,18 @@ function mergeAgentWorkspaceDefinition(
 ): WorkspaceDefinition | undefined {
   if (!registered && !configured) return undefined
   if (!registered) return configured ? { ...configured, name } : undefined
-  if (!configured) return { ...registered, name: registered.name || name }
+  if (!configured) {
+    registered.name ||= name
+    return registered
+  }
 
   const { name: _configuredName, sources: configuredSources, ...configuredFields } = configured as WorkspaceDefinition & { mode?: AgentCapabilityMode }
   const { mode: _mode, ...configuredDefinitionFields } = configuredFields
-  return {
-    ...registered,
-    ...configuredDefinitionFields,
+  Object.assign(registered, configuredDefinitionFields, {
     name: registered.name || name,
     sources: mergeWorkspaceSources(registered.sources, configuredSources),
-  }
+  })
+  return registered
 }
 
 async function registerResolvedAgentWorkspaceDefinition(name: string, definition: WorkspaceDefinition | undefined): Promise<void> {
@@ -1164,7 +1166,7 @@ async function createAgentInvocationContext<
     const resolvedWorkspaceDefinition = workspaceName
       ? mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredWorkspaceDefinition)
       : undefined
-    if (workspaceName && configuredWorkspaceDefinition) {
+    if (workspaceName && configuredWorkspaceDefinition && resolvedWorkspaceDefinition !== registeredWorkspaceDefinition) {
       await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
     }
     const workspace = workspaceName
