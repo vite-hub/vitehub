@@ -1059,6 +1059,7 @@ type AgentInvocationContext<
   finishHook?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS> extends infer TEvent ? (event: TEvent) => MaybePromise<void> : never
   hasCapabilityCleanup: boolean
   hooks?: AgentHookObserverHooks
+  modelExecutionInstrumentation: AgentCapabilityRegistries["modelExecutionInstrumentation"]
   outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
   outputRenderers: AgentCapabilityRegistries["outputRenderers"]
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
@@ -1082,6 +1083,7 @@ function toAgentAdapterRunContext<
   return {
     ...context,
     instructions: context.instructions,
+    modelExecutionInstrumentation: context.modelExecutionInstrumentation as never,
     runtime: context.runtimeContext,
     workspace: context.workspace as ReadonlyWorkspaceFacade<WorkspaceName> | undefined,
   }
@@ -1269,6 +1271,7 @@ async function createAgentInvocationContext<
       instructions,
       invoker,
       messages: capabilities.messages,
+      modelExecutionInstrumentation: capabilities.registries.modelExecutionInstrumentation,
       outputExtensionProviders: capabilities.registries.outputExtensionProviders,
       outputRenderers: capabilities.registries.outputRenderers,
       prompt: typeof capabilities.input.prompt === "string" ? capabilities.input.prompt : undefined,

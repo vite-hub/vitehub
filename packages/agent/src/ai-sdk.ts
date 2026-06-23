@@ -40,7 +40,10 @@ import type {
   AgentAdapterMetadataContext,
   AgentAdapterRunContext,
   AgentAdapterResult,
+  AgentCallSettingsInstrumentationContext,
+  AgentModelExecutionInstrumentation,
   AgentModelExecutionOptions,
+  AgentModelInstrumentationContext,
   AgentRuntimeConfig,
   AgentToolSet,
   AgentToolResolverWithWorkspace,
@@ -777,6 +780,45 @@ function withViteHubTelemetry(settings: Record<string, unknown>, context: AgentA
   }
 }
 
+function modelExecutionInstrumentation(
+  options: AiSdkAdapterOptions,
+  context: AgentAdapterRunContext,
+): AgentModelExecutionInstrumentation[] {
+  const instrumentation = options.execution?.instrumentation ?? options.modelExecution?.instrumentation
+  return [
+    ...(instrumentation ? [instrumentation as AgentModelExecutionInstrumentation] : []),
+    ...(context.modelExecutionInstrumentation || []),
+  ]
+}
+
+async function instrumentModel(
+  model: unknown,
+  instrumentations: AgentModelExecutionInstrumentation[],
+  context: AgentModelInstrumentationContext,
+) {
+  let current = model
+  for (const instrumentation of instrumentations) {
+    current = await instrumentation.model?.({ ...context, model: current }) ?? current
+  }
+  return current
+}
+
+async function instrumentCallSettings(
+  callSettings: Record<string, unknown>,
+  instrumentations: AgentModelExecutionInstrumentation[],
+  context: Omit<AgentCallSettingsInstrumentationContext, "callSettings">,
+) {
+  let current = callSettings
+  let patch: Record<string, unknown> | undefined
+  for (const instrumentation of instrumentations) {
+    const next = await instrumentation.callSettings?.({ ...context, callSettings: { ...current } })
+    if (!next) continue
+    patch = { ...patch, ...next }
+    current = { ...current, ...next }
+  }
+  return patch
+}
+
 async function createAgent(
   options: AiSdkAdapterOptions,
   context: AgentAdapterRunContext,
@@ -794,9 +836,9 @@ async function createAgent(
     workspace: context.workspace,
   } as AgentAdapterMetadataContext
   const model = await resolveValue(options.model as never, metadataContext)
-  const modelInstrumentation = execution?.instrumentation?.model
-  const instrumentedModel = modelInstrumentation
-    ? await modelInstrumentation({ ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
+  const instrumentations = modelExecutionInstrumentation(options, context)
+  const instrumentedModel = instrumentations.length
+    ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
   const instructions = applyWorkspaceSourceInstructionSlot(
     applyCapabilityInstructionSlots(context.instructions ?? await resolveInstructions(options, metadataContext), context.capabilityInstructions),
@@ -823,10 +865,9 @@ async function createAgent(
   } = options
   const stepLimit = execution?.stepLimit
   const baseCallSettings = { ...(execution?.callSettings || {}) }
-  const instrumentedCallSettings = await execution?.instrumentation?.callSettings?.({
+  const instrumentedCallSettings = await instrumentCallSettings(baseCallSettings, instrumentations, {
     ...runtime,
     actor: context.actor,
-    callSettings: { ...baseCallSettings },
     context: context.context,
     input: context.input,
     invoker: context.invoker,

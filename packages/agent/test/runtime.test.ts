@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createMessage, getMessageText } from "@vite-hub/agent"
 import { createTraceEventLog, deriveTraceRuns, emitTraceEvent } from "@vite-hub/runtime"
-import { chat, chatTitle, schedule, subagents } from "../src/capabilities.ts"
+import { chat, chatTitle, observability, schedule, subagents } from "../src/capabilities.ts"
 import { toJsonCompatibleValue } from "../src/tool-runtime.ts"
 
 import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
@@ -87,6 +87,59 @@ describe("agent message protocol", () => {
     })).rejects.toThrow("Missing GitHub field: context.pullRequest")
     expect(inputHook).toHaveBeenCalledTimes(2)
     expect(run).toHaveBeenCalledTimes(1)
+  })
+
+  it("emits observability events and finish extensions", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const standaloneEvents: string[] = []
+    const standaloneAgent = defineAgent({
+      capabilities: [
+        observability({
+          onEvent(event) {
+            standaloneEvents.push(event.type)
+          },
+        }),
+      ],
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(standaloneAgent, {
+      memo: vi.fn(),
+      run: { origin: "http", runId: "run-1" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })).resolves.toBe("ok")
+
+    expect(standaloneEvents).toEqual(["start", "finish"])
+
+    const events: string[] = []
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [
+        observability({
+          onEvent(event) {
+            events.push(event.type)
+          },
+        }),
+      ],
+      hooks: {
+        "agent:finish": finish,
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { origin: "http", runId: "run-1" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })).resolves.toBe("ok")
+
+    expect(events).toEqual(["start", "finish"])
+    expect(finish.mock.calls[0]?.[0].extensions.get("observability")).toMatchObject({
+      resultKind: "string",
+      status: "completed",
+    })
   })
 
   it("skips agent input hooks after a capability handles the input", async () => {

@@ -510,6 +510,9 @@ export interface AgentCapabilityRuntimeContext<
   model: {
     resolve: (model?: AgentModelResolver<TRuntimeConfig, Name>) => Promise<AgentModelInput>
   }
+  modelExecution: {
+    instrument: (instrumentation: AgentModelExecutionInstrumentation<TRuntimeConfig>) => void
+  }
   output: {
     extensions: AgentInvocationExtensions
     provide: (value: unknown | AgentOutputExtensionProvider) => void
@@ -1245,6 +1248,7 @@ export interface AgentAdapterRunContext<
   instructions?: string
   invoker: AgentInvoker
   messages: Message[]
+  modelExecutionInstrumentation?: AgentModelExecutionInstrumentation[]
   outputRenderers?: Array<(result: unknown) => MaybePromise<unknown>>
   prompt?: string
   providerTools?: AgentProviderToolContribution[]

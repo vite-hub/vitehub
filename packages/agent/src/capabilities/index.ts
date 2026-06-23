@@ -34,6 +34,9 @@ export {
   rateLimit,
 } from "./rate-limit.ts"
 export {
+  observability,
+} from "./observability.ts"
+export {
   repositoryHost,
 } from "./repository-host.ts"
 export {
@@ -206,6 +209,17 @@ export type {
   RateLimitStoreResult,
   RateLimitWindow,
 } from "./rate-limit.ts"
+export type {
+  AgentObservabilityErrorEvent,
+  AgentObservabilityEvent,
+  AgentObservabilityEventBase,
+  AgentObservabilityEventHandler,
+  AgentObservabilityFinishEvent,
+  AgentObservabilityFinishExtension,
+  AgentObservabilityOptions,
+  AgentObservabilityStartEvent,
+  AgentObservabilityStatus,
+} from "./observability.ts"
 export type {
   RepositoryHostClient,
   RepositoryHostOptions,

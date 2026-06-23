@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, defineAgentInvoker, type AgentActor, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDefinition, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
-import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceExec, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
+import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceExec, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -132,6 +132,25 @@ describe("agent public types", () => {
               expectTypeOf(subject).toEqualTypeOf<string>()
               return "usage"
             },
+          },
+        }),
+        observability({
+          instrumentation: {
+            callSettings({ callSettings, run }) {
+              expectTypeOf(callSettings).toEqualTypeOf<Readonly<Record<string, unknown>>>()
+              expectTypeOf(run?.runId).toEqualTypeOf<string | undefined>()
+            },
+            model({ model }) {
+              expectTypeOf(model).toEqualTypeOf<unknown>()
+              return model
+            },
+          },
+          onEvent(event) {
+            expectTypeOf(event.type).toEqualTypeOf<"error" | "finish" | "start">()
+            if (event.type === "error") {
+              expectTypeOf(event.error).toEqualTypeOf<unknown>()
+              expectTypeOf(event.status).toEqualTypeOf<"failed">()
+            }
           },
         }),
         chatTitle({
