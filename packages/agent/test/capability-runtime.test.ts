@@ -343,6 +343,173 @@ describe("agent capability runtime", () => {
     })).rejects.toThrow('workspace contribution source "review" conflicts with contributed Workspace Source "files"')
   })
 
+  it("rejects overlapping capability workspace rules", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "review",
+          workspace: {
+            rules: {
+              "artifacts/review/**": { write: true },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        rules: {
+          "artifacts/**": { write: true },
+        },
+      },
+    })).rejects.toThrow('workspace contribution rule "artifacts/review/**" conflicts with existing Workspace Rule "artifacts/**"')
+  })
+
+  it("rechecks capability workspace source mounts after Source Resolution", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              pullRequest: {
+                mount: "pull-request",
+                async resolve() {
+                  return {
+                    mount: "docs",
+                    async getKeys() {
+                      return ["summary.md"]
+                    },
+                    async getItem(key: string) {
+                      return { content: "review", key }
+                    },
+                  }
+                },
+                async getKeys() {
+                  return []
+                },
+                async getItem(key: string) {
+                  return { content: "", key }
+                },
+              },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {
+          docs: {
+            mount: "docs",
+            async getKeys() {
+              return ["README.md"]
+            },
+            async getItem(key: string) {
+              return { content: "docs", key }
+            },
+          },
+        },
+      },
+    })).rejects.toThrow('workspace contribution source "pullRequest" conflicts with Workspace Source "docs"')
+  })
+
+  it("rejects capability workspace sources that shadow existing Workspace paths", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const workspace = writableWorkspace()
+    await workspace.fs.writeFile("pull-request", "existing")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              pullRequest: {
+                materialize: "lazy",
+                mount: "pull-request",
+                async getKeys() {
+                  return ["summary.md"]
+                },
+                async getItem(key: string) {
+                  return { content: "review", key }
+                },
+              },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, workspace as never, "write", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })).rejects.toThrow('workspace contribution source "pullRequest" conflicts with an existing Workspace path at mount "pull-request"')
+  })
+
+  it("resolves capability workspace sources after access selects Workspace Scope", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const resolveSource = vi.fn(({ selectedWorkspaceScope }) => {
+      if (!selectedWorkspaceScope?.name) return false
+      return {
+        materialize: "lazy" as const,
+        mount: `ingestion/${selectedWorkspaceScope.name}`,
+        async getKeys() {
+          return ["orders.sql"]
+        },
+        async getItem(key: string) {
+          return { content: `select * from ${selectedWorkspaceScope.name}_orders\n`, key }
+        },
+      }
+    })
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "acme",
+            scopes: {
+              acme: { paths: ["ingestion/acme"] },
+            },
+          },
+        }),
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              pullRequest: {
+                async resolve(context) {
+                  return resolveSource(context)
+                },
+                async getKeys() {
+                  return []
+                },
+                async getItem(key: string) {
+                  return { content: "", key }
+                },
+              },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    expect(resolveSource).toHaveBeenCalledWith(expect.objectContaining({
+      selectedWorkspaceScope: expect.objectContaining({ name: "acme" }),
+    }))
+    await expect(resolved.workspace?.fs.readFile("ingestion/acme/orders.sql")).resolves.toBe("select * from acme_orders\n")
+  })
+
   it("preserves writable workspace methods when applying workspace contributions", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const workspace = writableWorkspace()

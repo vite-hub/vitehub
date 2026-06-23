@@ -9,6 +9,7 @@ import {
   type WorkspaceShellResult,
   workspaceSourceRequestDescriptorPath,
   type ReadonlyWorkspaceFacade,
+  type WritableWorkspaceFacade,
   type WorkspaceDefinition,
   type WorkspaceSourceResolutionOptions,
 } from "../src/index.ts"
@@ -88,6 +89,50 @@ function facade(workspace: ReturnType<typeof createWorkspace>): ReadonlyWorkspac
     tools: {
       inspect: () => ({}),
       none: () => ({}),
+    } as never,
+  }
+}
+
+function writableFacade(workspace: ReturnType<typeof createWorkspace>): WritableWorkspaceFacade {
+  return {
+    diff: async options => await workspace.diff(options),
+    fs: {
+      appendFile: async (path, content) => {
+        const current = await workspace.readFile(path).catch(() => "")
+        await workspace.writeFile(path, `${current}${content}`)
+      },
+      copyPath: async (from, to) => {
+        await workspace.writeFile(to, await workspace.readFile(from, { encoding: "binary" }))
+      },
+      exists: async path => await workspace.exists(path),
+      glob: async (pattern, options) => await workspace.glob(pattern as never, options),
+      list: async (path, options) => await workspace.list(path || "", options),
+      mkdir: async (path, options) => await workspace.mkdir(path, options),
+      movePath: async (from, to) => {
+        await workspace.writeFile(to, await workspace.readFile(from, { encoding: "binary" }))
+        await workspace.rm(from, { force: true, recursive: true })
+      },
+      readFile: async (path, options) => await workspace.readFile(path, options as never),
+      rm: async (path, options) => await workspace.rm(path, options),
+      search: async query => await workspace.search(query),
+      stat: async path => await workspace.stat(path),
+      writeFile: async (path, content, options) => await workspace.writeFile(path, content, options),
+    },
+    materializeSources: async options => await workspace.materializeSources?.(options) ?? {
+      bytes: 0,
+      directories: 0,
+      durationMs: 0,
+      files: 0,
+      path: options?.path || "",
+      sources: [],
+    },
+    snapshot: async options => await workspace.snapshot(options),
+    startSession: async options => await workspace.startSession(options),
+    sync: async options => await workspace.sync(options),
+    tools: {
+      inspect: () => ({}),
+      none: () => ({}),
+      write: () => ({}),
     } as never,
   }
 }
@@ -388,5 +433,102 @@ describe("Workspace Source Resolution", () => {
     await expect(workspace.fs.readFile("ingestion/acme/models/orders.sql")).resolves.toBe("select * from acme_orders\n")
     await expect(workspace.fs.exists("ingestion/globex/models/orders.sql")).resolves.toBe(false)
     await expect(base.exists("ingestion/acme/models/orders.sql")).resolves.toBe(false)
+  })
+
+  it("preserves base Workspace files for non-lazy sources in overlays", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    await base.writeFile("docs/README.md", "# Docs\n")
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          mount: "docs",
+          async getKeys() {
+            return ["README.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Source docs\n" }
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+
+    await expect(workspace.fs.readFile("docs/README.md")).resolves.toBe("# Docs\n")
+  })
+
+  it("keeps source-backed paths read-only in writable overlays", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      rules: {
+        "artifacts/**": { write: true },
+      },
+      sources: {
+        pullRequest: custom({
+          materialize: "lazy",
+          mount: "pull-request",
+          async getKeys() {
+            return ["body.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Pull request\n" }
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    const writable = workspace as WritableWorkspaceFacade
+
+    await expect(writable.fs.readFile("pull-request/body.md")).resolves.toBe("# Pull request\n")
+    await expect(writable.fs.writeFile("pull-request/body.md", "nope")).rejects.toThrow("read-only")
+    await expect(writable.fs.mkdir("pull-request/new")).rejects.toThrow("read-only")
+    await expect(writable.fs.rm("pull-request/body.md")).rejects.toThrow("read-only")
+    await expect(writable.fs.copyPath("artifacts/missing.md", "pull-request/copy.md")).rejects.toThrow("read-only")
+
+    await writable.fs.writeFile("artifacts/review.md", "ok")
+    await expect(base.readFile("artifacts/review.md")).resolves.toBe("ok")
+  })
+
+  it("starts writable overlay sessions from contributed sources and rules", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      rules: {
+        "artifacts/**": { write: true },
+      },
+      sources: {
+        pullRequest: custom({
+          materialize: "lazy",
+          mount: "pull-request",
+          async getKeys() {
+            return ["body.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Pull request\n" }
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    const session = await (workspace as WritableWorkspaceFacade).startSession()
+
+    await expect(session.readFile("pull-request/body.md")).resolves.toBe("# Pull request\n")
+    await expect(session.writeFile("pull-request/body.md", "nope")).rejects.toThrow("read-only")
+    await session.writeFile("artifacts/session.md", "ok")
+    await session.commit({ message: "session" })
+    await expect(base.readFile("artifacts/session.md")).resolves.toBe("ok")
   })
 })

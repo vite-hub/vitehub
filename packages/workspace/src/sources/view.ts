@@ -34,6 +34,7 @@ import type {
 export interface WorkspaceSourceView {
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
   writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<void>
+  assertWritable(path: string): Promise<void>
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   glob(pattern: string | string[], options?: GlobOptions): Promise<WorkspaceEntry[]>
   search(query: WorkspaceSearchQuery): Promise<WorkspaceSearchHit[]>
@@ -311,7 +312,22 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
     }
   }
 
+  async function assertWritablePath(path: string) {
+    if (isDescriptorPath(normalizeWorkspacePath(path))) {
+      throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+    }
+    const resolution = resolveWorkspacePath(definition, path)
+    if (isDescriptorPath(resolution.workspacePath)) {
+      throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
+    }
+    await assertWritableResolvedStorePath(path, resolution.workspacePath, resolution.type)
+    return resolution
+  }
+
   return {
+    async assertWritable(path) {
+      await assertWritablePath(path)
+    },
     async readFile(path, options) {
       const descriptorSource = descriptorSourceForPath(normalizeWorkspacePath(path))
       if (descriptorSource) return decodeFile(descriptorContent(descriptorSource), options)
@@ -331,14 +347,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return decodeFile(file.content, options)
     },
     async writeFile(path, content, options) {
-      if (isDescriptorPath(normalizeWorkspacePath(path))) {
-        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
-      }
-      const resolution = resolveWorkspacePath(definition, path)
-      if (isDescriptorPath(resolution.workspacePath)) {
-        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
-      }
-      await assertWritableResolvedStorePath(path, resolution.workspacePath, resolution.type)
+      const resolution = await assertWritablePath(path)
       const input = await writePolicy.before({
         content,
         mediaType: options?.mediaType,
@@ -432,14 +441,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       return Boolean(await store.stat(resolution.workspacePath))
     },
     async mkdir(path, options) {
-      if (isDescriptorPath(normalizeWorkspacePath(path))) {
-        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
-      }
-      const resolution = resolveWorkspacePath(definition, path)
-      if (isDescriptorPath(resolution.workspacePath)) {
-        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
-      }
-      await assertWritableResolvedStorePath(path, resolution.workspacePath, resolution.type)
+      const resolution = await assertWritablePath(path)
       const input = await writePolicy.before({
         operation: "mkdir",
         path: resolution.workspacePath,
@@ -456,14 +458,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       }
     },
     async rm(path, options) {
-      if (isDescriptorPath(normalizeWorkspacePath(path))) {
-        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
-      }
-      const resolution = resolveWorkspacePath(definition, path)
-      if (isDescriptorPath(resolution.workspacePath)) {
-        throw new WorkspaceError(`[vitehub] Source-backed workspace paths are read-only: ${path}.`)
-      }
-      await assertWritableResolvedStorePath(path, resolution.workspacePath, resolution.type)
+      const resolution = await assertWritablePath(path)
       const input = await writePolicy.before({
         operation: "rm",
         path: resolution.workspacePath,

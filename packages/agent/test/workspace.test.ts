@@ -2686,8 +2686,14 @@ describe("defineAgent workspace option", () => {
   it("renders Capability Workspace Contribution source instructions in resolved DevTools metadata", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const { pullRequestContext } = await import("../src/capabilities.ts")
-    exists.mockImplementation(async path => path === "pull-request")
+    exists.mockResolvedValue(false)
     list.mockResolvedValue([])
+    const metadataWorkspace = readonlyWorkspaceFacade()
+    metadataWorkspace.fs.exists = vi.fn(async path => path === "pull-request")
+    createWorkspaceSourceResolutionFacade.mockImplementationOnce(async (_workspace, definition) => ({
+      definition,
+      workspace: metadataWorkspace,
+    }))
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
       capabilities: [
