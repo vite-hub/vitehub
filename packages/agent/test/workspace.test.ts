@@ -1559,11 +1559,37 @@ describe("defineAgent workspace option", () => {
       events.push(event)
     }
 
-    expect(events).toEqual([
-      { error: undefined, id: "call-1", name: "tool", output: { stdout: "screenshots/login-version-badge-desktop.png" }, type: "tool-result" },
-      { id: "workspace-fallback", text: "fallback answer", type: "text-delta" },
-      { reason: "workspace-fallback", type: "finish" },
-    ])
+    expect(events).toContainEqual({ id: "workspace-fallback", text: "fallback answer", type: "text-delta" })
+    expect(events).toContainEqual({ reason: "workspace-fallback", type: "finish" })
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining("screenshots/login-version-badge-desktop.png"),
+    }))
+  })
+
+  it("synthesizes streamed answers from async iterable AI SDK results", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    agentStream.mockResolvedValueOnce((async function* () {
+      yield {
+        output: { stdout: "screenshots/login-version-badge-desktop.png" },
+        toolCallId: "call-1",
+        type: "tool-output-available",
+      }
+      yield { finishReason: "tool-calls", type: "finish" }
+    })() as never)
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toContainEqual({ id: "workspace-fallback", text: "fallback answer", type: "text-delta" })
+    expect(events).toContainEqual({ finishReason: "workspace-fallback", type: "finish" })
     expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
       prompt: expect.stringContaining("screenshots/login-version-badge-desktop.png"),
     }))

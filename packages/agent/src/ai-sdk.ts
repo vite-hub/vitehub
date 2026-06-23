@@ -2,6 +2,7 @@ import { getMessageText } from "./messages.ts"
 import { jsonSchema } from "ai"
 import {
   cloneWithPropertyDescriptors,
+  isAsyncIterable,
   teeingAsyncIterableStreamDescriptor,
 } from "./internal/stream-result.ts"
 import {
@@ -497,6 +498,9 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
     return cloneStreamTextResult(result as object, {
       stream: withWorkspaceFallbackFullStream(result.stream, model, context, fallback.maxToolResults, capturedEvidence),
     }) as T
+  }
+  if (isAsyncIterable(result)) {
+    return withWorkspaceFallbackFullStream(result, model, context, fallback.maxToolResults, capturedEvidence) as unknown as T
   }
   return result
 }
