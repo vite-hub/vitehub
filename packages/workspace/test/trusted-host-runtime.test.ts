@@ -267,4 +267,25 @@ describe("trusted host workspace runtime", () => {
 
     await expect(workspace.startSession()).rejects.toThrow("only available outside production")
   })
+
+  it("allows trusted host sessions in production when explicitly opted in", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: { type: "trusted-host", allowProduction: true },
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+    await workspace.writeFile("README.md", "# Docs\n")
+
+    const session = await workspace.startSession()
+    const result = await session.exec(process.execPath, [
+      "-e",
+      "process.stdout.write(require('node:fs').readFileSync('README.md', 'utf8'))",
+    ])
+
+    expect(result).toMatchObject({ exitCode: 0, stdout: "# Docs\n" })
+    await session.close()
+  })
 })

@@ -33,14 +33,13 @@ describe("vitehub", () => {
       "@vite-hub/database/vite",
       "@vite-hub/blob/vite",
       "@vite-hub/kv/vite",
-      "@vite-hub/queue/vite",
       "@vite-hub/sandbox/vite",
       "@vite-hub/schedule/vite",
       "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
       "@vite-hub/devtools",
     ])
-    expect(pluginNames(vitehub({ database: false, devtools: false, kv: false, queue: false }))).toEqual([
+    expect(pluginNames(vitehub({ database: false, devtools: false, kv: false }))).toEqual([
       "@vite-hub/env/vite",
       "@vite-hub/agent/vite",
       "@vite-hub/blob/vite",
@@ -49,6 +48,8 @@ describe("vitehub", () => {
       "@vite-hub/workflow/vite",
       "@vite-hub/workspace/vite",
     ])
+    expect(pluginNames(vitehub({ queue: true }))).toContain("@vite-hub/queue/vite")
+    expect(pluginNames(vitehub({ queue: { provider: "cloudflare" } }))).toContain("@vite-hub/queue/vite")
   })
 
   it("can be used as one nested Vite plugin entry", () => {

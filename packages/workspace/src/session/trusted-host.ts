@@ -25,9 +25,17 @@ import type {
   WorkspaceSessionOptions,
 } from "../core/types.ts"
 
-function assertTrustedHostWorkspaceRuntimeAllowed() {
+function trustedHostRuntimeAllowsProduction(definition: WorkspaceDefinition) {
+  const runtime = definition.runtime
+  return typeof runtime === "object"
+    && runtime !== null
+    && runtime.type === "trusted-host"
+    && runtime.allowProduction === true
+}
+
+function assertTrustedHostWorkspaceRuntimeAllowed(definition: WorkspaceDefinition) {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
-  if (env?.NODE_ENV === "production") {
+  if (env?.NODE_ENV === "production" && !trustedHostRuntimeAllowsProduction(definition)) {
     throw new WorkspaceError("[vitehub] Workspace runtime `trusted-host` is only available outside production. Use `runtime: 'sandbox'` for hosted executable workspaces.")
   }
 }
@@ -222,11 +230,11 @@ async function execLocal(root: string, command: string, args: string[] = [], opt
 }
 
 export async function createTrustedHostWorkspaceSession(
-  _definition: WorkspaceDefinition,
+  definition: WorkspaceDefinition,
   workspace: Workspace,
   options?: WorkspaceSessionOptions,
 ): Promise<WorkspaceSession> {
-  assertTrustedHostWorkspaceRuntimeAllowed()
+  assertTrustedHostWorkspaceRuntimeAllowed(definition)
   const root = await mkdtemp(join(tmpdir(), `vitehub-workspace-${workspace.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "workspace"}-`))
   let baseline = await materializeWorkspace(workspace, root, options).catch(async (error) => {
     await rm(root, { force: true, recursive: true })

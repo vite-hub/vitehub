@@ -581,7 +581,7 @@ export interface WorkspaceDefinition {
   name: string
   rootDir?: string
   sourceRootDir?: string
-  runtime?: "sandbox" | "trusted-host"
+  runtime?: WorkspaceRuntime
   store?: WorkspaceStoreOptions
   sources?: Record<string, WorkspaceSourceInput>
   loaders?: WorkspaceLoader[]
@@ -589,6 +589,21 @@ export interface WorkspaceDefinition {
   plugins?: WorkspacePlugin[]
   rules?: WorkspaceRules
   hooks?: WorkspaceHooks
+}
+
+export type WorkspaceRuntime =
+  | "sandbox"
+  | "trusted-host"
+  | WorkspaceSandboxRuntimeOptions
+  | WorkspaceTrustedHostRuntimeOptions
+
+export interface WorkspaceSandboxRuntimeOptions {
+  type: "sandbox"
+}
+
+export interface WorkspaceTrustedHostRuntimeOptions {
+  type: "trusted-host"
+  allowProduction?: boolean
 }
 
 export type WorkspaceDefinitionInput = Omit<WorkspaceDefinition, "name"> & {

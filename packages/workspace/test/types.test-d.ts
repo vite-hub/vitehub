@@ -87,6 +87,9 @@ describe("workspace types", () => {
     defineWorkspace({
       runtime: "trusted-host",
     })
+    defineWorkspace({
+      runtime: { type: "trusted-host", allowProduction: true },
+    })
     file({
       workspacePath: "AGENTS.md",
       content: "# Instructions\n",
