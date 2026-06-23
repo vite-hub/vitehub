@@ -80,8 +80,8 @@ import type {
   AgentChatOptions,
   AgentHandlerOptions,
   AgentInput,
+  AgentInputHook,
   AgentInstructionBlock,
-  AgentInvocationHooks,
   AgentInvocationContextStore,
   AgentInvocationContextValues,
   AgentHookObserverHooks,
@@ -196,6 +196,7 @@ export type {
   AgentHarnessSandboxInput,
   AgentHarnessSessionKey,
   AgentInput,
+  AgentInputHook,
   AgentInstructionBlock,
   AgentIntegrationOption,
   AgentHookObserver,
@@ -875,7 +876,7 @@ export interface DefineAgent {
     >,
   >(
     options: TOptions & { capabilities?: TCapabilities } & ValidateWorkspaceAgentOptions<TOptions>,
-  ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS>
+  ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>, TCapabilities>
   <
     TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
     CALL_OPTIONS = unknown,
@@ -889,7 +890,7 @@ export interface DefineAgent {
       AgentCapabilitiesInvocationContextValues<TCapabilities>,
       TCapabilities
     > & { capabilities?: TCapabilities, workspace?: never },
-  ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS>
+  ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, AgentCapabilitiesInvocationContextValues<TCapabilities>>
 }
 
 function createWorkspaceAgentDefinition<
@@ -1140,6 +1141,32 @@ async function createAgentInvocationContext<
       model: agentModel as never,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
+    const inputHook = definition?.hooks?.["agent:input"]
+    if (inputHook) {
+      try {
+        await runObservedAgentHook(definition?.hooks as AgentHookObserverHooks | undefined, {
+          name: "agent:input",
+          owner: "agent",
+          phase: "input",
+        }, () => inputHook({
+          ...callbackContext,
+          actor: invoker,
+          context: invocationContext,
+          input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
+          invoker,
+          run: context.run,
+        }))
+      }
+      catch (error) {
+        try {
+          await capabilities.close()
+        }
+        catch (closeError) {
+          throw new AggregateError([error, closeError], "[vitehub] Agent input hook failed and cleanup also failed.")
+        }
+        throw error
+      }
+    }
     const transformedTools = await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
     const tools = Object.keys(transformedTools || {}).length
       ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {}), context.devtools?.reportToolStep)

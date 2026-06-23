@@ -777,6 +777,13 @@ describe("agent public types", () => {
           },
         }),
       ],
+      hooks: {
+        "agent:input"({ context }) {
+          const accessContext = context.get("access")
+          expectTypeOf(accessContext).toMatchTypeOf<AccessInvocationContextValue<"demo" | "quiver"> | undefined>()
+          expectTypeOf(accessContext?.workspaceScope?.scope).toEqualTypeOf<"demo" | "quiver" | undefined>()
+        },
+      },
       run({ actor, context }) {
         const accessContext = context.get("access")
         expectTypeOf(actor.id).toEqualTypeOf<string>()
