@@ -42,6 +42,35 @@ describe("trusted host workspace runtime", () => {
     await expect(workspace.readFile("generated/result.txt")).resolves.toBe("done\n")
   })
 
+  it("commits new files under globstar writable directories from scoped sessions", async () => {
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "trusted-host",
+        rules: {
+          "screenshots/**": { write: true },
+          "skills/**": { write: true },
+          "**": { write: false },
+        },
+        store: { provider: "memory" },
+      }),
+      name: "review",
+    })
+    await workspace.writeFile("skills/browser/SKILL.md", "# Browser\n")
+    await workspace.writeFile("screenshots/.gitkeep", "")
+
+    const session = await workspace.startSession({ paths: ["skills/browser"] })
+    const result = await session.exec(process.execPath, [
+      "-e",
+      "const fs = require('node:fs'); fs.mkdirSync('screenshots', { recursive: true }); fs.writeFileSync('screenshots/login-version-badge-desktop.png', 'png\\n')",
+    ])
+
+    expect(result.exitCode).toBe(0)
+    await expect(session.commit()).resolves.toBeUndefined()
+    await session.close()
+
+    await expect(workspace.readFile("screenshots/login-version-badge-desktop.png")).resolves.toBe("png\n")
+  })
+
   it("scopes command cwd inside the materialized workspace", async () => {
     const workspace = createWorkspace({
       ...defineWorkspace({

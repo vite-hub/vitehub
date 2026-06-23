@@ -361,6 +361,13 @@ function workspaceFallbackFinishEvent(finishEvent: unknown): unknown {
     : { finishReason: "workspace-fallback", type: "finish" }
 }
 
+function finishEventReason(event: unknown): string | undefined {
+  if (typeof event !== "object" || event === null) return undefined
+  const record = event as { finishReason?: unknown, reason?: unknown }
+  const reason = record.finishReason ?? record.reason
+  return typeof reason === "string" ? reason : undefined
+}
+
 function workspaceFallbackTextEvents(text: string): unknown[] {
   const id = "workspace-fallback"
   return [
@@ -401,7 +408,7 @@ function withWorkspaceFallbackFullStream(
       yield event
     }
 
-    if (text.trim() || evidence.length === 0) {
+    if ((text.trim() && finishEventReason(finishEvent) !== "tool-calls") || evidence.length === 0) {
       if (finishEvent) yield finishEvent
       return
     }
@@ -756,14 +763,13 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         onStepEnd: usageCapture.onStepEnd,
       } as never) as GenerateTextResult<ToolSet, never, never>, usageCapture), model) as GenerateTextResult<ToolSet, never, never>
       const text = result.text.trim()
-      if (text) return result as unknown as AgentAdapterResult
-
       const execution = options.execution ?? options.modelExecution
       const fallback = getFallbackOptions(execution?.workspaceFallback)
-      if (fallback.enabled && (result.finishReason === "tool-calls" || hasToolResults(result))) {
+      if (fallback.enabled && (result.finishReason === "tool-calls" || !text && hasToolResults(result))) {
         const synthesized = await synthesizeWorkspaceFallback(model as never, context, result, fallback.maxToolResults)
         if (synthesized) return { raw: result, text: synthesized }
       }
+      if (text) return result as unknown as AgentAdapterResult
 
       return result as unknown as AgentAdapterResult
     },

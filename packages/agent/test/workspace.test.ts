@@ -1336,6 +1336,37 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
+  it("synthesizes streamed answers when tool loops finish with tool calls after pre-tool text", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    agentStream.mockResolvedValueOnce({
+      fullStream: (async function* () {
+        yield { id: "msg-1", text: "I will inspect the workspace first.", type: "text-delta" }
+        yield {
+          output: { stdout: "summary.md:1: final summary from subagent" },
+          toolCallId: "call-1",
+          type: "tool-output-available",
+        }
+        yield { finishReason: "tool-calls", type: "finish" }
+      })(),
+    })
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toContainEqual({ id: "workspace-fallback", text: "fallback answer", type: "text-delta" })
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining("summary.md:1"),
+    }))
+  })
+
   it("emits streamed workspace fallback text before finish events", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     agentStream.mockResolvedValueOnce({
