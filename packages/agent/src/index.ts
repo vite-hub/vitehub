@@ -1183,7 +1183,7 @@ async function createAgentInvocationContext<
     const workspace = workspaceName && workspaceModule
       ? workspaceMode === "write"
         ? workspaceModule.useWorkspace(workspaceName, workspaceUseOptions ? { ...workspaceUseOptions, mode: "write" } : { mode: "write" })
-        : workspaceUseOptions ? workspaceModule.useWorkspace(workspaceName, workspaceUseOptions) : workspaceModule.useWorkspace(workspaceName)
+        : workspaceUseOptions ? workspaceModule.useWorkspace(workspaceName, { ...workspaceUseOptions, mode: "read" }) : workspaceModule.useWorkspace(workspaceName)
       : undefined
     const capabilityOptions = definition?.capabilities?.length
       ? { capabilities: definition.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: definition.hooks as never }
