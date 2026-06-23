@@ -40,6 +40,7 @@ type WorkspaceAccessRuntime = Pick<
   | "createWorkspaceSourceResolutionFacade"
   | "createWorkspaceTools"
   | "getWorkspaceSourceRequestExecution"
+  | "hasWorkspaceSourceResolvers"
   | "isWorkspaceSourceRequestOnly"
   | "workspaceSourceRequestDescriptorPath"
 >
@@ -310,6 +311,9 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       }
       const workspaceRuntime = await loadWorkspaceAccessRuntime()
       const scope = await resolveWorkspaceScope(options.workspace, context, workspaceRuntime)
+      const hasSourceResolvers = context.workspaceDefinition
+        ? workspaceRuntime.hasWorkspaceSourceResolvers(context.workspaceDefinition)
+        : false
       const sourceResolution = context.workspaceDefinition
         ? await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace, context.workspaceDefinition, {
             invocation: {
@@ -325,9 +329,10 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
           })
         : { definition: context.workspaceDefinition, workspace: context.workspace }
       const finalScope = finalizeResolvedWorkspaceScope(scope, sourceResolution.definition, workspaceRuntime)
+      const workspaceForScope = hasSourceResolvers ? sourceResolution.workspace : context.workspace
       const scopedWorkspace = finalScope.all
-        ? sourceResolution.workspace
-        : createScopedWorkspaceFacade(sourceResolution.workspace, finalScope, workspaceRuntime)
+        ? workspaceForScope
+        : createScopedWorkspaceFacade(workspaceForScope, finalScope, workspaceRuntime)
       context.context.set("access", {
         workspaceScope: {
           all: finalScope.all,
