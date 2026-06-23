@@ -327,6 +327,22 @@ async function synthesizeWorkspaceFallbackFromEvidence(
   return summary.text.trim() || undefined
 }
 
+function createWorkspaceFallbackEvidenceCapture(maxToolResults: number) {
+  const evidence: string[] = []
+
+  return {
+    collect(event: unknown) {
+      for (const output of collectToolResultOutputs(event)) {
+        if (evidence.length >= maxToolResults) break
+        evidence.push(JSON.stringify(output).slice(0, 4000))
+      }
+    },
+    evidence() {
+      return evidence.slice()
+    },
+  }
+}
+
 function streamEventText(event: unknown): string | undefined {
   if (typeof event === "string") return event
   if (typeof event !== "object" || event === null) return undefined
@@ -421,6 +437,7 @@ function withWorkspaceFallbackFullStream(
   model: ToolLoopAgentSettings["model"],
   context: AgentAdapterRunContext,
   maxToolResults: number,
+  capturedEvidence?: () => string[],
 ): AsyncIterable<unknown> {
   return (async function* () {
     let text = ""
@@ -446,13 +463,18 @@ function withWorkspaceFallbackFullStream(
       yield event
     }
 
-    const hasFinalText = evidence.length ? textAfterLastToolResult.trim() : text.trim()
-    if ((hasFinalText && finishEventReason(finishEvent) !== "tool-calls") || evidence.length === 0) {
+    const fallbackEvidence = evidence.length ? evidence : capturedEvidence?.() ?? []
+    const hasFinalText = evidence.length
+      ? textAfterLastToolResult.trim()
+      : fallbackEvidence.length
+        ? ""
+        : text.trim()
+    if ((hasFinalText && finishEventReason(finishEvent) !== "tool-calls") || fallbackEvidence.length === 0) {
       if (finishEvent) yield finishEvent
       return
     }
 
-    const synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, evidence)
+    const synthesized = await synthesizeWorkspaceFallbackFromEvidence(model, context, fallbackEvidence)
     if (synthesized) {
       yield* workspaceFallbackTextEvents(synthesized)
       yield workspaceFallbackFinishEvent(finishEvent)
@@ -467,9 +489,10 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
   model: ToolLoopAgentSettings["model"],
   context: AgentAdapterRunContext,
   fallback: Required<AiSdkWorkspaceFallbackOptions>,
+  capturedEvidence?: () => string[],
 ): T {
   if (!fallback.enabled || !result.fullStream) return result
-  return cloneStreamTextResult(result as object, withWorkspaceFallbackFullStream(result.fullStream, model, context, fallback.maxToolResults)) as T
+  return cloneStreamTextResult(result as object, withWorkspaceFallbackFullStream(result.fullStream, model, context, fallback.maxToolResults, capturedEvidence)) as T
 }
 
 async function resolveValue<T>(value: T | ((context: AgentAdapterMetadataContext) => MaybePromise<T>), context: AgentAdapterMetadataContext): Promise<T> {
@@ -833,15 +856,22 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
     async stream(context) {
       const { agent, model } = await createAgent(options, context)
       const usageCapture = createUsageCapture()
+      const execution = options.execution ?? options.modelExecution
+      const fallback = getFallbackOptions(execution?.workspaceFallback)
+      const fallbackCapture = fallback.enabled
+        ? createWorkspaceFallbackEvidenceCapture(fallback.maxToolResults)
+        : undefined
       const callInput = getCallInput(context) as Record<string, unknown>
       const result = withResolvedModelMetadata(withCapturedUsage(await agent.stream({
         ...callInput,
         onEnd: usageCapture.onEnd,
         onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
-        onStepEnd: usageCapture.onStepEnd,
+        async onStepEnd(event: unknown) {
+          await usageCapture.onStepEnd(event)
+          fallbackCapture?.collect(event)
+        },
       } as never) as StreamTextResult<ToolSet, never, never>, usageCapture), model) as StreamTextResult<ToolSet, never, never>
-      const execution = options.execution ?? options.modelExecution
-      return withWorkspaceFallbackStreamResult(result, model as never, context, getFallbackOptions(execution?.workspaceFallback))
+      return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)
     },
   }
 }

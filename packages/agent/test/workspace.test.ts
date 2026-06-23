@@ -1434,6 +1434,45 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
+  it("synthesizes streamed answers from step callback tool results", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    agentStream.mockImplementationOnce(async (input: unknown) => {
+      const callInput = input as { onStepEnd?: (event: unknown) => Promise<void> }
+      await callInput.onStepEnd?.({
+        toolResults: [
+          {
+            output: { text: "Browser evidence from callback: screenshots/login-version-badge-desktop.png" },
+            toolCallId: "call-1",
+            toolName: "run_browser",
+          },
+        ],
+      })
+
+      return {
+        fullStream: (async function* () {
+          yield { id: "msg-1", text: "I will inspect the workspace first.", type: "text-delta" }
+          yield { finishReason: "tool-calls", type: "finish" }
+        })(),
+      }
+    })
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { messages: [] })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toContainEqual({ id: "workspace-fallback", text: "fallback answer", type: "text-delta" })
+    expect(generateText).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining("Browser evidence from callback"),
+    }))
+  })
+
   it("emits streamed workspace fallback text before finish events", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     agentStream.mockResolvedValueOnce({
