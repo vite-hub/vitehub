@@ -113,6 +113,19 @@ describe("@vite-hub/source GitHub source", () => {
     expect((archiveCall?.[1]?.headers as Record<string, string> | undefined)?.authorization).toBe("Bearer github-token")
   })
 
+  it("omits GitHub auth when auth is explicitly false", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    }, { apiStatus: 403 })
+
+    registerSources({ docs: github({ auth: false, repo: "acme/app", root: "docs" }) })
+
+    await expect(useSource("docs").keys()).resolves.toEqual(["README.md"])
+
+    const headers = vi.mocked(fetch).mock.calls.map(([, init]) => init?.headers as Record<string, string> | undefined)
+    expect(headers.every(header => header?.authorization === undefined)).toBe(true)
+  })
+
   it("keys GitHub archive cache by the resolved auth token", async () => {
     let token = "first-token"
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, init?: RequestInit) => {

@@ -33,7 +33,7 @@ declare global {
 describe("workspace types", () => {
   it("exports source helper option types from the root", () => {
     const fetchOptions = { url: "https://status.example.com/api/summary" } satisfies FetchSourceOptions
-    const githubOptions = { repo: "acme/docs" } satisfies GitHubSourceOptions
+    const githubOptions = { auth: false, repo: "acme/docs" } satisfies GitHubSourceOptions
     const globOptions = { include: "**/*.md" } satisfies GlobSourceOptions
     const mcpResourcesOptions = { server: { transport: { type: "http", url: "https://example.com/mcp" } } } satisfies McpResourcesSourceOptions
 

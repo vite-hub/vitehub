@@ -118,6 +118,7 @@ function inferRepositoryMount(repo: string | undefined) {
 }
 
 function createGitHubAuthResolver(auth: GitHubAuth | undefined, envFileToken?: string) {
+  if (auth === false) return false
   return () => {
     return resolveGitHubAuth(auth)
       || getActiveCloudflareBinding<string>("GITHUB_TOKEN")
@@ -127,5 +128,7 @@ function createGitHubAuthResolver(auth: GitHubAuth | undefined, envFileToken?: s
 }
 
 function resolveGitHubAuth(auth: GitHubAuth | undefined): string | undefined {
-  return typeof auth === "function" ? auth() : auth
+  if (auth === false) return undefined
+  if (typeof auth === "function") return auth()
+  return typeof auth === "string" ? auth : undefined
 }

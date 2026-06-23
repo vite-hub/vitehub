@@ -39,7 +39,7 @@ describe("@vite-hub/source types", () => {
     expectTypeOf(mcpResources({ server: { transport: { type: "http", url: "https://example.com/mcp" } } })).toMatchTypeOf<Source<string>>()
     const sources = defineSources({
       docs: staticSource,
-      dynamic: github({ repo: "acme/app" }),
+      dynamic: github({ auth: false, repo: "acme/app" }),
     })
 
     registerSources(sources)

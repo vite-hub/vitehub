@@ -309,6 +309,22 @@ describe("sources, loaders, and publishers", () => {
     expect(archiveRequestAuthorization()).toBe("Bearer explicit-token")
   })
 
+  it("skips all GitHub auth fallbacks when auth is false", async () => {
+    const root = await createRoot()
+    await writeFile(join(root, ".env"), "GITHUB_TOKEN=env-file-token\n")
+    process.env.GITHUB_TOKEN = "runtime-token"
+    ;(globalThis as { __env__?: Record<string, unknown> }).__env__ = { GITHUB_TOKEN: "cloudflare-token" }
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+
+    const githubSource = github({ auth: false, repo: "acme/public" })
+
+    await githubSource.getKeys({ rootDir: root, workspace: "github-public-auth-false" })
+
+    expect(archiveRequestAuthorization()).toBeUndefined()
+  })
+
   it("keeps public GitHub source requests unauthenticated when no token exists", async () => {
     stubGitHubSource({
       "docs/README.md": "# Docs\n",
