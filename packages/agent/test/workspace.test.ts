@@ -14,6 +14,7 @@ const createWorkspaceTools = vi.fn(() => ({}))
 const createWorkspaceSourceResolutionFacade = vi.fn(async (workspace: ReadonlyWorkspaceFacade | WritableWorkspaceFacade, definition: unknown) => ({ definition, workspace }))
 const getWorkspaceSourceRequestDescriptor = vi.fn((_: unknown): { method: string, url: string } | undefined => undefined)
 const isWorkspaceSourceRequestOnly = vi.fn((_: unknown): boolean => false)
+const resolveRegisteredWorkspaceDefinition = vi.fn()
 const resolveWorkspaceAutoCommit = vi.fn()
 const workspaceSourceRequestDescriptorPath = vi.fn((source: string) => `.vitehub/sources/${source}.json`)
 const useWorkspace = vi.fn<() => ReadonlyWorkspaceFacade | WritableWorkspaceFacade>(() => ({
@@ -104,6 +105,7 @@ vi.mock("@vite-hub/workspace", async (importOriginal) => {
     getWorkspaceSourceRequestDescriptor,
     isWorkspaceSourceRequestOnly,
     prepareHarnessWorkspaceSession,
+    resolveRegisteredWorkspaceDefinition,
     resolveWorkspaceAutoCommit,
     workspaceSourceRequestDescriptorPath,
     useWorkspace,
@@ -170,6 +172,8 @@ describe("defineAgent workspace option", () => {
     readFile.mockReset()
     writeFile.mockReset()
     snapshot.mockReset()
+    resolveRegisteredWorkspaceDefinition.mockReset()
+    resolveRegisteredWorkspaceDefinition.mockResolvedValue(undefined)
     resolveWorkspaceAutoCommit.mockReset()
     resolveWorkspaceAutoCommit.mockReturnValue(undefined)
     tools.mockClear()
@@ -562,12 +566,14 @@ describe("defineAgent workspace option", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
     const workspaceName = `shared-reference-${Math.random().toString(36).slice(2)}`
-    registerWorkspace(workspaceName, {
+    const workspaceDefinition = {
       sources: {
         summaryInstructions: { instructions: "Use the summary instructions.", name: "summary" } as never,
       },
       store: { provider: "memory" },
-    })
+    }
+    registerWorkspace(workspaceName, workspaceDefinition)
+    resolveRegisteredWorkspaceDefinition.mockResolvedValueOnce(workspaceDefinition)
 
     const agent = defineAgent({
       workspace: { name: workspaceName, mode: "write" },
