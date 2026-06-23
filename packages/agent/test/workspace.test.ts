@@ -14,6 +14,7 @@ const diff = vi.fn()
 const snapshot = vi.fn()
 const tools = vi.fn(() => ({}))
 const inspectTools = vi.fn(() => ({}))
+const writeTools = vi.fn(() => ({}))
 const createWorkspaceTools = vi.fn(() => ({}))
 const createWorkspaceSourceResolutionFacade = vi.fn(async (workspace: ReadonlyWorkspaceFacade | WritableWorkspaceFacade, definition: unknown) => ({ definition, workspace }))
 const getWorkspaceSourceRequestDescriptor = vi.fn((_: unknown): { method: string, url: string } | undefined => undefined)
@@ -188,6 +189,8 @@ describe("defineAgent workspace option", () => {
     tools.mockClear()
     inspectTools.mockReset()
     inspectTools.mockReturnValue({})
+    writeTools.mockReset()
+    writeTools.mockReturnValue({})
     createWorkspaceTools.mockReset()
     createWorkspaceTools.mockReturnValue({})
     createWorkspaceSourceResolutionFacade.mockClear()
@@ -280,7 +283,7 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toContain("Skill \"agent-browser\" is mounted at `skills/agent-browser`.")
     expect(agentSettings.at(-1)?.instructions).toContain("Description: Browser automation CLI for AI agents.")
     expect(agentSettings.at(-1)?.instructions).toContain("Read `skills/agent-browser/SKILL.md` before using this skill.")
-    expect(agentSettings.at(-1)?.instructions).toContain("Use the `skill_shell` tool")
+    expect(agentSettings.at(-1)?.instructions).toContain("Use the Workspace Shell tools")
   })
 
   it("records opt-in skill shell execution mode", async () => {
@@ -482,6 +485,50 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("attaches skill sources before validating the required skill path", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const workspaceName = `review-${Math.random().toString(36).slice(2)}`
+    const skillSource = {
+      include: ["SKILL.md", "references/**", "templates/**"],
+      materialize: "lazy",
+      ref: "d9884256545389d67cfaba12cac9f8c60b5630e9",
+      repo: "vercel/vercel-plugin",
+      root: "skills/agent-browser",
+    }
+    let validated = false
+    exists.mockImplementationOnce(async (path) => {
+      expect(path).toBe("skills/agent-browser/SKILL.md")
+      expect(useWorkspace).toHaveBeenCalledWith(workspaceName, {
+        definition: expect.objectContaining({
+          sources: {
+            "skill.agent-browser": {
+              mount: "skills/agent-browser",
+              source: skillSource,
+            },
+          },
+        }),
+        mode: "read",
+      })
+      validated = true
+      return true
+    })
+
+    const agent = defineAgent({
+      capabilities: [
+        skills({
+          path: "skills/agent-browser",
+          source: skillSource as never,
+        }),
+      ],
+      model: {} as never,
+      workspace: { name: workspaceName },
+    })
+
+    await expect(agent.run!(context())).resolves.toBe("ok")
+    expect(validated).toBe(true)
+  })
+
   it("rejects duplicate capability source keys on shared named workspace references", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
@@ -512,33 +559,45 @@ describe("defineAgent workspace option", () => {
     await expect(agent.run!(context())).rejects.toThrow('Workspace source "instructions" is already defined.')
   })
 
-  it("exposes opt-in skill shell execution through a workspace session", async () => {
-    const session = {
-      close: vi.fn(),
-      commit: vi.fn(),
-      exec: vi.fn(async () => ({
-        args: ["-lc", "agent-browser snapshot -i"],
-        command: "bash",
-        exitCode: 0,
-        stderr: "",
-        stdout: "snapshot",
-      })),
-    }
-    const startSession = vi.fn(async () => session)
+  it("exposes read-mode skill shell execution through Workspace Shell inspect tools", async () => {
+    inspectTools.mockReturnValueOnce({
+      workspace_shell: { name: "workspace_shell" },
+    })
+    agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, unknown> } }) {
+      return { finishReason: "stop", text: Object.keys(this.settings.tools).sort().join(",") }
+    })
+    exists.mockResolvedValue(true)
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [skills({ path: "skills/agent-browser", shellExecution: "read" })],
+      model: {} as never,
+      workspace: {},
+    })
+
+    await expect(agent.run!(context())).resolves.toBe("workspace_shell")
+    expect(inspectTools).toHaveBeenCalledTimes(1)
+    expect(writeTools).not.toHaveBeenCalled()
+  })
+
+  it("exposes write-mode skill shell execution through Workspace Shell write tools", async () => {
+    writeTools.mockReturnValueOnce({
+      workspace_write: { name: "workspace_write" },
+    })
     useWorkspace.mockReturnValueOnce({
       diff,
       fs: { exists, list, readFile, writeFile },
       snapshot,
-      startSession,
       tools: Object.assign(tools, {
         inspect: inspectTools,
         none: vi.fn(() => ({})),
         readonly: inspectTools,
+        write: writeTools,
       }),
     } as unknown as WritableWorkspaceFacade)
-    agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
-      const output = await this.settings.tools.skill_shell.execute({ command: "agent-browser snapshot -i" })
-      return { finishReason: "stop", text: JSON.stringify(output) }
+    agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, unknown> } }) {
+      return { finishReason: "stop", text: Object.keys(this.settings.tools).sort().join(",") }
     })
     exists.mockResolvedValue(true)
     const { defineAgent } = await import("../src/index.ts")
@@ -550,65 +609,15 @@ describe("defineAgent workspace option", () => {
       workspace: { mode: "write" },
     })
 
-    await expect(agent.run!(context())).resolves.toContain("snapshot")
-    expect(startSession).toHaveBeenCalledWith({ paths: ["skills/agent-browser"] })
-    expect(session.exec).toHaveBeenCalledWith("bash", ["-lc", "agent-browser snapshot -i"], {
-      cwd: "skills/agent-browser",
-      timeout: undefined,
-    })
-    expect(session.commit).toHaveBeenCalledWith({ message: "skill shell" })
-    expect(session.close).toHaveBeenCalledTimes(1)
+    await expect(agent.run!(context())).resolves.toBe("workspace_write")
+    expect(writeTools).toHaveBeenCalledTimes(1)
+    expect(inspectTools).not.toHaveBeenCalled()
   })
 
-  it("scopes root skill shell sessions to the workspace root", async () => {
-    const session = {
-      close: vi.fn(),
-      commit: vi.fn(),
-      exec: vi.fn(async () => ({
-        args: ["-lc", "echo root"],
-        command: "bash",
-        exitCode: 0,
-        stderr: "",
-        stdout: "root",
-      })),
-    }
-    const startSession = vi.fn(async () => session)
-    useWorkspace.mockReturnValueOnce({
-      diff,
-      fs: { exists, list, readFile, writeFile },
-      snapshot,
-      startSession,
-      tools: Object.assign(tools, {
-        inspect: inspectTools,
-        none: vi.fn(() => ({})),
-        readonly: inspectTools,
-      }),
-    } as unknown as WritableWorkspaceFacade)
-    agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
-      const output = await this.settings.tools.skill_shell.execute({ command: "echo root" })
-      return { finishReason: "stop", text: JSON.stringify(output) }
-    })
+  it("allows read-mode skill shell execution on read workspaces", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
     exists.mockResolvedValue(true)
-    const { defineAgent } = await import("../src/index.ts")
-    const { skills } = await import("../src/capabilities.ts")
-
-    const agent = defineAgent({
-      capabilities: [skills({ path: "SKILL.md", shellExecution: "write" })],
-      model: {} as never,
-      workspace: { mode: "write" },
-    })
-
-    await expect(agent.run!(context())).resolves.toContain("root")
-    expect(startSession).toHaveBeenCalledWith({ paths: [""] })
-    expect(session.exec).toHaveBeenCalledWith("bash", ["-lc", "echo root"], {
-      cwd: "",
-      timeout: undefined,
-    })
-  })
-
-  it("requires writable workspace mode for read-mode skill shell execution", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-    const { skills } = await import("../src/capabilities.ts")
 
     const agent = defineAgent({
       capabilities: [skills({ path: "skills/agent-browser", shellExecution: "read" })],
@@ -616,8 +625,7 @@ describe("defineAgent workspace option", () => {
       workspace: {},
     })
 
-    await expect(agent.run!(context())).rejects.toThrow('skills() requires workspace.mode: "write"')
-    expect(agentGenerate).not.toHaveBeenCalled()
+    await expect(agent.run!(context())).resolves.toBe("ok")
   })
 
   it("uses full file source paths as probe keys", async () => {
@@ -2370,6 +2378,36 @@ describe("defineAgent workspace option", () => {
           status: "available",
         }),
       ]),
+    })
+  })
+
+  it("includes skill sources in DevTools file metadata", async () => {
+    const { createAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+      capabilities: [
+        skills({
+          path: "skills/agent-browser",
+          source: {
+            include: ["SKILL.md", "references/**", "templates/**"],
+            materialize: "lazy",
+            repo: "vercel/vercel-plugin",
+            root: "skills/agent-browser",
+          } as never,
+        }),
+      ],
+    }), { workspace: "support" })
+
+    expect(createAgentDevtoolsMetadata(agent).files).toContainEqual({
+      kind: "directory",
+      label: "agent-browser",
+      materialize: "lazy",
+      materialized: false,
+      path: "skills/agent-browser",
+      source: "skill.agent-browser",
+      status: "lazy",
     })
   })
 
