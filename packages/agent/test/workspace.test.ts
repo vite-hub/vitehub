@@ -386,6 +386,54 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("registers capability sources on shared named workspace references", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const { registerWorkspace, resolveRegisteredWorkspaceDefinition: resolveRuntimeWorkspaceDefinition } = await import("@vite-hub/workspace/runtime")
+    const workspaceName = `review-${Math.random().toString(36).slice(2)}`
+    const registeredDefinition = {
+      name: workspaceName,
+      sources: {
+        instructions: { path: "AGENTS.md" } as never,
+      },
+      store: { provider: "memory" as const },
+    }
+    registerWorkspace(workspaceName, {
+      sources: registeredDefinition.sources,
+      store: registeredDefinition.store,
+    })
+    resolveRegisteredWorkspaceDefinition.mockResolvedValueOnce(registeredDefinition)
+    exists.mockResolvedValue(true)
+
+    const agent = defineAgent({
+      capabilities: [
+        skills({
+          path: "skills/agent-browser",
+          source: {
+            materialize: "build",
+            repo: "vercel/vercel-plugin",
+            root: "skills/agent-browser",
+          } as never,
+        }),
+      ],
+      model: {} as never,
+      workspace: { name: workspaceName, mode: "write" },
+    })
+
+    await agent.run!(context())
+
+    const resolved = await resolveRuntimeWorkspaceDefinition(workspaceName)
+    expect(resolved.sources?.instructions).toEqual({ path: "AGENTS.md" })
+    expect(resolved.sources?.["skill.agent-browser"]).toEqual({
+      mount: "skills/agent-browser",
+      source: {
+        materialize: "build",
+        repo: "vercel/vercel-plugin",
+        root: "skills/agent-browser",
+      },
+    })
+  })
+
   it("exposes opt-in skill shell execution through a workspace session", async () => {
     const session = {
       close: vi.fn(),

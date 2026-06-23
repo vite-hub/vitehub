@@ -1096,6 +1096,43 @@ async function resolveRegisteredAgentWorkspaceDefinition(name: string): Promise<
   }
 }
 
+function mergeWorkspaceSources(
+  registered: WorkspaceDefinition["sources"] | undefined,
+  configured: WorkspaceDefinition["sources"] | undefined,
+): WorkspaceDefinition["sources"] | undefined {
+  if (!registered && !configured) return undefined
+  return {
+    ...registered,
+    ...configured,
+  }
+}
+
+function mergeAgentWorkspaceDefinition(
+  name: string,
+  registered: WorkspaceDefinition | undefined,
+  configured: WorkspaceDefinition | undefined,
+): WorkspaceDefinition | undefined {
+  if (!registered && !configured) return undefined
+  if (!registered) return configured ? { ...configured, name } : undefined
+  if (!configured) return { ...registered, name: registered.name || name }
+
+  const { name: _configuredName, sources: configuredSources, ...configuredFields } = configured as WorkspaceDefinition & { mode?: AgentCapabilityMode }
+  const { mode: _mode, ...configuredDefinitionFields } = configuredFields
+  return {
+    ...registered,
+    ...configuredDefinitionFields,
+    name: registered.name || name,
+    sources: mergeWorkspaceSources(registered.sources, configuredSources),
+  }
+}
+
+async function registerResolvedAgentWorkspaceDefinition(name: string, definition: WorkspaceDefinition | undefined): Promise<void> {
+  if (!definition) return
+  const { name: _name, ...workspace } = definition
+  const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
+  registerWorkspace(name, workspace)
+}
+
 async function createAgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -1121,9 +1158,15 @@ async function createAgentInvocationContext<
     const configuredWorkspaceDefinition = workspaceOptions && workspaceName
       ? { ...workspaceDefinitionFromOptions(workspaceOptions), name: workspaceName }
       : undefined
-    const resolvedWorkspaceDefinition = workspaceName
-      ? await resolveRegisteredAgentWorkspaceDefinition(workspaceName) || configuredWorkspaceDefinition
+    const registeredWorkspaceDefinition = workspaceName
+      ? await resolveRegisteredAgentWorkspaceDefinition(workspaceName)
       : undefined
+    const resolvedWorkspaceDefinition = workspaceName
+      ? mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredWorkspaceDefinition)
+      : undefined
+    if (workspaceName && configuredWorkspaceDefinition) {
+      await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
+    }
     const workspace = workspaceName
       ? workspaceMode === "write"
         ? (await import("@vite-hub/workspace")).useWorkspace(workspaceName, { mode: "write" })
