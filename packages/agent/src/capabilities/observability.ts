@@ -145,28 +145,30 @@ export function observability<
           status: "completed",
         } satisfies AgentObservabilityFinishExtension
       })
-      // Returning false reuses finish-time lifecycle scheduling without creating a Channel Delivery Effect.
-      context.delivery.finishEffect(async (event): Promise<false> => {
-        if (event.error !== undefined) {
+      if (options.onEvent) {
+        // Returning false reuses finish-time lifecycle scheduling without creating a Channel Delivery Effect.
+        context.delivery.finishEffect(async (event): Promise<false> => {
+          if (event.error !== undefined) {
+            await notify(options.onEvent, {
+              ...finishEventBase(event as AgentFinishEvent<TRuntimeConfig>),
+              durationMs: event.invocation.durationMs,
+              error: event.error,
+              status: "failed",
+              type: "error",
+            })
+            return false
+          }
+
           await notify(options.onEvent, {
             ...finishEventBase(event as AgentFinishEvent<TRuntimeConfig>),
             durationMs: event.invocation.durationMs,
-            error: event.error,
-            status: "failed",
-            type: "error",
+            result: event.result,
+            status: "completed",
+            type: "finish",
           })
           return false
-        }
-
-        await notify(options.onEvent, {
-          ...finishEventBase(event as AgentFinishEvent<TRuntimeConfig>),
-          durationMs: event.invocation.durationMs,
-          result: event.result,
-          status: "completed",
-          type: "finish",
         })
-        return false
-      })
+      }
     },
     input(context) {
       return notify(options.onEvent, {

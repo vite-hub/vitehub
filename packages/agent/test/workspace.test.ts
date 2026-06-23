@@ -1992,7 +1992,7 @@ describe("defineAgent workspace option", () => {
 
   it("lets capabilities instrument workspace agent model execution", async () => {
     const { observability } = await import("../src/capabilities.ts")
-    const { defineAgent } = await import("../src/index.ts")
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
     const baseModel = { id: "base" }
     const driverModel = { id: "driver" }
     const capabilityModel = { id: "capability" }
@@ -2013,6 +2013,14 @@ describe("defineAgent workspace option", () => {
           instrumentation: {
             callSettings: capabilityInstrumentCallSettings,
             model: capabilityInstrumentModel,
+          },
+        }),
+        defineCapability({
+          id: "finish-extension-trap",
+          configure(context) {
+            context.finish.provide(() => {
+              throw new Error("finish extension should not run")
+            })
           },
         }),
       ],
