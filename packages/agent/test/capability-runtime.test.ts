@@ -367,6 +367,35 @@ describe("agent capability runtime", () => {
     })).rejects.toThrow('workspace contribution rule "artifacts/review/**" conflicts with existing Workspace Rule "artifacts/**"')
   })
 
+  it("rejects capability workspace rules that overlap plugin rules", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "review",
+          workspace: {
+            rules: {
+              "artifacts/review/**": { write: true },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        plugins: [
+          {
+            id: "limits",
+            rules: {
+              "artifacts/**": { write: true },
+            },
+          },
+        ],
+      },
+    })).rejects.toThrow('workspace contribution rule "artifacts/review/**" conflicts with existing Workspace Rule "artifacts/**"')
+  })
+
   it("rechecks capability workspace source mounts after Source Resolution", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 
@@ -503,11 +532,56 @@ describe("agent capability runtime", () => {
     }, runtime(), {}, workspace as never, "read", {
       workspaceDefinition: {
         name: "review",
+        sources: {
+          docs: {
+            mount: "docs",
+            async getKeys() {
+              return ["README.md"]
+            },
+            async getItem(key: string) {
+              return { content: "docs", key }
+            },
+          },
+        },
+      },
+    })
+
+    expect(resolved.workspaceDefinition?.sources).toHaveProperty("inventory")
+  })
+
+  it("allows request-only capability workspace sources selected by descriptor path", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const { fetch } = await import("@vite-hub/workspace")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "api",
+            scopes: {
+              api: { paths: [".vitehub/sources/inventory.json"] },
+            },
+          },
+        }),
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              inventory: fetch({ url: "https://portal.example.com/runtime/inventory-health" }),
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
         sources: {},
       },
     })
 
     expect(resolved.workspaceDefinition?.sources).toHaveProperty("inventory")
+    await expect(resolved.workspace?.fs.exists(".vitehub/sources/inventory.json")).resolves.toBe(true)
   })
 
   it("resolves capability workspace sources after access selects Workspace Scope", async () => {
@@ -571,8 +645,47 @@ describe("agent capability runtime", () => {
 
   it("rejects static capability workspace sources outside the selected Workspace Scope", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
 
     await expect(resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "acme",
+            scopes: {
+              acme: { paths: ["customers/acme"] },
+            },
+          },
+        }),
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              pullRequest: {
+                mount: "pull-request",
+                async getKeys() {
+                  return ["summary.md"]
+                },
+                async getItem(key: string) {
+                  return { content: "review", key }
+                },
+              },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })).rejects.toThrow('workspace contribution source "pullRequest" is outside the selected Workspace Scope')
+  })
+
+  it("ignores caller-supplied Workspace Scope context while applying workspace contributions", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
       capabilities: [
         defineCapability({
           id: "review",
@@ -607,7 +720,32 @@ describe("agent capability runtime", () => {
         name: "review",
         sources: {},
       },
-    })).rejects.toThrow('workspace contribution source "pullRequest" is outside the selected Workspace Scope')
+    })
+
+    expect(resolved.workspaceDefinition?.sources).toHaveProperty("pullRequest")
+  })
+
+  it("validates workspace requirements before running capability workspace resolvers", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const resolveWorkspace = vi.fn(() => {
+      throw new Error("resolver should not run")
+    })
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "review",
+          requires: [{ workspace: { mode: "write", required: true } }],
+          workspace: resolveWorkspace,
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })).rejects.toThrow('review() requires workspace.mode: "write"')
+    expect(resolveWorkspace).not.toHaveBeenCalled()
   })
 
   it("preserves writable workspace methods when applying workspace contributions", async () => {

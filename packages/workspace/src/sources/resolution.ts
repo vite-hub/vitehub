@@ -48,6 +48,11 @@ export interface WorkspaceSourceResolutionFacade<Name extends WorkspaceName = Wo
   workspace: ReadonlyWorkspaceFacade<Name>
 }
 
+type WorkspaceMetadataTarget = {
+  getMeta?(key: string): Promise<unknown>
+  setMeta?(key: string, value: unknown): Promise<void>
+}
+
 export function hasWorkspaceSourceResolvers(definition: Pick<WorkspaceDefinition, "sources"> | undefined): boolean {
   return normalizeWorkspaceSources(definition?.sources).some(source => typeof source.source.resolve === "function")
 }
@@ -152,6 +157,7 @@ function createOverlaySourceStore<Name extends WorkspaceName>(
 
 function createWritableFacadeStore(workspace: WritableWorkspaceFacade): WorkspaceStore {
   const meta = new Map<string, unknown>()
+  const metadata = workspace as WritableWorkspaceFacade & WorkspaceMetadataTarget
   return {
     async readFile(path) {
       try {
@@ -197,9 +203,14 @@ function createWritableFacadeStore(workspace: WritableWorkspaceFacade): Workspac
       return await workspace.diff(options)
     },
     async getMeta(key) {
+      if (metadata.getMeta) return await metadata.getMeta(key)
       return meta.get(key)
     },
     async setMeta(key, value) {
+      if (metadata.setMeta) {
+        await metadata.setMeta(key, value)
+        return
+      }
       meta.set(key, value)
     },
   }
@@ -221,9 +232,9 @@ export async function resolveWorkspaceSources(
   definition: WorkspaceDefinition,
   options: WorkspaceSourceResolutionOptions,
 ): Promise<WorkspaceDefinition> {
-  if (!hasWorkspaceSourceResolvers(definition)) return definition
+  if (!hasWorkspaceSourceResolvers(definition) && !options.selectedWorkspaceScope) return definition
 
-  const sources: Record<string, WorkspaceSource> = {}
+  const sources: Record<string, WorkspaceSourceInput> = {}
   for (const [key, source] of Object.entries(definition.sources || {})) {
     const resolved = await resolveWorkspaceSource(definition, key, source, options)
     if (resolved) sources[key] = resolved
@@ -311,6 +322,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
 
   if (isWritableWorkspaceFacade(workspace)) {
     const writePolicy = createWorkspaceWritePolicy(resolvedDefinition)
+    const syncStore = createWritableFacadeStore(workspace)
     let writeWorkspace!: Workspace
 
     async function previousStat(path: string) {
@@ -390,7 +402,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       stat: writeFs.stat,
       sync: async (options) => {
         const { syncWorkspaceSources } = await import("./sync.ts")
-        return await syncWorkspaceSources(resolvedDefinition, createWritableFacadeStore(workspace), options)
+        return await syncWorkspaceSources(resolvedDefinition, syncStore, options)
       },
       writeFile: writeFs.writeFile,
       mount(options) {
@@ -460,10 +472,10 @@ async function resolveWorkspaceSource(
   key: string,
   input: WorkspaceSourceInput,
   options: WorkspaceSourceResolutionOptions,
-): Promise<WorkspaceSource | undefined> {
+): Promise<WorkspaceSourceInput | undefined> {
   const declared = normalizeWorkspaceSource(key, input)
   const source = declared.source
-  if (!source.resolve) return source
+  if (!source.resolve) return selectedScopeIntersectsSource(options.selectedWorkspaceScope, declared) ? input : undefined
 
   const context: WorkspaceSourceResolutionContext<object, string> = {
     invocation: options.invocation,
@@ -484,7 +496,7 @@ async function resolveWorkspaceSource(
 
   const resolvedSource = withResolvedSourceRuntimeDefaults(applyResolvedWorkspaceSourceBinding(input, resolved))
   const normalized = normalizeWorkspaceSource(key, resolvedSource)
-  if (!selectedScopeIntersectsMount(options.selectedWorkspaceScope, normalized.mountPath)) return undefined
+  if (!selectedScopeIntersectsSource(options.selectedWorkspaceScope, normalized)) return undefined
 
   return copyWorkspaceSourceMetadata(resolvedSource, {
     ...resolvedSource,
@@ -608,9 +620,15 @@ function mergeHits(base: WorkspaceSearchHit[], source: WorkspaceSearchHit[]): Wo
   })
 }
 
-function selectedScopeIntersectsMount(scope: WorkspaceSelectedScope | undefined, mountPath: string): boolean {
+function selectedScopeIntersectsSource(
+  scope: WorkspaceSelectedScope | undefined,
+  source: ReturnType<typeof normalizeWorkspaceSources>[number],
+): boolean {
   if (!scope || scope.all) return true
-  return Boolean(scope.paths?.some(path => pathIntersects(path, mountPath)))
+  return Boolean(scope.paths?.some((path) => {
+    if (source.requestDescriptor && pathIntersects(path, workspaceSourceRequestDescriptorPath(source.key))) return true
+    return !source.requestOnly && pathIntersects(path, source.mountPath)
+  }))
 }
 
 function pathContains(container: string, path: string): boolean {

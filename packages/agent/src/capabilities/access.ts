@@ -1,4 +1,4 @@
-import { markTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "../access-runtime.ts"
+import { markTrustedWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import { normalizeAgentWorkspaceSource } from "../workspace-source-metadata.ts"
 import type { AccessCapabilityMetadata } from "./access-metadata.ts"
@@ -336,6 +336,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
           scope: finalScope.scope,
         },
       })
+      markTrustedWorkspaceAccessScope(context.context)
       context.instructions.add(finalScope.instructions, { id: "access.workspace" })
       if (sourceResolution.definition && sourceResolution.definition !== context.workspaceDefinition) {
         context.context.set("workspace.sourceResolution.definition", sourceResolution.definition)

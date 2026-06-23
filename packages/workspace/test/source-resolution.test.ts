@@ -118,6 +118,7 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
       stat: async path => await workspace.stat(path),
       writeFile: async (path, content, options) => await workspace.writeFile(path, content, options),
     },
+    getMeta: async key => await workspace.getMeta?.(key),
     materializeSources: async options => await workspace.materializeSources?.(options) ?? {
       bytes: 0,
       directories: 0,
@@ -126,6 +127,7 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
       path: options?.path || "",
       sources: [],
     },
+    setMeta: async (key, value) => await workspace.setMeta?.(key, value),
     snapshot: async options => await workspace.snapshot(options),
     startSession: async options => await workspace.startSession(options),
     sync: async options => await workspace.sync(options),
@@ -426,6 +428,46 @@ describe("Workspace Source Resolution", () => {
     expect(resolved.sources).toEqual({})
   })
 
+  it("keeps scoped-out static sources hidden in overlays", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        privateDocs: custom({
+          materialize: "lazy",
+          mount: "private",
+          async getKeys() {
+            return ["secret.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "secret\n" }
+          },
+        }),
+        publicDocs: custom({
+          materialize: "lazy",
+          mount: "public",
+          async getKeys() {
+            return ["README.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "public\n" }
+          },
+        }),
+      },
+    }
+
+    const { definition: resolvedDefinition, workspace } = await createWorkspaceSourceResolutionFacade(
+      facade(base),
+      definition,
+      { ...scope("public", ["public"]), overlay: true },
+    )
+
+    expect(resolvedDefinition.sources).toHaveProperty("publicDocs")
+    expect(resolvedDefinition.sources).not.toHaveProperty("privateDocs")
+    await expect(workspace.fs.readFile("public/README.md")).resolves.toBe("public\n")
+    await expect(workspace.fs.exists("private/secret.md")).resolves.toBe(false)
+  })
+
   it("layers resolved source-backed paths over the base Workspace without persistent cross-scope materialization", async () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     await base.writeFile("notes.md", "base workspace\n")
@@ -573,6 +615,48 @@ describe("Workspace Source Resolution", () => {
       sources: [expect.objectContaining({ source: "docs", status: "ready" })],
     })
     await expect(base.readFile("docs/README.md")).resolves.toBe("# Docs\n")
+  })
+
+  it("persists Source Sync state across writable overlay facades", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    let keys = ["README.md", "old.md"]
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          mount: "docs",
+          sync: { stale: "remove" },
+          async getKeys() {
+            return keys
+          },
+          async getItem(key) {
+            return { key, path: key, content: `# ${key}\n` }
+          },
+        }),
+      },
+    }
+
+    const first = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    await expect((first.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
+      status: "ready",
+    })
+    await expect(base.readFile("docs/old.md")).resolves.toBe("# old.md\n")
+
+    keys = ["README.md"]
+    const second = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    await expect((second.workspace as WritableWorkspaceFacade).sync({ sources: ["docs"] })).resolves.toMatchObject({
+      status: "ready",
+      sources: [expect.objectContaining({
+        counts: expect.objectContaining({ removed: 1 }),
+      })],
+    })
+    await expect(base.exists("docs/old.md")).resolves.toBe(false)
   })
 
   it("starts writable overlay sessions from contributed sources and rules", async () => {

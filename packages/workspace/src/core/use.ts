@@ -116,7 +116,9 @@ export interface ReadonlyWorkspaceFacade<Name extends WorkspaceName = WorkspaceN
 export interface WritableWorkspaceFacade<Name extends WorkspaceName = WorkspaceName> {
   diff(options?: DiffOptions): Promise<WorkspaceDiff>
   fs: WritableWorkspaceFs<Name>
+  getMeta?(key: string): Promise<unknown>
   materializeSources(options?: WorkspaceMaterializeSourcesOptions): Promise<WorkspaceMaterializeSourcesResult>
+  setMeta?(key: string, value: unknown): Promise<void>
   snapshot(options?: SnapshotOptions): Promise<WorkspaceSnapshot>
   startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
   sync(options: WorkspaceSyncOptions): Promise<WorkspaceSourceSyncResult>
@@ -225,6 +227,12 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
     },
     async diff(options) {
       return await (await resolveSyncedWorkspace()).diff(options)
+    },
+    async getMeta(key) {
+      return await (await resolveWorkspace()).getMeta?.(key)
+    },
+    async setMeta(key, value) {
+      await (await resolveWorkspace()).setMeta?.(key, value)
     },
     async startSession(options) {
       return await (await resolveSyncedWorkspace()).startSession(options)
@@ -461,7 +469,9 @@ export function useWorkspace<Name extends WorkspaceName>(name: Name, options?: U
     return {
       diff: async options => await workspace.diff(options),
       fs: createWritableFs<Name>(workspace),
+      getMeta: async key => await workspace.getMeta?.(key),
       materializeSources: async options => await materializeWorkspaceSources(workspace, options),
+      setMeta: async (key, value) => await workspace.setMeta?.(key, value),
       snapshot: async options => await workspace.snapshot(options),
       startSession: async options => await workspace.startSession(options),
       sync: async options => await workspace.sync(options),

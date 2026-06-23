@@ -58,11 +58,9 @@ export interface PullRequestContextOptions<
 }
 
 type PullRequestContextCapabilityTypeContract<
-  TSourceName extends string = string,
   TContextKey extends string = "pullRequest",
 > = AgentCapabilityTypeContract & {
   invocationContext: Record<TContextKey, PullRequestContextValue>
-  workspaceSources: TSourceName
 }
 
 async function resolveMaybeFunction<TValue, TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(
@@ -82,7 +80,7 @@ export function pullRequestContext<
   const TContextKey extends string = "pullRequest",
 >(
   options: PullRequestContextOptions<TRuntimeConfig, Name> & { contextKey?: TContextKey, sources?: TSourceMap | PullRequestContextSources<TRuntimeConfig, Name> } = {},
-): AgentCapabilityDefinition<TRuntimeConfig, Name, PullRequestContextCapabilityTypeContract<Extract<keyof NonNullable<TSourceMap>, string>, TContextKey>> {
+): AgentCapabilityDefinition<TRuntimeConfig, Name, PullRequestContextCapabilityTypeContract<TContextKey>> {
   const contextKey = options.contextKey || "pullRequest"
   const hasWorkspaceContribution = options.sources !== undefined || options.rules !== undefined
   const recordedContexts = new WeakSet<AgentCapabilityContext<TRuntimeConfig, Name>["context"]>()
