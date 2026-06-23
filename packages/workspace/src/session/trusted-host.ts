@@ -22,6 +22,7 @@ import type {
   WorkspaceSearchHit,
   WorkspaceSession,
   WriteFileOptions,
+  WorkspaceSessionOptions,
 } from "../core/types.ts"
 
 function assertTrustedHostWorkspaceRuntimeAllowed() {
@@ -110,8 +111,29 @@ async function snapshotLocal(root: string, name?: string) {
   return await createSnapshotFromEntries(files, name)
 }
 
-async function materializeWorkspace(workspace: Workspace, root: string) {
-  const entries = await workspace.list("", { recursive: true })
+function normalizeSessionPaths(options?: WorkspaceSessionOptions): string[] | undefined {
+  const paths = [...new Set((options?.paths || []).map(path => normalizeLocalWorkspacePath(path, { allowEmpty: true, allowGenerated: true })))]
+  if (!paths.length || paths.includes("")) return undefined
+  return paths.sort((left, right) => left.length - right.length || left.localeCompare(right))
+}
+
+async function sessionEntries(workspace: Workspace, options?: WorkspaceSessionOptions): Promise<WorkspaceEntry[]> {
+  const paths = normalizeSessionPaths(options)
+  if (!paths) return await workspace.list("", { recursive: true })
+
+  const entries = new Map<string, WorkspaceEntry>()
+  for (const path of paths) {
+    const stat = await workspace.stat(path)
+    entries.set(stat.path, stat)
+    if (stat.type === "directory") {
+      for (const entry of await workspace.list(path, { recursive: true })) entries.set(entry.path, entry)
+    }
+  }
+  return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path))
+}
+
+async function materializeWorkspace(workspace: Workspace, root: string, options?: WorkspaceSessionOptions) {
+  const entries = await sessionEntries(workspace, options)
   for (const entry of entries.filter(entry => entry.type === "directory"))
     await mkdir(toLocalPath(root, entry.path, { allowGenerated: true }), { recursive: true })
   for (const entry of entries) {
@@ -202,10 +224,11 @@ async function execLocal(root: string, command: string, args: string[] = [], opt
 export async function createTrustedHostWorkspaceSession(
   _definition: WorkspaceDefinition,
   workspace: Workspace,
+  options?: WorkspaceSessionOptions,
 ): Promise<WorkspaceSession> {
   assertTrustedHostWorkspaceRuntimeAllowed()
   const root = await mkdtemp(join(tmpdir(), `vitehub-workspace-${workspace.name.replace(/[^a-zA-Z0-9._-]+/g, "-") || "workspace"}-`))
-  let baseline = await materializeWorkspace(workspace, root).catch(async (error) => {
+  let baseline = await materializeWorkspace(workspace, root, options).catch(async (error) => {
     await rm(root, { force: true, recursive: true })
     throw error
   })

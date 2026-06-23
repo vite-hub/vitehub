@@ -16,6 +16,7 @@ import type {
   WorkspaceFile,
   WorkspaceSearchHit,
   WorkspaceSession,
+  WorkspaceSessionOptions,
   WriteFileOptions,
 } from "../core/types.ts"
 
@@ -99,9 +100,30 @@ async function resetSandboxWorkspaceRoot(sandbox: SandboxClient) {
   await sandbox.mkdir(sandboxCwd, { recursive: true })
 }
 
-async function materializeWorkspace(workspace: Workspace, sandbox: SandboxClient) {
+function normalizeSessionPaths(options?: WorkspaceSessionOptions): string[] | undefined {
+  const paths = [...new Set((options?.paths || []).map(path => normalizeSafeWorkspacePath(path, { allowEmpty: true })))]
+  if (!paths.length || paths.includes("")) return undefined
+  return paths.sort((left, right) => left.length - right.length || left.localeCompare(right))
+}
+
+async function sessionEntries(workspace: Workspace, options?: WorkspaceSessionOptions): Promise<WorkspaceEntry[]> {
+  const paths = normalizeSessionPaths(options)
+  if (!paths) return await workspace.list("", { recursive: true })
+
+  const entries = new Map<string, WorkspaceEntry>()
+  for (const path of paths) {
+    const stat = await workspace.stat(path)
+    entries.set(stat.path, stat)
+    if (stat.type === "directory") {
+      for (const entry of await workspace.list(path, { recursive: true })) entries.set(entry.path, entry)
+    }
+  }
+  return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path))
+}
+
+async function materializeWorkspace(workspace: Workspace, sandbox: SandboxClient, options?: WorkspaceSessionOptions) {
   await resetSandboxWorkspaceRoot(sandbox)
-  const entries = await workspace.list("", { recursive: true })
+  const entries = await sessionEntries(workspace, options)
   for (const entry of entries.filter(entry => entry.type === "directory"))
     await sandbox.mkdir(toSandboxPath(entry.path), { recursive: true })
   for (const entry of entries) {
@@ -148,6 +170,7 @@ async function commitSandboxChanges(
 export async function createSandboxWorkspaceSession(
   definition: WorkspaceDefinition,
   workspace: Workspace,
+  options?: WorkspaceSessionOptions,
 ): Promise<WorkspaceSession> {
   const sandboxPackage = await import(/* @vite-ignore */ sandboxPackageSpecifier).catch((error) => {
     throw new WorkspaceError(`[vitehub] Sandbox workspace runtime requires @vite-hub/sandbox. ${error instanceof Error ? error.message : String(error)}`)
@@ -159,7 +182,7 @@ export async function createSandboxWorkspaceSession(
   }
 
   const sandbox = await sandboxPackage.createSandboxWithConfig(sandboxConfig)
-  let baseline = await materializeWorkspace(workspace, sandbox)
+  let baseline = await materializeWorkspace(workspace, sandbox, options)
   const mediaTypes = new Map<string, string>()
   let closed = false
 

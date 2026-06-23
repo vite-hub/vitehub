@@ -132,6 +132,7 @@ export interface WorkspaceSyncOptions {
 }
 
 export interface WorkspaceSessionOptions {
+  paths?: readonly string[]
   runtime?: never
   sandbox?: never
 }

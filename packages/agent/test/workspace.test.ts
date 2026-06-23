@@ -266,11 +266,12 @@ describe("defineAgent workspace option", () => {
         stdout: "snapshot",
       })),
     }
+    const startSession = vi.fn(async () => session)
     useWorkspace.mockReturnValueOnce({
       diff,
       fs: { exists, list, readFile, writeFile },
       snapshot,
-      startSession: vi.fn(async () => session),
+      startSession,
       tools: Object.assign(tools, {
         inspect: inspectTools,
         none: vi.fn(() => ({})),
@@ -292,6 +293,7 @@ describe("defineAgent workspace option", () => {
     })
 
     await expect(agent.run!(context())).resolves.toContain("snapshot")
+    expect(startSession).toHaveBeenCalledWith({ paths: ["skills/agent-browser"] })
     expect(session.exec).toHaveBeenCalledWith("bash", ["-lc", "agent-browser snapshot -i"], {
       cwd: undefined,
       timeout: undefined,

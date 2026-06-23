@@ -5,7 +5,7 @@ import type {
   AgentCapabilityMode,
   AgentToolSet,
 } from "../types.ts"
-import type { WorkspaceSession } from "@vite-hub/workspace"
+import type { WorkspaceSession, WorkspaceSessionOptions } from "@vite-hub/workspace"
 
 export interface SkillsCapabilityOptions {
   maxOutputLength?: number
@@ -21,7 +21,7 @@ interface SkillShellInput {
 }
 
 type SkillShellWorkspace = {
-  startSession: () => Promise<WorkspaceSession>
+  startSession: (options?: WorkspaceSessionOptions) => Promise<WorkspaceSession>
 }
 
 const defaultMaxOutputLength = 30_000
@@ -120,7 +120,7 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
       if (!isSkillShellWorkspace(workspace)) {
         throw new Error("[vitehub] skills({ shellExecution }) requires an executable workspace session.")
       }
-      return await workspace.startSession()
+      return await workspace.startSession({ paths: [normalizedPath] })
     }
   }
 

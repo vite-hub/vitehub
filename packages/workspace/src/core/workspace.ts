@@ -68,14 +68,14 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
     async diff(options) {
       return await store.diff(options)
     },
-    async startSession(_options): Promise<WorkspaceSession> {
+    async startSession(options): Promise<WorkspaceSession> {
       if (definition.runtime === "sandbox") {
         const { createSandboxWorkspaceSession } = await import("../session/sandbox.ts")
-        return await createSandboxWorkspaceSession(definition, workspace)
+        return await createSandboxWorkspaceSession(definition, workspace, options)
       }
       if (definition.runtime === "trusted-host") {
         const { createTrustedHostWorkspaceSession } = await import("../session/trusted-host.ts")
-        return await createTrustedHostWorkspaceSession(definition, workspace)
+        return await createTrustedHostWorkspaceSession(definition, workspace, options)
       }
 
       return createBasicWorkspaceSession(workspace)
