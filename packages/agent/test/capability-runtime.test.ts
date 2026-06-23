@@ -9,6 +9,22 @@ const runtime = () => ({
   waitUntil: vi.fn(),
 })
 
+const emptyWorkspace = () => ({
+  fs: {
+    exists: vi.fn(async () => false),
+    glob: vi.fn(async () => []),
+    list: vi.fn(async () => []),
+    materializeSources: vi.fn(async () => ({ bytes: 0, directories: 0, durationMs: 0, files: 0, path: "", sources: [] })),
+    readFile: vi.fn(async () => { throw new Error("missing") }),
+    search: vi.fn(async () => []),
+    stat: vi.fn(async () => { throw new Error("missing") }),
+  },
+  tools: {
+    inspect: vi.fn(() => ({})),
+    none: vi.fn(() => ({})),
+  },
+})
+
 describe("agent capability runtime", () => {
   it("runs lifecycle phases in capability order and closes in reverse order", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
@@ -153,6 +169,93 @@ describe("agent capability runtime", () => {
 
     expect(resolved.registries.deliveryEffectIntents).toEqual([{ intent: "started", kind: "reaction" }])
     expect(resolved.input.context).toBeUndefined()
+  })
+
+  it("applies capability workspace contributions before runtime surfaces resolve", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "review",
+          workspace: {
+            rules: {
+              "artifacts/review/**": { write: true },
+            },
+            sources: {
+              pullRequest: {
+                materialize: "lazy",
+                mount: "pull-request",
+                async getKeys() {
+                  return ["summary.md"]
+                },
+                async getItem(key: string) {
+                  return {
+                    content: "review context",
+                    key,
+                    mediaType: "text/markdown",
+                  }
+                },
+              },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    await expect(resolved.workspace?.fs.readFile("pull-request/summary.md")).resolves.toBe("review context")
+    expect(resolved.workspaceDefinition?.sources).toHaveProperty("pullRequest")
+    expect(resolved.workspaceDefinition?.rules).toHaveProperty("artifacts/review/**")
+    expect(resolved.registries.workspaceContributions).toEqual([
+      {
+        capabilityId: "review",
+        rules: ["artifacts/review/**"],
+        sources: ["pullRequest"],
+      },
+    ])
+  })
+
+  it("rejects capability workspace source conflicts", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              docs: {
+                async getKeys() {
+                  return ["duplicate.md"]
+                },
+                async getItem(key: string) {
+                  return { content: "duplicate", key }
+                },
+              },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {
+          docs: {
+            async getKeys() {
+              return ["docs.md"]
+            },
+            async getItem(key: string) {
+              return { content: "docs", key }
+            },
+          },
+        },
+      },
+    })).rejects.toThrow('workspace contribution source "docs" conflicts')
   })
 
   it("rejects duplicate invocation context values", async () => {

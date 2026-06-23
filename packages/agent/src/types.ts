@@ -15,6 +15,8 @@ import type {
   WorkspaceDefinition,
   WorkspaceDefinitionInput,
   WorkspaceName,
+  WorkspaceRules,
+  WorkspaceSourceInput,
 } from "@vite-hub/workspace"
 
 export type {
@@ -444,6 +446,18 @@ export type AgentCapabilityToolResolver<
   | Record<string, unknown>
   | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<Record<string, unknown> | undefined>)
 
+export interface AgentCapabilityWorkspaceContribution {
+  rules?: WorkspaceRules
+  sources?: Record<string, WorkspaceSourceInput>
+}
+
+export type AgentCapabilityWorkspaceContributionResolver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> =
+  | AgentCapabilityWorkspaceContribution
+  | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<AgentCapabilityWorkspaceContribution | false | null | undefined>)
+
 export type AgentCapabilityPhase = "configure" | "prepare" | "bind" | "input" | "resolve" | "output" | "close"
 export type AgentCapabilityHookName = `capability:${AgentCapabilityPhase}` | `capability:${AgentCapabilityPhase}:after`
 
@@ -547,6 +561,7 @@ export interface AgentCapabilityDefinition<
   tools?: AgentCapabilityToolResolver<TRuntimeConfig, Name>
   triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, Name, any, any>>
   workspaceSources?: WorkspaceDefinition["sources"]
+  workspace?: AgentCapabilityWorkspaceContributionResolver<TRuntimeConfig, Name>
 }
 
 export type AgentCapabilityInput<

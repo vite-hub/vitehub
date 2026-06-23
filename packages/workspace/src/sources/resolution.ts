@@ -24,6 +24,7 @@ import type {
 
 export interface WorkspaceSourceResolutionOptions {
   invocation: WorkspaceSourceResolutionInvocation<object>
+  overlay?: boolean
   selectedWorkspaceScope?: WorkspaceSelectedScope<string>
 }
 
@@ -63,7 +64,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
   const sourceRequestExecution = createWorkspaceSourceRequestExecution(resolvedDefinition, {
     selectedWorkspaceScope: options.selectedWorkspaceScope,
   })
-  if (resolvedDefinition === definition && !sourceRequestExecution) return { definition, workspace }
+  if (!options.overlay && resolvedDefinition === definition && !sourceRequestExecution) return { definition, workspace }
 
   const sourceView = createWorkspaceSourceView(resolvedDefinition, createMemoryWorkspaceStore())
   const fs: ReadonlyWorkspaceFacade<Name>["fs"] = attachWorkspaceSourceRequestExecution({

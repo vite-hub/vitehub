@@ -19,6 +19,6 @@ The output boundary remains structured JSON from the Agent. Markdown rendering, 
 
 The public helper name remains unresolved. Prefer obvious nouns such as Pull Request Context Capability or Review Context Capability; avoid `prSummary`.
 
-Implementations need a small runtime extension point for Capability Workspace Contributions, with DevTools/inspection output that shows contributed Source keys, rules, and conflict failures before the Agent Driver receives Workspace surfaces.
+The Agent Package exposes a small runtime extension point for Capability Workspace Contributions. Runtime inspection can show contributed Source keys and rules, while Source key, rule, Mount, and path conflicts fail before the Agent Driver receives Workspace surfaces.
 
 Consumers keep structured result schemas and publication hooks local. A review agent can write `artifacts/review/result.json`, render markdown, or publish to GitHub, but those are sinks layered after the context capability.

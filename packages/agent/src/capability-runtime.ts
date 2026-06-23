@@ -1,8 +1,10 @@
 import { resolveRuntimeValue } from "@vite-hub/runtime"
+import { createWorkspaceSourceResolutionFacade } from "@vite-hub/workspace"
 
 import { workspaceOverrideSymbol } from "./access-runtime.ts"
 import { createMessage } from "./messages.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
+import { normalizeAgentWorkspaceSource } from "./workspace-source-metadata.ts"
 import {
   createFallbackAgentInvoker,
   ensureAgentInvokerContext,
@@ -14,6 +16,7 @@ import type {
   AgentCallbackContext,
   AgentCapabilityContext,
   AgentCapabilityDefinition,
+  AgentCapabilityWorkspaceContribution,
   AgentCapabilityTypeContract,
   AgentCapabilityHookName,
   AgentCapabilityHooks,
@@ -71,6 +74,7 @@ export interface AgentCapabilityRegistries {
   providerTools: AgentProviderToolContribution[]
   stateRequirements: Array<{ name: string, optional?: boolean }>
   triggers: ResolvedAgentTriggerDefinition[]
+  workspaceContributions: Array<{ capabilityId: string, rules: string[], sources: string[] }>
 }
 
 export interface AgentCapabilityOptions<
@@ -105,6 +109,7 @@ export interface ResolvedAgentCapabilities {
   toolTransforms: AgentToolTransform[]
   tools?: AgentToolSet
   workspace?: ReadonlyWorkspaceFacade
+  workspaceDefinition?: WorkspaceDefinition
 }
 
 function assertCapabilityId(id: unknown): asserts id is string {
@@ -254,6 +259,97 @@ function toAgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig>(
   return context
 }
 
+function pathContains(container: string, path: string): boolean {
+  return !container || path === container || path.startsWith(`${container}/`)
+}
+
+function pathsConflict(left: string, right: string): boolean {
+  return pathContains(left, right) || pathContains(right, left)
+}
+
+function assertWorkspaceContribution(
+  capabilityId: string,
+  contribution: AgentCapabilityWorkspaceContribution,
+  definition: WorkspaceDefinition,
+) {
+  const sources = contribution.sources || {}
+  const rules = contribution.rules || {}
+  const sourceEntries = Object.entries(sources)
+  const rulePatterns = Object.keys(rules)
+
+  for (const [key, source] of sourceEntries) {
+    if (definition.sources?.[key]) {
+      throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with an existing Workspace Source.`)
+    }
+    const mountPath = normalizeAgentWorkspaceSource(key, source).mountPath
+    for (const [existingKey, existingSource] of Object.entries(definition.sources || {})) {
+      const existingMountPath = normalizeAgentWorkspaceSource(existingKey, existingSource).mountPath
+      if (pathsConflict(existingMountPath, mountPath)) {
+        throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with Workspace Source "${existingKey}" at mount "${mountPath || "."}".`)
+      }
+    }
+  }
+
+  for (const pattern of rulePatterns) {
+    if (definition.rules?.[pattern]) {
+      throw new Error(`[vitehub] ${capabilityId}() workspace contribution rule "${pattern}" conflicts with an existing Workspace Rule.`)
+    }
+  }
+}
+
+async function applyCapabilityWorkspaceContributions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  capabilities: AgentCapabilityDefinition<TRuntimeConfig, Name>[],
+  context: Omit<AgentCapabilityContext<TRuntimeConfig, Name>, "capability" | "mode"> & {
+    workspace: ReadonlyWorkspaceFacade<Name>
+    workspaceDefinition: WorkspaceDefinition
+  },
+): Promise<{ definition: WorkspaceDefinition, registries: AgentCapabilityRegistries["workspaceContributions"], workspace: ReadonlyWorkspaceFacade<Name> } | undefined> {
+  let definition = context.workspaceDefinition
+  const registries: AgentCapabilityRegistries["workspaceContributions"] = []
+
+  for (const capability of capabilities) {
+    if (!capability.workspace) continue
+    const resolved = typeof capability.workspace === "function"
+      ? await capability.workspace({
+          ...context,
+          mode: capability.mode,
+        })
+      : capability.workspace
+    if (!resolved) continue
+
+    assertWorkspaceContribution(capability.id, resolved, definition)
+    const sources = resolved.sources || {}
+    const rules = resolved.rules || {}
+    definition = {
+      ...definition,
+      rules: Object.keys(rules).length ? { ...definition.rules, ...rules } : definition.rules,
+      sources: Object.keys(sources).length ? { ...definition.sources, ...sources } : definition.sources,
+    }
+    registries.push({
+      capabilityId: capability.id,
+      rules: Object.keys(rules),
+      sources: Object.keys(sources),
+    })
+  }
+
+  if (!registries.length) return
+  const sourceResolution = await createWorkspaceSourceResolutionFacade(context.workspace, definition, {
+    invocation: {
+      context: context.context,
+      run: context.run,
+    },
+    overlay: true,
+  })
+  return {
+    definition: sourceResolution.definition,
+    registries,
+    workspace: sourceResolution.workspace,
+  }
+}
+
 async function resolveInstructionValue<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -289,6 +385,7 @@ export async function resolveAgentCapabilities<
   validateAccessCapabilityOrder(capabilities)
   let currentInput = normalizeRunInput(input)
   let currentWorkspace = workspace as ReadonlyWorkspaceFacade<Name> | undefined
+  let currentWorkspaceDefinition = invocationOptions.workspaceDefinition
   let messages = getRunMessages(currentInput)
   let tools: AgentToolSet | undefined
   const capabilityInstructions: AgentInstructionBlock[] = []
@@ -306,6 +403,7 @@ export async function resolveAgentCapabilities<
     providerTools: [],
     stateRequirements: [],
     triggers: [],
+    workspaceContributions: [],
   }
 
   async function closeRegisteredCallbacks() {
@@ -323,6 +421,24 @@ export async function resolveAgentCapabilities<
   }
 
   try {
+    if (currentWorkspace && currentWorkspaceDefinition) {
+      const workspaceContribution = await applyCapabilityWorkspaceContributions(capabilities, {
+        ...runtimeContext,
+        actor: invoker,
+        context: invocationContext,
+        fs: currentWorkspace.fs,
+        invoker,
+        runtimeContext: runtime,
+        workspace: currentWorkspace,
+        workspaceDefinition: currentWorkspaceDefinition,
+      })
+      if (workspaceContribution) {
+        currentWorkspace = workspaceContribution.workspace
+        currentWorkspaceDefinition = workspaceContribution.definition
+        registries.workspaceContributions = workspaceContribution.registries
+      }
+    }
+
     for (const capability of capabilities) {
       await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, currentWorkspace, workspaceMode)
       const phases = invocationOptions.phases || defaultCapabilityRuntimePhases
@@ -334,7 +450,7 @@ export async function resolveAgentCapabilities<
         invoker,
         runtimeContext: runtime,
         workspace: currentWorkspace,
-        workspaceDefinition: invocationOptions.workspaceDefinition,
+        workspaceDefinition: currentWorkspaceDefinition,
       }
       let capabilityContext: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
       capabilityContext = {
@@ -533,6 +649,7 @@ export async function resolveAgentCapabilities<
     toolTransforms,
     tools,
     workspace: currentWorkspace,
+    workspaceDefinition: currentWorkspaceDefinition,
   }
 }
 
