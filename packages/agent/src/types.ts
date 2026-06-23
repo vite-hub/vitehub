@@ -546,6 +546,7 @@ export interface AgentCapabilityDefinition<
   resolve?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   tools?: AgentCapabilityToolResolver<TRuntimeConfig, Name>
   triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, Name, any, any>>
+  workspaceSources?: WorkspaceDefinition["sources"]
 }
 
 export type AgentCapabilityInput<

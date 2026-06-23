@@ -1,4 +1,4 @@
-import { defineCapability } from "../capability-runtime.ts"
+import { capabilityWorkspaceSources, defineCapability } from "../capability-runtime.ts"
 import { withResolvedAgentInvokerInput } from "../invoker.ts"
 
 import type {
@@ -12,7 +12,7 @@ import type {
   AgentToolSet,
 } from "../types.ts"
 import type { Message } from "../messages.ts"
-import type { WorkspaceName } from "@vite-hub/workspace"
+import type { WorkspaceDefinition, WorkspaceName } from "@vite-hub/workspace"
 
 interface JsonSchema {
   additionalProperties?: boolean | JsonSchema
@@ -112,6 +112,28 @@ function renderInstructions(agents: ReturnType<typeof normalizeAgents>, fallback
   ].join("\n")
 }
 
+function subagentWorkspaceSources(
+  agents: ReturnType<typeof normalizeAgents>,
+): WorkspaceDefinition["sources"] | undefined {
+  const sources: NonNullable<WorkspaceDefinition["sources"]> = {}
+  for (const { definition, name } of agents) {
+    const workspaceAgent = definition.agent as Partial<{
+      __vitehubWorkspaceAgentOptions: { capabilities?: AgentCapabilityDefinition[] }
+      capabilities: AgentCapabilityDefinition[]
+    }>
+    const contributed = capabilityWorkspaceSources(
+      workspaceAgent.__vitehubWorkspaceAgentOptions?.capabilities || workspaceAgent.capabilities,
+    )
+    for (const [key, source] of Object.entries(contributed || {})) {
+      if (key in sources) {
+        throw new Error(`[vitehub] subagents() workspace source "${key}" from "${name}" conflicts with another subagent source.`)
+      }
+      sources[key] = source
+    }
+  }
+  return Object.keys(sources).length ? sources : undefined
+}
+
 function randomToken(): string {
   return globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)
 }
@@ -151,10 +173,12 @@ export function subagents<
   const id = options.id || "subagents"
   const agents = normalizeAgents(options)
   const instructions = renderInstructions(agents, options.instructions)
+  const workspaceSources = subagentWorkspaceSources(agents)
 
   return defineCapability({
     id,
     instructions,
+    ...(workspaceSources ? { workspaceSources } : {}),
     tools(context) {
       const tools: AgentToolSet = {}
       for (const { definition, toolName } of agents) {

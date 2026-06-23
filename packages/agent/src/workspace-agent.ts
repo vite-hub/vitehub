@@ -1,5 +1,6 @@
 import {
   applyCapabilityInstructionSlots,
+  capabilityWorkspaceSources,
   capabilityInstructionBlockId,
   normalizeCapabilities,
   normalizeMode,
@@ -178,15 +179,23 @@ export function workspaceDefinitionFromOptions<
 >(
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
 ): WorkspaceAgentWorkspaceOptions {
-  if (typeof options.workspace === "string") return { mode: "read" }
+  if (typeof options.workspace === "string") {
+    return withCapabilityWorkspaceSources({ mode: "read" }, options.capabilities as AgentCapabilityDefinition[] | undefined)
+  }
   if (isWorkspaceReference(options.workspace)) {
     assertWorkspaceReference(options.workspace)
-    return normalizeWorkspaceOptions(options.workspace)
+    return withCapabilityWorkspaceSources(
+      normalizeWorkspaceOptions(options.workspace),
+      options.capabilities as AgentCapabilityDefinition[] | undefined,
+    )
   }
   const workspace = normalizeWorkspaceOptions(options.workspace)
   const { mode: _mode, ...definition } = workspace
   assertWorkspaceDefinition(definition)
-  return withColocatedAgentInstructions(workspace)
+  return withColocatedAgentInstructions(withCapabilityWorkspaceSources(
+    workspace,
+    options.capabilities as AgentCapabilityDefinition[] | undefined,
+  ))
 }
 
 function assertWorkspaceDefinition(definition: Record<string, unknown>): void {
@@ -199,6 +208,25 @@ function assertWorkspaceDefinition(definition: Record<string, unknown>): void {
   const unsupported = Object.keys(definition).filter(key => !workspaceDefinitionKeys.has(key))
   if (unsupported.length) {
     throw new TypeError(`[vitehub] defineWorkspace does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.`)
+  }
+}
+
+function withCapabilityWorkspaceSources(
+  workspace: NormalizedWorkspaceOptions,
+  capabilities: AgentCapabilityDefinition[] | undefined,
+): NormalizedWorkspaceOptions {
+  const contributed = capabilityWorkspaceSources(capabilities)
+  if (!contributed) return workspace
+  const sources = { ...workspace.sources }
+  for (const [key, source] of Object.entries(contributed)) {
+    if (key in sources) {
+      throw new Error(`[vitehub] Workspace source "${key}" is already defined.`)
+    }
+    sources[key] = source
+  }
+  return {
+    ...workspace,
+    sources,
   }
 }
 

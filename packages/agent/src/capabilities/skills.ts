@@ -1,16 +1,22 @@
 import { defineCapability } from "../capability-runtime.ts"
 
 import type {
+  AgentAdapterInstructionsValue,
   AgentCapabilityDefinition,
   AgentCapabilityMode,
+  AgentCapabilityRuntimeContext,
+  AgentRuntimeConfig,
   AgentToolSet,
 } from "../types.ts"
-import type { WorkspaceSession, WorkspaceSessionOptions } from "@vite-hub/workspace"
+import type { WorkspaceName, WorkspaceSession, WorkspaceSessionOptions, WorkspaceSourceInput } from "@vite-hub/workspace"
 
 export interface SkillsCapabilityOptions {
+  instructions?: string | false
   maxOutputLength?: number
   path?: string
   shellExecution?: AgentCapabilityMode
+  source?: WorkspaceSourceInput
+  sourceKey?: string
   timeout?: number
 }
 
@@ -25,11 +31,105 @@ type SkillShellWorkspace = {
 }
 
 const defaultMaxOutputLength = 30_000
+const skillFilename = "SKILL.md"
 
 function normalizeShellExecution(value: unknown): AgentCapabilityMode | undefined {
   if (value === undefined) return undefined
   if (value === "read" || value === "write") return value
   throw new TypeError("[vitehub] skills({ shellExecution }) must be \"read\" or \"write\".")
+}
+
+function normalizeSkillPath(path: string): string {
+  return path.replace(/\/+$/, "")
+}
+
+function skillDirectory(skillPath: string): string {
+  return skillPath.endsWith(`/${skillFilename}`)
+    ? skillPath.slice(0, -1 * (`/${skillFilename}`).length)
+    : skillPath === skillFilename ? "" : skillPath
+}
+
+function normalizeMountPath(path: string): string {
+  return path.replace(/^\/+/, "").replace(/\/+$/, "")
+}
+
+function sourceMountPath(input: WorkspaceSourceInput): string | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return
+  const record = input as Record<string, unknown>
+  const mount = record.mount
+  if (typeof mount === "string") return normalizeMountPath(mount)
+  if (mount && typeof mount === "object" && typeof (mount as { path?: unknown }).path === "string") {
+    return normalizeMountPath((mount as { path: string }).path)
+  }
+}
+
+function assertSourceMountMatchesPath(source: WorkspaceSourceInput, mountPath: string): void {
+  const explicitMount = sourceMountPath(source)
+  if (explicitMount !== undefined && explicitMount !== mountPath) {
+    throw new Error(`[vitehub] skills({ source }) mount "${explicitMount}" must match path "${mountPath}".`)
+  }
+}
+
+function skillSourceKey(path: string): string {
+  const suffix = (path || "root")
+    .replace(/^skills\//, "")
+    .replace(/[^A-Za-z0-9_.-]+/g, ".")
+    .replace(/^\.+|\.+$/g, "") || "root"
+  return `skill.${suffix}`
+}
+
+function sourceBinding(source: WorkspaceSourceInput, mountPath: string): WorkspaceSourceInput {
+  assertSourceMountMatchesPath(source, mountPath)
+  return {
+    source,
+    mount: mountPath,
+  }
+}
+
+function readFrontmatterValue(frontmatter: string, key: string): string | undefined {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const match = new RegExp(`^${escaped}:\\s*(.+?)\\s*$`, "m").exec(frontmatter)
+  const value = match?.[1]?.trim()
+  if (!value) return
+  return value.replace(/^['"]|['"]$/g, "").trim() || undefined
+}
+
+function parseSkillMetadata(content: string): { description?: string, name?: string } {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content)
+  if (!match) return {}
+  return {
+    description: readFrontmatterValue(match[1] || "", "description"),
+    name: readFrontmatterValue(match[1] || "", "name"),
+  }
+}
+
+async function readSkillMetadata(
+  context: AgentCapabilityRuntimeContext<AgentRuntimeConfig, WorkspaceName>,
+  skillPath: string,
+): Promise<{ description?: string, name?: string }> {
+  try {
+    const content = await context.fs?.readFile(skillPath as never)
+    return typeof content === "string" ? parseSkillMetadata(content) : {}
+  }
+  catch {
+    return {}
+  }
+}
+
+function renderSkillInstructions(options: {
+  directoryPath: string
+  metadata: { description?: string, name?: string }
+  shellExecution?: AgentCapabilityMode
+  skillPath: string
+}): AgentAdapterInstructionsValue {
+  return [
+    `Skill${options.metadata.name ? ` "${options.metadata.name}"` : ""} is mounted at \`${options.directoryPath || "."}\`.`,
+    options.metadata.description ? `Description: ${options.metadata.description}` : "",
+    `Read \`${options.skillPath}\` before using this skill.`,
+    options.shellExecution
+      ? `Use the \`skill_shell\` tool for shell commands described by this skill. It runs inside \`${options.directoryPath || "."}\`${options.shellExecution === "write" ? " and commits successful changes back to the workspace" : ""}.`
+      : "",
+  ].filter(Boolean).join("\n")
 }
 
 function isSkillShellWorkspace(workspace: unknown): workspace is SkillShellWorkspace {
@@ -107,12 +207,18 @@ function skillShellTools(
 
 export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDefinition {
   const path = options.path || "skills"
-  const normalizedPath = path.replace(/\/+$/, "")
+  const normalizedPath = normalizeSkillPath(path)
   const shellExecution = normalizeShellExecution(options.shellExecution)
   const maxOutputLength = options.maxOutputLength ?? defaultMaxOutputLength
   const skillPath = normalizedPath.endsWith("/SKILL.md")
     ? normalizedPath
     : `${normalizedPath}/SKILL.md`
+  const directoryPath = skillDirectory(skillPath)
+  const workspaceSources = options.source
+    ? {
+        [options.sourceKey || skillSourceKey(directoryPath)]: sourceBinding(options.source, directoryPath),
+      }
+    : undefined
 
   function getSessionResolver(context: { workspace?: unknown }): () => Promise<WorkspaceSession> {
     return async () => {
@@ -120,14 +226,28 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
       if (!isSkillShellWorkspace(workspace)) {
         throw new Error("[vitehub] skills({ shellExecution }) requires an executable workspace session.")
       }
-      return await workspace.startSession({ paths: [normalizedPath] })
+      return await workspace.startSession({ paths: [directoryPath || normalizedPath] })
     }
   }
 
   return defineCapability({
     id: "skills",
-    metadata: { path: normalizedPath, skillPath, ...(shellExecution ? { shellExecution } : {}) },
+    instructions: options.instructions === undefined
+      ? async (context: AgentCapabilityRuntimeContext<AgentRuntimeConfig, WorkspaceName>) => renderSkillInstructions({
+          directoryPath,
+          metadata: await readSkillMetadata(context, skillPath),
+          shellExecution,
+          skillPath,
+        })
+      : options.instructions,
+    metadata: {
+      path: normalizedPath,
+      skillPath,
+      ...(shellExecution ? { shellExecution } : {}),
+      ...(workspaceSources ? { sourceKey: Object.keys(workspaceSources)[0] } : {}),
+    },
     requires: [{ primitive: "workspace", workspace: { mode: shellExecution === "write" ? "write" : "read", paths: [skillPath], required: true } }],
+    ...(workspaceSources ? { workspaceSources } : {}),
     ...(shellExecution
       ? {
           tools: context => skillShellTools(shellExecution, {

@@ -95,6 +95,7 @@ describe("agent public types", () => {
           provider: "github",
         }),
         skills(),
+        skills({ path: "skills/agent-browser", source: githubSource({ repo: "vercel/vercel-plugin", root: "skills/agent-browser" }) }),
         skills({ shellExecution: "read" }),
         skills({ shellExecution: "write" }),
         sandbox({ commands: ["node"] }),

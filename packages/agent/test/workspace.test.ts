@@ -245,6 +245,33 @@ describe("defineAgent workspace option", () => {
     await expect(agent.run!(context())).resolves.toBe("ok")
   })
 
+  it("adds generic model instructions for mounted skills", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    exists.mockResolvedValue(true)
+    readFile.mockResolvedValueOnce([
+      "---",
+      "name: agent-browser",
+      "description: Browser automation CLI for AI agents.",
+      "---",
+      "# Agent Browser",
+    ].join("\n"))
+
+    const agent = defineAgent({
+      capabilities: [skills({ path: "skills/agent-browser", shellExecution: "write" })],
+      model: {} as never,
+      workspace: { mode: "write" },
+    })
+
+    await agent.run!(context())
+
+    expect(readFile).toHaveBeenCalledWith("skills/agent-browser/SKILL.md")
+    expect(agentSettings.at(-1)?.instructions).toContain("Skill \"agent-browser\" is mounted at `skills/agent-browser`.")
+    expect(agentSettings.at(-1)?.instructions).toContain("Description: Browser automation CLI for AI agents.")
+    expect(agentSettings.at(-1)?.instructions).toContain("Read `skills/agent-browser/SKILL.md` before using this skill.")
+    expect(agentSettings.at(-1)?.instructions).toContain("Use the `skill_shell` tool")
+  })
+
   it("records opt-in skill shell execution mode", async () => {
     const { skills } = await import("../src/capabilities.ts")
 
@@ -252,6 +279,95 @@ describe("defineAgent workspace option", () => {
     expect(skills({ shellExecution: "read" }).metadata).toMatchObject({ shellExecution: "read" })
     expect(skills({ shellExecution: "write" }).metadata).toMatchObject({ shellExecution: "write" })
     expect(() => skills({ shellExecution: "execute" as never })).toThrow("skills({ shellExecution })")
+  })
+
+  it("lets skills() contribute a mounted workspace source", async () => {
+    const { skills } = await import("../src/capabilities.ts")
+    const { workspaceDefinitionFromOptions } = await import("../src/workspace-agent.ts")
+
+    const definition = workspaceDefinitionFromOptions({
+      capabilities: [
+        skills({
+          path: "skills/agent-browser",
+          source: {
+            include: ["SKILL.md", "references/**"],
+            materialize: "build",
+            repo: "vercel/vercel-plugin",
+            root: "skills/agent-browser",
+          } as never,
+        }),
+      ],
+      model: {} as never,
+      workspace: {},
+    })
+
+    expect(definition.sources?.["skill.agent-browser"]).toEqual({
+      mount: "skills/agent-browser",
+      source: {
+        include: ["SKILL.md", "references/**"],
+        materialize: "build",
+        repo: "vercel/vercel-plugin",
+        root: "skills/agent-browser",
+      },
+    })
+  })
+
+  it("rejects skill sources mounted away from the skill path", async () => {
+    const { skills } = await import("../src/capabilities.ts")
+
+    expect(() => skills({
+      path: "skills/agent-browser",
+      source: {
+        mount: "other",
+        repo: "vercel/vercel-plugin",
+        root: "skills/agent-browser",
+      } as never,
+    })).toThrow("skills({ source }) mount \"other\" must match path \"skills/agent-browser\"")
+  })
+
+  it("bubbles subagent skill sources into the parent workspace definition", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills, subagents } = await import("../src/capabilities.ts")
+    const { workspaceDefinitionFromOptions } = await import("../src/workspace-agent.ts")
+
+    const browserAgent = defineAgent({
+      capabilities: [
+        skills({
+          path: "skills/agent-browser",
+          source: {
+            materialize: "build",
+            repo: "vercel/vercel-plugin",
+            root: "skills/agent-browser",
+          } as never,
+        }),
+      ],
+      model: {} as never,
+      workspace: { name: "review", mode: "write" },
+    })
+    const reviewerAgent = defineAgent({
+      capabilities: [
+        subagents({
+          agents: {
+            browser: {
+              agent: browserAgent,
+              description: "Collect browser evidence.",
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+      workspace: { mode: "write" },
+    })
+    const options = (reviewerAgent as unknown as { __vitehubWorkspaceAgentOptions: Parameters<typeof workspaceDefinitionFromOptions>[0] }).__vitehubWorkspaceAgentOptions
+
+    expect(workspaceDefinitionFromOptions(options).sources?.["skill.agent-browser"]).toEqual({
+      mount: "skills/agent-browser",
+      source: {
+        materialize: "build",
+        repo: "vercel/vercel-plugin",
+        root: "skills/agent-browser",
+      },
+    })
   })
 
   it("exposes opt-in skill shell execution through a workspace session", async () => {
