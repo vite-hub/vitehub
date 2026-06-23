@@ -49,6 +49,7 @@ import {
 } from "./trigger-runtime.ts"
 import {
   isWorkspaceAgentOptions,
+  resolveWorkspaceAgentDefaultInstructions,
   resolveWorkspaceSourceInstructionBlock,
   workspaceDefinitionFromOptions,
   workspaceModeFromOptions,
@@ -1060,6 +1061,7 @@ type AgentInvocationContext<
   outputRenderers: AgentCapabilityRegistries["outputRenderers"]
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
   sourceInstructions?: string
+  instructions?: string
   startedAt: number
   actor: AgentInvoker
   invoker: AgentInvoker
@@ -1077,7 +1079,7 @@ function toAgentAdapterRunContext<
 ): AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig> {
   return {
     ...context,
-    instructions: undefined,
+    instructions: context.instructions,
     runtime: context.runtimeContext,
     workspace: context.workspace as ReadonlyWorkspaceFacade<WorkspaceName> | undefined,
   }
@@ -1152,6 +1154,9 @@ async function createAgentInvocationContext<
           workspaceScope && !workspaceScope.all ? activeWorkspace as ReadonlyWorkspaceFacade : undefined,
         )
       : undefined
+    const instructions = workspaceOptions && activeWorkspace
+      ? await resolveWorkspaceAgentDefaultInstructions(workspaceOptions, activeWorkspace as ReadonlyWorkspaceFacade)
+      : undefined
 
     const invocation = {
       ...callbackContext,
@@ -1169,6 +1174,7 @@ async function createAgentInvocationContext<
       handledResponse: capabilities.response,
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
+      instructions,
       invoker,
       messages: capabilities.messages,
       outputExtensionProviders: capabilities.registries.outputExtensionProviders,

@@ -9,6 +9,16 @@ Workspace context gives an Agent a named Workspace File Tree and optional Source
 
 Use Workspace context when the Agent needs project files, documentation, generated state, Source-backed paths, or controlled file mutation. Do not use it as a hidden prompt bag.
 
+## Add Agent Instructions
+
+Put shared Agent instructions beside the colocated Agent config:
+
+```md [server/agents/docs/instructions.md]
+Answer from the docs workspace. Say when the answer is not present.
+```
+
+ViteHub materializes `server/agents/<name>/instructions.md` into the Agent Workspace as `AGENTS.md`. Model-backed Agent Drivers use it as the default instructions when `driver.instructions` or legacy `instructions` are not configured. Harness-backed Agent Drivers receive the same file in their Workspace session.
+
 ## Declare Sources
 
 Declare a colocated Workspace when the Agent primarily owns the file-tree context. Add Source Instructions when the model-backed driver needs guidance about a Source.
@@ -22,10 +32,6 @@ import { glob } from '@vite-hub/workspace'
 export default defineAgent({
   driver: {
     model: gateway('openai/gpt-5.1-mini'),
-    instructions: [
-      'Answer from the docs workspace. Say when the answer is not present.',
-      '{{ workspace.sources }}',
-    ],
   },
   workspace: {
     sources: {
@@ -66,6 +72,8 @@ ViteHub renders visible Source Instructions into a `## Workspace Sources` block 
 
 Only visible Sources render. If Access selects a Workspace Scope, ViteHub omits hidden Source Instructions along with hidden files.
 
+Explicit `driver.instructions` still wins when the Agent needs custom prompt composition, including manual `{{ workspace.sources }}` placement. Ordinary Workspace files named `AGENTS.md` are just files; only colocated `instructions.md` is the default Agent instructions convention.
+
 ## Start with read access
 
 Use read mode when the Agent only needs to inspect files. Use write mode only when the product expects the Agent to mutate Workspace files and Workspace Rules allow the target paths.
@@ -88,7 +96,6 @@ Harness-backed Agent Drivers receive Workspace state through a Harness Workspace
 import { createCodex } from '@ai-sdk/harness-codex'
 import { defineAgent } from '@vite-hub/agent'
 import { skills } from '@vite-hub/agent/capabilities'
-import { file } from '@vite-hub/workspace'
 
 export default defineAgent({
   driver: {
@@ -98,9 +105,6 @@ export default defineAgent({
   },
   workspace: {
     mode: 'write',
-    sources: {
-      guide: file('AGENTS.md'),
-    },
   },
   capabilities: [
     skills({ path: '.agents/skills/review' }),
@@ -108,7 +112,7 @@ export default defineAgent({
 })
 ```
 
-Read mode materializes the selected Workspace into the harness sandbox and discards sandbox changes. Write mode syncs additions, updates, and deletions back through Workspace rules. Keep Skills behind the `skills()` Capability; ViteHub does not add root `skills`, `tools`, or `sandbox` Agent Definition fields for harness-backed Agents. Put harness guidance in Workspace files such as `AGENTS.md`; model-facing Source Instructions are not forwarded to harness-backed Agent Drivers yet.
+Read mode materializes the selected Workspace into the harness sandbox and discards sandbox changes. Write mode syncs additions, updates, and deletions back through Workspace rules. Keep Skills behind the `skills()` Capability; ViteHub does not add root `skills`, `tools`, or `sandbox` Agent Definition fields for harness-backed Agents. Put harness guidance in colocated `instructions.md`; model-facing Source Instructions are not forwarded to harness-backed Agent Drivers yet.
 
 ## Scope by Agent Invoker
 

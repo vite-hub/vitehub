@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { mkdtemp, rm, writeFile as writeLocalFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade } from "@vite-hub/workspace"
 
@@ -17,6 +21,7 @@ const isWorkspaceSourceRequestOnly = vi.fn((_: unknown): boolean => false)
 const resolveRegisteredWorkspaceDefinition = vi.fn()
 const resolveWorkspaceAutoCommit = vi.fn()
 const workspaceSourceRequestDescriptorPath = vi.fn((source: string) => `.vitehub/sources/${source}.json`)
+const tempRoots: string[] = []
 const useWorkspace = vi.fn<() => ReadonlyWorkspaceFacade | WritableWorkspaceFacade>(() => ({
   diff,
   fs: { exists, list, readFile, writeFile },
@@ -136,6 +141,10 @@ function readonlyWorkspaceFacade(): ReadonlyWorkspaceFacade {
 }
 
 describe("defineAgent workspace option", () => {
+  afterEach(async () => {
+    await Promise.all(tempRoots.splice(0).map(root => rm(root, { force: true, recursive: true })))
+  })
+
   beforeEach(() => {
     agentSettings.length = 0
     harnessAgentSettings.length = 0
@@ -486,6 +495,89 @@ describe("defineAgent workspace option", () => {
     await agent.run!(context())
 
     expect(agentSettings.at(-1)?.instructions).toBe("Use workspace sources.")
+  })
+
+  it("uses colocated instructions.md as default model instructions", async () => {
+    const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
+    tempRoots.push(sourceRootDir)
+    await writeLocalFile(join(sourceRootDir, "instructions.md"), "Use colocated workspace instructions.\n")
+    readFile.mockResolvedValueOnce("Use colocated workspace instructions.\n")
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: { sourceRootDir },
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    expect((agent as { sources?: unknown }).sources).toMatchObject({
+      __vitehubAgentInstructions: {
+        mount: "",
+        path: "instructions.md",
+        workspacePath: "AGENTS.md",
+      },
+    })
+
+    await agent.run!(context())
+
+    expect(readFile).toHaveBeenCalledWith("AGENTS.md")
+    expect(agentSettings.at(-1)?.instructions).toBe("Use colocated workspace instructions.")
+  })
+
+  it("keeps explicit model instructions ahead of colocated instructions.md", async () => {
+    const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
+    tempRoots.push(sourceRootDir)
+    await writeLocalFile(join(sourceRootDir, "instructions.md"), "Use colocated workspace instructions.\n")
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: { sourceRootDir },
+      instructions: "Use explicit instructions.",
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(readFile).not.toHaveBeenCalledWith("AGENTS.md")
+    expect(agentSettings.at(-1)?.instructions).toBe("Use explicit instructions.")
+  })
+
+  it("keeps explicit model driver instructions ahead of colocated instructions.md", async () => {
+    const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
+    tempRoots.push(sourceRootDir)
+    await writeLocalFile(join(sourceRootDir, "instructions.md"), "Use colocated workspace instructions.\n")
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: { sourceRootDir },
+      driver: {
+        instructions: "Use explicit driver instructions.",
+        model: {} as never,
+      },
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(readFile).not.toHaveBeenCalledWith("AGENTS.md")
+    expect(agentSettings.at(-1)?.instructions).toBe("Use explicit driver instructions.")
+  })
+
+  it("does not load ordinary workspace AGENTS.md as implicit instructions", async () => {
+    readFile.mockResolvedValueOnce("Ordinary workspace instructions.\n")
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {
+        sources: {
+          guide: { path: "AGENTS.md" },
+        },
+      },
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(readFile).not.toHaveBeenCalledWith("AGENTS.md")
+    expect(agentSettings.at(-1)?.instructions).toBe("")
   })
 
   it("rebinds synthetic workspace runs when applying discovered defaults", async () => {

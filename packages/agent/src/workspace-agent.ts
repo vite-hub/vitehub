@@ -54,6 +54,9 @@ import type {
 } from "@vite-hub/workspace"
 
 const defaultWorkspaceName = "workspace"
+const colocatedAgentInstructionsPath = "instructions.md"
+const colocatedAgentInstructionsWorkspacePath = "AGENTS.md"
+const colocatedAgentInstructionsSourceKey = "__vitehubAgentInstructions"
 const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"]
 const sourceRequestCommands = ["curl"]
 const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
@@ -183,7 +186,7 @@ export function workspaceDefinitionFromOptions<
   const workspace = normalizeWorkspaceOptions(options.workspace)
   const { mode: _mode, ...definition } = workspace
   assertWorkspaceDefinition(definition)
-  return workspace
+  return withColocatedAgentInstructions(workspace)
 }
 
 function assertWorkspaceDefinition(definition: Record<string, unknown>): void {
@@ -196,6 +199,36 @@ function assertWorkspaceDefinition(definition: Record<string, unknown>): void {
   const unsupported = Object.keys(definition).filter(key => !workspaceDefinitionKeys.has(key))
   if (unsupported.length) {
     throw new TypeError(`[vitehub] defineWorkspace does not support option${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}.`)
+  }
+}
+
+function hasColocatedAgentInstructions(sourceRootDir: string | undefined): boolean {
+  if (!sourceRootDir) return false
+  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
+  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  if (!fs || !path) return false
+  try {
+    return fs.statSync(path.join(sourceRootDir, colocatedAgentInstructionsPath)).isFile()
+  }
+  catch {
+    return false
+  }
+}
+
+function withColocatedAgentInstructions(workspace: NormalizedWorkspaceOptions): NormalizedWorkspaceOptions {
+  if (!hasColocatedAgentInstructions(workspace.sourceRootDir)) return workspace
+  if (workspace.sources && colocatedAgentInstructionsSourceKey in workspace.sources) return workspace
+  return {
+    ...workspace,
+    sources: {
+      [colocatedAgentInstructionsSourceKey]: {
+        materialize: "build",
+        mount: "",
+        path: colocatedAgentInstructionsPath,
+        workspacePath: colocatedAgentInstructionsWorkspacePath,
+      },
+      ...workspace.sources,
+    },
   }
 }
 
@@ -244,6 +277,14 @@ function modelDriverInstructions<
       : undefined
   }
   return (options as { instructions?: AgentAdapterInstructions<TRuntimeConfig, Name> }).instructions
+}
+
+function shouldUseColocatedAgentInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): boolean {
+  return modelDriverInstructions(options) === undefined
+    && normalizeAgentDriver(options as AgentSettings<TRuntimeConfig>).kind === "model"
 }
 
 function workspaceShellMetadataCommands(mode: AgentCapabilityMode, sourceRequests = false) {
@@ -737,6 +778,9 @@ function workspaceMetadataInstructions<
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
 ): string[] {
   const configuredInstructions = modelDriverInstructions(options)
+  const defaultInstructions = shouldUseColocatedAgentInstructions(options)
+    ? readColocatedAgentInstructions(options)
+    : undefined
   const parts = Array.isArray(configuredInstructions) ? configuredInstructions : [configuredInstructions]
   const instructions = parts.flatMap((part) => {
     if (typeof part === "string" && part.trim().length > 0) return [part]
@@ -747,6 +791,7 @@ function workspaceMetadataInstructions<
     }
     return []
   })
+  if (defaultInstructions) instructions.unshift(defaultInstructions)
   const renderedInstructions = applyPassiveCapabilityInstructionSlots(
     instructions.join("\n\n"),
     staticCapabilityInstructionBlocks(options),
@@ -774,6 +819,37 @@ function readLocalWorkspaceInstructions<
   }
 }
 
+function readColocatedAgentInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): string | undefined {
+  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
+  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  const sourceRootDir = workspaceDefinitionFromOptions(options).sourceRootDir
+  if (!fs || !path || !hasColocatedAgentInstructions(sourceRootDir)) return undefined
+  try {
+    const content = fs.readFileSync(path.join(sourceRootDir!, colocatedAgentInstructionsPath), "utf8").trim()
+    if (content) return content
+  }
+  catch {}
+}
+
+export async function resolveWorkspaceAgentDefaultInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
+  workspace: ReadonlyWorkspaceFacade<Name>,
+): Promise<string | undefined> {
+  if (!shouldUseColocatedAgentInstructions(options)) return undefined
+  if (!hasColocatedAgentInstructions(workspaceDefinitionFromOptions(options).sourceRootDir)) return undefined
+  try {
+    const content = (await workspace.fs.readFile(colocatedAgentInstructionsWorkspacePath as never)).trim()
+    if (content) return content
+  }
+  catch {}
+}
+
 async function resolveWorkspaceMetadataInstructions<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -789,6 +865,9 @@ async function resolveWorkspaceMetadataInstructions<
     workspace,
   }
   const configuredInstructions = modelDriverInstructions(options)
+  const defaultInstructions = shouldUseColocatedAgentInstructions(options)
+    ? await resolveWorkspaceAgentDefaultInstructions(options, workspace)
+    : undefined
   const parts = Array.isArray(configuredInstructions) ? configuredInstructions : [configuredInstructions]
   const instructions = await Promise.all(parts.map(part => typeof part === "function"
     ? part(instructionContext as never)
@@ -797,6 +876,7 @@ async function resolveWorkspaceMetadataInstructions<
     .flatMap(part => Array.isArray(part) ? part : [part])
     .map(part => part?.trim())
     .filter((part): part is string => Boolean(part))
+  if (defaultInstructions) baseInstructions.unshift(defaultInstructions)
   const renderedInstructions = applyPassiveCapabilityInstructionSlots(
     baseInstructions.join("\n\n"),
     capabilityBlocks,
