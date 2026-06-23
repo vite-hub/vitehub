@@ -4,7 +4,7 @@ import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
-import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources } from "./config.ts"
+import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources, workspaceSourceRequestDescriptorPath } from "./config.ts"
 import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "./request-execution.ts"
 import { resolveWorkspacePath } from "./resolver.ts"
 import { createWorkspaceSourceView } from "./view.ts"
@@ -539,6 +539,7 @@ function isPlainRecord(input: unknown): input is Record<string, unknown> {
 }
 
 function isSourcePath(definition: WorkspaceDefinition, path: string): boolean {
+  if (isWorkspaceMetadataPath(path)) return false
   return resolveWorkspacePath(definition, path).type === "source"
 }
 
@@ -553,9 +554,21 @@ async function sourceViewHasPath(definition: WorkspaceDefinition, sourceView: Re
 }
 
 function sourcePathIntersects(definition: WorkspaceDefinition, path: string): boolean {
+  if (isWorkspaceMetadataPath(path)) return sourceDescriptorPathIntersects(definition, path)
   return normalizeWorkspaceSources(definition.sources)
     .filter(source => source.materialize !== "none")
     .some(source => pathIntersects(source.mountPath, path))
+}
+
+function isWorkspaceMetadataPath(path: string): boolean {
+  const normalized = normalizeWorkspacePath(path)
+  return normalized === ".vitehub" || normalized.startsWith(".vitehub/")
+}
+
+function sourceDescriptorPathIntersects(definition: WorkspaceDefinition, path: string): boolean {
+  const normalized = normalizeWorkspacePath(path)
+  return normalizeWorkspaceSources(definition.sources)
+    .some(source => source.requestDescriptor && pathIntersects(workspaceSourceRequestDescriptorPath(source.key), normalized))
 }
 
 function isLazySourcePath(definition: WorkspaceDefinition, path: string): boolean {
