@@ -1213,7 +1213,7 @@ async function resolveWorkspaceMetadataCapabilityContext<
 
   return {
     capabilityInstructions: capabilities.capabilityInstructions,
-    definition: sourceResolvedDefinition || workspaceDefinition,
+    definition: sourceResolvedDefinition || capabilities.workspaceDefinition || workspaceDefinition,
     metadataContext: {
       ...agentCallbackContext(runtime),
       actor: invoker,

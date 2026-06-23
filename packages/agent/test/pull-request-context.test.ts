@@ -47,6 +47,28 @@ describe("pullRequestContext", () => {
     })).toThrow("pull-request-context() requires an explicit workspace")
   })
 
+  it("supports context-only usage without a workspace", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { pullRequestContext } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [
+        pullRequestContext({
+          context: {
+            number: 42,
+            repository: "acme/app",
+          },
+        }),
+      ],
+      run: ({ context }) => context.get("pullRequest"),
+    })
+
+    await expect(runAgent(agent, runtime(), {})).resolves.toEqual({
+      number: 42,
+      repository: "acme/app",
+    })
+  })
+
   it("records pull request metadata and contributes workspace inputs", async () => {
     const { pullRequestContext } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
@@ -64,21 +86,24 @@ describe("pullRequestContext", () => {
           rules: {
             "artifacts/review/**": { write: true },
           },
-          sources: {
-            pullRequest: {
-              materialize: "lazy",
-              mount: "pull-request",
-              async getKeys() {
-                return ["body.md"]
+          sources: ({ context }) => {
+            const pullRequest = context.get("pullRequest") as { number: number } | undefined
+            return {
+              pullRequest: {
+                materialize: "lazy",
+                mount: "pull-request",
+                async getKeys() {
+                  return ["body.md"]
+                },
+                async getItem(key: string) {
+                  return {
+                    content: `PR ${pullRequest?.number} body`,
+                    key,
+                    mediaType: "text/markdown",
+                  }
+                },
               },
-              async getItem(key: string) {
-                return {
-                  content: "PR body",
-                  key,
-                  mediaType: "text/markdown",
-                }
-              },
-            },
+            }
           },
         }),
       ],
@@ -95,7 +120,7 @@ describe("pullRequestContext", () => {
       number: 42,
       repository: "acme/app",
     })
-    await expect(resolved.workspace?.fs.readFile("pull-request/body.md")).resolves.toBe("PR body")
+    await expect(resolved.workspace?.fs.readFile("pull-request/body.md")).resolves.toBe("PR 42 body")
     expect(resolved.registries.workspaceContributions).toEqual([
       {
         capabilityId: "pull-request-context",

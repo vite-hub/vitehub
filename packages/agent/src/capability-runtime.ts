@@ -276,12 +276,19 @@ function assertWorkspaceContribution(
   const rules = contribution.rules || {}
   const sourceEntries = Object.entries(sources)
   const rulePatterns = Object.keys(rules)
+  const contributionMounts: Array<{ key: string, mountPath: string }> = []
 
   for (const [key, source] of sourceEntries) {
     if (definition.sources?.[key]) {
       throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with an existing Workspace Source.`)
     }
     const mountPath = normalizeAgentWorkspaceSource(key, source).mountPath
+    for (const existing of contributionMounts) {
+      if (pathsConflict(existing.mountPath, mountPath)) {
+        throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with contributed Workspace Source "${existing.key}" at mount "${mountPath || "."}".`)
+      }
+    }
+    contributionMounts.push({ key, mountPath })
     for (const [existingKey, existingSource] of Object.entries(definition.sources || {})) {
       const existingMountPath = normalizeAgentWorkspaceSource(existingKey, existingSource).mountPath
       if (pathsConflict(existingMountPath, mountPath)) {

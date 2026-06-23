@@ -25,6 +25,52 @@ const emptyWorkspace = () => ({
   },
 })
 
+const writableWorkspace = () => {
+  const files = new Map<string, string>()
+  const fs = {
+    appendFile: vi.fn(async (path: string, content: string) => {
+      files.set(path, `${files.get(path) || ""}${content}`)
+    }),
+    copyPath: vi.fn(async (from: string, to: string) => {
+      files.set(to, files.get(from) || "")
+    }),
+    exists: vi.fn(async (path: string) => files.has(path)),
+    glob: vi.fn(async () => []),
+    list: vi.fn(async () => []),
+    mkdir: vi.fn(async () => {}),
+    movePath: vi.fn(async (from: string, to: string) => {
+      files.set(to, files.get(from) || "")
+      files.delete(from)
+    }),
+    readFile: vi.fn(async (path: string) => {
+      const content = files.get(path)
+      if (content === undefined) throw new Error("missing")
+      return content
+    }),
+    rm: vi.fn(async (path: string) => {
+      files.delete(path)
+    }),
+    search: vi.fn(async () => []),
+    stat: vi.fn(async () => { throw new Error("missing") }),
+    writeFile: vi.fn(async (path: string, content: string) => {
+      files.set(path, content)
+    }),
+  }
+  return {
+    diff: vi.fn(async () => ({ changes: [] })),
+    fs,
+    materializeSources: vi.fn(async () => ({ bytes: 0, directories: 0, durationMs: 0, files: 0, path: "", sources: [] })),
+    snapshot: vi.fn(async () => ({ id: "snapshot" })),
+    startSession: vi.fn(async () => ({ close: vi.fn() })),
+    sync: vi.fn(async () => ({ bytes: 0, created: 0, deleted: 0, updated: 0 })),
+    tools: {
+      inspect: vi.fn(() => ({})),
+      none: vi.fn(() => ({})),
+      write: vi.fn(() => ({})),
+    },
+  }
+}
+
 describe("agent capability runtime", () => {
   it("runs lifecycle phases in capability order and closes in reverse order", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
@@ -256,6 +302,83 @@ describe("agent capability runtime", () => {
         },
       },
     })).rejects.toThrow('workspace contribution source "docs" conflicts')
+  })
+
+  it("rejects capability workspace source conflicts inside one contribution", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              files: {
+                mount: "review/files",
+                async getKeys() {
+                  return []
+                },
+                async getItem(key: string) {
+                  return { content: "", key }
+                },
+              },
+              review: {
+                mount: "review",
+                async getKeys() {
+                  return []
+                },
+                async getItem(key: string) {
+                  return { content: "", key }
+                },
+              },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })).rejects.toThrow('workspace contribution source "review" conflicts with contributed Workspace Source "files"')
+  })
+
+  it("preserves writable workspace methods when applying workspace contributions", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const workspace = writableWorkspace()
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              pullRequest: {
+                materialize: "lazy",
+                mount: "pull-request",
+                async getKeys() {
+                  return ["summary.md"]
+                },
+                async getItem(key: string) {
+                  return { content: "review context", key }
+                },
+              },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, workspace as never, "write", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    await expect(resolved.workspace?.fs.readFile("pull-request/summary.md")).resolves.toBe("review context")
+    const resolvedWorkspace = resolved.workspace as unknown as ReturnType<typeof writableWorkspace>
+    await resolvedWorkspace.fs.writeFile("artifacts/review.md", "ok")
+    expect(workspace.fs.writeFile).toHaveBeenCalledWith("artifacts/review.md", "ok")
+    expect(resolvedWorkspace.tools.write).toEqual(expect.any(Function))
   })
 
   it("rejects duplicate invocation context values", async () => {

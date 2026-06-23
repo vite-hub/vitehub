@@ -84,27 +84,37 @@ export function pullRequestContext<
   options: PullRequestContextOptions<TRuntimeConfig, Name> & { contextKey?: TContextKey, sources?: TSourceMap | PullRequestContextSources<TRuntimeConfig, Name> } = {},
 ): AgentCapabilityDefinition<TRuntimeConfig, Name, PullRequestContextCapabilityTypeContract<Extract<keyof NonNullable<TSourceMap>, string>, TContextKey>> {
   const contextKey = options.contextKey || "pullRequest"
+  const hasWorkspaceContribution = options.sources !== undefined || options.rules !== undefined
+
+  async function recordContext(context: AgentCapabilityContext<TRuntimeConfig, Name>) {
+    if (context.context.has(contextKey)) return
+    const value = await resolveMaybeFunction(options.context, context)
+    if (value !== undefined) {
+      context.context.set(contextKey, value)
+    }
+  }
+
   return defineCapability({
     id: options.id || "pull-request-context",
     metadata: {
       contextKey,
       kind: "pull-request-context",
     },
-    prepare: async (context) => {
-      const value = await resolveMaybeFunction(options.context, context)
-      if (value !== undefined && !context.context.has(contextKey)) {
-        context.context.set(contextKey, value)
-      }
-    },
+    prepare: recordContext,
     triggers: options.triggers,
-    workspace: async (context): Promise<AgentCapabilityWorkspaceContribution | undefined> => {
-      const sources = await resolveMaybeFunction(options.sources, context)
-      const rules = await resolveMaybeFunction(options.rules, context)
-      if (!sources && !rules) return
-      return {
-        ...(rules ? { rules } : {}),
-        ...(sources ? { sources } : {}),
-      }
-    },
+    ...(hasWorkspaceContribution
+      ? {
+          workspace: async (context): Promise<AgentCapabilityWorkspaceContribution | undefined> => {
+            await recordContext(context)
+            const sources = await resolveMaybeFunction(options.sources, context)
+            const rules = await resolveMaybeFunction(options.rules, context)
+            if (!sources && !rules) return
+            return {
+              ...(rules ? { rules } : {}),
+              ...(sources ? { sources } : {}),
+            }
+          },
+        }
+      : {}),
   })
 }

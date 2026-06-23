@@ -6,7 +6,14 @@ import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExec
 import { resolveWorkspacePath } from "./resolver.ts"
 import { createWorkspaceSourceView } from "./view.ts"
 
-import type { WorkspaceFacadeToolOptions, ReadonlyWorkspaceFacade, WorkspaceReadToolSet } from "../core/use.ts"
+import type {
+  ReadonlyWorkspaceFacade,
+  WorkspaceFacadeToolOptions,
+  WorkspaceReadToolSet,
+  WorkspaceWriteToolSet,
+  WritableWorkspaceFacade,
+  WritableWorkspaceFacadeToolOptions,
+} from "../core/use.ts"
 import type {
   ListOptions,
   WorkspaceDefinition,
@@ -35,6 +42,21 @@ export interface WorkspaceSourceResolutionFacade<Name extends WorkspaceName = Wo
 
 export function hasWorkspaceSourceResolvers(definition: Pick<WorkspaceDefinition, "sources"> | undefined): boolean {
   return normalizeWorkspaceSources(definition?.sources).some(source => typeof source.source.resolve === "function")
+}
+
+function isWritableWorkspaceFacade<Name extends WorkspaceName>(workspace: ReadonlyWorkspaceFacade<Name>): workspace is WritableWorkspaceFacade<Name> {
+  return typeof (workspace as WritableWorkspaceFacade<Name>).fs.writeFile === "function"
+}
+
+function writeOperations(options: WritableWorkspaceFacadeToolOptions | undefined) {
+  return {
+    appendFile: options?.appendFile !== false,
+    copyPath: options?.copyPath !== false,
+    deletePath: options?.deletePath !== false,
+    makeDir: options?.makeDir !== false,
+    movePath: options?.movePath !== false,
+    writeFile: options?.writeFile !== false,
+  }
 }
 
 export async function resolveWorkspaceSources(
@@ -67,6 +89,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
   if (!options.overlay && resolvedDefinition === definition && !sourceRequestExecution) return { definition, workspace }
 
   const sourceView = createWorkspaceSourceView(resolvedDefinition, createMemoryWorkspaceStore())
+  const materializeSources = async (options = {}) => await sourceView.materializeSources(options)
   const fs: ReadonlyWorkspaceFacade<Name>["fs"] = attachWorkspaceSourceRequestExecution({
     async readFile(path, options) {
       if (isSourcePath(resolvedDefinition, path) || await sourceViewHasPath(resolvedDefinition, sourceView, path)) {
@@ -108,9 +131,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       ])
       return mergeHits(filterBaseHits(resolvedDefinition, baseHits), sourceHits).slice(0, query.limit ?? 100)
     },
-    async materializeSources(options = {}) {
-      return await sourceView.materializeSources(options)
-    },
+    materializeSources,
   }, sourceRequestExecution)
 
   const createTools = (options?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
@@ -129,6 +150,63 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
   const tools = createTools() as WorkspaceReadToolSet
   tools.inspect = createTools as unknown as WorkspaceReadToolSet["inspect"]
   tools.none = (() => ({})) as WorkspaceReadToolSet["none"]
+
+  if (isWritableWorkspaceFacade(workspace)) {
+    const writeFs: WritableWorkspaceFacade<Name>["fs"] = attachWorkspaceSourceRequestExecution({
+      ...workspace.fs,
+      exists: fs.exists,
+      glob: fs.glob,
+      list: fs.list,
+      readFile: fs.readFile,
+      search: fs.search,
+      stat: fs.stat,
+    }, sourceRequestExecution)
+    const writeWorkspace = attachWorkspaceSourceRequestExecution({
+      diff: workspace.diff,
+      exists: writeFs.exists,
+      glob: writeFs.glob,
+      list: writeFs.list,
+      materializeSources,
+      mkdir: writeFs.mkdir,
+      readFile: writeFs.readFile,
+      rm: writeFs.rm,
+      search: writeFs.search,
+      snapshot: workspace.snapshot,
+      startSession: workspace.startSession,
+      stat: writeFs.stat,
+      sync: workspace.sync,
+      writeFile: writeFs.writeFile,
+    }, sourceRequestExecution)
+    const createWriteTools = (options?: WritableWorkspaceFacadeToolOptions) => createWorkspaceTools(writeWorkspace as never, {
+      broadSearchPaths: options?.broadSearchPaths,
+      cwd: options?.cwd,
+      maxShellCalls: options?.maxShellCalls,
+      maxOutputLength: options?.maxOutputLength,
+      operations: {
+        list: options?.list,
+        materialize: options?.materialize ?? true,
+        read: options?.read,
+        search: options?.search,
+        write: writeOperations(options),
+      },
+      timeout: options?.timeout,
+    })
+    const writeTools = createWriteTools() as WorkspaceWriteToolSet
+    writeTools.inspect = createTools as unknown as WorkspaceWriteToolSet["inspect"]
+    writeTools.none = (() => ({})) as WorkspaceWriteToolSet["none"]
+    writeTools.write = createWriteTools as unknown as WorkspaceWriteToolSet["write"]
+    const writableWorkspace: WritableWorkspaceFacade<Name> = {
+      ...workspace,
+      fs: writeFs,
+      materializeSources,
+      tools: writeTools,
+    }
+
+    return {
+      definition: resolvedDefinition,
+      workspace: writableWorkspace,
+    }
+  }
 
   return {
     definition: resolvedDefinition,
