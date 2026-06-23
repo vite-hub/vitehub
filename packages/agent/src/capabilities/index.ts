@@ -67,6 +67,12 @@ export {
   workspaceShell,
 } from "./workspace-shell.ts"
 export {
+  workspaceExec,
+} from "./workspace-exec.ts"
+export type {
+  WorkspaceExecOptions,
+} from "./workspace-exec.ts"
+export {
   kv,
 } from "./storage/kv.ts"
 export {
