@@ -461,12 +461,41 @@ describe("Workspace Source Resolution", () => {
     await expect(workspace.fs.readFile("docs/README.md")).resolves.toBe("# Docs\n")
   })
 
+  it("does not serve stale base files as lazy source output in overlays", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    await base.writeFile("ingestion/acme/old.sql", "stale\n")
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        ingestion: custom({
+          materialize: "lazy",
+          mount: "ingestion/acme",
+          async getKeys() {
+            return ["models/orders.sql"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "select 1\n" }
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+
+    await expect(workspace.fs.readFile("ingestion/acme/models/orders.sql")).resolves.toBe("select 1\n")
+    await expect(workspace.fs.readFile("ingestion/acme/old.sql")).rejects.toThrow("does not exist")
+  })
+
   it("keeps source-backed paths read-only in writable overlays", async () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
       rules: {
         "artifacts/**": { write: true },
+        "artifacts/review.md": { write: true, maxBytes: 2 },
       },
       sources: {
         pullRequest: custom({
@@ -492,10 +521,13 @@ describe("Workspace Source Resolution", () => {
     await expect(writable.fs.writeFile("pull-request/body.md", "nope")).rejects.toThrow("read-only")
     await expect(writable.fs.mkdir("pull-request/new")).rejects.toThrow("read-only")
     await expect(writable.fs.rm("pull-request/body.md")).rejects.toThrow("read-only")
-    await expect(writable.fs.copyPath("artifacts/missing.md", "pull-request/copy.md")).rejects.toThrow("read-only")
+    await expect(writable.fs.copyPath("pull-request/body.md", "pull-request/copy.md")).rejects.toThrow("read-only")
 
+    await expect(writable.fs.writeFile("artifacts/review.md", "nope")).rejects.toThrow("limits writes")
     await writable.fs.writeFile("artifacts/review.md", "ok")
+    await writable.fs.copyPath("pull-request/body.md", "artifacts/body.md")
     await expect(base.readFile("artifacts/review.md")).resolves.toBe("ok")
+    await expect(base.readFile("artifacts/body.md")).resolves.toBe("# Pull request\n")
   })
 
   it("starts writable overlay sessions from contributed sources and rules", async () => {

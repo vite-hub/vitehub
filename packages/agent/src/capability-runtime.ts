@@ -44,7 +44,7 @@ import type {
 } from "./types.ts"
 import type { WorkspaceOverrideRuntime } from "./access-runtime.ts"
 import type { Message } from "./messages.ts"
-import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName, WorkspaceSelectedScope } from "@vite-hub/workspace"
+import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName, WorkspaceSelectedScope, WorkspaceSourceInput } from "@vite-hub/workspace"
 
 type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentInvocationExtensions) => MaybePromise<unknown>) & {
   providerCount: number
@@ -266,6 +266,10 @@ function pathsConflict(left: string, right: string): boolean {
   return pathContains(left, right) || pathContains(right, left)
 }
 
+function isPlainRecord(input: unknown): input is Record<string, unknown> {
+  return !!input && typeof input === "object" && !Array.isArray(input)
+}
+
 function ruleConflictBase(pattern: string): string {
   const wildcard = pattern.search(/[*{[(?]/)
   const base = wildcard === -1 ? pattern : pattern.slice(0, wildcard)
@@ -319,7 +323,14 @@ function assertWorkspaceContribution(
 }
 
 async function workspacePathExists(workspace: ReadonlyWorkspaceFacade, path: string): Promise<boolean> {
-  if (!path) return false
+  if (!path) {
+    try {
+      return Boolean((await workspace.fs.list("" as never)).length)
+    }
+    catch {
+      return false
+    }
+  }
   if (await workspace.fs.exists(path as never)) return true
   try {
     return Boolean((await workspace.fs.list(path as never)).length)
@@ -332,6 +343,7 @@ async function workspacePathExists(workspace: ReadonlyWorkspaceFacade, path: str
 async function assertResolvedWorkspaceContributionSources(
   registries: AgentCapabilityRegistries["workspaceContributions"],
   definition: WorkspaceDefinition,
+  selectedWorkspaceScope: WorkspaceSelectedScope | undefined,
   workspace: ReadonlyWorkspaceFacade,
 ) {
   const contributed = new Map<string, string>()
@@ -343,6 +355,9 @@ async function assertResolvedWorkspaceContributionSources(
     const source = definition.sources?.[key]
     if (!source) continue
     const mountPath = normalizeAgentWorkspaceSource(key, source).mountPath
+    if (!selectedScopeContainsMount(selectedWorkspaceScope, mountPath)) {
+      throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" is outside the selected Workspace Scope.`)
+    }
     for (const [existingKey, existingSource] of Object.entries(definition.sources || {})) {
       if (existingKey === key) continue
       const existingMountPath = normalizeAgentWorkspaceSource(existingKey, existingSource).mountPath
@@ -369,6 +384,26 @@ function selectedWorkspaceScopeFromContext(context: AgentInvocationContextStore)
   }
 }
 
+function selectedScopeContainsMount(scope: WorkspaceSelectedScope | undefined, mountPath: string): boolean {
+  if (!scope || scope.all) return true
+  if (!mountPath) return Boolean(scope.paths?.includes(""))
+  return Boolean(scope.paths?.some(path => pathContains(path, mountPath)))
+}
+
+function withInvocationReadableSource(input: WorkspaceSourceInput): WorkspaceSourceInput {
+  if (typeof input === "string") return { source: input, materialize: "lazy" }
+  if (!isPlainRecord(input)) return input
+  const mount = input.mount
+  if (input.materialize !== undefined || input.sync !== undefined || isPlainRecord(mount) && mount.materialize !== undefined) {
+    return input
+  }
+  return { ...input, materialize: "lazy" } as WorkspaceSourceInput
+}
+
+function withInvocationReadableSources(sources: Record<string, WorkspaceSourceInput>): Record<string, WorkspaceSourceInput> {
+  return Object.fromEntries(Object.entries(sources).map(([key, source]) => [key, withInvocationReadableSource(source)]))
+}
+
 async function applyCapabilityWorkspaceContributions<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -393,7 +428,7 @@ async function applyCapabilityWorkspaceContributions<
     if (!resolved) continue
 
     assertWorkspaceContribution(capability.id, resolved, definition)
-    const sources = resolved.sources || {}
+    const sources = withInvocationReadableSources(resolved.sources || {})
     const rules = resolved.rules || {}
     definition = {
       ...definition,
@@ -409,15 +444,16 @@ async function applyCapabilityWorkspaceContributions<
 
   if (!registries.length) return
   const { createWorkspaceSourceResolutionFacade } = await import("@vite-hub/workspace")
+  const selectedWorkspaceScope = selectedWorkspaceScopeFromContext(context.context)
   const sourceResolution = await createWorkspaceSourceResolutionFacade(context.workspace, definition, {
     invocation: {
       context: context.context,
       run: context.run,
     },
     overlay: true,
-    selectedWorkspaceScope: selectedWorkspaceScopeFromContext(context.context),
+    selectedWorkspaceScope,
   })
-  await assertResolvedWorkspaceContributionSources(registries, sourceResolution.definition, context.workspace)
+  await assertResolvedWorkspaceContributionSources(registries, sourceResolution.definition, selectedWorkspaceScope, context.workspace)
   return {
     definition: sourceResolution.definition,
     registries,

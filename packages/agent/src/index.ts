@@ -1238,7 +1238,7 @@ async function createAgentInvocationContext<
       : undefined
     const activeWorkspace = capabilities.workspace || workspace
     const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
-    const activeWorkspaceDefinition = sourceResolvedWorkspaceDefinition || capabilities.workspaceDefinition || resolvedWorkspaceDefinition
+    const activeWorkspaceDefinition = capabilities.workspaceDefinition || sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
     const workspaceScope = invocationContext.get("access")?.workspaceScope
     const sourceInstructions = activeWorkspaceDefinition && activeWorkspace
       ? await resolveWorkspaceSourceInstructionBlock(

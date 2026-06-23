@@ -2685,11 +2685,16 @@ describe("defineAgent workspace option", () => {
 
   it("renders Capability Workspace Contribution source instructions in resolved DevTools metadata", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
-    const { pullRequestContext } = await import("../src/capabilities.ts")
+    const { access, pullRequestContext } = await import("../src/capabilities.ts")
     exists.mockResolvedValue(false)
     list.mockResolvedValue([])
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
     const metadataWorkspace = readonlyWorkspaceFacade()
     metadataWorkspace.fs.exists = vi.fn(async path => path === "pull-request")
+    createWorkspaceSourceResolutionFacade.mockImplementationOnce(async (workspace, definition) => ({
+      definition: { ...(definition as object) },
+      workspace,
+    }))
     createWorkspaceSourceResolutionFacade.mockImplementationOnce(async (_workspace, definition) => ({
       definition,
       workspace: metadataWorkspace,
@@ -2697,11 +2702,18 @@ describe("defineAgent workspace option", () => {
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
       capabilities: [
+        access({
+          workspace: {
+            resolve: { role: "admin", scope: "review" },
+            scopes: {
+              review: { all: true },
+            },
+          },
+        }),
         pullRequestContext({
           sources: {
             pullRequest: {
               instructions: "Use this source for pull-request review material.",
-              materialize: "lazy",
               mount: "pull-request",
               async getKeys() {
                 return []

@@ -129,4 +129,27 @@ describe("pullRequestContext", () => {
       },
     ])
   })
+
+  it("rejects duplicate pull request context values before resolving trusted context", async () => {
+    const { pullRequestContext } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        pullRequestContext({
+          context: {
+            number: 42,
+            repository: "trusted/repo",
+          },
+        }),
+      ],
+    }, runtime(), {
+      context: {
+        pullRequest: {
+          number: 1,
+          repository: "caller/repo",
+        },
+      } as never,
+    })).rejects.toThrow('Invocation context value "pullRequest" is already set')
+  })
 })

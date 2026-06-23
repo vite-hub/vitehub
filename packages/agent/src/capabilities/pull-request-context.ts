@@ -85,12 +85,14 @@ export function pullRequestContext<
 ): AgentCapabilityDefinition<TRuntimeConfig, Name, PullRequestContextCapabilityTypeContract<Extract<keyof NonNullable<TSourceMap>, string>, TContextKey>> {
   const contextKey = options.contextKey || "pullRequest"
   const hasWorkspaceContribution = options.sources !== undefined || options.rules !== undefined
+  const recordedContexts = new WeakSet<AgentCapabilityContext<TRuntimeConfig, Name>["context"]>()
 
   async function recordContext(context: AgentCapabilityContext<TRuntimeConfig, Name>) {
-    if (context.context.has(contextKey)) return
+    if (recordedContexts.has(context.context)) return
     const value = await resolveMaybeFunction(options.context, context)
     if (value !== undefined) {
       context.context.set(contextKey, value)
+      recordedContexts.add(context.context)
     }
   }
 
