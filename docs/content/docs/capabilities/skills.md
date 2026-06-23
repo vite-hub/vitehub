@@ -18,7 +18,8 @@ Use the configuration example below as the starting point, then tighten modes, p
 ## What it adds
 
 The Capability records the configured skill path in metadata and requires the Workspace path to exist.
-It does not expose model-facing tools by itself.
+By default it does not expose model-facing tools.
+When `shellExecution` is set, it also exposes `skill_shell`, which runs commands from the mounted skill instructions through the active Workspace Session.
 
 ## Configuration
 
@@ -42,6 +43,7 @@ export default defineAgent({
 
 ViteHub validates the Workspace read requirement before the Agent Driver runs.
 The Capability metadata includes the directory path and the resolved `SKILL.md` path.
+With `shellExecution: 'write'`, successful `skill_shell` commands commit Workspace Session changes back into the Workspace.
 
 ## Requirements
 
@@ -67,8 +69,10 @@ Inspect Capability metadata for the normalized `path` and `skillPath` values.
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
+| `maxOutputLength` | `number` | `30000` | Maximum stdout/stderr characters returned from `skill_shell`. |
 | `path` | `string` | `"skills"` | Directory or `SKILL.md` path required in the Workspace. |
-| `shellExecution` | `"read" \| "write"` | none | Optional Workspace Shell execution mode declared by the skill requirement. |
+| `shellExecution` | `"read" \| "write"` | none | Optional Workspace Session shell execution mode for commands described by the mounted skill. |
+| `timeout` | `number` | none | Default `skill_shell` timeout in milliseconds. |
 
 ## Reference
 

@@ -254,6 +254,52 @@ describe("defineAgent workspace option", () => {
     expect(() => skills({ shellExecution: "execute" as never })).toThrow("skills({ shellExecution })")
   })
 
+  it("exposes opt-in skill shell execution through a workspace session", async () => {
+    const session = {
+      close: vi.fn(),
+      commit: vi.fn(),
+      exec: vi.fn(async () => ({
+        args: ["-lc", "agent-browser snapshot -i"],
+        command: "bash",
+        exitCode: 0,
+        stderr: "",
+        stdout: "snapshot",
+      })),
+    }
+    useWorkspace.mockReturnValueOnce({
+      diff,
+      fs: { exists, list, readFile, writeFile },
+      snapshot,
+      startSession: vi.fn(async () => session),
+      tools: Object.assign(tools, {
+        inspect: inspectTools,
+        none: vi.fn(() => ({})),
+        readonly: inspectTools,
+      }),
+    } as unknown as WritableWorkspaceFacade)
+    agentGenerate.mockImplementationOnce(async function (this: { settings: { tools: Record<string, { execute: (input: unknown) => Promise<unknown> }> } }) {
+      const output = await this.settings.tools.skill_shell.execute({ command: "agent-browser snapshot -i" })
+      return { finishReason: "stop", text: JSON.stringify(output) }
+    })
+    exists.mockResolvedValue(true)
+    const { defineAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [skills({ path: "skills/agent-browser", shellExecution: "write" })],
+      model: {} as never,
+      workspace: { mode: "write" },
+    })
+
+    await expect(agent.run!(context())).resolves.toContain("snapshot")
+    expect(session.exec).toHaveBeenCalledWith("bash", ["-lc", "agent-browser snapshot -i"], {
+      cwd: undefined,
+      timeout: undefined,
+    })
+    expect(session.commit).toHaveBeenCalledWith({ message: "skill shell" })
+    expect(session.close).toHaveBeenCalledTimes(1)
+  })
+
   it("requires writable workspace for write-mode skill shell execution", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
