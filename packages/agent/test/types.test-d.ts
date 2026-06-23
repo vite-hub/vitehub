@@ -8,7 +8,7 @@ import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentUsageRecord } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
-import { file, github as githubSource, source } from "@vite-hub/workspace"
+import { file, github as githubSource } from "@vite-hub/workspace"
 import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatPlatformResolver, AgentChatRunContext, FetchCapabilityToolOptions, PullRequestContextValue, RepositoryHostClient, TranscriptionResult, UsageTelemetryOutputExtension, UsageTelemetrySummaryOptions } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
@@ -103,7 +103,7 @@ describe("agent public types", () => {
             "artifacts/review/**": { write: true },
           },
           sources: {
-            pullRequest: source.file({ mount: "pull-request", path: "README.md" }),
+            pullRequest: file({ mount: "pull-request", path: "README.md" }),
           },
         }),
         skills(),
