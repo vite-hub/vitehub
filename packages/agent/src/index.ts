@@ -282,6 +282,7 @@ export {
   createAgentDevtoolsMetadata,
   materializeAgentDevtoolsSourceMetadata,
   resolveAgentDevtoolsMetadata,
+  workspaceAgentOwnsWorkspaceDefinition,
 } from "./workspace-agent.ts"
 
 export {

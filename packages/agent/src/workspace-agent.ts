@@ -137,6 +137,16 @@ function isWorkspaceReference(workspace: WorkspaceAgentWorkspaceConfig): workspa
     && typeof workspace.name === "string"
 }
 
+export function workspaceAgentOwnsWorkspaceDefinition(agent: unknown): boolean {
+  const options = typeof agent === "object" && agent !== null
+    ? (agent as { __vitehubWorkspaceAgentOptions?: { workspace?: unknown } }).__vitehubWorkspaceAgentOptions
+    : undefined
+  const workspace = options?.workspace
+  return typeof workspace === "object"
+    && workspace !== null
+    && !isWorkspaceReference(workspace as WorkspaceAgentWorkspaceConfig)
+}
+
 function assertWorkspaceReference(reference: { name: string }): void {
   if (!reference.name.trim()) {
     throw new TypeError("[vitehub] Workspace reference requires a non-empty string name.")
