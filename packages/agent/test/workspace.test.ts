@@ -570,7 +570,7 @@ describe("defineAgent workspace option", () => {
       sources: {
         summaryInstructions: { instructions: "Use the summary instructions.", name: "summary" } as never,
       },
-      store: { provider: "memory" },
+      store: { provider: "memory" as const },
     }
     registerWorkspace(workspaceName, workspaceDefinition)
     resolveRegisteredWorkspaceDefinition.mockResolvedValueOnce(workspaceDefinition)
