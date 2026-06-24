@@ -115,6 +115,57 @@ describe("Harness Workspace Session", () => {
     await session.close()
   })
 
+  it("materializes lazy source files before copying them into the harness sandbox", async () => {
+    const sourceFile = bytes("Months of Stock\n")
+    let materialized = false
+    const materializeSources = vi.fn(async () => {
+      materialized = true
+      return {
+        bytes: sourceFile.byteLength,
+        directories: 2,
+        durationMs: 1,
+        files: 1,
+        path: "",
+        sources: [{ source: "portal", status: "ready" }],
+      }
+    })
+    const list = vi.fn(async () => materialized
+      ? [
+          { path: "portal", type: "directory" },
+          { path: "portal/app", type: "directory" },
+          { mediaType: "text/vue", path: "portal/app/OrderSuggestion.vue", type: "file" },
+        ]
+      : [
+          { path: "portal", type: "directory" },
+        ])
+    const readFile = vi.fn(async (path: string) => {
+      if (path === "portal/app/OrderSuggestion.vue") return sourceFile
+      throw new Error(`unexpected read ${path}`)
+    })
+    const writeBinaryFile = vi.fn(async () => {})
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: { list, materializeSources, readFile },
+      tools: {},
+    } as never, {
+      session: {
+        run: sandboxRun(),
+        writeBinaryFile,
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    expect(materializeSources).toHaveBeenCalledWith({ path: "" })
+    expect(list).toHaveBeenCalledWith("", { recursive: true })
+    expect(writeBinaryFile).toHaveBeenCalledWith({
+      abortSignal: undefined,
+      content: sourceFile,
+      path: "/work/agent/portal/app/OrderSuggestion.vue",
+    })
+
+    await session.close()
+  })
+
   it("skips missing selected paths during sandbox materialization", async () => {
     const publicReadme = bytes("# Public\n")
     const stat = vi.fn(async (path: string) => {

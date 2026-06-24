@@ -36,9 +36,23 @@ type InitialTree = {
   directories: Set<string>
   files: Map<string, InitialFile>
 }
+type SourceMaterializer = (options?: { path?: string }) => Promise<unknown>
+type WorkspaceFsWithSources = { materializeSources?: SourceMaterializer }
+const sandboxWriteConcurrency = 4
 
 function isWritableWorkspaceFacade(workspace: WorkspaceFacade): workspace is WritableWorkspaceFacade {
   return "startSession" in workspace && typeof workspace.startSession === "function"
+}
+
+function workspaceSourceMaterializer(workspace: WorkspaceFacade): SourceMaterializer | undefined {
+  if ("materializeSources" in workspace && typeof workspace.materializeSources === "function") {
+    return options => workspace.materializeSources(options)
+  }
+
+  const materializeSources = (workspace.fs as WorkspaceFsWithSources).materializeSources
+  if (typeof materializeSources === "function") {
+    return options => materializeSources(options)
+  }
 }
 
 function sandboxPath(root: string, path: string) {
@@ -97,6 +111,16 @@ function addParentDirectories(directories: Set<string>, path: string) {
   }
 }
 
+async function forEachConcurrent<T>(items: readonly T[], limit: number, fn: (item: T) => Promise<void>) {
+  let index = 0
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (index < items.length) {
+      const item = items[index++]
+      if (item !== undefined) await fn(item)
+    }
+  }))
+}
+
 async function workspaceEntries(workspace: WorkspaceFacade, paths: string[] | undefined) {
   if (!paths) return await workspace.fs.list("", { recursive: true })
 
@@ -110,6 +134,13 @@ async function workspaceEntries(workspace: WorkspaceFacade, paths: string[] | un
     }
   }
   return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path))
+}
+
+async function materializeWorkspaceSourcesForSession(workspace: WorkspaceFacade, paths: string[] | undefined) {
+  const materialize = workspaceSourceMaterializer(workspace)
+  if (!materialize) return
+
+  await Promise.all((paths?.length ? paths : [""]).map(async path => await materialize({ path })))
 }
 
 function bytesEqual(left: Uint8Array | undefined, right: Uint8Array) {
@@ -175,16 +206,18 @@ async function copyWorkspaceToSandbox(
   abortSignal: AbortSignal | undefined,
   paths: string[] | undefined,
 ) {
+  await materializeWorkspaceSourcesForSession(workspace, paths)
   const entries = await workspaceEntries(workspace, paths)
   const directoriesToCreate = new Set(workspaceDirectories(entries))
   const initialTree: InitialTree = {
     directories: new Set(workspaceDirectories(entries)),
     files: new Map(),
   }
-  for (const entry of workspaceFiles(entries)) addParentDirectories(directoriesToCreate, entry.path)
+  const files = workspaceFiles(entries)
+  for (const entry of files) addParentDirectories(directoriesToCreate, entry.path)
   await resetSandboxWorkDir(sandbox, sessionWorkDir, abortSignal)
   await mkdirSandboxDirectories(sandbox, [...directoriesToCreate], sessionWorkDir, abortSignal)
-  for (const entry of workspaceFiles(entries)) {
+  await forEachConcurrent(files, sandboxWriteConcurrency, async (entry) => {
     const content = await workspace.fs.readFile(entry.path, { encoding: "binary" })
     initialTree.files.set(entry.path, { content, mediaType: entry.mediaType })
     await sandbox.writeBinaryFile({
@@ -192,7 +225,7 @@ async function copyWorkspaceToSandbox(
       content,
       path: sandboxPath(sessionWorkDir, entry.path),
     })
-  }
+  })
   return initialTree
 }
 
