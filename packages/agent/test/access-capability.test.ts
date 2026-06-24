@@ -491,6 +491,52 @@ describe("access capability", () => {
     expect(result.stdout).not.toContain("globex")
   })
 
+  it("keeps scoped workspace shell searches on executable sessions", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access, workspaceShell } = await import("../src/capabilities.ts")
+    const exec = vi.fn(async (command: string, args: string[] = [], options?: { cwd?: string }) => ({
+      args,
+      command,
+      exitCode: 0,
+      stderr: "",
+      stdout: "native rg\n",
+      cwd: options?.cwd,
+    }))
+    const close = vi.fn()
+    const startSession = vi.fn(async () => ({ close, exec }))
+    const base = createWorkspace()
+    const workspace: ReadonlyWorkspaceFacade = {
+      ...base,
+      fs: {
+        ...base.fs,
+        async exists(path: string) {
+          return path === "portal/app" || await base.fs.exists(path)
+        },
+        startSession,
+      } as never,
+    }
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "portal",
+            scopes: {
+              portal: { paths: ["portal"] },
+            },
+          },
+        }),
+        workspaceShell(),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace)
+    const result = await resolved.tools!.shell.execute!({ command: `rg -i "months.*stock" portal/app --max-depth 3` }) as { stdout: string }
+
+    expect(result.stdout).toBe("native rg\n")
+    expect(startSession).toHaveBeenCalledWith({ paths: ["portal/app"] })
+    expect(exec).toHaveBeenCalledWith("sh", ["-lc", `rg -i "months.*stock" portal/app --max-depth 3`], expect.objectContaining({ cwd: "/workspace" }))
+    expect(close).toHaveBeenCalled()
+  })
+
   it("preserves source request execution on scoped workspace shell commands", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access, workspaceShell } = await import("../src/capabilities.ts")

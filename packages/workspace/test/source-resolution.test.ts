@@ -910,6 +910,44 @@ describe("Workspace Source Resolution", () => {
     }
   })
 
+  it("routes source-backed shell searches through readonly overlay sessions", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      runtime: "trusted-host",
+      sources: {
+        portal: custom({
+          materialize: "lazy",
+          mount: "portal",
+          async getKeys() {
+            return ["app/components/OrderSuggestion.vue"]
+          },
+          async getItem(key) {
+            return {
+              key,
+              path: key,
+              content: "Months of Stock (Incl. Order Suggestion)\n",
+            }
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    const startSession = vi.spyOn(workspace.fs as typeof workspace.fs & {
+      startSession(options?: { paths?: string[] }): Promise<unknown>
+    }, "startSession")
+
+    await expect(runShell(workspace, `rg -i "months.*stock" portal/app --max-depth 3`)).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "portal/app/components/OrderSuggestion.vue:Months of Stock (Incl. Order Suggestion)\n",
+    })
+    expect(startSession).toHaveBeenCalledWith({ paths: ["portal/app"] })
+  })
+
   it("starts writable overlay sessions from contributed sources and rules", async () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {
