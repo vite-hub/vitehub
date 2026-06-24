@@ -1,3 +1,7 @@
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { delimiter, join } from "node:path"
+
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -910,11 +914,11 @@ describe("Workspace Source Resolution", () => {
     }
   })
 
-  it("routes source-backed shell searches through readonly overlay sessions", async () => {
+  it("routes source-backed executable shell searches through readonly overlay sessions", async () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
-      runtime: "trusted-host",
+      runtime: { allowProduction: true, type: "trusted-host" },
       sources: {
         portal: custom({
           materialize: "lazy",
@@ -940,12 +944,34 @@ describe("Workspace Source Resolution", () => {
     const startSession = vi.spyOn(workspace.fs as typeof workspace.fs & {
       startSession(options?: { paths?: string[] }): Promise<unknown>
     }, "startSession")
+    const fakeBin = await mkdtemp(join(tmpdir(), "vitehub-fake-rg-"))
+    const originalPath = process.env.PATH
+    await writeFile(join(fakeBin, "rg"), [
+      "#!/bin/sh",
+      "if [ \"$1\" = \"-i\" ]; then shift; fi",
+      "pattern=\"$1\"",
+      "path=\"$2\"",
+      "file=\"$path/components/OrderSuggestion.vue\"",
+      "if grep -i \"$pattern\" \"$file\" >/dev/null; then",
+      "  printf '%s:%s\\n' \"$file\" \"$(cat \"$file\")\"",
+      "fi",
+      "",
+    ].join("\n"))
+    await chmod(join(fakeBin, "rg"), 0o755)
+    process.env.PATH = [fakeBin, originalPath].filter(Boolean).join(delimiter)
 
-    await expect(runShell(workspace, `rg -i "months.*stock" portal/app --max-depth 3`)).resolves.toMatchObject({
-      exitCode: 0,
-      stdout: "portal/app/components/OrderSuggestion.vue:Months of Stock (Incl. Order Suggestion)\n",
-    })
-    expect(startSession).toHaveBeenCalledWith({ paths: ["portal/app"] })
+    try {
+      await expect(runShell(workspace, `rg -i "months.*stock" portal/app --max-depth 3`)).resolves.toMatchObject({
+        exitCode: 0,
+        stdout: "portal/app/components/OrderSuggestion.vue:Months of Stock (Incl. Order Suggestion)\n",
+      })
+      expect(startSession).toHaveBeenCalledWith({ paths: ["portal/app"] })
+    }
+    finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+      await rm(fakeBin, { force: true, recursive: true })
+    }
   })
 
   it("starts writable overlay sessions from contributed sources and rules", async () => {
