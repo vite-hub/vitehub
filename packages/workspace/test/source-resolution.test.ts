@@ -4,7 +4,9 @@ import {
   createWorkspaceSourceResolutionFacade,
   custom,
   fetch,
+  getWorkspaceSourceRequestExecution,
   github,
+  mcpResources,
   resolveWorkspaceSources,
   type WorkspaceShellResult,
   workspaceSourceRequestDescriptorPath,
@@ -397,6 +399,27 @@ describe("Workspace Source Resolution", () => {
     }))
   })
 
+  it("requires descriptor visibility for scoped controlled curl", async () => {
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        inventory: fetch({
+          url: "https://portal.example.com/runtime/inventory-health",
+          workspacePath: "status/summary.json",
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(
+      facade(createWorkspace({ name: "support", store: { provider: "memory" } })),
+      definition,
+      scope("status", ["status/summary.json"]),
+    )
+
+    expect(getWorkspaceSourceRequestExecution(workspace.fs)).toBeUndefined()
+    await expect(workspace.fs.list(".vitehub/sources")).resolves.toEqual([])
+  })
+
   it("fails closed when a resolved source mount is outside the Selected Workspace Scope", async () => {
     const definition: WorkspaceDefinition = {
       name: "support",
@@ -466,6 +489,88 @@ describe("Workspace Source Resolution", () => {
     expect(resolvedDefinition.sources).not.toHaveProperty("privateDocs")
     await expect(workspace.fs.readFile("public/README.md")).resolves.toBe("public\n")
     await expect(workspace.fs.exists("private/secret.md")).resolves.toBe(false)
+  })
+
+  it("keeps scoped-out source subpaths hidden in overlays", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    await base.writeFile("docs/private.md", "stale secret\n")
+    const getItem = vi.fn(async (key: string) => ({
+      content: key === "public.md" ? "public\n" : "secret\n",
+      key,
+      path: key,
+    }))
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          mount: "docs",
+          async getKeys() {
+            return ["public.md", "private.md"]
+          },
+          getItem,
+        }),
+      },
+    }
+
+    const { definition: resolvedDefinition, workspace } = await createWorkspaceSourceResolutionFacade(
+      facade(base),
+      definition,
+      { ...scope("public", ["docs/public.md"]), overlay: true },
+    )
+
+    expect(resolvedDefinition.sources).toHaveProperty("docs")
+    await expect(workspace.fs.readFile("docs/public.md")).resolves.toBe("public\n")
+    await expect(workspace.fs.readFile("docs/private.md")).rejects.toThrow("does not exist")
+    await expect(workspace.fs.exists("docs/private.md")).resolves.toBe(false)
+    await expect(workspace.fs.list("docs")).resolves.toEqual([
+      expect.objectContaining({ path: "docs/public.md", type: "file" }),
+    ])
+    await expect(workspace.fs.search({ pattern: "secret", paths: ["docs"] })).resolves.toEqual([])
+    expect(getItem).not.toHaveBeenCalledWith("private.md", expect.anything())
+  })
+
+  it("preserves scoped live source paths populated during prepare", async () => {
+    const content = JSON.stringify([{ path: "/docs/getting-started/introduction" }], null, 2)
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        nuxt: mcpResources({
+          mount: "resources",
+          server: {
+            async listResources() {
+              return {
+                resources: [{
+                  name: "documentation-pages",
+                  uri: "resource://nuxt-com/documentation-pages",
+                }],
+              }
+            },
+            async readResource({ uri }) {
+              return {
+                contents: [{
+                  mimeType: "application/json",
+                  text: content,
+                  uri,
+                }],
+              }
+            },
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(
+      facade(createWorkspace({ name: "support", store: { provider: "memory" } })),
+      definition,
+      { ...scope("docs", ["resources/nuxt-com/documentation-pages.json"]), overlay: true },
+    )
+
+    await expect(workspace.fs.exists("resources/nuxt-com/documentation-pages.json")).resolves.toBe(true)
+    await expect(workspace.fs.list("resources/nuxt-com")).resolves.toEqual([
+      { path: "resources/nuxt-com/documentation-pages.json", type: "file" },
+    ])
+    await expect(workspace.fs.readFile("resources/nuxt-com/documentation-pages.json")).resolves.toBe(content)
   })
 
   it("layers resolved source-backed paths over the base Workspace without persistent cross-scope materialization", async () => {
@@ -691,5 +796,30 @@ describe("Workspace Source Resolution", () => {
     await session.writeFile("artifacts/session.md", "ok")
     await session.commit({ message: "session" })
     await expect(base.readFile("artifacts/session.md")).resolves.toBe("ok")
+  })
+
+  it("forwards Workspace Session path options in writable overlays", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    await base.writeFile("artifacts/allowed.md", "ok")
+    await base.writeFile("secrets/private.md", "secret")
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      runtime: "trusted-host",
+      sources: {},
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(writableFacade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    const session = await (workspace as WritableWorkspaceFacade).startSession({ paths: ["artifacts"] })
+
+    try {
+      await expect(session.readFile("artifacts/allowed.md")).resolves.toBe("ok")
+      await expect(session.readFile("secrets/private.md")).rejects.toThrow("does not exist")
+    }
+    finally {
+      await session.close()
+    }
   })
 })
