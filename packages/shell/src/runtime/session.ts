@@ -66,7 +66,7 @@ class RuntimeShellSession implements ShellSession {
       return createPolicyObservation(
         command,
         options.cwd,
-        `[vitehub] Shell session command budget exhausted after ${this.policy.maxShellCalls} calls. Answer from the evidence already collected instead of running more shell commands.`,
+        `[vitehub] Shell session command budget exhausted after ${this.policy.maxShellCalls} calls. The Shell Session policy limits command calls for this run.`,
       )
     }
 

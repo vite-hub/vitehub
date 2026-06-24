@@ -5,7 +5,7 @@ import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDi
 import type { ExecOptions, ExecResult, MkdirOptions, Workspace, WorkspaceSession, WorkspaceSessionOptions } from "../core/types.ts"
 
 function unsupportedExec(): never {
-  throw new WorkspaceError("[vitehub] Workspace exec requires an executable runtime. Set `runtime: 'sandbox'` for hosted or untrusted execution, set `runtime: 'trusted-host'` for trusted local development and tests, or avoid session.exec().")
+  throw new WorkspaceError("[vitehub] Workspace exec requires an executable runtime. Hosted or untrusted execution needs `runtime: 'sandbox'`; trusted local development and tests need `runtime: 'trusted-host'`.")
 }
 
 function normalizeSessionPaths(options?: WorkspaceSessionOptions): string[] | undefined {

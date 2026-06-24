@@ -37,7 +37,7 @@ function trustedHostRuntimeAllowsProduction(definition: WorkspaceDefinition) {
 function assertTrustedHostWorkspaceRuntimeAllowed(definition: WorkspaceDefinition) {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
   if (env?.NODE_ENV === "production" && !trustedHostRuntimeAllowsProduction(definition)) {
-    throw new WorkspaceError("[vitehub] Workspace runtime `trusted-host` is only available outside production. Use `runtime: 'sandbox'` for hosted executable workspaces.")
+    throw new WorkspaceError("[vitehub] Workspace runtime `trusted-host` is only available outside production. Hosted executable workspaces need `runtime: 'sandbox'`.")
   }
 }
 

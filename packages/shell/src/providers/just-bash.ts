@@ -331,7 +331,7 @@ function policyDeniedCurl(command: string, cwd: string | undefined, message: str
     stderr: `[vitehub] ${message}\n`,
     stdout: [
       "[vitehub] Controlled curl request was not run.",
-      "Inspect `.vitehub/sources/<sourceKey>.json`, then retry with a single curl command that matches a visible Source request descriptor.",
+      "Expected a single curl command matching a visible Source Request Descriptor at `.vitehub/sources/<sourceKey>.json`.",
     ].join("\n") + "\n",
   }
 }

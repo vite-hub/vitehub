@@ -3,7 +3,7 @@ import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
 import { getWorkspaceSourceRequestExecution } from "./sources/request-execution.ts"
 
 import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./core/types.ts"
-import type { ShellObservation, ShellSessionPolicy } from "@vite-hub/shell"
+import type { ShellExecutionProvider, ShellObservation, ShellRuntimeExecOptions, ShellSessionPolicy } from "@vite-hub/shell"
 import type { JSONSchema7, Schema, Tool, ToolSet } from "ai"
 
 export type { WorkspaceMaterializeSourcesResult } from "./core/types.ts"
@@ -42,6 +42,7 @@ export type WorkspaceToolOperations = WorkspaceReadOperations & {
 export interface WorkspaceToolOptions<Operations extends WorkspaceToolOperations | undefined = undefined> extends Pick<ShellSessionPolicy, "maxOutputLength" | "maxShellCalls" | "timeout"> {
   broadSearchPaths?: string[]
   cwd?: string
+  executionProvider?: ShellExecutionProvider | (() => MaybePromise<ShellExecutionProvider | undefined>)
   operations?: Operations
 }
 
@@ -94,6 +95,8 @@ type ValidationResult<T> =
   | { error: Error, success: false }
 
 type JsonSchemaInput = JSONSchema7 | (() => JSONSchema7)
+type MaybePromise<T> = T | Promise<T>
+type WorkspaceSessionStarter = Pick<Workspace, "startSession">
 
 function jsonSchema<T = unknown>(
   schema: JsonSchemaInput,
@@ -117,6 +120,75 @@ function tool<T extends Tool<any, any>>(definition: T): T {
 
 function isWorkspace(input: Workspace | WorkspaceAssets): input is Workspace {
   return "sync" in input
+}
+
+function getWorkspaceSessionStarter(input: Workspace | WorkspaceAssets): WorkspaceSessionStarter | undefined {
+  return typeof (input as Partial<WorkspaceSessionStarter>).startSession === "function"
+    ? input as WorkspaceSessionStarter
+    : undefined
+}
+
+function createWorkspaceSessionShellProvider(starter: WorkspaceSessionStarter): ShellExecutionProvider {
+  return {
+    boundary: {
+      cwd: true,
+      env: true,
+      filesystem: {
+        mountPoint: workspaceMountPoint,
+        writable: true,
+      },
+      network: "unknown",
+      processes: {
+        background: false,
+        interactive: false,
+      },
+      streaming: false,
+      timeout: {
+        enforcedBy: "provider",
+        supported: true,
+      },
+    },
+    async exec(command: string, execOptions: ShellRuntimeExecOptions = {}) {
+      const session = await starter.startSession({ paths: execOptions.workspacePaths })
+      try {
+        const result = await session.exec("sh", ["-lc", command], {
+          cwd: execOptions.cwd || workspaceMountPoint,
+          env: execOptions.env,
+          timeout: execOptions.timeout,
+        })
+        execOptions.onStdout?.(result.stdout)
+        execOptions.onStderr?.(result.stderr)
+        const timedOut = result.exitCode === 124 && /timed out/i.test(result.stderr)
+        return {
+          command,
+          cwd: execOptions.cwd,
+          event: timedOut ? "command_timed_out" : "command_finished",
+          exitCode: result.exitCode,
+          stderr: result.stderr,
+          stdout: result.stdout,
+          timedOut,
+        } satisfies ShellObservation
+      }
+      finally {
+        await session.close()
+      }
+    },
+  }
+}
+
+async function resolveExecutionProvider(
+  provider: WorkspaceToolOptions["executionProvider"],
+): Promise<ShellExecutionProvider | undefined> {
+  return typeof provider === "function" ? await provider() : provider
+}
+
+function isUnavailableWorkspaceSession(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.includes("Workspace exec requires an executable runtime")
+    || (message.includes("Workspace") && message.includes("is not registered"))
+    || message.includes("Workspace runtime `trusted-host` is only available outside production")
+    || message.includes("Workspace runtime `sandbox` requires app-level `sandbox` config")
+    || message.includes("Sandbox workspace runtime requires @vite-hub/sandbox")
 }
 
 function cleanWorkspaceShellPath(path: string) {
@@ -203,11 +275,11 @@ function describeShellCommands(commands: string[], options: { sourceRequests?: b
 async function runShellCommand(
   input: Workspace | WorkspaceAssets,
   command: string,
-  options: { broadSearchPaths: string[], commands: string[], cwd: string, maxOutputLength: number, timeout?: number },
+  options: { broadSearchPaths: string[], commands: string[], cwd: string, executionProvider?: WorkspaceToolOptions["executionProvider"], maxOutputLength: number, timeout?: number },
 ): Promise<WorkspaceShellResult> {
   const networkGrants = getWorkspaceSourceRequestExecution(input)
   const { createReadonlyWorkspaceFs, runWorkspaceInspectionCommand } = await import("@vite-hub/shell/workspace")
-  return await runWorkspaceInspectionCommand(input, command, {
+  const inspectionOptions = {
     broadSearchPaths: options.broadSearchPaths,
     commands: networkGrants ? [...options.commands, "curl"] : options.commands,
     cwd: options.cwd,
@@ -215,6 +287,23 @@ async function runShellCommand(
     maxOutputLength: options.maxOutputLength,
     networkGrants,
     timeout: options.timeout,
+  }
+  const starter = getWorkspaceSessionStarter(input)
+  if (starter) {
+    try {
+      return await runWorkspaceInspectionCommand(input, command, {
+        ...inspectionOptions,
+        provider: createWorkspaceSessionShellProvider(starter),
+      })
+    }
+    catch (error) {
+      if (!isUnavailableWorkspaceSession(error)) throw error
+    }
+  }
+  const provider = await resolveExecutionProvider(options.executionProvider)
+  return await runWorkspaceInspectionCommand(input, command, {
+    ...inspectionOptions,
+    ...(provider ? { provider } : {}),
   })
 }
 
@@ -398,6 +487,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
     broadSearchPaths: options.broadSearchPaths || [],
     commands: shellCommandsFor(resolveReadOperations(options.operations)),
     cwd: options.cwd || workspaceMountPoint,
+    executionProvider: options.executionProvider,
     materialize: resolveReadOperations(options.operations).materialize,
     maxShellCalls: options.maxShellCalls,
     maxOutputLength: options.maxOutputLength || defaultMaxOutputLength,
@@ -412,7 +502,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
   }
 
   if (writeEnabled && !isWorkspace(input)) {
-    throw new TypeError("[vitehub] Write operations require a mutable Workspace. Use useWorkspace(name, { mode: \"write\" }).tools.write().")
+    throw new TypeError("[vitehub] Write operations require a mutable Workspace. A useWorkspace(name, { mode: \"write\" }).tools.write() call provides one.")
   }
 
   const result: Record<string, Tool<any, any>> = {}
@@ -440,7 +530,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
             cwd: resolved.cwd,
             event: "policy_denied",
             exitCode: 126,
-            stderr: `[vitehub] Workspace shell command budget exhausted after ${resolved.maxShellCalls} calls. Answer from the evidence already collected instead of running more shell commands.\n`,
+            stderr: `[vitehub] Workspace shell command budget exhausted after ${resolved.maxShellCalls} calls. The Workspace Tools shell call budget is exhausted for this run.\n`,
             stdout: "",
           } satisfies WorkspaceShellResult
         }

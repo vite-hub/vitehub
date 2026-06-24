@@ -28,6 +28,8 @@ import type {
   WorkspaceName,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
+  WorkspaceSession,
+  WorkspaceSessionOptions,
   WorkspaceSourceRequestDescriptor,
   WorkspaceSourceRequestExecutionInput,
   WorkspaceSourceInput,
@@ -46,6 +48,7 @@ type WorkspaceAccessRuntime = Pick<
 >
 
 type WorkspaceSourceRequestExecution = ReturnType<WorkspaceAccessRuntime["getWorkspaceSourceRequestExecution"]>
+type WorkspaceSessionStarter = { startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession> }
 
 export type AccessRoleName = "viewer" | "admin" | (string & {})
 
@@ -369,12 +372,12 @@ async function resolveWorkspaceScope<
 ): Promise<ResolvedWorkspaceScope> {
   const selection = normalizeSelection(await resolveSelection(options, context))
   if (!selection) {
-    throw new Error("[vitehub] access({ workspace }) could not resolve a Workspace Scope. Configure defaultScope or resolve().")
+    throw new Error("[vitehub] access({ workspace }) could not resolve a Workspace Scope. defaultScope or resolve() must produce a Workspace Scope.")
   }
 
   const definition = selection.definition || options.scopes?.[selection.scope]
   if (!definition) {
-    throw new Error(`[vitehub] access({ workspace }) resolved unknown Workspace Scope "${selection.scope}". Configure scopes.${selection.scope} or return an inline scope definition.`)
+    throw new Error(`[vitehub] access({ workspace }) resolved unknown Workspace Scope "${selection.scope}". scopes.${selection.scope} or an inline scope definition must define it.`)
   }
 
   const role = selection.role || "viewer"
@@ -711,6 +714,28 @@ function scopedSearchQuery(scope: ResolvedWorkspaceScope, query: WorkspaceSearch
   }
 }
 
+function workspaceSessionStarter(input: object): WorkspaceSessionStarter | undefined {
+  return typeof (input as Partial<WorkspaceSessionStarter>).startSession === "function"
+    ? input as WorkspaceSessionStarter
+    : undefined
+}
+
+function scopedSessionPaths(scope: ResolvedWorkspaceScope, paths: readonly string[] | undefined): string[] | undefined {
+  if (scope.all) return paths ? [...paths] : undefined
+  const requestedPaths = paths?.length ? paths : [""]
+  const scopedPaths = new Set<string>()
+  for (const rawPath of requestedPaths) {
+    const requested = normalizeScopePath(rawPath)
+    for (const grant of scope.materializeGrants) {
+      const grantPath = normalizeScopePath(grant.path)
+      if (pathContains(grantPath, requested)) scopedPaths.add(requested)
+      else if (!requested || pathContains(requested, grantPath)) scopedPaths.add(grantPath)
+    }
+  }
+  if (!scopedPaths.size) throw notFound(requestedPaths[0] || "")
+  return [...scopedPaths].sort()
+}
+
 function createScopedWorkspaceFacade<Name extends WorkspaceName>(
   workspace: ReadonlyWorkspaceFacade<Name>,
   scope: ResolvedWorkspaceScope,
@@ -718,6 +743,7 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
 ): ReadonlyWorkspaceFacade<Name> {
   let fs: ReadonlyWorkspaceFacade<Name>["fs"]
   const sourceRequestExecution = workspaceRuntime.getWorkspaceSourceRequestExecution(workspace.fs)
+  const starter = workspaceSessionStarter(workspace.fs)
   fs = workspaceRuntime.attachWorkspaceSourceRequestExecution({
     async readFile(path, options) {
       const normalized = normalizeScopePath(path)
@@ -758,7 +784,17 @@ function createScopedWorkspaceFacade<Name extends WorkspaceName>(
       }))
       return mergeMaterializedSources(options.path || "", results)
     },
-  } satisfies ReadonlyWorkspaceFacade<Name>["fs"], scopedSourceRequestExecution(() => fs, sourceRequestExecution))
+    ...(starter
+      ? {
+          async startSession(options?: WorkspaceSessionOptions) {
+            return await starter.startSession({
+              ...options,
+              paths: scopedSessionPaths(scope, options?.paths),
+            })
+          },
+        }
+      : {}),
+  } satisfies ReadonlyWorkspaceFacade<Name>["fs"] & Partial<WorkspaceSessionStarter>, scopedSourceRequestExecution(() => fs, sourceRequestExecution))
 
   const createTools = (options?: WorkspaceFacadeToolOptions) => workspaceRuntime.createWorkspaceTools(fs, {
     broadSearchPaths: options?.broadSearchPaths,

@@ -86,7 +86,7 @@ function parseGitCommand(command: string): string[] {
   const words = shellWords(command)
   if (words[0] !== "git") throw new Error("[vitehub] git commands must start with `git`.")
   if (!words[1]) throw new Error("[vitehub] git command requires a subcommand.")
-  if (words[1].startsWith("-")) throw new Error("[vitehub] git() does not accept global git flags. Use the tool cwd option instead of `git -C`.")
+  if (words[1].startsWith("-")) throw new Error("[vitehub] git() does not accept global git flags. The tool cwd option provides repository scoping without `git -C`.")
   return words.slice(1)
 }
 

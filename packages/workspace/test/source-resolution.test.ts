@@ -1,3 +1,7 @@
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { delimiter, join } from "node:path"
+
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
@@ -139,6 +143,13 @@ function writableFacade(workspace: ReturnType<typeof createWorkspace>): Writable
       write: () => ({}),
     } as never,
   }
+}
+
+async function runShell(workspace: ReadonlyWorkspaceFacade, command: string): Promise<WorkspaceShellResult> {
+  return await workspace.tools.shell.execute!(
+    { command },
+    { toolCallId: "test", messages: [] } as never,
+  ) as WorkspaceShellResult
 }
 
 afterEach(() => {
@@ -397,6 +408,98 @@ describe("Workspace Source Resolution", () => {
     expect(requestFactory).toHaveBeenCalledWith(expect.objectContaining({
       selectedWorkspaceScope: expect.objectContaining({ name: "support" }),
     }))
+  })
+
+  it("replays agent shell command transcripts against source-backed workspace sessions", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "ok" }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    }))
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      runtime: { allowProduction: true, type: "trusted-host" },
+      sources: {
+        inventoryHealthSummary: fetch({
+          url: "https://portal.example.com/runtime/inventory-health",
+        }),
+        portal: custom({
+          materialize: "lazy",
+          mount: "portal",
+          async getKeys() {
+            return [
+              "app/pages/ordersuggestions.vue",
+              "app/components/ordersuggestions/MonthsOfStockCell.vue",
+              "other/unrelated.txt",
+            ]
+          },
+          async getItem(key) {
+            if (key === "other/unrelated.txt") throw new Error("unscoped source materialization")
+            return {
+              key,
+              path: key,
+              content: key.endsWith(".vue")
+                ? "label: Months of Stock (Incl. Order Suggestion)\nvalue: months_of_stock_incl_order_suggestion\n"
+                : "",
+            }
+          },
+        }),
+        forecastingEngine: custom({
+          materialize: "lazy",
+          mount: "forecasting-engine",
+          async getKeys() {
+            return ["services/purchase_orders/dtos.py"]
+          },
+          async getItem(key) {
+            return {
+              key,
+              path: key,
+              content: "months_of_stock_incl_order_suggestion = stock_after_order / monthly_forecast\n",
+            }
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+      selectedWorkspaceScope: {
+        all: false,
+        name: "support",
+        paths: [
+          "portal",
+          "forecasting-engine",
+          workspaceSourceRequestDescriptorPath("inventoryHealthSummary"),
+        ],
+        role: "viewer",
+      },
+    })
+
+    await expect(runShell(workspace, "grep -ri \"Months of Stock\" portal/app")).resolves.toMatchObject({
+      event: "command_finished",
+      exitCode: 0,
+      stderr: "",
+      stdout: expect.stringContaining("portal/app/pages/ordersuggestions.vue"),
+    })
+    await expect(runShell(workspace, "find portal/app -name 'MonthsOfStockCell.vue'")).resolves.toMatchObject({
+      event: "command_finished",
+      exitCode: 0,
+      stderr: "",
+      stdout: "portal/app/components/ordersuggestions/MonthsOfStockCell.vue\n",
+    })
+    await expect(runShell(workspace, "cat forecasting-engine/services/purchase_orders/dtos.py | grep -i \"months\"")).resolves.toMatchObject({
+      event: "command_finished",
+      exitCode: 0,
+      stderr: "",
+      stdout: "months_of_stock_incl_order_suggestion = stock_after_order / monthly_forecast\n",
+    })
+    await expect(runShell(workspace, "curl 'https://portal.example.com/runtime/inventory-health'")).resolves.toMatchObject({
+      event: "command_finished",
+      exitCode: 0,
+      stdout: JSON.stringify({ status: "ok" }, null, 2),
+    })
+    expect(request).toHaveBeenCalledOnce()
   })
 
   it("requires descriptor visibility for scoped controlled curl", async () => {
@@ -762,6 +865,113 @@ describe("Workspace Source Resolution", () => {
       })],
     })
     await expect(base.exists("docs/old.md")).resolves.toBe(false)
+  })
+
+  it("preserves readonly overlay sessions for resolved sources", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      runtime: "trusted-host",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          mount: "docs",
+          async getKeys() {
+            return ["guide.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "needle\n" }
+          },
+        }),
+        privateDocs: custom({
+          materialize: "lazy",
+          mount: "private",
+          async getKeys() {
+            return ["secret.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "secret\n" }
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    await expect(workspace.fs.readFile("private/secret.md")).resolves.toBe("secret\n")
+    const session = await ((workspace.fs as unknown) as {
+      startSession(options?: { paths?: string[] }): Promise<{ close(): Promise<void>, readFile(path: string): Promise<string> }>
+    }).startSession({ paths: ["docs"] })
+
+    try {
+      await expect(session.readFile("docs/guide.md")).resolves.toBe("needle\n")
+      await expect(session.readFile("private/secret.md")).rejects.toThrow("does not exist")
+    }
+    finally {
+      await session.close()
+    }
+  })
+
+  it("routes source-backed executable shell searches through readonly overlay sessions", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      runtime: { allowProduction: true, type: "trusted-host" },
+      sources: {
+        portal: custom({
+          materialize: "lazy",
+          mount: "portal",
+          async getKeys() {
+            return ["app/components/OrderSuggestion.vue"]
+          },
+          async getItem(key) {
+            return {
+              key,
+              path: key,
+              content: "Months of Stock (Incl. Order Suggestion)\n",
+            }
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    const startSession = vi.spyOn(workspace.fs as typeof workspace.fs & {
+      startSession(options?: { paths?: string[] }): Promise<unknown>
+    }, "startSession")
+    const fakeBin = await mkdtemp(join(tmpdir(), "vitehub-fake-rg-"))
+    const originalPath = process.env.PATH
+    await writeFile(join(fakeBin, "rg"), [
+      "#!/bin/sh",
+      "if [ \"$1\" = \"-i\" ]; then shift; fi",
+      "pattern=\"$1\"",
+      "path=\"$2\"",
+      "file=\"$path/components/OrderSuggestion.vue\"",
+      "if grep -i \"$pattern\" \"$file\" >/dev/null; then",
+      "  printf '%s:%s\\n' \"$file\" \"$(cat \"$file\")\"",
+      "fi",
+      "",
+    ].join("\n"))
+    await chmod(join(fakeBin, "rg"), 0o755)
+    process.env.PATH = [fakeBin, originalPath].filter(Boolean).join(delimiter)
+
+    try {
+      await expect(runShell(workspace, `rg -i "months.*stock" portal/app --max-depth 3`)).resolves.toMatchObject({
+        exitCode: 0,
+        stdout: "portal/app/components/OrderSuggestion.vue:Months of Stock (Incl. Order Suggestion)\n",
+      })
+      expect(startSession).toHaveBeenCalledWith({ paths: ["portal/app"] })
+    }
+    finally {
+      if (originalPath === undefined) delete process.env.PATH
+      else process.env.PATH = originalPath
+      await rm(fakeBin, { force: true, recursive: true })
+    }
   })
 
   it("starts writable overlay sessions from contributed sources and rules", async () => {

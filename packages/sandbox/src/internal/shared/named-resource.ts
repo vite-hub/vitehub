@@ -2,7 +2,7 @@ import { upperFirst } from 'scule'
 
 export function resolveNamedResourceName(feature: string, name: string | undefined) {
   if (!name)
-    throw new Error(`[vitehub] ${upperFirst(feature)} name is required. Pass an explicit name.`)
+    throw new Error(`[vitehub] ${upperFirst(feature)} name is required. An explicit name is required.`)
   return name
 }
 

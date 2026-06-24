@@ -58,7 +58,7 @@ async function createVercelFiles(options: VercelBlobWorkspaceStoreOptions) {
 
 function handleFilesSdkImportError(error: unknown): never {
   if (isMissingFilesSdkError(error)) {
-    throw new WorkspaceError(`[vitehub] Install files-sdk to use the Vercel Blob Workspace Store: pnpm add files-sdk`, { cause: error })
+    throw new WorkspaceError("[vitehub] files-sdk is required for the Vercel Blob Workspace Store. Package: files-sdk.", { cause: error })
   }
   throw error
 }

@@ -27,12 +27,13 @@ import type {
   WorkspaceEntry,
   WorkspaceFile,
   WorkspaceName,
+  WorkspaceRuntime,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
   WorkspaceStore,
+  WorkspaceSessionOptions,
   WorkspaceWriteInput,
   WorkspaceSelectedScope,
-  WorkspaceSessionOptions,
   WorkspaceSource,
   WorkspaceSourceInput,
   WorkspaceSourceResolutionContext,
@@ -219,12 +220,17 @@ function createWritableFacadeStore(workspace: WritableWorkspaceFacade): Workspac
   }
 }
 
+function workspaceRuntimeType(runtime: WorkspaceRuntime | undefined) {
+  return typeof runtime === "string" ? runtime : runtime?.type
+}
+
 async function startOverlayWorkspaceSession(definition: WorkspaceDefinition, workspace: Workspace, options?: WorkspaceSessionOptions) {
-  if (definition.runtime === "sandbox") {
+  const runtime = workspaceRuntimeType(definition.runtime)
+  if (runtime === "sandbox") {
     const { createSandboxWorkspaceSession } = await import("../session/sandbox.ts")
     return await createSandboxWorkspaceSession(definition, workspace, options)
   }
-  if (definition.runtime === "trusted-host") {
+  if (runtime === "trusted-host") {
     const { createTrustedHostWorkspaceSession } = await import("../session/trusted-host.ts")
     return await createTrustedHostWorkspaceSession(definition, workspace, options)
   }
@@ -264,7 +270,8 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
   const sourceViewDefinition = createScopedSourceViewDefinition(resolvedDefinition, selectedWorkspaceScope)
   const sourceView = createWorkspaceSourceView(sourceViewDefinition, createOverlaySourceStore(workspace, path => !isLazySourcePath(resolvedDefinition, path)))
   const materializeSources = async (options = {}) => await sourceView.materializeSources(options)
-  const fs: ReadonlyWorkspaceFacade<Name>["fs"] = attachWorkspaceSourceRequestExecution({
+  let readWorkspace!: Workspace
+  const fs = attachWorkspaceSourceRequestExecution({
     async readFile(path, options) {
       if (isSourcePath(resolvedDefinition, path)) {
         return await sourceView.readFile(path, options as never)
@@ -310,7 +317,23 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       return mergeHits(filterBaseHits(resolvedDefinition, baseHits), filterScopedHits(selectedWorkspaceScope, sourceHits)).slice(0, query.limit ?? 100)
     },
     materializeSources,
-  }, sourceRequestExecution)
+    startSession: async (options) => {
+      const paths = options?.paths?.length ? options.paths : [""]
+      await Promise.all(paths.map(path => materializeSources({ path })))
+      return await startOverlayWorkspaceSession(resolvedDefinition, readWorkspace, options)
+    },
+  } as ReadonlyWorkspaceFacade<Name>["fs"] & Pick<Workspace, "startSession">, sourceRequestExecution)
+  readWorkspace = attachWorkspaceSourceRequestExecution({
+    name: resolvedDefinition.name,
+    exists: fs.exists,
+    glob: fs.glob,
+    list: fs.list,
+    materializeSources,
+    readFile: fs.readFile,
+    search: fs.search,
+    startSession: fs.startSession,
+    stat: fs.stat,
+  } as unknown as Workspace, sourceRequestExecution)
 
   const createTools = (options?: WorkspaceFacadeToolOptions) => createWorkspaceTools(fs, {
     broadSearchPaths: options?.broadSearchPaths,

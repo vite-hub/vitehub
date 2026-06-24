@@ -63,7 +63,7 @@ function normalizeHarnessCredentialSource(value: unknown): AgentHarnessCredentia
     throw new TypeError("[vitehub] defineAgent({ driver.credentials }) must be a credential source object.")
   }
   if (hasOwnDefined(value, "value")) {
-    throw new Error("[vitehub] defineAgent({ driver.credentials.value }) is not supported by the generic harness adapter yet. Pass provider credentials to the harness adapter constructor or omit credentials for ambient adapter auth.")
+    throw new Error("[vitehub] defineAgent({ driver.credentials.value }) is not supported by the generic harness adapter yet. Provider credentials belong on the harness adapter constructor, or credentials must be omitted for ambient adapter auth.")
   }
 
   const label = value.label
@@ -168,5 +168,5 @@ export function normalizeAgentDriver<
     }
   }
 
-  throw new Error("[vitehub] Agent Driver is required. Use defineAgent({ driver: { model } }) or defineAgent({ driver: { run } }).")
+  throw new Error("[vitehub] Agent Driver is required. Expected defineAgent({ driver: { model } }) or defineAgent({ driver: { run } }).")
 }

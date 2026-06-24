@@ -644,7 +644,7 @@ describe("@vite-hub/shell workspace inspection", () => {
       event: "policy_denied",
       exitCode: 126,
       stderr: expect.stringContaining("Unsupported workspace shell command: xargs"),
-      stdout: expect.stringContaining("Use only the available workspace commands"),
+      stdout: expect.stringContaining("Available workspace commands"),
     })
   })
 
