@@ -6,6 +6,7 @@ import type {
   ReadonlyWorkspaceFacade,
   WritableWorkspaceFacade,
 } from "../core/use.ts"
+import { isMissingWorkspacePathError } from "./scope.ts"
 import type {
   MkdirOptions,
   WorkspaceEntry,
@@ -143,7 +144,12 @@ async function materializeWorkspaceSourcesForSession(workspace: WorkspaceFacade,
   if (!materialize) return
 
   if (paths && !paths.length) return
-  await Promise.all((paths || [""]).map(async path => await materialize({ path })))
+  await Promise.all((paths || [""]).map(async (path) => {
+    await materialize({ path }).catch((error) => {
+      if (path && isMissingWorkspacePathError(error)) return
+      throw error
+    })
+  }))
 }
 
 function bytesEqual(left: Uint8Array | undefined, right: Uint8Array) {

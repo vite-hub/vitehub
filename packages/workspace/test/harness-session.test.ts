@@ -373,6 +373,40 @@ describe("Harness Workspace Session", () => {
     expect(workspaceSession.close).toHaveBeenCalledOnce()
   })
 
+  it("commits generated files selected by missing Workspace Session paths", async () => {
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "trusted-host",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+    await workspace.snapshot({ name: "baseline" })
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: {
+        list: workspace.list,
+        materializeSources: workspace.materializeSources,
+        readFile: workspace.readFile,
+        stat: workspace.stat,
+      },
+      startSession: workspace.startSession,
+      tools: {},
+    } as never, {
+      paths: ["summary.md"],
+      session: {
+        readBinaryFile: vi.fn(async () => bytes("summary")),
+        run: sandboxRun(["summary.md"]),
+        writeBinaryFile: vi.fn(async () => {}),
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    await session.close()
+
+    await expect(workspace.readFile("summary.md")).resolves.toBe("summary")
+  })
+
   it("rejects out-of-scope harness sandbox changes in the basic Workspace Session", async () => {
     const workspace = createWorkspace({
       ...defineWorkspace({ store: { provider: "memory" } }),

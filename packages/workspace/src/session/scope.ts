@@ -2,6 +2,10 @@ import { WorkspaceError } from "../core/errors.ts"
 
 import type { WorkspaceDiff, WorkspaceEntry, WorkspaceSearchQuery } from "../core/types.ts"
 
+export function isMissingWorkspacePathError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("Workspace path does not exist:")
+}
+
 export function pathInSessionScope(path: string, paths: string[] | undefined): boolean {
   return !paths || paths.some(scope => path === scope || path.startsWith(`${scope}/`))
 }
