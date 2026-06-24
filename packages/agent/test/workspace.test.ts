@@ -314,7 +314,12 @@ describe("defineAgent workspace option", () => {
     expect(readFile).not.toHaveBeenCalledWith("skills/agent-browser/SKILL.md")
     expect(inspectTools).not.toHaveBeenCalled()
     expect(writeTools).not.toHaveBeenCalled()
-    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledOnce()
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      paths: ["skills/agent-browser"],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
     expect(harnessAgentSettings.at(-1)).not.toHaveProperty("tools")
     expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
       prompt: "hello",
@@ -783,6 +788,7 @@ describe("defineAgent workspace option", () => {
     expect(useWorkspace).toHaveBeenCalledWith("docs")
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
+      paths: ["AGENTS.md"],
       session: harnessSandboxSession,
       sessionWorkDir: "/workspace/codex-session",
     })
@@ -792,11 +798,114 @@ describe("defineAgent workspace option", () => {
       sandbox: { provider: "sandbox" },
     })
     expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
+      instructions: "## Workspace Sources\n\n### guide\n\nUse this guide for operating rules.",
       prompt: "hello",
       session: harnessSession,
     }))
     expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
     expect(harnessSession.destroy).toHaveBeenCalledOnce()
+  })
+
+  it("uses an empty harness Workspace Session scope when no explicit paths are available", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+      workspace: {},
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      paths: [],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
+  })
+
+  it("passes source instructions and scopes workspace instruction files into harness Agent calls", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
+    tempRoots.push(sourceRootDir)
+    await writeLocalFile(join(sourceRootDir, "instructions.md"), "Use colocated workspace instructions.\n")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+      workspace: {
+        sourceRootDir,
+        sources: {
+          docs: { instructions: "Use docs for product behavior.", name: "docs" } as never,
+        },
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      paths: ["AGENTS.md"],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
+    expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
+      instructions: "## Workspace Sources\n\n### docs\n\nUse docs for product behavior.",
+      prompt: "hello",
+    }))
+  })
+
+  it("uses concrete write rules as harness Workspace Session paths", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+      workspace: {
+        mode: "write",
+        rules: {
+          "pr-diff-summary.md": { write: true },
+          "summary.md": { write: true },
+          "artifacts/browser/**": { write: true },
+          "artifacts/usage/**": { write: true },
+          "**": { write: false },
+        },
+      },
+    }), { workspace: "review" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      paths: ["summary.md", "artifacts/usage", "artifacts/browser", "pr-diff-summary.md"],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
   })
 
   it("passes selected Workspace Scope paths into Harness Workspace Sessions", async () => {

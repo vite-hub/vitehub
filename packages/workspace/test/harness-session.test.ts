@@ -115,6 +115,54 @@ describe("Harness Workspace Session", () => {
     await session.close()
   })
 
+  it("keeps an empty selected Workspace Session scope empty", async () => {
+    const list = vi.fn(async () => [
+      { path: "README.md", type: "file" },
+    ])
+    const materializeSources = vi.fn(async () => ({
+      bytes: 0,
+      directories: 0,
+      durationMs: 0,
+      files: 0,
+      path: "",
+      sources: [],
+    }))
+    const startSession = vi.fn(async () => ({
+      close: vi.fn(async () => {}),
+      commit: vi.fn(async () => {}),
+      diff: vi.fn(async () => ({ entries: [], to: "next" })),
+      mkdir: vi.fn(async () => {}),
+      rm: vi.fn(async () => {}),
+      writeFile: vi.fn(async () => {}),
+    }))
+    const writeBinaryFile = vi.fn(async () => {})
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: {
+        list,
+        materializeSources,
+        readFile: vi.fn(async () => bytes("root")),
+      },
+      startSession,
+      tools: {},
+    } as never, {
+      paths: [],
+      session: {
+        readBinaryFile: vi.fn(async () => null),
+        run: sandboxRun(),
+        writeBinaryFile,
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    expect(materializeSources).not.toHaveBeenCalled()
+    expect(list).not.toHaveBeenCalled()
+    expect(writeBinaryFile).not.toHaveBeenCalled()
+    expect(startSession).not.toHaveBeenCalled()
+
+    await session.close()
+  })
+
   it("materializes lazy source files before copying them into the harness sandbox", async () => {
     const sourceFile = bytes("Months of Stock\n")
     let materialized = false

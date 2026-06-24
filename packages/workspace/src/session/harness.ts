@@ -74,8 +74,9 @@ function normalizeHarnessWorkspacePath(path = "") {
 }
 
 function normalizeSessionPaths(paths?: readonly string[]): string[] | undefined {
+  if (paths === undefined) return undefined
   const normalized = [...new Set((paths || []).map(normalizeHarnessWorkspacePath))]
-  if (!normalized.length || normalized.includes("")) return undefined
+  if (normalized.includes("")) return undefined
   return normalized.sort((left, right) => left.length - right.length || left.localeCompare(right))
 }
 
@@ -122,6 +123,7 @@ async function forEachConcurrent<T>(items: readonly T[], limit: number, fn: (ite
 }
 
 async function workspaceEntries(workspace: WorkspaceFacade, paths: string[] | undefined) {
+  if (paths && !paths.length) return []
   if (!paths) return await workspace.fs.list("", { recursive: true })
 
   const entries = new Map<string, WorkspaceEntry>()
@@ -140,7 +142,8 @@ async function materializeWorkspaceSourcesForSession(workspace: WorkspaceFacade,
   const materialize = workspaceSourceMaterializer(workspace)
   if (!materialize) return
 
-  await Promise.all((paths?.length ? paths : [""]).map(async path => await materialize({ path })))
+  if (paths && !paths.length) return
+  await Promise.all((paths || [""]).map(async path => await materialize({ path })))
 }
 
 function bytesEqual(left: Uint8Array | undefined, right: Uint8Array) {
@@ -274,7 +277,7 @@ export async function prepareHarnessWorkspaceSession(
   const paths = normalizeSessionPaths(options.paths)
   const initialTree = await copyWorkspaceToSandbox(workspace, options.session, options.sessionWorkDir, options.abortSignal, paths)
   const sessionOptions: WorkspaceSessionOptions | undefined = paths ? { paths } : undefined
-  const workspaceSession = isWritableWorkspaceFacade(workspace)
+  const workspaceSession = isWritableWorkspaceFacade(workspace) && (paths === undefined || paths.length)
     ? await workspace.startSession(sessionOptions)
     : undefined
 
