@@ -6,6 +6,9 @@ import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import { setWorkspaceRuntimeAssetsRegistry } from "../src/runtime/state.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
 
+import type { WorkspaceSession } from "../src/core/types.ts"
+import type { ShellExecutionProvider } from "@vite-hub/shell"
+
 function createAssets(files: Record<string, string | Uint8Array>) {
   return createWorkspaceAssets(Object.fromEntries(
     Object.entries(files).map(([path, content]) => [path, { load: async () => content }]),
@@ -21,6 +24,35 @@ function createMutableWorkspace() {
     name: "mutable",
     store: { provider: "memory" },
   })
+}
+
+function createProvider(stdout: string): ShellExecutionProvider {
+  return {
+    boundary: {
+      cwd: true,
+      env: true,
+      filesystem: { mountPoint: "/workspace", writable: true },
+      network: "unknown",
+      processes: {
+        background: false,
+        interactive: false,
+      },
+      streaming: false,
+      timeout: {
+        enforcedBy: "provider",
+        supported: true,
+      },
+    },
+    async exec(command) {
+      return {
+        command,
+        event: "command_finished",
+        exitCode: 0,
+        stderr: "",
+        stdout,
+      }
+    },
+  }
 }
 
 afterEach(() => {
@@ -71,6 +103,53 @@ describe("createWorkspaceTools", () => {
     expect(tools.shell.description).toContain("Use these commands")
     expect(tools.shell.description).toContain("Skip unsupported helpers such as `xargs`")
     expect(tools.shell.description).not.toContain("controlled `curl`")
+  })
+
+  it("prefers executable Workspace Session shell execution", async () => {
+    const workspace = createMutableWorkspace()
+    const close = vi.fn()
+    const exec = vi.fn(async (command: string, args: string[] = [], options?: { cwd?: string }) => ({
+      args,
+      command,
+      exitCode: 0,
+      stderr: "",
+      stdout: `session:${command} ${args.join(" ")} ${options?.cwd}\n`,
+    }))
+    workspace.startSession = vi.fn(async () => ({
+      close,
+      exec,
+    } as unknown as WorkspaceSession))
+    const tools = createWorkspaceTools(workspace)
+
+    await expect(runShell(tools, "pwd")).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "session:sh -lc pwd /workspace\n",
+    })
+    expect(exec).toHaveBeenCalledWith("sh", ["-lc", "pwd"], expect.objectContaining({ cwd: "/workspace" }))
+    expect(close).toHaveBeenCalled()
+  })
+
+  it("uses an explicit shell execution provider when no executable Workspace Session is available", async () => {
+    const tools = createWorkspaceTools(createAssets({
+      "README.md": "# Docs\n",
+    }), {
+      executionProvider: createProvider("provider\n"),
+    })
+
+    await expect(runShell(tools, "pwd")).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "provider\n",
+    })
+  })
+
+  it("falls back to Just Bash when a Workspace Session is not executable", async () => {
+    const workspace = createMutableWorkspace()
+    await workspace.writeFile("README.md", "# Docs\n")
+
+    await expect(runShell(createWorkspaceTools(workspace), "cat README.md")).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "# Docs\n",
+    })
   })
 
   it("limits shell commands to the enabled read capabilities", async () => {

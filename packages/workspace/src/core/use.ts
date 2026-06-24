@@ -406,6 +406,7 @@ function createReadonlyFs<Name extends WorkspaceName>(
       path: options?.path || "",
       sources: [],
     },
+    startSession: async (options?: WorkspaceSessionOptions) => await workspace.startSession(options),
   }, getWorkspaceSourceRequestExecution(workspace))
 }
 
