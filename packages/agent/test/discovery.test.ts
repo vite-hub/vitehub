@@ -769,6 +769,8 @@ describe("agent chat capability discovery", () => {
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const reactionEffect = vi.fn()
     const replyEffect = vi.fn()
+    let abortSignal: AbortSignal | undefined
+    let timeout: unknown
     const agent = defineAgent({
       capabilities: [
         defineCapability({
@@ -785,18 +787,22 @@ describe("agent chat capability discovery", () => {
           messages: false,
           triggers: {
             webhook: {
-              invoke: context => ({
+              invoke: (context, input) => ({
                 delivery: {
                   finishEffects: () => ({ kind: "reply", payload: "finished" }),
                 },
-                input: { prompt: "review" },
+                input,
                 run: { channelId: context.trigger.channelId, origin: "github", runId: "github-run" },
               }),
             },
           },
         }),
       },
-      run: () => "Review completed.",
+      run: ({ input }) => {
+        abortSignal = input.abortSignal
+        timeout = input.timeout
+        return "Review completed."
+      },
     })
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {})).resolves.toBe("Review completed.")
@@ -812,7 +818,8 @@ describe("agent chat capability discovery", () => {
 
     const response = await invokeMiddleware(handlers[0]!, {
       agent: "review",
-      input: {},
+      input: { prompt: "review" },
+      timeout: 1234,
       trigger: "github.webhook",
     }, agentInvocationStreamRoute, {
       "content-type": "application/json",
@@ -834,6 +841,8 @@ describe("agent chat capability discovery", () => {
     ]))
     expect(reactionEffect).not.toHaveBeenCalled()
     expect(replyEffect).not.toHaveBeenCalled()
+    expect(abortSignal).toBeInstanceOf(AbortSignal)
+    expect(timeout).toBe(1234)
   })
 
   it("serves plain Agent Definitions from the Agent Invocation Stream endpoint", async () => {
