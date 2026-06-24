@@ -70,7 +70,7 @@ function sourceRequestVisible(
 ): boolean {
   if (!scope || scope.all) return true
   const descriptorPath = workspaceSourceRequestDescriptorPath(source.key)
-  return Boolean(scope.paths?.some(path => pathIntersects(path, descriptorPath) || !source.requestOnly && pathIntersects(path, source.mountPath)))
+  return Boolean(scope.paths?.some(path => pathIntersects(path, descriptorPath)))
 }
 
 function pathContains(container: string, path: string): boolean {
