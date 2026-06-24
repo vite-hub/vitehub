@@ -94,7 +94,7 @@ function normalizeAgents<TRuntimeConfig extends AgentRuntimeConfig>(
     if (!definition?.agent) throw new TypeError(`[vitehub] subagents() "${name}" requires an agent.`)
     if (!definition.description?.trim()) throw new TypeError(`[vitehub] subagents() "${name}" requires a description.`)
     const toolName = toolNameFor(name, definition)
-    if (toolNames.has(toolName)) throw new TypeError(`[vitehub] Duplicate subagent tool name "${toolName}". Use explicit toolName values to disambiguate.`)
+    if (toolNames.has(toolName)) throw new TypeError(`[vitehub] Duplicate subagent tool name "${toolName}". Explicit toolName values disambiguate duplicate subagent tools.`)
     toolNames.add(toolName)
     return { definition, name, toolName }
   })

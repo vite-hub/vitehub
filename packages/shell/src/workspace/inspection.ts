@@ -200,9 +200,8 @@ function missingWorkspacePathFeedback(command: string, resolvedPath: string): Sh
     stderr: "",
     stdout: [
       `[vitehub] Workspace path is not mounted: ${resolvedPath}`,
-      "The agent cannot inspect files outside the configured workspace sources.",
-      "If this path should exist, update the Agent workspace source configuration or materialize the correct mounted source.",
-      "Otherwise answer that the requested evidence is unavailable in the current workspace.",
+      "Configured Workspace Sources do not expose this path.",
+      "This usually means the Workspace Source configuration or materialized source selection does not include it.",
     ].join("\n") + "\n",
     workspaceGuardrail: { kind: "missing_path", path: resolvedPath },
   }
@@ -227,12 +226,12 @@ function isBroadWorkspaceSearch(segment: ReturnType<typeof analyzeWorkspaceInspe
 
 function broadWorkspaceSearchFeedback(broadSearchPaths: string[] = []): ShellObservation {
   const hint = broadSearchPaths.length
-    ? ` Try one of these paths: ${broadSearchPaths.map(path => `"${path}"`).join(", ")}.`
-    : " Use a narrow mounted source or subdirectory path instead."
+    ? ` Mounted search roots: ${broadSearchPaths.map(path => `"${path}"`).join(", ")}.`
+    : " Expected a mounted source or subdirectory path."
   const feedback = [
     "[vitehub] Workspace search is too broad for this agent tool.",
-    "Use one specific mounted subdirectory or file path.",
-    "If the requested evidence is not in the mounted workspace paths, answer that it is unavailable instead of trying broader searches.",
+    "The command targets the workspace root or too many paths.",
+    "Workspace searches are bounded to mounted source subdirectories.",
   ].join("\n") + "\n"
 
   return {
@@ -273,8 +272,7 @@ function searchNoMatchFeedback(command: string, result: ShellObservation, broadS
       }
       return [
         "[vitehub] Search returned no matches in the mounted workspace source.",
-        "If the expected file is outside this mounted source, tell the user the evidence is unavailable in the current workspace instead of continuing broad searches.",
-        "Use a more specific mounted subdirectory only if the user request can be answered from the listed workspace paths.",
+        "Expected content may be outside the mounted workspace paths or under a different mounted subdirectory.",
       ].join("\n") + "\n"
     }
   }
@@ -318,8 +316,8 @@ function unsupportedWorkspaceCommandFeedback(command: string, name: string, comm
     stderr: `[vitehub] Unsupported workspace shell command: ${name}. Available commands: ${available.join(", ") || "none"}.\n`,
     stdout: [
       `[vitehub] Workspace shell command is not available: ${name}`,
-      `Use only the available workspace commands: ${formatted}.`,
-      "Rewrite the command with supported workspace commands, or answer from the evidence already collected.",
+      `Available workspace commands: ${formatted}.`,
+      "This shell only supports configured Workspace inspection commands.",
     ].join("\n") + "\n",
   }
 }

@@ -136,7 +136,7 @@ async function resolveSiblingAgent<TRuntimeConfig extends AgentRuntimeConfig>(
   caller: string | undefined,
 ): Promise<AgentEvalAgent<TRuntimeConfig>> {
   if (!caller) {
-    throw new Error("[vitehub] defineEval() could not infer the sibling Agent Definition. Pass agent explicitly.")
+    throw new Error("[vitehub] defineEval() could not infer the sibling Agent Definition. The sibling Agent Definition must be passed explicitly.")
   }
 
   const extension = extname(caller)

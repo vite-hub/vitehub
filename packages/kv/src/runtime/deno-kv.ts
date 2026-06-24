@@ -40,7 +40,7 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
   const open = () => kvPromise ||= (async () => {
     const openKv = getDenoRuntime()?.openKv
     if (!openKv) {
-      throw new Error("[vitehub] Deno KV requires Deno.openKv(). Run in Deno with KV enabled or choose another KV Store driver.")
+      throw new Error("[vitehub] Deno KV requires Deno.openKv(). The runtime must be Deno with KV enabled, or the KV Store needs another driver.")
     }
     return openKv(options.path)
   })()

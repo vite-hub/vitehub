@@ -133,7 +133,7 @@ describe("agent webhook verification", () => {
     })), "chat.message", chatInput()))
       .rejects
       .toMatchObject({
-        message: "[vitehub] Webhook registration \"telegram\" declares secretHeader \"x-telegram-bot-api-secret-token\" but no secretToken is configured. Set secretToken (from Server Env) or secretToken: false to explicitly disable verification.",
+        message: "[vitehub] Webhook registration \"telegram\" declares secretHeader \"x-telegram-bot-api-secret-token\" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification.",
         statusCode: 401,
       })
     expect(invoked).not.toHaveBeenCalled()
@@ -147,7 +147,7 @@ describe("agent webhook verification", () => {
     }], new Request("https://example.com", { method: "POST" }), runtime(), { requireSecretHeader: true }))
       .rejects
       .toMatchObject({
-        message: "[vitehub] Webhook registration \"custom\" declares secretToken but no secretHeader is configured. Set secretHeader or secretToken: false to explicitly disable verification.",
+        message: "[vitehub] Webhook registration \"custom\" declares secretToken but no secretHeader is configured. Verification requires secretHeader; secretToken: false explicitly disables verification.",
         statusCode: 401,
       })
   })

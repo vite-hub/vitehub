@@ -219,7 +219,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     });
     if (this.#baselineRefSha && remote.refSha !== this.#baselineRefSha) {
       throw new WorkspaceError(
-        `[vitehub] GitHub Workspace Store conflict for ${this.#repository}@${this.#branch}: the branch changed after this Workspace Store loaded. Retry with a fresh Workspace Store before snapshotting.`,
+        `[vitehub] GitHub Workspace Store conflict for ${this.#repository}@${this.#branch}: the branch changed after this Workspace Store loaded. Snapshotting requires a Workspace Store loaded from the current branch head.`,
       );
     }
     this.#remoteFiles = remote.files;

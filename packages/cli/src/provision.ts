@@ -75,7 +75,7 @@ export async function runProvision(args: string[], context: ProvisionFeatureCont
       : resolveVercelProvisionConfig(context.env)
     if (!config) {
       const required = provider === "cloudflare" ? "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN" : "VERCEL_TOKEN"
-      context.stderr.write(`Provision requires ${required} to be set. Use --dry-run to preview without credentials.\n`)
+      context.stderr.write(`Provision requires ${required} to be set. Dry-run preview does not require credentials (--dry-run).\n`)
       return 1
     }
   }

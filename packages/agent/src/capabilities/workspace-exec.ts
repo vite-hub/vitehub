@@ -105,7 +105,7 @@ function normalizeCwd(cwd: unknown): string {
 
 function assertWorkspace(workspace: unknown): asserts workspace is WorkspaceExecWorkspace {
   if (!workspace || typeof workspace !== "object" || typeof (workspace as { startSession?: unknown }).startSession !== "function") {
-    throw new Error("[vitehub] workspaceExec() requires an executable Workspace Session. Configure the agent with a writable workspace for trusted workspace/session execution.")
+    throw new Error("[vitehub] workspaceExec() requires an executable Workspace Session. Trusted workspace/session execution requires a writable workspace.")
   }
 }
 

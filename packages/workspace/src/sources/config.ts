@@ -209,7 +209,7 @@ function inferWorkspaceSource(input: WorkspaceSourceInput): WorkspaceSourceInput
 }
 
 function ambiguousSourceConfiguration(families: WorkspaceSourceFamily[]): TypeError {
-  return new TypeError(`[vitehub] Workspace source configuration is ambiguous. Matched ${families.join(", ")}. Use { source: ... } or custom(...) to make the source kind explicit.`)
+  return new TypeError(`[vitehub] Workspace source configuration is ambiguous. Matched ${families.join(", ")}. A { source: ... } wrapper or custom(...) call makes the source kind explicit.`)
 }
 
 function createInferredFetchSource(input: WorkspaceSourceInput): WorkspaceSource {

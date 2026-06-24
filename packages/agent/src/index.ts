@@ -463,7 +463,7 @@ function resolveAgentWorkflowRuntimeBinding<
 
 function resolveAgentWorkflowName(binding: AgentWorkflowRuntimeBinding): string {
   if (binding.name) return binding.name
-  throw new Error("[vitehub] Agent runtime workflow() requires a name when invoked directly. Use workflow(\"name\") so the Agent Invocation can target a stable Workflow Definition.")
+  throw new Error("[vitehub] Agent runtime workflow() requires a name when invoked directly. A stable Workflow Definition target requires workflow(\"name\").")
 }
 
 async function getAgentWorkflowHandle<

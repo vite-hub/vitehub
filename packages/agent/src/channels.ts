@@ -530,7 +530,7 @@ async function githubAppPrivateKey<TRuntimeConfig extends AgentRuntimeConfig>(
 ) {
   const inline = cleanSecret(await githubAppSetting(options, env, "privateKey", "appPrivateKey", context))
   if (inline) return inline.replace(/\\n/g, "\n")
-  throw new Error("[vitehub] Missing GitHub App privateKey. Set github.appPrivateKey or GITHUB_APP_PRIVATE_KEY.")
+  throw new Error("[vitehub] Missing GitHub App privateKey. github.appPrivateKey or GITHUB_APP_PRIVATE_KEY is required.")
 }
 
 function base64url(value: string | Buffer) {
@@ -857,7 +857,7 @@ export function http<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCon
   options: AgentChannelOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
   if ("path" in options) {
-    throw new TypeError("[vitehub] http({ path }) is not wired yet. Use webhooks.path for webhook routes.")
+    throw new TypeError("[vitehub] http({ path }) is not wired yet. Webhook routes are configured with webhooks.path.")
   }
   return defineChannel("http", options)
 }

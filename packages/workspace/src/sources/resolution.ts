@@ -28,6 +28,7 @@ import type {
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
   WorkspaceStore,
+  WorkspaceSessionOptions,
   WorkspaceWriteInput,
   WorkspaceSelectedScope,
   WorkspaceSource,
@@ -216,14 +217,14 @@ function createWritableFacadeStore(workspace: WritableWorkspaceFacade): Workspac
   }
 }
 
-async function startOverlayWorkspaceSession(definition: WorkspaceDefinition, workspace: Workspace) {
+async function startOverlayWorkspaceSession(definition: WorkspaceDefinition, workspace: Workspace, options?: WorkspaceSessionOptions) {
   if (definition.runtime === "sandbox") {
     const { createSandboxWorkspaceSession } = await import("../session/sandbox.ts")
-    return await createSandboxWorkspaceSession(definition, workspace)
+    return await createSandboxWorkspaceSession(definition, workspace, options)
   }
   if (definition.runtime === "trusted-host") {
     const { createTrustedHostWorkspaceSession } = await import("../session/trusted-host.ts")
-    return await createTrustedHostWorkspaceSession(definition, workspace)
+    return await createTrustedHostWorkspaceSession(definition, workspace, options)
   }
   return createBasicWorkspaceSession(workspace)
 }
@@ -305,7 +306,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     startSession: async (options) => {
       const paths = options?.paths?.length ? options.paths : [""]
       await Promise.all(paths.map(path => materializeSources({ path })))
-      return await startOverlayWorkspaceSession(resolvedDefinition, readWorkspace)
+      return await startOverlayWorkspaceSession(resolvedDefinition, readWorkspace, options)
     },
   } as ReadonlyWorkspaceFacade<Name>["fs"] & Pick<Workspace, "startSession">, sourceRequestExecution)
   readWorkspace = attachWorkspaceSourceRequestExecution({
@@ -415,7 +416,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       rm: writeFs.rm,
       search: writeFs.search,
       snapshot: workspace.snapshot,
-      startSession: async () => await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace),
+      startSession: async options => await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options),
       stat: writeFs.stat,
       sync: async (options) => {
         const { syncWorkspaceSources } = await import("./sync.ts")

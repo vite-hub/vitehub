@@ -502,7 +502,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
   }
 
   if (writeEnabled && !isWorkspace(input)) {
-    throw new TypeError("[vitehub] Write operations require a mutable Workspace. Use useWorkspace(name, { mode: \"write\" }).tools.write().")
+    throw new TypeError("[vitehub] Write operations require a mutable Workspace. A useWorkspace(name, { mode: \"write\" }).tools.write() call provides one.")
   }
 
   const result: Record<string, Tool<any, any>> = {}
@@ -530,7 +530,7 @@ export function createWorkspaceTools<Operations extends WorkspaceToolOperations 
             cwd: resolved.cwd,
             event: "policy_denied",
             exitCode: 126,
-            stderr: `[vitehub] Workspace shell command budget exhausted after ${resolved.maxShellCalls} calls. Answer from the evidence already collected instead of running more shell commands.\n`,
+            stderr: `[vitehub] Workspace shell command budget exhausted after ${resolved.maxShellCalls} calls. The Workspace Tools shell call budget is exhausted for this run.\n`,
             stdout: "",
           } satisfies WorkspaceShellResult
         }

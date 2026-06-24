@@ -19,7 +19,7 @@ async function loadCloudflareSandbox() {
     return (await import('@cloudflare/sandbox')).getSandbox
   }
   catch (error) {
-    throw new Error(`@cloudflare/sandbox load failed. Install it to use the Cloudflare provider. Original error: ${error instanceof Error ? error.message : error}`)
+    throw new Error(`@cloudflare/sandbox load failed. The Cloudflare provider requires @cloudflare/sandbox to be installed. Original error: ${error instanceof Error ? error.message : error}`)
   }
 }
 

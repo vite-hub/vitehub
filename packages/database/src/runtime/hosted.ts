@@ -16,7 +16,7 @@ export function createHostedDrizzleDb<TSchema extends Record<string, unknown>>(
 ) {
   return createDrizzleSqliteAdapter(dbConfig, schema, {
     libsql: { createClient, drizzle: drizzleLibsql as never },
-    missingConnectionMessage: config => `[vitehub] Hosted DB "${config.name}" requires a Cloudflare D1 binding or a remote libSQL URL. Set \`db.connection.url\` to a hosted libSQL endpoint before deploying this database to Cloudflare or Vercel.`,
+    missingConnectionMessage: config => `[vitehub] Hosted DB "${config.name}" requires a Cloudflare D1 binding or a remote libSQL URL. Hosted deployment requires \`db.connection.url\` to be a hosted libSQL endpoint before deploying this database to Cloudflare or Vercel.`,
     requireRemoteUrl: true,
   })
 }

@@ -185,13 +185,13 @@ describe("createWorkspaceTools", () => {
       event: "policy_denied",
       exitCode: 126,
       stderr: expect.stringContaining("Unsupported workspace shell command: cat"),
-      stdout: expect.stringContaining("Use only the available workspace commands"),
+      stdout: expect.stringContaining("Available workspace commands"),
     })
     await expect(runShell(tools, "rg orders models")).resolves.toMatchObject({
       event: "policy_denied",
       exitCode: 126,
       stderr: expect.stringContaining("Unsupported workspace shell command: rg"),
-      stdout: expect.stringContaining("Use only the available workspace commands"),
+      stdout: expect.stringContaining("Available workspace commands"),
     })
   })
 
@@ -204,7 +204,7 @@ describe("createWorkspaceTools", () => {
       event: "policy_denied",
       exitCode: 126,
       stderr: expect.stringContaining("Unsupported workspace shell command: rm"),
-      stdout: expect.stringContaining("Use only the available workspace commands"),
+      stdout: expect.stringContaining("Available workspace commands"),
     })
     await expect(runShell(tools, "cat README.md | wc -l")).resolves.toMatchObject({
       exitCode: 0,

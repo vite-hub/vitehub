@@ -368,12 +368,12 @@ async function resolveWorkspaceScope<
 ): Promise<ResolvedWorkspaceScope> {
   const selection = normalizeSelection(await resolveSelection(options, context))
   if (!selection) {
-    throw new Error("[vitehub] access({ workspace }) could not resolve a Workspace Scope. Configure defaultScope or resolve().")
+    throw new Error("[vitehub] access({ workspace }) could not resolve a Workspace Scope. defaultScope or resolve() must produce a Workspace Scope.")
   }
 
   const definition = selection.definition || options.scopes?.[selection.scope]
   if (!definition) {
-    throw new Error(`[vitehub] access({ workspace }) resolved unknown Workspace Scope "${selection.scope}". Configure scopes.${selection.scope} or return an inline scope definition.`)
+    throw new Error(`[vitehub] access({ workspace }) resolved unknown Workspace Scope "${selection.scope}". scopes.${selection.scope} or an inline scope definition must define it.`)
   }
 
   const role = selection.role || "viewer"

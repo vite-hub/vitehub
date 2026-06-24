@@ -1275,7 +1275,7 @@ describe("server helpers", () => {
     }), "custom-support")
 
     expect(response.status).toBe(401)
-    await expect(response.json()).resolves.toEqual({ error: "[vitehub] Webhook registration \"custom-support\" declares secretHeader \"x-test-secret\" but no secretToken is configured. Set secretToken (from Server Env) or secretToken: false to explicitly disable verification." })
+    await expect(response.json()).resolves.toEqual({ error: "[vitehub] Webhook registration \"custom-support\" declares secretHeader \"x-test-secret\" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification." })
     expect(adapter.handleWebhook).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
   })
@@ -1329,7 +1329,7 @@ describe("server helpers", () => {
     }), "github")
 
     expect(response.status).toBe(401)
-    await expect(response.json()).resolves.toEqual({ error: "[vitehub] Webhook registration \"github\" declares secretHeader \"x-hub-signature-256\" but no secretToken is configured. Set secretToken (from Server Env) or secretToken: false to explicitly disable verification." })
+    await expect(response.json()).resolves.toEqual({ error: "[vitehub] Webhook registration \"github\" declares secretHeader \"x-hub-signature-256\" but no secretToken is configured. Verification requires secretToken from Server Env; secretToken: false explicitly disables verification." })
     expect(run).not.toHaveBeenCalled()
   })
 

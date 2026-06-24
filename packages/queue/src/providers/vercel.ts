@@ -69,7 +69,7 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
     }
   }
   catch (error) {
-    throw new QueueError(`@vercel/queue load failed. Install it to use the Vercel provider. Original error: ${error instanceof Error ? error.message : error}`, {
+    throw new QueueError(`@vercel/queue load failed. The Vercel provider requires @vercel/queue to be installed. Original error: ${error instanceof Error ? error.message : error}`, {
       cause: error,
       code: "VERCEL_QUEUE_SDK_LOAD_FAILED",
       provider: "vercel",
