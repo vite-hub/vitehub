@@ -238,7 +238,18 @@ describe("sandbox workspace runtime", () => {
     await workspace.writeFile("skills/browser/SKILL.md", "# Browser\n")
 
     const session = await workspace.startSession({ paths: ["skills/browser"] })
-    await session.writeFile("screenshots/login-version-badge-desktop.png", "png\n")
+    await expect(session.readFile("screenshots/.gitkeep")).rejects.toThrow("does not exist")
+    expect((await session.list("", { recursive: true })).map(entry => entry.path)).toEqual([
+      "skills",
+      "skills/browser",
+      "skills/browser/SKILL.md",
+    ])
+    expect(await session.search({ pattern: "Browser" })).toEqual([
+      expect.objectContaining({ path: "skills/browser/SKILL.md" }),
+    ])
+    await expect(session.writeFile("screenshots/direct.png", "png\n")).rejects.toThrow("outside the session scope")
+
+    await fake.sandbox.writeFile("/workspace/screenshots/login-version-badge-desktop.png", "png\n")
 
     await expect(session.commit()).rejects.toThrow("outside the session scope")
     await session.close()

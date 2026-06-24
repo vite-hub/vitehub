@@ -23,6 +23,9 @@ import type {
   AgentCapabilityRuntimeContext,
   AgentChannelDeliveryEffectIntent,
   AgentChannelDeliveryFinishEffect,
+  AgentDriverContribution,
+  AgentDriverContributionKind,
+  AgentDriverKind,
   AgentFinishEvent,
   AgentFinishExtensionProvider,
   AgentHookObserverHooks,
@@ -91,6 +94,7 @@ export interface AgentCapabilityInvocationOptions<
   Name extends WorkspaceName = WorkspaceName,
 > {
   context?: AgentInvocationContextStore
+  driverKind?: AgentDriverKind
   invoker?: AgentInvoker
   model?: AgentModelResolver<TRuntimeConfig, Name>
   phases?: readonly AgentCapabilityRuntimePhase[]
@@ -102,7 +106,9 @@ export interface AgentCapabilityInvocationOptions<
 export interface ResolvedAgentCapabilities {
   capabilityInstructions: AgentInstructionBlock[]
   close: () => Promise<void>
+  driverContributions: AgentDriverContribution[]
   hasCloseCallbacks: boolean
+  harnessWorkspacePaths: readonly string[]
   input: AgentRunInput
   messages: Message[]
   response?: Response
@@ -476,6 +482,14 @@ function selectedWorkspaceScopeFromContext(context: AgentInvocationContextStore)
   }
 }
 
+function mergeSelectedWorkspaceScopePaths(scope: WorkspaceSelectedScope | undefined, paths: readonly string[]): WorkspaceSelectedScope | undefined {
+  if (!scope || scope.all || !paths.length) return scope
+  return {
+    ...scope,
+    paths: [...new Set([...(scope.paths || []), ...paths])],
+  }
+}
+
 function selectedScopeContainsMount(scope: WorkspaceSelectedScope | undefined, mountPath: string): boolean {
   if (!scope || scope.all) return true
   if (!mountPath) return Boolean(scope.paths?.includes(""))
@@ -548,6 +562,7 @@ async function applyCapabilityWorkspaceContributions<
 >(
   capabilities: AgentCapabilityDefinition<TRuntimeConfig, Name>[],
   context: Omit<AgentCapabilityContext<TRuntimeConfig, Name>, "capability" | "mode"> & {
+    harnessWorkspacePaths?: readonly string[]
     workspace: ReadonlyWorkspaceFacade<Name>
     workspaceDefinition: WorkspaceDefinition
   },
@@ -584,7 +599,7 @@ async function applyCapabilityWorkspaceContributions<
   }
 
   if (!registries.length) return
-  const selectedWorkspaceScope = selectedWorkspaceScopeFromContext(context.context)
+  const selectedWorkspaceScope = mergeSelectedWorkspaceScopePaths(selectedWorkspaceScopeFromContext(context.context), context.harnessWorkspacePaths || [])
   assertStaticWorkspaceContributionSourcesInScope(registries, definition, selectedWorkspaceScope, workspaceRuntime)
   const sourceResolution = await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace, definition, {
     invocation: {
@@ -638,9 +653,13 @@ export async function resolveAgentCapabilities<
   const runtimeContext = toAgentCallbackContext(runtime)
   const invocationContext = invocationOptions.context || createAgentInvocationContextStore(input.context)
   const invoker = invocationOptions.invoker || resolveInputAgentInvoker(input.context) || createFallbackAgentInvoker(runtime.run)
+  const driverKind = invocationOptions.driverKind || "model"
   ensureAgentInvokerContext(invocationContext, invoker)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   validateAccessCapabilityOrder(capabilities)
+  const harnessWorkspacePaths = driverKind === "harness"
+    ? [...new Set(capabilities.flatMap(capability => [...capability.harnessWorkspacePaths || []]))]
+    : []
   let currentInput = normalizeRunInput(input)
   let currentWorkspace = workspace as ReadonlyWorkspaceFacade<Name> | undefined
   let currentWorkspaceDefinition = invocationOptions.workspaceDefinition
@@ -648,6 +667,7 @@ export async function resolveAgentCapabilities<
   let tools: AgentToolSet | undefined
   const capabilityInstructions: AgentInstructionBlock[] = []
   const closeCallbacks: Array<() => MaybePromise<void>> = []
+  const driverContributions: AgentDriverContribution[] = []
   let hasCloseWork = false
   const toolTransforms: AgentToolTransform[] = []
   const initialDeliveryEffectIntents = invocationContext.get<AgentChannelDeliveryEffectIntent[]>(channelDeliveryEffectsContextKey) || []
@@ -668,6 +688,27 @@ export async function resolveAgentCapabilities<
     capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
     context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
   }> = []
+
+  function recordDriverContribution(kind: AgentDriverContributionKind, capabilityId: string, names?: string[]) {
+    const uniqueNames = Array.from(new Set((names || []).filter(Boolean))).sort()
+    driverContributions.push({
+      capabilityId,
+      kind,
+      ...(uniqueNames.length ? { names: uniqueNames } : {}),
+    })
+  }
+
+  function addCapabilityInstructionContribution(
+    capabilityId: string,
+    value: AgentAdapterInstructionsValue | false | undefined,
+    options?: { id?: string },
+  ) {
+    const before = capabilityInstructions.length
+    addInstructionBlock(capabilityInstructions, capabilityId, value, options)
+    if (capabilityInstructions.length > before) {
+      recordDriverContribution("Capability instructions", capabilityId)
+    }
+  }
 
   async function closeRegisteredCallbacks() {
     const errors: unknown[] = []
@@ -704,7 +745,9 @@ export async function resolveAgentCapabilities<
       ...runtimeContext,
       actor: invoker,
       context: invocationContext,
+      driver: { kind: driverKind },
       fs: currentWorkspace.fs,
+      harnessWorkspacePaths,
       invoker,
       runtimeContext: runtime,
       workspace: currentWorkspace,
@@ -726,7 +769,9 @@ export async function resolveAgentCapabilities<
         ...runtimeContext,
         actor: invoker,
         context: invocationContext,
+        driver: { kind: driverKind },
         fs: currentWorkspace?.fs,
+        harnessWorkspacePaths,
         invoker,
         runtimeContext: runtime,
         workspace: currentWorkspace,
@@ -743,7 +788,7 @@ export async function resolveAgentCapabilities<
         mode: capability.mode,
         instructions: {
           add(value, options) {
-            addInstructionBlock(capabilityInstructions, capability.id, value, options)
+            addCapabilityInstructionContribution(capability.id, value, options)
           },
         },
         input: {
@@ -820,6 +865,7 @@ export async function resolveAgentCapabilities<
         providerTools: {
           add(tool) {
             registries.providerTools.push(tool)
+            recordDriverContribution("provider tools", capability.id, [tool.name])
           },
         },
         finish: {
@@ -842,6 +888,7 @@ export async function resolveAgentCapabilities<
         tools: {
           add(value) {
             if (!value) return
+            recordDriverContribution("Capability tools", capability.id, Object.keys(value))
             tools = { ...tools, ...value }
           },
           transform(transform) {
@@ -895,7 +942,9 @@ export async function resolveAgentCapabilities<
           return {
             capabilityInstructions,
             close: closeRegisteredCallbacks,
+            driverContributions,
             hasCloseCallbacks: hasCloseWork,
+            harnessWorkspacePaths,
             input: currentInput,
             messages,
             response: result,
@@ -912,12 +961,15 @@ export async function resolveAgentCapabilities<
       if (invocationOptions.resolveInstructions !== false && capability.instructions !== undefined) {
         const values = await resolveInstructionValue(capability, context)
         for (const value of values) {
-          addInstructionBlock(capabilityInstructions, capability.id, value)
+          addCapabilityInstructionContribution(capability.id, value)
         }
       }
       if (invocationOptions.resolveTools !== false && capability.tools) {
         const resolved = await resolveRuntimeValue(capability.tools as never, context) as unknown
-        if (isToolSet(resolved)) tools = { ...tools, ...resolved }
+        if (isToolSet(resolved)) {
+          recordDriverContribution("Capability tools", capability.id, Object.keys(resolved))
+          tools = { ...tools, ...resolved }
+        }
       }
     }
   }
@@ -934,7 +986,9 @@ export async function resolveAgentCapabilities<
   return {
     capabilityInstructions,
     close: closeRegisteredCallbacks,
+    driverContributions,
     hasCloseCallbacks: hasCloseWork,
+    harnessWorkspacePaths,
     input: currentInput,
     messages,
     registries,

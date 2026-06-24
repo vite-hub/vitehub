@@ -813,6 +813,160 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("runs lifecycle capabilities around harness Agent Drivers", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { inputCommands, rateLimit, usageTelemetry } = await import("../src/capabilities.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({
+      text: "ok",
+      usage: {
+        actions: 1,
+      },
+    })
+
+    const agent = defineAgent({
+      capabilities: [
+        inputCommands({
+          commands: {
+            review: {
+              description: "Review the request.",
+              run: ({ args }) => `Review this: ${args}`,
+            },
+          },
+        }),
+        rateLimit({
+          id: "harness-lifecycle-rate-limit",
+          identity: () => "user_1",
+          limit: 5,
+          window: "1m",
+        }),
+        usageTelemetry(),
+      ],
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "/review checkout" })).resolves.toMatchObject({
+      text: "ok",
+      usageRecord: {
+        usage: {
+          details: {
+            actions: 1,
+          },
+        },
+      },
+    })
+    expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: "Review this: checkout",
+      session,
+    }))
+    expect(session.destroy).toHaveBeenCalledOnce()
+  })
+
+  it("rejects model-facing Capability tools before harness execution", async () => {
+    const { defineCapability } = await import("../src/capability-runtime.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "model-tools",
+          tools: () => ({
+            lookup: {
+              name: "lookup",
+              execute: async () => "ok",
+            },
+          }),
+        }),
+      ],
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" }))
+      .rejects.toThrow("model-tools: Capability tools (lookup)")
+    expect(harnessAgentSettings).toHaveLength(0)
+    expect(harnessCreateSession).not.toHaveBeenCalled()
+    expect(harnessGenerate).not.toHaveBeenCalled()
+  })
+
+  it("does not resolve static Capability tools for harness Agent Drivers", async () => {
+    const { defineCapability } = await import("../src/capability-runtime.ts")
+    const { defineAgent, resolveAgent } = await import("../src/index.ts")
+    const resolveTools = vi.fn(() => ({
+      lookup: {
+        name: "lookup",
+        execute: async () => "ok",
+      },
+    }))
+
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "model-tools",
+          tools: resolveTools,
+        }),
+      ],
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+    })
+
+    await expect(resolveAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() })).resolves.toMatchObject({
+      name: "ai-sdk-harness",
+    })
+    expect(resolveTools).not.toHaveBeenCalled()
+  })
+
+  it("rejects provider tools before harness execution", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { webSearch } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [webSearch({ mode: "model" })],
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" }))
+      .rejects.toThrow("web-search: provider tools")
+    expect(harnessAgentSettings).toHaveLength(0)
+    expect(harnessCreateSession).not.toHaveBeenCalled()
+    expect(harnessGenerate).not.toHaveBeenCalled()
+  })
+
+  it("rejects model-facing Capability instructions before harness execution", async () => {
+    const { defineCapability } = await import("../src/capability-runtime.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "model-instructions",
+          instructions: "Use model-only context.",
+        }),
+      ],
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" }))
+      .rejects.toThrow("model-instructions: Capability instructions")
+    expect(harnessAgentSettings).toHaveLength(0)
+    expect(harnessCreateSession).not.toHaveBeenCalled()
+    expect(harnessGenerate).not.toHaveBeenCalled()
+  })
+
   it("resumes harness Agent Drivers with an explicit session key", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const firstSession = { detach: vi.fn(async () => ({ token: "resume" })), destroy: vi.fn() }

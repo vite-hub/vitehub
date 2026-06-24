@@ -29,6 +29,7 @@ import type {
   AgentDevtoolsModelExecutionMetadata,
   AgentDevtoolsModelMetadata,
   AgentDevtoolsToolDefinition,
+  AgentDriverKind,
   AgentInvocationContextStore,
   AgentInvocationContextValues,
   AgentInvokerProfile,
@@ -312,7 +313,14 @@ function shouldUseColocatedAgentInstructions<
   Name extends WorkspaceName,
 >(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): boolean {
   return modelDriverInstructions(options) === undefined
-    && normalizeAgentDriver(options as AgentSettings<TRuntimeConfig>).kind === "model"
+    && workspaceAgentDriverKind(options) === "model"
+}
+
+function workspaceAgentDriverKind<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): AgentDriverKind {
+  return normalizeAgentDriver(options as AgentSettings<TRuntimeConfig>).kind
 }
 
 function workspaceShellMetadataCommands(mode: AgentCapabilityMode, sourceRequests = false) {
@@ -320,7 +328,8 @@ function workspaceShellMetadataCommands(mode: AgentCapabilityMode, sourceRequest
   return sourceRequests ? [...commands, ...sourceRequestCommands] : commands
 }
 
-function capabilityMetadataTool(capability: NormalizedCapability, options: { sourceRequests?: boolean } = {}): AgentDevtoolsToolDefinition | undefined {
+function capabilityMetadataTool(capability: NormalizedCapability, options: { driverKind?: AgentDriverKind, sourceRequests?: boolean } = {}): AgentDevtoolsToolDefinition | undefined {
+  if (options.driverKind === "harness") return undefined
   if (capability.id === "workspace-shell") {
     const mode = normalizeMode(capability.mode, "Workspace Shell")
     return {
@@ -735,8 +744,9 @@ function workspaceMetadataTools<
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   toolOptions: { sourceRequests?: boolean } = {},
 ): AgentDevtoolsToolDefinition[] {
+  const driverKind = workspaceAgentDriverKind(options)
   return normalizeCapabilities(options.capabilities)
-    .map(capability => capabilityMetadataTool(capability, toolOptions))
+    .map(capability => capabilityMetadataTool(capability, { ...toolOptions, driverKind }))
     .filter((tool): tool is AgentDevtoolsToolDefinition => Boolean(tool))
     .sort((left, right) => left.name.localeCompare(right.name))
 }
@@ -1198,11 +1208,13 @@ async function resolveWorkspaceMetadataCapabilityContext<
     runtime.run,
   )
   const workspaceDefinition = workspaceDefinitionWithNameFromOptions(options, resolution)
+  const driverKind = workspaceAgentDriverKind(options)
   const capabilities = await resolveAgentCapabilities({
     capabilities: options.capabilities as AgentCapabilityDefinition<TRuntimeConfig, Name>[],
     hooks: options.hooks as never,
   }, runtime, input, workspace, workspaceModeFromOptions(options), {
     context: invocationContext,
+    driverKind,
     invoker,
     phases: ["prepare"],
     resolveTools: false,
@@ -1218,6 +1230,7 @@ async function resolveWorkspaceMetadataCapabilityContext<
       ...agentCallbackContext(runtime),
       actor: invoker,
       context: invocationContext,
+      driver: { kind: driverKind },
       fs: metadataWorkspace.fs,
       invoker,
       workspace: metadataWorkspace,

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { prepareHarnessWorkspaceSession } from "../src/session/harness.ts"
+import { defineWorkspace } from "../src/index.ts"
+import { createWorkspace } from "../src/core/workspace.ts"
 
 function bytes(content: string): Uint8Array {
   return new TextEncoder().encode(content)
@@ -56,6 +58,173 @@ describe("Harness Workspace Session", () => {
     await session.close()
   })
 
+  it("materializes only selected Workspace Session paths", async () => {
+    const publicReadme = bytes("# Public\n")
+    const stat = vi.fn(async (path: string) => {
+      if (path === "public") return { path: "public", type: "directory" }
+      throw new Error(`unexpected stat ${path}`)
+    })
+    const list = vi.fn(async (path: string) => {
+      if (path === "public") {
+        return [
+          { path: "public", type: "directory" },
+          { mediaType: "text/markdown", path: "public/README.md", type: "file" },
+        ]
+      }
+      throw new Error(`unexpected list ${path}`)
+    })
+    const readFile = vi.fn(async (path: string) => {
+      if (path === "public/README.md") return publicReadme
+      throw new Error(`unexpected read ${path}`)
+    })
+    const startSession = vi.fn(async () => ({
+      close: vi.fn(async () => {}),
+      commit: vi.fn(async () => {}),
+      diff: vi.fn(async () => ({ entries: [], to: "next" })),
+      mkdir: vi.fn(async () => {}),
+      rm: vi.fn(async () => {}),
+      writeFile: vi.fn(async () => {}),
+    }))
+    const writeBinaryFile = vi.fn(async () => {})
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: { list, readFile, stat },
+      startSession,
+      tools: {},
+    } as never, {
+      paths: ["public"],
+      session: {
+        readBinaryFile: vi.fn(async () => null),
+        run: sandboxRun(["public/README.md"], ["public"]),
+        writeBinaryFile,
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    expect(stat).toHaveBeenCalledWith("public")
+    expect(list).toHaveBeenCalledWith("public", { recursive: true })
+    expect(list).not.toHaveBeenCalledWith("", { recursive: true })
+    expect(readFile).toHaveBeenCalledWith("public/README.md", { encoding: "binary" })
+    expect(writeBinaryFile).toHaveBeenCalledWith({
+      abortSignal: undefined,
+      content: publicReadme,
+      path: "/work/agent/public/README.md",
+    })
+    expect(startSession).toHaveBeenCalledWith({ paths: ["public"] })
+
+    await session.close()
+  })
+
+  it("skips missing selected paths during sandbox materialization", async () => {
+    const publicReadme = bytes("# Public\n")
+    const stat = vi.fn(async (path: string) => {
+      if (path === "public") return { path: "public", type: "directory" }
+      throw new Error(`missing ${path}`)
+    })
+    const list = vi.fn(async () => [
+      { path: "public/README.md", type: "file" },
+    ])
+    const writeBinaryFile = vi.fn(async () => {})
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: {
+        list,
+        readFile: vi.fn(async () => publicReadme),
+        stat,
+      },
+      tools: {},
+    } as never, {
+      paths: ["public", ".vitehub/sources/public.json"],
+      session: {
+        run: sandboxRun(),
+        writeBinaryFile,
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    expect(stat).toHaveBeenCalledWith("public")
+    expect(stat).toHaveBeenCalledWith(".vitehub/sources/public.json")
+    expect(list).toHaveBeenCalledWith("public", { recursive: true })
+    expect(writeBinaryFile).toHaveBeenCalledWith(expect.objectContaining({
+      path: "/work/agent/public/README.md",
+    }))
+
+    await session.close()
+  })
+
+  it("creates parent directories when a selected path is a file", async () => {
+    const readme = bytes("scoped")
+    const run = sandboxRun()
+    const writeBinaryFile = vi.fn(async () => {})
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: {
+        list: vi.fn(async () => {
+          throw new Error("root list should not run")
+        }),
+        readFile: vi.fn(async () => readme),
+        stat: vi.fn(async () => ({ mediaType: "text/markdown", path: "docs/README.md", type: "file" })),
+      },
+      tools: {},
+    } as never, {
+      paths: ["docs/README.md"],
+      session: { run, writeBinaryFile },
+      sessionWorkDir: "/work/agent",
+    })
+
+    expect(run).toHaveBeenCalledWith({
+      abortSignal: undefined,
+      command: "mkdir -p '/work/agent/docs'",
+    })
+    expect(writeBinaryFile).toHaveBeenCalledWith({
+      abortSignal: undefined,
+      content: readme,
+      path: "/work/agent/docs/README.md",
+    })
+
+    await session.close()
+  })
+
+  it("does not remove synthetic parent directories for selected file paths", async () => {
+    const workspaceSession = {
+      close: vi.fn(async () => {}),
+      commit: vi.fn(async () => {}),
+      diff: vi.fn(async () => ({
+        entries: [{ path: "docs/README.md", type: "removed" }],
+        to: "next",
+      })),
+      mkdir: vi.fn(async () => {}),
+      rm: vi.fn(async () => {}),
+      writeFile: vi.fn(async () => {}),
+    }
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: {
+        list: vi.fn(async () => {
+          throw new Error("root list should not run")
+        }),
+        readFile: vi.fn(async () => bytes("scoped")),
+        stat: vi.fn(async () => ({ mediaType: "text/markdown", path: "docs/README.md", type: "file" })),
+      },
+      startSession: vi.fn(async () => workspaceSession),
+      tools: {},
+    } as never, {
+      paths: ["docs/README.md"],
+      session: {
+        readBinaryFile: vi.fn(async () => null),
+        run: sandboxRun(),
+        writeBinaryFile: vi.fn(async () => {}),
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    await session.close()
+
+    expect(workspaceSession.rm).toHaveBeenCalledWith("docs/README.md", { force: true })
+    expect(workspaceSession.rm).not.toHaveBeenCalledWith("docs", { force: true, recursive: true })
+    expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
+  })
+
   it("commits harness sandbox additions and updates through write-mode Workspace rules", async () => {
     const initial = bytes("old")
     const updated = bytes("new")
@@ -103,6 +272,36 @@ describe("Harness Workspace Session", () => {
     expect(workspaceSession.writeFile).toHaveBeenCalledWith("new.json", added, { mediaType: "application/json" })
     expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
     expect(workspaceSession.close).toHaveBeenCalledOnce()
+  })
+
+  it("rejects out-of-scope harness sandbox changes in the basic Workspace Session", async () => {
+    const workspace = createWorkspace({
+      ...defineWorkspace({ store: { provider: "memory" } }),
+      name: "docs",
+    })
+    await workspace.mkdir("public")
+    await workspace.writeFile("public/README.md", "old")
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: {
+        list: workspace.list,
+        readFile: workspace.readFile,
+        stat: workspace.stat,
+      },
+      startSession: workspace.startSession,
+      tools: {},
+    } as never, {
+      paths: ["public"],
+      session: {
+        readBinaryFile: vi.fn(async ({ path }: { path: string }) => bytes(path)),
+        run: sandboxRun(["private.txt", "public/README.md"], ["public"]),
+        writeBinaryFile: vi.fn(async () => {}),
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    await expect(session.close()).rejects.toThrow("outside the session scope")
+    await expect(workspace.exists("private.txt")).resolves.toBe(false)
   })
 
   it("commits harness sandbox deletions through write-mode Workspace rules", async () => {

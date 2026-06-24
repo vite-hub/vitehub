@@ -59,6 +59,17 @@ describe("trusted host workspace runtime", () => {
     await workspace.writeFile("screenshots/.gitkeep", "")
 
     const session = await workspace.startSession({ paths: ["skills/browser"] })
+    await expect(session.readFile("screenshots/.gitkeep")).rejects.toThrow("does not exist")
+    expect((await session.list("", { recursive: true })).map(entry => entry.path)).toEqual([
+      "skills",
+      "skills/browser",
+      "skills/browser/SKILL.md",
+    ])
+    expect(await session.search({ pattern: "Browser" })).toEqual([
+      expect.objectContaining({ path: "skills/browser/SKILL.md" }),
+    ])
+    await expect(session.writeFile("screenshots/direct.png", "png\n")).rejects.toThrow("outside the session scope")
+
     const result = await session.exec(process.execPath, [
       "-e",
       "const fs = require('node:fs'); fs.mkdirSync('screenshots', { recursive: true }); fs.writeFileSync('screenshots/login-version-badge-desktop.png', 'png\\n')",

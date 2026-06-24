@@ -229,6 +229,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - A harness adapter that cannot bypass its own approval layer should be unsupported for V1 rather than introducing a second hidden permission layer.
 - V1 should not enable host-executed HarnessAgent approval flows for harness-backed Agent Drivers; approval-based policy is a future design.
 - A harness-backed **Agent Driver** receives Workspace state through a scoped **Workspace Session** or equivalent materialized filesystem, not model-facing Workspace Tools by default.
+- A harness-backed **Agent Driver** may receive Capability support files through **Harness Workspace Path Contributions** without treating those files as **Model Driver Instructions**.
 - A harness-backed **Agent Driver** uses an invocation-scoped Harness Workspace Session by default and requires an explicit Harness Session Key for durable reuse.
 - A harness-backed **Agent Driver** may omit `credentials`; omitted credentials let the harness adapter use its default credential behavior, such as ambient CLI auth or no credentials when the harness does not require them.
 - Explicit **Harness Credential Source** configuration is a sibling option on the harness-backed **Agent Driver**, not hidden inside the harness adapter constructor.
@@ -384,6 +385,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - A public permission option was considered for V1 - resolved: avoid it because bypass is the only supported **Harness Permission Policy** for now.
 - A full approval policy matrix was considered for V1 - resolved: defer it; if a harness adapter cannot bypass its own approval layer, mark it unsupported for V1.
 - Model-facing Workspace Tools were considered the default Workspace surface for harness-backed drivers - resolved: harness-backed drivers use a scoped **Workspace Session** or equivalent materialized filesystem by default.
+- Capability-owned support files were considered harness instructions - resolved: pass them only as **Harness Workspace Path Contributions** when a harness-backed **Agent Driver** needs filesystem-visible support files.
 - Durable harness sessions were considered as an implicit chat or thread default - resolved: harness-backed Agent Drivers use invocation-scoped Harness Workspace Sessions by default and require an explicit Harness Session Key for reuse.
 - Requiring a `credentials` option for every harness-backed Agent Driver was considered - resolved: credentials are optional; omission means the harness adapter may use its default auth behavior, and ViteHub classifies the resolved **Harness Credential Source** when possible.
 - Treating omitted harness credentials the same in development and hosted production was considered - resolved: warn in development for unknown or local-only sources, but fail hosted production for unknown or known local-only sources.

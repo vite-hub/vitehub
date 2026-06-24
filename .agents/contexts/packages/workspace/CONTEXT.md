@@ -64,7 +64,9 @@ _Avoid_: CLI execution mode, Agent Dev Loop option, hosted runtime
 - The **Workspace Runtime Surface** may expose Source Sync without making normal Workspace reads run Source Sync.
 - The **Workspace Package** owns **Harness Workspace Session Preparation** for harness-backed Agent Drivers.
 - **Harness Workspace Session Preparation** is consumed by the Agent Package; it is not an app-level sandbox workflow surface.
+- **Harness Workspace Session Preparation** may materialize Agent Package-provided **Harness Workspace Path Contributions** in addition to selected scoped Workspace files.
 - The **Workspace Package** owns the **Trusted Host Workspace Runtime** because Workspace Session materialization and commit behavior stay inside the Workspace Runtime Surface.
+- The **Workspace Package** enforces Workspace Session path boundaries before trusted or harness-prepared session changes reach the Workspace Store.
 - The **Trusted Host Workspace Runtime** is selected from a Workspace Definition, not from the ViteHub CLI or Agent Package.
 - Source Sync on the **Workspace Runtime Surface** requires explicit Source selection.
 - The **Workspace Runtime Surface** exposes Source Sync through the Workspace sync lifecycle rather than a separate public Source Sync method.
@@ -113,3 +115,4 @@ _Avoid_: CLI execution mode, Agent Dev Loop option, hosted runtime
 - Allowing ambiguous Workspace Source Binding Inputs was considered - resolved: prevent ambiguity with strong TypeScript types and reject remaining ambiguity during runtime normalization.
 - Adding project-specific file consumers to the Workspace Package was considered - resolved: Workspace Package owns durable file-tree primitives, not downstream project consumption of those files.
 - Copying Flue's collapsed harness shape into the Workspace Package was considered - resolved: Workspace owns materialization and writeback only; Agent Driver and Capability shape stay with the Agent Package.
+- Treating harness Capability support files as Workspace Package configuration was considered - resolved: Workspace Package materializes **Harness Workspace Path Contributions** supplied by the Agent Package, but does not own the Capability shape.

@@ -10,6 +10,7 @@ const readFile = vi.fn()
 const writeFile = vi.fn()
 const list = vi.fn()
 const exists = vi.fn()
+const stat = vi.fn()
 const diff = vi.fn()
 const snapshot = vi.fn()
 const tools = vi.fn(() => ({}))
@@ -25,7 +26,7 @@ const workspaceSourceRequestDescriptorPath = vi.fn((source: string) => `.vitehub
 const tempRoots: string[] = []
 const useWorkspace = vi.fn<() => ReadonlyWorkspaceFacade | WritableWorkspaceFacade>(() => ({
   diff,
-  fs: { exists, list, readFile, writeFile },
+  fs: { exists, list, readFile, stat, writeFile },
   snapshot,
   tools: Object.assign(tools, {
     inspect: inspectTools,
@@ -132,7 +133,7 @@ function context(runtimeConfig: Record<string, unknown> = {}) {
 
 function readonlyWorkspaceFacade(): ReadonlyWorkspaceFacade {
   return {
-    fs: { exists, list, readFile },
+    fs: { exists, list, readFile, stat },
     tools: Object.assign(vi.fn(() => ({})), {
       inspect: inspectTools,
       none: vi.fn(() => ({})),
@@ -175,6 +176,7 @@ describe("defineAgent workspace option", () => {
     generateText.mockResolvedValue({ text: "fallback answer" })
     exists.mockReset()
     exists.mockResolvedValue(false)
+    stat.mockReset()
     diff.mockReset()
     diff.mockResolvedValue({ entries: [], to: "next" })
     list.mockReset()
@@ -284,6 +286,41 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toContain("Description: Browser automation CLI for AI agents.")
     expect(agentSettings.at(-1)?.instructions).toContain("Read `skills/agent-browser/SKILL.md` before using this skill.")
     expect(agentSettings.at(-1)?.instructions).toContain("Use the Workspace Shell tools")
+  })
+
+  it("keeps skills() workspace-native for harness Agent Drivers", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    const harnessSession = { destroy: vi.fn() }
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(harnessSession)
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+    exists.mockResolvedValue(true)
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [skills({ path: "skills/agent-browser", shellExecution: "write" })],
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+      workspace: { mode: "write" },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(readFile).not.toHaveBeenCalledWith("skills/agent-browser/SKILL.md")
+    expect(inspectTools).not.toHaveBeenCalled()
+    expect(writeTools).not.toHaveBeenCalled()
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledOnce()
+    expect(harnessAgentSettings.at(-1)).not.toHaveProperty("tools")
+    expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: "hello",
+      session: harnessSession,
+    }))
+    expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
   })
 
   it("records opt-in skill shell execution mode", async () => {
@@ -760,6 +797,107 @@ describe("defineAgent workspace option", () => {
     }))
     expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
     expect(harnessSession.destroy).toHaveBeenCalledOnce()
+  })
+
+  it("passes selected Workspace Scope paths into Harness Workspace Sessions", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    exists.mockImplementation(async path => path === "public" || path === ".vitehub/sources/public.json")
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "public",
+            scopes: {
+              public: { source: "public" },
+            },
+          },
+        }),
+      ],
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+      workspace: {
+        sources: {
+          private: { instructions: "Use private source.", mount: "private", name: "private" } as never,
+          public: { mount: "public", name: "public" } as never,
+        },
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      paths: ["public", ".vitehub/sources/public.json"],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
+    expect(harnessGenerate).toHaveBeenCalledOnce()
+    expect(harnessAgentSettings.at(-1)).not.toHaveProperty("tools")
+    expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
+  })
+
+  it("keeps harness-native skill files visible when access() selects Workspace Scope", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { access, skills } = await import("../src/capabilities.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    exists.mockImplementation(async path =>
+      path === "public"
+      || path === ".vitehub/sources/public.json"
+      || path === "skills/agent-browser/SKILL.md")
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "public",
+            scopes: {
+              public: { source: "public" },
+            },
+          },
+        }),
+        skills({ path: "skills/agent-browser" }),
+      ],
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+      workspace: {
+        sources: {
+          public: { mount: "public", name: "public" } as never,
+        },
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(createWorkspaceSourceResolutionFacade).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), expect.objectContaining({
+      selectedWorkspaceScope: expect.objectContaining({
+        paths: ["public", ".vitehub/sources/public.json", "skills/agent-browser"],
+      }),
+    }))
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      paths: ["public", ".vitehub/sources/public.json", "skills/agent-browser"],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
   })
 
   it("auto-commits write-mode workspace changes when rules request it", async () => {
@@ -2475,6 +2613,27 @@ describe("defineAgent workspace option", () => {
       source: "skill.agent-browser",
       status: "lazy",
     })
+  })
+
+  it("does not expose model-facing skill tools in harness DevTools metadata", async () => {
+    const { defineAgent, resolveAgentDevtoolsMetadata } = await import("../src/index.ts")
+    const { skills } = await import("../src/capabilities.ts")
+    exists.mockResolvedValue(true)
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [skills({ path: "skills/agent-browser", shellExecution: "write" })],
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+      workspace: { mode: "write" },
+    }), { workspace: "support" })
+
+    const metadata = await resolveAgentDevtoolsMetadata(agent)
+
+    expect((metadata.tools || []).map(tool => tool.name)).not.toContain("skills")
+    expect(metadata.instructions?.join("\n")).not.toContain("Skill")
+    expect(readFile).not.toHaveBeenCalledWith("skills/agent-browser/SKILL.md")
   })
 
   it("adds controlled curl to resolved DevTools metadata when source request descriptors are visible", async () => {

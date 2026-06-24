@@ -111,6 +111,7 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - The **Agent Package** should allow harness-backed Agent Drivers to produce Agent Usage Records without token counts when the harness reports non-token usage details.
 - The **Agent Package** should preserve raw provider- or harness-reported usage details and the resolved Harness Credential Source label when available without exposing secrets.
 - The **Agent Package** coordinates scoped Workspace Session preparation for harness-backed Agent Drivers through the Workspace Package boundary.
+- The **Agent Package** carries **Harness Workspace Path Contributions** from Capabilities into harness-backed Workspace Session preparation.
 - The **Agent Package** does not copy Flue-style root `tools`, `skills`, or `sandbox` fields; harness sandbox setup stays under `driver`, and tools or Skills stay Capability-owned.
 - The **Agent Package** resolves explicit Harness Session Keys for harness-backed Agent Drivers and does not infer durable harness reuse from chat or thread metadata by default.
 - An **Agent Driver Boundary** is configured as one object on the Agent Definition, with exactly one concrete driver key such as `model`, `harness`, or `run`.
@@ -119,6 +120,7 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - The **Agent Package** owns filtering Capability Driver Contributions for the selected Agent Driver.
 - The **Agent Package** owns composing visible Workspace Source Instructions into final model instructions for model-backed Agent Drivers.
 - The **Agent Package** does not pass model-facing instructions to harness-backed Agent Drivers by default.
+- The **Agent Package** treats **Harness Workspace Path Contributions** as harness filesystem support, not as model-facing instructions or public Agent Definition fields.
 - The **Agent Package** owns the **Agent Trigger API** that resolves trigger contributions from Agent Capabilities and declared Channel delivery paths.
 - An **Agent Trigger Consumer** uses the **Agent Trigger API** and does not create a parallel chat-specific behavior surface.
 - An **Agent Trigger Consumer** may pass a trusted Agent Actor through trigger input when it has already authenticated or resolved caller identity; trigger metadata should not become a parallel identity or command-admission boundary.
@@ -172,6 +174,7 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - Combining model-backed execution with custom `run` was considered for fallback or post-processing - resolved: **Agent Driver Boundary** variants are mutually exclusive; custom code that wants to call a model belongs in `driver: { run }`.
 - Root `modelExecution` was considered for preservation inside model-backed drivers - resolved: use `driver.execution` because `model` is already implied by the driver variant.
 - Root Agent Definition `instructions` were considered shared by model-backed and harness-backed execution - resolved: model-facing instructions belong to the model-backed Agent Driver and are not passed to harness-backed drivers by default.
+- Capability-owned support files were considered harness instructions or root Agent fields - resolved: keep them as **Harness Workspace Path Contributions** from Capabilities.
 - Capability tools and instructions were considered unconditional Agent inputs - resolved: treat them as Capability Driver Contributions filtered by the selected Agent Driver.
 - AI SDK `HarnessAgent` was considered as the public harness boundary - resolved: use the ViteHub-owned **Agent Harness Driver Contract** and adapt AI SDK harnesses behind it.
 - Adapter-level harness approvals were considered for V1 - resolved: use Agent Package-owned **Harness Permission Policy** to bypass adapter approvals and rely on ViteHub-owned Workspace and runtime boundaries.

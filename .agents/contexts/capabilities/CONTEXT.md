@@ -28,6 +28,10 @@ _Avoid_: Chat helper, DevTools bridge, raw server route, server-only bucket
 A Capability-owned contribution that may feed the active Agent Driver, such as model-facing instructions, model-facing tools, or an explicitly supported harness-compatible input.
 _Avoid_: Raw tool, root instructions, implicit harness prompt, dynamic Capability
 
+**Harness Workspace Path Contribution**:
+A Capability-owned harness-compatible driver contribution that asks a harness-backed Agent Driver to materialize Capability support files from the Workspace.
+_Avoid_: Workspace Scope Grant, Source grant, model instruction, root skill config
+
 **Capability Workspace Contribution**:
 An add-only, invocation-scoped Capability contribution that adds inspectable Workspace Source Bindings or Workspace Rules before driver-facing Workspace surfaces are built.
 _Avoid_: Workspace Definition mutator, hidden Source, dynamic Capability, output sink
@@ -250,6 +254,8 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - **Capability Driver Contributions** are conditional on the selected **Agent Driver**.
 - A model-backed **Agent Driver** may receive model-facing tools and model-facing instructions from **Capability Driver Contributions**.
 - A harness-backed **Agent Driver** receives only explicitly supported harness-compatible **Capability Driver Contributions**; model-facing prompt and tool assumptions must not be silently passed into the harness.
+- A **Harness Workspace Path Contribution** is an explicitly supported harness-compatible **Capability Driver Contribution**.
+- A **Harness Workspace Path Contribution** is runtime support for the Capability, not a **Workspace Scope Grant** and not model-facing prompt text.
 - A custom-run-backed **Agent Driver** receives prepared invocation context and Capability runtime effects; custom `run` code decides which Capability outputs to consume.
 - A **Capability Definition** may provide **Capability Workspace Contributions** when trusted invocation context should add review, artifact, or other product-specific Workspace inputs before the Agent Driver sees Workspace surfaces.
 - **Capability Workspace Contributions** are add-only and invocation-scoped; they fail on Source key, rule, Mount, and path conflicts instead of merging silently.
@@ -257,6 +263,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - Capabilities model reusable Agent abilities; app-owned product reachability belongs to **Channels** unless the product event has earned a reusable Capability name.
 - The **Access Capability** may contribute **Workspace Scope Instructions** from a static Workspace Scope or Workspace Scope Resolver result.
 - **Workspace Scope Instructions** are developer-authored Capability Driver Contributions; they do not grant access or make the Selected Workspace Scope model-facing by default.
+- `skills()` may contribute skill files through **Harness Workspace Path Contributions** while suppressing model-facing skill instructions and tools for harness-backed **Agent Drivers**.
 - A **Prompt Template** belongs to the Capability that renders it and should expose only the **Prompt Template Variables** that are stable for that Capability.
 - An **MCP Prompt Template** is Capability behavior, not Workspace content by default.
 - An **MCP Prompt Template** can be exposed as an **Input Command** when the host should let users invoke a named prompt before the Agent runs.
@@ -415,6 +422,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A generic `entry()` Capability was considered for app-owned product events - resolved: use root-level **Custom Channels** so reachability stays on the Agent Definition rather than inside Capabilities.
 - Capability phases, contexts, hooks, and instruction slots were considered glossary terms - resolved: group that detail under **Capability Lifecycle** unless a feature needs a sharper term.
 - Capability tools and instructions were considered unconditional Agent inputs - resolved: use **Capability Driver Contribution** and filter driver-facing inputs by the selected Agent Driver.
+- Skill files for harness-backed Agent Drivers were considered part of the selected product **Workspace Scope** - resolved: use **Harness Workspace Path Contributions** so Capability support files can be materialized without broadening access-selected Workspace data.
 - Bare Capability id instruction slots such as `mcp` were considered - resolved: use `capabilities.<id>` without backwards compatibility aliases.
 - Chat History was considered as a standalone Capability - resolved: keep Chat History as message-shaped **Channel** conversation behavior for this stack and revisit during a future Agent Memory pass.
 - Shared message defaults were considered as a Capability or Channel helper concern - resolved: use Agent Definition Message Channel Settings, while Capabilities consume the resulting invocation context.

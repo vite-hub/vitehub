@@ -77,6 +77,8 @@ import type {
   AgentChannelDeliveryEffectIntent,
   AgentChannelDeliveryFinishEffect,
   AgentDefinition,
+  AgentDriverContribution,
+  AgentDriverKind,
   AgentFinishEvent,
   AgentChatOptions,
   AgentHandlerOptions,
@@ -187,6 +189,9 @@ export type {
   AgentDevtoolsModelMetadata,
   AgentDevtoolsToolDefinition,
   AgentDriver,
+  AgentDriverContribution,
+  AgentDriverContributionKind,
+  AgentDriverKind,
   AgentExecution,
   AgentFinishEvent,
   AgentFinishHook,
@@ -323,6 +328,7 @@ export type {
 const syntheticWorkspaceRun = Symbol.for("vitehub.syntheticWorkspaceRun")
 const baseAgentResolve = Symbol("vitehub.baseAgentResolve")
 const baseAgentModel = Symbol("vitehub.baseAgentModel")
+const baseAgentDriverKind = Symbol("vitehub.baseAgentDriverKind")
 
 type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapabilityMode }
 type WorkspaceSourceNames<TWorkspace> =
@@ -389,6 +395,7 @@ type AgentDefinitionWithBaseResolve<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 > = AgentDefinition<TRuntimeConfig, CALL_OPTIONS> & {
+  [baseAgentDriverKind]?: AgentDriverKind
   [baseAgentResolve]?: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS>
   [baseAgentModel]?: AgentModelResolver<TRuntimeConfig>
 }
@@ -747,6 +754,7 @@ function defineBaseAgent<
 
   const definition = {
     ...(driver.kind === "model" ? { [baseAgentModel]: driver.model } : {}),
+    [baseAgentDriverKind]: driver.kind,
     [baseAgentResolve]: resolveBaseAgent,
     channels,
     chat,
@@ -762,7 +770,7 @@ function defineBaseAgent<
     async resolve(context) {
       const adapterInstance = await resolveBaseAgent(context)
       const resolvedContext = createResolvedRuntimeContext(context)
-      const resolvedTools = normalizedCapabilities.length && !workspace
+      const resolvedTools = driver.kind === "model" && normalizedCapabilities.length && !workspace
         ? await resolveStaticCapabilityTools({ capabilities: normalizedCapabilities }, resolvedContext)
         : undefined
       const capabilityTools = Object.keys(resolvedTools || {}).length
@@ -1054,10 +1062,12 @@ type AgentInvocationContext<
   close: () => Promise<void>
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
+  driverContributions: AgentDriverContribution[]
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finishHook?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS> extends infer TEvent ? (event: TEvent) => MaybePromise<void> : never
   hasCapabilityCleanup: boolean
+  harnessWorkspacePaths: readonly string[]
   hooks?: AgentHookObserverHooks
   modelExecutionInstrumentation: AgentCapabilityRegistries["modelExecutionInstrumentation"]
   outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
@@ -1204,6 +1214,7 @@ async function createAgentInvocationContext<
     const agentModel = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
     const capabilities = await resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
       context: invocationContext,
+      driverKind: (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentDriverKind],
       invoker,
       model: agentModel as never,
       workspaceDefinition: resolvedWorkspaceDefinition,
@@ -1261,10 +1272,12 @@ async function createAgentInvocationContext<
       context: invocationContext,
       deliveryEffectIntents: capabilities.registries.deliveryEffectIntents,
       devtools: context.devtools,
+      driverContributions: capabilities.driverContributions,
       finishDeliveryEffectProviders: capabilities.registries.finishDeliveryEffectProviders,
       finishExtensionProviders: capabilities.registries.finishExtensionProviders,
       finishHook: definition?.hooks?.["agent:finish"] as never,
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
+      harnessWorkspacePaths: capabilities.harnessWorkspacePaths,
       handledResponse: capabilities.response,
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
