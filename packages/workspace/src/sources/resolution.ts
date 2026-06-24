@@ -27,6 +27,7 @@ import type {
   WorkspaceEntry,
   WorkspaceFile,
   WorkspaceName,
+  WorkspaceRuntime,
   WorkspaceSearchHit,
   WorkspaceSearchQuery,
   WorkspaceStore,
@@ -219,12 +220,17 @@ function createWritableFacadeStore(workspace: WritableWorkspaceFacade): Workspac
   }
 }
 
+function workspaceRuntimeType(runtime: WorkspaceRuntime | undefined) {
+  return typeof runtime === "string" ? runtime : runtime?.type
+}
+
 async function startOverlayWorkspaceSession(definition: WorkspaceDefinition, workspace: Workspace, options?: WorkspaceSessionOptions) {
-  if (definition.runtime === "sandbox") {
+  const runtime = workspaceRuntimeType(definition.runtime)
+  if (runtime === "sandbox") {
     const { createSandboxWorkspaceSession } = await import("../session/sandbox.ts")
     return await createSandboxWorkspaceSession(definition, workspace, options)
   }
-  if (definition.runtime === "trusted-host") {
+  if (runtime === "trusted-host") {
     const { createTrustedHostWorkspaceSession } = await import("../session/trusted-host.ts")
     return await createTrustedHostWorkspaceSession(definition, workspace, options)
   }

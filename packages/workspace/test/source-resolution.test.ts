@@ -414,7 +414,7 @@ describe("Workspace Source Resolution", () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {
       name: "support",
-      runtime: "trusted-host",
+      runtime: { allowProduction: true, type: "trusted-host" },
       sources: {
         inventoryHealthSummary: fetch({
           url: "https://portal.example.com/runtime/inventory-health",
