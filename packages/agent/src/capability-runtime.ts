@@ -10,6 +10,7 @@ import {
   resolveInputAgentInvoker,
 } from "./invoker.ts"
 import { runObservedAgentHook } from "./hooks.ts"
+import { nextWithAbort } from "./internal/abortable-stream.ts"
 import type {
   AgentAdapterInstructionsValue,
   AgentCallbackContext,
@@ -1174,12 +1175,18 @@ export async function createAgentInvocationExtensions(
 export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
   stream: T,
   close: (error?: unknown) => Promise<void>,
+  options: { abortSignal?: AbortSignal } = {},
 ): AsyncIterable<unknown> {
   return (async function* () {
+    const iterator = stream[Symbol.asyncIterator]()
     let error: unknown
     let failed = false
     try {
-      yield* stream
+      for (;;) {
+        const result = await nextWithAbort(iterator.next(), options.abortSignal, "[vitehub] Agent Invocation stream aborted.")
+        if (result.done) break
+        yield result.value
+      }
     }
     catch (caught) {
       failed = true
@@ -1187,6 +1194,7 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
       throw caught
     }
     finally {
+      if (failed) void iterator.return?.().catch(() => {})
       await close(failed ? error : undefined)
     }
   })()

@@ -8,6 +8,7 @@ export const agentInvocationStreamHeaderValue = "1"
 export type AgentInvocationStreamEvent =
   | StreamEvent
   | { channelId?: string, effect: AgentChannelDeliveryEffectIntent, run?: AgentRunMetadata, type: "delivery-preview" }
+  | { error: string, type: "error" }
   | { agent: string, metadata?: Record<string, unknown>, run?: unknown, trigger?: string, type: "start" }
   | { type: "done" }
 
@@ -34,19 +35,29 @@ export async function* readAgentInvocationStream(body: ReadableStream<Uint8Array
 
 export function createAgentInvocationStreamResponse(
   run: (emit: (event: AgentInvocationStreamEvent) => void, signal: AbortSignal) => Promise<void>,
+  options: { timeout?: number } = {},
 ): Response {
   const encoder = new TextEncoder()
   const abortController = new AbortController()
   let closed = false
+  let timeout: ReturnType<typeof setTimeout> | undefined
+
+  function clearTimeoutSignal(): void {
+    if (!timeout) return
+    clearTimeout(timeout)
+    timeout = undefined
+  }
 
   function close(controller: ReadableStreamDefaultController<Uint8Array>): void {
+    clearTimeoutSignal()
     closed = true
     controller.close()
   }
 
   function fail(controller: ReadableStreamDefaultController<Uint8Array>, cause: unknown): void {
     if (closed) return
-    abortController.abort()
+    clearTimeoutSignal()
+    abortController.abort(cause)
     try {
       controller.enqueue(encoder.encode(`${JSON.stringify({
         error: cause instanceof Error ? cause.message : "Agent Invocation Stream event could not be serialized.",
@@ -74,6 +85,11 @@ export function createAgentInvocationStreamResponse(
 
   return new Response(new ReadableStream({
     start(controller) {
+      if (options.timeout && options.timeout > 0) {
+        timeout = setTimeout(() => {
+          fail(controller, new Error(`Agent Invocation Stream timed out after ${options.timeout}ms.`))
+        }, options.timeout)
+      }
       run(event => emit(controller, event), abortController.signal)
         .then(() => {
           if (closed || abortController.signal.aborted) return
@@ -81,6 +97,7 @@ export function createAgentInvocationStreamResponse(
         })
         .catch((cause) => {
           if (closed || abortController.signal.aborted) return
+          clearTimeoutSignal()
           emit(controller, {
             error: cause instanceof Error ? cause.message : "Agent Invocation Stream failed.",
             type: "error",
@@ -89,6 +106,7 @@ export function createAgentInvocationStreamResponse(
         })
     },
     cancel() {
+      clearTimeoutSignal()
       closed = true
       abortController.abort()
     },
