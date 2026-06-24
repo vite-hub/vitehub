@@ -80,6 +80,18 @@ function withDevContext<CALL_OPTIONS>(
   return { ...input, context: mergedContext as AgentRunInput<CALL_OPTIONS>["context"] }
 }
 
+function withDevLoopControls<CALL_OPTIONS>(
+  input: AgentRunInput<CALL_OPTIONS>,
+  signal: AbortSignal,
+  timeout: number,
+): AgentRunInput<CALL_OPTIONS> {
+  return {
+    abortSignal: signal,
+    timeout,
+    ...input,
+  }
+}
+
 function withDeliveryPreviewChannels(
   agent: AgentInput<ViteAgentDevRuntimeContext>,
   preview: (event: Extract<AgentInvocationStreamEvent, { type: "delivery-preview" }>) => void,
@@ -352,7 +364,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
         const previewAgent = withDeliveryPreviewChannels(entry.agent, event => {
           if (!signal.aborted) emit(event)
         })
-        output = await streamAgent(previewAgent as never, { ...context, ...(invocation.run ? { run: invocation.run } : {}) } as never, withDevContext(invocation.input, devContext) as never, {
+        output = await streamAgent(previewAgent as never, { ...context, ...(invocation.run ? { run: invocation.run } : {}) } as never, withDevContext(withDevLoopControls(invocation.input, signal, timeout), devContext) as never, {
           output: "events",
         })
       }
