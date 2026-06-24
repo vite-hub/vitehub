@@ -3,6 +3,7 @@ import { posix } from "node:path"
 import { WorkspaceError } from "../core/errors.ts"
 import { contentToBytes, decodeFile, normalizeSafeWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../storage/utils.ts"
+import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDiff, filterSessionEntries, scopedSearchQuery } from "./scope.ts"
 
 import type {
   ReadFileOptions,
@@ -106,12 +107,6 @@ function normalizeSessionPaths(options?: WorkspaceSessionOptions): string[] | un
   return paths.sort((left, right) => left.length - right.length || left.localeCompare(right))
 }
 
-function assertDiffInsideSessionPaths(diff: WorkspaceDiff, paths: string[] | undefined) {
-  if (!paths) return
-  const entry = diff.entries.find(entry => !paths.some(path => entry.path === path || entry.path.startsWith(`${path}/`)))
-  if (entry) throw new WorkspaceError(`[vitehub] Workspace session path ${entry.path} is outside the session scope.`)
-}
-
 async function sessionEntries(workspace: Workspace, options?: WorkspaceSessionOptions): Promise<WorkspaceEntry[]> {
   const paths = normalizeSessionPaths(options)
   if (!paths) return await workspace.list("", { recursive: true })
@@ -206,13 +201,13 @@ export async function createSandboxWorkspaceSession(
   return {
     async readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>> {
       assertOpen()
-      const file = await readSandboxFile(sandbox, toSandboxPath(path))
+      const file = await readSandboxFile(sandbox, toSandboxPath(assertPathInSessionScope(normalizeSafeWorkspacePath(path), sessionPaths, { masked: true })))
       if (!file) throw new WorkspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
       return decodeFile(file.content, options)
     },
     async writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions) {
       assertOpen()
-      const target = toSandboxPath(path)
+      const target = toSandboxPath(assertPathInSessionScope(normalizeSafeWorkspacePath(path), sessionPaths))
       await ensureSandboxParent(sandbox, target)
       await sandbox.writeFile(target, content)
       const workspacePath = fromSandboxPath(target)
@@ -223,41 +218,44 @@ export async function createSandboxWorkspaceSession(
     },
     async mkdir(path: string, options = {}) {
       assertOpen()
-      await sandbox.mkdir(toSandboxPath(path), { recursive: options.recursive })
+      await sandbox.mkdir(toSandboxPath(assertPathInSessionScope(normalizeSafeWorkspacePath(path, { allowEmpty: true }), sessionPaths, { mkdir: true })), { recursive: options.recursive })
     },
     async rm(path: string, _options?: RmOptions) {
       assertOpen()
-      await sandbox.deleteFile(toSandboxPath(path))
-      mediaTypes.delete(normalizeWorkspacePath(path))
+      const workspacePath = assertPathInSessionScope(normalizeSafeWorkspacePath(path), sessionPaths)
+      await sandbox.deleteFile(toSandboxPath(workspacePath))
+      mediaTypes.delete(normalizeWorkspacePath(workspacePath))
     },
     async list(path = "", options = {}) {
       assertOpen()
-      return await listSandboxEntries(sandbox, path, options.recursive)
+      return filterSessionEntries(await listSandboxEntries(sandbox, path, options.recursive), sessionPaths)
     },
     async glob(pattern, _options = {}) {
       assertOpen()
       const patterns = Array.isArray(pattern) ? pattern : [pattern]
       const { matchesAny } = await import("../core/path.ts")
-      return (await listSandboxEntries(sandbox, "", true))
+      return filterSessionEntries(await listSandboxEntries(sandbox, "", true), sessionPaths)
         .filter(entry => entry.type === "file" && patterns.some(item => matchesAny(entry.path, item)))
     },
     async search(query) {
       assertOpen()
       const { searchText } = await import("../core/search.ts")
-      const searchRoots = [...new Set((query.paths?.length ? query.paths : [query.cwd || ""]).map(normalizeSearchRoot))]
+      const scoped = scopedSearchQuery(query, sessionPaths, normalizeSearchRoot)
+      if (!scoped) return []
+      const searchRoots = [...new Set((scoped.paths?.length ? scoped.paths : [scoped.cwd || ""]).map(normalizeSearchRoot))]
       const scopedSearchRoots = searchRoots.filter(Boolean)
-      const limit = query.limit ?? 100
+      const limit = scoped.limit ?? 100
       const hits: WorkspaceSearchHit[] = []
-      for (const entry of (await listSandboxEntries(sandbox, "", true)).filter(item => item.type === "file")) {
+      for (const entry of filterSessionEntries(await listSandboxEntries(sandbox, "", true), sessionPaths).filter(item => item.type === "file")) {
         if (scopedSearchRoots.length && !scopedSearchRoots.some(path => entry.path === path || entry.path.startsWith(`${path}/`))) continue
         const text = await sandbox.readFile(toSandboxPath(entry.path))
-        hits.push(...searchText(entry.path, text, { ...query, limit: limit - hits.length }))
+        hits.push(...searchText(entry.path, text, { ...scoped, limit: limit - hits.length }))
         if (hits.length >= limit) break
       }
       return hits
     },
     async diff() {
-      return await currentDiff()
+      return filterSessionDiff(await currentDiff(), sessionPaths)
     },
     async commit(options) {
       const diff = await currentDiff()

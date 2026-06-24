@@ -311,6 +311,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       }
       const workspaceRuntime = await loadWorkspaceAccessRuntime()
       const scope = await resolveWorkspaceScope(options.workspace, context, workspaceRuntime)
+      const sourceResolutionScope = withHarnessWorkspacePaths(scope, context.harnessWorkspacePaths)
       const hasSourceResolvers = context.workspaceDefinition
         ? workspaceRuntime.hasWorkspaceSourceResolvers(context.workspaceDefinition)
         : false
@@ -321,14 +322,14 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
               run: context.run,
             },
             selectedWorkspaceScope: {
-              all: scope.all,
-              name: scope.scope,
-              paths: scope.paths,
-              role: scope.role,
+              all: sourceResolutionScope.all,
+              name: sourceResolutionScope.scope,
+              paths: sourceResolutionScope.paths,
+              role: sourceResolutionScope.role,
             },
           })
         : { definition: context.workspaceDefinition, workspace: context.workspace }
-      const finalScope = finalizeResolvedWorkspaceScope(scope, sourceResolution.definition, workspaceRuntime)
+      const finalScope = withHarnessWorkspacePaths(finalizeResolvedWorkspaceScope(scope, sourceResolution.definition, workspaceRuntime), context.harnessWorkspacePaths)
       const workspaceForScope = hasSourceResolvers ? sourceResolution.workspace : context.workspace
       const scopedWorkspace = finalScope.all
         ? workspaceForScope
@@ -403,6 +404,14 @@ function finalizeResolvedWorkspaceScope(
     ...scope,
     materializeGrants: scopeMaterializeGrants(scope.definition, workspaceDefinition, workspaceRuntime),
     paths: scopePaths(scope.definition, workspaceDefinition, workspaceRuntime),
+  }
+}
+
+function withHarnessWorkspacePaths(scope: ResolvedWorkspaceScope, paths: readonly string[] | undefined): ResolvedWorkspaceScope {
+  if (scope.all || !paths?.length) return scope
+  return {
+    ...scope,
+    paths: [...new Set([...scope.paths, ...paths])],
   }
 }
 

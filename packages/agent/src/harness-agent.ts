@@ -2,12 +2,14 @@ import {
   createHarnessUsageMetadata,
   defineAgentUsageMetadata,
 } from "./internal/agent-usage-metadata.ts"
+import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 
 import type {
   AgentAdapter,
   AgentAdapterRunContext,
+  AgentDriverContributionKind,
   AgentHarnessCredentialSource,
   AgentHarnessDriverInput,
   AgentHarnessSandboxInput,
@@ -46,16 +48,63 @@ function hasEntries(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && Object.keys(value).length > 0
 }
 
-function assertSupportedHarnessDriverContributions(context: AgentAdapterRunContext) {
-  const unsupported = [
-    hasEntries(context.tools) ? "Capability tools" : undefined,
-    context.providerTools?.length ? "provider tools" : undefined,
-    context.capabilityInstructions?.length ? "Capability instructions" : undefined,
+function unsupportedHarnessContributionKinds(context: AgentAdapterRunContext): Set<AgentDriverContributionKind> {
+  const kinds = new Set<AgentDriverContributionKind>()
+  if (hasEntries(context.tools)) kinds.add("Capability tools")
+  if (context.providerTools?.length) kinds.add("provider tools")
+  if (context.capabilityInstructions?.length) kinds.add("Capability instructions")
+  return kinds
+}
+
+function formatContributionNames(names: Iterable<string> | undefined): string {
+  const uniqueNames = Array.from(new Set(names || [])).filter(Boolean).sort()
+  return uniqueNames.length ? ` (${uniqueNames.join(", ")})` : ""
+}
+
+function formatUnsupportedHarnessContributions(context: AgentAdapterRunContext): string[] {
+  const unsupportedKinds = unsupportedHarnessContributionKinds(context)
+  if (!unsupportedKinds.size) return []
+
+  const contributed = new Map<string, { capabilityId: string, kind: AgentDriverContributionKind, names: Set<string> }>()
+  for (const contribution of context.driverContributions || []) {
+    if (!unsupportedKinds.has(contribution.kind)) continue
+    const key = `${contribution.capabilityId}\0${contribution.kind}`
+    const current = contributed.get(key) || {
+      capabilityId: contribution.capabilityId,
+      kind: contribution.kind,
+      names: new Set<string>(),
+    }
+    for (const name of contribution.names || []) current.names.add(name)
+    contributed.set(key, current)
+  }
+
+  if (contributed.size) {
+    return Array.from(contributed.values()).map(contribution =>
+      `${contribution.capabilityId}: ${contribution.kind}${formatContributionNames(contribution.names)}`,
+    )
+  }
+
+  return [
+    unsupportedKinds.has("Capability tools") ? "Capability tools" : undefined,
+    unsupportedKinds.has("provider tools") ? "provider tools" : undefined,
+    unsupportedKinds.has("Capability instructions") ? "Capability instructions" : undefined,
   ].filter((value): value is string => Boolean(value))
+}
+
+function assertSupportedHarnessDriverContributions(context: AgentAdapterRunContext) {
+  const unsupported = formatUnsupportedHarnessContributions(context)
 
   if (unsupported.length) {
-    throw new Error(`[vitehub] Harness Agent Drivers do not support these Capability Driver Contributions yet: ${unsupported.join(", ")}.`)
+    throw new Error(`[vitehub] Harness Agent Drivers do not support these Capability Driver Contributions yet: ${unsupported.join("; ")}. Move model-facing tools and instructions to harness-native workspace files or remove those capabilities for harness.`)
   }
+}
+
+function selectedWorkspaceScopePaths(context: AgentAdapterRunContext): string[] | undefined {
+  if (!hasTrustedWorkspaceAccessScope(context.context)) return
+  const scope = context.context.get("access")?.workspaceScope
+  if (!scope || scope.all) return
+  const paths = [...new Set([...scope.paths, ...(context.harnessWorkspacePaths || [])])]
+  return paths.length ? paths : undefined
 }
 
 function toHarnessCallInput(context: AgentAdapterRunContext) {
@@ -289,6 +338,7 @@ export function createHarnessAgentAdapter<
       const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
       workspaceSession = await prepareHarnessWorkspaceSession(context.workspace, {
         abortSignal,
+        paths: selectedWorkspaceScopePaths(context),
         session: session as never,
         sessionWorkDir,
       })

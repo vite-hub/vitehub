@@ -90,7 +90,7 @@ export function createWorkspace(definition: WorkspaceDefinition): Workspace {
         return await createTrustedHostWorkspaceSession(definition, workspace, options)
       }
 
-      return createBasicWorkspaceSession(workspace)
+      return createBasicWorkspaceSession(workspace, options)
     },
     mount(options?: WorkspaceMountOptions): WorkspaceMount {
       const mode = options?.mode || "read-only"

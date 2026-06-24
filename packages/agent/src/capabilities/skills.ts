@@ -145,6 +145,7 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
     ? normalizedPath
     : `${normalizedPath}/SKILL.md`
   const directoryPath = skillDirectory(skillPath)
+  const harnessWorkspacePath = directoryPath || skillPath
   const workspaceSources = options.source
     ? {
         [options.sourceKey || skillSourceKey(directoryPath)]: sourceBinding(options.source, directoryPath),
@@ -152,14 +153,17 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
     : undefined
 
   return defineCapability({
+    harnessWorkspacePaths: [harnessWorkspacePath],
     id: "skills",
     instructions: options.instructions === undefined
-      ? async (context: AgentCapabilityRuntimeContext<AgentRuntimeConfig, WorkspaceName>) => renderSkillInstructions({
-          directoryPath,
-          metadata: await readSkillMetadata(context, skillPath),
-          shellExecution,
-          skillPath,
-        })
+      ? async (context: AgentCapabilityRuntimeContext<AgentRuntimeConfig, WorkspaceName>) => context.driver?.kind === "harness"
+          ? false
+          : renderSkillInstructions({
+              directoryPath,
+              metadata: await readSkillMetadata(context, skillPath),
+              shellExecution,
+              skillPath,
+            })
       : options.instructions,
     metadata: {
       path: normalizedPath,
@@ -171,7 +175,7 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
     ...(workspaceSources ? { workspaceSources } : {}),
     ...(shellExecution
       ? {
-          tools: context => workspaceShellTools(shellExecution, context.workspace as never),
+          tools: context => context.driver?.kind === "harness" ? undefined : workspaceShellTools(shellExecution, context.workspace as never),
         }
       : {}),
   })

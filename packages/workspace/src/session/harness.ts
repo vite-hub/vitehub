@@ -1,6 +1,7 @@
 import { posix } from "node:path"
 import { lookup } from "mrmime"
 
+import { normalizeSafeWorkspacePath } from "../core/path.ts"
 import type {
   ReadonlyWorkspaceFacade,
   WritableWorkspaceFacade,
@@ -9,6 +10,7 @@ import type {
   MkdirOptions,
   WorkspaceEntry,
   WorkspaceSession,
+  WorkspaceSessionOptions,
 } from "../core/types.ts"
 
 export interface HarnessSandboxSession {
@@ -23,6 +25,7 @@ export interface HarnessWorkspaceSession {
 
 export interface PrepareHarnessWorkspaceSessionOptions {
   abortSignal?: AbortSignal
+  paths?: readonly string[]
   session: HarnessSandboxSession
   sessionWorkDir: string
 }
@@ -44,6 +47,22 @@ function sandboxPath(root: string, path: string) {
 
 function shellQuote(value: string) {
   return `'${value.replace(/'/g, "'\\''")}'`
+}
+
+function isGeneratedSourceDescriptorPath(path: string): boolean {
+  return path === ".vitehub" || path === ".vitehub/sources" || /^\.vitehub\/sources\/[^/]+\.json$/.test(path)
+}
+
+function normalizeHarnessWorkspacePath(path = "") {
+  const descriptorPath = normalizeSafeWorkspacePath(path, { allowEmpty: true, allowReserved: true })
+  if (isGeneratedSourceDescriptorPath(descriptorPath)) return descriptorPath
+  return normalizeSafeWorkspacePath(path, { allowEmpty: true })
+}
+
+function normalizeSessionPaths(paths?: readonly string[]): string[] | undefined {
+  const normalized = [...new Set((paths || []).map(normalizeHarnessWorkspacePath))]
+  if (!normalized.length || normalized.includes("")) return undefined
+  return normalized.sort((left, right) => left.length - right.length || left.localeCompare(right))
 }
 
 async function runSandbox(
@@ -68,6 +87,29 @@ function workspaceDirectories(entries: WorkspaceEntry[]) {
     .filter(entry => entry.type === "directory")
     .map(entry => entry.path)
     .sort((left, right) => left.localeCompare(right))
+}
+
+function addParentDirectories(directories: Set<string>, path: string) {
+  let directory = posix.dirname(path)
+  while (directory && directory !== ".") {
+    directories.add(directory)
+    directory = posix.dirname(directory)
+  }
+}
+
+async function workspaceEntries(workspace: WorkspaceFacade, paths: string[] | undefined) {
+  if (!paths) return await workspace.fs.list("", { recursive: true })
+
+  const entries = new Map<string, WorkspaceEntry>()
+  for (const path of paths) {
+    const stat = await workspace.fs.stat(path).catch(() => undefined)
+    if (!stat) continue
+    entries.set(stat.path, stat)
+    if (stat.type === "directory") {
+      for (const entry of await workspace.fs.list(path, { recursive: true })) entries.set(entry.path, entry)
+    }
+  }
+  return [...entries.values()].sort((left, right) => left.path.localeCompare(right.path))
 }
 
 function bytesEqual(left: Uint8Array | undefined, right: Uint8Array) {
@@ -131,14 +173,17 @@ async function copyWorkspaceToSandbox(
   sandbox: HarnessSandboxSession,
   sessionWorkDir: string,
   abortSignal: AbortSignal | undefined,
+  paths: string[] | undefined,
 ) {
-  const entries = await workspace.fs.list("", { recursive: true })
+  const entries = await workspaceEntries(workspace, paths)
+  const directoriesToCreate = new Set(workspaceDirectories(entries))
   const initialTree: InitialTree = {
     directories: new Set(workspaceDirectories(entries)),
     files: new Map(),
   }
+  for (const entry of workspaceFiles(entries)) addParentDirectories(directoriesToCreate, entry.path)
   await resetSandboxWorkDir(sandbox, sessionWorkDir, abortSignal)
-  await mkdirSandboxDirectories(sandbox, [...initialTree.directories], sessionWorkDir, abortSignal)
+  await mkdirSandboxDirectories(sandbox, [...directoriesToCreate], sessionWorkDir, abortSignal)
   for (const entry of workspaceFiles(entries)) {
     const content = await workspace.fs.readFile(entry.path, { encoding: "binary" })
     initialTree.files.set(entry.path, { content, mediaType: entry.mediaType })
@@ -193,9 +238,11 @@ export async function prepareHarnessWorkspaceSession(
   workspace: WorkspaceFacade,
   options: PrepareHarnessWorkspaceSessionOptions,
 ): Promise<HarnessWorkspaceSession> {
-  const initialTree = await copyWorkspaceToSandbox(workspace, options.session, options.sessionWorkDir, options.abortSignal)
+  const paths = normalizeSessionPaths(options.paths)
+  const initialTree = await copyWorkspaceToSandbox(workspace, options.session, options.sessionWorkDir, options.abortSignal, paths)
+  const sessionOptions: WorkspaceSessionOptions | undefined = paths ? { paths } : undefined
   const workspaceSession = isWritableWorkspaceFacade(workspace)
-    ? await workspace.startSession()
+    ? await workspace.startSession(sessionOptions)
     : undefined
 
   return {

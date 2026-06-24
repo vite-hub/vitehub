@@ -420,6 +420,7 @@ export type AgentToolResolverWithWorkspace<
   | ((context: AgentAdapterMetadataContext<TRuntimeConfig, Name>) => MaybePromise<unknown>)
 
 export type AgentCapabilityMode = "read" | "write"
+export type AgentDriverKind = "harness" | "model" | "run"
 
 export interface AgentCapabilityRequirement {
   primitive?: "workspace-shell" | "blob" | "db" | "kv" | "mcp" | "sandbox" | "schedule" | "skills" | "workspace" | (string & {})
@@ -434,6 +435,7 @@ export interface AgentCapabilityContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
+  harnessWorkspacePaths?: readonly string[]
   mode?: AgentCapabilityMode
   runtimeContext?: ResolvedAgentRuntimeContext
   workspaceDefinition?: WorkspaceDefinition
@@ -464,6 +466,14 @@ export type AgentCapabilityHookName = `capability:${AgentCapabilityPhase}` | `ca
 export interface AgentInstructionBlock {
   id: string
   instructions: string
+}
+
+export type AgentDriverContributionKind = "Capability instructions" | "Capability tools" | "provider tools"
+
+export interface AgentDriverContribution {
+  capabilityId: string
+  kind: AgentDriverContributionKind
+  names?: string[]
 }
 
 export type AgentToolTransform = (tools: AgentToolSet | undefined) => MaybePromise<AgentToolSet | undefined>
@@ -555,6 +565,7 @@ export interface AgentCapabilityDefinition<
     | AgentAdapterInstructions<TRuntimeConfig, Name>
     | false
     | ((context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<AgentAdapterInstructionsValue | false | undefined>)
+  harnessWorkspacePaths?: readonly string[]
   metadata?: Record<string, unknown>
   mode?: AgentCapabilityMode
   output?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
@@ -1228,6 +1239,9 @@ export interface AgentAdapterMetadataContext<
 > extends AgentCallbackContext<TRuntimeConfig> {
   actor: AgentActor
   context: AgentInvocationContextStore
+  driver?: {
+    kind: AgentDriverKind
+  }
   fs: ReadonlyWorkspaceFacade<Name>["fs"]
   invoker: AgentInvoker
   workspace: ReadonlyWorkspaceFacade<Name>
@@ -1243,7 +1257,9 @@ export interface AgentAdapterRunContext<
   close?: () => Promise<void>
   context: AgentInvocationContextStore
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
+  driverContributions?: AgentDriverContribution[]
   hasCapabilityCleanup?: boolean
+  harnessWorkspacePaths?: readonly string[]
   input: AgentRunInput<TOptions>
   instructions?: string
   invoker: AgentInvoker

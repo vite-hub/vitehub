@@ -6,6 +6,7 @@ import { dirname, join, posix, relative, sep } from "node:path"
 import { WorkspaceError } from "../core/errors.ts"
 import { contentToBytes, decodeFile, matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../storage/utils.ts"
+import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDiff, filterSessionEntries, scopedSearchQuery } from "./scope.ts"
 
 import type {
   ExecOptions,
@@ -123,12 +124,6 @@ function normalizeSessionPaths(options?: WorkspaceSessionOptions): string[] | un
   const paths = [...new Set((options?.paths || []).map(path => normalizeLocalWorkspacePath(path, { allowEmpty: true, allowGenerated: true })))]
   if (!paths.length || paths.includes("")) return undefined
   return paths.sort((left, right) => left.length - right.length || left.localeCompare(right))
-}
-
-function assertDiffInsideSessionPaths(diff: WorkspaceDiff, paths: string[] | undefined) {
-  if (!paths) return
-  const entry = diff.entries.find(entry => !paths.some(path => entry.path === path || entry.path.startsWith(`${path}/`)))
-  if (entry) throw new WorkspaceError(`[vitehub] Workspace session path ${entry.path} is outside the session scope.`)
 }
 
 async function sessionEntries(workspace: Workspace, options?: WorkspaceSessionOptions): Promise<WorkspaceEntry[]> {
@@ -263,13 +258,14 @@ export async function createTrustedHostWorkspaceSession(
   return {
     async readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>> {
       assertOpen()
-      const file = await readLocalFile(root, normalizeLocalWorkspacePath(path, { allowGenerated: true }), { allowGenerated: true })
+      const workspacePath = assertPathInSessionScope(normalizeLocalWorkspacePath(path, { allowGenerated: true }), sessionPaths, { masked: true })
+      const file = await readLocalFile(root, workspacePath, { allowGenerated: true })
       if (!file) throw new WorkspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
       return decodeFile(file.content, options)
     },
     async writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions) {
       assertOpen()
-      const workspacePath = normalizeLocalWorkspacePath(path)
+      const workspacePath = assertPathInSessionScope(normalizeLocalWorkspacePath(path), sessionPaths)
       const target = toLocalPath(root, workspacePath)
       await mkdir(dirname(target), { recursive: true })
       await writeFile(target, content)
@@ -280,41 +276,43 @@ export async function createTrustedHostWorkspaceSession(
     },
     async mkdir(path: string, options = {}) {
       assertOpen()
-      await mkdir(toLocalPath(root, path), { recursive: options.recursive })
+      await mkdir(toLocalPath(root, assertPathInSessionScope(normalizeLocalWorkspacePath(path, { allowEmpty: true }), sessionPaths, { mkdir: true })), { recursive: options.recursive })
     },
     async rm(path: string, options?: RmOptions) {
       assertOpen()
-      const workspacePath = normalizeLocalWorkspacePath(path)
+      const workspacePath = assertPathInSessionScope(normalizeLocalWorkspacePath(path), sessionPaths)
       await rm(toLocalPath(root, workspacePath), { force: options?.force, recursive: options?.recursive })
       mediaTypes.delete(workspacePath)
     },
     async list(path = "", options = {}) {
       assertOpen()
-      return await listLocalEntries(root, path, options.recursive, { allowGenerated: true })
+      return filterSessionEntries(await listLocalEntries(root, path, options.recursive, { allowGenerated: true }), sessionPaths)
     },
     async glob(pattern, _options = {}) {
       assertOpen()
       const patterns = Array.isArray(pattern) ? pattern : [pattern]
-      return (await listLocalEntries(root, "", true, { allowGenerated: true }))
+      return filterSessionEntries(await listLocalEntries(root, "", true, { allowGenerated: true }), sessionPaths)
         .filter(entry => entry.type === "file" && patterns.some(item => matchesAny(entry.path, item)))
     },
     async search(query) {
       assertOpen()
       const { searchText } = await import("../core/search.ts")
-      const searchRoots = [...new Set((query.paths?.length ? query.paths : [query.cwd || ""]).map(path => normalizeLocalWorkspacePath(path, { allowEmpty: true, allowGenerated: true })))]
+      const scoped = scopedSearchQuery(query, sessionPaths, path => normalizeLocalWorkspacePath(path, { allowEmpty: true, allowGenerated: true }))
+      if (!scoped) return []
+      const searchRoots = [...new Set((scoped.paths?.length ? scoped.paths : [scoped.cwd || ""]).map(path => normalizeLocalWorkspacePath(path, { allowEmpty: true, allowGenerated: true })))]
       const scopedSearchRoots = searchRoots.filter(Boolean)
-      const limit = query.limit ?? 100
+      const limit = scoped.limit ?? 100
       const hits: WorkspaceSearchHit[] = []
-      for (const entry of (await listLocalEntries(root, "", true, { allowGenerated: true })).filter(item => item.type === "file")) {
+      for (const entry of filterSessionEntries(await listLocalEntries(root, "", true, { allowGenerated: true }), sessionPaths).filter(item => item.type === "file")) {
         if (scopedSearchRoots.length && !scopedSearchRoots.some(path => entry.path === path || entry.path.startsWith(`${path}/`))) continue
         const text = await readFile(toLocalPath(root, entry.path, { allowGenerated: true }), "utf8")
-        hits.push(...searchText(entry.path, text, { ...query, limit: limit - hits.length }))
+        hits.push(...searchText(entry.path, text, { ...scoped, limit: limit - hits.length }))
         if (hits.length >= limit) break
       }
       return hits
     },
     async diff() {
-      return await currentDiff()
+      return filterSessionDiff(await currentDiff(), sessionPaths)
     },
     async commit(options) {
       const diff = await currentDiff()

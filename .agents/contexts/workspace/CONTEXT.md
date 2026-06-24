@@ -381,6 +381,8 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - A **Workspace Scope Resolver** can select a static named Workspace Scope or return an inline Workspace Scope definition for invocation-specific grants.
 - Workspace Scope is read-only in the first version.
 - Generic scoped Workspace Scope does not expose source materialization in the first version; **Harness Workspace Session** is the narrow materialized-session exception for harness-backed Agent Drivers.
+- A **Harness Workspace Session** may materialize **Harness Workspace Path Contributions** in addition to the **Selected Workspace Scope** when the active harness-backed Agent Driver needs Capability support files.
+- **Harness Workspace Path Contributions** do not broaden the **Selected Workspace Scope**, make hidden Sources visible, or change Workspace Scope enforcement.
 - An out-of-scope Workspace path is a **Scope-Masked Miss** to the model.
 - A **Scope-Masked Miss** can be recorded in server-side audit or tracing without revealing the hidden path to the model.
 - An Agent Invocation uses one **Selected Workspace Scope** by default.
@@ -395,6 +397,7 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - A **Harness Workspace Session** is reused across Agent Invocations only when a driver option or Capability provides an explicit **Harness Session Key**.
 - A **Harness Session Key** is not inferred from Chat Session, Chat History, Agent Run thread id, or Agent Actor by default.
 - Harness-backed Agent Drivers receive Workspace state through a **Harness Workspace Session** or equivalent materialized filesystem, not model-facing **Workspace Tools** by default.
+- **Workspace Session** read and write surfaces must enforce the active session paths before state reaches the Workspace Store, including **Trusted Host Workspace Runtime** sessions used by harness preparation.
 
 ## Example Dialogue
 
@@ -442,6 +445,7 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - Static pre-registration for every customer scope was considered necessary - resolved: use inline Workspace Scope definitions from the **Workspace Scope Resolver** when grants are derived from trusted invocation context.
 - Automatically rendering Workspace Scope into prompt text was considered - resolved: expose only explicit **Workspace Scope Instructions** so scope metadata is not model-facing by default.
 - Source materialization under scoped access was considered for the first version - resolved: disable generic materialization for scoped V1 to avoid source metadata leakage, with **Harness Workspace Session** as the narrow harness-backed Agent Driver exception.
+- Treating harness Capability support files as Workspace Scope Grants was considered - resolved: use **Harness Workspace Path Contributions** and keep **Workspace Scope** as the product-data visibility boundary.
 - Source-level narrowing was considered as direct Agent Actor access - resolved: use **Invocation-Scoped Source Resolution** from trusted invocation context and the **Selected Workspace Scope**, not raw model-facing metadata or duplicate authorization logic inside a Source.
 - Source Instructions were considered as network policy for shell `curl` - resolved: use **Source Network Grants** for authority and **Source Instructions** only for model guidance.
 - OpenAPI operations were considered as the first public request language for API-backed Sources - resolved: use **Source Request Shape** for the Source-owned boundary, with OpenAPI left as a possible future import/export format.
