@@ -412,9 +412,22 @@ async function workspaceSourcePathExists(
   source: { key: string, mountPath: string, probePaths?: string[], source?: WorkspaceSource },
 ): Promise<boolean> {
   for (const path of await sourceConflictPaths(source)) {
+    for (const parent of parentPaths(path)) {
+      try {
+        const stat = await workspace.fs.stat(parent as never)
+        if (stat?.type !== "directory") return true
+      }
+      catch {}
+    }
     if (await workspacePathExists(workspace, path)) return true
   }
   return false
+}
+
+function parentPaths(path: string): string[] {
+  const parts = path.split("/").filter(Boolean)
+  parts.pop()
+  return parts.map((_, index) => parts.slice(0, index + 1).join("/"))
 }
 
 async function assertResolvedWorkspaceContributionSources(
@@ -433,7 +446,7 @@ async function assertResolvedWorkspaceContributionSources(
     const source = definition.sources?.[key]
     if (!source) continue
     const contributedSource = normalizedContributionSource(key, source, runtime)
-    if (!selectedScopeContainsSource(runtime, selectedWorkspaceScope, key, contributedSource)) {
+    if (!await selectedScopeContainsResolvedSource(runtime, selectedWorkspaceScope, key, contributedSource)) {
       throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" is outside the selected Workspace Scope.`)
     }
     for (const [existingKey, existingSource] of Object.entries(definition.sources || {})) {
@@ -473,9 +486,23 @@ function selectedScopeContainsSource(
   runtime: WorkspaceContributionRuntime,
   scope: WorkspaceSelectedScope | undefined,
   key: string,
-  source: { mountPath: string, requestOnly: boolean },
+  source: { mountPath: string, probePaths?: string[], requestOnly: boolean },
 ): boolean {
+  if (source.probePaths?.length) {
+    return source.probePaths.some(path => selectedScopeContainsMount(scope, path))
+  }
   return selectedScopeContainsMount(scope, sourceScopePath(runtime, key, source))
+}
+
+async function selectedScopeContainsResolvedSource(
+  runtime: WorkspaceContributionRuntime,
+  scope: WorkspaceSelectedScope | undefined,
+  key: string,
+  source: { key: string, mountPath: string, probePaths?: string[], requestOnly: boolean, source?: WorkspaceSource },
+): Promise<boolean> {
+  if (selectedScopeContainsSource(runtime, scope, key, source)) return true
+  if (source.mountPath || source.requestOnly || !source.source) return false
+  return (await sourceConflictPaths(source)).some(path => selectedScopeContainsMount(scope, path))
 }
 
 function assertStaticWorkspaceContributionSourcesInScope(
@@ -492,12 +519,9 @@ function assertStaticWorkspaceContributionSourcesInScope(
   for (const [key, capabilityId] of contributed) {
     const source = definition.sources?.[key]
     if (!source) continue
-    const metadata = normalizeAgentWorkspaceSource(key, source)
-    if (metadata.source?.resolve) continue
-    const contributedSource = {
-      mountPath: metadata.mountPath,
-      requestOnly: isRequestOnlyWorkspaceSource(runtime, metadata.source),
-    }
+    const contributedSource = normalizedContributionSource(key, source, runtime)
+    if (contributedSource.source?.resolve) continue
+    if (!contributedSource.mountPath && !contributedSource.probePaths?.length && contributedSource.source) continue
     if (!selectedScopeContainsSource(runtime, selectedWorkspaceScope, key, contributedSource)) {
       throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" is outside the selected Workspace Scope.`)
     }
@@ -640,6 +664,10 @@ export async function resolveAgentCapabilities<
     triggers: [],
     workspaceContributions: [],
   }
+  const capabilityContexts: Array<{
+    capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
+    context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
+  }> = []
 
   async function closeRegisteredCallbacks() {
     const errors: unknown[] = []
@@ -653,6 +681,14 @@ export async function resolveAgentCapabilities<
     }
     if (errors.length === 1) throw errors[0]
     if (errors.length > 1) throw new AggregateError(errors, "[vitehub] Multiple capability close callbacks failed.")
+  }
+
+  function syncCapabilityWorkspaceContext(context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) {
+    if (currentWorkspace) {
+      context.fs = currentWorkspace.fs
+      context.workspace = currentWorkspace
+    }
+    if (currentWorkspaceDefinition) context.workspaceDefinition = currentWorkspaceDefinition
   }
 
   let workspaceContributionsApplied = false
@@ -679,6 +715,7 @@ export async function resolveAgentCapabilities<
       currentWorkspaceDefinition = workspaceContribution.definition
       registries.workspaceContributions = workspaceContribution.registries
     }
+    for (const item of capabilityContexts) syncCapabilityWorkspaceContext(item.context)
   }
 
   try {
@@ -700,8 +737,7 @@ export async function resolveAgentCapabilities<
         ...metadataContext,
         [workspaceOverrideSymbol](nextWorkspace: ReadonlyWorkspaceFacade<Name>) {
           currentWorkspace = nextWorkspace
-          capabilityContext.fs = nextWorkspace.fs
-          capabilityContext.workspace = nextWorkspace
+          syncCapabilityWorkspaceContext(capabilityContext)
         },
         capability,
         mode: capability.mode,
@@ -746,7 +782,12 @@ export async function resolveAgentCapabilities<
             if (resolver === undefined) {
               throw new Error(`[vitehub] ${capability.id}() requires a model option or an agent model.`)
             }
-            return await resolveRuntimeValue(resolver as never, metadataContext as never) as unknown
+            return await resolveRuntimeValue(resolver as never, {
+              ...metadataContext,
+              fs: currentWorkspace?.fs,
+              workspace: currentWorkspace,
+              workspaceDefinition: currentWorkspaceDefinition,
+            } as never) as unknown
           },
         },
         modelExecution: {
@@ -809,6 +850,7 @@ export async function resolveAgentCapabilities<
         },
         workspace: currentWorkspace,
       } as AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
+      capabilityContexts.push({ capability, context: capabilityContext })
 
       for (const [name, trigger] of Object.entries(capability.triggers || {})) {
         assertTriggerName(name, capability.id)
@@ -864,18 +906,20 @@ export async function resolveAgentCapabilities<
           }
         }
       }
+    }
+    await applyWorkspaceContributions()
+    for (const { capability, context } of capabilityContexts) {
       if (invocationOptions.resolveInstructions !== false && capability.instructions !== undefined) {
-        const values = await resolveInstructionValue(capability, capabilityContext)
+        const values = await resolveInstructionValue(capability, context)
         for (const value of values) {
           addInstructionBlock(capabilityInstructions, capability.id, value)
         }
       }
       if (invocationOptions.resolveTools !== false && capability.tools) {
-        const resolved = await resolveRuntimeValue(capability.tools as never, capabilityContext) as unknown
+        const resolved = await resolveRuntimeValue(capability.tools as never, context) as unknown
         if (isToolSet(resolved)) tools = { ...tools, ...resolved }
       }
     }
-    await applyWorkspaceContributions()
   }
   catch (error) {
     try {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createMessage } from "@vite-hub/agent"
+import { createMessage, type AgentCapabilityContext, type AgentCapabilityRuntimeContext } from "@vite-hub/agent"
 
 const runtime = () => ({
   memo: vi.fn(),
@@ -17,7 +17,7 @@ const emptyWorkspace = () => ({
     materializeSources: vi.fn(async () => ({ bytes: 0, directories: 0, durationMs: 0, files: 0, path: "", sources: [] })),
     readFile: vi.fn(async () => { throw new Error("missing") }),
     search: vi.fn(async () => []),
-    stat: vi.fn(async () => { throw new Error("missing") }),
+    stat: vi.fn(async (_path?: string) => { throw new Error("missing") }),
   },
   tools: {
     inspect: vi.fn(() => ({})),
@@ -244,6 +244,12 @@ describe("agent capability runtime", () => {
               },
             },
           },
+          instructions: async (context: AgentCapabilityRuntimeContext) => await context.workspace!.fs.readFile("pull-request/summary.md"),
+          tools: async (context: AgentCapabilityContext) => ({
+            reviewContext: {
+              name: await context.workspace!.fs.readFile("pull-request/summary.md"),
+            },
+          }),
         }),
       ],
     }, runtime(), {}, emptyWorkspace() as never, "read", {
@@ -254,6 +260,12 @@ describe("agent capability runtime", () => {
     })
 
     await expect(resolved.workspace?.fs.readFile("pull-request/summary.md")).resolves.toBe("review context")
+    expect(resolved.capabilityInstructions).toEqual([
+      { id: "capabilities.review", instructions: "review context" },
+    ])
+    expect(resolved.tools).toEqual({
+      reviewContext: { name: "review context" },
+    })
     expect(resolved.workspaceDefinition?.sources?.pullRequest).toMatchObject({ materialize: "lazy" })
     expect(resolved.workspaceDefinition?.sources).toHaveProperty("pullRequest")
     expect(resolved.workspaceDefinition?.rules).toHaveProperty("artifacts/review/**")
@@ -512,6 +524,41 @@ describe("agent capability runtime", () => {
     })).rejects.toThrow('workspace contribution source "repository" conflicts with an existing Workspace path at mount ""')
   })
 
+  it("rejects root-mounted capability workspace sources whose parent is an existing Workspace file", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const workspace = emptyWorkspace()
+    workspace.fs.stat.mockImplementation(async (path?: string) => {
+      if (path === "docs") return { path, type: "file" } as never
+      throw new Error("missing")
+    })
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              repository: {
+                mount: "",
+                async getKeys() {
+                  return ["docs/README.md"]
+                },
+                async getItem(key: string) {
+                  return { content: "review", key }
+                },
+              },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, workspace as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })).rejects.toThrow('workspace contribution source "repository" conflicts with an existing Workspace path at mount ""')
+  })
+
   it("allows request-only capability workspace sources in non-empty Workspaces", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { fetch } = await import("@vite-hub/workspace")
@@ -579,6 +626,44 @@ describe("agent capability runtime", () => {
     })
 
     expect(resolved.workspaceDefinition?.sources).toHaveProperty("pullRequest")
+  })
+
+  it("allows root-mounted finite capability sources selected by concrete path", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const { fetch } = await import("@vite-hub/workspace")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "review",
+            scopes: {
+              review: { paths: ["pull-request.json"] },
+            },
+          },
+        }),
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              pullRequest: fetch({
+                url: "https://api.github.com/repos/vite-hub/vitehub/pulls/366",
+                workspacePath: "pull-request.json",
+              }),
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    expect(resolved.workspaceDefinition?.sources).toHaveProperty("pullRequest")
+    await expect(resolved.workspace?.fs.exists("pull-request.json")).resolves.toBe(true)
   })
 
   it("allows request-only capability workspace sources selected by descriptor path", async () => {

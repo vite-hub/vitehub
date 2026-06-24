@@ -266,24 +266,26 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
   const materializeSources = async (options = {}) => await sourceView.materializeSources(options)
   const fs: ReadonlyWorkspaceFacade<Name>["fs"] = attachWorkspaceSourceRequestExecution({
     async readFile(path, options) {
-      if (selectedScopeCanRead(selectedWorkspaceScope, path) && (isSourcePath(resolvedDefinition, path) || await sourceViewHasPath(resolvedDefinition, sourceView, path))) {
+      if (isSourcePath(resolvedDefinition, path)) {
         return await sourceView.readFile(path, options as never)
       }
+      if (selectedScopeCanRead(selectedWorkspaceScope, path) && await sourceViewHasPath(resolvedDefinition, sourceView, path)) return await sourceView.readFile(path, options as never)
       return await workspace.fs.readFile(path, options as never)
     },
     async stat(path) {
-      if (selectedScopeCanSee(selectedWorkspaceScope, path) && (isSourcePath(resolvedDefinition, path) || await sourceViewHasPath(resolvedDefinition, sourceView, path))) {
+      if (isSourcePath(resolvedDefinition, path)) {
         return await sourceView.stat(path)
       }
+      if (selectedScopeCanSee(selectedWorkspaceScope, path) && await sourceViewHasPath(resolvedDefinition, sourceView, path)) return await sourceView.stat(path)
       return await workspace.fs.stat(path)
     },
     async exists(path) {
-      if (selectedScopeCanSee(selectedWorkspaceScope, path) && isSourcePath(resolvedDefinition, path)) return await sourceView.exists(path)
+      if (isSourcePath(resolvedDefinition, path)) return await sourceView.exists(path)
       return selectedScopeCanSee(selectedWorkspaceScope, path) && await sourceViewHasPath(resolvedDefinition, sourceView, path) || await workspace.fs.exists(path)
     },
     async list(path = "", options = {}) {
       const normalized = normalizeWorkspacePath(path)
-      if (normalized && selectedScopeCanSee(selectedWorkspaceScope, normalized) && isSourcePath(resolvedDefinition, normalized)) {
+      if (normalized && isSourcePath(resolvedDefinition, normalized)) {
         return filterScopedEntries(selectedWorkspaceScope, await sourceView.list(normalized, options))
       }
       const [baseEntries, sourceEntries] = await Promise.all([
@@ -626,8 +628,18 @@ function scopedWorkspaceSource(
   source: ReturnType<typeof normalizeWorkspaceSources>[number],
   scope: WorkspaceSelectedScope,
 ): WorkspaceSource {
+  const scopedLivePaths: Record<string, string> | undefined = source.livePaths ? {} : undefined
+  syncScopedLivePaths(scopedLivePaths, source.livePaths, scope)
   const scoped: WorkspaceSource = {
     ...source.source,
+    ...(scopedLivePaths
+      ? {
+          async prepare(ctx) {
+            await source.source.prepare?.(ctx)
+            syncScopedLivePaths(scopedLivePaths, source.livePaths, scope)
+          },
+        }
+      : {}),
     ...(source.source.getItems
       ? {
           getItems: async ctx => (await source.source.getItems!(ctx))
@@ -663,13 +675,16 @@ function scopedWorkspaceSource(
       : {}),
   }
   copyWorkspaceSourceMetadata(source.source, scoped)
-  if (source.livePaths) {
-    markLiveWorkspaceSource(scoped, Object.fromEntries(
-      Object.entries(source.livePaths)
-        .filter(([path]) => selectedScopeCanRead(scope, path)),
-    ))
-  }
+  if (scopedLivePaths) markLiveWorkspaceSource(scoped, scopedLivePaths)
   return scoped
+}
+
+function syncScopedLivePaths(target: Record<string, string> | undefined, source: Record<string, string> | undefined, scope: WorkspaceSelectedScope) {
+  if (!target || !source) return
+  for (const path of Object.keys(target)) delete target[path]
+  for (const [path, value] of Object.entries(source)) {
+    if (selectedScopeCanRead(scope, path)) target[path] = value
+  }
 }
 
 function sourceItemWorkspacePath(

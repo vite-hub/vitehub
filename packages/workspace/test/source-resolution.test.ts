@@ -6,6 +6,7 @@ import {
   fetch,
   getWorkspaceSourceRequestExecution,
   github,
+  mcpResources,
   resolveWorkspaceSources,
   type WorkspaceShellResult,
   workspaceSourceRequestDescriptorPath,
@@ -492,6 +493,7 @@ describe("Workspace Source Resolution", () => {
 
   it("keeps scoped-out source subpaths hidden in overlays", async () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    await base.writeFile("docs/private.md", "stale secret\n")
     const getItem = vi.fn(async (key: string) => ({
       content: key === "public.md" ? "public\n" : "secret\n",
       key,
@@ -526,6 +528,49 @@ describe("Workspace Source Resolution", () => {
     ])
     await expect(workspace.fs.search({ pattern: "secret", paths: ["docs"] })).resolves.toEqual([])
     expect(getItem).not.toHaveBeenCalledWith("private.md", expect.anything())
+  })
+
+  it("preserves scoped live source paths populated during prepare", async () => {
+    const content = JSON.stringify([{ path: "/docs/getting-started/introduction" }], null, 2)
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        nuxt: mcpResources({
+          mount: "resources",
+          server: {
+            async listResources() {
+              return {
+                resources: [{
+                  name: "documentation-pages",
+                  uri: "resource://nuxt-com/documentation-pages",
+                }],
+              }
+            },
+            async readResource({ uri }) {
+              return {
+                contents: [{
+                  mimeType: "application/json",
+                  text: content,
+                  uri,
+                }],
+              }
+            },
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(
+      facade(createWorkspace({ name: "support", store: { provider: "memory" } })),
+      definition,
+      { ...scope("docs", ["resources/nuxt-com/documentation-pages.json"]), overlay: true },
+    )
+
+    await expect(workspace.fs.exists("resources/nuxt-com/documentation-pages.json")).resolves.toBe(true)
+    await expect(workspace.fs.list("resources/nuxt-com")).resolves.toEqual([
+      { path: "resources/nuxt-com/documentation-pages.json", type: "file" },
+    ])
+    await expect(workspace.fs.readFile("resources/nuxt-com/documentation-pages.json")).resolves.toBe(content)
   })
 
   it("layers resolved source-backed paths over the base Workspace without persistent cross-scope materialization", async () => {
