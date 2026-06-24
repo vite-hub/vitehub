@@ -86,9 +86,9 @@ function withDevLoopControls<CALL_OPTIONS>(
   timeout: number,
 ): AgentRunInput<CALL_OPTIONS> {
   return {
+    ...input,
     abortSignal: signal,
     timeout,
-    ...input,
   }
 }
 
@@ -388,7 +388,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
       if (signal.aborted) return
       emit(event)
     }
-  })
+  }, { timeout })
 }
 
 function routeMatches(req: IncomingMessage): boolean {

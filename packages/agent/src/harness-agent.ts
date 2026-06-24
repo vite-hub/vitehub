@@ -3,6 +3,7 @@ import {
   defineAgentUsageMetadata,
 } from "./internal/agent-usage-metadata.ts"
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
+import { nextWithAbort } from "./internal/abortable-stream.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 
@@ -220,14 +221,20 @@ async function destroySession(session: HarnessAgentSessionLike) {
   await session.destroy()
 }
 
-function withCleanup<T>(iterable: AsyncIterable<T>, cleanup: (error?: unknown) => Promise<void>): AsyncIterable<T> {
+function withCleanup<T>(iterable: AsyncIterable<T>, cleanup: (error?: unknown) => Promise<void>, abortSignal?: AbortSignal): AsyncIterable<T> {
   return (async function* () {
+    const iterator = iterable[Symbol.asyncIterator]()
     let caught: unknown
     try {
-      yield* iterable
+      for (;;) {
+        const result = await nextWithAbort(iterator.next(), abortSignal, "[vitehub] Harness Agent Driver stream aborted.")
+        if (result.done) break
+        yield result.value
+      }
     }
     catch (error) {
       caught = error
+      void iterator.return?.().catch(() => {})
       throw error
     }
     finally {
@@ -236,7 +243,7 @@ function withCleanup<T>(iterable: AsyncIterable<T>, cleanup: (error?: unknown) =
   })()
 }
 
-async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) => Promise<void>): Promise<unknown> {
+async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) => Promise<void>, abortSignal?: AbortSignal): Promise<unknown> {
   let cleanupCalled = false
   const cleanupOnce = async (error?: unknown) => {
     if (cleanupCalled) return
@@ -245,7 +252,7 @@ async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) =>
   }
 
   if (isAsyncIterable(result)) {
-    return withCleanup(result, cleanupOnce)
+    return withCleanup(result, cleanupOnce, abortSignal)
   }
   if (!result || typeof result !== "object") {
     await cleanupOnce()
@@ -268,7 +275,7 @@ async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) =>
     Object.defineProperty(clone, key, {
       configurable: true,
       enumerable: true,
-      value: withCleanup(iterable, cleanupOnce),
+      value: withCleanup(iterable, cleanupOnce, abortSignal),
     })
   }
   return clone
@@ -298,12 +305,13 @@ export function createHarnessAgentAdapter<
   ) {
     const sessionId = await resolveHarnessSessionKey(options.sessionKey, context)
     const resumeFrom = sessionId ? resumeStates.get(sessionId) : undefined
-    const session = await agent.createSession(sessionId
-      ? {
-          sessionId,
-          ...(resumeFrom !== undefined ? { resumeFrom } : {}),
-        }
-      : undefined)
+    const sessionOptions = {
+      ...(context.input.abortSignal ? { abortSignal: context.input.abortSignal } : {}),
+      ...(sessionId ? { sessionId } : {}),
+      ...(resumeFrom !== undefined ? { resumeFrom } : {}),
+      ...(typeof context.input.timeout === "number" ? { timeout: context.input.timeout } : {}),
+    }
+    const session = await agent.createSession(Object.keys(sessionOptions).length ? sessionOptions : undefined)
     const cleanup = async (error?: unknown) => {
       let closeError = error
       try {
@@ -373,7 +381,7 @@ export function createHarnessAgentAdapter<
           ...toHarnessCallInput(context),
           session,
         }), usageMetadata)
-        return await withSessionCleanup(result, cleanup)
+        return await withSessionCleanup(result, cleanup, context.input.abortSignal)
       }
       catch (error) {
         await cleanup(error)

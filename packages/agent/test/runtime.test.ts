@@ -2593,6 +2593,53 @@ describe("agent message protocol", () => {
     }
   })
 
+  it("runs stream finish hooks with accumulated model-backed text", async () => {
+    vi.doMock("ai", () => ({
+      jsonSchema: vi.fn(schema => schema),
+      ToolLoopAgent: class {
+        async generate() {
+          return { text: "unused" }
+        }
+        async stream() {
+          return {
+            fullStream: (async function* () {
+              yield { text: "streamed ", type: "text-delta" }
+              yield { text: "review", type: "text-delta" }
+              yield { type: "finish" }
+            })(),
+          }
+        }
+      },
+      stepCountIs: () => () => false,
+    }))
+
+    try {
+      const { defineAgent, streamAgent } = await import("../src/index.ts")
+      const finish = vi.fn()
+      const agent = defineAgent({
+        hooks: {
+          "agent:finish": finish,
+        },
+        model: {} as never,
+      })
+
+      const stream = await streamAgent(agent, {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, {})
+
+      for await (const _event of stream as AsyncIterable<unknown>) {}
+
+      expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+        result: expect.objectContaining({ text: "streamed review" }),
+      }))
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
   it("runs agent finish hooks after generated streams are consumed", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const order: string[] = []
