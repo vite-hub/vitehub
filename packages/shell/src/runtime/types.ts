@@ -11,6 +11,7 @@ export interface ShellRuntimeExecOptions {
   onStdout?: (data: string) => void
   stdin?: string
   timeout?: number
+  workspacePaths?: string[]
 }
 
 export interface ShellObservation {

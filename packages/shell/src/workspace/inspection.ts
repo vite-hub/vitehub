@@ -29,28 +29,80 @@ export async function runWorkspaceInspectionCommand(
 ): Promise<ShellObservation> {
   const maxOutputLength = options.maxOutputLength || 30_000
   const timeout = options.timeout || 30_000
+  const provider = options.networkGrants && usesWorkspaceNetworkGrant(command) ? undefined : options.provider
+  const unsupportedSyntax = preflightUnsupportedWorkspaceSyntax(command, options.commands, Boolean(provider))
+  if (unsupportedSyntax) return unsupportedSyntax
   const preflight = await preflightWorkspaceInspectionCommand(command, options.fs, options.broadSearchPaths, options.cwd)
   if (preflight) return preflight
+  const pipedBroadSearch = preflightPipedSearchWithoutPath(command, options.broadSearchPaths)
+  if (pipedBroadSearch) return pipedBroadSearch
   const missingPath = await preflightMissingWorkspacePath(command, options.fs, options.cwd)
   if (missingPath) return missingPath
-  const unsupported = preflightUnsupportedWorkspaceCommand(command, options.commands)
+  const unsupported = preflightUnsupportedWorkspaceCommand(command, options.commands, Boolean(provider))
   if (unsupported) return unsupported
   const runtime = createShellRuntime({
     policy: {
       maxOutputLength,
       timeout,
     },
-    provider: options.provider ?? createJustBashProvider({
+    provider: provider ?? createJustBashProvider({
       commands: options.commands,
       cwd: options.cwd || workspaceMountPoint,
       fs: options.fs,
       networkGrants: options.networkGrants,
     }),
   })
-  const result = await runtime.exec(command, { cwd: options.cwd || workspaceMountPoint, timeout })
+  const cwd = options.cwd || workspaceMountPoint
+  const result = await runtime.exec(command, { cwd, timeout, workspacePaths: workspaceSessionPaths(command, cwd) })
   const noMatchFeedback = searchNoMatchFeedback(command, result, options.broadSearchPaths, options.cwd)
 
   return noMatchFeedback ? { ...result, stdout: noMatchFeedback, workspaceGuardrail: { kind: "no_match" } } : result
+}
+
+function workspaceSessionPaths(command: string, cwd = workspaceMountPoint): string[] | undefined {
+  try {
+    const paths = new Set<string>()
+    let currentCwd = cwd
+    for (const segment of analyzeWorkspaceInspectionCommand(command)) {
+      const words = segment.words
+      if (words[0] === "cd") {
+        const path = words[1] || workspaceMountPoint
+        if (isWorkspacePathCandidate(path)) currentCwd = resolvedWorkspaceCwd(currentCwd, path)
+        continue
+      }
+      for (const path of segment.paths) {
+        const resolvedPath = resolveConcreteWorkspacePath(currentCwd, path)
+        if (resolvedPath) paths.add(resolvedPath)
+      }
+    }
+    return paths.size ? [...paths].sort() : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+function preflightPipedSearchWithoutPath(command: string, broadSearchPaths: string[] = []): ShellObservation | undefined {
+  try {
+    for (const segment of analyzeWorkspaceInspectionCommand(command)) {
+      if (segment.separatorAfter !== "|" || segment.paths.length) continue
+      const name = segment.words[0]
+      if (name === "rg" || name === "grep") return broadWorkspaceSearchFeedback(broadSearchPaths)
+    }
+  }
+  catch {
+    return undefined
+  }
+}
+
+function usesWorkspaceNetworkGrant(command: string) {
+  try {
+    return analyzeWorkspaceInspectionCommand(command)
+      .some(segment => workspaceExecutable(segment.words)?.name === "curl")
+  }
+  catch {
+    return false
+  }
 }
 
 async function preflightWorkspaceInspectionCommand(command: string, fs: WorkspaceShellFileSystem, broadSearchPaths: string[] = [], cwd = workspaceMountPoint): Promise<ShellObservation | undefined> {
@@ -232,9 +284,11 @@ function searchNoMatchFeedback(command: string, result: ShellObservation, broadS
   return ""
 }
 
-function preflightUnsupportedWorkspaceCommand(command: string, commands?: string[]): ShellObservation | undefined {
+function preflightUnsupportedWorkspaceCommand(command: string, commands?: string[], strictProvider = false): ShellObservation | undefined {
+  const syntax = preflightUnsupportedWorkspaceSyntax(command, commands, strictProvider)
+  if (syntax) return syntax
+  if (!strictProvider && usesCompoundShellSyntax(command)) return undefined
   if (!commands) return undefined
-  if (usesCompoundShellSyntax(command)) return undefined
   const allowed = new Set([...commands, "cd", "false", "true"])
   for (const segment of analyzeWorkspaceInspectionCommand(command)) {
     const executable = workspaceExecutable(segment.words)
@@ -243,7 +297,18 @@ function preflightUnsupportedWorkspaceCommand(command: string, commands?: string
   }
 }
 
-function unsupportedWorkspaceCommandFeedback(command: string, name: string, commands: string[]): ShellObservation {
+function preflightUnsupportedWorkspaceSyntax(command: string, commands?: string[], strictProvider = false): ShellObservation | undefined {
+  if (usesShellSubstitution(command)) {
+    if (strictProvider || commands) return unsupportedWorkspaceCommandFeedback(command, "shell substitution", commands)
+    return undefined
+  }
+  if (usesCompoundShellSyntax(command)) {
+    if (strictProvider) return unsupportedWorkspaceCommandFeedback(command, "compound shell syntax", commands)
+    return undefined
+  }
+}
+
+function unsupportedWorkspaceCommandFeedback(command: string, name: string, commands: string[] = []): ShellObservation {
   const available = [...new Set(commands)].sort()
   const formatted = available.length ? available.map(command => `\`${command}\``).join(", ") : "none"
   return {
@@ -257,6 +322,38 @@ function unsupportedWorkspaceCommandFeedback(command: string, name: string, comm
       "Rewrite the command with supported workspace commands, or answer from the evidence already collected.",
     ].join("\n") + "\n",
   }
+}
+
+function usesShellSubstitution(command: string) {
+  let quote: "'" | "\"" | undefined
+  let escaped = false
+  for (let index = 0; index < command.length; index++) {
+    const char = command[index]!
+    const next = command[index + 1]
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (char === "\\") {
+      escaped = true
+      continue
+    }
+    if (quote === "'") {
+      if (char === "'") quote = undefined
+      continue
+    }
+    if (quote === "\"") {
+      if (char === "\"") quote = undefined
+      else if (char === "`" || char === "$" && next === "(" || (char === "<" || char === ">") && next === "(") return true
+      continue
+    }
+    if (char === "'" || char === "\"") {
+      quote = char
+      continue
+    }
+    if (char === "`" || char === "$" && next === "(" || (char === "<" || char === ">") && next === "(") return true
+  }
+  return false
 }
 
 function workspaceExecutable(words: string[]) {
@@ -302,6 +399,17 @@ const shellSyntaxWords = new Set([
 
 function isConcreteWorkspacePath(path: string) {
   return isWorkspacePathCandidate(path) && cleanWorkspaceShellPath(path) !== ""
+}
+
+function resolveConcreteWorkspacePath(cwd: string, path: string) {
+  if (!isWorkspacePathCandidate(path)) return undefined
+  try {
+    const resolvedPath = resolveWorkspaceShellPath(cwd, path)
+    return resolvedPath === "" ? undefined : resolvedPath
+  }
+  catch {
+    return undefined
+  }
 }
 
 function isWorkspacePathCandidate(path: string) {

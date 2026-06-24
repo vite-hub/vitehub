@@ -659,6 +659,41 @@ describe("Workspace Source Resolution", () => {
     await expect(base.exists("docs/old.md")).resolves.toBe(false)
   })
 
+  it("preserves readonly overlay sessions for resolved sources", async () => {
+    const base = createWorkspace({ name: "support", store: { provider: "memory" } })
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      runtime: "trusted-host",
+      sources: {
+        docs: custom({
+          materialize: "lazy",
+          mount: "docs",
+          async getKeys() {
+            return ["guide.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "needle\n" }
+          },
+        }),
+      },
+    }
+
+    const { workspace } = await createWorkspaceSourceResolutionFacade(facade(base), definition, {
+      invocation,
+      overlay: true,
+    })
+    const session = await ((workspace.fs as unknown) as {
+      startSession(): Promise<{ close(): Promise<void>, readFile(path: string): Promise<string> }>
+    }).startSession()
+
+    try {
+      await expect(session.readFile("docs/guide.md")).resolves.toBe("needle\n")
+    }
+    finally {
+      await session.close()
+    }
+  })
+
   it("starts writable overlay sessions from contributed sources and rules", async () => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     const definition: WorkspaceDefinition = {

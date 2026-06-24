@@ -52,7 +52,7 @@ await shell.exec('rg auth docs', { cwd: workspaceMountPoint })
 | `createShellRuntime` from `@vite-hub/shell` | Create a Shell Runtime from an Execution Provider. |
 | `analyzeShellCommand` from `@vite-hub/shell` | Parse a command and return static command facts. |
 | `createJustBashProvider` from `@vite-hub/shell/providers/just-bash` | Run Bash-compatible commands in the `just-bash` browser runtime. |
-| `createCloudflareShellProvider` from `@vite-hub/shell/providers/cloudflare` | Adapt a Cloudflare sandbox-like client to Shell. |
+| `createCloudflareShellProvider` from `@vite-hub/shell/providers/cloudflare` | Adapt a Cloudflare execution client to Shell. |
 | `createReadonlyWorkspaceFs`, `createWritableWorkspaceFs`, `workspaceMountPoint` from `@vite-hub/shell/workspace` | Mount Workspace file access into Shell providers. |
 | `runWorkspaceInspectionCommand` from `@vite-hub/shell/workspace` | Run a preflighted read-only Workspace inspection command. |
 | `cleanWorkspaceShellPath`, `cleanWorkspaceMutationPath` from `@vite-hub/shell/workspace` | Normalize Workspace paths for shell-facing behavior. |
@@ -66,8 +66,16 @@ Shell providers implement `ShellExecutionProvider`. Shell has provider adapters,
 | Provider | Configure with | Boundary nuance |
 | --- | --- | --- |
 | Just Bash | `createJustBashProvider({ fs, commands?, cwd? })` | Runs `just-bash` against an explicit filesystem adapter. Network is disabled; background and interactive processes are unsupported. |
-| Cloudflare | `createCloudflareShellProvider({ sandbox })` | Delegates execution to a Cloudflare sandbox-like client. CWD and env support come from `sandbox.supports`; network is reported as `unknown`. |
+| Cloudflare | `createCloudflareShellProvider({ sandbox })` | Delegates command execution to a Cloudflare client that exposes `exec(command, args, options)`. CWD and env support come from `sandbox.supports`; network is reported as `unknown`. |
 | Custom | A `ShellExecutionProvider` object | Implement `boundary`, `exec`, optional `analyze`, and optional process methods directly. |
+
+For Cloudflare Workers agents that use Cloudflare's structured shell runtime, install the Cloudflare packages beside ViteHub Shell:
+
+```bash [Terminal]
+pnpm add @cloudflare/shell @cloudflare/codemode
+```
+
+`@cloudflare/shell` exposes structured `state.*` and git tools through `@cloudflare/codemode`; it is not a Bash interpreter. Use `createCloudflareShellProvider()` when the Cloudflare runtime boundary also exposes a command-execution client, and use a custom `ShellExecutionProvider` when the app wants to translate ViteHub Shell calls into `@cloudflare/shell` state operations.
 
 ## Create a Shell Runtime
 

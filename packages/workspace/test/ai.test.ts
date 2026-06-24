@@ -107,6 +107,8 @@ describe("createWorkspaceTools", () => {
 
   it("prefers executable Workspace Session shell execution", async () => {
     const workspace = createMutableWorkspace()
+    await workspace.mkdir("models")
+    await workspace.writeFile("models/orders.sql", "select * from orders\n")
     const close = vi.fn()
     const exec = vi.fn(async (command: string, args: string[] = [], options?: { cwd?: string }) => ({
       args,
@@ -121,11 +123,23 @@ describe("createWorkspaceTools", () => {
     } as unknown as WorkspaceSession))
     const tools = createWorkspaceTools(workspace)
 
-    await expect(runShell(tools, "pwd")).resolves.toMatchObject({
+    await expect(runShell(tools, "rg orders models")).resolves.toMatchObject({
       exitCode: 0,
-      stdout: "session:sh -lc pwd /workspace\n",
+      stdout: "session:sh -lc rg orders models /workspace\n",
     })
-    expect(exec).toHaveBeenCalledWith("sh", ["-lc", "pwd"], expect.objectContaining({ cwd: "/workspace" }))
+    expect(workspace.startSession).toHaveBeenCalledWith({ paths: ["models"] })
+    expect(exec).toHaveBeenCalledWith("sh", ["-lc", "rg orders models"], expect.objectContaining({ cwd: "/workspace" }))
+    await expect(runShell(tools, "cat $(python -c 'print(\"models/orders.sql\")')")).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stderr: expect.stringContaining("Unsupported workspace shell command: shell substitution"),
+    })
+    await expect(runShell(tools, "if true; then python -c 'print(1)'; fi")).resolves.toMatchObject({
+      event: "policy_denied",
+      exitCode: 126,
+      stderr: expect.stringContaining("Unsupported workspace shell command: compound shell syntax"),
+    })
+    expect(exec).toHaveBeenCalledTimes(1)
     expect(close).toHaveBeenCalled()
   })
 
@@ -276,6 +290,15 @@ describe("createWorkspaceTools", () => {
       },
       store: { provider: "memory" },
     })
+    await workspace.writeFile("README.md", "# Docs\n")
+    workspace.startSession = vi.fn(async () => ({
+      close: vi.fn(),
+      exec: vi.fn(async () => ({
+        exitCode: 0,
+        stderr: "",
+        stdout: "session\n",
+      })),
+    } as unknown as WorkspaceSession))
     const tools = createWorkspaceTools(workspace)
 
     expect(tools.shell.description).toContain("controlled `curl`")
@@ -289,6 +312,15 @@ describe("createWorkspaceTools", () => {
     })
     const init = request.mock.calls[0]?.[1] as RequestInit
     expect((init.headers as Headers).get("cookie")).toBe("auth_token=secret")
+    expect(workspace.startSession).not.toHaveBeenCalled()
+
+    await expect(runShell(tools, "cat README.md")).resolves.toMatchObject({
+      event: "command_finished",
+      exitCode: 0,
+      stdout: "session\n",
+    })
+    expect(workspace.startSession).toHaveBeenCalledWith({ paths: ["README.md"] })
+    expect(request).toHaveBeenCalledTimes(1)
 
     await expect(runShell(tools, "curl -d '{\"region\":\"eu\"}' https://portal.example.com/runtime/inventory-health")).resolves.toMatchObject({
       event: "policy_denied",

@@ -149,7 +149,7 @@ function createWorkspaceSessionShellProvider(starter: WorkspaceSessionStarter): 
       },
     },
     async exec(command: string, execOptions: ShellRuntimeExecOptions = {}) {
-      const session = await starter.startSession()
+      const session = await starter.startSession({ paths: execOptions.workspacePaths })
       try {
         const result = await session.exec("sh", ["-lc", command], {
           cwd: execOptions.cwd || workspaceMountPoint,
