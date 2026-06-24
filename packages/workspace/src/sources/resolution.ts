@@ -1,10 +1,12 @@
 import { createWorkspaceTools } from "../ai.ts"
+import { WorkspaceError } from "../core/errors.ts"
 import { normalizeWorkspacePath } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
 import { createBasicWorkspaceSession } from "../session/basic.ts"
 import { createMemoryWorkspaceStore } from "../storage/memory.ts"
 import { copyWorkspaceSourceMetadata, normalizeWorkspaceSource, normalizeWorkspaceSources, workspaceSourceRequestDescriptorPath } from "./config.ts"
+import { markLiveWorkspaceSource } from "./live.ts"
 import { attachWorkspaceSourceRequestExecution, createWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "./request-execution.ts"
 import { resolveWorkspacePath } from "./resolver.ts"
 import { createWorkspaceSourceView } from "./view.ts"
@@ -30,6 +32,7 @@ import type {
   WorkspaceStore,
   WorkspaceWriteInput,
   WorkspaceSelectedScope,
+  WorkspaceSessionOptions,
   WorkspaceSource,
   WorkspaceSourceInput,
   WorkspaceSourceResolutionContext,
@@ -216,14 +219,14 @@ function createWritableFacadeStore(workspace: WritableWorkspaceFacade): Workspac
   }
 }
 
-async function startOverlayWorkspaceSession(definition: WorkspaceDefinition, workspace: Workspace) {
+async function startOverlayWorkspaceSession(definition: WorkspaceDefinition, workspace: Workspace, options?: WorkspaceSessionOptions) {
   if (definition.runtime === "sandbox") {
     const { createSandboxWorkspaceSession } = await import("../session/sandbox.ts")
-    return await createSandboxWorkspaceSession(definition, workspace)
+    return await createSandboxWorkspaceSession(definition, workspace, options)
   }
   if (definition.runtime === "trusted-host") {
     const { createTrustedHostWorkspaceSession } = await import("../session/trusted-host.ts")
-    return await createTrustedHostWorkspaceSession(definition, workspace)
+    return await createTrustedHostWorkspaceSession(definition, workspace, options)
   }
   return createBasicWorkspaceSession(workspace)
 }
@@ -257,40 +260,44 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
   }) ?? getWorkspaceSourceRequestExecution(workspace.fs)
   if (!options.overlay && resolvedDefinition === definition && !sourceRequestExecution) return { definition, workspace }
 
-  const sourceView = createWorkspaceSourceView(resolvedDefinition, createOverlaySourceStore(workspace, path => !isLazySourcePath(resolvedDefinition, path)))
+  const selectedWorkspaceScope = options.selectedWorkspaceScope
+  const sourceViewDefinition = createScopedSourceViewDefinition(resolvedDefinition, selectedWorkspaceScope)
+  const sourceView = createWorkspaceSourceView(sourceViewDefinition, createOverlaySourceStore(workspace, path => !isLazySourcePath(resolvedDefinition, path)))
   const materializeSources = async (options = {}) => await sourceView.materializeSources(options)
   const fs: ReadonlyWorkspaceFacade<Name>["fs"] = attachWorkspaceSourceRequestExecution({
     async readFile(path, options) {
-      if (isSourcePath(resolvedDefinition, path) || await sourceViewHasPath(resolvedDefinition, sourceView, path)) {
+      if (selectedScopeCanRead(selectedWorkspaceScope, path) && (isSourcePath(resolvedDefinition, path) || await sourceViewHasPath(resolvedDefinition, sourceView, path))) {
         return await sourceView.readFile(path, options as never)
       }
       return await workspace.fs.readFile(path, options as never)
     },
     async stat(path) {
-      if (isSourcePath(resolvedDefinition, path) || await sourceViewHasPath(resolvedDefinition, sourceView, path)) {
+      if (selectedScopeCanSee(selectedWorkspaceScope, path) && (isSourcePath(resolvedDefinition, path) || await sourceViewHasPath(resolvedDefinition, sourceView, path))) {
         return await sourceView.stat(path)
       }
       return await workspace.fs.stat(path)
     },
     async exists(path) {
-      if (isSourcePath(resolvedDefinition, path)) return await sourceView.exists(path)
-      return await sourceViewHasPath(resolvedDefinition, sourceView, path) || await workspace.fs.exists(path)
+      if (selectedScopeCanSee(selectedWorkspaceScope, path) && isSourcePath(resolvedDefinition, path)) return await sourceView.exists(path)
+      return selectedScopeCanSee(selectedWorkspaceScope, path) && await sourceViewHasPath(resolvedDefinition, sourceView, path) || await workspace.fs.exists(path)
     },
     async list(path = "", options = {}) {
       const normalized = normalizeWorkspacePath(path)
-      if (normalized && isSourcePath(resolvedDefinition, normalized)) return await sourceView.list(normalized, options)
+      if (normalized && selectedScopeCanSee(selectedWorkspaceScope, normalized) && isSourcePath(resolvedDefinition, normalized)) {
+        return filterScopedEntries(selectedWorkspaceScope, await sourceView.list(normalized, options))
+      }
       const [baseEntries, sourceEntries] = await Promise.all([
         workspace.fs.list(path as never, options as ListOptions),
-        sourcePathIntersects(resolvedDefinition, normalized) ? sourceView.list(normalized, options) : Promise.resolve([]),
+        selectedScopeCanSee(selectedWorkspaceScope, normalized) && sourcePathIntersects(resolvedDefinition, normalized) ? sourceView.list(normalized, options) : Promise.resolve([]),
       ])
-      return mergeEntries(filterBaseEntries(resolvedDefinition, baseEntries), sourceEntries)
+      return mergeEntries(filterBaseEntries(resolvedDefinition, baseEntries), filterScopedEntries(selectedWorkspaceScope, sourceEntries))
     },
     async glob(pattern, options) {
       const [baseEntries, sourceEntries] = await Promise.all([
         workspace.fs.glob(pattern as never, options),
         sourceView.glob(pattern as never, options),
       ])
-      return mergeEntries(filterBaseEntries(resolvedDefinition, baseEntries), sourceEntries)
+      return mergeEntries(filterBaseEntries(resolvedDefinition, baseEntries), filterScopedEntries(selectedWorkspaceScope, sourceEntries))
     },
     async search(query) {
       const scopedToSource = searchQueryTargetsSource(resolvedDefinition, query)
@@ -298,7 +305,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
         scopedToSource ? Promise.resolve([]) : workspace.fs.search(query),
         sourceView.search(query),
       ])
-      return mergeHits(filterBaseHits(resolvedDefinition, baseHits), sourceHits).slice(0, query.limit ?? 100)
+      return mergeHits(filterBaseHits(resolvedDefinition, baseHits), filterScopedHits(selectedWorkspaceScope, sourceHits)).slice(0, query.limit ?? 100)
     },
     materializeSources,
   }, sourceRequestExecution)
@@ -398,7 +405,7 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       rm: writeFs.rm,
       search: writeFs.search,
       snapshot: workspace.snapshot,
-      startSession: async () => await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace),
+      startSession: async options => await startOverlayWorkspaceSession(resolvedDefinition, writeWorkspace, options),
       stat: writeFs.stat,
       sync: async (options) => {
         const { syncWorkspaceSources } = await import("./sync.ts")
@@ -601,6 +608,109 @@ function filterBaseEntries(definition: WorkspaceDefinition, entries: WorkspaceEn
 
 function filterBaseHits(definition: WorkspaceDefinition, hits: WorkspaceSearchHit[]): WorkspaceSearchHit[] {
   return hits.filter(hit => !isSourcePath(definition, hit.path))
+}
+
+function createScopedSourceViewDefinition(
+  definition: WorkspaceDefinition,
+  scope: WorkspaceSelectedScope | undefined,
+): WorkspaceDefinition {
+  if (!scope || scope.all) return definition
+  const sources: Record<string, WorkspaceSourceInput> = {}
+  for (const source of normalizeWorkspaceSources(definition.sources)) {
+    sources[source.key] = scopedWorkspaceSource(source, scope)
+  }
+  return { ...definition, sources }
+}
+
+function scopedWorkspaceSource(
+  source: ReturnType<typeof normalizeWorkspaceSources>[number],
+  scope: WorkspaceSelectedScope,
+): WorkspaceSource {
+  const scoped: WorkspaceSource = {
+    ...source.source,
+    ...(source.source.getItems
+      ? {
+          getItems: async ctx => (await source.source.getItems!(ctx))
+            .filter(item => selectedScopeCanRead(scope, sourceItemWorkspacePath(source, item.path || item.key))),
+        }
+      : {}),
+    getKeys: async ctx => (await source.source.getKeys(ctx))
+      .filter(key => selectedScopeCanRead(scope, sourceItemWorkspacePath(source, key))),
+    getItem: async (key, ctx) => {
+      const path = sourceItemWorkspacePath(source, key)
+      if (!selectedScopeCanRead(scope, path)) {
+        throw new WorkspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
+      }
+      return await source.source.getItem(key, ctx)
+    },
+    ...(source.source.getMeta
+      ? {
+          getMeta: async (key, ctx) => {
+            if (!selectedScopeCanRead(scope, sourceItemWorkspacePath(source, key))) return undefined
+            return await source.source.getMeta!(key, ctx)
+          },
+        }
+      : {}),
+    ...(source.source.search
+      ? {
+          search: async (query, ctx) => {
+            const paths = selectedScopeQueryPaths(scope, query)
+              .filter(path => pathIntersects(source.mountPath, path))
+            if (!paths.length) return []
+            return filterScopedHits(scope, await source.source.search!({ ...query, paths }, ctx))
+          },
+        }
+      : {}),
+  }
+  copyWorkspaceSourceMetadata(source.source, scoped)
+  if (source.livePaths) {
+    markLiveWorkspaceSource(scoped, Object.fromEntries(
+      Object.entries(source.livePaths)
+        .filter(([path]) => selectedScopeCanRead(scope, path)),
+    ))
+  }
+  return scoped
+}
+
+function sourceItemWorkspacePath(
+  source: ReturnType<typeof normalizeWorkspaceSources>[number],
+  sourcePath: string,
+): string {
+  const normalized = normalizeWorkspacePath(sourcePath)
+  return normalizeWorkspacePath(source.mountPath ? `${source.mountPath}/${normalized}` : normalized)
+}
+
+function selectedScopeQueryPaths(scope: WorkspaceSelectedScope, query: WorkspaceSearchQuery): string[] {
+  const requestedPaths = (query.paths?.length ? query.paths : [query.cwd || ""]).map(path => normalizeWorkspacePath(path))
+  const scopedPaths = (scope.paths || []).map(path => normalizeWorkspacePath(path))
+  const paths = new Set<string>()
+  for (const scopedPath of scopedPaths) {
+    for (const requestedPath of requestedPaths) {
+      if (pathContains(scopedPath, requestedPath)) paths.add(requestedPath)
+      else if (pathContains(requestedPath, scopedPath)) paths.add(scopedPath)
+    }
+  }
+  return [...paths]
+}
+
+function selectedScopeCanRead(scope: WorkspaceSelectedScope | undefined, path: string): boolean {
+  if (!scope || scope.all) return true
+  const normalized = normalizeWorkspacePath(path)
+  return Boolean(scope.paths?.some(prefix => pathContains(normalizeWorkspacePath(prefix), normalized)))
+}
+
+function selectedScopeCanSee(scope: WorkspaceSelectedScope | undefined, path: string): boolean {
+  if (!scope || scope.all) return true
+  const normalized = normalizeWorkspacePath(path)
+  return Boolean(scope.paths?.some(prefix => pathIntersects(normalizeWorkspacePath(prefix), normalized)))
+}
+
+function filterScopedEntries(scope: WorkspaceSelectedScope | undefined, entries: WorkspaceEntry[]): WorkspaceEntry[] {
+  return entries.filter(entry => selectedScopeCanSee(scope, entry.path))
+}
+
+function filterScopedHits(scope: WorkspaceSelectedScope | undefined, hits: WorkspaceSearchHit[]): WorkspaceSearchHit[] {
+  return hits.filter(hit => selectedScopeCanRead(scope, hit.path))
 }
 
 function mergeEntries(base: WorkspaceEntry[], source: WorkspaceEntry[]): WorkspaceEntry[] {

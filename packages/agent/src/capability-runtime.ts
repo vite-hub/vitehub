@@ -307,11 +307,14 @@ function normalizedContributionSource(
   key: string,
   source: WorkspaceSourceInput,
   runtime: WorkspaceContributionRuntime,
-): { mountPath: string, requestOnly: boolean } {
+): { key: string, mountPath: string, probePaths?: string[], requestOnly: boolean, source?: WorkspaceSource } {
   const metadata = normalizeAgentWorkspaceSource(key, source)
   return {
+    key,
     mountPath: metadata.mountPath,
+    ...(metadata.probeKeys?.length ? { probePaths: metadata.probeKeys.map(sourcePath => joinSourcePath(metadata.mountPath, sourcePath)) } : {}),
     requestOnly: isRequestOnlyWorkspaceSource(runtime, metadata.source),
+    ...(metadata.source ? { source: metadata.source } : {}),
   }
 }
 
@@ -346,7 +349,7 @@ function assertWorkspaceContribution(
         throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with contributed Workspace Source "${existing.key}" at mount "${contributedSource.mountPath || "."}".`)
       }
     }
-    contributionSources.push({ key, ...contributedSource })
+    contributionSources.push(contributedSource)
     for (const [existingKey, existingSource] of Object.entries(definition.sources || {})) {
       const existing = normalizedContributionSource(existingKey, existingSource, runtime)
       if (sourcesConflict(existing, contributedSource)) {
@@ -382,6 +385,38 @@ async function workspacePathExists(workspace: ReadonlyWorkspaceFacade, path: str
   }
 }
 
+function joinSourcePath(mountPath: string, sourcePath: string): string {
+  return [mountPath, sourcePath].filter(Boolean).join("/")
+}
+
+async function sourceConflictPaths(source: { key: string, mountPath: string, probePaths?: string[], source?: WorkspaceSource }): Promise<string[]> {
+  if (source.mountPath) return [source.mountPath]
+  if (source.probePaths?.length) return source.probePaths
+  if (source.source?.getKeys.length === 0) {
+    try {
+      const keys = await source.source.getKeys({
+        mountPath: source.mountPath,
+        rootDir: process.cwd(),
+        source: source.key,
+        workspace: "workspace",
+      })
+      if (keys.length) return keys.map(key => joinSourcePath(source.mountPath, key))
+    }
+    catch {}
+  }
+  return [source.mountPath]
+}
+
+async function workspaceSourcePathExists(
+  workspace: ReadonlyWorkspaceFacade,
+  source: { key: string, mountPath: string, probePaths?: string[], source?: WorkspaceSource },
+): Promise<boolean> {
+  for (const path of await sourceConflictPaths(source)) {
+    if (await workspacePathExists(workspace, path)) return true
+  }
+  return false
+}
+
 async function assertResolvedWorkspaceContributionSources(
   registries: AgentCapabilityRegistries["workspaceContributions"],
   definition: WorkspaceDefinition,
@@ -409,7 +444,7 @@ async function assertResolvedWorkspaceContributionSources(
         throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with ${label} "${existingKey}" at mount "${contributedSource.mountPath || "."}".`)
       }
     }
-    if (!contributedSource.requestOnly && await workspacePathExists(workspace, contributedSource.mountPath)) {
+    if (!contributedSource.requestOnly && await workspaceSourcePathExists(workspace, contributedSource)) {
       throw new Error(`[vitehub] ${capabilityId}() workspace contribution source "${key}" conflicts with an existing Workspace path at mount "${contributedSource.mountPath}".`)
     }
   }
@@ -648,7 +683,6 @@ export async function resolveAgentCapabilities<
 
   try {
     for (const capability of capabilities) {
-      if (capability.id !== "access") await applyWorkspaceContributions()
       await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, currentWorkspace, workspaceMode)
       const phases = invocationOptions.phases || defaultCapabilityRuntimePhases
       const metadataContext = {
@@ -830,8 +864,6 @@ export async function resolveAgentCapabilities<
           }
         }
       }
-      if (capability.id === "access") await applyWorkspaceContributions()
-
       if (invocationOptions.resolveInstructions !== false && capability.instructions !== undefined) {
         const values = await resolveInstructionValue(capability, capabilityContext)
         for (const value of values) {

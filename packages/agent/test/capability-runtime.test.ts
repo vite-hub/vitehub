@@ -549,6 +549,38 @@ describe("agent capability runtime", () => {
     expect(resolved.workspaceDefinition?.sources).toHaveProperty("inventory")
   })
 
+  it("allows root-mounted finite capability sources beside unrelated root entries", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { fetch } = await import("@vite-hub/workspace")
+    const workspace = emptyWorkspace()
+    workspace.fs.list.mockImplementation(async (path = "") => path
+      ? []
+      : [{ path: "README.md", type: "file" }] as never)
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              pullRequest: fetch({
+                url: "https://api.github.com/repos/vite-hub/vitehub/pulls/366",
+                workspacePath: "pull-request.json",
+              }),
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, workspace as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    expect(resolved.workspaceDefinition?.sources).toHaveProperty("pullRequest")
+  })
+
   it("allows request-only capability workspace sources selected by descriptor path", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
@@ -746,6 +778,63 @@ describe("agent capability runtime", () => {
       },
     })).rejects.toThrow('review() requires workspace.mode: "write"')
     expect(resolveWorkspace).not.toHaveBeenCalled()
+  })
+
+  it("runs workspace contribution resolvers after earlier lifecycle phases", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const seen = vi.fn()
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "setup",
+          configure(context) {
+            context.context.set("configured", true)
+          },
+          prepare(context) {
+            context.context.set("prepared", true)
+          },
+          input(context) {
+            context.context.set("input-ready", true)
+          },
+        }),
+        defineCapability({
+          id: "review",
+          workspace(context) {
+            seen({
+              configured: context.context.get("configured"),
+              inputReady: context.context.get("input-ready"),
+              prepared: context.context.get("prepared"),
+            })
+            return {
+              sources: {
+                pullRequest: {
+                  mount: "pull-request",
+                  async getKeys() {
+                    return ["summary.md"]
+                  },
+                  async getItem(key: string) {
+                    return { content: "review", key }
+                  },
+                },
+              },
+            }
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    expect(seen).toHaveBeenCalledWith({
+      configured: true,
+      inputReady: true,
+      prepared: true,
+    })
+    expect(resolved.workspaceDefinition?.sources).toHaveProperty("pullRequest")
   })
 
   it("preserves writable workspace methods when applying workspace contributions", async () => {
