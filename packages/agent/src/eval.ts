@@ -402,9 +402,15 @@ export function doesNotLeakSource(): AgentScorer {
 }
 
 function stepIncludesTool(step: AgentToolStep, name: string): boolean {
-  return Boolean(step.toolCalls?.some(call => call.toolName === name)
-    || step.toolErrors?.some(error => error.toolName === name)
-    || step.toolResults?.some(result => result.toolName === name))
+  const expected = normalizeObservedToolName(name)
+  return Boolean(step.toolCalls?.some(call => normalizeObservedToolName(call.toolName) === expected)
+    || step.toolErrors?.some(error => normalizeObservedToolName(error.toolName) === expected)
+    || step.toolResults?.some(result => normalizeObservedToolName(result.toolName) === expected))
+}
+
+function normalizeObservedToolName(name: unknown): string | undefined {
+  if (typeof name !== "string") return
+  return name === "bash" ? "shell" : name
 }
 
 export function callsTool(name: string): AgentScorer {
