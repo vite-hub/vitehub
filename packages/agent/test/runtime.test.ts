@@ -1486,6 +1486,66 @@ describe("agent message protocol", () => {
     expect(order).toEqual(["run", "effect:result:ok:done"])
   })
 
+  it("lets finish delivery effects publish Workspace artifacts", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel, publishWorkspaceArtifacts } = await import("../src/channels.ts")
+    const content = new Uint8Array([1, 2, 3])
+    const publish = vi.fn(async () => ({ url: "https://assets.example/review/screenshots/result.png" }))
+    const effect = vi.fn((context) => {
+      expect(context.effect).toMatchObject({
+        artifacts: [{
+          path: "screenshots/result.png",
+          url: "https://assets.example/review/screenshots/result.png",
+        }],
+        kind: "reply",
+        payload: "done",
+      })
+    })
+    const agent = defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reply: effect },
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                delivery: {
+                  finishEffects: async (_event, finishContext) => ({
+                    artifacts: await publishWorkspaceArtifacts(finishContext, [{
+                      mediaType: "image/png",
+                      path: "screenshots/result.png",
+                      placement: "inline",
+                    }], {
+                      prefix: "review",
+                      publish,
+                    }),
+                    kind: "reply",
+                    payload: "done",
+                  }),
+                },
+                input: { prompt: "hello" },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+              }),
+            },
+          },
+        }),
+      },
+      run: async ({ workspace }) => {
+        await (workspace as WritableWorkspaceFacade).fs.writeFile("screenshots/result.png", content, { mediaType: "image/png" })
+        return "ok"
+      },
+      workspace: { mode: "write", store: { provider: "memory" } },
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({
+      content,
+      mediaType: "image/png",
+      pathname: "review/screenshots/result.png",
+    }))
+    expect(effect).toHaveBeenCalledOnce()
+  })
+
   it("lets Capabilities expose finish delivery effects", async () => {
     const { defineAgent, defineCapability, runAgentTrigger } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")

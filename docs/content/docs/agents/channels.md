@@ -93,6 +93,47 @@ Input Commands are Capability behavior. A channel can deliver `/summary`, but `i
 
 Link command docs and command examples to [Capabilities](/docs/capabilities), not to channel configuration.
 
+## Deliver Workspace artifacts
+
+Delivery effects can include artifacts that were written into the Agent Workspace. Use `publishWorkspaceArtifacts()` from `@vite-hub/agent/channels` inside a finish effect when a channel needs public URLs or channel-native attachment handles.
+
+```ts [server/agents/review.ts]
+import { defineAgent } from '@vite-hub/agent'
+import { github, publishWorkspaceArtifacts } from '@vite-hub/agent/channels'
+import { blob } from '@vite-hub/blob'
+
+export default defineAgent({
+  channels: {
+    github: github({
+      app: true,
+      events: {
+        pullRequestComments: {
+          reply: async (event, context) => ({
+            artifacts: await publishWorkspaceArtifacts(context, [{
+              alt: 'Login footer version badge',
+              mediaType: 'image/png',
+              path: 'screenshots/login-version-badge-desktop.png',
+              placement: 'inline',
+            }], {
+              prefix: `reviews/${context.run?.runId || crypto.randomUUID()}`,
+              publish: async ({ content, mediaType, pathname }) => {
+                const object = await blob.put(pathname, content, { access: 'public', contentType: mediaType })
+                return { url: object.url }
+              },
+            }),
+            kind: 'review',
+            payload: { body: String(event.result || '').trim() || '_No review generated._' },
+          }),
+        },
+      },
+    }),
+  },
+  run: () => 'ok',
+})
+```
+
+The GitHub channel renders inline image artifacts as markdown in `reply` and `review` effects. It only renders artifacts that already have a `url`; it does not scan `screenshots/**` or upload files unless your finish effect explicitly asks it to.
+
 ## Next steps
 
 - Read [Triggers](/docs/agents/triggers) for `chat.message` and app-owned trigger consumers.
