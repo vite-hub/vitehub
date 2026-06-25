@@ -1,7 +1,8 @@
 import { posix } from "node:path"
+import { gzipSync } from "node:zlib"
 import { lookup } from "mrmime"
 
-import { normalizeSafeWorkspacePath } from "../core/path.ts"
+import { contentToBytes, normalizeSafeWorkspacePath } from "../core/path.ts"
 import type {
   ReadonlyWorkspaceFacade,
   WritableWorkspaceFacade,
@@ -39,7 +40,9 @@ type InitialTree = {
 }
 type SourceMaterializer = (options?: { path?: string }) => Promise<unknown>
 type WorkspaceFsWithSources = { materializeSources?: SourceMaterializer }
-const sandboxWriteConcurrency = 4
+const archivePath = ".vitehub-workspace.tar.gz"
+const tarBlockSize = 512
+const workspaceReadConcurrency = 16
 
 function isWritableWorkspaceFacade(workspace: WorkspaceFacade): workspace is WritableWorkspaceFacade {
   return "startSession" in workspace && typeof workspace.startSession === "function"
@@ -181,16 +184,91 @@ async function resetSandboxWorkDir(
   })
 }
 
-async function mkdirSandboxDirectories(
+function paddedTarContent(content: Uint8Array) {
+  const padding = content.byteLength % tarBlockSize
+    ? tarBlockSize - (content.byteLength % tarBlockSize)
+    : 0
+  if (!padding) return Buffer.from(content)
+  return Buffer.concat([Buffer.from(content), Buffer.alloc(padding)])
+}
+
+function splitTarPath(path: string): { name: string, prefix?: string } {
+  if (Buffer.byteLength(path) <= 100) return { name: path }
+  const parts = path.split("/")
+  for (let index = 1; index < parts.length; index++) {
+    const prefix = parts.slice(0, index).join("/")
+    const name = parts.slice(index).join("/")
+    if (Buffer.byteLength(prefix) <= 155 && Buffer.byteLength(name) <= 100)
+      return { name, prefix }
+  }
+  throw new Error(`[vitehub] Harness Workspace Session path is too long for tar transfer: ${path}`)
+}
+
+function writeTarString(header: Buffer, offset: number, length: number, value: string) {
+  const bytes = Buffer.from(value)
+  bytes.copy(header, offset, 0, Math.min(bytes.byteLength, length))
+}
+
+function writeTarOctal(header: Buffer, offset: number, length: number, value: number) {
+  const text = value.toString(8).padStart(length - 1, "0").slice(-(length - 1))
+  header.write(text, offset, length - 1, "ascii")
+  header[offset + length - 1] = 0
+}
+
+function tarHeader(path: string, options: { mode: number, size: number, type: "directory" | "file" }) {
+  const header = Buffer.alloc(tarBlockSize)
+  const { name, prefix } = splitTarPath(path)
+  writeTarString(header, 0, 100, name)
+  writeTarOctal(header, 100, 8, options.mode)
+  writeTarOctal(header, 108, 8, 0)
+  writeTarOctal(header, 116, 8, 0)
+  writeTarOctal(header, 124, 12, options.size)
+  writeTarOctal(header, 136, 12, 0)
+  header.fill(0x20, 148, 156)
+  header[156] = options.type === "directory" ? 0x35 : 0x30
+  writeTarString(header, 257, 6, "ustar")
+  writeTarString(header, 263, 2, "00")
+  if (prefix) writeTarString(header, 345, 155, prefix)
+  let checksum = 0
+  for (const byte of header) checksum += byte
+  header.write(checksum.toString(8).padStart(6, "0"), 148, 6, "ascii")
+  header[154] = 0
+  header[155] = 0x20
+  return header
+}
+
+function createWorkspaceTarGz(directories: Iterable<string>, files: Map<string, InitialFile>) {
+  const blocks: Buffer[] = []
+  for (const directory of [...directories].sort((left, right) => left.localeCompare(right))) {
+    const path = directory.endsWith("/") ? directory : `${directory}/`
+    blocks.push(tarHeader(path, { mode: 0o755, size: 0, type: "directory" }))
+  }
+  for (const [path, file] of [...files.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    blocks.push(tarHeader(path, { mode: 0o644, size: file.content.byteLength, type: "file" }))
+    blocks.push(paddedTarContent(file.content))
+  }
+  blocks.push(Buffer.alloc(tarBlockSize * 2))
+  return gzipSync(Buffer.concat(blocks))
+}
+
+async function extractWorkspaceArchive(
   sandbox: HarnessSandboxSession,
-  directories: string[],
   sessionWorkDir: string,
+  initialTree: InitialTree,
+  directories: Set<string>,
   abortSignal: AbortSignal | undefined,
 ) {
-  if (!directories.length) return
+  if (!initialTree.files.size && !directories.size) return
+  const path = sandboxPath(sessionWorkDir, archivePath)
+  await sandbox.writeBinaryFile({
+    abortSignal,
+    content: createWorkspaceTarGz(directories, initialTree.files),
+    path,
+  })
   await runSandbox(sandbox, {
     abortSignal,
-    command: `mkdir -p ${directories.map(path => shellQuote(sandboxPath(sessionWorkDir, path))).join(" ")}`,
+    command: `tar -xzf ${shellQuote(archivePath)} && rm ${shellQuote(archivePath)}`,
+    workingDirectory: sessionWorkDir,
   })
 }
 
@@ -224,17 +302,12 @@ async function copyWorkspaceToSandbox(
   }
   const files = workspaceFiles(entries)
   for (const entry of files) addParentDirectories(directoriesToCreate, entry.path)
-  await resetSandboxWorkDir(sandbox, sessionWorkDir, abortSignal)
-  await mkdirSandboxDirectories(sandbox, [...directoriesToCreate], sessionWorkDir, abortSignal)
-  await forEachConcurrent(files, sandboxWriteConcurrency, async (entry) => {
+  await forEachConcurrent(files, workspaceReadConcurrency, async (entry) => {
     const content = await workspace.fs.readFile(entry.path, { encoding: "binary" })
-    initialTree.files.set(entry.path, { content, mediaType: entry.mediaType })
-    await sandbox.writeBinaryFile({
-      abortSignal,
-      content,
-      path: sandboxPath(sessionWorkDir, entry.path),
-    })
+    initialTree.files.set(entry.path, { content: contentToBytes(content), mediaType: entry.mediaType })
   })
+  await resetSandboxWorkDir(sandbox, sessionWorkDir, abortSignal)
+  await extractWorkspaceArchive(sandbox, sessionWorkDir, initialTree, directoriesToCreate, abortSignal)
   return initialTree
 }
 

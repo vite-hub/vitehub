@@ -20,6 +20,22 @@ function sandboxRun(files: string[] = [], directories: string[] = []) {
   })
 }
 
+function expectArchiveWrite(writeBinaryFile: ReturnType<typeof vi.fn>, root = "/work/agent") {
+  expect(writeBinaryFile).toHaveBeenCalledWith({
+    abortSignal: undefined,
+    content: expect.any(Uint8Array),
+    path: `${root}/.vitehub-workspace.tar.gz`,
+  })
+}
+
+function expectArchiveExtract(run: ReturnType<typeof vi.fn>, root = "/work/agent") {
+  expect(run).toHaveBeenCalledWith({
+    abortSignal: undefined,
+    command: "tar -xzf '.vitehub-workspace.tar.gz' && rm '.vitehub-workspace.tar.gz'",
+    workingDirectory: root,
+  })
+}
+
 describe("Harness Workspace Session", () => {
   it("resets and materializes selected Workspace files into the harness sandbox", async () => {
     const readme = bytes("# Docs\n")
@@ -44,16 +60,9 @@ describe("Harness Workspace Session", () => {
       abortSignal: undefined,
       command: "rm -rf '/work/agent' && mkdir -p '/work/agent'",
     })
-    expect(run).toHaveBeenCalledWith({
-      abortSignal: undefined,
-      command: "mkdir -p '/work/agent/notes'",
-    })
     expect(readFile).toHaveBeenCalledWith("README.md", { encoding: "binary" })
-    expect(writeBinaryFile).toHaveBeenCalledWith({
-      abortSignal: undefined,
-      content: readme,
-      path: "/work/agent/README.md",
-    })
+    expectArchiveWrite(writeBinaryFile)
+    expectArchiveExtract(run)
 
     await session.close()
   })
@@ -105,11 +114,7 @@ describe("Harness Workspace Session", () => {
     expect(list).toHaveBeenCalledWith("public", { recursive: true })
     expect(list).not.toHaveBeenCalledWith("", { recursive: true })
     expect(readFile).toHaveBeenCalledWith("public/README.md", { encoding: "binary" })
-    expect(writeBinaryFile).toHaveBeenCalledWith({
-      abortSignal: undefined,
-      content: publicReadme,
-      path: "/work/agent/public/README.md",
-    })
+    expectArchiveWrite(writeBinaryFile)
     expect(startSession).toHaveBeenCalledWith({ paths: ["public"] })
 
     await session.close()
@@ -205,11 +210,7 @@ describe("Harness Workspace Session", () => {
 
     expect(materializeSources).toHaveBeenCalledWith({ path: "" })
     expect(list).toHaveBeenCalledWith("", { recursive: true })
-    expect(writeBinaryFile).toHaveBeenCalledWith({
-      abortSignal: undefined,
-      content: sourceFile,
-      path: "/work/agent/portal/app/OrderSuggestion.vue",
-    })
+    expectArchiveWrite(writeBinaryFile)
 
     await session.close()
   })
@@ -244,9 +245,7 @@ describe("Harness Workspace Session", () => {
     expect(stat).toHaveBeenCalledWith("public")
     expect(stat).toHaveBeenCalledWith(".vitehub/sources/public.json")
     expect(list).toHaveBeenCalledWith("public", { recursive: true })
-    expect(writeBinaryFile).toHaveBeenCalledWith(expect.objectContaining({
-      path: "/work/agent/public/README.md",
-    }))
+    expectArchiveWrite(writeBinaryFile)
 
     await session.close()
   })
@@ -271,15 +270,8 @@ describe("Harness Workspace Session", () => {
       sessionWorkDir: "/work/agent",
     })
 
-    expect(run).toHaveBeenCalledWith({
-      abortSignal: undefined,
-      command: "mkdir -p '/work/agent/docs'",
-    })
-    expect(writeBinaryFile).toHaveBeenCalledWith({
-      abortSignal: undefined,
-      content: readme,
-      path: "/work/agent/docs/README.md",
-    })
+    expectArchiveWrite(writeBinaryFile)
+    expectArchiveExtract(run)
 
     await session.close()
   })
@@ -385,10 +377,10 @@ describe("Harness Workspace Session", () => {
 
     const session = await prepareHarnessWorkspaceSession({
       fs: {
-        list: workspace.list,
+        list: workspace.list.bind(workspace),
         materializeSources: workspace.materializeSources,
-        readFile: workspace.readFile,
-        stat: workspace.stat,
+        readFile: workspace.readFile.bind(workspace),
+        stat: workspace.stat.bind(workspace),
       },
       startSession: workspace.startSession,
       tools: {},
@@ -417,9 +409,9 @@ describe("Harness Workspace Session", () => {
 
     const session = await prepareHarnessWorkspaceSession({
       fs: {
-        list: workspace.list,
-        readFile: workspace.readFile,
-        stat: workspace.stat,
+        list: workspace.list.bind(workspace),
+        readFile: workspace.readFile.bind(workspace),
+        stat: workspace.stat.bind(workspace),
       },
       startSession: workspace.startSession,
       tools: {},
