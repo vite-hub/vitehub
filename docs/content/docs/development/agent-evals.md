@@ -14,6 +14,22 @@ Keep eval files close to the Agent Definition they protect.
 The Agent Eval Runner discovers evals and writes an Evalite config with ViteHub defaults.
 
 ```ts [server/agents/support.eval.ts]
+import { defineEval } from '@vite-hub/agent/eval'
+import support from './support'
+
+export default defineEval({
+  agent: support,
+  async test(t) {
+    await t.send('How do I run provisioning?')
+    t.completed()
+    t.textContains('vitehub provision')
+  },
+})
+```
+
+Use `scenarios` when one eval file should run several cases or share scorers across cases.
+
+```ts [server/agents/support.eval.ts]
 import { defineEval, textContains } from '@vite-hub/agent/eval'
 import support from './support'
 
@@ -74,9 +90,11 @@ export default defineConfig({
 | Behavior | Useful assertion |
 | --- | --- |
 | Source-grounded answer | Expected citation, phrase, or refusal when the Source does not answer. |
-| Capability behavior | Tool was used, rejected, or omitted as expected. |
+| Capability behavior | Tool was used, rejected, omitted, or reported through `hasCapabilityExtension(id)` as expected. |
 | Access boundary | Scoped-out Workspace content does not appear in the answer. |
 | Cost or latency | Agent Usage Record stays within the expected budget when telemetry is attached. |
+
+Use `callsTool(name)` and `doesNotCallTool(name)` from `@vite-hub/agent/eval` for tool-use expectations. They read the Agent test runner's normalized tool steps, so the eval does not need to match rendered tool output text.
 
 ## Next steps
 

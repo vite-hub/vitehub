@@ -3,6 +3,9 @@ import {
   defineAgentUsageMetadata,
 } from "./internal/agent-usage-metadata.ts"
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
+import { applyCapabilityInstructionSlots } from "./capability-runtime.ts"
+import { applyWorkspaceSourceInstructionSlot } from "./workspace-agent.ts"
+import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
@@ -40,7 +43,7 @@ interface HarnessAgentAdapterOptions<
   CALL_OPTIONS = unknown,
 > {
   credentials?: AgentHarnessCredentialSource
-  harness: AgentHarnessDriverInput
+  harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
   sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS>
   sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
 }
@@ -53,7 +56,6 @@ function unsupportedHarnessContributionKinds(context: AgentAdapterRunContext): S
   const kinds = new Set<AgentDriverContributionKind>()
   if (hasEntries(context.tools)) kinds.add("Capability tools")
   if (context.providerTools?.length) kinds.add("provider tools")
-  if (context.capabilityInstructions?.length) kinds.add("Capability instructions")
   return kinds
 }
 
@@ -88,7 +90,6 @@ function formatUnsupportedHarnessContributions(context: AgentAdapterRunContext):
   return [
     unsupportedKinds.has("Capability tools") ? "Capability tools" : undefined,
     unsupportedKinds.has("provider tools") ? "provider tools" : undefined,
-    unsupportedKinds.has("Capability instructions") ? "Capability instructions" : undefined,
   ].filter((value): value is string => Boolean(value))
 }
 
@@ -96,21 +97,73 @@ function assertSupportedHarnessDriverContributions(context: AgentAdapterRunConte
   const unsupported = formatUnsupportedHarnessContributions(context)
 
   if (unsupported.length) {
-    throw new Error(`[vitehub] Harness Agent Drivers do not support these Capability Driver Contributions yet: ${unsupported.join("; ")}. Move model-facing tools and instructions to harness-native workspace files or remove those capabilities for harness.`)
+    throw new Error(`[vitehub] Harness Agent Drivers do not support these Capability Driver Contributions yet: ${unsupported.join("; ")}. Move model-facing tools to harness-native workspace files or remove those capabilities for harness.`)
   }
 }
 
+function staticWorkspaceRulePath(pattern: string): string | undefined {
+  const wildcard = pattern.search(/[*{[(?]/)
+  const base = wildcard === -1 ? pattern : pattern.slice(0, wildcard)
+  const normalized = base.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "").replace(/\/+/g, "/")
+  const parts = normalized.split("/").filter(Boolean)
+  if (!normalized || parts.some(part => part === "." || part === "..")) return
+  return normalized
+}
+
+function workspaceRuleHarnessPaths(context: AgentAdapterRunContext): string[] {
+  const definition = context.workspaceDefinition
+  if (!definition) return []
+  const rules = [
+    ...Object.entries(definition.rules || {}),
+    ...(definition.plugins || []).flatMap(plugin => Object.entries(plugin.rules || {})),
+  ]
+  return rules.flatMap(([pattern, rule]) => rule.write ? [staticWorkspaceRulePath(pattern)].filter((path): path is string => Boolean(path)) : [])
+}
+
+function workspaceSourceHarnessPaths(context: AgentAdapterRunContext): string[] {
+  const sources = context.workspaceDefinition?.sources
+  if (!sources) return []
+  return normalizeAgentWorkspaceSources(sources).flatMap((source) => {
+    if (source.materialize !== "build" || !source.probeKeys?.length) return []
+    return source.probeKeys.map(key => [source.mountPath, key].filter(Boolean).join("/"))
+  })
+}
+
+function pathContains(container: string, path: string): boolean {
+  return !container || path === container || path.startsWith(`${container}/`)
+}
+
+function compactWorkspacePaths(paths: readonly string[]): string[] {
+  const sorted = [...new Set(paths)].sort((left, right) => left.length - right.length || left.localeCompare(right))
+  return sorted.filter((path, index) => !sorted.some((candidate, candidateIndex) => candidateIndex < index && pathContains(candidate, path)))
+}
+
+function explicitHarnessWorkspacePaths(context: AgentAdapterRunContext): string[] {
+  return compactWorkspacePaths([
+    ...(context.harnessWorkspacePaths || []),
+    ...workspaceRuleHarnessPaths(context),
+    ...workspaceSourceHarnessPaths(context),
+  ])
+}
+
 function selectedWorkspaceScopePaths(context: AgentAdapterRunContext): string[] | undefined {
-  if (!hasTrustedWorkspaceAccessScope(context.context)) return
+  const harnessPaths = explicitHarnessWorkspacePaths(context)
+  if (!hasTrustedWorkspaceAccessScope(context.context)) return harnessPaths.length ? harnessPaths : undefined
   const scope = context.context.get("access")?.workspaceScope
-  if (!scope || scope.all) return
-  const paths = [...new Set([...scope.paths, ...(context.harnessWorkspacePaths || [])])]
-  return paths.length ? paths : undefined
+  if (!scope) return harnessPaths.length ? harnessPaths : undefined
+  if (scope.all) return [""]
+  const paths = [...new Set([...scope.paths, ...harnessPaths])]
+  return paths.length ? paths : []
 }
 
 function toHarnessCallInput(context: AgentAdapterRunContext) {
+  const instructions = applyWorkspaceSourceInstructionSlot(
+    applyCapabilityInstructionSlots(context.instructions || "", context.capabilityInstructions),
+    context.sourceInstructions,
+  )
   const base = {
     abortSignal: context.input.abortSignal,
+    ...(instructions ? { instructions } : {}),
     timeout: context.input.timeout,
     ...("options" in context.input ? { options: context.input.options } : {}),
   }
@@ -192,6 +245,19 @@ async function resolveHarnessSandbox<
   return sandbox ?? await createDefaultHarnessSandbox()
 }
 
+async function resolveHarness<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>,
+  context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
+) {
+  if (typeof harness === "function") {
+    return await harness(toRunCallbackContext(context))
+  }
+  return harness
+}
+
 async function createHarnessAgent<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -203,8 +269,9 @@ async function createHarnessAgent<
   assertSupportedHarnessDriverContributions(context)
   const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
   const sandbox = await resolveHarnessSandbox(options.sandbox, context)
+  const harness = await resolveHarness(options.harness, context)
   return new HarnessAgent({
-    harness: options.harness,
+    harness,
     onSandboxSession: async ({ abortSignal, session, sessionWorkDir }: { abortSignal?: AbortSignal, session: unknown, sessionWorkDir: string }) => {
       await prepareWorkspaceSession(session, sessionWorkDir, abortSignal)
     },

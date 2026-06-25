@@ -87,6 +87,44 @@ Check that the custom Capability id appears once, its requirements pass, its too
 Add an Agent Eval when the Capability changes product behavior.
 Use a focused fixture that proves the Capability exposes the intended ability and does not expose adjacent authority.
 
+## Expose eval-visible metadata
+
+Use a `finish` provider when the Capability should publish invocation metadata for finish hooks, channel delivery code, or eval assertions.
+The value is keyed by Capability id and is available through `observation.extensions.get(id)` in Agent Evals.
+
+```ts [server/agents/capabilities/tickets.ts]
+import { defineCapability } from '@vite-hub/agent'
+
+export function tickets() {
+  return defineCapability({
+    id: 'tickets',
+    instructions: 'Use ticket tools only for support ticket lookup and triage.',
+    finish(event) {
+      return {
+        resultKind: typeof event.result,
+        status: event.error ? 'failed' : 'completed',
+      }
+    },
+  })
+}
+```
+
+```ts [server/agents/support.eval.ts]
+import { defineEval, hasCapabilityExtension } from '@vite-hub/agent/eval'
+import support from './support'
+
+export default defineEval({
+  agent: support,
+  scenarios: [{
+    name: 'uses ticket boundary',
+    input: { prompt: 'Find the open billing ticket' },
+    scorers: [
+      hasCapabilityExtension('tickets', 'status'),
+    ],
+  }],
+})
+```
+
 ## Reference
 
 - [Capabilities overview](/docs/capabilities)

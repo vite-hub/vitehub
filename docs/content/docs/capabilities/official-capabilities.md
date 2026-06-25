@@ -27,6 +27,7 @@ import {
   llmRoute,
   mcp,
   memory,
+  observability,
   rateLimit,
   repositoryHost,
   sandbox,
@@ -69,6 +70,7 @@ import {
 | Chat title | [`chatTitle()`](/docs/capabilities/chat-title) | Chat streams and finish extensions should include a generated conversation title. |
 | Chat summary | [`chatSummary()`](/docs/capabilities/chat-summary) | A summary command should replace explicit input with a conversation summary. |
 | Usage telemetry | [`usageTelemetry()`](/docs/capabilities/usage-telemetry) | Agent Usage Records should be normalized, emitted, or attached to output. |
+| Observability | [`observability()`](/docs/capabilities/observability) | Lifecycle events, model instrumentation, and finish metadata should be attached to Agent Invocations. |
 
 ## Read capability pages first
 

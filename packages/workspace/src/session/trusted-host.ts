@@ -6,7 +6,7 @@ import { dirname, join, posix, relative, sep } from "node:path"
 import { WorkspaceError } from "../core/errors.ts"
 import { contentToBytes, decodeFile, matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
 import { createSnapshotFromEntries, diffSnapshots } from "../storage/utils.ts"
-import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDiff, filterSessionEntries, scopedSearchQuery } from "./scope.ts"
+import { assertDiffInsideSessionPaths, assertPathInSessionScope, filterSessionDiff, filterSessionEntries, isMissingWorkspacePathError, scopedSearchQuery } from "./scope.ts"
 
 import type {
   ExecOptions,
@@ -132,7 +132,11 @@ async function sessionEntries(workspace: Workspace, options?: WorkspaceSessionOp
 
   const entries = new Map<string, WorkspaceEntry>()
   for (const path of paths) {
-    const stat = await workspace.stat(path)
+    const stat = await workspace.stat(path).catch((error) => {
+      if (isMissingWorkspacePathError(error)) return undefined
+      throw error
+    })
+    if (!stat) continue
     entries.set(stat.path, stat)
     if (stat.type === "directory") {
       for (const entry of await workspace.list(path, { recursive: true })) entries.set(entry.path, entry)

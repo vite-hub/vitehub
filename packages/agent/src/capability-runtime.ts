@@ -271,6 +271,11 @@ function pathContains(container: string, path: string): boolean {
   return !container || path === container || path.startsWith(`${container}/`)
 }
 
+function compactWorkspacePaths(paths: readonly string[]): string[] {
+  const sorted = [...new Set(paths)].sort((left, right) => left.length - right.length || left.localeCompare(right))
+  return sorted.filter((path, index) => !sorted.some((candidate, candidateIndex) => candidateIndex < index && pathContains(candidate, path)))
+}
+
 function pathsConflict(left: string, right: string): boolean {
   return pathContains(left, right) || pathContains(right, left)
 }
@@ -659,7 +664,10 @@ export async function resolveAgentCapabilities<
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   validateAccessCapabilityOrder(capabilities)
   const harnessWorkspacePaths = driverKind === "harness"
-    ? [...new Set(capabilities.flatMap(capability => [...capability.harnessWorkspacePaths || []]))]
+    ? compactWorkspacePaths(capabilities.flatMap(capability => [
+        ...(capability.harnessWorkspacePaths || []),
+        ...(capability.requires || []).flatMap(requirement => requirement.workspace?.paths || []),
+      ]))
     : []
   let currentInput = normalizeRunInput(input)
   let currentWorkspace = workspace as ReadonlyWorkspaceFacade<Name> | undefined
@@ -709,6 +717,15 @@ export async function resolveAgentCapabilities<
     if (capabilityInstructions.length > before) {
       recordDriverContribution("Capability instructions", capabilityId)
     }
+  }
+
+  function addFinishExtensionProvider(capabilityId: string, value: unknown | AgentFinishExtensionProvider) {
+    registries.finishExtensionProviders.push({
+      id: capabilityId,
+      resolve: typeof value === "function"
+        ? value as AgentFinishExtensionProvider
+        : () => value,
+    })
   }
 
   async function closeRegisteredCallbacks() {
@@ -871,12 +888,7 @@ export async function resolveAgentCapabilities<
         },
         finish: {
           provide(value) {
-            registries.finishExtensionProviders.push({
-              id: capability.id,
-              resolve: typeof value === "function"
-                ? value as AgentFinishExtensionProvider
-                : () => value,
-            })
+            addFinishExtensionProvider(capability.id, value)
           },
         },
         state: {
@@ -899,6 +911,7 @@ export async function resolveAgentCapabilities<
         workspace: currentWorkspace,
       } as AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
       capabilityContexts.push({ capability, context: capabilityContext })
+      if (capability.finish) addFinishExtensionProvider(capability.id, capability.finish)
 
       for (const [name, trigger] of Object.entries(capability.triggers || {})) {
         assertTriggerName(name, capability.id)
@@ -1129,11 +1142,17 @@ export async function applyOutputRenderers(
 
 function createAgentExtensionReader(values: Map<string, unknown>): AgentInvocationExtensions {
   return {
+    entries() {
+      return Array.from(values.entries())
+    },
     get<T = unknown>(capabilityId: string, key?: string): T | undefined {
       const value = values.get(capabilityId)
       if (key === undefined) return value as T | undefined
       if (typeof value !== "object" || value === null) return undefined
       return (value as Record<string, unknown>)[key] as T | undefined
+    },
+    toJSON() {
+      return Object.fromEntries(values.entries())
     },
   }
 }

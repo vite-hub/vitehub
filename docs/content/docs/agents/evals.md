@@ -9,9 +9,27 @@ Agent Evals are repeatable development checks that run an Agent Definition again
 
 ViteHub Agent Evals use `defineEval` and run through the Agent test runner. They preserve Agent Driver, Capability, Workspace, and runtime boundaries unless a variant explicitly overrides model-backed driver fields.
 
+Keep harness, credentials, sandbox, and runtime selection on the Agent Definition. An eval should declare scenarios and scorers; it should not duplicate the Agent Driver setup. For harness-backed Agents, configure local or hosted sandbox behavior with `driver.sandbox` on the Agent Definition, then import that Agent into the eval.
+
 ## Define an eval
 
 Create eval files beside the Agent they protect. A sibling `support.eval.ts` can import `./support`, and a folder-level `eval.ts` can infer `./config`.
+
+```ts [server/agents/support.eval.ts]
+import { defineEval } from '@vite-hub/agent/eval'
+import support from './support'
+
+export default defineEval({
+  agent: support,
+  async test(t) {
+    await t.send('How do I configure billing retries?')
+    t.completed()
+    t.textContains('billing')
+  },
+})
+```
+
+Use `scenarios` when one eval file should run several cases or reuse the same scorers.
 
 ```ts [server/agents/support.eval.ts]
 import { defineEval, textContains } from '@vite-hub/agent/eval'
@@ -33,7 +51,8 @@ export default defineEval({
 })
 ```
 
-Scenarios pass normal Agent Invocation input. Scorers receive the Agent output text, raw result, tool steps, usage, warnings, scenario name, and variant name.
+Scenarios pass normal Agent Invocation input.
+Scorers receive the Agent output text, raw result, tool steps, usage, warnings, capability finish extensions, scenario name, and variant name.
 
 ## Compare variants
 
@@ -72,8 +91,48 @@ Use `--watch` while editing prompts or scenarios. Use `--threshold` and `--outpu
 ## Score useful behavior
 
 Good evals score source-grounded answers, refusal behavior, expected tool use, no source leakage, and regressions in usage or latency when telemetry is attached.
+When the behavior belongs to a Capability, assert its finish extension instead of duplicating host-specific hooks.
+
+```ts [server/agents/support.eval.ts]
+import { defineEval, hasCapabilityExtension } from '@vite-hub/agent/eval'
+import support from './support'
+
+export default defineEval({
+  agent: support,
+  async test(t) {
+    await t.send('What changed in the order forecast?')
+    t.hasCapabilityExtension('observability')
+    t.expect(hasCapabilityExtension('observability', 'status'))
+    t.expect(hasCapabilityExtension('usage-telemetry'))
+  },
+})
+```
 
 Keep evals close to the Agent Definition they protect. A small eval with clear scenarios is more useful than a broad suite that hides which boundary changed.
+
+Use tool scorers when the important behavior is whether a Capability ran, not the exact text it returned.
+
+```ts [server/agents/support.eval.ts]
+import { callsTool, defineEval, doesNotCallTool, textContains } from '@vite-hub/agent/eval'
+import support from './support'
+
+export default defineEval({
+  agent: support,
+  scenarios: [
+    {
+      name: 'inspects workspace before answering',
+      input: { prompt: 'Where is the billing retry policy documented?' },
+      scorers: [
+        callsTool('shell'),
+        doesNotCallTool('refund'),
+        textContains('billing'),
+      ],
+    },
+  ],
+})
+```
+
+`callsTool(name)` and `doesNotCallTool(name)` score the normalized tool steps reported by the Agent test runner. Prefer these scorers over matching tool output text.
 
 ## Next steps
 

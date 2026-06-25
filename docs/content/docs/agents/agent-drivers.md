@@ -63,6 +63,26 @@ export default defineAgent({
 })
 ```
 
+Use `driver.sandbox` when the harness needs a specific execution runtime. For local development and Agent Evals, `@vite-hub/agent/harness/local-sandbox` provides a trusted-host sandbox that runs commands on the local machine.
+
+```ts [server/agents/codex/config.ts]
+import { createCodex } from '@ai-sdk/harness-codex'
+import { defineAgent } from '@vite-hub/agent'
+import { createLocalHarnessSandbox } from '@vite-hub/agent/harness/local-sandbox'
+
+export default defineAgent({
+  driver: {
+    harness: createCodex({ model: 'gpt-5.5' }),
+    sandbox: createLocalHarnessSandbox(),
+    credentials: { label: 'local Codex', source: 'ambient' },
+  },
+})
+```
+
+`createLocalHarnessSandbox()` is for trusted local development and tests. It is not a production isolation boundary.
+
+`driver.harness`, `driver.sandbox`, and `driver.sessionKey` can also be callbacks. Use callbacks when one Agent Definition needs invocation-scoped harness auth, sandbox selection, or session reuse.
+
 Harness-backed drivers do not receive `driver.instructions` as a model prompt. Use explicit harness configuration or Workspace instruction surfaces when the harness needs guidance.
 
 ## Custom run driver

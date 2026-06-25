@@ -774,6 +774,36 @@ describe("agent message protocol", () => {
     expect(session.destroy).toHaveBeenCalledTimes(1)
   })
 
+  it("resolves harness Agent Driver factories for each invocation", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    harnessAgentSettings.length = 0
+    const resolvedHarness = { provider: "codex", runId: "run-1" }
+    const harness = vi.fn(() => resolvedHarness)
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({ text: "ok" })
+
+    const agent = defineAgent({
+      driver: {
+        harness,
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-1" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+
+    expect(harness).toHaveBeenCalledWith(expect.objectContaining({
+      run: expect.objectContaining({ runId: "run-1" }),
+    }))
+    expect(harnessAgentSettings.at(-1)).toMatchObject({
+      harness: resolvedHarness,
+    })
+  })
+
   it("labels non-token harness usage with sanitized credentials", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { usageTelemetry } = await import("../src/capabilities.ts")
@@ -943,9 +973,12 @@ describe("agent message protocol", () => {
     expect(harnessGenerate).not.toHaveBeenCalled()
   })
 
-  it("rejects model-facing Capability instructions before harness execution", async () => {
+  it("passes model-facing Capability instructions into harness execution", async () => {
     const { defineCapability } = await import("../src/capability-runtime.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({ text: "ok" })
 
     const agent = defineAgent({
       capabilities: [
@@ -961,10 +994,13 @@ describe("agent message protocol", () => {
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" }))
-      .rejects.toThrow("model-instructions: Capability instructions")
-    expect(harnessAgentSettings).toHaveLength(0)
-    expect(harnessCreateSession).not.toHaveBeenCalled()
-    expect(harnessGenerate).not.toHaveBeenCalled()
+      .resolves.toMatchObject({ text: "ok" })
+    expect(harnessAgentSettings).toHaveLength(1)
+    expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
+      instructions: "Use model-only context.",
+      prompt: "hello",
+      session,
+    }))
   })
 
   it("resumes harness Agent Drivers with an explicit session key", async () => {
@@ -1484,6 +1520,66 @@ describe("agent message protocol", () => {
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
     expect(effect).toHaveBeenCalledOnce()
     expect(order).toEqual(["run", "effect:result:ok:done"])
+  })
+
+  it("lets finish delivery effects publish Workspace artifacts", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { defineChannel, publishWorkspaceArtifacts } = await import("../src/channels.ts")
+    const content = new Uint8Array([1, 2, 3])
+    const publish = vi.fn(async () => ({ url: "https://assets.example/review/screenshots/result.png" }))
+    const effect = vi.fn((context) => {
+      expect(context.effect).toMatchObject({
+        artifacts: [{
+          path: "screenshots/result.png",
+          url: "https://assets.example/review/screenshots/result.png",
+        }],
+        kind: "reply",
+        payload: "done",
+      })
+    })
+    const agent = defineAgent({
+      channels: {
+        portal: defineChannel("portal", {
+          effects: { reply: effect },
+          messages: false,
+          triggers: {
+            message: {
+              invoke: context => ({
+                delivery: {
+                  finishEffects: async (_event, finishContext) => ({
+                    artifacts: await publishWorkspaceArtifacts(finishContext, [{
+                      mediaType: "image/png",
+                      path: "screenshots/result.png",
+                      placement: "inline",
+                    }], {
+                      prefix: "review",
+                      publish,
+                    }),
+                    kind: "reply",
+                    payload: "done",
+                  }),
+                },
+                input: { prompt: "hello" },
+                run: { channelId: context.trigger.channelId, origin: context.channel.kind, runId: "portal-run" },
+              }),
+            },
+          },
+        }),
+      },
+      run: async ({ workspace }) => {
+        await (workspace as WritableWorkspaceFacade).fs.writeFile("screenshots/result.png", content, { mediaType: "image/png" })
+        return "ok"
+      },
+      workspace: { mode: "write", store: { provider: "memory" } },
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
+    expect(publish).toHaveBeenCalledWith(expect.objectContaining({
+      content,
+      mediaType: "image/png",
+      pathname: "review/screenshots/result.png",
+    }))
+    expect(effect).toHaveBeenCalledOnce()
   })
 
   it("lets Capabilities expose finish delivery effects", async () => {

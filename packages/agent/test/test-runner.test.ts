@@ -111,6 +111,42 @@ describe("agent test runner", () => {
     }])
   })
 
+  it("captures capability finish extensions", async () => {
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { runAgentForTest } = await import("../src/test.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "review-output",
+          finish(event) {
+            return {
+              resultKind: typeof event.result,
+              runId: event.invocation.run?.runId,
+            }
+          },
+        }),
+      ],
+      run: () => ({ text: "done" }),
+    })
+
+    const result = await runAgentForTest(agent, {
+      run: { runId: "run-extensions" },
+      runtimeConfig: {},
+    }, {
+      prompt: "hello",
+    })
+
+    expect(result.extensions?.get("review-output")).toEqual({
+      resultKind: "object",
+      runId: "run-extensions",
+    })
+    expect(result.extensions?.get("review-output", "runId")).toBe("run-extensions")
+    expect(result.extensions?.entries()).toEqual([
+      ["review-output", { resultKind: "object", runId: "run-extensions" }],
+    ])
+    expect(JSON.stringify(result.extensions)).toBe('{"review-output":{"resultKind":"object","runId":"run-extensions"}}')
+  })
+
   it("applies workspace defaults and collects workspace tool steps", async () => {
     const { registerWorkspace } = await import("@vite-hub/workspace/test")
     const execute = vi.fn(async () => "workspace result")

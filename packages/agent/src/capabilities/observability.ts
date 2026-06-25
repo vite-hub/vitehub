@@ -131,20 +131,6 @@ export function observability<
     } satisfies AgentObservabilityCapabilityMetadata<TRuntimeConfig, CALL_OPTIONS>,
     configure(context) {
       if (options.instrumentation) context.modelExecution.instrument(options.instrumentation as never)
-      context.finish.provide(async (event: AgentFinishEvent<TRuntimeConfig>) => {
-        if (event.error !== undefined) {
-          return {
-            durationMs: event.invocation.durationMs,
-            status: "failed",
-          } satisfies AgentObservabilityFinishExtension
-        }
-
-        return {
-          durationMs: event.invocation.durationMs,
-          resultKind: resultKind(event.result),
-          status: "completed",
-        } satisfies AgentObservabilityFinishExtension
-      })
       if (options.onEvent) {
         // Returning false reuses finish-time lifecycle scheduling without creating a Channel Delivery Effect.
         context.delivery.finishEffect(async (event): Promise<false> => {
@@ -169,6 +155,20 @@ export function observability<
           return false
         })
       }
+    },
+    async finish(event: AgentFinishEvent<TRuntimeConfig>) {
+      if (event.error !== undefined) {
+        return {
+          durationMs: event.invocation.durationMs,
+          status: "failed",
+        } satisfies AgentObservabilityFinishExtension
+      }
+
+      return {
+        durationMs: event.invocation.durationMs,
+        resultKind: resultKind(event.result),
+        status: "completed",
+      } satisfies AgentObservabilityFinishExtension
     },
     input(context) {
       return notify(options.onEvent, {

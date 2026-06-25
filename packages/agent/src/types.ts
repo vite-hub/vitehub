@@ -165,9 +165,24 @@ export interface AgentRunMetadata<TOrigin extends string = string> {
 
 export type AgentChannelDeliveryEffectKind = "reaction" | "reply" | "status" | (string & {})
 
+export type AgentDeliveryArtifactPlacement = "inline" | "attachment" | "link"
+
+export interface AgentDeliveryArtifact {
+  alt?: string
+  mediaType?: string
+  path: string
+  placement?: AgentDeliveryArtifactPlacement
+}
+
+export interface PublishedAgentDeliveryArtifact extends AgentDeliveryArtifact {
+  channelAttachmentId?: string
+  url?: string
+}
+
 export interface AgentChannelDeliveryEffectIntent<
   TKind extends AgentChannelDeliveryEffectKind = AgentChannelDeliveryEffectKind,
 > {
+  artifacts?: readonly PublishedAgentDeliveryArtifact[]
   intent?: string
   kind: TKind
   metadata?: Record<string, unknown>
@@ -187,6 +202,15 @@ export interface AgentChannelDeliveryEffectContext<
     id?: string
     name?: string
   }
+  workspace?: ReadonlyWorkspaceFacade | WritableWorkspaceFacade
+}
+
+export interface AgentChannelDeliveryFinishEffectContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+> extends AgentCallbackContext<TRuntimeConfig> {
+  input: AgentRunInput
+  run?: AgentRunMetadata
+  workspace?: ReadonlyWorkspaceFacade | WritableWorkspaceFacade
 }
 
 export type AgentChannelDeliveryEffectHandler<
@@ -198,7 +222,7 @@ export type AgentChannelDeliveryEffects<
 > = Partial<Record<AgentChannelDeliveryEffectKind, AgentChannelDeliveryEffectHandler<TRuntimeConfig> | readonly AgentChannelDeliveryEffectHandler<TRuntimeConfig>[]>>
 export type AgentChannelDeliveryFinishEffect =
   | AgentChannelDeliveryEffectIntent
-  | ((event: AgentFinishEvent) => MaybePromise<AgentChannelDeliveryEffectIntent | false | null | undefined>)
+  | ((event: AgentFinishEvent, context: AgentChannelDeliveryFinishEffectContext) => MaybePromise<AgentChannelDeliveryEffectIntent | false | null | undefined>)
 
 export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
   delivery?: {
@@ -314,8 +338,10 @@ export interface AgentRunResult {
 }
 
 export interface AgentInvocationExtensions {
+  entries: () => Array<[string, unknown]>
   get<T = unknown>(capabilityId: string): T | undefined
   get<T = unknown>(capabilityId: string, key: string): T | undefined
+  toJSON: () => Record<string, unknown>
 }
 
 export interface AgentOutputExtensionEvent {
@@ -487,7 +513,12 @@ export type AgentOutputRenderer = (
   context: AgentCapabilityRuntimeContext,
 ) => MaybePromise<unknown>
 export type AgentOutputExtensionProvider = (event: AgentOutputExtensionEvent) => MaybePromise<unknown>
-export type AgentFinishExtensionProvider = (event: AgentFinishEvent) => MaybePromise<unknown>
+export type AgentFinishExtensionProvider<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> = {
+  bivarianceHack(event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<unknown>
+}["bivarianceHack"]
 
 export interface AgentCapabilityStateRequirement {
   name: string
@@ -558,6 +589,7 @@ export interface AgentCapabilityDefinition<
   bind?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   close?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   configure?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
+  finish?: AgentFinishExtensionProvider<TRuntimeConfig>
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
   id: string
   input?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<Response | void>
@@ -677,9 +709,12 @@ export type AgentHarnessSessionKey<
   | string
   | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>) => MaybePromise<string | undefined>)
 
-export type AgentHarnessDriverInput =
+export type AgentHarnessDriverInput<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> =
   | object
-  | ((...args: never[]) => unknown)
+  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<object>)
 
 export type AgentHarnessSandboxInput<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -712,7 +747,7 @@ export interface AgentHarnessDriver<
 > {
   credentials?: AgentHarnessCredentialSource
   execution?: never
-  harness: AgentHarnessDriverInput
+  harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
   instructions?: never
   model?: never
   permissionMode?: never
@@ -1272,6 +1307,7 @@ export interface AgentAdapterRunContext<
   sourceInstructions?: string
   tools?: AgentToolSet
   workspace?: ReadonlyWorkspaceFacade<Name>
+  workspaceDefinition?: WorkspaceDefinition
 }
 
 export interface AgentAdapter<

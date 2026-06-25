@@ -26,7 +26,7 @@ type NormalizedAgentDriver<
   }
   | {
     credentials?: AgentHarnessCredentialSource
-    harness: AgentHarnessDriverInput
+    harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
     kind: "harness"
     sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS>
     sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
