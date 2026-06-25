@@ -148,9 +148,9 @@ function explicitHarnessWorkspacePaths(context: AgentAdapterRunContext): string[
 
 function selectedWorkspaceScopePaths(context: AgentAdapterRunContext): string[] | undefined {
   const harnessPaths = explicitHarnessWorkspacePaths(context)
-  if (!hasTrustedWorkspaceAccessScope(context.context)) return harnessPaths
+  if (!hasTrustedWorkspaceAccessScope(context.context)) return harnessPaths.length ? harnessPaths : undefined
   const scope = context.context.get("access")?.workspaceScope
-  if (!scope) return harnessPaths
+  if (!scope) return harnessPaths.length ? harnessPaths : undefined
   if (scope.all) return [""]
   const paths = [...new Set([...scope.paths, ...harnessPaths])]
   return paths.length ? paths : []

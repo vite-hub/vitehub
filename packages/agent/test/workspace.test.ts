@@ -806,7 +806,7 @@ describe("defineAgent workspace option", () => {
     expect(harnessSession.destroy).toHaveBeenCalledOnce()
   })
 
-  it("uses an empty harness Workspace Session scope when no explicit paths are available", async () => {
+  it("uses an unrestricted harness Workspace Session scope when no explicit paths are available", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const harnessWorkspaceSession = { close: vi.fn() }
     harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
@@ -827,7 +827,7 @@ describe("defineAgent workspace option", () => {
 
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
-      paths: [],
+      paths: undefined,
       session: harnessSandboxSession,
       sessionWorkDir: "/workspace/codex-session",
     })
