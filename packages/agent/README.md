@@ -110,11 +110,29 @@ export default defineConfig({
 - `chat()` exposes the agent as a chat surface; see the [AI agent tutorial](https://vitehub.dev/docs/tutorials/build-ai-chatbot).
 - `workspaceShell()` runs scoped shell/file work through [`@vite-hub/shell`](../shell/README.md).
 - `webSearch()` searches and reads the web with [Brave](https://brave.com/search/api/), [Exa](https://docs.exa.ai/), [Jina](https://jina.ai/en-US/reader/), [SearXNG](https://docs.searxng.org/dev/search_api.html), [SerpApi](https://serpapi.com/search-api), [SerpBase](https://serpbase.dev/docs), or [Tavily](https://docs.tavily.com/).
+- `openapi()` turns an allowed OpenAPI `operationId` subset into bounded HTTP tools.
 - `transcribe()` uses the [AI SDK transcription API](https://ai-sdk.dev/v7/docs/reference/ai-sdk-core/transcribe).
 - `mcp()` connects tools from [Model Context Protocol](https://modelcontextprotocol.io/) servers through `@ai-sdk/mcp`.
 - `kv()`, `blob()`, and `db()` expose [`@vite-hub/kv`](../kv/README.md), [`@vite-hub/blob`](../blob/README.md), and [`@vite-hub/database`](../database/README.md).
 - `sandbox()` and `schedule()` expose [`@vite-hub/sandbox`](../sandbox/README.md) and [`@vite-hub/schedule`](../schedule/README.md).
 - `skills()`, `access()`, `memory()`, `fetch()`, `llmRoute()`, `llmGate()`, and `usageTelemetry()` cover prompt skills, workspace scope, durable notes, HTTP reads, pre-run decisions, and usage reporting.
+
+```ts
+import { openapi } from "@vite-hub/agent/capabilities"
+
+openapi({
+  spec: "https://api.example.com/openapi.json",
+  operations: { allow: ["listCustomers", "getInvoice", "createTicket"] },
+  enabled: ({ actor }) => actor.kind === "portal",
+  headers: async ({ context }) => ({
+    authorization: `Bearer ${context.get<{ token: string }>("portal")?.token}`,
+  }),
+  defaults: async ({ context }) => ({
+    body: { cubeToken: context.get<{ cubeToken: string }>("portal")?.cubeToken },
+  }),
+  input: { omit: { body: ["cubeToken"] } },
+})
+```
 
 ## Chat state
 
