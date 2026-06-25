@@ -9,6 +9,8 @@ Agent Evals are repeatable development checks that run an Agent Definition again
 
 ViteHub Agent Evals use `defineEval` and run through the Agent test runner. They preserve Agent Driver, Capability, Workspace, and runtime boundaries unless a variant explicitly overrides model-backed driver fields.
 
+Keep harness, credentials, sandbox, and runtime selection on the Agent Definition. An eval should declare scenarios and scorers; it should not duplicate the Agent Driver setup. For harness-backed Agents, configure local or hosted sandbox behavior with `driver.sandbox` on the Agent Definition, then import that Agent into the eval.
+
 ## Define an eval
 
 Create eval files beside the Agent they protect. A sibling `support.eval.ts` can import `./support`, and a folder-level `eval.ts` can infer `./config`.
