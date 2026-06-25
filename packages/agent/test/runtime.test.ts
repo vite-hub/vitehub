@@ -935,9 +935,12 @@ describe("agent message protocol", () => {
     expect(session.destroy).toHaveBeenCalledOnce()
   })
 
-  it("rejects model-facing Capability tools before harness execution", async () => {
+  it("passes model-facing Capability tools into harness Agent Drivers", async () => {
     const { defineCapability } = await import("../src/capability-runtime.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({ text: "ok" })
 
     const agent = defineAgent({
       capabilities: [
@@ -957,11 +960,14 @@ describe("agent message protocol", () => {
       },
     })
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" }))
-      .rejects.toThrow("model-tools: Capability tools (lookup)")
-    expect(harnessAgentSettings).toHaveLength(0)
-    expect(harnessCreateSession).not.toHaveBeenCalled()
-    expect(harnessGenerate).not.toHaveBeenCalled()
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+    expect(harnessAgentSettings).toHaveLength(1)
+    expect(harnessAgentSettings.at(-1)?.tools).toHaveProperty("lookup")
+    expect(harnessCreateSession).toHaveBeenCalledWith(undefined)
+    expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: "hello",
+      session,
+    }))
   })
 
   it("does not resolve static Capability tools for harness Agent Drivers", async () => {
