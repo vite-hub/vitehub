@@ -26,6 +26,10 @@
   "type": "module",
   "sideEffects": false,
   "types": "./dist/index.d.ts",
+  "imports": {
+    "#vitehub/database/databases": "./dist/runtime/virtual-databases.js",
+    "#vitehub/database/schema": "./dist/runtime/virtual-schema.js"
+  },
   "exports": {
     ".": "./dist/index.js",
     "./cli": "./dist/cli.js",
@@ -35,6 +39,8 @@
     "./runtime/cloudflare-vite": "./dist/runtime/cloudflare-vite.js",
     "./runtime/hosted": "./dist/runtime/hosted.js",
     "./runtime/vercel-vite": "./dist/runtime/vercel-vite.js",
+    "./runtime/virtual-databases": "./dist/runtime/virtual-databases.js",
+    "./runtime/virtual-schema": "./dist/runtime/virtual-schema.js",
     "./virtual": "./dist/virtual.js",
     "./vite": "./dist/vite.js",
     "./package.json": "./package.json"
