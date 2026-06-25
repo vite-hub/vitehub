@@ -575,21 +575,21 @@ async function resolveTools(options: AiSdkAdapterOptions, context: AgentAdapterM
   }
 }
 
-const defaultToolInputSchema = {
-  jsonSchema: {
-    additionalProperties: false,
-    properties: {},
-    type: "object",
-  },
-}
+const defaultToolInputSchemaJson = {
+  additionalProperties: false,
+  properties: {},
+  type: "object",
+} as const
 
-function withDefaultToolInputSchemas<TTools extends Record<string, unknown> | undefined>(tools: TTools): TTools {
+function withDefaultToolInputSchemas<TTools extends Record<string, unknown> | undefined>(tools: TTools, createDefaultToolInputSchema: () => unknown): TTools {
   if (!tools) return tools
+  let defaultToolInputSchema: unknown
   return Object.fromEntries(Object.entries(tools).map(([name, tool]) => {
     const record = tool as { inputSchema?: unknown, type?: unknown } | undefined
     if (!record || typeof record !== "object" || record.type === "provider" || record.type === "provider-defined" || record.inputSchema != null) {
       return [name, tool]
     }
+    defaultToolInputSchema ??= createDefaultToolInputSchema()
     return [name, {
       ...record,
       inputSchema: defaultToolInputSchema,
@@ -805,7 +805,7 @@ async function createAgent(
   context: AgentAdapterRunContext,
   fallbackCapture?: ReturnType<typeof createWorkspaceFallbackEvidenceCapture>,
 ) {
-  const { ToolLoopAgent, isStepCount } = await loadAiSdk()
+  const { ToolLoopAgent, isStepCount, jsonSchema } = await loadAiSdk()
   const execution = options.execution ?? options.modelExecution
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   const metadataContext = {
@@ -829,7 +829,7 @@ async function createAgent(
   const resolvedTools = withDefaultToolInputSchemas(withWorkspaceFallbackToolEvidence(await applyCapabilityToolTransforms({
     ...context.tools,
     ...adapterTools,
-  }, []), fallbackCapture))
+  }, []), fallbackCapture), () => jsonSchema(defaultToolInputSchemaJson))
   const providerTools = Object.fromEntries((context.providerTools || []).map(tool => [tool.name, {
     args: tool.args || {},
     id: tool.id,

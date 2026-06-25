@@ -64,7 +64,8 @@ for (const pkg of orderedPackages) {
   }
 
   console.log(`\n[${task}] ${pkg.name}`);
-  if (task === "test" && pkg.manifest.scripts?.build) {
+  const standardTestScript = `vp run -t ${pkg.name}#build && vp test`;
+  if (task === "test" && pkg.manifest.scripts?.build && pkg.manifest.scripts.test === standardTestScript) {
     run("vp", ["run", "--filter", pkg.name, "--ignore-depends-on", "build"]);
     run("vp", ["test"], { cwd: pkg.dir });
   }

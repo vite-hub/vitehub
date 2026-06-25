@@ -36,6 +36,7 @@ const useWorkspace = vi.fn<() => ReadonlyWorkspaceFacade | WritableWorkspaceFaca
 } as unknown as WritableWorkspaceFacade))
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const generateText = vi.hoisted(() => vi.fn())
+const jsonSchema = vi.hoisted(() => vi.fn(schema => ({ schema, type: "json-schema" })))
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, steps?: unknown[], text: string }>>(async () => ({ finishReason: "stop", text: "ok" })))
 const agentStream = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ fullStream: AsyncIterable<unknown> }>>(async () => ({
   fullStream: (async function* () {
@@ -59,7 +60,7 @@ const prepareHarnessWorkspaceSession = vi.fn()
 
 vi.mock("ai", () => ({
   generateText,
-  jsonSchema: vi.fn(schema => schema),
+  jsonSchema,
   isStepCount: vi.fn(count => ({ count })),
   ToolLoopAgent: class {
     constructor(public settings: Record<string, unknown>) {
@@ -174,6 +175,7 @@ describe("defineAgent workspace option", () => {
     })
     generateText.mockReset()
     generateText.mockResolvedValue({ text: "fallback answer" })
+    jsonSchema.mockClear()
     exists.mockReset()
     exists.mockResolvedValue(false)
     stat.mockReset()
@@ -2522,6 +2524,30 @@ describe("defineAgent workspace option", () => {
     expect(resolvedShell).toEqual(expect.objectContaining({ inputSchema: {} }))
     await resolvedShell?.execute({ command: "rg defineAgent" })
     expect(shell.execute).toHaveBeenCalledWith({ command: "rg defineAgent" })
+  })
+
+  it("wraps default tool input schemas with the AI SDK schema helper", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const search = { execute: vi.fn() }
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+      capabilities: [{ id: "workspace-tools", tools: () => ({ search }) }],
+    }), { workspace: "docs" })
+
+    await agent.run!(context({ vertex: { model: "gemini" } }))
+
+    const schemaJson = {
+      additionalProperties: false,
+      properties: {},
+      type: "object",
+    }
+    expect(jsonSchema).toHaveBeenCalledWith(schemaJson)
+    expect((agentSettings.at(-1)?.tools as { search?: { inputSchema?: unknown } } | undefined)?.search?.inputSchema).toEqual({
+      schema: schemaJson,
+      type: "json-schema",
+    })
   })
 
   it("reports explicitly attached workspace tool usage when execution starts and finishes", async () => {
