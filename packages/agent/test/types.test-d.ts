@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineAgentInvoker, type AgentActor, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDefinition, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, type AgentActor, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentDeliveryArtifact, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
 import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceExec, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
@@ -510,6 +510,8 @@ describe("agent public types", () => {
         reaction(context) {
           expectTypeOf(context.effect.kind).toEqualTypeOf<AgentChannelDeliveryEffectKind>()
           expectTypeOf(context.effect).toEqualTypeOf<AgentChannelDeliveryEffectIntent>()
+          expectTypeOf(context.effect.artifacts?.[0]).toEqualTypeOf<PublishedAgentDeliveryArtifact | undefined>()
+          expectTypeOf(context.workspace).toEqualTypeOf<AgentChannelDeliveryEffectContext["workspace"]>()
         },
       },
       messages: false,
@@ -521,7 +523,14 @@ describe("agent public types", () => {
             expectTypeOf(input.text).toEqualTypeOf<string>()
             return {
               delivery: {
-                finishEffects: event => ({ kind: "reply", payload: event.result }),
+                finishEffects: (event, context) => {
+                  expectTypeOf(context.workspace).toEqualTypeOf<AgentChannelDeliveryFinishEffectContext["workspace"]>()
+                  return {
+                    artifacts: [{ path: "screenshots/result.png", url: "https://assets.example/result.png" }],
+                    kind: "reply",
+                    payload: event.result,
+                  }
+                },
               },
               input: { prompt: input.text },
             }
@@ -530,6 +539,7 @@ describe("agent public types", () => {
       },
     })
     expectTypeOf(custom.kind).toEqualTypeOf<string>()
+    expectTypeOf<AgentDeliveryArtifact>().toMatchTypeOf<{ path: string }>()
 
     defineAgent({
       capabilities: [{

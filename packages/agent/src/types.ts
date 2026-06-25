@@ -165,9 +165,24 @@ export interface AgentRunMetadata<TOrigin extends string = string> {
 
 export type AgentChannelDeliveryEffectKind = "reaction" | "reply" | "status" | (string & {})
 
+export type AgentDeliveryArtifactPlacement = "inline" | "attachment" | "link"
+
+export interface AgentDeliveryArtifact {
+  alt?: string
+  mediaType?: string
+  path: string
+  placement?: AgentDeliveryArtifactPlacement
+}
+
+export interface PublishedAgentDeliveryArtifact extends AgentDeliveryArtifact {
+  channelAttachmentId?: string
+  url?: string
+}
+
 export interface AgentChannelDeliveryEffectIntent<
   TKind extends AgentChannelDeliveryEffectKind = AgentChannelDeliveryEffectKind,
 > {
+  artifacts?: readonly PublishedAgentDeliveryArtifact[]
   intent?: string
   kind: TKind
   metadata?: Record<string, unknown>
@@ -187,6 +202,15 @@ export interface AgentChannelDeliveryEffectContext<
     id?: string
     name?: string
   }
+  workspace?: ReadonlyWorkspaceFacade | WritableWorkspaceFacade
+}
+
+export interface AgentChannelDeliveryFinishEffectContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+> extends AgentCallbackContext<TRuntimeConfig> {
+  input: AgentRunInput
+  run?: AgentRunMetadata
+  workspace?: ReadonlyWorkspaceFacade | WritableWorkspaceFacade
 }
 
 export type AgentChannelDeliveryEffectHandler<
@@ -198,7 +222,7 @@ export type AgentChannelDeliveryEffects<
 > = Partial<Record<AgentChannelDeliveryEffectKind, AgentChannelDeliveryEffectHandler<TRuntimeConfig> | readonly AgentChannelDeliveryEffectHandler<TRuntimeConfig>[]>>
 export type AgentChannelDeliveryFinishEffect =
   | AgentChannelDeliveryEffectIntent
-  | ((event: AgentFinishEvent) => MaybePromise<AgentChannelDeliveryEffectIntent | false | null | undefined>)
+  | ((event: AgentFinishEvent, context: AgentChannelDeliveryFinishEffectContext) => MaybePromise<AgentChannelDeliveryEffectIntent | false | null | undefined>)
 
 export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
   delivery?: {

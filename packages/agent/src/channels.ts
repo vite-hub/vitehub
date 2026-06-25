@@ -8,6 +8,7 @@ import type {
   AgentChannelDeliveryEffectIntent,
   AgentChannelDeliveryEffects,
   AgentChannelDeliveryFinishEffect,
+  AgentDeliveryArtifact,
   AgentChatWebhookRegistrationDefinition,
   AgentFinishEvent,
   AgentRunInput,
@@ -16,7 +17,9 @@ import type {
   AgentTriggerInvokeResult,
   AgentRuntimeConfig,
   AgentWebhookSecretToken,
+  MaybePromise,
   MaybeResolvable,
+  PublishedAgentDeliveryArtifact,
 } from "./types.ts"
 import type { AgentChatFetchHandlerOptions } from "./server.ts"
 
@@ -27,9 +30,13 @@ export type {
   AgentChannelDeliveryEffectKind,
   AgentChannelDeliveryEffects,
   AgentChannelDeliveryFinishEffect,
+  AgentChannelDeliveryFinishEffectContext,
   AgentChannelDefinition,
   AgentChannels,
+  AgentDeliveryArtifact,
+  AgentDeliveryArtifactPlacement,
   AgentMessageChannelSettings,
+  PublishedAgentDeliveryArtifact,
 } from "./types.ts"
 export interface AgentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   adapter?: AgentChannelDefinition<TRuntimeConfig>["adapter"]
@@ -44,6 +51,26 @@ export interface AgentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
 export interface AgentStreamChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentChannelOptions<TRuntimeConfig> {
   route?: true | AgentChatFetchHandlerOptions
+}
+
+export interface AgentDeliveryArtifactPublishInput {
+  artifact: AgentDeliveryArtifact
+  content: Uint8Array
+  mediaType?: string
+  pathname: string
+}
+
+export interface AgentDeliveryArtifactPublishResult {
+  channelAttachmentId?: string
+  url?: string
+}
+
+export type AgentDeliveryArtifactPublisher =
+  (input: AgentDeliveryArtifactPublishInput) => MaybePromise<AgentDeliveryArtifactPublishResult>
+
+export interface PublishWorkspaceArtifactsOptions {
+  prefix?: string
+  publish: AgentDeliveryArtifactPublisher
 }
 
 type GitHubAppValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
@@ -224,6 +251,50 @@ function maybeStrings(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return
   const strings = value.filter((item): item is string => typeof item === "string" && Boolean(item))
   return strings.length ? strings : undefined
+}
+
+function normalizeDeliveryArtifactPath(path: string, label: string): string {
+  const normalized = path.trim().replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/+/g, "/")
+  if (!normalized || normalized === "." || normalized.startsWith("/") || normalized.split("/").includes("..")) {
+    throw new Error(`[vitehub] ${label} must stay inside the workspace: "${path}".`)
+  }
+  return normalized
+}
+
+function joinDeliveryArtifactPath(prefix: string | undefined, path: string): string {
+  const cleanPrefix = prefix ? normalizeDeliveryArtifactPath(prefix, "Delivery artifact prefix") : undefined
+  return cleanPrefix ? `${cleanPrefix}/${path}` : path
+}
+
+export async function publishWorkspaceArtifacts<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: Pick<AgentChannelDeliveryEffectContext<TRuntimeConfig>, "workspace">,
+  artifacts: readonly AgentDeliveryArtifact[],
+  options: PublishWorkspaceArtifactsOptions,
+): Promise<PublishedAgentDeliveryArtifact[]> {
+  if (!context.workspace) throw new Error("[vitehub] publishWorkspaceArtifacts() requires an Agent delivery context with a Workspace.")
+
+  const published: PublishedAgentDeliveryArtifact[] = []
+  for (const artifact of artifacts) {
+    const path = normalizeDeliveryArtifactPath(artifact.path, "Delivery artifact path")
+    const stat = await context.workspace.fs.stat(path).catch(() => undefined)
+    const mediaType = artifact.mediaType || (stat?.type === "file" ? stat.mediaType : undefined)
+    const content = await context.workspace.fs.readFile(path, { encoding: "binary" })
+    const normalized = {
+      ...artifact,
+      path,
+      ...(mediaType ? { mediaType } : {}),
+    }
+    published.push({
+      ...normalized,
+      ...await options.publish({
+        artifact: normalized,
+        content,
+        ...(mediaType ? { mediaType } : {}),
+        pathname: joinDeliveryArtifactPath(options.prefix, path),
+      }),
+    })
+  }
+  return published
 }
 
 function inputPayload(input: unknown): GitHubIssueCommentPayload | undefined {
@@ -638,6 +709,56 @@ function replyBody<TRuntimeConfig extends AgentRuntimeConfig>(
   if (typeof context.effect.metadata?.body === "string") return context.effect.metadata.body
 }
 
+function deliveryArtifactFromUnknown(value: unknown): PublishedAgentDeliveryArtifact | undefined {
+  if (!isRecord(value) || typeof value.path !== "string") return
+  return {
+    path: value.path,
+    ...(typeof value.alt === "string" ? { alt: value.alt } : {}),
+    ...(typeof value.channelAttachmentId === "string" ? { channelAttachmentId: value.channelAttachmentId } : {}),
+    ...(typeof value.mediaType === "string" ? { mediaType: value.mediaType } : {}),
+    ...(value.placement === "inline" || value.placement === "attachment" || value.placement === "link" ? { placement: value.placement } : {}),
+    ...(typeof value.url === "string" ? { url: value.url } : {}),
+  }
+}
+
+function deliveryArtifacts<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+): PublishedAgentDeliveryArtifact[] {
+  const artifacts = [
+    ...(Array.isArray(context.effect.artifacts) ? context.effect.artifacts : []),
+    ...(isRecord(context.effect.payload) && Array.isArray(context.effect.payload.artifacts) ? context.effect.payload.artifacts : []),
+  ]
+  return artifacts.map(deliveryArtifactFromUnknown).filter((artifact): artifact is PublishedAgentDeliveryArtifact => Boolean(artifact))
+}
+
+function githubMarkdownText(value: string): string {
+  return value.replace(/[\r\n\[\]]+/g, " ").trim() || "Artifact"
+}
+
+function githubMarkdownUrl(value: string): string {
+  return value.replace(/[\r\n<>]+/g, "")
+}
+
+function githubArtifactMarkdown(artifact: PublishedAgentDeliveryArtifact): string | undefined {
+  if (!artifact.url) return
+  const label = githubMarkdownText(artifact.alt || artifact.path.split("/").pop() || artifact.path)
+  const url = githubMarkdownUrl(artifact.url)
+  if (!url || artifact.placement === "attachment") return
+  if ((artifact.placement || (artifact.mediaType?.startsWith("image/") ? "inline" : "link")) === "inline") {
+    return `![${label}](<${url}>)`
+  }
+  return `[${label}](<${url}>)`
+}
+
+function githubBodyWithArtifacts<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+  body: string | undefined,
+): string | undefined {
+  const artifacts = deliveryArtifacts(context).map(githubArtifactMarkdown).filter((line): line is string => Boolean(line))
+  if (!artifacts.length) return body
+  return body ? `${body}\n\n${artifacts.join("\n")}` : artifacts.join("\n")
+}
+
 function finishResultText(result: unknown): string | undefined {
   if (typeof result === "string") return result
   if (result instanceof Response) return
@@ -715,13 +836,30 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
     },
     async reply(context) {
       const command = githubCommandFromEffect(context)
-      const body = replyBody(context)
+      const body = githubBodyWithArtifacts(context, replyBody(context))
       if (!command || !body) return
       const fetcher = options.fetch || fetch
       const token = await resolveEffectOption(options.token, context)
       const url = `${options.apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/issues/${command.issueNumber}/comments`
       await githubApi(fetcher, url, {
         body: JSON.stringify({ body }),
+        headers: githubApiHeaders(token, options.userAgent),
+        method: "POST",
+      })
+    },
+    async review(context) {
+      const command = githubCommandFromEffect(context)
+      const body = githubBodyWithArtifacts(context, replyBody(context))
+      if (!command || !body) return
+      const payload = isRecord(context.effect.payload) ? context.effect.payload : {}
+      const fetcher = options.fetch || fetch
+      const token = await resolveEffectOption(options.token, context)
+      const url = `${options.apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/pulls/${command.issueNumber}/reviews`
+      await githubApi(fetcher, url, {
+        body: JSON.stringify({
+          body,
+          event: maybeString(payload.event) || maybeString(context.effect.metadata?.event) || "COMMENT",
+        }),
         headers: githubApiHeaders(token, options.userAgent),
         method: "POST",
       })
