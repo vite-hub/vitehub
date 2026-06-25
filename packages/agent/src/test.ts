@@ -52,6 +52,8 @@ export interface AgentTestRunner<CALL_OPTIONS = never> {
   run: (input: AgentRunInput<CALL_OPTIONS>) => Promise<AgentTestRunResult>
 }
 
+type AgentToolStepItem = NonNullable<AgentToolStep["toolCalls"]>[number]
+
 let runIdCounter = 0
 
 function isWorkspaceAgentDefinition(value: unknown): value is WorkspaceAgentDefinition {
@@ -195,6 +197,104 @@ function stringifyToolOutput(output: unknown): string {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function readString(record: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === "string" && value) return value
+  }
+}
+
+function readValue(record: Record<string, unknown>, ...keys: string[]): unknown {
+  for (const key of keys) {
+    if (key in record) return record[key]
+  }
+}
+
+function readToolName(record: Record<string, unknown>, toolNames: Map<string, string>): string | undefined {
+  const id = readString(record, "toolCallId", "id")
+  const name = readString(record, "toolName", "name") ?? (id ? toolNames.get(id) : undefined)
+  if (!name) return
+  const normalized = name === "bash" ? "shell" : name
+  if (id) toolNames.set(id, normalized)
+  return normalized
+}
+
+function appendToolStepItem(items: AgentToolStepItem[], value: unknown, toolNames: Map<string, string>) {
+  if (!isRecord(value)) return
+  const toolName = readToolName(value, toolNames)
+  if (!toolName) return
+  const input = readValue(value, "input", "args")
+  const output = readValue(value, "output", "result")
+  const toolCallId = readString(value, "toolCallId", "id")
+  items.push({
+    ...(toolCallId ? { toolCallId } : {}),
+    ...(input !== undefined ? { input } : {}),
+    ...(output !== undefined ? { output } : {}),
+    toolName,
+  })
+}
+
+function appendToolStepItems(items: AgentToolStepItem[], value: unknown, toolNames: Map<string, string>) {
+  if (!Array.isArray(value)) return
+  for (const item of value) appendToolStepItem(items, item, toolNames)
+}
+
+function toolStepFromRawStep(value: unknown, toolNames: Map<string, string>): AgentToolStep | undefined {
+  if (!isRecord(value)) return
+  const toolCalls: AgentToolStepItem[] = []
+  const toolErrors: AgentToolStepItem[] = []
+  const toolResults: AgentToolStepItem[] = []
+  appendToolStepItems(toolCalls, value.toolCalls, toolNames)
+  appendToolStepItems(toolErrors, value.toolErrors, toolNames)
+  appendToolStepItems(toolResults, value.toolResults, toolNames)
+
+  const parts = Array.isArray(value.content) ? value.content : [value]
+  for (const part of parts) {
+    if (!isRecord(part)) continue
+    const type = String(part.type || "")
+    if (type === "tool-call" || type === "tool-input-available" || type === "tool-input-start") {
+      appendToolStepItem(toolCalls, part, toolNames)
+    }
+    else if (type === "tool-error" || type === "tool-output-error") {
+      appendToolStepItem(toolErrors, part, toolNames)
+    }
+    else if (type === "tool-result" || type === "tool-output-available") {
+      appendToolStepItem(toolResults, part, toolNames)
+    }
+  }
+
+  return toolCalls.length || toolErrors.length || toolResults.length
+    ? {
+        ...(toolCalls.length ? { toolCalls } : {}),
+        ...(toolErrors.length ? { toolErrors } : {}),
+        ...(toolResults.length ? { toolResults } : {}),
+      }
+    : undefined
+}
+
+function toolStepsFromRaw(value: unknown): AgentToolStep[] {
+  const toolSteps: AgentToolStep[] = []
+  const toolNames = new Map<string, string>()
+  const seen = new Set<unknown>()
+  const collect = (source: unknown) => {
+    if (!isRecord(source) || seen.has(source)) return
+    seen.add(source)
+    if (Array.isArray(source.steps)) {
+      for (const step of source.steps) {
+        const toolStep = toolStepFromRawStep(step, toolNames)
+        if (toolStep) toolSteps.push(toolStep)
+      }
+    }
+    collect(source.raw)
+  }
+  collect(value)
+  return toolSteps
+}
+
 function textFromRaw(value: unknown): string {
   if (typeof value === "string") {
     return value
@@ -232,7 +332,7 @@ async function normalizeAgentTestResult(
     finishReason: result?.finishReason,
     raw: value,
     text: textFromRaw(value),
-    toolSteps,
+    toolSteps: [...toolSteps, ...toolStepsFromRaw(value)],
     usage: result?.usage,
     warnings: result?.warnings,
   }
