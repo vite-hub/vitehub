@@ -90,7 +90,7 @@ export default defineConfig({
 | Behavior | Useful assertion |
 | --- | --- |
 | Source-grounded answer | Expected citation, phrase, or refusal when the Source does not answer. |
-| Capability behavior | Tool was used, rejected, or omitted as expected. |
+| Capability behavior | Tool was used, rejected, omitted, or reported through `hasCapabilityExtension(id)` as expected. |
 | Access boundary | Scoped-out Workspace content does not appear in the answer. |
 | Cost or latency | Agent Usage Record stays within the expected budget when telemetry is attached. |
 

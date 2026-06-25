@@ -7,6 +7,7 @@ import { evalite } from "evalite"
 import {
   defineAgent,
   type AgentInput,
+  type AgentInvocationExtensions,
   type AgentModelInput,
   type AgentRunInput,
   type AgentRuntimeContext,
@@ -31,6 +32,7 @@ export interface AgentScore {
 }
 
 export interface AgentObservation {
+  extensions?: AgentInvocationExtensions
   finishReason?: unknown
   metadata?: unknown
   raw: unknown
@@ -65,8 +67,13 @@ export interface AgentEvalTestContext<CALL_OPTIONS = never> {
   readonly observation?: AgentObservation
   readonly reply: string
   calledTool: (name: string) => void
+  capabilityExtension: {
+    <T = unknown>(capabilityId: string): T | undefined
+    <T = unknown>(capabilityId: string, key: string): T | undefined
+  }
   completed: () => void
   doesNotCallTool: (name: string) => void
+  hasCapabilityExtension: (capabilityId: string, key?: string) => void
   expect: (scorer: AgentScorer) => void
   send: (input: string | AgentRunInput<CALL_OPTIONS>) => Promise<AgentObservation>
   textContains: (expected: string | RegExp) => void
@@ -346,6 +353,7 @@ async function scoreObservation(observation: AgentObservation, scorers: AgentSco
 
 function toObservation(result: AgentTestRunResult, scenario: { metadata?: unknown, name: string }, variant: AgentEvalVariant): AgentObservation {
   return {
+    ...(result.extensions ? { extensions: result.extensions } : {}),
     finishReason: result.finishReason,
     metadata: scenario.metadata,
     raw: result.raw,
@@ -392,11 +400,19 @@ async function runEvalTest<CALL_OPTIONS>(
     calledTool(name) {
       assertions.push(callsTool(name))
     },
+    capabilityExtension(capabilityId: string, key?: string) {
+      return key === undefined
+        ? observation?.extensions?.get(capabilityId)
+        : observation?.extensions?.get(capabilityId, key)
+    },
     completed() {
       assertions.push(completedScorer())
     },
     doesNotCallTool(name) {
       assertions.push(doesNotCallTool(name))
+    },
+    hasCapabilityExtension(capabilityId, key) {
+      assertions.push(hasCapabilityExtension(capabilityId, key))
     },
     expect(scorer) {
       assertions.push(scorer)
@@ -560,6 +576,29 @@ export function doesNotCallTool(name: string): AgentScorer {
         passed: !called,
         reason: called ? `Tool "${name}" was called.` : `Tool "${name}" was not called.`,
         score: called ? 0 : 1,
+      }
+    },
+  }
+}
+
+export function hasCapabilityExtension(capabilityId: string, key?: string): AgentScorer {
+  return {
+    name: key === undefined ? `hasCapabilityExtension:${capabilityId}` : `hasCapabilityExtension:${capabilityId}.${key}`,
+    score(observation) {
+      const value = key === undefined
+        ? observation.extensions?.get(capabilityId)
+        : observation.extensions?.get(capabilityId, key)
+      const found = value !== undefined
+      return {
+        metadata: {
+          capabilityId,
+          ...(key === undefined ? {} : { key }),
+        },
+        passed: found,
+        reason: found
+          ? `Capability "${capabilityId}" reported an extension.`
+          : `Capability "${capabilityId}" did not report an extension.`,
+        score: found ? 1 : 0,
       }
     },
   }

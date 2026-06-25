@@ -53,6 +53,9 @@ export default defineAgent({
 | Output behavior | Stream renderers, finish extensions, usage records, titles, and summaries. |
 | Metadata | Inspectable configuration for runtime diagnostics and DevTools. |
 
+Use `defineCapability({ finish })` for metadata that evals, finish hooks, or channel delivery code should read after an invocation.
+Agent Evals expose those values through `observation.extensions.get(capabilityId)` and the `hasCapabilityExtension(capabilityId)` scorer.
+
 ## Driver boundary
 
 Capabilities attach above the Agent Driver.

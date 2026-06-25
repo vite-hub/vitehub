@@ -51,7 +51,8 @@ export default defineEval({
 })
 ```
 
-Scenarios pass normal Agent Invocation input. Scorers receive the Agent output text, raw result, tool steps, usage, warnings, scenario name, and variant name.
+Scenarios pass normal Agent Invocation input.
+Scorers receive the Agent output text, raw result, tool steps, usage, warnings, capability finish extensions, scenario name, and variant name.
 
 ## Compare variants
 
@@ -90,6 +91,22 @@ Use `--watch` while editing prompts or scenarios. Use `--threshold` and `--outpu
 ## Score useful behavior
 
 Good evals score source-grounded answers, refusal behavior, expected tool use, no source leakage, and regressions in usage or latency when telemetry is attached.
+When the behavior belongs to a Capability, assert its finish extension instead of duplicating host-specific hooks.
+
+```ts [server/agents/support.eval.ts]
+import { defineEval, hasCapabilityExtension } from '@vite-hub/agent/eval'
+import support from './support'
+
+export default defineEval({
+  agent: support,
+  async test(t) {
+    await t.send('What changed in the order forecast?')
+    t.hasCapabilityExtension('observability')
+    t.expect(hasCapabilityExtension('observability', 'status'))
+    t.expect(hasCapabilityExtension('usage-telemetry'))
+  },
+})
+```
 
 Keep evals close to the Agent Definition they protect. A small eval with clear scenarios is more useful than a broad suite that hides which boundary changed.
 

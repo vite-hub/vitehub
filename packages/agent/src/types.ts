@@ -338,8 +338,10 @@ export interface AgentRunResult {
 }
 
 export interface AgentInvocationExtensions {
+  entries: () => Array<[string, unknown]>
   get<T = unknown>(capabilityId: string): T | undefined
   get<T = unknown>(capabilityId: string, key: string): T | undefined
+  toJSON: () => Record<string, unknown>
 }
 
 export interface AgentOutputExtensionEvent {
@@ -511,7 +513,12 @@ export type AgentOutputRenderer = (
   context: AgentCapabilityRuntimeContext,
 ) => MaybePromise<unknown>
 export type AgentOutputExtensionProvider = (event: AgentOutputExtensionEvent) => MaybePromise<unknown>
-export type AgentFinishExtensionProvider = (event: AgentFinishEvent) => MaybePromise<unknown>
+export type AgentFinishExtensionProvider<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = unknown,
+> = {
+  bivarianceHack(event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>): MaybePromise<unknown>
+}["bivarianceHack"]
 
 export interface AgentCapabilityStateRequirement {
   name: string
@@ -582,6 +589,7 @@ export interface AgentCapabilityDefinition<
   bind?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   close?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   configure?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
+  finish?: AgentFinishExtensionProvider<TRuntimeConfig>
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
   id: string
   input?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<Response | void>

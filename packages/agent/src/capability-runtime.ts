@@ -711,6 +711,15 @@ export async function resolveAgentCapabilities<
     }
   }
 
+  function addFinishExtensionProvider(capabilityId: string, value: unknown | AgentFinishExtensionProvider) {
+    registries.finishExtensionProviders.push({
+      id: capabilityId,
+      resolve: typeof value === "function"
+        ? value as AgentFinishExtensionProvider
+        : () => value,
+    })
+  }
+
   async function closeRegisteredCallbacks() {
     const errors: unknown[] = []
     for (const callback of [...closeCallbacks].reverse()) {
@@ -871,12 +880,7 @@ export async function resolveAgentCapabilities<
         },
         finish: {
           provide(value) {
-            registries.finishExtensionProviders.push({
-              id: capability.id,
-              resolve: typeof value === "function"
-                ? value as AgentFinishExtensionProvider
-                : () => value,
-            })
+            addFinishExtensionProvider(capability.id, value)
           },
         },
         state: {
@@ -899,6 +903,7 @@ export async function resolveAgentCapabilities<
         workspace: currentWorkspace,
       } as AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
       capabilityContexts.push({ capability, context: capabilityContext })
+      if (capability.finish) addFinishExtensionProvider(capability.id, capability.finish)
 
       for (const [name, trigger] of Object.entries(capability.triggers || {})) {
         assertTriggerName(name, capability.id)
@@ -1129,11 +1134,17 @@ export async function applyOutputRenderers(
 
 function createAgentExtensionReader(values: Map<string, unknown>): AgentInvocationExtensions {
   return {
+    entries() {
+      return Array.from(values.entries())
+    },
     get<T = unknown>(capabilityId: string, key?: string): T | undefined {
       const value = values.get(capabilityId)
       if (key === undefined) return value as T | undefined
       if (typeof value !== "object" || value === null) return undefined
       return (value as Record<string, unknown>)[key] as T | undefined
+    },
+    toJSON() {
+      return Object.fromEntries(values.entries())
     },
   }
 }
