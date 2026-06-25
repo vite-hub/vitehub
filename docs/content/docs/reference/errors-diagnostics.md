@@ -30,6 +30,7 @@ Use the error family to choose the next proof path before changing implementatio
 | `WorkflowError` | Workflow Package | Workflow run, step, or provider behavior failed. |
 | `RateLimitRejectedError` | Agent Package | Rate Limit Capability rejected an Agent Invocation. |
 | `LlmGateRejectedError` | Agent Package | LLM Gate Capability rejected before the main Agent Invocation. |
+| `Agent Invocation Stream timed out after <ms>.` | Agent Package | The dev-loop stream aborted a long or stalled Agent Invocation after its timeout. |
 
 ## Diagnostics sources
 

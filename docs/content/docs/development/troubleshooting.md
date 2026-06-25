@@ -17,6 +17,7 @@ Identify whether the failure comes from discovery, generated files, provider res
 | Provider build fails | Provider Selection and required resource ids | [Provider output](/docs/reference/provider-output) |
 | DevTools feature is absent | `hubDevtools()` and package DevTools opt-out | [DevTools](/docs/development/devtools) |
 | Agent changed behavior | Agent Eval result and Agent Usage Record | [Agent Evals](/docs/development/agent-evals) |
+| Agent Invocation Stream timed out | Agent Dev Loop timeout, long-running driver work, or a stalled harness/session setup | `vitehub agent dev --timeout <ms>` and Agent package tests |
 | Runtime error lacks context | Package error family and diagnostics output | [Errors and diagnostics](/docs/reference/errors-diagnostics) |
 
 ## Discovery failures
@@ -56,6 +57,8 @@ Use DevTools to inspect one interactive Agent Invocation, then use Agent Evals w
 ```bash [Terminal]
 pnpm vitehub agent eval server/agents/support.eval.ts --output .vitehub/evals/support.json
 ```
+
+When the Agent Dev Loop reports `Agent Invocation Stream timed out after <ms>`, first decide whether the invocation is expected to run longer than the default timeout. If so, rerun with `vitehub agent dev --timeout <ms>`. If the timeout is surprising, inspect the Agent Driver boundary and any Workspace or harness session setup before changing prompts.
 
 ## When to escalate
 

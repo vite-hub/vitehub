@@ -75,6 +75,30 @@ Good evals score source-grounded answers, refusal behavior, expected tool use, n
 
 Keep evals close to the Agent Definition they protect. A small eval with clear scenarios is more useful than a broad suite that hides which boundary changed.
 
+Use tool scorers when the important behavior is whether a Capability ran, not the exact text it returned.
+
+```ts [server/agents/support.eval.ts]
+import { callsTool, defineEval, doesNotCallTool, textContains } from '@vite-hub/agent/eval'
+import support from './support'
+
+export default defineEval({
+  agent: support,
+  scenarios: [
+    {
+      name: 'inspects workspace before answering',
+      input: { prompt: 'Where is the billing retry policy documented?' },
+      scorers: [
+        callsTool('shell'),
+        doesNotCallTool('refund'),
+        textContains('billing'),
+      ],
+    },
+  ],
+})
+```
+
+`callsTool(name)` and `doesNotCallTool(name)` score the normalized tool steps reported by the Agent test runner. Prefer these scorers over matching tool output text.
+
 ## Next steps
 
 - Read [Agent Drivers](/docs/agents/agent-drivers) before using model variants.
