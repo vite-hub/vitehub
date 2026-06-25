@@ -131,7 +131,8 @@
     "@vitejs/devtools-kit": "catalog:vite",
     "chat": "catalog:chat",
     "esbuild": "catalog:esbuild-v27",
-    "hookable": "catalog:unjs"
+    "hookable": "catalog:unjs",
+    "vitest": "catalog:tooling"
   },
   "devDependencies": {
     "@ai-sdk/harness": "catalog:ai",
@@ -146,8 +147,7 @@
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
-    "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vite-plus": "catalog:tooling"
   },
   "peerDependencies": {
     "@ai-sdk/harness": "catalog:ai",

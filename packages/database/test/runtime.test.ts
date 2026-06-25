@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { promisify } from "node:util"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { sql } from "drizzle-orm"
@@ -25,6 +27,8 @@ const runtimeState = {
   analyticsDbPath: "",
   dbPath: "",
 }
+
+const execFileAsync = promisify(execFile)
 
 function createFakeD1Binding() {
   return {
@@ -113,6 +117,24 @@ afterEach(async () => {
 })
 
 describe("drizzle runtime", () => {
+  it("loads the published drizzle subpath without a Vite virtual module", async () => {
+    const script = [
+      'const { databases, db, schema } = await import("@vite-hub/database/drizzle")',
+      'if (JSON.stringify(schema) !== "{}") throw new Error("expected empty schema fallback")',
+      'if (JSON.stringify(databases.default.schema) !== "{}") throw new Error("expected empty default database schema")',
+      'try {',
+      "  db.run",
+      '}',
+      'catch (error) {',
+      '  if (String(error.message).includes("requires `hubDb()`")) process.exit(0)',
+      "  throw error",
+      '}',
+      'throw new Error("expected missing database proxy to throw")',
+    ].join("\n")
+
+    await expect(execFileAsync(process.execPath, ["--input-type=module", "-e", script], { cwd: process.cwd() })).resolves.toBeDefined()
+  })
+
   it("provides a default fallback entry when the virtual database registry is empty", async () => {
     runtimeDatabaseEntriesFactory = () => ({})
     vi.resetModules()

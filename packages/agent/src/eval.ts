@@ -148,6 +148,37 @@ function isVariantOverride(variant: AgentEvalVariant): boolean {
   return variant.instructions !== undefined || variant.model !== undefined
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function variantModelDriver(variant: AgentEvalVariant): Record<string, unknown> {
+  return {
+    ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),
+    model: variant.model,
+  }
+}
+
+function applyVariantToExplicitDriver(
+  driver: unknown,
+  variant: AgentEvalVariant,
+): Record<string, unknown> {
+  if (!isRecord(driver)) {
+    throw new Error("[vitehub] Agent Evaluation variants with model or instructions require a model-backed Agent Driver.")
+  }
+  if ("model" in driver) {
+    return {
+      ...driver,
+      ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),
+      ...(variant.model !== undefined ? { model: variant.model as never } : {}),
+    }
+  }
+  if ("harness" in driver && variant.model !== undefined) {
+    return variantModelDriver(variant)
+  }
+  throw new Error("[vitehub] Agent Evaluation variants with model or instructions require a model-backed Agent Driver.")
+}
+
 function resolveEvalNameFromFile(caller: string): string {
   const base = basename(caller, extname(caller))
   if (base === "eval") return basename(dirname(caller))
@@ -246,16 +277,9 @@ function applyVariant<TRuntimeConfig extends AgentRuntimeConfig>(
   if (settings) {
     const driver = (settings as { driver?: unknown }).driver
     if (driver) {
-      if (typeof driver !== "object" || !("model" in driver)) {
-        throw new Error("[vitehub] Agent Evaluation variants with model or instructions require a model-backed Agent Driver.")
-      }
       return defineAgent({
         ...settings,
-        driver: {
-          ...driver,
-          ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),
-          ...(variant.model !== undefined ? { model: variant.model as never } : {}),
-        },
+        driver: applyVariantToExplicitDriver(driver, variant) as never,
       } as never)
     }
     return defineAgent({
@@ -271,16 +295,9 @@ function applyVariant<TRuntimeConfig extends AgentRuntimeConfig>(
   const options = agent.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<TRuntimeConfig>
   const driver = (options as { driver?: unknown }).driver
   if (driver) {
-    if (typeof driver !== "object" || !("model" in driver)) {
-      throw new Error("[vitehub] Agent Evaluation variants with model or instructions require a model-backed Agent Driver.")
-    }
     return defineAgent({
       ...options,
-      driver: {
-        ...driver,
-        ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),
-        ...(variant.model !== undefined ? { model: variant.model as never } : {}),
-      },
+      driver: applyVariantToExplicitDriver(driver, variant) as never,
     } as never)
   }
   return defineAgent({
