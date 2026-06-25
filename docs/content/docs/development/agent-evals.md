@@ -94,6 +94,8 @@ export default defineConfig({
 | Access boundary | Scoped-out Workspace content does not appear in the answer. |
 | Cost or latency | Agent Usage Record stays within the expected budget when telemetry is attached. |
 
+Use `callsTool(name)` and `doesNotCallTool(name)` from `@vite-hub/agent/eval` for tool-use expectations. They read the Agent test runner's normalized tool steps, so the eval does not need to match rendered tool output text.
+
 ## Next steps
 
 - Use [CLI](/docs/development/cli) for command options.
