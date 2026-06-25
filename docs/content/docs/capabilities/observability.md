@@ -32,6 +32,7 @@ export default defineAgent({
 
 The Capability emits a `start` event before driver execution.
 When `onEvent` is configured, it also emits a `finish` or `error` event after the invocation completes.
+`onEvent` is a telemetry sink; sink failures are swallowed so observability cannot change Agent output or hide the original driver failure.
 
 It provides an `observability` finish extension with `{ status, durationMs, resultKind }` for completed invocations and `{ status, durationMs }` for failed invocations.
 Agent Evals and the Agent test runner capture this finish extension automatically.

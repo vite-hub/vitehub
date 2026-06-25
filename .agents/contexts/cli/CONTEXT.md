@@ -33,6 +33,10 @@ _Avoid_: Server-side Chat Session, Agent Memory, persisted transcript
 The discovered Agent selected for one Agent Dev Loop terminal session.
 _Avoid_: Eval target, DevTools selected chat, default bot
 
+**Remote Agent Dev Target**:
+A future Agent Dev Loop Target reached through an explicit URL for preview or deployed Agent proof, using the same Agent Invocation Stream shape as local development.
+_Avoid_: production shell, dashboard chat, remote model runner
+
 **Agent Dev Loop Control**:
 A terminal control handled by the Agent Dev Loop client without becoming Agent input.
 _Avoid_: Input Command, slash command, model tool
@@ -49,9 +53,17 @@ _Avoid_: Frequency-owned command, flat command, shortcut-first command
 An optional eval file path filter that narrows the Agent Evals run by the Agent Eval Runner.
 _Avoid_: Required suite name, eval display name
 
+**URL-Backed Agent Eval Target**:
+A future Agent Eval Target that runs eval cases against a reachable Agent Invocation Stream Endpoint instead of an in-process Agent Definition.
+_Avoid_: remote eval product, deployed-only benchmark, curl smoke
+
 **Agent Eval Output Mode**:
 The selected output contract for Agent Eval Runner results.
 _Avoid_: Logger mode, reporter implementation
+
+**Agent Surface Inspection**:
+A future CLI Feature that prints discovered Agent Definitions, triggers, channels, drivers, Capabilities, evals, and invocation endpoints in a script-friendly format.
+_Avoid_: dashboard inventory, generated-file spelunking, hidden discovery
 
 **Integration-Owned CLI Option**:
 A command-exposure or command-plumbing option configured through the package's Vite Integration or an internal Server Host Adapter.
@@ -118,7 +130,10 @@ _Avoid_: Secrets file, env file, GitHub output
 - DevTools and OpenTelemetry are explicit follow-on surfaces for Agent telemetry, not the default **Agent Dev Loop** experience.
 - The **Agent Eval Runner** runs all discovered Agent Evals when no **Agent Eval Target** is provided.
 - An **Agent Eval Target** identifies Agent Eval files by path filter.
+- A **URL-Backed Agent Eval Target** should reuse Agent Eval cases while moving only the invocation transport out of process.
 - **Agent Eval Output Mode** defaults to concise human output and can be changed to script-friendly structured output.
+- **Agent Surface Inspection** should be the CLI proof surface before dashboards or implicit generated-file spelunking.
+- A **Remote Agent Dev Target** should be explicit about URL, Agent, trigger, and timeout; it must not silently switch local proof to deployed proof.
 - Durable Agent Eval Runner defaults should come from built-in defaults or `agent.eval` on the Agent Package integration surface.
 - `vitehub provision` is the canonical command for **Provision**; it aggregates package-contributed **Provision Steps**.
 - A **Provision Step** talks to provider APIs through shared provider clients, not by shelling out to provider CLIs.

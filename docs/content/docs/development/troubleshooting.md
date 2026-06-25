@@ -17,7 +17,7 @@ Identify whether the failure comes from discovery, generated files, provider res
 | Provider build fails | Provider Selection and required resource ids | [Provider output](/docs/reference/provider-output) |
 | DevTools feature is absent | `hubDevtools()` and package DevTools opt-out | [DevTools](/docs/development/devtools) |
 | Agent changed behavior | Agent Eval result and Agent Usage Record | [Agent Evals](/docs/development/agent-evals) |
-| Agent Invocation Stream timed out | Agent Dev Loop timeout, long-running driver work, or a stalled harness/session setup | `vitehub agent dev --timeout <ms>` and Agent package tests |
+| Agent proof times out | Dev-loop `--timeout`, `agent.eval.testTimeout`, or stalled harness/session setup | [CLI](/docs/development/cli) and [Agent Evals](/docs/development/agent-evals) |
 | Runtime error lacks context | Package error family and diagnostics output | [Errors and diagnostics](/docs/reference/errors-diagnostics) |
 
 ## Discovery failures
@@ -53,6 +53,7 @@ find dist -maxdepth 4 -type f | sort
 
 Separate Agent runtime failures from model behavior.
 Use DevTools to inspect one interactive Agent Invocation, then use Agent Evals when the failure is repeatable behavior.
+If the proof is timing out before it reaches the interesting failure, increase the dev-loop `--timeout` or the Agent Eval Runner `agent.eval.testTimeout` in `vite.config.ts`.
 
 ```bash [Terminal]
 pnpm vitehub agent eval server/agents/support.eval.ts --output .vitehub/evals/support.json

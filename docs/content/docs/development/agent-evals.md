@@ -27,6 +27,9 @@ export default defineEval({
 })
 ```
 
+`test(t)` runs one Agent Invocation.
+It must call `t.send(...)` exactly once; pass `messages`, `context`, or trigger input to model a specific conversation state, and use separate scenarios for independent follow-up cases.
+
 Use `scenarios` when one eval file should run several cases or share scorers across cases.
 
 ```ts [server/agents/support.eval.ts]
@@ -62,6 +65,8 @@ Use output and threshold options in CI-shaped checks.
 ```bash [Terminal]
 pnpm vitehub agent eval --threshold 0.9 --output .vitehub/evals/support.json --hide-table
 ```
+
+Long-running model or harness evals should set `agent.eval.testTimeout` in `vite.config.ts` instead of adding ad hoc timeouts inside eval files.
 
 ## Configure defaults
 

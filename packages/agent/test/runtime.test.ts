@@ -142,6 +142,26 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("does not let observability sink failures change Agent output", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const onEvent = vi.fn(() => {
+      throw new Error("sink failed")
+    })
+    const agent = defineAgent({
+      capabilities: [
+        observability({ onEvent }),
+      ],
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })).resolves.toBe("ok")
+    expect(onEvent).toHaveBeenCalledTimes(2)
+  })
+
   it("skips agent input hooks after a capability handles the input", async () => {
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
     const handled = new Response("handled")
@@ -774,11 +794,17 @@ describe("agent message protocol", () => {
     expect(session.destroy).toHaveBeenCalledTimes(1)
   })
 
-  it("resolves harness Agent Driver factories for each invocation", async () => {
+  it("resolves function-valued harness Agent Driver config for each invocation", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     harnessAgentSettings.length = 0
     const resolvedHarness = { provider: "codex", runId: "run-1" }
+    const resolvedSandbox = { provider: "sandbox", tenant: "acme" }
     const harness = vi.fn(() => resolvedHarness)
+    const sandbox = vi.fn(() => resolvedSandbox)
+    const sessionKey = vi.fn(({ context, run }) => {
+      const tenant = context.get("tenant") as { id?: string } | undefined
+      return `${tenant?.id}:${run?.runId}`
+    })
     const session = { destroy: vi.fn() }
     harnessCreateSession.mockResolvedValueOnce(session)
     harnessGenerate.mockResolvedValueOnce({ text: "ok" })
@@ -786,6 +812,8 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       driver: {
         harness,
+        sandbox,
+        sessionKey,
       },
     })
 
@@ -794,14 +822,26 @@ describe("agent message protocol", () => {
       run: { runId: "run-1" },
       runtime: "unknown",
       waitUntil: vi.fn(),
-    }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+    }, {
+      context: { tenant: { id: "acme" } },
+      prompt: "hello",
+    })).resolves.toMatchObject({ text: "ok" })
 
     expect(harness).toHaveBeenCalledWith(expect.objectContaining({
       run: expect.objectContaining({ runId: "run-1" }),
+      input: expect.objectContaining({ prompt: "hello" }),
+    }))
+    expect(sandbox).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ prompt: "hello" }),
+    }))
+    expect(sessionKey).toHaveBeenCalledWith(expect.objectContaining({
+      context: expect.any(Object),
     }))
     expect(harnessAgentSettings.at(-1)).toMatchObject({
       harness: resolvedHarness,
+      sandbox: resolvedSandbox,
     })
+    expect(harnessCreateSession).toHaveBeenCalledWith({ sessionId: "acme:run-1" })
   })
 
   it("labels non-token harness usage with sanitized credentials", async () => {
