@@ -774,6 +774,36 @@ describe("agent message protocol", () => {
     expect(session.destroy).toHaveBeenCalledTimes(1)
   })
 
+  it("resolves harness Agent Driver factories for each invocation", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    harnessAgentSettings.length = 0
+    const resolvedHarness = { provider: "codex", runId: "run-1" }
+    const harness = vi.fn(() => resolvedHarness)
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({ text: "ok" })
+
+    const agent = defineAgent({
+      driver: {
+        harness,
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-1" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+
+    expect(harness).toHaveBeenCalledWith(expect.objectContaining({
+      run: expect.objectContaining({ runId: "run-1" }),
+    }))
+    expect(harnessAgentSettings.at(-1)).toMatchObject({
+      harness: resolvedHarness,
+    })
+  })
+
   it("labels non-token harness usage with sanitized credentials", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { usageTelemetry } = await import("../src/capabilities.ts")
