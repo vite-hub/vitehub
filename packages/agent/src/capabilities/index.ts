@@ -37,6 +37,9 @@ export {
   observability,
 } from "./observability.ts"
 export {
+  openapi,
+} from "./openapi.ts"
+export {
   repositoryHost,
 } from "./repository-host.ts"
 export {
@@ -220,6 +223,12 @@ export type {
   AgentObservabilityStartEvent,
   AgentObservabilityStatus,
 } from "./observability.ts"
+export type {
+  OpenAPICapabilityOptions,
+  OpenAPIInputOptions,
+  OpenAPIRequestContext,
+  OpenAPIRequestDefaults,
+} from "./openapi.ts"
 export type {
   RepositoryHostClient,
   RepositoryHostOptions,

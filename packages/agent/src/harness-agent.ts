@@ -9,6 +9,11 @@ import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
+import {
+  applyAgentToolPolicies,
+  withAgentToolStepReporting,
+  withJsonCompatibleToolOutputs,
+} from "./tool-runtime.ts"
 
 import type {
   AgentAdapter,
@@ -20,6 +25,7 @@ import type {
   AgentHarnessSessionKey,
   AgentRunCallbackContext,
   AgentRuntimeConfig,
+  AgentToolSet,
   MaybePromise,
 } from "./types.ts"
 
@@ -54,7 +60,6 @@ function hasEntries(value: unknown): value is Record<string, unknown> {
 
 function unsupportedHarnessContributionKinds(context: AgentAdapterRunContext): Set<AgentDriverContributionKind> {
   const kinds = new Set<AgentDriverContributionKind>()
-  if (hasEntries(context.tools)) kinds.add("Capability tools")
   if (context.providerTools?.length) kinds.add("provider tools")
   return kinds
 }
@@ -88,7 +93,6 @@ function formatUnsupportedHarnessContributions(context: AgentAdapterRunContext):
   }
 
   return [
-    unsupportedKinds.has("Capability tools") ? "Capability tools" : undefined,
     unsupportedKinds.has("provider tools") ? "provider tools" : undefined,
   ].filter((value): value is string => Boolean(value))
 }
@@ -186,6 +190,14 @@ function toHarnessCallInput(context: AgentAdapterRunContext) {
   }
 }
 
+function toHarnessTools(context: AgentAdapterRunContext): AgentToolSet | undefined {
+  if (!hasEntries(context.tools)) return
+  return withAgentToolStepReporting(
+    withJsonCompatibleToolOutputs(applyAgentToolPolicies(context.tools as AgentToolSet) || {}),
+    context.devtools?.reportToolStep,
+  )
+}
+
 function toRunCallbackContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -270,6 +282,7 @@ async function createHarnessAgent<
   const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
   const sandbox = await resolveHarnessSandbox(options.sandbox, context)
   const harness = await resolveHarness(options.harness, context)
+  const tools = toHarnessTools(context)
   return new HarnessAgent({
     harness,
     onSandboxSession: async ({ abortSignal, session, sessionWorkDir }: { abortSignal?: AbortSignal, session: unknown, sessionWorkDir: string }) => {
@@ -277,6 +290,7 @@ async function createHarnessAgent<
     },
     permissionMode: "allow-all",
     sandbox,
+    ...(tools ? { tools } : {}),
   })
 }
 
