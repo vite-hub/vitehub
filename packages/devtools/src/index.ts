@@ -1,11 +1,11 @@
 import { createReadStream } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
+import type { IncomingMessage, ServerResponse } from "node:http"
 import { fileURLToPath } from "node:url"
 import { extname, join, relative, resolve } from "node:path"
 import { defineDockEntry, defineRpcFunction } from "@vitejs/devtools-kit"
 
-import type { DevToolsDockEntry, DevToolsViewIframe, ViteDevToolsNodeContext } from "@vitejs/devtools-kit"
-import type { Plugin, ViteDevServer } from "vite"
+import type { DevToolsDockEntry, DevToolsViewIframe, PluginWithDevTools, ViteDevToolsNodeContext } from "@vitejs/devtools-kit"
 
 export interface ViteHubDevtoolsFeature {
   bridge: string
@@ -58,6 +58,12 @@ interface ViteHubDevtoolsRegistry {
   registeredShellPanel: boolean
   registeredShellRpc: boolean
   registeredShell: boolean
+}
+
+interface DevtoolsMiddlewareHost {
+  middlewares: {
+    use(handler: (request: IncomingMessage, response: ServerResponse, next: (error?: unknown) => void) => void): void
+  }
 }
 
 const registryKey = Symbol.for("@vite-hub/devtools:registry")
@@ -114,7 +120,7 @@ function resolveDevtoolsShellFile(pathname: string): string | undefined {
   return filePath
 }
 
-function registerDevtoolsShellMiddleware(server: ViteDevServer): void {
+function registerDevtoolsShellMiddleware(server: DevtoolsMiddlewareHost): void {
   server.middlewares.use(async (request, response, next) => {
     if (!request.url) {
       next()
@@ -231,7 +237,7 @@ export function listViteHubDevtoolsFeatures(ctx: ViteDevToolsNodeContext): ViteH
   return [...getRegistry(ctx).registeredFeatures.values()]
 }
 
-export function hubDevtools(options: HubDevtoolsOptions = {}): Plugin {
+export function hubDevtools(options: HubDevtoolsOptions = {}): PluginWithDevTools {
   return {
     name: "@vite-hub/devtools/vite",
     configureServer(server) {
@@ -242,7 +248,7 @@ export function hubDevtools(options: HubDevtoolsOptions = {}): Plugin {
       registerDevtoolsShellMiddleware(server)
     },
     devtools: {
-      setup(ctx) {
+      setup(ctx: ViteDevToolsNodeContext) {
         if (options.enabled === false) {
           return
         }
