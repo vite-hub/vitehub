@@ -271,6 +271,11 @@ function pathContains(container: string, path: string): boolean {
   return !container || path === container || path.startsWith(`${container}/`)
 }
 
+function compactWorkspacePaths(paths: readonly string[]): string[] {
+  const sorted = [...new Set(paths)].sort((left, right) => left.length - right.length || left.localeCompare(right))
+  return sorted.filter((path, index) => !sorted.some((candidate, candidateIndex) => candidateIndex < index && pathContains(candidate, path)))
+}
+
 function pathsConflict(left: string, right: string): boolean {
   return pathContains(left, right) || pathContains(right, left)
 }
@@ -659,7 +664,10 @@ export async function resolveAgentCapabilities<
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   validateAccessCapabilityOrder(capabilities)
   const harnessWorkspacePaths = driverKind === "harness"
-    ? [...new Set(capabilities.flatMap(capability => [...capability.harnessWorkspacePaths || []]))]
+    ? compactWorkspacePaths(capabilities.flatMap(capability => [
+        ...(capability.harnessWorkspacePaths || []),
+        ...(capability.requires || []).flatMap(requirement => requirement.workspace?.paths || []),
+      ]))
     : []
   let currentInput = normalizeRunInput(input)
   let currentWorkspace = workspace as ReadonlyWorkspaceFacade<Name> | undefined

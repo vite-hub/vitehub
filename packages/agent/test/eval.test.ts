@@ -358,6 +358,32 @@ describe("agent eval", () => {
     })
   })
 
+  it("applies model variants by replacing harness drivers for workspace agents", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineEval } = await import("../src/eval.ts")
+    const variantModel = { id: "variant" }
+
+    defineEval({
+      agent: defineAgent({
+        driver: {
+          harness: { provider: "codex" },
+          sandbox: { provider: "sandbox" },
+        },
+        workspace: {},
+      }),
+      name: "support",
+      scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
+      variants: [{ model: variantModel, name: "variant" }],
+      workspace: "support",
+    })
+
+    await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input, evaliteCalls[0]!.variants![0]!.input)
+
+    expect(agentSettings.at(-1)).toMatchObject({
+      model: variantModel,
+    })
+  })
+
   it("applies replacement instruction variants for base agents", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineEval } = await import("../src/eval.ts")
