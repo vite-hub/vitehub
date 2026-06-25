@@ -48,6 +48,8 @@ pnpm vitehub agent eval server/agents/support.eval.ts --threshold 0.9
 pnpm vitehub agent eval --output .vitehub/evals/support.json --hide-table
 ```
 
+Set `agent.eval.testTimeout` in `vite.config.ts` for long-running model or harness evals.
+
 ## Talk to an Agent during development
 
 Start the app's Vite dev server in one terminal.
@@ -85,6 +87,7 @@ It must contain one JSON object.
 ```bash [Terminal]
 pnpm vitehub agent dev --agent support --context server/agents/support/dev.context.json
 pnpm vitehub agent dev --agent support --context server/agents/support/dev.context.json -p "/summary"
+pnpm vitehub agent dev --agent support --timeout 180000 -p "/summary"
 ```
 
 Expected output includes the resolved context file path before the Agent Invocation starts.
@@ -114,7 +117,9 @@ pnpm vitehub provision run --provider vercel --dry-run
 | `Provision requires --provider cloudflare\|vercel` | The provider flag is missing or misspelled. | Pass a supported provider explicitly. |
 | Provision fails before applying actions | Required provider credentials are missing. | Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, or set `VERCEL_TOKEN`. |
 | Agent eval CLI is disabled | `agent.eval` or `agent.cli` disables the Agent Eval Runner. | Re-enable the Agent integration option for local development. |
+| Agent eval times out | The eval case, model call, or harness run exceeds `agent.eval.testTimeout`. | Increase `agent.eval.testTimeout` in `vite.config.ts` or narrow the eval case. |
 | `No Compatible Vite Development Server found` | The app dev server is not running or `--url` points at the wrong port. | Start Vite separately, then pass the dev server URL. |
+| Agent Dev Loop request times out | The invocation exceeded the CLI request timeout. | Pass `--timeout <ms>` for the dev-loop command or shorten the Agent work. |
 | `Agent Dev Loop context file must contain a JSON object` | The `--context` file is not a JSON object. | Replace the file contents with one object whose keys are Agent Invocation Context Value ids. |
 
 ## Next steps

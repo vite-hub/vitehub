@@ -71,6 +71,48 @@ Use it to require approval for writes, limit shell or sandbox commands, restrict
 Custom policy should be narrow and visible.
 A reviewer should be able to understand the Capability's authority by reading the Capability Definition.
 
+## Contribute Workspace inputs
+
+Use `workspace` when a Capability should add invocation-scoped Workspace Sources or rules.
+The contribution is add-only and inspectable; it does not mutate the Agent's authored Workspace Definition.
+
+```ts [server/agents/capabilities/tickets.ts]
+import { defineCapability } from '@vite-hub/agent'
+
+export function ticketContext() {
+  return defineCapability({
+    id: 'ticket-context',
+    workspace: ({ context }) => {
+      const ticketId = context.get<{ id?: string }>('ticket')?.id
+      if (!ticketId) return
+
+      return {
+        rules: {
+          'support/tickets/**': { read: true },
+        },
+        sources: {
+          ticket: {
+            mount: 'support/tickets',
+            async getKeys() {
+              return [`${ticketId}.md`]
+            },
+            async getItem(key) {
+              return {
+                content: await loadTicketMarkdown(key),
+                key,
+                mediaType: 'text/markdown',
+              }
+            },
+          },
+        },
+      }
+    },
+  })
+}
+```
+
+Use `harnessWorkspacePaths` when a harness-backed Agent needs specific contributed paths materialized into the harness Workspace Session.
+
 ## Driver support
 
 | Agent Driver | Custom Capability behavior |

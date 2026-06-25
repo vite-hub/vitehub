@@ -20,6 +20,10 @@ _Avoid_: Emulator test, mock deploy, dev server test
 A scheduled, intentionally thin execution of Primitive Suites against a real provider deployment.
 _Avoid_: Manual e2e, full regression, live test matrix
 
+**Agent Deployment Smoke**:
+A thin Agent proof that sends one or more explicit messages through a deployed Agent Invocation Stream Endpoint and checks the same observable contract used by local Agent Evals or the Agent Dev Loop.
+_Avoid_: remote agent run, manual chat test, full behavior suite
+
 **Downstream Escape**:
 A primitive defect first observed in a project outside this workspace.
 _Avoid_: User bug report, demo issue, flake
@@ -31,6 +35,7 @@ _Avoid_: User bug report, demo issue, flake
 - A **Local Provider Run** executes the same Provider Output that a **Live Smoke** deploys; fidelity gaps between them must be explicit, not silent.
 - **Provider Output Contracts** and **Local Provider Runs** gate pull requests; **Live Smoke** runs on a schedule.
 - Depth belongs to **Provider Output Contracts**, **Local Provider Runs**, and unit tests; **Live Smoke** stays thin by design.
+- **Agent Deployment Smoke** is the Agent Package equivalent of a **Live Smoke**: it proves reachability and observable behavior, while Agent Evals keep the deeper behavior matrix local or CI-owned.
 - A **Downstream Escape** is reproduced in a **Primitive Suite** or the playground together with its fix, so coverage grows exactly where reality proved it thin.
 
 ## Example Dialogue

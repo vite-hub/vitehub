@@ -266,6 +266,25 @@ describe("agent eval", () => {
       .toThrow("Agent Eval test() must call t.send(...)")
   })
 
+  it("rejects follow-up sends inside one test callback", async () => {
+    const { defineEval } = await import("../src/eval.ts")
+    const generate = vi.fn(async () => ({ text: "ok" }))
+
+    defineEval({
+      agent: { generate, stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      name: "support",
+      async test(t) {
+        await t.send("hello")
+        await expect(t.send("again")).rejects.toThrow("Agent Eval test.send() supports one Agent Invocation per test.")
+      },
+    })
+
+    await expect(evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input))
+      .resolves
+      .toMatchObject({ text: "ok" })
+    expect(generate).toHaveBeenCalledTimes(1)
+  })
+
   it("adds scenario scorers to global scorers and captures observations", async () => {
     const { defineEval, textContains } = await import("../src/eval.ts")
     const globalScorer = textContains("ok")

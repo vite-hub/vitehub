@@ -85,6 +85,9 @@ export default defineAgent({
 
 Harness-backed drivers do not receive `driver.instructions` as a model prompt. Use explicit harness configuration or Workspace instruction surfaces when the harness needs guidance.
 
+Harness-backed drivers also do not receive model-facing Capability tools, provider tools, or Capability instructions.
+When a Capability should support harness execution, give the harness files it can inspect through Workspace Sources, `harnessWorkspacePaths`, or a harness-native configuration surface.
+
 ## Custom run driver
 
 Use `driver.run` when developer code owns the Agent behavior. The run callback receives prepared input, messages, tools, Workspace access when configured, Agent Invocation Context Values, and `context.invoker`.

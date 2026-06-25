@@ -16,6 +16,7 @@ They may resolve to Runtime Registries, generated files, virtual modules, or pac
 | `@vite-hub/agent/capabilities` | Agent Package | Official Capability factories such as `access()`, `workspaceShell()`, `inputCommands()`, and `subagents()`. |
 | `@vite-hub/agent/channels` | Agent Package | Official Channel Kind helpers such as `github()`, `stream()`, `teams()`, `telegram()`, `webChat()`, and `defineChannel()`. |
 | `@vite-hub/agent/eval` | Agent Package | Agent Eval authoring helpers. |
+| `@vite-hub/agent/test` | Agent Package | Agent test runner helpers for local and CI Agent Invocation checks. |
 | `@vite-hub/agent/harness/local-sandbox` | Agent Package | Trusted local harness sandbox helper for development and Agent Evals. |
 | `@vite-hub/vite/agent` | Vite Preset | Agent Definition helpers forwarded by the preset package. |
 | `@vite-hub/vite/agent/capabilities` | Vite Preset | Official Capability factories forwarded by the preset package. |
