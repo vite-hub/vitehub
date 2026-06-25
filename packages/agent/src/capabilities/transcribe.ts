@@ -1,5 +1,6 @@
 import { defineCapability } from "../capability-runtime.ts"
 import { appendMessageText } from "../messages.ts"
+import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 
 import type {
   AgentCapabilityRuntimeContext,
@@ -11,7 +12,7 @@ import type {
 import type { AudioData, AudioPart, Message } from "../messages.ts"
 import type { WritableWorkspaceFacade, WorkspaceContent, WorkspaceName } from "@vite-hub/workspace"
 
-type AiSdkTranscribe = typeof import("ai")["experimental_transcribe"]
+type AiSdkTranscribe = typeof import("ai")["transcribe"]
 type AiSdkTranscribeOptions = Omit<Parameters<AiSdkTranscribe>[0], "abortSignal" | "audio">
 type AiSdkTranscriptionResult = Awaited<ReturnType<AiSdkTranscribe>>
 type TranscribeArtifactValue<T, TInput> = T | ((input: TInput) => MaybePromise<T>)
@@ -231,8 +232,8 @@ async function runTranscription(options: StaticTranscribeOptions, audio: AudioPa
     ...transcribeOptions
   } = options
   const maxBytes = normalizeMaxBytes(maxBytesOption)
-  const { createDownload, experimental_transcribe } = await import("ai")
-  const result = await experimental_transcribe({
+  const { createDownload, transcribe } = await loadAiSdk()
+  const result = await transcribe({
     ...transcribeOptions,
     abortSignal,
     audio: await toAiSdkAudio(audio, maxBytes),

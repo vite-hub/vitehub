@@ -296,11 +296,15 @@ describe("agent output helpers", () => {
     ])
   })
 
-  it("prefers fullStream over async iterable stream result surfaces", async () => {
+  it("prefers stream over deprecated fullStream and async iterable result surfaces", async () => {
     class StreamResult {
-      fullStream = (async function* () {
+      stream = (async function* () {
         yield { text: "ok", type: "text-delta" }
         yield { finishReason: "stop", type: "finish" }
+      })()
+
+      fullStream = (async function* () {
+        yield { text: "wrong-full-stream", type: "text-delta" }
       })()
 
       usage = Promise.resolve({

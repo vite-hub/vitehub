@@ -3,7 +3,7 @@
 <p>
   <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
-  <img alt="AI SDK" src="https://img.shields.io/badge/AI%20SDK-models-111827?style=flat-square">
+  <img alt="AI SDK" src="https://img.shields.io/badge/AI%20SDK-v7-111827?style=flat-square">
 </p>
 
 `@vite-hub/agent` defines model-backed agents from files such as `server/agents/support/config.ts`.
@@ -20,12 +20,14 @@ Keep the three pieces separate:
 pnpm add @vite-hub/agent @vite-hub/workspace ai
 ```
 
+`ai` is required for model-backed drivers and AI SDK-powered capabilities such as model-backed `chatTitle()`, `chatSummary()`, `llmGate()`, and `transcribe()`. Agents with a custom `run()` function can bundle without installing `ai`.
+
 Add the AI SDK model provider you pass to `model`.
 
-For AI SDK harness drivers, add the experimental harness packages:
+For AI SDK harness drivers, add the harness packages:
 
 ```sh
-pnpm add @ai-sdk/harness@canary @ai-sdk/harness-codex@canary @ai-sdk/sandbox-vercel@canary
+pnpm add @ai-sdk/harness @ai-sdk/harness-codex @ai-sdk/sandbox-vercel
 ```
 
 ## Minimal API
@@ -108,7 +110,7 @@ export default defineConfig({
 - `chat()` exposes the agent as a chat surface; see the [AI agent tutorial](https://vitehub.dev/docs/tutorials/build-ai-chatbot).
 - `workspaceShell()` runs scoped shell/file work through [`@vite-hub/shell`](../shell/README.md).
 - `webSearch()` searches and reads the web with [Brave](https://brave.com/search/api/), [Exa](https://docs.exa.ai/), [Jina](https://jina.ai/en-US/reader/), [SearXNG](https://docs.searxng.org/dev/search_api.html), [SerpApi](https://serpapi.com/search-api), [SerpBase](https://serpbase.dev/docs), or [Tavily](https://docs.tavily.com/).
-- `transcribe()` uses the [AI SDK transcription API](https://ai-sdk.dev/docs/reference/ai-sdk-core/transcribe).
+- `transcribe()` uses the [AI SDK transcription API](https://ai-sdk.dev/v7/docs/reference/ai-sdk-core/transcribe).
 - `mcp()` connects tools from [Model Context Protocol](https://modelcontextprotocol.io/) servers through `@ai-sdk/mcp`.
 - `kv()`, `blob()`, and `db()` expose [`@vite-hub/kv`](../kv/README.md), [`@vite-hub/blob`](../blob/README.md), and [`@vite-hub/database`](../database/README.md).
 - `sandbox()` and `schedule()` expose [`@vite-hub/sandbox`](../sandbox/README.md) and [`@vite-hub/schedule`](../schedule/README.md).

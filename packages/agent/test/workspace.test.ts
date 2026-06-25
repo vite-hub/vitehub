@@ -36,6 +36,7 @@ const useWorkspace = vi.fn<() => ReadonlyWorkspaceFacade | WritableWorkspaceFaca
 } as unknown as WritableWorkspaceFacade))
 const agentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const generateText = vi.hoisted(() => vi.fn())
+const jsonSchema = vi.hoisted(() => vi.fn(schema => ({ schema, type: "json-schema" })))
 const agentGenerate = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ finishReason: string, steps?: unknown[], text: string }>>(async () => ({ finishReason: "stop", text: "ok" })))
 const agentStream = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ fullStream: AsyncIterable<unknown> }>>(async () => ({
   fullStream: (async function* () {
@@ -59,8 +60,8 @@ const prepareHarnessWorkspaceSession = vi.fn()
 
 vi.mock("ai", () => ({
   generateText,
-  jsonSchema: vi.fn(schema => schema),
-  stepCountIs: vi.fn(count => ({ count })),
+  jsonSchema,
+  isStepCount: vi.fn(count => ({ count })),
   ToolLoopAgent: class {
     constructor(public settings: Record<string, unknown>) {
       agentSettings.push(settings)
@@ -174,6 +175,7 @@ describe("defineAgent workspace option", () => {
     })
     generateText.mockReset()
     generateText.mockResolvedValue({ text: "fallback answer" })
+    jsonSchema.mockClear()
     exists.mockReset()
     exists.mockResolvedValue(false)
     stat.mockReset()
@@ -1850,8 +1852,8 @@ describe("defineAgent workspace option", () => {
   it("synthesizes streamed answers from step finish callback tool results", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     agentStream.mockImplementationOnce(async (input: unknown) => {
-      const callInput = input as { onStepFinish?: (event: unknown) => Promise<void> }
-      await callInput.onStepFinish?.({
+      const callInput = input as { onStepEnd?: (event: unknown) => Promise<void> }
+      await callInput.onStepEnd?.({
         toolResults: [
           {
             output: { text: "Browser evidence from callback: screenshots/login-version-badge-desktop.png" },
@@ -1889,8 +1891,8 @@ describe("defineAgent workspace option", () => {
   it("keeps final stream text when callback evidence is only supporting evidence", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     agentStream.mockImplementationOnce(async (input: unknown) => {
-      const callInput = input as { onStepFinish?: (event: unknown) => Promise<void> }
-      await callInput.onStepFinish?.({
+      const callInput = input as { onStepEnd?: (event: unknown) => Promise<void> }
+      await callInput.onStepEnd?.({
         toolResults: [
           {
             output: { text: "Browser evidence from callback: screenshots/login-version-badge-desktop.png" },
@@ -2131,18 +2133,18 @@ describe("defineAgent workspace option", () => {
   it("passes AI SDK tool loop settings through workspace agents", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const stopWhen = { custom: true }
-    const onStepFinish = vi.fn()
-    const experimental_telemetry = { integrations: [], isEnabled: true }
+    const onStepEnd = vi.fn()
+    const telemetry = { integrations: [], isEnabled: true }
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
       modelExecution: {
         callSettings: {
-          experimental_telemetry: experimental_telemetry as never,
           maxOutputTokens: 100,
-          onStepFinish,
+          onStepEnd,
           stopWhen: stopWhen as never,
           temperature: 0.2,
+          telemetry: telemetry as never,
           toolChoice: "auto",
         },
       },
@@ -2152,11 +2154,11 @@ describe("defineAgent workspace option", () => {
     await agent.run!(context())
 
     expect(agentSettings.at(-1)).toMatchObject({
-      experimental_telemetry,
       maxOutputTokens: 100,
-      onStepFinish,
+      onStepEnd,
       stopWhen,
       temperature: 0.2,
+      telemetry,
       toolChoice: "auto",
     })
   })
@@ -2208,7 +2210,7 @@ describe("defineAgent workspace option", () => {
       workspace: {},
       modelExecution: {
         callSettings: {
-          onStepFinish: vi.fn(),
+          onStepEnd: vi.fn(),
         },
         instrumentation: {
           model: instrumentModel,
@@ -2232,7 +2234,7 @@ describe("defineAgent workspace option", () => {
     }))
     expect(agentSettings.at(-1)).toMatchObject({
       model: wrappedModel,
-      onStepFinish: expect.any(Function),
+      onStepEnd: expect.any(Function),
     })
     expect(agentSettings.at(-1)).not.toHaveProperty("modelExecution")
   })
@@ -2306,7 +2308,7 @@ describe("defineAgent workspace option", () => {
   it("lets workspace agents instrument AI SDK call settings per run", async () => {
     const execute = vi.fn(async () => "workspace result")
     const instrumentCallSettings = vi.fn(({ callSettings }) => ({
-      experimental_telemetry: { isEnabled: true, runScoped: true },
+      telemetry: { isEnabled: true, runScoped: true },
       temperature: callSettings.temperature,
     }))
     inspectTools.mockReturnValueOnce({
@@ -2349,9 +2351,9 @@ describe("defineAgent workspace option", () => {
     }))
     expect(instrumentCallSettings.mock.calls[0]?.[0].callSettings).not.toHaveProperty("stepLimit")
     expect(agentSettings.at(-1)).toMatchObject({
-      experimental_telemetry: { isEnabled: true, runScoped: true },
       stopWhen: { count: 7 },
       temperature: 0.2,
+      telemetry: { isEnabled: true, runScoped: true },
     })
     expect(agentSettings.at(-1)).not.toHaveProperty("modelExecution")
   })
@@ -2388,25 +2390,25 @@ describe("defineAgent workspace option", () => {
     ])
   })
 
-  it("passes runtime context to run-aware step and tool callbacks", async () => {
-    const onStepFinish = vi.fn()
+  it("passes runtime context to native AI SDK step and tool callbacks", async () => {
+    const onStepEnd = vi.fn()
+    const onToolExecutionStart = vi.fn()
+    const onToolExecutionEnd = vi.fn()
     const onRunStepFinish = vi.fn()
-    const experimental_onToolCallStart = vi.fn()
-    const experimental_onToolCallFinish = vi.fn()
-    const onRunToolCallStart = vi.fn()
     const onRunToolCallFinish = vi.fn()
+    const onRunToolCallStart = vi.fn()
     const { defineAgent } = await import("../src/index.ts")
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
       modelExecution: {
         callSettings: {
-          experimental_onToolCallFinish: experimental_onToolCallFinish as never,
-          experimental_onToolCallStart: experimental_onToolCallStart as never,
-          onRunStepFinish,
-          onRunToolCallFinish,
-          onRunToolCallStart,
-          onStepFinish,
+          onStepEnd,
+          onRunStepFinish: onRunStepFinish as never,
+          onRunToolCallFinish: onRunToolCallFinish as never,
+          onRunToolCallStart: onRunToolCallStart as never,
+          onToolExecutionEnd,
+          onToolExecutionStart,
         },
       },
       model: {} as never,
@@ -2419,22 +2421,26 @@ describe("defineAgent workspace option", () => {
     } as never)
 
     const settings = agentSettings.at(-1)!
-    await (settings.onStepFinish as (step: unknown) => Promise<void>)({ stepNumber: 1 })
-    await (settings.experimental_onToolCallStart as (event: unknown) => Promise<void>)({ toolName: "shell" })
-    await (settings.experimental_onToolCallFinish as (event: unknown) => Promise<void>)({ durationMs: 12, toolName: "shell" })
+    expect(settings).toMatchObject({
+      onStepEnd,
+      onToolExecutionEnd,
+      onToolExecutionStart,
+      runtimeContext: expect.objectContaining({
+        input: expect.objectContaining({ messages: [] }),
+        run: { runId: "run_123" },
+      }),
+    })
+    expect(settings).not.toHaveProperty("onRunStepFinish")
+    expect(settings).not.toHaveProperty("onRunToolCallFinish")
+    expect(settings).not.toHaveProperty("onRunToolCallStart")
+    await (settings.onStepEnd as (step: unknown) => Promise<void>)({ stepNumber: 1 })
+    await (settings.onToolExecutionStart as (event: unknown) => Promise<void>)({ toolName: "shell" })
+    await (settings.onToolExecutionEnd as (event: unknown) => Promise<void>)({ durationMs: 12, toolName: "shell" })
 
-    expect(onStepFinish).toHaveBeenCalledWith({ stepNumber: 1 })
-    expect(onRunStepFinish).toHaveBeenCalledWith({ stepNumber: 1 }, expect.objectContaining({
-      run: { runId: "run_123" },
-    }))
-    expect(experimental_onToolCallStart).toHaveBeenCalledWith({ toolName: "shell" })
-    expect(onRunToolCallStart).toHaveBeenCalledWith({ toolName: "shell" }, expect.objectContaining({
-      run: { runId: "run_123" },
-    }))
-    expect(experimental_onToolCallFinish).toHaveBeenCalledWith({ durationMs: 12, toolName: "shell" })
-    expect(onRunToolCallFinish).toHaveBeenCalledWith({ durationMs: 12, toolName: "shell" }, expect.objectContaining({
-      run: { runId: "run_123" },
-    }))
+    expect(onStepEnd).toHaveBeenCalledWith({ stepNumber: 1 })
+    expect(onToolExecutionStart).toHaveBeenCalledWith({ toolName: "shell" })
+    expect(onToolExecutionEnd).toHaveBeenCalledWith({ durationMs: 12, toolName: "shell" })
+    expect((settings.runtimeContext as { run?: unknown }).run).toEqual({ runId: "run_123" })
   })
 
   it("passes workspace to callback instructions", async () => {
@@ -2518,6 +2524,30 @@ describe("defineAgent workspace option", () => {
     expect(resolvedShell).toEqual(expect.objectContaining({ inputSchema: {} }))
     await resolvedShell?.execute({ command: "rg defineAgent" })
     expect(shell.execute).toHaveBeenCalledWith({ command: "rg defineAgent" })
+  })
+
+  it("wraps default tool input schemas with the AI SDK schema helper", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const search = { execute: vi.fn() }
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      model: {} as never,
+      capabilities: [{ id: "workspace-tools", tools: () => ({ search }) }],
+    }), { workspace: "docs" })
+
+    await agent.run!(context({ vertex: { model: "gemini" } }))
+
+    const schemaJson = {
+      additionalProperties: false,
+      properties: {},
+      type: "object",
+    }
+    expect(jsonSchema).toHaveBeenCalledWith(schemaJson)
+    expect((agentSettings.at(-1)?.tools as { search?: { inputSchema?: unknown } } | undefined)?.search?.inputSchema).toEqual({
+      schema: schemaJson,
+      type: "json-schema",
+    })
   })
 
   it("reports explicitly attached workspace tool usage when execution starts and finishes", async () => {

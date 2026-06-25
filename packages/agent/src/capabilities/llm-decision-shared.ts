@@ -1,4 +1,5 @@
 import { getMessageText } from "../messages.ts"
+import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 
 import type { Message } from "../messages.ts"
 
@@ -117,8 +118,13 @@ export async function generateDecision<T>(input: {
   prompt: string
   schema: DecisionObjectSchema<T>
 }): Promise<T> {
-  const { Output, generateText, jsonSchema } = await import("ai")
+  const { Output, generateText, jsonSchema } = await loadAiSdk()
   const result = await generateText({
+    instructions: [
+      "You are a pre-invocation classifier for an AI agent.",
+      "Choose the best option from the allowed schema.",
+      "Do not answer the user request.",
+    ].join("\n"),
     model: input.model as never,
     output: Output.object({
       description: `Decision result for ${input.id}.`,
@@ -126,11 +132,6 @@ export async function generateDecision<T>(input: {
       schema: jsonSchema<T>(input.schema.schema as never, { validate: input.schema.validate }),
     }),
     prompt: input.prompt,
-    system: [
-      "You are a pre-invocation classifier for an AI agent.",
-      "Choose the best option from the allowed schema.",
-      "Do not answer the user request.",
-    ].join("\n"),
   })
   return (result as { output: T }).output
 }

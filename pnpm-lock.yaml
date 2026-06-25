@@ -7,17 +7,17 @@ settings:
 catalogs:
   ai:
     '@ai-sdk/harness':
-      specifier: 1.0.0-canary.9
-      version: 1.0.0-canary.9
+      specifier: 1.0.0
+      version: 1.0.0
     '@ai-sdk/harness-codex':
-      specifier: 1.0.0-canary.5
-      version: 1.0.0-canary.5
+      specifier: 1.0.0
+      version: 1.0.0
     '@ai-sdk/mcp':
-      specifier: 2.0.0-canary.65
-      version: 2.0.0-canary.65
+      specifier: 2.0.0
+      version: 2.0.0
     '@ai-sdk/sandbox-vercel':
-      specifier: 1.0.0-canary.9
-      version: 1.0.0-canary.9
+      specifier: 1.0.0
+      version: 1.0.0
     '@modelcontextprotocol/sdk':
       specifier: ^1.29.0
       version: 1.29.0
@@ -25,8 +25,8 @@ catalogs:
       specifier: ^0.12.3
       version: 0.12.3
     ai:
-      specifier: 7.0.0-canary.173
-      version: 7.0.0-canary.173
+      specifier: 7.0.0
+      version: 7.0.0
     evalite:
       specifier: 1.0.0-beta.16
       version: 1.0.0-beta.16
@@ -321,7 +321,7 @@ importers:
         version: 0.2.0(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@netlify/blobs@10.7.5)(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.4.0)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(@voidzero-dev/vite-plus-core@0.1.24)(aws4fetch@1.0.20)(crossws@0.4.5(srvx@0.11.15))(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(kysely@0.29.2)(postgres@3.4.9)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15)))(tailwindcss@4.3.0))
       chat:
         specifier: catalog:chat
-        version: 4.29.0(ai@7.0.0-canary.173(zod@4.4.3))(zod@4.4.3)
+        version: 4.29.0(ai@7.0.0(zod@4.4.3))(zod@4.4.3)
       chat-state-cloudflare-do:
         specifier: catalog:chat
         version: 0.2.0(chat@4.29.0(zod@4.4.3))
@@ -372,7 +372,7 @@ importers:
         version: 14.3.0(vue@3.5.34(typescript@6.0.2))
       docus:
         specifier: catalog:nuxt
-        version: 5.11.0(84a95b12a3423511a81d057aa6db64d8)
+        version: 5.11.0(66e7467c0f946c8443dadc40c25a85ba)
       h3:
         specifier: catalog:h3-v1-compat
         version: 1.15.11
@@ -412,7 +412,7 @@ importers:
     dependencies:
       '@ai-sdk/harness-codex':
         specifier: catalog:ai
-        version: 1.0.0-canary.5
+        version: 1.0.0
       '@libsql/client':
         specifier: catalog:database
         version: 0.15.15
@@ -436,10 +436,10 @@ importers:
         version: 0.2.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@voidzero-dev/vite-plus-core@0.1.24)(crossws@0.4.5(srvx@0.11.15))(typescript@6.0.2)
       agents:
         specifier: catalog:ai
-        version: 0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(@voidzero-dev/vite-plus-core@0.1.24)(ai@7.0.0-canary.173(zod@4.4.3))(react@19.2.6)(rolldown@1.0.3)(zod@4.4.3)
+        version: 0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(@voidzero-dev/vite-plus-core@0.1.24)(ai@7.0.0(zod@4.4.3))(react@19.2.6)(rolldown@1.0.3)(zod@4.4.3)
       chat:
         specifier: catalog:chat
-        version: 4.29.0(ai@7.0.0-canary.173(zod@4.4.3))(zod@4.4.3)
+        version: 4.29.0(ai@7.0.0(zod@4.4.3))(zod@4.4.3)
       esbuild:
         specifier: catalog:esbuild-v27
         version: 0.27.7
@@ -455,13 +455,13 @@ importers:
     devDependencies:
       '@ai-sdk/harness':
         specifier: catalog:ai
-        version: 1.0.0-canary.9(ws@8.20.1)(zod@4.4.3)
+        version: 1.0.0(ws@8.21.0)(zod@4.4.3)
       '@ai-sdk/mcp':
         specifier: catalog:ai
-        version: 2.0.0-canary.65(zod@4.4.3)
+        version: 2.0.0(zod@4.4.3)
       '@ai-sdk/sandbox-vercel':
         specifier: catalog:ai
-        version: 1.0.0-canary.9(ws@8.20.1)(zod@4.4.3)
+        version: 1.0.0(ws@8.21.0)(zod@4.4.3)
       '@types/node':
         specifier: catalog:tooling
         version: 24.13.2
@@ -473,10 +473,10 @@ importers:
         version: link:../workflow
       ai:
         specifier: catalog:ai
-        version: 7.0.0-canary.173(zod@4.4.3)
+        version: 7.0.0(zod@4.4.3)
       evalite:
         specifier: catalog:ai
-        version: 1.0.0-beta.16(ai@7.0.0-canary.173(zod@4.4.3))(better-sqlite3@12.9.0)
+        version: 1.0.0-beta.16(ai@7.0.0(zod@4.4.3))(better-sqlite3@12.9.0)
       publint:
         specifier: catalog:tooling
         version: 0.3.21
@@ -677,7 +677,7 @@ importers:
         version: 0.2.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@voidzero-dev/vite-plus-core@0.1.24)(crossws@0.4.5(srvx@0.11.15))(typescript@6.0.2)
       ai:
         specifier: catalog:ai
-        version: 7.0.0-canary.173(zod@4.4.3)
+        version: 7.0.0(zod@4.4.3)
       nuxt:
         specifier: catalog:nuxt
         version: 4.4.6(d09cb1cf5e2d8c177e0f3be952a262b3)
@@ -1177,10 +1177,10 @@ importers:
         version: link:../shell
       ai:
         specifier: catalog:ai
-        version: 7.0.0-canary.173(zod@4.4.3)
+        version: 7.0.0(zod@4.4.3)
       files-sdk:
         specifier: catalog:storage
-        version: 1.9.0(@aws-sdk/client-s3@3.1045.0)(@aws-sdk/s3-presigned-post@3.1045.0)(@aws-sdk/s3-request-presigner@3.1045.0)(@azure/core-auth@1.10.1)(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@cfworker/json-schema@4.1.1)(@google-cloud/storage@7.19.0)(@microsoft/microsoft-graph-client@3.0.7(@azure/identity@4.13.1))(@netlify/blobs@10.7.5)(@opentelemetry/api@1.9.0)(@supabase/storage-js@2.105.4)(@vercel/blob@2.4.0)(ai@7.0.0-canary.173(zod@4.4.3))(box-typescript-sdk-gen@1.19.1)(dropbox@10.34.0(@types/node-fetch@2.6.13))(google-auth-library@10.6.2)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15)))(tailwindcss@4.3.0))(zod@4.4.3)
+        version: 1.9.0(@aws-sdk/client-s3@3.1045.0)(@aws-sdk/s3-presigned-post@3.1045.0)(@aws-sdk/s3-request-presigner@3.1045.0)(@azure/core-auth@1.10.1)(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@cfworker/json-schema@4.1.1)(@google-cloud/storage@7.19.0)(@microsoft/microsoft-graph-client@3.0.7(@azure/identity@4.13.1))(@netlify/blobs@10.7.5)(@opentelemetry/api@1.9.0)(@supabase/storage-js@2.105.4)(@vercel/blob@2.4.0)(ai@7.0.0(zod@4.4.3))(box-typescript-sdk-gen@1.19.1)(dropbox@10.34.0(@types/node-fetch@2.6.13))(google-auth-library@10.6.2)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15)))(tailwindcss@4.3.0))(zod@4.4.3)
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
@@ -1220,21 +1220,21 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/gateway@4.0.0-canary.105':
-    resolution: {integrity: sha512-RlN/+B+9+Fl+H0MPhJif37dWMjwa3spncFd8y/vWYSStVESBidtbLKyW44Zdfu6aFSaqUHHAmD7UCjP58C5qug==}
+  '@ai-sdk/gateway@4.0.0':
+    resolution: {integrity: sha512-rcKukspbM4h511ot2E8TsPl7rXjRK1zHKrMCP7w4+XF55UKqQHaDzo2kKbGv5rp8Bjb1yQatIHJZE1E2yrOOMw==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/harness-codex@1.0.0-canary.5':
-    resolution: {integrity: sha512-402JkrZQxlS8JP9k2pETtcazRLW+55HL0sAxT3iTcA5ENC5ed7Y2crsBbdgB1fsanI9lFwBe5DPk5Yzd1YfRDQ==}
+  '@ai-sdk/harness-codex@1.0.0':
+    resolution: {integrity: sha512-nQ1LbFVq8FKiRTqecimmYobFPW9fEY3qcwCuduavBRZ60jtaPaICjJ3Abemf3X7hJgXR02beTs3CAeomBv/Avw==}
     engines: {node: '>=22'}
 
-  '@ai-sdk/harness@1.0.0-canary.9':
-    resolution: {integrity: sha512-4AJBN9KIdyv0TdT2q/ezuBwfo2/ZiJjgUvTXhHBWvJ+NDe1j0jqpxleUxBUOvHP7SYq299NgTkokTZNWMJCcUQ==}
+  '@ai-sdk/harness@1.0.0':
+    resolution: {integrity: sha512-XNAnCdw0nFt2qCzzdpDCDCMJStbTbQWUrpv1iy0MCrvZVBCRg7xrXNXEurakVaKuykac8JyxBzUS/s3QDIJP+g==}
     engines: {node: '>=22'}
     peerDependencies:
-      ws: ^8.20.1
+      ws: ^8.21.0
     peerDependenciesMeta:
       ws:
         optional: true
@@ -1245,8 +1245,8 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/mcp@2.0.0-canary.65':
-    resolution: {integrity: sha512-giyTeWVykKbgE/VDOlzoq6igW0MbIp60KfFTaxW/NYdmK1sb221Ozb1PaSYEn362tmDv1cnvyBSsXhXahrYzkA==}
+  '@ai-sdk/mcp@2.0.0':
+    resolution: {integrity: sha512-+N6gJ1AbcDk3+6asoEsdIojVmgEReKNcvWIT716pDL3AepGI6j7RJVdaRyhQLltwzTj0arwpwU4BBzvhOiCd/g==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -1263,8 +1263,8 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/provider-utils@5.0.0-canary.48':
-    resolution: {integrity: sha512-340rMqAnqHDZOKS9ayrRbNr0/Om+orcopAnqJ7ftfEskxDUCTcudmhAhctFMSQeMzDnKaBPgz+4iff/hn7PkqQ==}
+  '@ai-sdk/provider-utils@5.0.0':
+    resolution: {integrity: sha512-zj66M02jc6ASYwIgWZowsooDUwaVngeNZQ3H10GwcPMZ+KR6gHMhcUuKl6tkai+JPXTKDyHY1pnszuxRtw2D4A==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -1277,12 +1277,12 @@ packages:
     resolution: {integrity: sha512-oGMAgGoQdBXbZqNG0Ze56CHjDZ1IDYOwGYxYjO5KLSlz5HiNQ9udIXsPZ61VWaHGZ5XW/jyjmr6t2xz2jGVwbQ==}
     engines: {node: '>=18'}
 
-  '@ai-sdk/provider@4.0.0-canary.18':
-    resolution: {integrity: sha512-+XBwXEPkN+l/90bb7TaSK15jAq9ScsGrauJ/NLSGip0KX5Mf1pfEfqBWDuJMIYVRYHNdV1dDBy7JCoKUCQe/tA==}
+  '@ai-sdk/provider@4.0.0':
+    resolution: {integrity: sha512-fr9Gs89prDWiuox/T+kCA+i2cJkHpxU5S+tr4megjTzRC27ZsvFhwjU/+XrqqMbvBUlfmXxTOYWy8ng45dsjIg==}
     engines: {node: '>=22'}
 
-  '@ai-sdk/sandbox-vercel@1.0.0-canary.9':
-    resolution: {integrity: sha512-WKhor+RTsvhK7zPOlrGA/mLf8ogMYKdvdpVz79zkbWvocF95XqBwAsNlZjG3v7dUS9/BoCbu/TSjbpZqLO+lqw==}
+  '@ai-sdk/sandbox-vercel@1.0.0':
+    resolution: {integrity: sha512-H/8IFbvjZzIu50CHkG3Jo6nG08mc+3cbkjlDp03xI3iYRvZJc5gAmC2PCOuTrLhIX5EUoQRZnLFpxJPg8lAn5g==}
     engines: {node: '>=22'}
 
   '@ai-sdk/vue@3.0.168':
@@ -7127,8 +7127,8 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  ai@7.0.0-canary.173:
-    resolution: {integrity: sha512-ehK+jSMvXx0sHNDDqIaK/vWAxo7DkQnZ/lEmnj+Q7WlC3NioRfC1L9jxvElRUQgDNU376Q275r7vjOV1EIejtw==}
+  ai@7.0.0:
+    resolution: {integrity: sha512-hncs+jamJh8r36K6G8xky7oF4Ai/RLU5TF85FMzI2vElyMJGGnLoHihpdmuDiuY2BsktDWHevKaJM1l0VcRLGw==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -12720,6 +12720,18 @@ packages:
       utf-8-validate:
         optional: true
 
+  ws@8.21.0:
+    resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
+    engines: {node: '>=10.0.0'}
+    peerDependencies:
+      bufferutil: ^4.0.1
+      utf-8-validate: '>=5.0.2'
+    peerDependenciesMeta:
+      bufferutil:
+        optional: true
+      utf-8-validate:
+        optional: true
+
   wsl-utils@0.1.0:
     resolution: {integrity: sha512-h3Fbisa2nKGPxCpm89Hk33lBLsnaGBvctQopaBSOW/uIs6FTe1ATyAnKFJrzVs9vpGdsTe73WF3V4lIsk4Gacw==}
     engines: {node: '>=18'}
@@ -12853,47 +12865,47 @@ snapshots:
       '@vercel/oidc': 3.2.0
       zod: 4.4.3
 
-  '@ai-sdk/gateway@4.0.0-canary.105(zod@3.25.76)':
+  '@ai-sdk/gateway@4.0.0(zod@3.25.76)':
     dependencies:
-      '@ai-sdk/provider': 4.0.0-canary.18
-      '@ai-sdk/provider-utils': 5.0.0-canary.48(zod@3.25.76)
+      '@ai-sdk/provider': 4.0.0
+      '@ai-sdk/provider-utils': 5.0.0(zod@3.25.76)
       '@vercel/oidc': 3.2.0
       zod: 3.25.76
 
-  '@ai-sdk/gateway@4.0.0-canary.105(zod@4.4.3)':
+  '@ai-sdk/gateway@4.0.0(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/provider': 4.0.0-canary.18
-      '@ai-sdk/provider-utils': 5.0.0-canary.48(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.0
+      '@ai-sdk/provider-utils': 5.0.0(zod@4.4.3)
       '@vercel/oidc': 3.2.0
       zod: 4.4.3
 
-  '@ai-sdk/harness-codex@1.0.0-canary.5':
+  '@ai-sdk/harness-codex@1.0.0':
     dependencies:
-      '@ai-sdk/harness': 1.0.0-canary.9(ws@8.20.1)(zod@3.25.76)
-      '@ai-sdk/provider-utils': 5.0.0-canary.48(zod@3.25.76)
-      ws: 8.20.1
+      '@ai-sdk/harness': 1.0.0(ws@8.21.0)(zod@3.25.76)
+      '@ai-sdk/provider-utils': 5.0.0(zod@3.25.76)
+      ws: 8.21.0
       zod: 3.25.76
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@ai-sdk/harness@1.0.0-canary.9(ws@8.20.1)(zod@3.25.76)':
+  '@ai-sdk/harness@1.0.0(ws@8.21.0)(zod@3.25.76)':
     dependencies:
-      '@ai-sdk/provider': 4.0.0-canary.18
-      '@ai-sdk/provider-utils': 5.0.0-canary.48(zod@3.25.76)
-      ai: 7.0.0-canary.173(zod@3.25.76)
+      '@ai-sdk/provider': 4.0.0
+      '@ai-sdk/provider-utils': 5.0.0(zod@3.25.76)
+      ai: 7.0.0(zod@3.25.76)
     optionalDependencies:
-      ws: 8.20.1
+      ws: 8.21.0
     transitivePeerDependencies:
       - zod
 
-  '@ai-sdk/harness@1.0.0-canary.9(ws@8.20.1)(zod@4.4.3)':
+  '@ai-sdk/harness@1.0.0(ws@8.21.0)(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/provider': 4.0.0-canary.18
-      '@ai-sdk/provider-utils': 5.0.0-canary.48(zod@4.4.3)
-      ai: 7.0.0-canary.173(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.0
+      '@ai-sdk/provider-utils': 5.0.0(zod@4.4.3)
+      ai: 7.0.0(zod@4.4.3)
     optionalDependencies:
-      ws: 8.20.1
+      ws: 8.21.0
     transitivePeerDependencies:
       - zod
 
@@ -12904,10 +12916,10 @@ snapshots:
       pkce-challenge: 5.0.1
       zod: 4.4.3
 
-  '@ai-sdk/mcp@2.0.0-canary.65(zod@4.4.3)':
+  '@ai-sdk/mcp@2.0.0(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/provider': 4.0.0-canary.18
-      '@ai-sdk/provider-utils': 5.0.0-canary.48(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.0
+      '@ai-sdk/provider-utils': 5.0.0(zod@4.4.3)
       pkce-challenge: 5.0.1
       zod: 4.4.3
 
@@ -12925,17 +12937,17 @@ snapshots:
       eventsource-parser: 3.0.8
       zod: 4.4.3
 
-  '@ai-sdk/provider-utils@5.0.0-canary.48(zod@3.25.76)':
+  '@ai-sdk/provider-utils@5.0.0(zod@3.25.76)':
     dependencies:
-      '@ai-sdk/provider': 4.0.0-canary.18
+      '@ai-sdk/provider': 4.0.0
       '@standard-schema/spec': 1.1.0
       '@workflow/serde': 4.1.0
       eventsource-parser: 3.0.8
       zod: 3.25.76
 
-  '@ai-sdk/provider-utils@5.0.0-canary.48(zod@4.4.3)':
+  '@ai-sdk/provider-utils@5.0.0(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/provider': 4.0.0-canary.18
+      '@ai-sdk/provider': 4.0.0
       '@standard-schema/spec': 1.1.0
       '@workflow/serde': 4.1.0
       eventsource-parser: 3.0.8
@@ -12949,14 +12961,14 @@ snapshots:
     dependencies:
       json-schema: 0.4.0
 
-  '@ai-sdk/provider@4.0.0-canary.18':
+  '@ai-sdk/provider@4.0.0':
     dependencies:
       json-schema: 0.4.0
 
-  '@ai-sdk/sandbox-vercel@1.0.0-canary.9(ws@8.20.1)(zod@4.4.3)':
+  '@ai-sdk/sandbox-vercel@1.0.0(ws@8.21.0)(zod@4.4.3)':
     dependencies:
-      '@ai-sdk/harness': 1.0.0-canary.9(ws@8.20.1)(zod@4.4.3)
-      '@ai-sdk/provider-utils': 5.0.0-canary.48(zod@4.4.3)
+      '@ai-sdk/harness': 1.0.0(ws@8.21.0)(zod@4.4.3)
+      '@ai-sdk/provider-utils': 5.0.0(zod@4.4.3)
       '@vercel/sandbox': 2.2.1
     transitivePeerDependencies:
       - bare-abort-controller
@@ -16192,7 +16204,7 @@ snapshots:
       - vite
       - vue
 
-  '@nuxtjs/mcp-toolkit@0.13.4(@cfworker/json-schema@4.1.1)(agents@0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(ai@7.0.0-canary.173(zod@4.4.3))(react@19.2.6)(rolldown@1.0.3)(vite@8.0.16)(zod@4.4.3))(h3@1.15.11)(magicast@0.5.3)(zod@4.4.3)':
+  '@nuxtjs/mcp-toolkit@0.13.4(@cfworker/json-schema@4.1.1)(agents@0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(ai@7.0.0(zod@4.4.3))(react@19.2.6)(rolldown@1.0.3)(vite@8.0.16)(zod@4.4.3))(h3@1.15.11)(magicast@0.5.3)(zod@4.4.3)':
     dependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
       '@nuxt/kit': 4.4.6(magicast@0.5.3)
@@ -16200,7 +16212,7 @@ snapshots:
       tinyglobby: 0.2.16
       zod: 4.4.3
     optionalDependencies:
-      agents: 0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(ai@7.0.0-canary.173(zod@4.4.3))(react@19.2.6)(rolldown@1.0.3)(vite@8.0.16)(zod@4.4.3)
+      agents: 0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(ai@7.0.0(zod@4.4.3))(react@19.2.6)(rolldown@1.0.3)(vite@8.0.16)(zod@4.4.3)
     transitivePeerDependencies:
       - '@cfworker/json-schema'
       - magicast
@@ -20231,13 +20243,13 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  agents@0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(@voidzero-dev/vite-plus-core@0.1.24)(ai@7.0.0-canary.173(zod@4.4.3))(react@19.2.6)(rolldown@1.0.3)(zod@4.4.3):
+  agents@0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(@voidzero-dev/vite-plus-core@0.1.24)(ai@7.0.0(zod@4.4.3))(react@19.2.6)(rolldown@1.0.3)(zod@4.4.3):
     dependencies:
       '@babel/plugin-proposal-decorators': 7.29.0(@babel/core@7.29.0)
       '@cfworker/json-schema': 4.1.1
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
       '@rolldown/plugin-babel': 0.2.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@voidzero-dev/vite-plus-core@0.1.24)(rolldown@1.0.3)
-      ai: 7.0.0-canary.173(zod@4.4.3)
+      ai: 7.0.0(zod@4.4.3)
       cron-schedule: 6.0.0
       mimetext: 3.0.28
       nanoid: 5.1.11
@@ -20257,13 +20269,13 @@ snapshots:
       - rolldown
       - supports-color
 
-  agents@0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(ai@7.0.0-canary.173(zod@4.4.3))(react@19.2.6)(rolldown@1.0.3)(vite@8.0.16)(zod@4.4.3):
+  agents@0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(ai@7.0.0(zod@4.4.3))(react@19.2.6)(rolldown@1.0.3)(vite@8.0.16)(zod@4.4.3):
     dependencies:
       '@babel/plugin-proposal-decorators': 7.29.0(@babel/core@7.29.0)
       '@cfworker/json-schema': 4.1.1
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3)
       '@rolldown/plugin-babel': 0.2.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(rolldown@1.0.3)(vite@8.0.16)
-      ai: 7.0.0-canary.173(zod@4.4.3)
+      ai: 7.0.0(zod@4.4.3)
       cron-schedule: 6.0.0
       mimetext: 3.0.28
       nanoid: 5.1.11
@@ -20301,18 +20313,18 @@ snapshots:
       zod: 4.4.3
     optional: true
 
-  ai@7.0.0-canary.173(zod@3.25.76):
+  ai@7.0.0(zod@3.25.76):
     dependencies:
-      '@ai-sdk/gateway': 4.0.0-canary.105(zod@3.25.76)
-      '@ai-sdk/provider': 4.0.0-canary.18
-      '@ai-sdk/provider-utils': 5.0.0-canary.48(zod@3.25.76)
+      '@ai-sdk/gateway': 4.0.0(zod@3.25.76)
+      '@ai-sdk/provider': 4.0.0
+      '@ai-sdk/provider-utils': 5.0.0(zod@3.25.76)
       zod: 3.25.76
 
-  ai@7.0.0-canary.173(zod@4.4.3):
+  ai@7.0.0(zod@4.4.3):
     dependencies:
-      '@ai-sdk/gateway': 4.0.0-canary.105(zod@4.4.3)
-      '@ai-sdk/provider': 4.0.0-canary.18
-      '@ai-sdk/provider-utils': 5.0.0-canary.48(zod@4.4.3)
+      '@ai-sdk/gateway': 4.0.0(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.0
+      '@ai-sdk/provider-utils': 5.0.0(zod@4.4.3)
       zod: 4.4.3
 
   ajv-formats@3.0.1(ajv@8.18.0):
@@ -20790,9 +20802,9 @@ snapshots:
 
   chat-state-cloudflare-do@0.2.0(chat@4.29.0(zod@4.4.3)):
     dependencies:
-      chat: 4.29.0(ai@7.0.0-canary.173(zod@4.4.3))(zod@4.4.3)
+      chat: 4.29.0(ai@7.0.0(zod@4.4.3))(zod@4.4.3)
 
-  chat@4.29.0(ai@7.0.0-canary.173(zod@4.4.3))(zod@4.4.3):
+  chat@4.29.0(ai@7.0.0(zod@4.4.3))(zod@4.4.3):
     dependencies:
       '@workflow/serde': 4.1.0-beta.2
       mdast-util-to-string: 4.0.0
@@ -20802,7 +20814,7 @@ snapshots:
       remend: 1.3.0
       unified: 11.0.5
     optionalDependencies:
-      ai: 7.0.0-canary.173(zod@4.4.3)
+      ai: 7.0.0(zod@4.4.3)
       zod: 4.4.3
     transitivePeerDependencies:
       - supports-color
@@ -21214,7 +21226,7 @@ snapshots:
 
   diff@9.0.0: {}
 
-  docus@5.11.0(84a95b12a3423511a81d057aa6db64d8):
+  docus@5.11.0(66e7467c0f946c8443dadc40c25a85ba):
     dependencies:
       '@ai-sdk/gateway': 3.0.109(zod@4.4.3)
       '@ai-sdk/mcp': 1.0.36(zod@4.4.3)
@@ -21227,7 +21239,7 @@ snapshots:
       '@nuxt/kit': 4.4.6(magicast@0.5.3)
       '@nuxt/ui': 4.8.1(462f46c54bfb4b176091c6797dfb7d5e)
       '@nuxtjs/i18n': 10.2.4(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.37.0)(@vercel/blob@2.4.0)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(@vue/compiler-dom@3.5.34)(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(kysely@0.29.2)(postgres@3.4.9)(sql.js@1.14.1)))(eslint@10.2.0(jiti@2.7.0))(ioredis@5.10.1)(magicast@0.5.3)(rollup@4.60.4)(typescript@6.0.2)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.0))(vite@8.0.16)(vue@3.5.34(typescript@6.0.2))
-      '@nuxtjs/mcp-toolkit': 0.13.4(@cfworker/json-schema@4.1.1)(agents@0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(ai@7.0.0-canary.173(zod@4.4.3))(react@19.2.6)(rolldown@1.0.3)(vite@8.0.16)(zod@4.4.3))(h3@1.15.11)(magicast@0.5.3)(zod@4.4.3)
+      '@nuxtjs/mcp-toolkit': 0.13.4(@cfworker/json-schema@4.1.1)(agents@0.12.3(@babel/core@7.29.0)(@babel/runtime@7.29.2)(@cloudflare/workers-types@4.20260509.1)(@tanstack/ai@0.16.0(@opentelemetry/api@1.9.0))(ai@7.0.0(zod@4.4.3))(react@19.2.6)(rolldown@1.0.3)(vite@8.0.16)(zod@4.4.3))(h3@1.15.11)(magicast@0.5.3)(zod@4.4.3)
       '@nuxtjs/mdc': 0.21.1(magicast@0.5.3)
       '@nuxtjs/robots': 6.0.7(@nuxt/schema@4.4.6)(magicast@0.5.3)(nuxt@4.4.6(b4c61b027feba81b91144b342001e71c))(vite@8.0.16)(vue@3.5.34(typescript@6.0.2))(zod@4.4.3)
       '@shikijs/core': 4.0.2
@@ -21789,7 +21801,7 @@ snapshots:
 
   etag@1.8.1: {}
 
-  evalite@1.0.0-beta.16(ai@7.0.0-canary.173(zod@4.4.3))(better-sqlite3@12.9.0):
+  evalite@1.0.0-beta.16(ai@7.0.0(zod@4.4.3))(better-sqlite3@12.9.0):
     dependencies:
       '@fastify/static': 8.3.0
       '@fastify/websocket': 11.2.0
@@ -21806,7 +21818,7 @@ snapshots:
       table: 6.9.0
       tinyrainbow: 3.1.0
     optionalDependencies:
-      ai: 7.0.0-canary.173(zod@4.4.3)
+      ai: 7.0.0(zod@4.4.3)
       better-sqlite3: 12.9.0
     transitivePeerDependencies:
       - bufferutil
@@ -22124,7 +22136,7 @@ snapshots:
       - '@cfworker/json-schema'
       - supports-color
 
-  files-sdk@1.9.0(@aws-sdk/client-s3@3.1045.0)(@aws-sdk/s3-presigned-post@3.1045.0)(@aws-sdk/s3-request-presigner@3.1045.0)(@azure/core-auth@1.10.1)(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@cfworker/json-schema@4.1.1)(@google-cloud/storage@7.19.0)(@microsoft/microsoft-graph-client@3.0.7(@azure/identity@4.13.1))(@netlify/blobs@10.7.5)(@opentelemetry/api@1.9.0)(@supabase/storage-js@2.105.4)(@vercel/blob@2.4.0)(ai@7.0.0-canary.173(zod@4.4.3))(box-typescript-sdk-gen@1.19.1)(dropbox@10.34.0(@types/node-fetch@2.6.13))(google-auth-library@10.6.2)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15)))(tailwindcss@4.3.0))(zod@4.4.3):
+  files-sdk@1.9.0(@aws-sdk/client-s3@3.1045.0)(@aws-sdk/s3-presigned-post@3.1045.0)(@aws-sdk/s3-request-presigner@3.1045.0)(@azure/core-auth@1.10.1)(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@cfworker/json-schema@4.1.1)(@google-cloud/storage@7.19.0)(@microsoft/microsoft-graph-client@3.0.7(@azure/identity@4.13.1))(@netlify/blobs@10.7.5)(@opentelemetry/api@1.9.0)(@supabase/storage-js@2.105.4)(@vercel/blob@2.4.0)(ai@7.0.0(zod@4.4.3))(box-typescript-sdk-gen@1.19.1)(dropbox@10.34.0(@types/node-fetch@2.6.13))(google-auth-library@10.6.2)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15)))(tailwindcss@4.3.0))(zod@4.4.3):
     dependencies:
       commander: 15.0.0
       picomatch: 4.0.4
@@ -22142,7 +22154,7 @@ snapshots:
       '@opentelemetry/api': 1.9.0
       '@supabase/storage-js': 2.105.4
       '@vercel/blob': 2.4.0
-      ai: 7.0.0-canary.173(zod@4.4.3)
+      ai: 7.0.0(zod@4.4.3)
       box-typescript-sdk-gen: 1.19.1
       dropbox: 10.34.0(@types/node-fetch@2.6.13)
       google-auth-library: 10.6.2
@@ -28203,6 +28215,8 @@ snapshots:
   ws@8.18.3: {}
 
   ws@8.20.1: {}
+
+  ws@8.21.0: {}
 
   wsl-utils@0.1.0:
     dependencies:

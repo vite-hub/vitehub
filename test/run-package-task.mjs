@@ -64,7 +64,19 @@ for (const pkg of orderedPackages) {
   }
 
   console.log(`\n[${task}] ${pkg.name}`);
-  const result = spawnSync("vp", ["run", "--filter", pkg.name, "--ignore-depends-on", task], {
+  const standardTestScript = `vp run -t ${pkg.name}#build && vp test`;
+  if (task === "test" && pkg.manifest.scripts?.build && pkg.manifest.scripts.test === standardTestScript) {
+    run("vp", ["run", "--filter", pkg.name, "--ignore-depends-on", "build"]);
+    run("vp", ["test"], { cwd: pkg.dir });
+  }
+  else {
+    run("vp", ["run", "--filter", pkg.name, "--ignore-depends-on", task]);
+  }
+}
+
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    cwd: options.cwd,
     env: process.env,
     stdio: "inherit",
   });
