@@ -61,27 +61,66 @@ export interface AgentEvalVariant {
   name: string
 }
 
-export interface AgentEvalDefinition<
+export interface AgentEvalTestContext<CALL_OPTIONS = never> {
+  readonly observation?: AgentObservation
+  readonly reply: string
+  calledTool: (name: string) => void
+  completed: () => void
+  doesNotCallTool: (name: string) => void
+  expect: (scorer: AgentScorer) => void
+  send: (input: string | AgentRunInput<CALL_OPTIONS>) => Promise<AgentObservation>
+  textContains: (expected: string | RegExp) => void
+}
+
+export type AgentEvalTest<CALL_OPTIONS = never> = (context: AgentEvalTestContext<CALL_OPTIONS>) => MaybePromise<void>
+
+interface AgentEvalBaseDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = never,
 > {
   agent?: AgentEvalAgent<TRuntimeConfig> | (() => MaybePromise<AgentEvalAgent<TRuntimeConfig>>)
   name?: string
   runtimeConfig?: TRuntimeConfig | (() => MaybePromise<TRuntimeConfig>)
-  scenarios: Array<AgentEvalScenario<CALL_OPTIONS>>
   scorers?: AgentScorer[]
   variants?: AgentEvalVariant[]
   workspace?: WorkspaceName
 }
 
+export type AgentEvalDefinition<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  CALL_OPTIONS = never,
+> = AgentEvalBaseDefinition<TRuntimeConfig, CALL_OPTIONS> & (
+  | {
+    scenarios: Array<AgentEvalScenario<CALL_OPTIONS>>
+    test?: never
+  }
+  | {
+    scenarios?: never
+    test: AgentEvalTest<CALL_OPTIONS>
+  }
+)
+
 type AgentEvalAgent<TRuntimeConfig extends AgentRuntimeConfig> = AgentInput<AgentRuntimeContext<TRuntimeConfig>>
 
 interface NormalizedEvalScenario<CALL_OPTIONS> extends AgentEvalScenario<CALL_OPTIONS> {
+  kind: "scenario"
   scorers: AgentScorer[]
 }
 
+interface NormalizedEvalTest<CALL_OPTIONS> {
+  kind: "test"
+  metadata?: unknown
+  name: string
+  scorers: AgentScorer[]
+  test: AgentEvalTest<CALL_OPTIONS>
+}
+
+type NormalizedEvalCase<CALL_OPTIONS> =
+  | NormalizedEvalScenario<CALL_OPTIONS>
+  | NormalizedEvalTest<CALL_OPTIONS>
+
 interface AgentEvalInput<CALL_OPTIONS> {
-  scenario: NormalizedEvalScenario<CALL_OPTIONS>
+  scenario: NormalizedEvalCase<CALL_OPTIONS>
   variant: AgentEvalVariant
 }
 
@@ -254,8 +293,30 @@ function normalizeScenarios<CALL_OPTIONS>(
   const globalScorers = scorers || []
   return scenarios.map(scenario => ({
     ...scenario,
+    kind: "scenario",
     scorers: [...globalScorers, ...(scenario.scorers || [])],
   }))
+}
+
+function normalizeEvalCases<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  definition: AgentEvalDefinition<TRuntimeConfig, CALL_OPTIONS>,
+  name: string,
+): Array<NormalizedEvalCase<CALL_OPTIONS>> {
+  if (definition.scenarios !== undefined) {
+    return normalizeScenarios(definition.scenarios, definition.scorers)
+  }
+  if (definition.test) {
+    return [{
+      kind: "test",
+      name,
+      scorers: definition.scorers || [],
+      test: definition.test,
+    }]
+  }
+  throw new Error("[vitehub] defineEval() requires scenarios or test.")
 }
 
 function normalizeVariants(variants: AgentEvalVariant[] | undefined): AgentEvalVariant[] {
@@ -283,7 +344,7 @@ async function scoreObservation(observation: AgentObservation, scorers: AgentSco
   }))
 }
 
-function toObservation<CALL_OPTIONS>(result: AgentTestRunResult, scenario: AgentEvalScenario<CALL_OPTIONS>, variant: AgentEvalVariant): AgentObservation {
+function toObservation(result: AgentTestRunResult, scenario: { metadata?: unknown, name: string }, variant: AgentEvalVariant): AgentObservation {
   return {
     finishReason: result.finishReason,
     metadata: scenario.metadata,
@@ -294,6 +355,72 @@ function toObservation<CALL_OPTIONS>(result: AgentTestRunResult, scenario: Agent
     usage: result.usage,
     variant: variant.name,
     warnings: result.warnings,
+  }
+}
+
+function completedScorer(): AgentScorer {
+  return {
+    name: "completed",
+    score() {
+      return {
+        passed: true,
+        reason: "Agent invocation completed.",
+        score: 1,
+      }
+    },
+  }
+}
+
+function normalizeTestSendInput<CALL_OPTIONS>(input: string | AgentRunInput<CALL_OPTIONS>): AgentRunInput<CALL_OPTIONS> {
+  return typeof input === "string" ? { prompt: input } : input
+}
+
+async function runEvalTest<CALL_OPTIONS>(
+  runner: ReturnType<typeof createAgentTestRunner<AgentRuntimeConfig, CALL_OPTIONS>>,
+  testCase: NormalizedEvalTest<CALL_OPTIONS>,
+  variant: AgentEvalVariant,
+): Promise<AgentObservationWithScores> {
+  let observation: AgentObservation | undefined
+  const assertions: AgentScorer[] = []
+  const context: AgentEvalTestContext<CALL_OPTIONS> = {
+    get observation() {
+      return observation
+    },
+    get reply() {
+      return observation?.text || ""
+    },
+    calledTool(name) {
+      assertions.push(callsTool(name))
+    },
+    completed() {
+      assertions.push(completedScorer())
+    },
+    doesNotCallTool(name) {
+      assertions.push(doesNotCallTool(name))
+    },
+    expect(scorer) {
+      assertions.push(scorer)
+    },
+    async send(input) {
+      if (observation) {
+        throw new Error("[vitehub] Agent Eval test.send() supports one Agent Invocation per test.")
+      }
+      const result = await runner.run(normalizeTestSendInput(input))
+      observation = toObservation(result, testCase, variant)
+      return observation
+    },
+    textContains(expected) {
+      assertions.push(textContains(expected))
+    },
+  }
+
+  await testCase.test(context)
+  if (!observation) {
+    throw new Error("[vitehub] Agent Eval test() must call t.send(...).")
+  }
+  return {
+    ...observation,
+    scores: await scoreObservation(observation, [...testCase.scorers, ...assertions]),
   }
 }
 
@@ -311,6 +438,9 @@ async function runScenario<
     runtimeConfig: definition.runtimeConfig || ({} as TRuntimeConfig),
     workspace: definition.workspace,
   })
+  if (input.scenario.kind === "test") {
+    return await runEvalTest(runner, input.scenario, input.variant)
+  }
   const result = await runner.run(input.scenario.input)
   const observation = toObservation(result, input.scenario, input.variant)
   return {
@@ -342,13 +472,13 @@ export function defineEval<
   definition: AgentEvalDefinition<TRuntimeConfig, CALL_OPTIONS>,
 ): unknown {
   const caller = getCallerFile()
-  const scenarios = normalizeScenarios(definition.scenarios, definition.scorers)
-  const variants = normalizeVariants(definition.variants)
   const name = definition.name || (caller ? resolveEvalNameFromFile(caller) : "agent")
+  const scenarios = normalizeEvalCases(definition, name)
+  const variants = normalizeVariants(definition.variants)
   const data = scenarios.map(scenario => ({ input: { scenario } }))
   const opts = {
     data,
-    async task(input: { scenario: NormalizedEvalScenario<CALL_OPTIONS> }, variant: AgentEvalVariant = baselineVariant) {
+    async task(input: { scenario: NormalizedEvalCase<CALL_OPTIONS> }, variant: AgentEvalVariant = baselineVariant) {
       return await runScenario(definition, caller, { scenario: input.scenario, variant })
     },
     scorers: [{

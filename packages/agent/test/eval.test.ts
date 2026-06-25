@@ -193,6 +193,48 @@ describe("agent eval", () => {
     ])
   })
 
+  it("supports eve-style test callbacks", async () => {
+    const { defineEval } = await import("../src/eval.ts")
+
+    defineEval({
+      agent: { generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      name: "support",
+      async test(t) {
+        await t.send("hello")
+        t.completed()
+        t.textContains("ok")
+        t.doesNotCallTool("refund")
+      },
+    })
+
+    const output = await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
+    const score = await evaliteCalls[0]!.opts.scorers[0].scorer({ output })
+
+    expect(output).toMatchObject({
+      scenario: "support",
+      text: "ok",
+      variant: "baseline",
+    })
+    expect(output.scores).toHaveLength(3)
+    expect(score.score).toBe(1)
+  })
+
+  it("requires test callbacks to send one message", async () => {
+    const { defineEval } = await import("../src/eval.ts")
+
+    defineEval({
+      agent: { generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      name: "support",
+      test(t) {
+        t.completed()
+      },
+    })
+
+    await expect(evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input))
+      .rejects
+      .toThrow("Agent Eval test() must call t.send(...)")
+  })
+
   it("adds scenario scorers to global scorers and captures observations", async () => {
     const { defineEval, textContains } = await import("../src/eval.ts")
     const globalScorer = textContains("ok")

@@ -941,6 +941,21 @@ describe("agent public types", () => {
 
     defineEval(definition)
 
+    defineEval({
+      agent: defineAgent({
+        model: {} as never,
+      }),
+      async test(t) {
+        const observation = await t.send("hello")
+        observation.text.toUpperCase()
+        t.completed()
+        t.textContains("ok")
+        t.calledTool("lookup")
+        t.doesNotCallTool("refund")
+        t.expect(scorer)
+      },
+    })
+
     const observation: AgentObservation = {
       raw: {},
       scenario: "hello",

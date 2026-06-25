@@ -16,6 +16,22 @@ Keep harness, credentials, sandbox, and runtime selection on the Agent Definitio
 Create eval files beside the Agent they protect. A sibling `support.eval.ts` can import `./support`, and a folder-level `eval.ts` can infer `./config`.
 
 ```ts [server/agents/support.eval.ts]
+import { defineEval } from '@vite-hub/agent/eval'
+import support from './support'
+
+export default defineEval({
+  agent: support,
+  async test(t) {
+    await t.send('How do I configure billing retries?')
+    t.completed()
+    t.textContains('billing')
+  },
+})
+```
+
+Use `scenarios` when one eval file should run several cases or reuse the same scorers.
+
+```ts [server/agents/support.eval.ts]
 import { defineEval, textContains } from '@vite-hub/agent/eval'
 import support from './support'
 

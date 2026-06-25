@@ -14,6 +14,22 @@ Keep eval files close to the Agent Definition they protect.
 The Agent Eval Runner discovers evals and writes an Evalite config with ViteHub defaults.
 
 ```ts [server/agents/support.eval.ts]
+import { defineEval } from '@vite-hub/agent/eval'
+import support from './support'
+
+export default defineEval({
+  agent: support,
+  async test(t) {
+    await t.send('How do I run provisioning?')
+    t.completed()
+    t.textContains('vitehub provision')
+  },
+})
+```
+
+Use `scenarios` when one eval file should run several cases or share scorers across cases.
+
+```ts [server/agents/support.eval.ts]
 import { defineEval, textContains } from '@vite-hub/agent/eval'
 import support from './support'
 
