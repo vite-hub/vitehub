@@ -531,7 +531,7 @@ describe("agent message protocol", () => {
           return await this.generate()
         }
       },
-      stepCountIs: () => () => false,
+      isStepCount: () => () => false,
     }))
 
     try {
@@ -547,7 +547,6 @@ describe("agent message protocol", () => {
       }, {})).resolves.toMatchObject({ finishReason: "stop", text: "ok" })
 
       const telemetry = agentSettings[0]!.telemetry as { integrations: unknown[], recordInputs: boolean, recordOutputs: boolean }
-      expect(agentSettings[0]!.experimental_telemetry).toBe(telemetry)
       expect(telemetry.integrations[0]).toBe(globalIntegration)
       expect(telemetry.recordInputs).toBe(false)
       expect(telemetry.recordOutputs).toBe(false)
@@ -2594,7 +2593,7 @@ describe("agent message protocol", () => {
           return await this.generate()
         }
       },
-      stepCountIs: () => () => false,
+      isStepCount: () => () => false,
     }))
 
     try {
@@ -2693,7 +2692,7 @@ describe("agent message protocol", () => {
           return await this.generate()
         }
       },
-      stepCountIs: () => () => false,
+      isStepCount: () => () => false,
     }))
 
     try {
@@ -2746,7 +2745,7 @@ describe("agent message protocol", () => {
           }
         }
       },
-      stepCountIs: () => () => false,
+      isStepCount: () => () => false,
     }))
 
     try {
@@ -3058,7 +3057,7 @@ describe("agent message protocol", () => {
           }
         }
       },
-      stepCountIs: () => () => false,
+      isStepCount: () => () => false,
     }))
 
     try {
@@ -3145,9 +3144,9 @@ describe("agent message protocol", () => {
 
     const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       messages: [createMessage({ role: "user", text: "First user request" })],
-    }) as TextStreamResult & { fullStream?: AsyncIterable<unknown> }
+    }) as TextStreamResult & { stream?: AsyncIterable<unknown> }
     const events = []
-    for await (const event of result.fullStream as AsyncIterable<unknown>) {
+    for await (const event of result.stream as AsyncIterable<unknown>) {
       events.push(event)
     }
 
@@ -3156,7 +3155,7 @@ describe("agent message protocol", () => {
     expect(result).toBeInstanceOf(TextStreamResult)
     expect(result.metadata).toEqual({ usage: "kept" })
     expect(result.textStream).toBeDefined()
-    expect(result.fullStream).toBeDefined()
+    expect(result.stream).toBeDefined()
     await expect(result.toTextStreamResponse().text()).resolves.toBe("native text")
     expect(finish.mock.calls[0]![0].result).toBe(result)
   })

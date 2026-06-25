@@ -1,10 +1,10 @@
 import { getMessageText } from "./messages.ts"
-import { jsonSchema } from "ai"
 import {
   cloneWithPropertyDescriptors,
   isAsyncIterable,
   teeingAsyncIterableStreamDescriptor,
 } from "./internal/stream-result.ts"
+import { loadAiSdk } from "./internal/ai-sdk-runtime.ts"
 import {
   applyCapabilityInstructionSlots,
   applyCapabilityToolTransforms,
@@ -315,13 +315,13 @@ async function synthesizeWorkspaceFallbackFromEvidence(
 ) {
   if (evidence.length === 0) return undefined
 
-  const { generateText } = await import("ai")
+  const { generateText } = await loadAiSdk()
   const summary = await generateText({
-    model,
-    system: [
+    instructions: [
       "Answer the user's last message using only the workspace tool results.",
       "If the tool results are insufficient, say what is missing.",
     ].join("\n"),
+    model,
     prompt: [
       `User message:\n${getPromptText(context)}`,
       `Workspace tool results:\n${evidence.join("\n\n---\n\n")}`,
@@ -521,14 +521,20 @@ function withWorkspaceFallbackStreamResult<T extends { fullStream?: AsyncIterabl
   capturedEvidence?: () => string[],
 ): T {
   if (!fallback.enabled) return result
-  if (result.fullStream) {
+  const stream = result.stream
+  const fullStream = result.fullStream
+  if (stream || fullStream) {
+    const wrappedStream = stream
+      ? withWorkspaceFallbackFullStream(stream, model, context, fallback.maxToolResults, capturedEvidence)
+      : undefined
+    const wrappedFullStream = fullStream
+      ? fullStream === stream && wrappedStream
+        ? wrappedStream
+        : withWorkspaceFallbackFullStream(fullStream, model, context, fallback.maxToolResults, capturedEvidence)
+      : undefined
     return cloneStreamTextResult(result as object, {
-      fullStream: withWorkspaceFallbackFullStream(result.fullStream, model, context, fallback.maxToolResults, capturedEvidence),
-    }) as T
-  }
-  if (result.stream) {
-    return cloneStreamTextResult(result as object, {
-      stream: withWorkspaceFallbackFullStream(result.stream, model, context, fallback.maxToolResults, capturedEvidence),
+      ...(wrappedStream ? { stream: wrappedStream } : {}),
+      ...(wrappedFullStream ? { fullStream: wrappedFullStream } : {}),
     }) as T
   }
   if (isAsyncIterable(result)) {
@@ -569,11 +575,13 @@ async function resolveTools(options: AiSdkAdapterOptions, context: AgentAdapterM
   }
 }
 
-const defaultToolInputSchema = jsonSchema({
-  additionalProperties: false,
-  properties: {},
-  type: "object",
-})
+const defaultToolInputSchema = {
+  jsonSchema: {
+    additionalProperties: false,
+    properties: {},
+    type: "object",
+  },
+}
 
 function withDefaultToolInputSchemas<TTools extends Record<string, unknown> | undefined>(tools: TTools): TTools {
   if (!tools) return tools
@@ -589,58 +597,32 @@ function withDefaultToolInputSchemas<TTools extends Record<string, unknown> | un
   })) as TTools
 }
 
-function withRunCallbacks(settings: Record<string, unknown>, context: AgentAdapterRunContext) {
-  const {
-    onRunStepFinish,
-    onRunToolCallFinish,
-    onRunToolCallStart,
-    onStepFinish,
-    experimental_onToolCallFinish,
-    experimental_onToolCallStart,
-    ...rest
-  } = settings as {
-    experimental_onToolCallFinish?: (event: unknown) => MaybePromise<void>
-    experimental_onToolCallStart?: (event: unknown) => MaybePromise<void>
-    onRunStepFinish?: (step: unknown, context: unknown) => MaybePromise<void>
-    onRunToolCallFinish?: (event: unknown, context: unknown) => MaybePromise<void>
-    onRunToolCallStart?: (event: unknown, context: unknown) => MaybePromise<void>
-    onStepFinish?: (step: unknown) => MaybePromise<void>
-  } & Record<string, unknown>
-  const callbackContext = {
-    ...context.runtime,
+function createAiSdkRuntimeContext(context: AgentAdapterRunContext) {
+  const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
+  return {
+    ...runtime,
     actor: context.actor,
     context: context.context,
     input: context.input,
     invoker: context.invoker,
     run: context.runtime.run,
   }
+}
 
+function withRuntimeContext(settings: Record<string, unknown>, context: AgentAdapterRunContext): Record<string, unknown> {
+  const runtimeContext = createAiSdkRuntimeContext(context)
+  const existing = settings.runtimeContext
+  const {
+    onRunStepFinish: _onRunStepFinish,
+    onRunToolCallFinish: _onRunToolCallFinish,
+    onRunToolCallStart: _onRunToolCallStart,
+    ...rest
+  } = settings
   return {
     ...rest,
-    ...(onRunStepFinish
-      ? {
-          async onStepFinish(step: unknown) {
-            await onStepFinish?.(step)
-            await onRunStepFinish(step, callbackContext)
-          },
-        }
-      : onStepFinish ? { onStepFinish } : {}),
-    ...(onRunToolCallStart
-      ? {
-          async experimental_onToolCallStart(event: unknown) {
-            await experimental_onToolCallStart?.(event)
-            await onRunToolCallStart(event, callbackContext)
-          },
-        }
-      : experimental_onToolCallStart ? { experimental_onToolCallStart } : {}),
-    ...(onRunToolCallFinish
-      ? {
-          async experimental_onToolCallFinish(event: unknown) {
-            await experimental_onToolCallFinish?.(event)
-            await onRunToolCallFinish(event, callbackContext)
-          },
-        }
-      : experimental_onToolCallFinish ? { experimental_onToolCallFinish } : {}),
+    runtimeContext: existing && typeof existing === "object"
+      ? { ...runtimeContext, ...(existing as Record<string, unknown>) }
+      : runtimeContext,
   }
 }
 
@@ -650,7 +632,7 @@ function createUsageCapture() {
 
   const capture = (event: unknown) => {
     const record = typeof event === "object" && event !== null ? event as { totalUsage?: unknown, usage?: unknown } : undefined
-    const usage = record?.totalUsage ?? record?.usage
+    const usage = record?.usage ?? record?.totalUsage
     if (usage === undefined) return
     capturedUsage = usage
     captured = true
@@ -776,7 +758,6 @@ function withViteHubTelemetry(settings: Record<string, unknown>, context: AgentA
   return {
     ...settings,
     telemetry,
-    experimental_telemetry: telemetry,
   }
 }
 
@@ -824,7 +805,7 @@ async function createAgent(
   context: AgentAdapterRunContext,
   fallbackCapture?: ReturnType<typeof createWorkspaceFallbackEvidenceCapture>,
 ) {
-  const { ToolLoopAgent, stepCountIs } = await import("ai")
+  const { ToolLoopAgent, isStepCount } = await loadAiSdk()
   const execution = options.execution ?? options.modelExecution
   const { runtimeConfig: _runtimeConfig, ...runtime } = context.runtime
   const metadataContext = {
@@ -879,10 +860,10 @@ async function createAgent(
 
   return {
     agent: new ToolLoopAgent({
-      ...withRunCallbacks(withViteHubTelemetry(settings, context), context),
+      ...withRuntimeContext(withViteHubTelemetry(settings, context), context),
       instructions,
       model: instrumentedModel as never,
-      stopWhen: ((settings as Record<string, unknown>).stopWhen ?? stepCountIs(stepLimit ?? 20)) as never,
+      stopWhen: ((settings as Record<string, unknown>).stopWhen ?? isStepCount(stepLimit ?? 20)) as never,
       ...(Object.keys(toolSet).length ? { tools: toolSet as never } : {}),
     }),
     model: instrumentedModel,
@@ -959,7 +940,6 @@ export function createAiSdkAdapter(options: AiSdkAdapterOptions): AgentAdapter {
         onEnd: usageCapture.onEnd,
         onLanguageModelCallEnd: usageCapture.onLanguageModelCallEnd,
         onStepEnd: captureStep,
-        onStepFinish: captureStep,
       } as never) as StreamTextResult<ToolSet, never, never>, usageCapture), model) as StreamTextResult<ToolSet, never, never>
       return withWorkspaceFallbackStreamResult(result, model as never, context, fallback, fallbackCapture?.evidence)
     },

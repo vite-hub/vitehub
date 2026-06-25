@@ -1108,7 +1108,7 @@ describe("agent capability runtime", () => {
           return { text: "ok" }
         }
       },
-      stepCountIs: () => () => false,
+      isStepCount: () => () => false,
     }))
 
     try {
@@ -1139,7 +1139,7 @@ describe("agent capability runtime", () => {
           return { text: "ok" }
         }
       },
-      stepCountIs: () => () => false,
+      isStepCount: () => () => false,
     }))
 
     try {
@@ -1171,7 +1171,7 @@ describe("agent capability runtime", () => {
           return { text: "ok" }
         }
       },
-      stepCountIs: () => () => false,
+      isStepCount: () => () => false,
     }))
 
     try {

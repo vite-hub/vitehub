@@ -27,6 +27,7 @@ import { createChatDevtoolsStreamResponse } from "../devtools-stream.ts"
 import { createAgentRuntimeContext } from "../../runtime/context.ts"
 import { discoverAgentDefinitions } from "../../discovery.ts"
 import { workspaceAgentOwnsWorkspaceDefinition } from "../../workspace-agent.ts"
+import { loadAiSdk } from "../../internal/ai-sdk-runtime.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
 import type { UIMessage } from "ai"
@@ -684,7 +685,7 @@ async function sendDevtoolsUIMessage(
       await onChange?.(await serializeState(state, selected))
     },
   }))
-  const { readUIMessageStream } = await import("ai") as { readUIMessageStream: ReadUIMessageStream }
+  const { readUIMessageStream } = await loadAiSdk() as { readUIMessageStream: ReadUIMessageStream }
   let latestAssistant: UIMessage | undefined
   const refreshedMaterializationToolIds = new Set<string>()
   async function refreshCompletedMaterializations(message: UIMessage): Promise<void> {

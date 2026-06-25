@@ -11,6 +11,7 @@ import {
   replaceMessageTextParts,
   replaceTargetText,
 } from "./input-commands.ts"
+import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -80,14 +81,14 @@ async function generateChatSummary(options: ChatSummaryOptions, input: ChatSumma
   }
 
   if (options.model) {
-    const { generateText } = await import("ai")
+    const { generateText } = await loadAiSdk()
     const result = await generateText({
-      model: options.model as never,
-      system: options.instructions ?? [
+      instructions: options.instructions ?? [
         "Summarize this chat conversation for future context.",
         "Keep important user goals, decisions, constraints, and unresolved follow-ups.",
         "Return only the summary.",
       ].join("\n"),
+      model: options.model as never,
       prompt: input.args
         ? `${input.text}\n\nFocus: ${input.args}`
         : input.text,

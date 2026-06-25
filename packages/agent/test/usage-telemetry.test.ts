@@ -544,7 +544,7 @@ describe("usage telemetry", () => {
   it("emits ToolLoopAgent stream result usage when chunks only contain finish", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
-      stepCountIs: () => () => false,
+      isStepCount: () => () => false,
       ToolLoopAgent: class {
         async stream() {
           return {
@@ -599,7 +599,7 @@ describe("usage telemetry", () => {
   it("emits ToolLoopAgent onEnd usage when the stream result omits usage", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
-      stepCountIs: () => () => false,
+      isStepCount: () => () => false,
       ToolLoopAgent: class {
         async stream(options: { onEnd?: (event: unknown) => unknown }) {
           return {
@@ -656,7 +656,7 @@ describe("usage telemetry", () => {
   it("emits ToolLoopAgent onStepEnd usage when the stream result omits usage", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
-      stepCountIs: () => () => false,
+      isStepCount: () => () => false,
       ToolLoopAgent: class {
         async stream(options: { onStepEnd?: (event: unknown) => unknown }) {
           return {
@@ -713,7 +713,7 @@ describe("usage telemetry", () => {
   it("emits ToolLoopAgent model call end usage over empty stream result usage", async () => {
     vi.doMock("ai", () => ({
       jsonSchema: vi.fn(schema => schema),
-      stepCountIs: () => () => false,
+      isStepCount: () => () => false,
       ToolLoopAgent: class {
         async stream(options: { onLanguageModelCallEnd?: (event: unknown) => unknown }) {
           return {

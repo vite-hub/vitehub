@@ -15,6 +15,7 @@ import { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } fr
 import { toHttpErrorResponse } from "../http-error.ts"
 import { toAgentFetchResponse } from "../http-response.ts"
 import { createChatDevtoolsStreamResponse } from "../chat/devtools-stream.ts"
+import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type {
@@ -1773,7 +1774,7 @@ async function sendDevtoolsUIMessage(
       await onChange?.(serializeAgentChatDevtoolsState(name, state, requestedSelection))
     },
   })))
-  const { readUIMessageStream } = await import("ai") as { readUIMessageStream: ReadUIMessageStream }
+  const { readUIMessageStream } = await loadAiSdk() as { readUIMessageStream: ReadUIMessageStream }
   let latestAssistant: UIMessage | undefined
   const refreshedMaterializationToolIds = new Set<string>()
   async function refreshCompletedMaterializations(message: UIMessage): Promise<void> {

@@ -156,10 +156,10 @@ export function normalizeAgentUsage(value: unknown): AgentUsage | undefined {
 }
 
 async function usageFromResult(result: UnknownRecord, fallback?: unknown): Promise<AgentUsage | undefined> {
-  const usage = normalizeAgentUsage(await resolveUsageValue(result.totalUsage ?? result.usage))
+  const usage = normalizeAgentUsage(await resolveUsageValue(result.usage ?? result.totalUsage))
   if (usage) return usage
   if (!isRecord(fallback)) return
-  return normalizeAgentUsage(await resolveUsageValue(fallback.totalUsage ?? fallback.usage))
+  return normalizeAgentUsage(await resolveUsageValue(fallback.usage ?? fallback.totalUsage))
 }
 
 function credentialSourceFromMetadata(metadata: unknown): AgentUsageRecord["credentialSource"] | undefined {
@@ -385,7 +385,7 @@ async function* withUsageTelemetryStream(
   let recorded = false
   for await (const chunk of stream) {
     if (isRecord(chunk) && chunk.type === "finish") {
-      const usageRecord = await recordUsage(chunk, options, run, chunk.totalUsage !== undefined || chunk.usage !== undefined ? metadataSource : undefined)
+      const usageRecord = await recordUsage(chunk, options, run, chunk.usage !== undefined || chunk.totalUsage !== undefined ? metadataSource : undefined)
       if (usageRecord) {
         recorded = true
         onRecord?.(usageRecord)

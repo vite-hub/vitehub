@@ -167,13 +167,13 @@ function usageFromStreamChunk(chunk: unknown, fallbackMetadataSource?: unknown):
   return usageRecordFromUsage(type === "finish-step"
     ? chunk.usage
     : type === "finish"
-      ? chunk.totalUsage ?? chunk.usage
+      ? chunk.usage ?? chunk.totalUsage
       : undefined, chunk, fallbackMetadataSource)
 }
 
 async function usageFromResult(result: unknown): Promise<AgentUsageRecord | undefined> {
   if (!isRecord(result)) return
-  return usageRecordFromUsage(await resolveUsageValue(result.totalUsage ?? result.usage), result)
+  return usageRecordFromUsage(await resolveUsageValue(result.usage ?? result.totalUsage), result)
 }
 
 function optionalMessageId(messageId: string | undefined): { messageId?: string } {
@@ -285,13 +285,13 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   const result = value && typeof value === "object"
     ? value as { fullStream?: unknown, stream?: unknown, textStream?: unknown }
     : undefined
+  if (isAsyncIterable(result?.stream)) {
+    yield* streamChunksToEvents(result.stream, result)
+    return
+  }
   const fullStream = result?.fullStream
   if (isAsyncIterable(fullStream)) {
     yield* streamChunksToEvents(fullStream, result)
-    return
-  }
-  if (isAsyncIterable(result?.stream)) {
-    yield* streamChunksToEvents(result.stream, result)
     return
   }
   if (isAsyncIterable<string>(result?.textStream)) {
