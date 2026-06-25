@@ -178,4 +178,45 @@ describe("openapi capability", () => {
     expect((init.headers as Headers).get("cookie")).toBe("preview=preview-cookie")
     expect((init.headers as Headers).get("x-cube-token")).toBe("cube-token")
   })
+
+  it("can transform raw operation responses with request context", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
+      data: [{ "Product.sku": "sku-1", "PurchaseOrder.quantity": 12 }],
+    }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        openapi({
+          defaults: {
+            body: { cubeToken: "cube-token" },
+            path: { tenantId: "acme" },
+          },
+          input: { omit: { body: ["cubeToken"], path: ["tenantId"] } },
+          operations: { allow: ["createOrder"] },
+          spec: portalSpec(),
+          transformResponse(response, context) {
+            return {
+              operationId: context.operation.id,
+              status: context.response.status,
+              rows: (response as { data: Array<Record<string, unknown>> }).data.map(row => ({
+                quantity: row["PurchaseOrder.quantity"],
+                sku: row["Product.sku"],
+              })),
+            }
+          },
+        }),
+      ],
+    }, runtime(), { prompt: "create" })
+    const tools = resolved.tools as AgentToolSet
+
+    await expect(tools.createOrder.execute?.({
+      body: { sku: "sku-1" },
+    })).resolves.toEqual({
+      operationId: "createOrder",
+      rows: [{ quantity: 12, sku: "sku-1" }],
+      status: 200,
+    })
+  })
 })

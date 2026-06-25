@@ -131,6 +131,10 @@ openapi({
     body: { cubeToken: context.get<{ cubeToken: string }>("portal")?.cubeToken },
   }),
   input: { omit: { body: ["cubeToken"] } },
+  transformResponse: (response, { operation }) => ({
+    operationId: operation.id,
+    response,
+  }),
 })
 ```
 

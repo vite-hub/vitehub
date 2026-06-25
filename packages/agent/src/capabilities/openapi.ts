@@ -79,6 +79,17 @@ export interface OpenAPIRequestContext<
   }
 }
 
+export interface OpenAPIResponseContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> extends OpenAPIRequestContext<TRuntimeConfig, Name> {
+  response: {
+    data: unknown
+    mediaType?: string
+    status: number
+  }
+}
+
 export interface OpenAPIRequestDefaults {
   body?: unknown
   path?: Record<string, unknown>
@@ -111,6 +122,7 @@ export interface OpenAPICapabilityOptions<
   spec: string | URL | OpenAPIDocument
   specHeaders?: OpenAPIHeaders
   timeout?: number
+  transformResponse?: (response: unknown, context: OpenAPIResponseContext<TRuntimeConfig, Name>) => MaybePromise<unknown>
 }
 
 const pathMethods = new Set<OpenAPIPathMethod>(["get", "head", "post", "put", "patch", "delete", "options", "trace"])
@@ -289,7 +301,7 @@ function createOpenAPITool<
       }, {
         responseType: options.responseType || "json",
       })
-      return result.data
+      return transformOpenAPIResponse(options, context, operation, requestInput, url, result)
     },
     inputSchema: operationInputSchema(operation, options.input),
     metadata: {
@@ -300,6 +312,34 @@ function createOpenAPITool<
       },
     },
     name: operation.operationId,
+  })
+}
+
+async function transformOpenAPIResponse<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: OpenAPICapabilityOptions<TRuntimeConfig, Name>,
+  context: AgentCapabilityContext<TRuntimeConfig, Name>,
+  operation: OpenAPIOperationTool,
+  input: OpenAPIToolInput,
+  url: URL,
+  result: { data: unknown, mediaType?: string, status: number },
+): Promise<unknown> {
+  if (!options.transformResponse) return result.data
+  return await options.transformResponse(result.data, {
+    ...context,
+    input,
+    operation: {
+      id: operation.operationId,
+      method: operation.method,
+      path: `${url.origin}${url.pathname}`,
+    },
+    response: {
+      data: result.data,
+      mediaType: result.mediaType,
+      status: result.status,
+    },
   })
 }
 
