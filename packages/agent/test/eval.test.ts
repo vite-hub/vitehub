@@ -193,6 +193,79 @@ describe("agent eval", () => {
     ])
   })
 
+  it("supports eve-style test callbacks", async () => {
+    const { defineEval } = await import("../src/eval.ts")
+
+    defineEval({
+      agent: { generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      name: "support",
+      async test(t) {
+        await t.send("hello")
+        t.completed()
+        t.textContains("ok")
+        t.doesNotCallTool("refund")
+      },
+    })
+
+    const output = await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
+    const score = await evaliteCalls[0]!.opts.scorers[0].scorer({ output })
+
+    expect(output).toMatchObject({
+      scenario: "support",
+      text: "ok",
+      variant: "baseline",
+    })
+    expect(output.scores).toHaveLength(3)
+    expect(score.score).toBe(1)
+  })
+
+  it("captures capability finish extensions in eval observations", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { observability } = await import("../src/capabilities.ts")
+    const { defineEval, hasCapabilityExtension } = await import("../src/eval.ts")
+
+    defineEval({
+      agent: defineAgent({
+        capabilities: [observability()],
+        run: () => "ok",
+      }),
+      name: "support",
+      scorers: [hasCapabilityExtension("observability", "status")],
+      async test(t) {
+        const observation = await t.send("hello")
+        expect(observation.extensions?.get("observability", "status")).toBe("completed")
+        expect(t.capabilityExtension("observability", "status")).toBe("completed")
+        t.hasCapabilityExtension("observability")
+      },
+    })
+
+    const output = await evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input)
+    const score = await evaliteCalls[0]!.opts.scorers[0].scorer({ output })
+
+    expect(output.extensions?.get("observability")).toMatchObject({
+      resultKind: "string",
+      status: "completed",
+    })
+    expect(output.scores).toHaveLength(2)
+    expect(score.score).toBe(1)
+  })
+
+  it("requires test callbacks to send one message", async () => {
+    const { defineEval } = await import("../src/eval.ts")
+
+    defineEval({
+      agent: { generate: vi.fn(async () => ({ text: "ok" })), stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
+      name: "support",
+      test(t) {
+        t.completed()
+      },
+    })
+
+    await expect(evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input))
+      .rejects
+      .toThrow("Agent Eval test() must call t.send(...)")
+  })
+
   it("adds scenario scorers to global scorers and captures observations", async () => {
     const { defineEval, textContains } = await import("../src/eval.ts")
     const globalScorer = textContains("ok")
@@ -367,10 +440,21 @@ describe("agent eval", () => {
       callsTool,
       doesNotCallTool,
       doesNotLeakSource,
+      hasCapabilityExtension,
       staysUnderTokenBudget,
       textContains,
     } = await import("../src/eval.ts")
+    const extensions = {
+      entries: (): Array<[string, unknown]> => [["observability", { status: "completed" }]],
+      get<T = unknown>(capabilityId: string, key?: string): T | undefined {
+        if (capabilityId !== "observability") return undefined
+        const value = key === "status" ? "completed" : { status: "completed" }
+        return value as T
+      },
+      toJSON: () => ({ observability: { status: "completed" } }),
+    }
     const observation = {
+      extensions,
       raw: {},
       scenario: "tools",
       text: "Queued for billing.",
@@ -394,6 +478,9 @@ describe("agent eval", () => {
     expect(await callsTool("refund").score(erroredToolObservation)).toMatchObject({ score: 1, passed: true })
     expect(await doesNotCallTool("refund").score(erroredToolObservation)).toMatchObject({ score: 0, passed: false })
     expect(await doesNotCallTool("refund").score(observation)).toMatchObject({ score: 1, passed: true })
+    expect(await hasCapabilityExtension("observability").score(observation)).toMatchObject({ score: 1, passed: true })
+    expect(await hasCapabilityExtension("observability", "status").score(observation)).toMatchObject({ score: 1, passed: true })
+    expect(await hasCapabilityExtension("missing").score(observation)).toMatchObject({ score: 0, passed: false })
     expect(await staysUnderTokenBudget(10).score(observation)).toMatchObject({ score: 1, passed: true })
     expect(await staysUnderTokenBudget(4).score(observation)).toMatchObject({ score: 0.8, passed: false })
   })

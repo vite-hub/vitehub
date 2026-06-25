@@ -65,6 +65,10 @@
       "types": "./dist/eval.d.ts",
       "import": "./dist/eval.js"
     },
+    "./harness/local-sandbox": {
+      "types": "./dist/harness/local-sandbox.d.ts",
+      "import": "./dist/harness/local-sandbox.js"
+    },
     "./mcp": {
       "types": "./dist/mcp.d.ts",
       "import": "./dist/mcp.js"

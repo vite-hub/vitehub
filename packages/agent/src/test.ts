@@ -8,6 +8,8 @@ import { registerWorkspace } from "@vite-hub/workspace/test"
 
 import type {
   AgentInput,
+  AgentFinishEvent,
+  AgentInvocationExtensions,
   AgentModelExecutionOptions,
   AgentModelInstrumentation,
   AgentRunInput,
@@ -37,6 +39,7 @@ export interface AgentTestRunnerOptions<TRuntimeConfig extends AgentRuntimeConfi
 }
 
 export interface AgentTestRunResult {
+  extensions?: AgentInvocationExtensions
   finishReason?: unknown
   raw: unknown
   text: string
@@ -56,6 +59,13 @@ function isWorkspaceAgentDefinition(value: unknown): value is WorkspaceAgentDefi
     && value !== null
     && "__vitehubWorkspaceAgent" in value
     && (value as { __vitehubWorkspaceAgent?: unknown }).__vitehubWorkspaceAgent === true
+}
+
+function isAgentDefinition(value: unknown): value is AgentInput<AgentRuntimeContext<AgentRuntimeConfig>> & { hooks?: Record<string, unknown> } {
+  return typeof value === "object"
+    && value !== null
+    && "resolve" in value
+    && typeof (value as { resolve?: unknown }).resolve === "function"
 }
 
 function withTestModelInstrumentation<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -117,6 +127,26 @@ function createDefaultRun(name: string | undefined): AgentRunMetadata {
   }
 }
 
+function withTestFinishCapture<TRuntimeConfig extends AgentRuntimeConfig>(
+  agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
+  capture: (extensions: AgentInvocationExtensions) => void,
+): AgentInput<AgentRuntimeContext<TRuntimeConfig>> {
+  if (!isAgentDefinition(agent)) return agent
+
+  const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput<AgentRuntimeContext<TRuntimeConfig>> & { hooks?: Record<string, unknown> }
+  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
+  const hooks = clone.hooks || {}
+  const finishHook = hooks["agent:finish"] as ((event: AgentFinishEvent<TRuntimeConfig>) => MaybePromise<void>) | undefined
+  clone.hooks = {
+    ...hooks,
+    async "agent:finish"(event: AgentFinishEvent<TRuntimeConfig>) {
+      capture(event.extensions)
+      await finishHook?.(event)
+    },
+  }
+  return clone
+}
+
 async function resolveRun(
   name: string | undefined,
   run: AgentTestRunnerOptions["run"],
@@ -176,10 +206,16 @@ function textFromRaw(value: unknown): string {
   return ""
 }
 
-async function normalizeAgentTestResult(value: unknown, toolSteps: AgentToolStep[]): Promise<AgentTestRunResult> {
+async function normalizeAgentTestResult(
+  value: unknown,
+  toolSteps: AgentToolStep[],
+  getExtensions: () => AgentInvocationExtensions | undefined,
+): Promise<AgentTestRunResult> {
   if (value instanceof Response) {
     const text = await value.clone().text()
+    const extensions = getExtensions()
     return {
+      ...(extensions ? { extensions } : {}),
       raw: value,
       text,
       toolSteps,
@@ -189,8 +225,10 @@ async function normalizeAgentTestResult(value: unknown, toolSteps: AgentToolStep
   const result = typeof value === "object" && value !== null
     ? value as AgentRunResult
     : undefined
+  const extensions = getExtensions()
 
   return {
+    ...(extensions ? { extensions } : {}),
     finishReason: result?.finishReason,
     raw: value,
     text: textFromRaw(value),
@@ -223,6 +261,7 @@ export function createAgentTestRunner<
     async run(input) {
       const toolSteps: AgentToolStep[] = []
       let workspaceInspectionGuardrails = 0
+      let extensions: AgentInvocationExtensions | undefined
       const context = createAgentRuntimeContext({
         devtools: {
           reportToolStep(step) {
@@ -246,11 +285,13 @@ export function createAgentTestRunner<
       })
 
       const raw = await runAgent<TRuntimeConfig, CALL_OPTIONS>(
-        preparedAgent,
+        withTestFinishCapture(preparedAgent, value => {
+          extensions = value
+        }),
         context,
         input,
       )
-      return await normalizeAgentTestResult(raw, toolSteps)
+      return await normalizeAgentTestResult(raw, toolSteps, () => extensions)
     },
   }
 }

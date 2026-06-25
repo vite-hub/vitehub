@@ -40,7 +40,7 @@ interface HarnessAgentAdapterOptions<
   CALL_OPTIONS = unknown,
 > {
   credentials?: AgentHarnessCredentialSource
-  harness: AgentHarnessDriverInput
+  harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
   sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS>
   sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
 }
@@ -192,6 +192,19 @@ async function resolveHarnessSandbox<
   return sandbox ?? await createDefaultHarnessSandbox()
 }
 
+async function resolveHarness<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>,
+  context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
+) {
+  if (typeof harness === "function") {
+    return await harness(toRunCallbackContext(context))
+  }
+  return harness
+}
+
 async function createHarnessAgent<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -203,8 +216,9 @@ async function createHarnessAgent<
   assertSupportedHarnessDriverContributions(context)
   const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
   const sandbox = await resolveHarnessSandbox(options.sandbox, context)
+  const harness = await resolveHarness(options.harness, context)
   return new HarnessAgent({
-    harness: options.harness,
+    harness,
     onSandboxSession: async ({ abortSignal, session, sessionWorkDir }: { abortSignal?: AbortSignal, session: unknown, sessionWorkDir: string }) => {
       await prepareWorkspaceSession(session, sessionWorkDir, abortSignal)
     },

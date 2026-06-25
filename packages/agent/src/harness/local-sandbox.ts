@@ -1,0 +1,201 @@
+import { spawn as spawnChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { dirname, isAbsolute, join } from "node:path"
+import { Readable } from "node:stream"
+import { randomUUID } from "node:crypto"
+
+import type { HarnessV1NetworkSandboxSession, HarnessV1SandboxProvider } from "@ai-sdk/harness"
+
+export interface LocalHarnessSandboxOptions {
+  cleanup?: boolean
+  env?: Record<string, string | undefined>
+  ports?: readonly number[]
+  rootDir?: string
+}
+
+interface LocalHarnessSandboxSession extends HarnessV1NetworkSandboxSession {
+  readonly cleanup: boolean
+  readonly env: Record<string, string>
+  readonly processes: Set<ChildProcessWithoutNullStreams>
+  readonly rootDir: string
+}
+
+function stringEnv(env: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+}
+
+async function defaultRootDir(sessionId: string | undefined) {
+  if (sessionId) {
+    const root = join(tmpdir(), "vitehub-harness", sessionId)
+    await mkdir(root, { recursive: true })
+    return root
+  }
+  return await mkdtemp(join(tmpdir(), "vitehub-harness-"))
+}
+
+function resolvePath(session: LocalHarnessSandboxSession, path: string) {
+  return isAbsolute(path) ? path : join(session.defaultWorkingDirectory, path)
+}
+
+function readableStreamFromBytes(bytes: Uint8Array) {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(bytes)
+      controller.close()
+    },
+  })
+}
+
+async function bytesFromReadableStream(stream: ReadableStream<Uint8Array>) {
+  const chunks: Uint8Array[] = []
+  const reader = stream.getReader()
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+  }
+  const size = chunks.reduce((total, chunk) => total + chunk.byteLength, 0)
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
+}
+
+function spawnProcess(session: LocalHarnessSandboxSession, options: {
+  abortSignal?: AbortSignal
+  command: string
+  env?: Record<string, string>
+  workingDirectory?: string
+}) {
+  const child = spawnChildProcess(options.command, {
+    cwd: options.workingDirectory || session.defaultWorkingDirectory,
+    env: { ...session.env, ...options.env },
+    shell: true,
+  })
+  session.processes.add(child)
+
+  let abortReason: unknown
+  const abort = () => {
+    abortReason = options.abortSignal?.reason || new Error("Sandbox command aborted.")
+    child.kill()
+  }
+  options.abortSignal?.addEventListener("abort", abort, { once: true })
+
+  const wait = new Promise<{ exitCode: number }>((resolve, reject) => {
+    child.once("error", reject)
+    child.once("close", (code) => {
+      session.processes.delete(child)
+      options.abortSignal?.removeEventListener("abort", abort)
+      if (abortReason) {
+        reject(abortReason)
+        return
+      }
+      resolve({ exitCode: code ?? 1 })
+    })
+  })
+
+  return {
+    pid: child.pid,
+    stdout: Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
+    stderr: Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>,
+    wait: () => wait,
+    kill: async () => {
+      child.kill()
+      await wait.catch(() => undefined)
+    },
+  }
+}
+
+async function collect(stream: ReadableStream<Uint8Array>) {
+  return new TextDecoder().decode(await bytesFromReadableStream(stream))
+}
+
+async function createSession(options: LocalHarnessSandboxOptions, sessionId: string | undefined): Promise<LocalHarnessSandboxSession> {
+  const rootDir = options.rootDir || await defaultRootDir(sessionId)
+  await mkdir(rootDir, { recursive: true })
+  const env = stringEnv(options.env || process.env)
+  const session = {
+    cleanup: options.cleanup ?? !options.rootDir,
+    defaultWorkingDirectory: rootDir,
+    description: `Local shell sandbox rooted at ${rootDir}.`,
+    env,
+    id: sessionId || randomUUID(),
+    ports: options.ports || [4000],
+    processes: new Set<ChildProcessWithoutNullStreams>(),
+    rootDir,
+    async destroy() {
+      await this.stop()
+      if (this.cleanup) await rm(this.rootDir, { force: true, recursive: true })
+    },
+    async getPortUrl({ port, protocol = "http" }: { port: number, protocol?: "http" | "https" | "ws" }) {
+      return `${protocol}://127.0.0.1:${port}`
+    },
+    async readBinaryFile({ path }: { path: string }) {
+      return await readFile(resolvePath(this, path)).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return null
+        throw error
+      })
+    },
+    async readFile({ path }: { path: string }) {
+      const bytes = await this.readBinaryFile({ path })
+      return bytes ? readableStreamFromBytes(bytes) : null
+    },
+    async readTextFile({ encoding = "utf8", endLine, path, startLine }: { encoding?: string, endLine?: number, path: string, startLine?: number }) {
+      const bytes = await this.readBinaryFile({ path })
+      if (!bytes) return null
+      const text = Buffer.from(bytes).toString(encoding as BufferEncoding)
+      if (startLine === undefined && endLine === undefined) return text
+      return text.split(/\r?\n/).slice((startLine || 1) - 1, endLine).join("\n")
+    },
+    restricted() {
+      return this
+    },
+    async run(runOptions: { abortSignal?: AbortSignal, command: string, env?: Record<string, string>, workingDirectory?: string }) {
+      const child = await this.spawn(runOptions)
+      const [stdout, stderr, { exitCode }] = await Promise.all([
+        collect(child.stdout),
+        collect(child.stderr),
+        child.wait(),
+      ])
+      return { exitCode, stderr, stdout }
+    },
+    async spawn(spawnOptions: { abortSignal?: AbortSignal, command: string, env?: Record<string, string>, workingDirectory?: string }) {
+      return spawnProcess(this, spawnOptions)
+    },
+    async stop() {
+      await Promise.all(Array.from(this.processes, child => new Promise<void>((resolve) => {
+        child.once("close", () => resolve())
+        child.kill()
+      })))
+    },
+    async writeBinaryFile({ content, path }: { content: Uint8Array, path: string }) {
+      const resolved = resolvePath(this, path)
+      await mkdir(dirname(resolved), { recursive: true })
+      await writeFile(resolved, content)
+    },
+    async writeFile({ content, path }: { content: ReadableStream<Uint8Array>, path: string }) {
+      await this.writeBinaryFile({ content: await bytesFromReadableStream(content), path })
+    },
+    async writeTextFile({ content, encoding = "utf8", path }: { content: string, encoding?: string, path: string }) {
+      await this.writeBinaryFile({ content: Buffer.from(content, encoding as BufferEncoding), path })
+    },
+  } satisfies LocalHarnessSandboxSession
+  return session
+}
+
+export function createLocalHarnessSandbox(options: LocalHarnessSandboxOptions = {}): HarnessV1SandboxProvider {
+  return {
+    bridgePorts: options.ports || [4000],
+    providerId: "local",
+    specificationVersion: "harness-sandbox-v1",
+    async createSession(createOptions) {
+      const session = await createSession(options, createOptions?.sessionId)
+      await createOptions?.onFirstCreate?.(session, { abortSignal: createOptions.abortSignal })
+      return session
+    },
+  }
+}

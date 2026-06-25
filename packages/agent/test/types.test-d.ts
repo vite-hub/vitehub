@@ -3,7 +3,7 @@ import { describe, expectTypeOf, it } from "vitest"
 import { defineAgent, defineAgentInvoker, type AgentActor, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentDeliveryArtifact, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
 import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceExec, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
-import { defineEval, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
+import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentUsageRecord } from "../src/index.ts"
@@ -312,6 +312,11 @@ describe("agent public types", () => {
     defineAgent({
       capabilities: [{
         id: "finish-extension",
+        finish(event) {
+          expectTypeOf(event.extensions.get("finish-extension")).toEqualTypeOf<unknown>()
+          expectTypeOf(event.result).toEqualTypeOf<unknown>()
+          return "ok"
+        },
         output(context) {
           context.finish.provide("ok")
           // @ts-expect-error finish extensions are registered through context.finish
@@ -925,6 +930,7 @@ describe("agent public types", () => {
 
   it("accepts agent eval definitions", () => {
     const scorer: AgentScorer = textContains("ok")
+    const capabilityScorer: AgentScorer = hasCapabilityExtension("observability")
     const definition: AgentEvalDefinition = {
       agent: defineAgent({
         model: {} as never,
@@ -940,6 +946,26 @@ describe("agent public types", () => {
     }
 
     defineEval(definition)
+
+    defineEval({
+      agent: defineAgent({
+        model: {} as never,
+      }),
+      async test(t) {
+        const observation = await t.send("hello")
+        observation.text.toUpperCase()
+        expectTypeOf(observation.extensions?.get("observability")).toEqualTypeOf<unknown>()
+        expectTypeOf(t.capabilityExtension<{ status: string }>("observability")).toEqualTypeOf<{ status: string } | undefined>()
+        expectTypeOf(t.capabilityExtension<string>("observability", "status")).toEqualTypeOf<string | undefined>()
+        t.completed()
+        t.textContains("ok")
+        t.calledTool("lookup")
+        t.doesNotCallTool("refund")
+        t.hasCapabilityExtension("observability")
+        t.expect(scorer)
+        t.expect(capabilityScorer)
+      },
+    })
 
     const observation: AgentObservation = {
       raw: {},
