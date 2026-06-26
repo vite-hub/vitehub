@@ -138,6 +138,8 @@ openapi({
 })
 ```
 
+`spec` and `baseUrl` can also be callbacks when the OpenAPI document or runtime URL comes from the current Agent Invocation context.
+
 ## Chat state
 
 Chat History and the Concurrent Invocation Guard need an Agent State Provider when they should survive a process restart. Hosted Node deployments use memory state by default outside Cloudflare, so they should configure a durable provider explicitly.
