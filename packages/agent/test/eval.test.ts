@@ -266,23 +266,35 @@ describe("agent eval", () => {
       .toThrow("Agent Eval test() must call t.send(...)")
   })
 
-  it("rejects follow-up sends inside one test callback", async () => {
+  it("preserves chat history for follow-up sends inside one test callback", async () => {
     const { defineEval } = await import("../src/eval.ts")
-    const generate = vi.fn(async () => ({ text: "ok" }))
+    const generate = vi.fn()
+      .mockResolvedValueOnce({ text: "first reply" })
+      .mockResolvedValueOnce({ text: "second reply" })
 
     defineEval({
       agent: { generate, stream: vi.fn(), tools: {}, version: "agent-v1" } as never,
       name: "support",
       async test(t) {
         await t.send("hello")
-        await expect(t.send("again")).rejects.toThrow("Agent Eval test.send() supports one Agent Invocation per test.")
+        await t.send("again")
       },
     })
 
     await expect(evaliteCalls[0]!.opts.task(evaliteCalls[0]!.opts.data[0].input))
       .resolves
-      .toMatchObject({ text: "ok" })
-    expect(generate).toHaveBeenCalledTimes(1)
+      .toMatchObject({ text: "second reply" })
+    expect(generate).toHaveBeenCalledTimes(2)
+    expect(generate.mock.calls[0]?.[0]).toMatchObject({
+      prompt: "hello",
+    })
+    expect(generate.mock.calls[1]?.[0]).toMatchObject({
+      messages: [
+        { content: "hello", role: "user" },
+        { content: "first reply", role: "assistant" },
+        { content: "again", role: "user" },
+      ],
+    })
   })
 
   it("adds scenario scorers to global scorers and captures observations", async () => {

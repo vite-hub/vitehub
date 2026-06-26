@@ -22,6 +22,10 @@ import {
   createAgentTestRunner,
   type AgentTestRunResult,
 } from "./test.ts"
+import {
+  createMessage,
+  type Message,
+} from "./messages.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
 
 export interface AgentScore {
@@ -400,12 +404,52 @@ function normalizeTestSendInput<CALL_OPTIONS>(input: string | AgentRunInput<CALL
   return typeof input === "string" ? { prompt: input } : input
 }
 
+function messagesFromTestInput<CALL_OPTIONS>(input: AgentRunInput<CALL_OPTIONS>): Message[] {
+  const messages = [...(input.messages || [])]
+  if (typeof input.message === "string") {
+    messages.push(createMessage({ role: "user", text: input.message }))
+  }
+  else if (input.message) {
+    messages.push(input.message)
+  }
+  if (typeof input.prompt === "string") {
+    messages.push(createMessage({ role: "user", text: input.prompt }))
+  }
+  else if (Array.isArray(input.prompt)) {
+    messages.push(...input.prompt)
+  }
+  return messages
+}
+
+function withTestHistory<CALL_OPTIONS>(
+  input: AgentRunInput<CALL_OPTIONS>,
+  history: Message[],
+): AgentRunInput<CALL_OPTIONS> {
+  if (!history.length) return input
+  const messages = messagesFromTestInput(input)
+  if (!messages.length) return input
+  const rest = { ...input }
+  delete rest.message
+  delete rest.messages
+  delete rest.prompt
+  return {
+    ...rest,
+    messages: [...history, ...messages],
+  }
+}
+
+function appendAssistantMessage(history: Message[], text: string): Message[] {
+  if (!text) return history
+  return [...history, createMessage({ role: "assistant", text })]
+}
+
 async function runEvalTest<CALL_OPTIONS>(
   runner: ReturnType<typeof createAgentTestRunner<AgentRuntimeConfig, CALL_OPTIONS>>,
   testCase: NormalizedEvalTest<CALL_OPTIONS>,
   variant: AgentEvalVariant,
 ): Promise<AgentObservationWithScores> {
   let observation: AgentObservation | undefined
+  let history: Message[] = []
   const assertions: AgentScorer[] = []
   const context: AgentEvalTestContext<CALL_OPTIONS> = {
     get observation() {
@@ -435,11 +479,11 @@ async function runEvalTest<CALL_OPTIONS>(
       assertions.push(scorer)
     },
     async send(input) {
-      if (observation) {
-        throw new Error("[vitehub] Agent Eval test.send() supports one Agent Invocation per test.")
-      }
-      const result = await runner.run(normalizeTestSendInput(input))
+      const normalizedInput = normalizeTestSendInput(input)
+      const runInput = withTestHistory(normalizedInput, history)
+      const result = await runner.run(runInput)
       observation = toObservation(result, testCase, variant)
+      history = appendAssistantMessage(messagesFromTestInput(runInput), result.text)
       return observation
     },
     textContains(expected) {
