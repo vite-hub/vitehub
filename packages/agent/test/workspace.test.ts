@@ -1161,6 +1161,30 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toBe("Use colocated workspace instructions.")
   })
 
+  it("applies discovered source roots to workspace agents", async () => {
+    const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
+    tempRoots.push(sourceRootDir)
+    await writeLocalFile(join(sourceRootDir, "instructions.md"), "Use discovered workspace instructions.\n")
+    const { defineAgent } = await import("../src/index.ts")
+    const { workspaceAgentWithSourceRoot } = await import("../src/workspace-agent.ts")
+
+    const agent = workspaceAgentWithSourceRoot(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), sourceRootDir)
+
+    expect((agent as { sourceRootDir?: string }).sourceRootDir).toBe(sourceRootDir)
+    expect((agent as { sources?: unknown }).sources).toMatchObject({
+      __vitehubAgentInstructions: {
+        mount: "",
+        path: "instructions.md",
+        workspacePath: "AGENTS.md",
+      },
+    })
+    expect((agent as { __vitehubWorkspaceAgentOptions?: { workspace?: { sourceRootDir?: string } } }).__vitehubWorkspaceAgentOptions?.workspace?.sourceRootDir)
+      .toBe(sourceRootDir)
+  })
+
   it("keeps source instructions with colocated default model instructions", async () => {
     const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
     tempRoots.push(sourceRootDir)

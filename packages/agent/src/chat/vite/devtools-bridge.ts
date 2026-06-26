@@ -26,7 +26,7 @@ import {
 import { createChatDevtoolsStreamResponse } from "../devtools-stream.ts"
 import { createAgentRuntimeContext } from "../../runtime/context.ts"
 import { discoverAgentDefinitions } from "../../discovery.ts"
-import { workspaceAgentOwnsWorkspaceDefinition } from "../../workspace-agent.ts"
+import { workspaceAgentOwnsWorkspaceDefinition, workspaceAgentWithSourceRoot } from "../../workspace-agent.ts"
 import { loadAiSdk } from "../../internal/ai-sdk-runtime.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
@@ -162,10 +162,7 @@ function installServerAgentWorkspaceRegistry(
         const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
         return {
           ...mod,
-          default: {
-            ...mod.default,
-            sourceRootDir: mod.default?.sourceRootDir ?? sourceRootDir,
-          },
+          default: workspaceAgentWithSourceRoot(mod.default, sourceRootDir),
         }
       },
     ])))

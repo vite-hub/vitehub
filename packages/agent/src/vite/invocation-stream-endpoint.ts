@@ -10,7 +10,7 @@ import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation, resolveAgentTriggers, streamAgent, withAgentDefaults } from "../index.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
-import { workspaceAgentOwnsWorkspaceDefinition } from "../workspace-agent.ts"
+import { workspaceAgentOwnsWorkspaceDefinition, workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
 import type { ViteDevServer } from "vite"
@@ -209,12 +209,10 @@ function installServerAgentWorkspaceRegistry(
       name,
       async () => {
         const mod = await server.ssrLoadModule(pathToFileURL(definition.handler).href)
+        const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
         return {
           ...mod,
-          default: {
-            ...mod.default,
-            sourceRootDir: mod.default?.sourceRootDir ?? resolveWorkspaceSourceRoot(definition.handler),
-          },
+          default: workspaceAgentWithSourceRoot(mod.default, sourceRootDir),
         }
       },
     ]))))
