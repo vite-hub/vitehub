@@ -1137,14 +1137,15 @@ export async function applyOutputRenderers(
   result: unknown,
   renderers: ResolvedAgentOutputRenderer[] = [],
   providers: ResolvedAgentOutputExtensionProvider[] = [],
+  values: Map<string, unknown> = new Map<string, unknown>(),
 ): Promise<unknown> {
   let current = result
   let providerIndex = 0
-  const values = new Map<string, unknown>()
   const extensions = createAgentExtensionReader(values)
   for (const renderer of renderers) {
     while (providerIndex < renderer.providerCount) {
       const provider = providers[providerIndex++]
+      if (values.has(provider.id)) continue
       const value = await provider.resolve({ extensions, result: current })
       if (value !== undefined) values.set(provider.id, value)
     }

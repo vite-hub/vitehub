@@ -2794,6 +2794,33 @@ describe("agent message protocol", () => {
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok:12 tokens:12 tokens:undefined")
   })
 
+  it("keeps normal output extensions visible to final renderers", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "usage-note",
+          output(context) {
+            context.output.provide({ summary: "12 tokens" })
+            context.output.render(() => "plain")
+          },
+        }),
+        defineCapability({
+          id: "summary-output",
+          output(context) {
+            context.output.final((result, renderContext) => {
+              const summary = renderContext.output.extensions.get<string>("usage-note", "summary")
+              return `${result}:${summary}`
+            })
+          },
+        }),
+      ],
+      run: () => ({ text: "ok" }),
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("plain:12 tokens")
+  })
+
   it("keeps one-argument output render callbacks working", async () => {
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
@@ -3116,7 +3143,7 @@ describe("agent message protocol", () => {
     expect(delivered).toHaveBeenCalledWith("bare stream:final")
   })
 
-  it("exposes explicit stream usage events to final output renderers", async () => {
+  it("carries bare stream usage events into final output renderers", async () => {
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const { defineChannel } = await import("../src/channels.ts")
     const { usageTelemetry } = await import("../src/capabilities.ts")
@@ -3125,6 +3152,111 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       capabilities: [
         usageTelemetry({ summary: { subject: "Review run" } }),
+        defineCapability({
+          id: "bare-usage-output",
+          output(context) {
+            context.output.final((result, renderContext) => {
+              const usage = renderContext.output.extensions.get<{ summary?: string }>("usage-telemetry")
+              return {
+                ...result as Record<string, unknown>,
+                text: `${(result as { text?: string }).text}\n${usage?.summary}`,
+              }
+            })
+            context.delivery.finishEffect(event => ({
+              kind: "reply",
+              payload: (event.result as { text?: string }).text,
+            }))
+          },
+        }),
+      ],
+      channels: {
+        review: defineChannel("review", {
+          effects: {
+            reply({ effect }) {
+              delivered(effect.payload)
+            },
+          },
+          messages: false,
+        }),
+      },
+      run: () => (async function* () {
+        yield { text: "bare ", type: "text-delta" }
+        yield { text: "review", type: "text-delta" }
+        yield {
+          type: "usage",
+          usageRecord: {
+            usage: {
+              inputTokens: 3,
+              outputTokens: 4,
+              totalTokens: 7,
+            },
+          },
+        }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: {
+        channelId: "review",
+        runId: "run-1",
+      },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {})
+
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(delivered).toHaveBeenCalledWith("bare review\nReview run used 7 tokens: 3 in / 4 out.")
+  })
+
+  it("defers runAgent final renderers for bare streams until consumption", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "run-stream-output",
+          output(context) {
+            context.output.final(result => ({
+              ...result as Record<string, unknown>,
+              text: `${(result as { text?: string }).text}:final`,
+            }))
+          },
+        }),
+      ],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => (async function* () {
+        yield { text: "run ", type: "text-delta" }
+        yield { text: "stream", type: "text-delta" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const stream = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
+    expect(finish).not.toHaveBeenCalled()
+    for await (const _event of stream as AsyncIterable<unknown>) {}
+
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+      result: expect.objectContaining({
+        text: "run stream:final",
+      }),
+    }))
+  })
+
+  it("exposes explicit stream usage events to final output renderers", async () => {
+    const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const delivered = vi.fn()
+    const onUsage = vi.fn()
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry({ onUsage, summary: { subject: "Review run" } }),
         defineCapability({
           id: "explicit-usage-output",
           output(context) {
@@ -3201,6 +3333,15 @@ describe("agent message protocol", () => {
       },
       { type: "finish" },
     ])
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+      },
+    }), expect.objectContaining({
+      run: expect.objectContaining({ runId: "run-1" }),
+    }))
     expect(delivered).toHaveBeenCalledWith("raw review\nReview run used 15 tokens: 10 in / 5 out.")
   })
 

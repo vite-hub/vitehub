@@ -397,6 +397,7 @@ async function* withUsageTelemetryStream(
   let recorded = false
   for await (const chunk of stream) {
     if (isRecord(chunk) && chunk.type === "usage" && isRecord(chunk.usageRecord)) {
+      await options.onUsage?.(chunk.usageRecord as AgentUsageRecord, run ? { run } : {})
       recorded = true
       onRecord?.(chunk.usageRecord as AgentUsageRecord)
     }
