@@ -666,6 +666,41 @@ describe("sources, loaders, and publishers", () => {
     })
   })
 
+  it("falls back to loaders when runtime assets miss a current build source", async () => {
+    setWorkspaceRuntimeAssetsRegistry({
+      support: createWorkspaceAssets({
+        "skills/agent-browser/SKILL.md": {
+          load: async () => "# Browser\n",
+          mediaType: "text/markdown",
+        },
+      }),
+    })
+
+    const store = createMemoryWorkspaceStore()
+    await syncWorkspaceDefinition({
+      name: "support",
+      sources: {
+        agentBrowserSkill: file({
+          content: "# Browser\n",
+          mediaType: "text/markdown",
+          workspacePath: "skills/agent-browser/SKILL.md",
+        }),
+        instructions: file({
+          content: "# Agent\n",
+          mediaType: "text/markdown",
+          workspacePath: "AGENTS.md",
+        }),
+      },
+    }, store)
+
+    await expect(store.readFile("skills/agent-browser/SKILL.md")).resolves.toMatchObject({
+      content: "# Browser\n",
+    })
+    await expect(store.readFile("AGENTS.md")).resolves.toMatchObject({
+      content: "# Agent\n",
+    })
+  })
+
   it("purges stale build source files when source maps change", async () => {
     const store = createMemoryWorkspaceStore()
     let keys = ["README.md", "stale.md"]
