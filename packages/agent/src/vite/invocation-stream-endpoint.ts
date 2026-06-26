@@ -277,6 +277,26 @@ function messagesFromBody(body: AgentInvocationStreamBody): AgentChatMessageTrig
   throw new Response("Missing Agent Dev Loop message text.", { status: 400 })
 }
 
+function textFromUiMessage(message: AgentChatMessageTriggerInput["messages"][number]): string {
+  return (Array.isArray(message.parts) ? message.parts : [])
+    .filter((part): part is { text: string } => isRecord(part) && part.type === "text" && typeof part.text === "string")
+    .map(part => part.text)
+    .join("")
+}
+
+function promptFromBody(body: AgentInvocationStreamBody): string | undefined {
+  if (typeof body.text === "string" && body.text.trim()) return body.text
+  const messages = Array.isArray(body.messages) ? body.messages : []
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!
+    if (message.role !== "user") continue
+    const text = textFromUiMessage(message)
+    if (text.trim()) return text
+  }
+  const text = messages.length ? textFromUiMessage(messages.at(-1)!) : undefined
+  return text?.trim() ? text : undefined
+}
+
 function selectedTrigger(entry: AgentInvocationStreamEntry, body: AgentInvocationStreamBody): ResolvedAgentTriggerDefinition | undefined {
   if (typeof body.trigger === "string" && body.trigger.trim()) {
     const trigger = entry.triggers[body.trigger]
@@ -289,7 +309,18 @@ function selectedTrigger(entry: AgentInvocationStreamEntry, body: AgentInvocatio
 function triggerInput(trigger: ResolvedAgentTriggerDefinition, body: AgentInvocationStreamBody, signal: AbortSignal, run: AgentRunMetadata, timeout: number): unknown {
   if ("input" in body) return body.input
   if (trigger.id !== "chat.message") {
-    throw new Response("Missing Agent Trigger input. Pass input.", { status: 400 })
+    const prompt = promptFromBody(body)
+    if (!prompt) throw new Response("Missing Agent Trigger input. Pass input or prompt.", { status: 400 })
+    const context = contextFromBody(body)
+    return {
+      abortSignal: signal,
+      ...(context ? { context } : {}),
+      prompt,
+      run,
+      timeout,
+      ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}),
+      ...(isRecord(body.meta) ? { meta: body.meta } : {}),
+    }
   }
   return {
     abortSignal: signal,
@@ -355,7 +386,8 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
     let output: Awaited<ReturnType<typeof streamAgent>>
     const trigger = selectedTrigger(entry, body)
     if (trigger) {
-      const invocation = await resolveAgentTriggerInvocation(entry.agent as never, context as never, trigger.id, triggerInput(trigger, body, signal, run, timeout))
+      const triggerContext = trigger.id === "chat.message" ? context : { ...context, request: undefined }
+      const invocation = await resolveAgentTriggerInvocation(entry.agent as never, triggerContext as never, trigger.id, triggerInput(trigger, body, signal, run, timeout))
       if (isResolvedAgentTriggerHandledInvocation(invocation)) {
         output = invocation.response
       }

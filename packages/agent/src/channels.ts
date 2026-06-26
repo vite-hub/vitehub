@@ -504,6 +504,61 @@ function githubCommandFromUnknown(value: unknown): GitHubPullRequestCommand | un
   }
 }
 
+function commandWithSlash(value: unknown): `/${string}` | (string & {}) | undefined {
+  const command = maybeString(value)
+  if (!command) return
+  return command.startsWith("/") ? command : `/${command}`
+}
+
+function githubCommandFromInvocationContext(input: unknown): GitHubPullRequestCommand | undefined {
+  if (!isRecord(input) || !isRecord(input.context)) return
+  const pullRequestContext = isRecord(input.context.pullRequest) ? input.context.pullRequest : undefined
+  const pullRequest = isRecord(pullRequestContext?.pullRequest) ? pullRequestContext.pullRequest : undefined
+  const repositoryContext = isRecord(pullRequestContext?.repository) ? pullRequestContext.repository : undefined
+  const trigger = isRecord(pullRequestContext?.trigger) ? pullRequestContext.trigger : undefined
+  const triggerComment = isRecord(trigger?.comment) ? trigger.comment : undefined
+  const repository = maybeString(repositoryContext?.fullName) || maybeString(isRecord(pullRequest?.source) ? pullRequest.source.repo : undefined)
+  const [owner, repo] = repository?.split("/") || []
+  const issueNumber = maybeNumber(pullRequest?.number)
+  const pullRequestUrl = maybeString(pullRequest?.apiUrl)
+    || (repository && issueNumber ? `https://api.github.com/repos/${repository}/pulls/${issueNumber}` : undefined)
+  const commentId = maybeNumber(triggerComment?.id) || 1
+  const command = commandWithSlash(trigger?.command) || commandWithSlash(triggerComment?.body) || "/review"
+  const prompt = maybeString(input.prompt)
+  const body = prompt?.trim()
+    ? prompt.trim().startsWith("/") ? prompt.trim() : `${command} ${prompt.trim()}`
+    : maybeString(triggerComment?.body) || command
+  const parsed = parseSlashCommand(body)
+  if (!repository || !owner || !repo || !issueNumber || !pullRequestUrl || !parsed) return
+  const commentNodeId = maybeString(triggerComment?.nodeId)
+  const deliveryId = maybeString(trigger?.deliveryId)
+  const installationId = maybeNumber(trigger?.installationId)
+  const actor = isRecord(trigger?.actor) && maybeString(trigger.actor.login)
+    ? {
+        ...(maybeString(trigger.actor.association) ? { association: maybeString(trigger.actor.association) } : {}),
+        ...(maybeNumber(trigger.actor.id) ? { id: maybeNumber(trigger.actor.id) } : {}),
+        login: maybeString(trigger.actor.login)!,
+        ...(maybeString(trigger.actor.type) ? { type: maybeString(trigger.actor.type) } : {}),
+      }
+    : { login: "dev" }
+  return {
+    action: "created",
+    actor,
+    args: parsed.args,
+    body,
+    command: parsed.command,
+    commentId,
+    ...(commentNodeId ? { commentNodeId } : {}),
+    ...(deliveryId ? { deliveryId } : {}),
+    ...(installationId ? { installationId } : {}),
+    issueNumber,
+    owner,
+    pullRequestUrl,
+    repo,
+    repository,
+  }
+}
+
 function githubCommandFromEffect<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
 ): GitHubPullRequestCommand | undefined {
@@ -923,12 +978,13 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
       async invoke(context, input): Promise<AgentTriggerInvokeResult> {
         const payload = inputPayloadOrBody(input)
         const command = githubPullRequestCommandFromInput(isRecord(input) ? { ...input, payload } : { payload })
-        if (!payload) return options.ignored?.("missing_payload") || ignored("missing_payload")
+          || githubCommandFromInvocationContext(input)
+        if (!payload && !command) return options.ignored?.("missing_payload") || ignored("missing_payload")
         if (!command) return options.ignored?.("not_command") || ignored("not_command")
         if (declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
         const pullRequest = githubPullRequestRunContext(command, {
           ...options,
-          threadId: options.threadId || maybeString(payload.issue?.pull_request?.html_url) || maybeString(payload.issue?.html_url),
+          threadId: options.threadId || maybeString(payload?.issue?.pull_request?.html_url) || maybeString(payload?.issue?.html_url) || command.pullRequestUrl,
         }, payload)
         const finishEffects = githubPullRequestCommentFinishEffects(options)
         return {

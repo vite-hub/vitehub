@@ -150,6 +150,31 @@ function writeDevText(context: AgentCliContext, value: unknown): boolean {
   return true
 }
 
+function compactPreviewText(text: string): string {
+  const withoutDetails = text.replace(/<details\b[\s\S]*?<\/details>/gi, "").trim()
+  const firstLine = withoutDetails.split(/\r?\n/).map(line => line.trim()).find(Boolean) || text.trim()
+  return firstLine
+    .replace(/^#+\s*/, "")
+    .replace(/^\*\*(.+?):\*\*\s*/, "$1: ")
+    .replace(/^\*\*(.+?)\*\*:\s*/, "$1: ")
+}
+
+function deliveryPreviewPayload(value: unknown): { label: string, value: unknown } | undefined {
+  if (typeof value === "string") return { label: "payload", value: compactPreviewText(value) }
+  if (!isRecord(value)) return value === undefined ? undefined : { label: "payload", value }
+  for (const label of ["body", "text", "markdown"]) {
+    const text = value[label]
+    if (typeof text === "string") return { label, value: compactPreviewText(text) }
+  }
+  return { label: "payload", value }
+}
+
+function writeDeliveryPreviewPayload(context: AgentCliContext, value: unknown): void {
+  const preview = deliveryPreviewPayload(value)
+  if (!preview) return
+  writeDevPayload(context, preview.label, preview.value)
+}
+
 function toolTextOutput(value: unknown, seen = new Set<unknown>()): string | undefined {
   if (!isRecord(value) || seen.has(value)) return
   seen.add(value)
@@ -257,8 +282,16 @@ async function enrichUsageCost(record: AgentUsageRecord): Promise<AgentUsageReco
 }
 
 function shellCommand(value: unknown): string | undefined {
-  if (!isRecord(value) || typeof value.command !== "string") return
-  const command = value.command.trim()
+  if (!isRecord(value)) return
+  const raw = typeof value.command === "string"
+    ? value.command
+    : typeof value.cmd === "string"
+      ? value.cmd
+      : isRecord(value.args) && typeof value.args.command === "string"
+        ? value.args.command
+        : undefined
+  if (typeof raw !== "string") return
+  const command = raw.trim()
   return command && !command.includes("\n") ? command : undefined
 }
 
@@ -675,8 +708,13 @@ async function sendDevMessage(
   let lastUsageRecord: AgentUsageRecord | undefined
   let wroteUsageNote = false
   let finishSeen = false
+  let previewSeen = false
+  const delayTextForPreview = Boolean(parsed.trigger && parsed.trigger !== "chat.message")
+  let canWriteDelayedUsage = false
   const visibleTools = new Set<string>()
   const writeUsageNote = () => {
+    if (delayTextForPreview && !canWriteDelayedUsage) return
+    if (previewSeen) return
     if (!lastUsageRecord || wroteUsageNote) return
     const usage = formatUsageRecord(lastUsageRecord, Date.now() - startedAt)
     if (!usage) return
@@ -716,8 +754,8 @@ async function sendDevMessage(
       }
       if (event.type === "text-delta") {
         clearPendingFallback()
-        context.stdout.write(event.text)
         output += event.text
+        if (!delayTextForPreview) context.stdout.write(event.text)
         continue
       }
       if (event.type === "tool-call" || event.type === "tool-input-start") {
@@ -756,9 +794,10 @@ async function sendDevMessage(
       }
       if (event.type === "delivery-preview") {
         clearPendingFallback()
+        previewSeen = true
         context.stderr.write(`\n[delivery preview] would ${event.effect.kind}${event.channelId ? ` on ${event.channelId}` : ""}\n`)
         writeDevPayload(context, "intent", event.effect.intent)
-        writeDevPayload(context, "payload", event.effect.payload)
+        writeDeliveryPreviewPayload(context, event.effect.payload)
         writeDevPayload(context, "metadata", event.effect.metadata)
         continue
       }
@@ -789,7 +828,12 @@ async function sendDevMessage(
     throw error
   }
   clearPendingFallback()
-  context.stdout.write("\n")
+  if (delayTextForPreview && !previewSeen && output) {
+    context.stdout.write(output)
+    canWriteDelayedUsage = true
+    writeUsageNote()
+  }
+  if (!delayTextForPreview || output && !previewSeen) context.stdout.write("\n")
   if (!output && needsApproval) return
   return messages.length || output ? [...messages, assistantMessage(output, messages.length)] : []
 }
