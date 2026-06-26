@@ -533,7 +533,21 @@ describe("agent Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-deno-workspace-routes-"))
     try {
       await mkdir(join(root, "server", "agents", "support", "workspace"), { recursive: true })
-      await writeFile(join(root, "server", "agents", "support", "config.ts"), "import { defineAgent } from '@vite-hub/agent'\nexport default defineAgent({ workspace: {}, async run() { return 'ok' } })", "utf8")
+      await writeFile(join(root, "server", "agents", "support", "config.ts"), [
+        "import { defineAgent } from '@vite-hub/agent'",
+        "import { skills } from '@vite-hub/agent/capabilities'",
+        "export default defineAgent({",
+        "  capabilities: [skills({",
+        "    instructions: false,",
+        "    path: 'skills/agent-browser',",
+        "    source: { content: '# Browser\\n', workspacePath: 'SKILL.md' },",
+        "    sourceKey: 'agentBrowserSkill',",
+        "  })],",
+        "  workspace: {},",
+        "  async run() { return 'ok' },",
+        "})",
+        "",
+      ].join("\n"), "utf8")
       await writeFile(join(root, "server", "agents", "support", "instructions.md"), "Use support instructions.\n", "utf8")
       await writeFile(join(root, "server", "agents", "support", "workspace", "instructions.md"), "Do not use workspace instructions.\n", "utf8")
       const plugin = hubAgent({ routes: { chat: true }, runtime: "deno" })
@@ -549,6 +563,9 @@ describe("agent Vite plugin", () => {
       expect(denoServer).toContain("workspaceRegistryEntry(\"support\", agent0")
       expect(denoServer).toContain("__vitehubAgentInstructions")
       expect(denoServer).toContain("content: colocatedInstructions")
+      expect(denoServer).toContain("const existingSources = agent.sources && typeof agent.sources === 'object' ? agent.sources : undefined")
+      expect(denoServer).toContain("    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: 'build', mount: '', workspacePath: 'AGENTS.md' }, ...workspace.sources, ...existingSources }")
+      expect(denoServer).toContain("return { ...agent, ...(resolvedSources ? { sources: resolvedSources } : {})")
       expect(denoServer).toContain(`${JSON.stringify(join(root, "server", "agents", "support", "workspace"))}, "Use support instructions.\\n")`)
       expect(denoServer).not.toContain("Do not use workspace instructions.")
       expect(denoServer).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
