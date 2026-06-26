@@ -285,8 +285,10 @@ async function createHarnessAgent<
   const tools = toHarnessTools(context)
   return new HarnessAgent({
     harness,
-    onSandboxSession: async ({ abortSignal, session, sessionWorkDir }: { abortSignal?: AbortSignal, session: unknown, sessionWorkDir: string }) => {
-      await prepareWorkspaceSession(session, sessionWorkDir, abortSignal)
+    sandboxConfig: {
+      onSession: async ({ abortSignal, session, sessionWorkDir }: { abortSignal?: AbortSignal, session: unknown, sessionWorkDir: string }) => {
+        await prepareWorkspaceSession(session, sessionWorkDir, abortSignal)
+      },
     },
     permissionMode: "allow-all",
     sandbox,

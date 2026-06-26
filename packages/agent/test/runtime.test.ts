@@ -783,6 +783,9 @@ describe("agent message protocol", () => {
     expect(harnessAgentSettings.at(-1)).toMatchObject({
       harness,
       permissionMode: "allow-all",
+      sandboxConfig: {
+        onSession: expect.any(Function),
+      },
       sandbox,
     })
     expect(harnessCreateSession).toHaveBeenCalledWith(undefined)
