@@ -17,6 +17,19 @@
       "darkInvert": true,
       "configOverride": "  blob: {\n    driver: 'vercel-blob',\n  },",
       "envOverride": "BLOB_READ_WRITE_TOKEN=<blob-read-write-token>"
+    },
+    {
+      "id": "netlify-blobs",
+      "label": "Netlify",
+      "icon": "i-simple-icons-netlify",
+      "configOverride": "  blob: {\n    driver: 'netlify-blobs',\n    name: 'vitehub-blob',\n  },"
+    },
+    {
+      "id": "minio",
+      "label": "Docker/MinIO",
+      "icon": "i-simple-icons-docker",
+      "configOverride": "  blob: {\n    driver: 'minio',\n  },",
+      "envOverride": "MINIO_ENDPOINT=http://minio:9000\nMINIO_ROOT_USER=minio\nMINIO_ROOT_PASSWORD=password\nBLOB_BUCKET_NAME=vitehub-blob"
     }
   ],
   "frameworks": {

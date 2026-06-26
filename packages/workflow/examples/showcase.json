@@ -17,6 +17,12 @@
       "icon": "i-simple-icons-vercel",
       "darkInvert": true,
       "configOverride": "  workflow: {\n    provider: 'vercel',\n  },"
+    },
+    {
+      "id": "openworkflow",
+      "label": "Docker/OpenWorkflow",
+      "icon": "i-simple-icons-docker",
+      "configOverride": "  workflow: {\n    provider: 'openworkflow',\n    sqlite: {\n      path: '.data/workflow.sqlite',\n    },\n  },"
     }
   ],
   "frameworks": {
