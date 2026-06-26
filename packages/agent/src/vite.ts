@@ -309,7 +309,7 @@ function generateAgentWebhookRouteHandler(
     "import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from '@vite-hub/agent'",
     ...(options.cloudflareState ? ["import { createCloudflareAgentState } from '@vite-hub/agent/cloudflare'"] : []),
     "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server'",
-    "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/internal/runtime/state'",
+    "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
     "import { createError, defineEventHandler, getRequestHeaders, getRequestURL, getRouterParam, readRawBody } from 'h3'",
     imports,
     "",
