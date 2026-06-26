@@ -348,6 +348,7 @@ describe("agent CLI", () => {
           { id: "tool-1", name: "shell", type: "tool-input-start" },
           { id: "tool-1", input: { command: "cat file.md" }, name: "shell", type: "tool-call" },
           { id: "tool-1", name: "shell", output: { command: "cat file.md", exitCode: 0, stderr: "", stdout: longOutput }, type: "tool-result" },
+          { id: "tool-4", input: { cmd: "pnpm test" }, name: "bash", type: "tool-call" },
           { id: "tool-2", name: "workspace_list", output: { path: "." }, type: "tool-result" },
           { id: "tool-3", name: "run_summary", output: { raw: { raw: { steps: longOutput } }, text: "summary body" }, type: "tool-result" },
           { text: "done", type: "text-delta" },
@@ -374,6 +375,9 @@ describe("agent CLI", () => {
 
     expect(exitCode).toBe(0)
     expect(stderr.output()).toContain("[tool] cat file.md")
+    expect(stderr.output()).toContain("[tool] pnpm test")
+    expect(stderr.output()).not.toContain("[tool] bash")
+    expect(stderr.output()).not.toContain("[tool done]")
     expect(stderr.output()).not.toContain(`input: {"command":"cat file.md"}`)
     expect(stderr.output()).toContain("[truncated ")
     expect(stderr.output()).not.toContain(longOutput)
@@ -437,12 +441,13 @@ describe("agent CLI", () => {
 
   it("renders Agent Dev Loop delivery previews", async () => {
     const stderr = stream()
+    const stdout = stream()
     const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       if (init?.method === "POST") {
         return ndjson([
           { agent: "review", trigger: "github.webhook", type: "start" },
-          { text: "summary", type: "text-delta" },
-          { channelId: "github", effect: { kind: "reply", payload: "summary" }, type: "delivery-preview" },
+          { text: "verbose review prose", type: "text-delta" },
+          { channelId: "github", effect: { kind: "reply", payload: { body: "**Summary:** Short review.\n\n<details>\n<summary>Usage telemetry</summary>\n\nlarge table\n</details>" } }, type: "delivery-preview" },
           { type: "finish" },
           { type: "done" },
         ])
@@ -459,12 +464,16 @@ describe("agent CLI", () => {
       rootDir: "/repo",
       spawn: vi.fn(),
       stderr,
-      stdout: stream(),
+      stdout,
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(0)
+    expect(stdout.output()).toBe("")
     expect(stderr.output()).toContain("[delivery preview] would reply on github")
-    expect(stderr.output()).toContain("payload: summary")
+    expect(stderr.output()).toContain("body: Summary: Short review.")
+    expect(stderr.output()).not.toContain("Usage telemetry")
+    expect(stderr.output()).not.toContain("large table")
+    expect(stderr.output()).not.toContain("verbose review prose")
   })
 
   it("runs Evalite through the Node runner with ViteHub defaults", async () => {
