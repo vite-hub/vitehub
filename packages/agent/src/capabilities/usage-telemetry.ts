@@ -396,7 +396,11 @@ async function* withUsageTelemetryStream(
   let fallbackResult: UnknownRecord | undefined
   let recorded = false
   for await (const chunk of stream) {
-    if (isRecord(chunk) && chunk.type === "finish") {
+    if (isRecord(chunk) && chunk.type === "usage" && isRecord(chunk.usageRecord)) {
+      recorded = true
+      onRecord?.(chunk.usageRecord as AgentUsageRecord)
+    }
+    if (!recorded && isRecord(chunk) && chunk.type === "finish") {
       const usageRecord = await recordUsage(chunk, options, run, chunk.usage !== undefined || chunk.totalUsage !== undefined ? metadataSource : undefined)
       if (usageRecord) {
         recorded = true
