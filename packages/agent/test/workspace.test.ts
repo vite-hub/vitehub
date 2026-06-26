@@ -306,7 +306,15 @@ describe("defineAgent workspace option", () => {
         harness: { provider: "codex" },
         sandbox: { provider: "sandbox" },
       },
-      workspace: { mode: "write" },
+      workspace: {
+        mode: "write",
+        sources: {
+          instructions: {
+            content: "# Agent\n",
+            workspacePath: "AGENTS.md",
+          },
+        },
+      },
     }), { workspace: "docs" })
 
     await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
@@ -319,7 +327,7 @@ describe("defineAgent workspace option", () => {
     expect(writeTools).not.toHaveBeenCalled()
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
-      paths: ["skills/agent-browser"],
+      paths: ["AGENTS.md", "skills/agent-browser"],
       session: harnessSandboxSession,
       sessionWorkDir: "/workspace/codex-session",
     })
