@@ -54,9 +54,11 @@ function normalizeWorkspaceDefinition(name: string, definition: WorkspaceDefinit
   if (workspaceAgentOptions?.workspace) {
     const injectedWorkspace = pickWorkspaceFields(definition)
     const configuredWorkspace = typeof workspaceAgentOptions.workspace === "string" ? {} : workspaceAgentOptions.workspace
+    const sources = mergeWorkspaceSources(injectedWorkspace.sources, configuredWorkspace.sources)
     return {
       ...injectedWorkspace,
       ...configuredWorkspace,
+      ...(sources ? { sources } : {}),
       rootDir: configuredWorkspace.rootDir ?? injectedWorkspace.rootDir,
       sourceRootDir: configuredWorkspace.sourceRootDir ?? injectedWorkspace.sourceRootDir,
       name,
@@ -66,6 +68,14 @@ function normalizeWorkspaceDefinition(name: string, definition: WorkspaceDefinit
     throw new TypeError(`[vitehub] Workspace definition "${name}" must not declare a name. Workspace names are inferred from filenames.`)
   }
   return { ...pickWorkspaceFields(definition), name }
+}
+
+function mergeWorkspaceSources(
+  injected: WorkspaceDefinitionInput["sources"] | undefined,
+  configured: WorkspaceDefinitionInput["sources"] | undefined,
+): WorkspaceDefinitionInput["sources"] | undefined {
+  if (!injected && !configured) return undefined
+  return { ...injected, ...configured }
 }
 
 export function registerWorkspace(name: string, definition: WorkspaceDefinitionInput): void {

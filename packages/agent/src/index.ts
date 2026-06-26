@@ -300,6 +300,7 @@ export {
   materializeAgentDevtoolsSourceMetadata,
   resolveAgentDevtoolsMetadata,
   workspaceAgentOwnsWorkspaceDefinition,
+  workspaceDefinitionFromOptions,
 } from "./workspace-agent.ts"
 
 export {

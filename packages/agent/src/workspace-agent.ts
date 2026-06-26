@@ -152,6 +152,30 @@ export function workspaceAgentOwnsWorkspaceDefinition(agent: unknown): boolean {
     && !isWorkspaceReference(workspace as WorkspaceAgentWorkspaceConfig)
 }
 
+export function workspaceAgentWithSourceRoot<Agent>(agent: Agent, sourceRootDir: string): Agent {
+  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return agent
+
+  const workspaceAgent = agent as WorkspaceAgentDefinition
+  const options = workspaceAgent.__vitehubWorkspaceAgentOptions
+  const workspace = options.workspace
+  if (typeof workspace !== "object" || workspace === null || isWorkspaceReference(workspace)) return agent
+
+  const resolvedSourceRootDir = workspace.sourceRootDir ?? workspaceAgent.sourceRootDir ?? sourceRootDir
+  const workspaceOptions = {
+    ...options,
+    workspace: {
+      ...workspace,
+      sourceRootDir: resolvedSourceRootDir,
+    },
+  }
+
+  return {
+    ...workspaceAgent,
+    ...workspaceDefinitionFromOptions(workspaceOptions as never),
+    __vitehubWorkspaceAgentOptions: workspaceOptions,
+  } as Agent
+}
+
 function assertWorkspaceReference(reference: { name: string }): void {
   if (!reference.name.trim()) {
     throw new TypeError("[vitehub] Workspace reference requires a non-empty string name.")

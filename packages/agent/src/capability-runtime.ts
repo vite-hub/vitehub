@@ -277,6 +277,14 @@ function compactWorkspacePaths(paths: readonly string[]): string[] {
   return sorted.filter((path, index) => !sorted.some((candidate, candidateIndex) => candidateIndex < index && pathContains(candidate, path)))
 }
 
+function workspaceDefinitionBuildSourcePaths(definition: WorkspaceDefinition | undefined): string[] {
+  return Object.entries(definition?.sources || {}).flatMap(([key, source]) => {
+    const metadata = normalizeAgentWorkspaceSource(key, source)
+    if (metadata.materialize !== "build" || !metadata.probeKeys?.length) return []
+    return metadata.probeKeys.map(sourcePath => joinSourcePath(metadata.mountPath, sourcePath))
+  })
+}
+
 function pathsConflict(left: string, right: string): boolean {
   return pathContains(left, right) || pathContains(right, left)
 }
@@ -668,7 +676,7 @@ export async function resolveAgentCapabilities<
     ? compactWorkspacePaths(capabilities.flatMap(capability => [
         ...(capability.harnessWorkspacePaths || []),
         ...(capability.requires || []).flatMap(requirement => requirement.workspace?.paths || []),
-      ]))
+      ]).concat(workspaceDefinitionBuildSourcePaths(invocationOptions.workspaceDefinition)))
     : []
   let currentInput = normalizeRunInput(input)
   let currentWorkspace = workspace as ReadonlyWorkspaceFacade<Name> | undefined

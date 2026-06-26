@@ -306,7 +306,15 @@ describe("defineAgent workspace option", () => {
         harness: { provider: "codex" },
         sandbox: { provider: "sandbox" },
       },
-      workspace: { mode: "write" },
+      workspace: {
+        mode: "write",
+        sources: {
+          instructions: {
+            content: "# Agent\n",
+            workspacePath: "AGENTS.md",
+          },
+        },
+      },
     }), { workspace: "docs" })
 
     await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
@@ -319,7 +327,7 @@ describe("defineAgent workspace option", () => {
     expect(writeTools).not.toHaveBeenCalled()
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
-      paths: ["skills/agent-browser"],
+      paths: ["AGENTS.md", "skills/agent-browser"],
       session: harnessSandboxSession,
       sessionWorkDir: "/workspace/codex-session",
     })
@@ -1151,6 +1159,30 @@ describe("defineAgent workspace option", () => {
 
     expect(readFile).toHaveBeenCalledWith("AGENTS.md")
     expect(agentSettings.at(-1)?.instructions).toBe("Use colocated workspace instructions.")
+  })
+
+  it("applies discovered source roots to workspace agents", async () => {
+    const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
+    tempRoots.push(sourceRootDir)
+    await writeLocalFile(join(sourceRootDir, "instructions.md"), "Use discovered workspace instructions.\n")
+    const { defineAgent } = await import("../src/index.ts")
+    const { workspaceAgentWithSourceRoot } = await import("../src/workspace-agent.ts")
+
+    const agent = workspaceAgentWithSourceRoot(defineAgent({
+      workspace: {},
+      model: {} as never,
+    }), sourceRootDir)
+
+    expect((agent as { sourceRootDir?: string }).sourceRootDir).toBe(sourceRootDir)
+    expect((agent as { sources?: unknown }).sources).toMatchObject({
+      __vitehubAgentInstructions: {
+        mount: "",
+        path: "instructions.md",
+        workspacePath: "AGENTS.md",
+      },
+    })
+    expect((agent as { __vitehubWorkspaceAgentOptions?: { workspace?: { sourceRootDir?: string } } }).__vitehubWorkspaceAgentOptions?.workspace?.sourceRootDir)
+      .toBe(sourceRootDir)
   })
 
   it("keeps source instructions with colocated default model instructions", async () => {

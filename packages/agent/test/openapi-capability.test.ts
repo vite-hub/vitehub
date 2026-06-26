@@ -245,6 +245,40 @@ describe("openapi capability", () => {
     expect((init.headers as Headers).get("x-cube-token")).toBe("cube-token")
   })
 
+  it("accepts visible request body fields at the top level", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        openapi({
+          defaults: {
+            body: { cubeToken: "cube-token" },
+            path: { tenantId: "acme" },
+          },
+          input: {
+            omit: {
+              body: ["cubeToken"],
+              path: ["tenantId"],
+            },
+          },
+          operations: { allow: ["createOrder"] },
+          spec: portalSpec(),
+        }),
+      ],
+    }, runtime(), { prompt: "create" })
+
+    const tools = resolved.tools as AgentToolSet
+    await expect(tools.createOrder.execute?.({
+      quantity: 2,
+      sku: "sku-1",
+    })).resolves.toEqual({ ok: true })
+
+    const init = request.mock.calls[0]?.[1] as RequestInit
+    expect(init.body).toBe(JSON.stringify({ cubeToken: "cube-token", quantity: 2, sku: "sku-1" }))
+  })
+
   it("can transform raw operation responses with request context", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
       data: [{ "Product.sku": "sku-1", "PurchaseOrder.quantity": 12 }],

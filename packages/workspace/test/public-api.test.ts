@@ -45,6 +45,37 @@ describe("workspace public API", () => {
     expect(await workspace.fs.readFile("data.json")).toBe("{}")
   })
 
+  it("merges generated agent sources with configured workspace sources", async () => {
+    setWorkspaceRegistry({
+      agent: async () => ({
+        default: {
+          __vitehubWorkspaceAgentOptions: {
+            workspace: {
+              sources: {
+                skill: file({
+                  content: "# Skill\n",
+                  workspacePath: "skills/browser/SKILL.md",
+                }),
+              },
+              store: { provider: "memory" },
+            },
+          },
+          sources: {
+            instructions: file({
+              content: "# Agent\n",
+              workspacePath: "AGENTS.md",
+            }),
+          },
+        } as never,
+      }),
+    })
+
+    const workspace = useWorkspace("agent", { mode: "write" })
+
+    expect(await workspace.fs.readFile("AGENTS.md")).toBe("# Agent\n")
+    expect(await workspace.fs.readFile("skills/browser/SKILL.md")).toBe("# Skill\n")
+  })
+
   it("keeps shell as a lazy workspace tools dependency", async () => {
     const distDir = new URL("../dist/", import.meta.url)
     const aiFiles = (await readdir(distDir)).filter(file => file === "ai.js" || /^ai-.*\.js$/.test(file))

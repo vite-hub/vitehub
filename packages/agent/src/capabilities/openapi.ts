@@ -381,7 +381,9 @@ function normalizeRawToolInput(operation: OpenAPIOperationTool, input: unknown):
   const record = value as Record<string, unknown>
   const allowedTopLevel = new Set(["path", "query", "body"])
   const extra = Object.keys(record).filter(key => !allowedTopLevel.has(key))
-  if (extra.length) throw new Error(`[vitehub] ${operation.operationId} does not support input option${extra.length === 1 ? "" : "s"}: ${extra.join(", ")}.`)
+  if (extra.length && !supportsFlattenedBodyInput(operation, extra)) {
+    throw new Error(`[vitehub] ${operation.operationId} does not support input option${extra.length === 1 ? "" : "s"}: ${extra.join(", ")}.`)
+  }
   if (record.path !== undefined && !isPlainRecord(record.path)) {
     throw new TypeError(`[vitehub] ${operation.operationId} path input must be an object.`)
   }
@@ -391,11 +393,23 @@ function normalizeRawToolInput(operation: OpenAPIOperationTool, input: unknown):
   if (!operation.bodySchema && record.body !== undefined) {
     throw new Error(`[vitehub] ${operation.operationId} does not declare a request body.`)
   }
+  const flattenedBody = Object.fromEntries(extra.map(key => [key, record[key]]))
+  if (extra.length && record.body !== undefined && !isPlainRecord(record.body)) {
+    throw new TypeError(`[vitehub] ${operation.operationId} body input must be an object when mixed with top-level body fields.`)
+  }
   return {
-    ...(record.body !== undefined ? { body: record.body } : {}),
+    ...(record.body !== undefined || extra.length ? { body: { ...flattenedBody, ...(record.body as Record<string, unknown> | undefined) } } : {}),
     ...(record.path ? { path: record.path as Record<string, unknown> } : {}),
     ...(record.query ? { query: record.query as Record<string, unknown> } : {}),
   }
+}
+
+function supportsFlattenedBodyInput(operation: OpenAPIOperationTool, keys: string[]): boolean {
+  if (!operation.bodySchema) return false
+  if (operation.bodySchema.additionalProperties === true) return true
+  const properties = operation.bodySchema.properties
+  if (!isPlainRecord(properties)) return false
+  return keys.every(key => Object.hasOwn(properties, key))
 }
 
 function normalizeToolInput(operation: OpenAPIOperationTool, input: OpenAPIToolInput): OpenAPIToolInput {
