@@ -12,36 +12,124 @@
 
 <p align="center">
   <a href="https://vitehub.dev">Documentation</a>
+  ·
+  <a href="https://vitehub.dev/docs/getting-started/installation">Installation</a>
+  ·
+  <a href="https://vitehub.dev/docs/agents">Agents</a>
+  ·
+  <a href="https://vitehub.dev/docs/server-primitives">Server primitives</a>
 </p>
 
-## Workspace Rules
+ViteHub gives Vite apps portable server primitives and Agent Definitions. Use primitives directly from routes, handlers, jobs, and workers; expose them to agents only through explicit Capabilities when model behavior needs controlled access.
 
-- Root scripts orchestrate package scripts. They do not define package test behavior.
-- Packages own their own `src`, `test`, build, and typecheck flows.
-- Root-level tests are opt-in and only for true workspace invariants.
-- Package-local `examples/` stay manual fixtures outside the default pnpm workspace unless a task explicitly opts them in.
-- `examples/` stays manual-only by default. It is not part of the default root `test`, `typecheck`, or `build` path.
-- Package-local config files should only exist when a package has a real local need.
-- External dependency versions are centralized in named pnpm catalogs by purpose.
-- Local development uses Vite+ with Node 24.
+## Server Primitives and Agents
 
-## Commands
+Server primitives give app code stable Runtime Helpers for auth, environment values, storage, queues, workflows, schedules, sandboxes, workspace files, and provider output.
 
-- `vp run test` runs `test` in `packages/*`
-- `vp run typecheck` runs docs and package typechecks
-- `vp run build` runs package `vp pack` builds
-- `vp run lint` stays root-owned
-- `vp run docs:dev` and `vp run docs:build` are explicit docs commands
-- `vp run verify` runs lint, typecheck, contracts, tests, and build - the full local gate
+Agents are named server-side actors. Each Agent Definition picks an Agent Driver, receives Agent Invocations, can read explicit Workspace context, and gains abilities through Capabilities.
 
-## Package Baseline
+## Installation
 
-Each package should be addable with:
+ViteHub starts with the Vite preset. Add direct primitive, Agent Package, or provider packages only when your app imports them.
 
-- its own `package.json`
-- its own `src`
-- optional `test`
-- optional `tsconfig`
-- optional local tool config only when needed
+```bash
+pnpm add @vite-hub/vite
+```
 
-Adding a package should not require editing a central root test harness.
+Register the Vite Integration.
+
+```ts
+import { vitehub } from "@vite-hub/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [
+    vitehub(),
+  ],
+});
+```
+
+For model-backed agents, add a model provider such as AI Gateway.
+
+```bash
+pnpm add @ai-sdk/gateway
+```
+
+Requirements: Node 24 or newer, Vite 8 or newer, and a server app with `vite.config.ts`.
+
+## First Agent
+
+Create an Agent Definition.
+
+```ts
+import { gateway } from "@ai-sdk/gateway";
+import { defineAgent } from "@vite-hub/vite/agent";
+
+export default defineAgent({
+  driver: {
+    model: gateway("openai/gpt-5.1-mini"),
+    instructions: "Answer support questions with short, concrete replies.",
+  },
+});
+```
+
+Run it from server code.
+
+```ts
+import { runAgent } from "@vite-hub/vite/agent";
+import support from "../agents/support";
+
+export default defineEventHandler(async (event) => {
+  const body = await readBody<{ prompt: string }>(event);
+
+  return runAgent(support, { runtime: "vite" }, {
+    prompt: body.prompt,
+  });
+});
+```
+
+Add Capabilities only when the Agent needs controlled access to tools, storage, Workspace files, chat, product events, or external systems.
+
+## How Agents Work
+
+- An **Agent Definition** declares one Agent and its Agent Driver.
+- An **Agent Driver** decides how an Agent Invocation runs: model-backed, harness-backed, or custom-run-backed.
+- An **Agent Invocation** is one runtime request to an Agent.
+- **Capabilities** attach named abilities. They contribute tools, instructions, triggers, policies, or runtime context.
+- A **Workspace** gives an Agent explicit file-tree state. **Sources** place read-only context into that Workspace.
+- ViteHub discovers definitions, generates Runtime Registries, and prepares Provider Output through Vite Integrations.
+
+Server code can call primitives directly. Agents do not receive every primitive by default; attach a Capability when the model should use one.
+
+## Server Primitives
+
+Server primitives are useful with or without Agents.
+
+| Need | Start with |
+| --- | --- |
+| Environment values and secrets | [`@vite-hub/env`](https://vitehub.dev/docs/server-primitives/env) |
+| Auth and sessions | [`@vite-hub/auth`](https://vitehub.dev/docs/server-primitives/auth) |
+| Small key-addressed state | [`@vite-hub/kv`](https://vitehub.dev/docs/server-primitives/kv) |
+| Relational data | [`@vite-hub/database`](https://vitehub.dev/docs/server-primitives/database) |
+| Uploads and generated assets | [`@vite-hub/blob`](https://vitehub.dev/docs/server-primitives/blob) |
+| File-tree state and Sources | [`@vite-hub/workspace`](https://vitehub.dev/docs/server-primitives/workspace) |
+| Background delivery | [`@vite-hub/queue`](https://vitehub.dev/docs/server-primitives/queue) |
+| Durable long-running work | [`@vite-hub/workflow`](https://vitehub.dev/docs/server-primitives/workflows) |
+| Future or recurring work | [`@vite-hub/schedule`](https://vitehub.dev/docs/server-primitives/schedule) |
+| Isolated execution | [`@vite-hub/sandbox`](https://vitehub.dev/docs/server-primitives/sandbox) |
+
+Each package owns its Runtime Helpers and Vite Integration. Host-specific wiring stays behind ViteHub Provider Output, so app code can use stable imports instead of provider SDK plumbing.
+
+## Learn More
+
+- [Installation](https://vitehub.dev/docs/getting-started/installation)
+- [First server primitive](https://vitehub.dev/docs/getting-started/first-server-primitive)
+- [First Agent](https://vitehub.dev/docs/getting-started/first-agent)
+- [Agent Definitions](https://vitehub.dev/docs/agents/agent-definitions)
+- [Capabilities](https://vitehub.dev/docs/capabilities)
+- [Server primitives](https://vitehub.dev/docs/server-primitives)
+- [Runtime imports](https://vitehub.dev/docs/reference/import-paths)
+
+## Development
+
+This repo uses Node 24, pnpm, and Vite+. Run `vp run verify` for the full local gate. Package scripts own package-local test, build, and typecheck behavior.
