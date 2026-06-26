@@ -1161,6 +1161,50 @@ describe("usage telemetry", () => {
     expect((result as { usageRecord?: { cost?: unknown } }).usageRecord?.cost).toBeUndefined()
   })
 
+  it("summarizes non-token usage without cost or token counts", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [
+        usageTelemetry({
+          summary: { subject: "Harness run" },
+        }),
+        defineCapability({
+          id: "usage-note",
+          output(context) {
+            context.output.render((result, renderContext) => {
+              const usage = renderContext.output.extensions.get<{ summary?: string }>("usage-telemetry")
+              return {
+                ...result as Record<string, unknown>,
+                text: `${(result as { text?: string }).text}\n${usage?.summary}`,
+              }
+            })
+          },
+        }),
+      ],
+      run: () => ({
+        text: "ok",
+        usage: {
+          actions: 2,
+          sessions: 1,
+        },
+      }),
+    })
+
+    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
+      text: "ok\nHarness run reported actions: 2, sessions: 1.",
+      usageRecord: {
+        usage: {
+          details: {
+            actions: 2,
+            sessions: 1,
+          },
+        },
+      },
+    })
+  })
+
   it("loads Vercel AI Gateway pricing from the models endpoint", async () => {
     const { vercelAiGatewayPricing } = await import("../src/capabilities.ts")
     const fetch = vi.fn(async () => Response.json({

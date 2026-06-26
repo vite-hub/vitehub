@@ -428,6 +428,44 @@ describe("agent output helpers", () => {
     ])
   })
 
+  it("preserves non-token stream usage details", async () => {
+    const output = {
+      fullStream: (async function* () {
+        yield { text: "ok", type: "text-delta" }
+        yield {
+          type: "finish",
+          usage: {
+            actions: 2,
+            sessions: 1,
+            wallTimeMs: 800,
+          },
+        }
+      })(),
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      {
+        type: "usage",
+        usageRecord: {
+          usage: {
+            details: {
+              actions: 2,
+              sessions: 1,
+              wallTimeMs: 800,
+            },
+          },
+        },
+      },
+      { type: "finish" },
+    ])
+  })
+
   it("adds a terminal finish event to textStream output", async () => {
     const output = {
       textStream: (async function* () {

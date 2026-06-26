@@ -556,6 +556,7 @@ export interface AgentCapabilityRuntimeContext<
   }
   output: {
     extensions: AgentInvocationExtensions
+    final: (renderer: AgentOutputRenderer) => void
     provide: (value: unknown | AgentOutputExtensionProvider) => void
     render: (renderer: AgentOutputRenderer) => void
   }

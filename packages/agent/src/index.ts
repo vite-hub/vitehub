@@ -240,6 +240,7 @@ export type {
   AgentModuleOptions,
   AgentOutputExtensionEvent,
   AgentOutputExtensionProvider,
+  AgentOutputRenderer,
   AgentProvidersOptions,
   AgentRegistryHandlerOptions,
   AgentRegistry,
@@ -1072,6 +1073,7 @@ type AgentInvocationContext<
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
   driverContributions: AgentDriverContribution[]
+  finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finishHook?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS> extends infer TEvent ? (event: TEvent) => MaybePromise<void> : never
@@ -1282,6 +1284,7 @@ async function createAgentInvocationContext<
       deliveryEffectIntents: capabilities.registries.deliveryEffectIntents,
       devtools: context.devtools,
       driverContributions: capabilities.driverContributions,
+      finalOutputRenderers: capabilities.registries.finalOutputRenderers,
       finishDeliveryEffectProviders: capabilities.registries.finishDeliveryEffectProviders,
       finishExtensionProviders: capabilities.registries.finishExtensionProviders,
       finishHook: definition?.hooks?.["agent:finish"] as never,
@@ -1333,9 +1336,11 @@ type InvocationRunContext<
   deliveryEffectIntents?: readonly AgentChannelDeliveryEffectIntent[]
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
+  finalOutputRenderers: AgentCapabilityRegistries["finalOutputRenderers"]
   finishHook?: (event: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<void>
   hooks?: AgentHookObserverHooks
   input: AgentRunInput<CALL_OPTIONS>
+  outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
   actor: AgentInvoker
   invoker: AgentInvoker
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
@@ -1382,21 +1387,6 @@ function withStreamResultProperties<T extends AsyncIterable<StreamEvent>>(stream
   return stream
 }
 
-function withStreamedText(
-  stream: AsyncIterable<unknown>,
-  append: (text: string) => void,
-): AsyncIterable<unknown> {
-  return (async function* () {
-    for await (const event of stream) {
-      if (event && typeof event === "object" && (event as { type?: unknown }).type === "text-delta") {
-        const text = (event as { text?: unknown }).text
-        if (typeof text === "string") append(text)
-      }
-      yield event
-    }
-  })()
-}
-
 function resultWithStreamedText(result: unknown, text: string): unknown {
   if (!text || typeof result === "string") return result
   if (result && typeof result === "object" && !(result instanceof Response)) {
@@ -1404,6 +1394,55 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
     return typeof current === "string" && current ? result : { ...result, text }
   }
   return { raw: result, text }
+}
+
+function withStreamedResult(stream: AsyncIterable<unknown>, result: unknown) {
+  const toolNames = new Map<string, string>()
+  let streamedText = ""
+  let usageRecord: Extract<StreamEvent, { type: "usage" }>["usageRecord"] | undefined
+  return {
+    finishResult() {
+      const output = resultWithStreamedText(result, streamedText)
+      if (usageRecord && output && typeof output === "object" && !(output instanceof Response)) {
+        const record = output as { usage?: unknown, usageRecord?: unknown }
+        record.usageRecord ??= usageRecord
+        record.usage ??= usageRecord.usage
+      }
+      return output
+    },
+    stream: (async function* () {
+      for await (const chunk of stream) {
+        const event = toAgentStreamEvent(chunk, toolNames)
+        if (event?.type === "text-delta" && event.text) streamedText += event.text
+        if (event?.type === "usage") usageRecord = event.usageRecord
+        yield chunk
+      }
+    })(),
+  }
+}
+
+async function finishStreamAgentInvocation<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  result: unknown,
+  error: unknown,
+  failureMessage: string,
+  outputExtensions = new Map<string, unknown>(),
+): Promise<void> {
+  if (error !== undefined) {
+    await finishAgentInvocation(context, undefined, error)
+    return
+  }
+  let finishResult: unknown
+  try {
+    finishResult = await applyFinalOutputRenderers(result, context, outputExtensions)
+  }
+  catch (finishError) {
+    await finishFailedAgentInvocation(context, finishError, failureMessage)
+  }
+  await finishAgentInvocation(context, finishResult)
 }
 
 function traceUiMessageStream<
@@ -1497,7 +1536,7 @@ function shouldDeferFinish<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS> & { hasCapabilityCleanup: boolean }): boolean {
-  return context.hasCapabilityCleanup || hasFinishWork(context) || hasWorkspaceAutoCommit(context)
+  return context.hasCapabilityCleanup || hasFinishWork(context) || Boolean(context.finalOutputRenderers.length) || hasWorkspaceAutoCommit(context)
 }
 
 function shouldWrapInvocationOutput<
@@ -1518,6 +1557,17 @@ async function commitWorkspaceChanges<
   const commit = resolveWorkspaceAutoCommit(context.workspaceDefinition, diff)
   if (!commit) return
   await context.workspace.snapshot({ name: commit.message })
+}
+
+async function applyFinalOutputRenderers<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  result: unknown,
+  context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>,
+  outputExtensions = new Map<string, unknown>(),
+): Promise<unknown> {
+  return await applyOutputRenderers(result, context.finalOutputRenderers, context.outputExtensionProviders, outputExtensions)
 }
 
 function assertDeliveryEffectIntent(value: unknown): asserts value is AgentChannelDeliveryEffectIntent {
@@ -1631,6 +1681,7 @@ async function finalizeAgentInvocationResult<
   failureMessage: string,
   options: {
     finalizeRawStreams?: boolean
+    outputExtensions?: Map<string, unknown>
     wrapStream?: (stream: AsyncIterable<unknown>) => AsyncIterable<unknown>
   } = {},
 ): Promise<Response | AsyncIterable<unknown> | TResult> {
@@ -1645,6 +1696,10 @@ async function finalizeAgentInvocationResult<
     if (isAsyncIterable(result) && !hasTraceableStreamResult(result) && !options.finalizeRawStreams) {
       finishLifecycleStarted = shouldWrapOutput
       const stream = options.wrapStream?.(result) || result
+      if (shouldWrapOutput && context.finalOutputRenderers.length) {
+        const streamed = withStreamedResult(stream, result)
+        return withCapabilityCleanup(streamed.stream, error => finishStreamAgentInvocation(context, streamed.finishResult(), error, failureMessage, options.outputExtensions), { abortSignal: context.input.abortSignal })
+      }
       return shouldWrapOutput ? withCapabilityCleanup(stream, error => finishAgentInvocation(context, error === undefined ? result : undefined, error), { abortSignal: context.input.abortSignal }) : stream
     }
     const finalized = await finalizeObject(result)
@@ -1681,18 +1736,23 @@ export async function runAgentInline<
     catch (error) {
       return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
+    const outputExtensions = new Map<string, unknown>()
+    let renderedResult = false
     try {
       if (isAsyncIterable(result)) {
-        result = await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders)
+        result = await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
+        renderedResult = true
       }
     }
     catch (error) {
       return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
     return await finalizeAgentInvocationResult(runContext, result, async (result) => {
-      const rendered = await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders)
-      return { finishResult: rendered, value: rendered }
+      const rendered = renderedResult ? result : await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
+      const final = await applyFinalOutputRenderers(rendered, runContext, outputExtensions)
+      return { finishResult: final, value: final }
     }, "[vitehub] Agent run failed and finish lifecycle also failed.", {
+      outputExtensions,
       wrapStream: stream => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, runContext),
     })
   }
@@ -1712,9 +1772,11 @@ export async function runAgentInline<
     return await finishFailedAgentInvocation(adapterContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
   }
   return await finalizeAgentInvocationResult(adapterContext, result, async (result) => {
-    const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders)
-    const runResult = toAgentRunResult(rendered)
-    return { finishResult: rendered, value: runResult }
+    const outputExtensions = new Map<string, unknown>()
+    const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions)
+    const final = await applyFinalOutputRenderers(rendered, adapterContext, outputExtensions)
+    const runResult = toAgentRunResult(final)
+    return { finishResult: final, value: runResult }
   }, "[vitehub] Agent run failed and finish lifecycle also failed.")
 }
 
@@ -1785,38 +1847,50 @@ export async function streamAgentInline<
     catch (error) {
       return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
+    const outputExtensions = new Map<string, unknown>()
+    let renderedResult = false
     try {
-      if (isAsyncIterable(result) && output !== "ui-message-stream") {
-        result = await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders)
+      if (isAsyncIterable(result) && output !== "ui-message-stream" && !runContext.finalOutputRenderers.length) {
+        result = await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
+        renderedResult = true
       }
     }
     catch (error) {
       return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
     return await finalizeAgentInvocationResult(runContext, result, async (result) => {
-      const rendered = await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders)
+      const rendered = renderedResult ? result : await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
       if (output === "ui-message-stream") {
-        return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, runContext), shouldWrapInvocationOutput(runContext), error => finishAgentInvocation(runContext, error === undefined ? rendered : undefined, error))
+        return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, runContext), shouldWrapInvocationOutput(runContext), async (error, streamedText) => {
+          await finishStreamAgentInvocation(runContext, resultWithStreamedText(rendered, streamedText || ""), error, "[vitehub] Agent stream failed and finish lifecycle also failed.", outputExtensions)
+        })
       }
       const isStreamResult = hasTraceableStreamResult(rendered)
       const isStream = isAsyncIterable(rendered) || isStreamResult
+      if (!isStream) {
+        const final = await applyFinalOutputRenderers(rendered, runContext, outputExtensions)
+        return { finishResult: final, value: final }
+      }
       const stream = isStreamResult
         ? streamAgentOutputToEvents(rendered)
         : rendered as AsyncIterable<StreamEvent>
       const shouldWrapOutput = shouldWrapInvocationOutput(runContext)
-      let streamedText = ""
-      const tracedStream = maybeTraceAgentStream(withStreamedText(stream, text => { streamedText += text }) as AsyncIterable<StreamEvent>, runContext)
+      const streamed = withStreamedResult(stream, rendered)
+      const tracedStream = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, runContext)
       return {
         deferFinish: isStream && shouldWrapOutput,
         finishResult: rendered,
         value: isStream
           ? withStreamResultProperties(shouldWrapOutput
-              ? withCapabilityCleanup(tracedStream, error => finishAgentInvocation(runContext, error === undefined ? resultWithStreamedText(rendered, streamedText) : undefined, error), { abortSignal: runContext.input.abortSignal }) as AsyncIterable<StreamEvent>
+            ? withCapabilityCleanup(tracedStream, async (error) => {
+                await finishStreamAgentInvocation(runContext, streamed.finishResult(), error, "[vitehub] Agent stream failed and finish lifecycle also failed.", outputExtensions)
+              }, { abortSignal: runContext.input.abortSignal }) as AsyncIterable<StreamEvent>
               : tracedStream, rendered)
           : rendered,
       }
     }, "[vitehub] Agent run failed and finish lifecycle also failed.", {
-      finalizeRawStreams: output === "ui-message-stream",
+      finalizeRawStreams: output === "ui-message-stream" || Boolean(runContext.finalOutputRenderers.length),
+      outputExtensions,
       wrapStream: stream => maybeTraceAgentStream(stream as AsyncIterable<StreamEvent>, runContext),
     })
   }
@@ -1837,29 +1911,39 @@ export async function streamAgentInline<
   catch (error) {
     return await finishFailedAgentInvocation(adapterContext, error, "[vitehub] Agent stream failed and finish lifecycle also failed.")
   }
+  const outputExtensions = new Map<string, unknown>()
+  let renderedResult = false
   try {
-    if (isAsyncIterable(result) && output !== "ui-message-stream") {
-      result = await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders)
+    if (isAsyncIterable(result) && output !== "ui-message-stream" && !adapterContext.finalOutputRenderers.length) {
+      result = await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions)
+      renderedResult = true
     }
   }
   catch (error) {
     return await finishFailedAgentInvocation(adapterContext, error, "[vitehub] Agent stream failed and finish lifecycle also failed.")
   }
   return await finalizeAgentInvocationResult(adapterContext, result, async (result) => {
-    const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders)
+    const rendered = renderedResult ? result : await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions)
     if (output === "ui-message-stream") {
-      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, adapterContext), shouldWrapInvocationOutput(adapterContext), error => finishAgentInvocation(adapterContext, error === undefined ? rendered : undefined, error))
+      return finalizeUiMessageStreamOutput(maybeTraceUiMessageStreamOutput(rendered, adapterContext), shouldWrapInvocationOutput(adapterContext), async (error, streamedText) => {
+        await finishStreamAgentInvocation(adapterContext, resultWithStreamedText(rendered, streamedText || ""), error, "[vitehub] Agent stream failed and finish lifecycle also failed.", outputExtensions)
+      })
     }
     const events = streamAgentOutputToEvents(rendered)
-    let streamedText = ""
-    const tracedEvents = maybeTraceAgentStream(withStreamedText(events, text => { streamedText += text }) as AsyncIterable<StreamEvent>, adapterContext)
+    const streamed = withStreamedResult(events, rendered)
+    const tracedEvents = maybeTraceAgentStream(streamed.stream as AsyncIterable<StreamEvent>, adapterContext)
     const shouldWrapOutput = shouldWrapInvocationOutput(adapterContext)
     return {
       deferFinish: shouldWrapOutput,
       finishResult: rendered,
-      value: shouldWrapOutput ? withCapabilityCleanup(tracedEvents, error => finishAgentInvocation(adapterContext, error === undefined ? resultWithStreamedText(rendered, streamedText) : undefined, error), { abortSignal: adapterContext.input.abortSignal }) : tracedEvents,
+      value: shouldWrapOutput ? withCapabilityCleanup(tracedEvents, async (error) => {
+        await finishStreamAgentInvocation(adapterContext, streamed.finishResult(), error, "[vitehub] Agent stream failed and finish lifecycle also failed.", outputExtensions)
+      }, { abortSignal: adapterContext.input.abortSignal }) : tracedEvents,
     }
-  }, "[vitehub] Agent stream failed and finish lifecycle also failed.", { finalizeRawStreams: output === "ui-message-stream" })
+  }, "[vitehub] Agent stream failed and finish lifecycle also failed.", {
+    finalizeRawStreams: output === "ui-message-stream" || Boolean(adapterContext.finalOutputRenderers.length),
+    outputExtensions,
+  })
 }
 
 export async function streamAgent<

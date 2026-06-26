@@ -139,7 +139,10 @@ function usageRecordFromUsage(rawUsage: unknown, metadataSource?: unknown, fallb
     ...(inputTokenDetails ? { inputTokenDetails } : {}),
     ...(outputTokenDetails ? { outputTokenDetails } : {}),
   }
-  if (!Object.keys(usage).length) return
+  if (!Object.keys(usage).length) {
+    if (!Object.keys(rawUsage).length) return
+    usage.details = rawUsage
+  }
   const model = modelFromResult(metadataSource) ?? modelFromResult(fallbackMetadataSource)
   const response = responseFromResult(metadataSource) ?? responseFromResult(fallbackMetadataSource)
   return {

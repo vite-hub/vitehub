@@ -73,6 +73,7 @@ export interface AgentCapabilityRegistries {
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
   finishDeliveryEffectProviders: AgentChannelDeliveryFinishEffect[]
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
+  finalOutputRenderers: ResolvedAgentOutputRenderer[]
   modelExecutionInstrumentation: AgentModelExecutionInstrumentation[]
   outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
   outputRenderers: ResolvedAgentOutputRenderer[]
@@ -685,6 +686,7 @@ export async function resolveAgentCapabilities<
     deliveryEffectIntents: [...initialDeliveryEffectIntents],
     finishDeliveryEffectProviders: [...initialFinishDeliveryEffectProviders],
     finishExtensionProviders: [],
+    finalOutputRenderers: [],
     modelExecutionInstrumentation: [],
     outputExtensionProviders: [],
     outputRenderers: [],
@@ -860,6 +862,17 @@ export async function resolveAgentCapabilities<
         },
         output: {
           extensions: createAgentExtensionReader(new Map()),
+          final(renderer: AgentOutputRenderer) {
+            const resolved = ((result: unknown, extensions = createAgentExtensionReader(new Map())) => renderer(result, {
+              ...capabilityContext,
+              output: {
+                ...capabilityContext.output,
+                extensions,
+              },
+            })) as ResolvedAgentOutputRenderer
+            resolved.providerCount = registries.outputExtensionProviders.length
+            registries.finalOutputRenderers.push(resolved)
+          },
           provide(value) {
             registries.outputExtensionProviders.push({
               id: capability.id,
@@ -1124,14 +1137,15 @@ export async function applyOutputRenderers(
   result: unknown,
   renderers: ResolvedAgentOutputRenderer[] = [],
   providers: ResolvedAgentOutputExtensionProvider[] = [],
+  values: Map<string, unknown> = new Map<string, unknown>(),
 ): Promise<unknown> {
   let current = result
   let providerIndex = 0
-  const values = new Map<string, unknown>()
   const extensions = createAgentExtensionReader(values)
   for (const renderer of renderers) {
     while (providerIndex < renderer.providerCount) {
       const provider = providers[providerIndex++]
+      if (values.has(provider.id)) continue
       const value = await provider.resolve({ extensions, result: current })
       if (value !== undefined) values.set(provider.id, value)
     }

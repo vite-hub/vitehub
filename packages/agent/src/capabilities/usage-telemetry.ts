@@ -288,6 +288,16 @@ function formatUsageCost(cost: AgentUsageRecord["cost"]): string | undefined {
   return cost.currency === "USD" ? `$${amount}` : `${amount} ${cost.currency}`
 }
 
+function formatUsageDetails(details: AgentUsage["details"]): string | undefined {
+  const entries = Object.entries(details || {})
+    .filter((entry): entry is [string, number | string] =>
+      typeof entry[1] === "string" && entry[1].trim().length > 0
+      || typeof entry[1] === "number" && Number.isFinite(entry[1]))
+    .slice(0, 4)
+  if (!entries.length) return details && Object.keys(details).length ? "reported usage" : undefined
+  return `reported ${entries.map(([key, value]) => `${key}: ${typeof value === "number" ? formatUsageNumber(value) : value}`).join(", ")}`
+}
+
 function formatUsageDuration(durationMs: unknown): string | undefined {
   const finite = finiteUsageNumber(durationMs)
   if (finite === undefined) return
@@ -318,12 +328,14 @@ async function formatUsageSummary(record: AgentUsageRecord, options: UsageTeleme
   }
   const cost = formatUsageCost(record.cost)
   const tokens = formatUsageTokens(record.usage)
+  const details = formatUsageDetails(record.usage?.details)
   const model = record.model?.id
   const duration = formatUsageDuration(record.latency?.durationMs)
   const speed = formatUsageSpeed(record)
   const run = [model ? `using ${model}` : undefined, duration ? `in ${duration}` : undefined, speed ? `at ${speed}` : undefined].filter(Boolean).join(" ")
   if (cost) return `${subject} cost ${record.cost?.estimated ? "about " : ""}${cost}${run ? ` ${run}` : ""}${tokens ? ` (${tokens})` : ""}.`
   if (tokens) return `${subject} used ${tokens}${run ? ` ${run}` : ""}.`
+  if (details) return `${subject} ${details}${run ? ` ${run}` : ""}.`
   if (run) return `${subject} ran ${run}.`
 }
 
@@ -384,7 +396,12 @@ async function* withUsageTelemetryStream(
   let fallbackResult: UnknownRecord | undefined
   let recorded = false
   for await (const chunk of stream) {
-    if (isRecord(chunk) && chunk.type === "finish") {
+    if (isRecord(chunk) && chunk.type === "usage" && isRecord(chunk.usageRecord)) {
+      await options.onUsage?.(chunk.usageRecord as AgentUsageRecord, run ? { run } : {})
+      recorded = true
+      onRecord?.(chunk.usageRecord as AgentUsageRecord)
+    }
+    if (!recorded && isRecord(chunk) && chunk.type === "finish") {
       const usageRecord = await recordUsage(chunk, options, run, chunk.usage !== undefined || chunk.totalUsage !== undefined ? metadataSource : undefined)
       if (usageRecord) {
         recorded = true
@@ -474,7 +491,8 @@ export function usageTelemetry(options: UsageTelemetryOptions = {}): AgentCapabi
         ? event.result.usageRecord
         : undefined, event, options))
       context.output.provide(async (event: AgentOutputExtensionEvent) => {
-        if (!isRecord(event.result) || hasUsageTelemetryStream(event.result)) return
+        if (!isRecord(event.result)) return
+        if (hasUsageTelemetryStream(event.result) && !isRecord(event.result.usageRecord)) return
         const usageRecord = isRecord(event.result.usageRecord)
           ? event.result.usageRecord as AgentUsageRecord
           : await recordUsage(event.result, options, context.run)
