@@ -15,6 +15,16 @@
       "label": "Vercel",
       "icon": "i-simple-icons-vercel",
       "darkInvert": true
+    },
+    {
+      "id": "netlify",
+      "label": "Netlify",
+      "icon": "i-simple-icons-netlify"
+    },
+    {
+      "id": "deno",
+      "label": "Deno",
+      "icon": "i-simple-icons-deno"
     }
   ],
   "frameworks": {

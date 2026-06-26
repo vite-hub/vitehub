@@ -55,4 +55,17 @@ describe("showcase examples", () => {
     expect(config).toContain("plugins: [vitehub()]");
     expect(files.find(file => file.path === "env.example")?.code).toContain("KV_REST_API_URL=https://example.upstash.io");
   });
+
+  it("shows provider tabs for supported non-default runtimes", () => {
+    const providersByExample = Object.fromEntries(
+      getShowcaseExamples().map(example => [example.docsPath, example.providers.map(provider => provider.id)]),
+    );
+
+    expect(providersByExample.blob).toEqual(expect.arrayContaining(["netlify-blobs", "minio"]));
+    expect(providersByExample.kv).toEqual(expect.arrayContaining(["deno-kv", "fs-lite"]));
+    expect(providersByExample.schedule).toEqual(expect.arrayContaining(["netlify", "deno"]));
+    expect(providersByExample.workflow).toEqual(expect.arrayContaining(["openworkflow"]));
+    expect(providersByExample.queue).toEqual(["cloudflare", "vercel"]);
+    expect(providersByExample.sandbox).toEqual(["cloudflare", "vercel"]);
+  });
 });

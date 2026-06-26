@@ -15,6 +15,18 @@
       "icon": "i-simple-icons-vercel",
       "configOverride": "  kv: {\n    driver: 'upstash',\n  },",
       "envOverride": "KV_REST_API_URL=https://example.upstash.io\nKV_REST_API_TOKEN=<upstash-rest-token>"
+    },
+    {
+      "id": "deno-kv",
+      "label": "Deno",
+      "icon": "i-simple-icons-deno",
+      "configOverride": "  kv: {\n    driver: 'deno-kv',\n  },"
+    },
+    {
+      "id": "fs-lite",
+      "label": "Docker/Node",
+      "icon": "i-simple-icons-docker",
+      "configOverride": "  kv: {\n    driver: 'fs-lite',\n    base: '.data/kv',\n  },"
     }
   ],
   "frameworks": {

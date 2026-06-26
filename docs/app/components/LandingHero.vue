@@ -79,6 +79,7 @@ const platformSignalGroups = [
       { label: "Cloudflare", icon: "i-simple-icons-cloudflare", color: "" },
       { label: "Vercel", icon: "i-simple-icons-vercel", color: "" },
       { label: "Netlify", icon: "i-simple-icons-netlify", color: "" },
+      { label: "Docker", icon: "i-simple-icons-docker", color: "" },
       { label: "Deno", icon: "i-simple-icons-deno", color: "" },
       { label: "Node/self-hosted", icon: "i-simple-icons-nodedotjs", color: "" },
       { label: "Any host", icon: "i-lucide-server", color: "" },
@@ -152,12 +153,13 @@ const heroAgentCoreNodes = [
 ] as const;
 
 const heroProviderNodes = [
-  { label: "Cloudflare", icon: "i-simple-icons-cloudflare", angle: 20 },
-  { label: "Vercel", icon: "i-simple-icons-vercel", angle: 80 },
-  { label: "Netlify", icon: "i-simple-icons-netlify", angle: 140 },
-  { label: "Node", icon: "i-simple-icons-nodedotjs", angle: 200 },
-  { label: "Deno", icon: "i-simple-icons-deno", angle: 260 },
-  { label: "Fly.io", icon: "i-simple-icons-flydotio", angle: 320 },
+  { label: "Cloudflare", icon: "i-simple-icons-cloudflare", angle: 0 },
+  { label: "Vercel", icon: "i-simple-icons-vercel", angle: 51 },
+  { label: "Netlify", icon: "i-simple-icons-netlify", angle: 103 },
+  { label: "Docker", icon: "i-simple-icons-docker", angle: 154 },
+  { label: "Node", icon: "i-simple-icons-nodedotjs", angle: 206 },
+  { label: "Deno", icon: "i-simple-icons-deno", angle: 257 },
+  { label: "Fly.io", icon: "i-simple-icons-flydotio", angle: 309 },
 ] as const;
 
 const heroAgentRecipes = [
@@ -976,7 +978,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <p class="sr-only">
-            ViteHub orbits an Agent Definition around Channels, Capabilities, Driver behavior, Workspace context, and provider targets such as Cloudflare, Vercel, Netlify, Node, Deno, and Fly.io. The center cycles recipes for Review, Support, Field, Onboarding, Ops, and Community Agents.
+            ViteHub orbits an Agent Definition around Channels, Capabilities, Driver behavior, Workspace context, and provider targets such as Cloudflare, Vercel, Netlify, Docker, Node, Deno, and Fly.io. The center cycles recipes for Review, Support, Field, Onboarding, Ops, and Community Agents.
           </p>
         </div>
       </div>
@@ -1012,7 +1014,7 @@ onBeforeUnmount(() => {
               <UIcon name="i-lucide-server" class="size-4 text-primary" aria-hidden="true" />
               Deploy clearly
             </dt>
-            <dd class="mt-1 text-sm/6 text-muted">Use the same project on Cloudflare, Vercel, Netlify, or Node.</dd>
+            <dd class="mt-1 text-sm/6 text-muted">Use the same project on Cloudflare, Vercel, Netlify, Docker, Deno, or Node.</dd>
           </div>
         </dl>
       </div>
