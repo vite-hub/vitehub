@@ -86,7 +86,8 @@ vi.mock("@ai-sdk/harness/agent", () => ({
     async createSession(...args: unknown[]) {
       const session = await harnessCreateSession.apply(this, args)
       const options = args[0] as { abortSignal?: AbortSignal } | undefined
-      await (this.settings.onSandboxSession as ((input: Record<string, unknown>) => Promise<void>) | undefined)?.({
+      const sandboxConfig = this.settings.sandboxConfig as { onSession?: (input: Record<string, unknown>) => Promise<void> } | undefined
+      await sandboxConfig?.onSession?.({
         abortSignal: options?.abortSignal,
         session: harnessSandboxSession,
         sessionWorkDir: "/workspace/codex-session",
