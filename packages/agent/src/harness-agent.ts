@@ -8,7 +8,7 @@ import { applyWorkspaceSourceInstructionSlot } from "./workspace-agent.ts"
 import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
-import { isAsyncIterable } from "./internal/stream-result.ts"
+import { isAsyncIterable, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -326,6 +326,45 @@ function withCleanup<T>(iterable: AsyncIterable<T>, cleanup: (error?: unknown) =
   })()
 }
 
+function withCleanupStream<T>(stream: ReadableStream<T>, cleanup: (error?: unknown) => Promise<void>): ReadableStream<T> {
+  const reader = stream.getReader()
+  let cleaned = false
+  const cleanupOnce = async (error?: unknown) => {
+    if (cleaned) return
+    cleaned = true
+    await cleanup(error)
+  }
+  return new ReadableStream<T>({
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason)
+      }
+      finally {
+        await cleanupOnce(reason)
+      }
+    },
+    async pull(controller) {
+      try {
+        const result = await reader.read()
+        if (result.done) {
+          await cleanupOnce()
+          controller.close()
+          return
+        }
+        controller.enqueue(result.value)
+      }
+      catch (error) {
+        await cleanupOnce(error)
+        controller.error(error)
+      }
+    },
+  })
+}
+
+function wrapCleanupIterable<T>(iterable: AsyncIterable<T>, cleanup: (error?: unknown) => Promise<void>, abortSignal?: AbortSignal) {
+  return toReadableAsyncIterableStream(withCleanup(iterable, cleanup, abortSignal))
+}
+
 async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) => Promise<void>, abortSignal?: AbortSignal): Promise<unknown> {
   let cleanupCalled = false
   const cleanupOnce = async (error?: unknown) => {
@@ -358,7 +397,26 @@ async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) =>
     Object.defineProperty(clone, key, {
       configurable: true,
       enumerable: true,
-      value: withCleanup(iterable, cleanupOnce, abortSignal),
+      value: wrapCleanupIterable(iterable, cleanupOnce, abortSignal),
+    })
+  }
+  const toUIMessageStream = (result as { toUIMessageStream?: unknown }).toUIMessageStream
+  if (typeof toUIMessageStream === "function") {
+    Object.defineProperty(clone, "toUIMessageStream", {
+      configurable: true,
+      enumerable: false,
+      value: (...args: unknown[]) => {
+        try {
+          const stream = toUIMessageStream.apply(clone, args) as unknown
+          return typeof stream === "object" && stream !== null && typeof (stream as ReadableStream<unknown>).getReader === "function"
+            ? withCleanupStream(stream as ReadableStream<unknown>, cleanupOnce)
+            : stream
+        }
+        catch (error) {
+          void cleanupOnce(error)
+          throw error
+        }
+      },
     })
   }
   return clone
