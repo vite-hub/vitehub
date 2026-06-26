@@ -122,6 +122,72 @@ describe("openapi capability", () => {
     expect(Object.keys(visible.tools || {})).toEqual(["listCustomers"])
   })
 
+  it("resolves dynamic specs per invocation", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({ ok: true }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+    const capability = openapi({
+      operations: { allow: ["listCustomers"] },
+      spec: ({ context }) => ({
+        ...portalSpec(),
+        servers: [{ url: context.get<{ baseUrl: string }>("portal")?.baseUrl }],
+      }),
+    })
+
+    const first = await resolveAgentCapabilities({
+      capabilities: [capability],
+    }, runtime(), {
+      context: { portal: { baseUrl: "https://first.example.com/api" } },
+      prompt: "list",
+    })
+    await (first.tools as AgentToolSet).listCustomers.execute?.({})
+
+    const second = await resolveAgentCapabilities({
+      capabilities: [capability],
+    }, runtime(), {
+      context: { portal: { baseUrl: "https://second.example.com/api" } },
+      prompt: "list",
+    })
+    await (second.tools as AgentToolSet).listCustomers.execute?.({})
+
+    expect(request.mock.calls.map(call => call[0])).toEqual([
+      "https://first.example.com/api/customers",
+      "https://second.example.com/api/customers",
+    ])
+  })
+
+  it("resolves dynamic base URLs per invocation", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({ ok: true }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+    const capability = openapi({
+      baseUrl: ({ context }) => context.get<{ baseUrl: string }>("portal")?.baseUrl || "https://fallback.example.com",
+      operations: { allow: ["listCustomers"] },
+      spec: { ...portalSpec(), servers: [] },
+    })
+
+    const first = await resolveAgentCapabilities({
+      capabilities: [capability],
+    }, runtime(), {
+      context: { portal: { baseUrl: "https://first.example.com/runtime" } },
+      prompt: "list",
+    })
+    await (first.tools as AgentToolSet).listCustomers.execute?.({})
+
+    const second = await resolveAgentCapabilities({
+      capabilities: [capability],
+    }, runtime(), {
+      context: { portal: { baseUrl: "https://second.example.com/runtime" } },
+      prompt: "list",
+    })
+    await (second.tools as AgentToolSet).listCustomers.execute?.({})
+
+    expect(request.mock.calls.map(call => call[0])).toEqual([
+      "https://first.example.com/runtime/customers",
+      "https://second.example.com/runtime/customers",
+    ])
+  })
+
   it("uses defaults and headers while omitting host-supplied fields from tool schema", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

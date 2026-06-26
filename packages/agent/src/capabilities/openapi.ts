@@ -51,6 +51,9 @@ interface OpenAPIReference {
   $ref: string
 }
 
+type OpenAPIContextValue<T, TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName> =
+  T | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<T>)
+
 interface OpenAPIOperationTool {
   bodySchema?: JsonSchema
   description: string
@@ -108,7 +111,7 @@ export interface OpenAPICapabilityOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
-  baseUrl?: string | URL
+  baseUrl?: OpenAPIContextValue<string | URL, TRuntimeConfig, Name>
   defaults?: OpenAPIRequestDefaults | ((context: OpenAPIRequestContext<TRuntimeConfig, Name>) => MaybePromise<OpenAPIRequestDefaults | undefined>)
   description?: string
   enabled?: boolean | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<boolean>)
@@ -119,7 +122,7 @@ export interface OpenAPICapabilityOptions<
     exclude?: readonly string[]
   }
   responseType?: "json" | "text"
-  spec: string | URL | OpenAPIDocument
+  spec: OpenAPIContextValue<string | URL | OpenAPIDocument, TRuntimeConfig, Name>
   specHeaders?: OpenAPIHeaders
   timeout?: number
   transformResponse?: (response: unknown, context: OpenAPIResponseContext<TRuntimeConfig, Name>) => MaybePromise<unknown>
@@ -134,17 +137,21 @@ export function openapi<
 >(options: OpenAPICapabilityOptions<TRuntimeConfig, Name>): AgentCapabilityDefinition<TRuntimeConfig, Name> {
   assertOpenAPIOptions(options)
   let operations: Promise<{ baseUrl: URL, tools: OpenAPIOperationTool[] }> | undefined
+  const dynamicOperations = typeof options.spec === "function" || typeof options.baseUrl === "function"
 
   return defineCapability({
     id: "openapi",
     metadata: {
       operations: [...options.operations.allow],
-      spec: typeof options.spec === "object" && !(options.spec instanceof URL) ? "inline" : String(options.spec),
+      spec: dynamicOperations
+        ? "dynamic"
+        : typeof options.spec === "object" && !(options.spec instanceof URL) ? "inline" : String(options.spec),
     },
     async tools(context) {
       if (!await isOpenAPIEnabled(options, context)) return undefined
-      operations ||= loadOpenAPIOperations(options)
-      const resolved = await operations
+      const resolved = dynamicOperations
+        ? await loadOpenAPIOperations(options, context)
+        : await (operations ||= loadOpenAPIOperations(options, context))
       return Object.fromEntries(resolved.tools.map(operation => [
         operation.operationId,
         createOpenAPITool(operation, resolved.baseUrl, options, context),
@@ -172,9 +179,15 @@ function assertOpenAPIOptions(options: OpenAPICapabilityOptions): void {
   }
 }
 
-async function loadOpenAPIOperations(options: OpenAPICapabilityOptions): Promise<{ baseUrl: URL, tools: OpenAPIOperationTool[] }> {
-  const { document, specUrl } = await loadOpenAPIDocument(options)
-  const baseUrl = resolveBaseUrl(options.baseUrl, document, specUrl)
+async function loadOpenAPIOperations<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: OpenAPICapabilityOptions<TRuntimeConfig, Name>,
+  context: AgentCapabilityContext<TRuntimeConfig, Name>,
+): Promise<{ baseUrl: URL, tools: OpenAPIOperationTool[] }> {
+  const { document, specUrl } = await loadOpenAPIDocument(options, context)
+  const baseUrl = resolveBaseUrl(await resolveContextValue(options.baseUrl, context), document, specUrl)
   const allowed = new Set(options.operations.allow)
   const allOperations = collectOperations(document, allowed)
   const excluded = new Set(options.operations.exclude || [])
@@ -189,11 +202,19 @@ async function loadOpenAPIOperations(options: OpenAPICapabilityOptions): Promise
   return { baseUrl, tools: selected }
 }
 
-async function loadOpenAPIDocument(options: OpenAPICapabilityOptions): Promise<{ document: OpenAPIDocument, specUrl?: URL }> {
-  if (typeof options.spec === "object" && !(options.spec instanceof URL)) {
-    return { document: options.spec }
+async function loadOpenAPIDocument<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  options: OpenAPICapabilityOptions<TRuntimeConfig, Name>,
+  context: AgentCapabilityContext<TRuntimeConfig, Name>,
+): Promise<{ document: OpenAPIDocument, specUrl?: URL }> {
+  const spec = await resolveContextValue(options.spec, context)
+  if (!spec) throw new TypeError("[vitehub] openapi({ spec }) requires an OpenAPI document URL or object.")
+  if (typeof spec === "object" && !(spec instanceof URL)) {
+    return { document: spec }
   }
-  const specUrl = options.spec instanceof URL ? options.spec : new URL(options.spec)
+  const specUrl = spec instanceof URL ? spec : new URL(spec)
   const result = await executeHttpRequest({
     headers: options.specHeaders,
     timeout: options.timeout,
@@ -203,6 +224,15 @@ async function loadOpenAPIDocument(options: OpenAPICapabilityOptions): Promise<{
     throw new Error("[vitehub] openapi() spec must be a JSON OpenAPI document.")
   }
   return { document: result.data as OpenAPIDocument, specUrl }
+}
+
+async function resolveContextValue<T, TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(
+  value: OpenAPIContextValue<T, TRuntimeConfig, Name> | undefined,
+  context: AgentCapabilityContext<TRuntimeConfig, Name>,
+): Promise<T | undefined> {
+  return typeof value === "function"
+    ? await (value as (context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<T>)(context)
+    : value
 }
 
 function resolveBaseUrl(baseUrl: string | URL | undefined, document: OpenAPIDocument, specUrl: URL | undefined): URL {
