@@ -306,7 +306,7 @@ function generateAgentWebhookRouteHandler(
   const webhookSelector = webhookRoute.includes("[webhook]") ? "getRouterParam(event, 'webhook')" : "''"
 
   return [
-    "import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition } from '@vite-hub/agent'",
+    "import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from '@vite-hub/agent'",
     ...(options.cloudflareState ? ["import { createCloudflareAgentState } from '@vite-hub/agent/cloudflare'"] : []),
     "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server'",
     "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/internal/runtime/state'",
@@ -331,7 +331,9 @@ function generateAgentWebhookRouteHandler(
     "    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: 'build', mount: '', workspacePath: 'AGENTS.md' }, ...workspace.sources, ...existingSources }",
     "    : { ...workspace.sources, ...existingSources }",
     "  const resolvedSources = Object.keys(sources).length ? sources : undefined",
-    "  return { ...agent, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: agent.sourceRootDir ?? sourceRootDir, __vitehubWorkspaceAgentOptions: { ...options, workspace: { ...workspace, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: workspace.sourceRootDir ?? sourceRootDir } } }",
+    "  const resolvedSourceRootDir = workspace.sourceRootDir ?? agent.sourceRootDir ?? sourceRootDir",
+    "  const workspaceOptions = { ...options, workspace: { ...workspace, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: resolvedSourceRootDir } }",
+    "  return { ...agent, ...workspaceDefinitionFromOptions(workspaceOptions), __vitehubWorkspaceAgentOptions: workspaceOptions }",
     "}",
     "",
     "function workspaceRegistryEntry(name, module, sourceRootDir, colocatedInstructions, defaults) {",
@@ -413,7 +415,7 @@ function generateAgentNetlifyFunctionRouteHandler(
   const webhookSelector = routeUsesParam(options.webhookRoute, "webhook") ? "netlifyParam(context, 'webhook')" : "''"
 
   return [
-    "import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition } from '@vite-hub/agent'",
+    "import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from '@vite-hub/agent'",
     "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler, setWorkspaceRuntimeRegistry } from '@vite-hub/agent/server'",
     imports,
     "",
@@ -435,7 +437,9 @@ function generateAgentNetlifyFunctionRouteHandler(
     "    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: 'build', mount: '', workspacePath: 'AGENTS.md' }, ...workspace.sources, ...existingSources }",
     "    : { ...workspace.sources, ...existingSources }",
     "  const resolvedSources = Object.keys(sources).length ? sources : undefined",
-    "  return { ...agent, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: agent.sourceRootDir ?? sourceRootDir, __vitehubWorkspaceAgentOptions: { ...options, workspace: { ...workspace, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: workspace.sourceRootDir ?? sourceRootDir } } }",
+    "  const resolvedSourceRootDir = workspace.sourceRootDir ?? agent.sourceRootDir ?? sourceRootDir",
+    "  const workspaceOptions = { ...options, workspace: { ...workspace, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: resolvedSourceRootDir } }",
+    "  return { ...agent, ...workspaceDefinitionFromOptions(workspaceOptions), __vitehubWorkspaceAgentOptions: workspaceOptions }",
     "}",
     "",
     "function workspaceRegistryEntry(name, module, sourceRootDir, colocatedInstructions, defaults) {",
@@ -523,7 +527,7 @@ function generateAgentDenoServer(
     : []
 
   return [
-    "import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition } from '@vite-hub/agent'",
+    "import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from '@vite-hub/agent'",
     "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server/routes'",
     ...workspaceRuntimeLines.slice(0, 1),
     imports,
@@ -551,7 +555,9 @@ function generateAgentDenoServer(
     "    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: 'build', mount: '', workspacePath: 'AGENTS.md' }, ...workspace.sources, ...existingSources }",
     "    : { ...workspace.sources, ...existingSources }",
     "  const resolvedSources = Object.keys(sources).length ? sources : undefined",
-    "  return { ...agent, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: agent.sourceRootDir ?? sourceRootDir, __vitehubWorkspaceAgentOptions: { ...options, workspace: { ...workspace, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: workspace.sourceRootDir ?? sourceRootDir } } }",
+    "  const resolvedSourceRootDir = workspace.sourceRootDir ?? agent.sourceRootDir ?? sourceRootDir",
+    "  const workspaceOptions = { ...options, workspace: { ...workspace, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: resolvedSourceRootDir } }",
+    "  return { ...agent, ...workspaceDefinitionFromOptions(workspaceOptions), __vitehubWorkspaceAgentOptions: workspaceOptions }",
     "}",
     "",
     "function workspaceRegistryEntry(name, module, sourceRootDir, colocatedInstructions, defaults) {",
