@@ -532,9 +532,10 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-deno-workspace-routes-"))
     try {
-      await mkdir(join(root, "server", "agents", "support"), { recursive: true })
+      await mkdir(join(root, "server", "agents", "support", "workspace"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support", "config.ts"), "import { defineAgent } from '@vite-hub/agent'\nexport default defineAgent({ workspace: {}, async run() { return 'ok' } })", "utf8")
       await writeFile(join(root, "server", "agents", "support", "instructions.md"), "Use support instructions.\n", "utf8")
+      await writeFile(join(root, "server", "agents", "support", "workspace", "instructions.md"), "Do not use workspace instructions.\n", "utf8")
       const plugin = hubAgent({ routes: { chat: true }, runtime: "deno" })
       if (typeof plugin.configResolved === "function") {
         await plugin.configResolved.call({} as never, { root } as never)
@@ -547,7 +548,9 @@ describe("agent Vite plugin", () => {
       expect(denoServer).toContain("withWorkspaceSourceRoot(resolveAgentModule(agent0)")
       expect(denoServer).toContain("workspaceRegistryEntry(\"support\", agent0")
       expect(denoServer).toContain("__vitehubAgentInstructions")
-      expect(denoServer).toContain(", true)")
+      expect(denoServer).toContain("content: colocatedInstructions")
+      expect(denoServer).toContain(`${JSON.stringify(join(root, "server", "agents", "support", "workspace"))}, "Use support instructions.\\n")`)
+      expect(denoServer).not.toContain("Do not use workspace instructions.")
       expect(denoServer).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
       expect(denoServer).not.toContain("\"support\": async ()")
     }
