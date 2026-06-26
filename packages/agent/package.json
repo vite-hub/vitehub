@@ -81,6 +81,10 @@
       "types": "./dist/messages.d.ts",
       "import": "./dist/messages.js"
     },
+    "./output": {
+      "types": "./dist/output.d.ts",
+      "import": "./dist/output.js"
+    },
     "./runtime/empty-registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
       "import": "./dist/runtime/empty-registry.js"

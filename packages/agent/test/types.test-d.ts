@@ -6,7 +6,8 @@ import { defineChannel, github, http, stream, teams, telegram, webChat, type Git
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
-import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentUsageRecord } from "../src/index.ts"
+import { streamAgentOutputToEvents, toAgentRunResult } from "../src/output.ts"
+import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentUsageRecord, StreamEvent } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import { file, github as githubSource } from "@vite-hub/workspace"
 import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatPlatformResolver, AgentChatRunContext, FetchCapabilityToolOptions, PullRequestContextValue, RepositoryHostClient, TranscriptionResult, UsageTelemetryOutputExtension, UsageTelemetrySummaryOptions } from "../src/capabilities.ts"
@@ -340,6 +341,10 @@ describe("agent public types", () => {
             expectTypeOf(renderContext.output.extensions.get<{ summary: string }>("output-extension")).toEqualTypeOf<{ summary: string } | undefined>()
             expectTypeOf(renderContext.output.extensions.get<string>("output-extension", "summary")).toEqualTypeOf<string | undefined>()
             expectTypeOf(renderContext.output.extensions.get<UsageTelemetryOutputExtension>("usage-telemetry")).toEqualTypeOf<UsageTelemetryOutputExtension | undefined>()
+            return result
+          })
+          context.output.final((result, renderContext) => {
+            expectTypeOf(renderContext.output.extensions.get<{ summary: string }>("output-extension")).toEqualTypeOf<{ summary: string } | undefined>()
             return result
           })
         },
@@ -1058,5 +1063,10 @@ describe("agent public types", () => {
       // @ts-expect-error eval definitions do not expose test runner waitUntil plumbing
       waitUntil: () => {},
     })
+  })
+
+  it("exposes output helpers from the output entry", () => {
+    expectTypeOf(toAgentRunResult("ok").text).toEqualTypeOf<string | undefined>()
+    expectTypeOf(streamAgentOutputToEvents("ok")).toEqualTypeOf<AsyncIterable<StreamEvent>>()
   })
 })

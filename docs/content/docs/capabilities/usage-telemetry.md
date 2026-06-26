@@ -12,7 +12,7 @@ It normalizes usage fields, can estimate cost through a pricing function, and at
 
 ## Installation
 
-Import the Capability factory from `-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
+Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
 Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
 
 ## What it adds
@@ -20,6 +20,7 @@ Use the configuration example below as the starting point, then tighten modes, p
 The Capability wraps compatible streams and output results.
 It emits `usage` stream events when a finish chunk contains usage, attaches `usage` and `usageRecord` to final results, and calls an optional `onUsage` callback.
 Later output renderers can read `context.output.extensions.get('usage-telemetry')` for `{ usageRecord, summary }`.
+Use `context.output.final()` when a renderer needs the completed final text from either a model result or a stream before finish hooks and delivery effects run.
 
 ## Configuration
 
@@ -47,6 +48,37 @@ It reads usage from result objects or finish stream chunks, normalizes token and
 
 Pricing functions enrich telemetry only.
 Pricing errors do not fail the Agent Invocation.
+
+Final output shaping can stay Capability-owned:
+
+```ts [server/agents/review.ts]
+import { defineAgent, defineCapability } from '@vite-hub/agent'
+import { usageTelemetry } from '@vite-hub/agent/capabilities'
+
+export default defineAgent({
+  capabilities: [
+    usageTelemetry({ summary: { subject: 'Review run' } }),
+    defineCapability({
+      id: 'review-output',
+      output(context) {
+        context.output.final((result, renderContext) => {
+          const usage = renderContext.output.extensions.get<{ summary?: string }>('usage-telemetry')
+          const text = typeof result === 'object' && result && 'text' in result
+            ? String(result.text || '')
+            : String(result || '')
+
+          return {
+            raw: result,
+            text: [text, usage?.summary].filter(Boolean).join('\n\n'),
+          }
+        })
+      },
+    }),
+  ],
+})
+```
+
+For lower-level stream handling, import `streamAgentOutputToEvents()`, `toAgentRunResult()`, and `toAgentStreamEvent()` from `@vite-hub/agent/output`.
 
 ## Requirements
 

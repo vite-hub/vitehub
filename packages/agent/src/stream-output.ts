@@ -87,7 +87,11 @@ export function createAgentUIMessageStreamResponse(options: {
   })
 }
 
-export function withReadableStreamCleanup<T>(stream: ReadableStream<T>, cleanup: (error?: unknown) => Promise<void>): ReadableStream<T> {
+export function withReadableStreamCleanup<T>(
+  stream: ReadableStream<T>,
+  cleanup: (error?: unknown) => Promise<void>,
+  options: { onChunk?: (chunk: T) => void } = {},
+): ReadableStream<T> {
   const reader = stream.getReader()
   let cleaned = false
   const runCleanup = async (error?: unknown) => {
@@ -104,6 +108,7 @@ export function withReadableStreamCleanup<T>(stream: ReadableStream<T>, cleanup:
           controller.close()
           return
         }
+        options.onChunk?.(result.value)
         controller.enqueue(result.value)
       }
       catch (error) {
@@ -129,6 +134,15 @@ function streamEventType(event: unknown): string | undefined {
   return typeof event === "object" && event !== null && typeof (event as { type?: unknown }).type === "string"
     ? (event as { type: string }).type
     : undefined
+}
+
+function uiMessageTextDelta(event: unknown): string | undefined {
+  const type = streamEventType(event)
+  if (type !== "text" && type !== "text-delta") return
+  const text = (event as { delta?: unknown, text?: unknown, textDelta?: unknown }).text
+    ?? (event as { delta?: unknown, textDelta?: unknown }).textDelta
+    ?? (event as { delta?: unknown }).delta
+  return typeof text === "string" ? text : undefined
 }
 
 function uiDataType(data: unknown): `data-${string}` {
@@ -191,7 +205,7 @@ async function writeEventsToUiMessageStream(writer: AgentUIMessageStreamWriter, 
 export async function finalizeUiMessageStreamOutput(
   rendered: unknown,
   shouldWrapOutput: boolean,
-  finish: (error?: unknown) => MaybePromise<void>,
+  finish: (error?: unknown, streamedText?: string) => MaybePromise<void>,
 ): Promise<FinalizedStreamOutput<unknown>> {
   const hasUiMessageStream = isUIMessageStreamResult(rendered)
   const hasAsyncIterable = isAsyncIterable(rendered)
@@ -215,11 +229,16 @@ export async function finalizeUiMessageStreamOutput(
           writer.write({ type: "finish", finishReason: "stop" })
         },
       })
+  let streamedText = ""
   return {
     deferFinish: shouldWrapOutput,
     finishResult: rendered,
     value: shouldWrapOutput
-      ? withReadableStreamCleanup(stream, error => Promise.resolve(finish(error)))
+      ? withReadableStreamCleanup(stream, error => Promise.resolve(finish(error, streamedText)), {
+          onChunk(chunk) {
+            streamedText += uiMessageTextDelta(chunk) || ""
+          },
+        })
       : stream,
   }
 }

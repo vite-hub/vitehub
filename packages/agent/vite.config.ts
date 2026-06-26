@@ -25,6 +25,7 @@ export default defineConfig({
       "src/messages.ts",
       "src/mcp.ts",
       "src/mcp/stdio.ts",
+      "src/output.ts",
       "src/cloudflare.ts",
       "src/cli.ts",
       "src/eval.ts",

@@ -609,6 +609,17 @@ describe("agent Vite plugin", () => {
       import: "./dist/server/routes.js",
     })
   })
+
+  it("publishes the Agent output helper subpath", async () => {
+    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
+      exports?: Record<string, unknown>
+    }
+
+    expect(pkg.exports?.["./output"]).toEqual({
+      types: "./dist/output.d.ts",
+      import: "./dist/output.js",
+    })
+  })
 })
 
 describe("server helpers", () => {
