@@ -27,8 +27,9 @@ export default defineEval({
 })
 ```
 
-`test(t)` runs one Agent Invocation.
-It must call `t.send(...)` exactly once; pass `messages`, `context`, or trigger input to model a specific conversation state, and use separate scenarios for independent follow-up cases.
+`test(t)` runs Agent Invocations.
+Call `t.send(...)` with the first user message, then call it again for follow-ups that should keep the same Chat History.
+Pass `messages`, `context`, or trigger input to model a specific starting state, and use separate scenarios for independent cases.
 
 Use `scenarios` when one eval file should run several cases or share scorers across cases.
 

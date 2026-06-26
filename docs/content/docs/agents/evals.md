@@ -29,8 +29,9 @@ export default defineEval({
 })
 ```
 
-`test(t)` is a single Agent Invocation helper.
-Call `t.send(...)` exactly once; use `messages` or `context` in that input when the Agent needs prior chat state, and split independent follow-up checks into separate scenarios.
+`test(t)` is an Agent Invocation helper.
+Call `t.send(...)` with the first user message, then call it again for follow-ups that should keep the same Chat History.
+Use `messages` or `context` in the input when the eval needs a precise starting state, and split independent checks into separate scenarios.
 
 Use `scenarios` when one eval file should run several cases or reuse the same scorers.
 
