@@ -185,6 +185,13 @@ describe("agent message protocol", () => {
   it("lets observability opt out of default usage telemetry", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const finish = vi.fn()
+    const usageRecord = {
+      usage: {
+        inputTokens: 4,
+        outputTokens: 6,
+        totalTokens: 10,
+      },
+    }
     const agent = defineAgent({
       capabilities: [observability({ usageTelemetry: false })],
       hooks: {
@@ -192,10 +199,7 @@ describe("agent message protocol", () => {
       },
       run: () => ({
         text: "ok",
-        totalUsage: {
-          inputTokens: 4,
-          outputTokens: 6,
-        },
+        usageRecord,
       }),
     })
 
@@ -205,7 +209,7 @@ describe("agent message protocol", () => {
       waitUntil: vi.fn(),
     }, { prompt: "hello" })
 
-    expect((result as { usageRecord?: unknown }).usageRecord).toBeUndefined()
+    expect((result as { usageRecord?: unknown }).usageRecord).toBe(usageRecord)
     const extensions = finish.mock.calls[0]![0].extensions
     expect(extensions.get("usage-telemetry")).toBeUndefined()
     expect(extensions.get("observability", "usage")).toBeUndefined()

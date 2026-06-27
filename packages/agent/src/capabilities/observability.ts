@@ -94,8 +94,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function usageRecordFromFinishEvent(event: AgentFinishEvent): AgentUsageRecord | undefined {
   const usageExtension = event.extensions.get<AgentUsageRecord>("usage-telemetry")
-  if (isRecord(usageExtension?.usage)) return usageExtension
-  if (isRecord(event.result) && isRecord(event.result.usageRecord)) return event.result.usageRecord as AgentUsageRecord
+  return isRecord(usageExtension?.usage) ? usageExtension : undefined
 }
 
 function capabilityEventBase<TRuntimeConfig extends AgentRuntimeConfig>(
