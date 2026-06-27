@@ -2,7 +2,7 @@ import { buildFeatureViteContext } from '@vite-hub/internal/feature-bridge'
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
 import { createNoExternalMerger, isServerEnvironment } from '@vite-hub/internal/build/vite'
 import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
-import { normalize, resolve } from 'pathe'
+import { normalize, relative, resolve } from 'pathe'
 
 import { createFeatureVitePlugin } from './internal/shared/vite'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
@@ -64,6 +64,15 @@ function readAliasEntries(alias: unknown): Alias[] {
 function mergeAliases(alias: unknown, aliases: AliasMap): AliasOptions | undefined {
   const entries = [...toSandboxAliasEntries(aliases), ...readAliasEntries(alias)]
   return entries.length ? entries : undefined
+}
+
+function resolveStringAliases(alias: unknown): AliasMap {
+  const aliases: AliasMap = {}
+  for (const entry of readAliasEntries(alias)) {
+    if (typeof entry.find === 'string' && typeof entry.replacement === 'string')
+      aliases[entry.find] = entry.replacement
+  }
+  return aliases
 }
 
 function withoutSandboxPackageAlias(aliases: AliasMap): AliasMap {
@@ -157,6 +166,12 @@ async function prepareSandboxRuntimeAliases(
     { aliasPath: facadeFile },
     context.deps,
     context.hosting,
+    {
+      bundleAlias: resolveStringAliases(resolved?.resolve.alias ?? readResolveOptions(rawConfig).alias),
+      rootDir,
+      scanRoots: [rootDir],
+      serverImports: { presets: [] },
+    },
   )
   const aliases = createGeneratedAliasMap(rootDir, plan)
   const emitted = await writeSandboxArtifacts(rootDir, plan)
@@ -179,13 +194,34 @@ function isSandboxSourceFile(file: string) {
   return /\.(?:c|m)?[jt]s$/i.test(file) && !/\.d\.(?:c|m)?[jt]s$/i.test(file)
 }
 
-function isSandboxDefinitionUpdate(file: string, definitions: DiscoveredSandboxDefinition[]) {
+function isLocalSourceFile(file: string, rootDir: string | undefined) {
+  if (!rootDir)
+    return false
+
+  const path = normalize(relative(rootDir, file))
+  return path !== ''
+    && !path.startsWith('../')
+    && !path.startsWith('/')
+    && !path.startsWith('node_modules/')
+    && !path.startsWith('.vitehub/')
+}
+
+function isSandboxDefinitionUpdate(
+  file: string,
+  definitions: DiscoveredSandboxDefinition[],
+  generatedFiles: string[],
+  rootDir: string | undefined,
+) {
   const changedFile = normalize(file)
   if (definitions.some(definition => normalize(definition.handler) === changedFile))
     return true
+  if (generatedFiles.some(file => normalize(file) === changedFile))
+    return false
   if (!isSandboxSourceFile(changedFile))
     return false
-  return /\.sandbox\.(?:c|m)?[jt]s$/i.test(changedFile) || /(?:^|\/)(?:src\/)?server\/sandboxes\//.test(changedFile)
+  return /\.sandbox\.(?:c|m)?[jt]s$/i.test(changedFile)
+    || /(?:^|\/)(?:src\/)?server\/sandboxes\//.test(changedFile)
+    || isLocalSourceFile(changedFile, rootDir)
 }
 
 function invalidateGeneratedSandboxModules(files: string[], moduleGraph: { getModuleById: (id: string) => unknown, invalidateModule: (module: never) => void }) {
@@ -252,7 +288,7 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       await refreshSandboxRuntime()
     },
     async handleHotUpdate(context) {
-      if (!isSandboxDefinitionUpdate(context.file, definitions))
+      if (!isSandboxDefinitionUpdate(context.file, definitions, generatedFiles, resolvedConfig?.root))
         return
 
       const previousFiles = [...generatedFiles, ...Object.values(generatedAliases)]

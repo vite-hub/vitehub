@@ -113,6 +113,35 @@ describe("hubSandbox", () => {
     expect(code).toContain('"provider": "vercel"')
   })
 
+  it("bundles generated definitions with auto-imports and Vite aliases", async () => {
+    const rootDir = await createViteRoot()
+    await mkdir(join(rootDir, "src/lib"), { recursive: true })
+    await writeFile(join(rootDir, "src/lib/message.ts"), `export const message = "from alias"\n`)
+    await writeFile(join(rootDir, "src/tools/release-notes.sandbox.ts"), [
+      `import { message } from "@/lib/message"`,
+      ``,
+      `export default defineSandbox(async () => ({ message }))`,
+      ``,
+    ].join("\n"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+
+    await configHook({
+      root: rootDir,
+      resolve: {
+        alias: {
+          "@": join(rootDir, "src"),
+        },
+      },
+    }, {
+      command: "serve",
+      mode: "development",
+    })
+
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs"), "utf8")).resolves.toContain("from alias")
+  })
+
   it("lets Vite config override direct integration options", async () => {
     const rootDir = await createViteRoot()
     const { hubSandbox } = await import("../src/vite.ts")
@@ -304,5 +333,65 @@ describe("hubSandbox", () => {
 
     expect(invalidated).toEqual(expect.arrayContaining([sandboxAlias, registryAlias, definitionArtifact]))
     await expect(readFile(definitionArtifact, "utf8")).resolves.toContain("updated")
+  })
+
+  it("refreshes generated artifacts when imported local modules change", async () => {
+    const rootDir = await createViteRoot()
+    const helper = join(rootDir, "src/tools/message.ts")
+    const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
+    await writeFile(helper, `export const message = "initial"\n`)
+    await writeFile(definition, [
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      `import { message } from "./message"`,
+      ``,
+      `export default defineSandbox(async () => ({ message }))`,
+      ``,
+    ].join("\n"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({
+      root: rootDir,
+    }, {
+      command: "serve",
+      mode: "development",
+    })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const configEnvironment = plugin.configEnvironment as (name: string, environment: { consumer: "client" | "server" }) => unknown
+    const sandboxAlias = readAlias((configEnvironment("ssr", { consumer: "server" }) as { resolve: { alias: AliasOptions } }).resolve.alias, "@vite-hub/sandbox")!
+    const registryAlias = join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs")
+    const definitionArtifact = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs")
+    const invalidated: string[] = []
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: {
+        moduleGraph: {
+          getModuleById: (id: string) => { id: string } | undefined
+          invalidateModule: (module: { id: string }) => void
+        }
+      }
+    }) => Promise<void>
+
+    await expect(readFile(definitionArtifact, "utf8")).resolves.toContain("initial")
+    await writeFile(helper, `export const message = "updated helper"\n`)
+    await handleHotUpdate({
+      file: helper,
+      server: {
+        moduleGraph: {
+          getModuleById(id) {
+            if ([sandboxAlias, registryAlias, definitionArtifact].includes(id))
+              return { id }
+          },
+          invalidateModule(module) {
+            invalidated.push(module.id)
+          },
+        },
+      },
+    })
+
+    expect(invalidated).toEqual(expect.arrayContaining([sandboxAlias, registryAlias, definitionArtifact]))
+    await expect(readFile(definitionArtifact, "utf8")).resolves.toContain("updated helper")
   })
 })

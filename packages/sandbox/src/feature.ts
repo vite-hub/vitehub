@@ -86,6 +86,10 @@ type SandboxDefinitionMetadata = {
   options?: SandboxDefinitionOptions
 }
 
+type SandboxDefinitionCompilerOptions = Partial<DiscoveredDefinitionCompilerOptions> & {
+  bundleAlias?: Record<string, string>
+}
+
 function normalizeSandboxDefinitionOptions(name: string, options: SandboxDefinitionOptions | undefined) {
   if (!options)
     return undefined
@@ -183,10 +187,15 @@ export async function createSandboxFeaturePlan(
   },
   deps: Record<string, string>,
   hosting?: string,
-  discoveredDefinitionOptions: Partial<DiscoveredDefinitionCompilerOptions> = {},
+  discoveredDefinitionOptions: SandboxDefinitionCompilerOptions = {},
 ): Promise<FeatureRuntimePlan> {
   const resolvedConfig = resolveSandboxFeatureConfig(sandboxConfig, hosting)
   const manifest = createSandboxManifest(paths.aliasPath, createSandboxTypeTemplateContents(definitions))
+  const {
+    bundleAlias,
+    featureImports = manifest.imports,
+    ...definitionCompilerOptions
+  } = discoveredDefinitionOptions
   const sandboxDefinitions = definitions.map(definition => ({
     ...definition,
     definitionArtifactKey: `sandbox-definition:${definition.name}`,
@@ -200,7 +209,10 @@ export async function createSandboxFeaturePlan(
     }
     definitionFileByName.set(definition.definitionFilename, definition.name)
   }
-  const definitionCompiler = await createDiscoveredDefinitionCompiler(discoveredDefinitionOptions)
+  const definitionCompiler = await createDiscoveredDefinitionCompiler({
+    ...definitionCompilerOptions,
+    featureImports,
+  })
   const definitionMetadata = await loadSandboxDefinitionMetadata(definitions)
   const metadataByName = new Map(definitionMetadata.map(definition => [definition.name, definition] as const))
   const sandboxArtifacts: GeneratedArtifact[] = sandboxDefinitions.map(definition => ({
@@ -208,7 +220,9 @@ export async function createSandboxFeaturePlan(
     filename: definition.definitionFilename,
     async getContents() {
       const source = await definitionCompiler.readSource(definition._meta.sourcePath)
-      const bundle = await bundleSandboxDefinition(source, definition._meta.sourcePath)
+      const bundle = await bundleSandboxDefinition(source, definition._meta.sourcePath, {
+        alias: bundleAlias,
+      })
       const metadata = metadataByName.get(definition.name)
       return `export default ${JSON.stringify({
         bundle,

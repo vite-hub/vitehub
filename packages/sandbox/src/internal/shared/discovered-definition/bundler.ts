@@ -3,6 +3,7 @@ import { dirname, relative, resolve as resolvePath } from 'pathe'
 import { build, type Loader, type Plugin } from 'esbuild'
 
 export interface DiscoveredDefinitionBundleOptions {
+  alias?: Record<string, string>
   filename: string
   source: string
   external?: string[]
@@ -40,6 +41,7 @@ function isJsxDefinitionLoader(options: DiscoveredDefinitionBundleOptions) {
 
 export async function bundleDiscoveredDefinitionModule(options: DiscoveredDefinitionBundleOptions) {
   const result = await build({
+    alias: options.alias,
     stdin: {
       contents: options.source,
       loader: resolveDefinitionLoader(options),
@@ -71,6 +73,7 @@ export async function bundleDiscoveredDefinitionModuleGraph(
 ): Promise<DiscoveredDefinitionModuleGraph> {
   const outdir = resolvePath(dirname(options.filename), '.vitehub-discovered-definition')
   const result = await build({
+    alias: options.alias,
     stdin: {
       contents: options.source,
       loader: resolveDefinitionLoader(options),
