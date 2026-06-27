@@ -142,6 +142,59 @@ describe("instruction composition", () => {
     })).toBe("fast\nAcme")
   })
 
+  it("renders workspace scalar bindings", async () => {
+    expect(await composeInstructionDocument([
+      "Use {{ workspace.tone }} tone.",
+      "Priority {{ workspace.priority }}.",
+    ].join("\n"), {
+      workspace: {
+        priority: 2,
+        tone: "short",
+      },
+    })).toBe("Use short tone.\nPriority 2.")
+  })
+
+  it("throws when instruction bindings are missing", async () => {
+    await expect(composeInstructionDocument("Hello {{ context.doesNotExist }}."))
+      .rejects.toThrow("Instruction binding \"{{ context.doesNotExist }}\" is not defined")
+    await expect(composeInstructionDocument("{{ context.customerName }}", { context: { customerName: null } }))
+      .rejects.toThrow("Instruction binding \"{{ context.customerName }}\" is not defined")
+    await expect(composeInstructionDocument("{{ workspace.tone }}"))
+      .rejects.toThrow("Instruction binding \"{{ workspace.tone }}\" is not defined")
+    await expect(composeInstructionDocument("{{ workspace.tone }}", { workspace: { tone: null } }))
+      .rejects.toThrow("Instruction binding \"{{ workspace.tone }}\" is not defined")
+    await expect(composeInstructionDocument("{{{ context.policy }}}"))
+      .rejects.toThrow("Instruction markdown binding \"{{{ context.policy }}}\" is not defined")
+    await expect(composeInstructionDocument("{{{ context.policy }}}", { context: { policy: null } }))
+      .rejects.toThrow("Instruction markdown binding \"{{{ context.policy }}}\" is not defined")
+  })
+
+  it("imports workspace markdown bindings through composition", async () => {
+    expect(await composeInstructionDocument([
+      "# Support",
+      "@workspace.policy",
+    ].join("\n"), {
+      context: {
+        customerName: "Acme",
+        technical: true,
+      },
+      workspace: {
+        policy: [
+          "## Policy",
+          "::if{context.technical}",
+          "Use technical detail for {{ context.customerName }}.",
+          "::else",
+          "Use support detail.",
+          "::",
+        ].join("\n"),
+      },
+    })).toBe([
+      "# Support",
+      "## Policy",
+      "Use technical detail for Acme.",
+    ].join("\n\n"))
+  })
+
   it("does not render bindings or directives inside code spans and fences", async () => {
     expect(await composeInstructionDocument([
       "Hello {{ context.name }}.",
@@ -208,5 +261,7 @@ describe("instruction composition", () => {
       file: "/agent/instructions.md",
       read: importReader(new Map()),
     })).rejects.toThrow("cannot use globs")
+    await expect(composeInstructionDocument("@workspace.policy"))
+      .rejects.toThrow("workspace import \"@workspace.policy\" is not defined")
   })
 })

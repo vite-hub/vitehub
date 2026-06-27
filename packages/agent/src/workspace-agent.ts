@@ -68,6 +68,7 @@ const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", 
 const sourceRequestCommands = ["curl"]
 const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
 const workspaceDefinitionKeys = new Set([
+  "bindings",
   "hooks",
   "loaders",
   "plugins",
@@ -661,8 +662,40 @@ export async function resolveColocatedAgentInstructionDocument(content: string, 
   return await resolveInstructionDocumentImports(content, path.join(sourceRootDir, colocatedAgentInstructionsPath))
 }
 
-async function composeInstructions(content: string, context?: AgentInvocationContextStore): Promise<string> {
-  return await composeInstructionDocument(content, { context: context?.toJSON() })
+async function composeInstructions(
+  content: string,
+  context?: AgentInvocationContextStore,
+  workspace?: Record<string, unknown>,
+): Promise<string> {
+  return await composeInstructionDocument(content, { context: context?.toJSON(), workspace })
+}
+
+export async function resolveWorkspaceInstructionBindings(
+  definition: WorkspaceDefinition | undefined,
+  workspace: ReadonlyWorkspaceFacade | undefined,
+): Promise<Record<string, unknown> | undefined> {
+  const bindings = definition?.bindings
+  if (!bindings) return
+  const resolved: Record<string, unknown> = {}
+  for (const [key, binding] of Object.entries(bindings)) {
+    if (key === "sources") {
+      throw new Error("[vitehub] Workspace instruction binding \"sources\" is reserved for Source Instructions.")
+    }
+    if (!/^[A-Za-z_$][\w$-]*(?:\.[A-Za-z_$][\w$-]*)*$/.test(key)) {
+      throw new TypeError(`[vitehub] Workspace instruction binding "${key}" must be addressable as workspace.${key}.`)
+    }
+    if (binding === null || typeof binding === "string" || typeof binding === "number" || typeof binding === "boolean") {
+      resolved[key] = binding
+      continue
+    }
+    if (binding && typeof binding === "object" && typeof binding.path === "string") {
+      if (!workspace) throw new Error(`[vitehub] Workspace instruction binding "${key}" requires Workspace access.`)
+      resolved[key] = await workspace.fs.readFile(binding.path as never)
+      continue
+    }
+    throw new TypeError(`[vitehub] Workspace instruction binding "${key}" must be a scalar value or { path }.`)
+  }
+  return Object.keys(resolved).length ? resolved : undefined
 }
 
 function cleanInstructions(content: string): string {
@@ -1006,7 +1039,8 @@ async function resolveWorkspaceMetadataInstructions<
     [applyPassiveCapabilityInstructionSlots(baseInstructions.join("\n\n"), capabilityBlocks)],
     await resolveWorkspaceSourceInstructionBlock(sourceDefinition, workspace),
   )
-  const composed = await composeInstructions(renderedInstructions.join("\n\n"), compositionContext)
+  const workspaceBindings = await resolveWorkspaceInstructionBindings(sourceDefinition, workspace)
+  const composed = await composeInstructions(renderedInstructions.join("\n\n"), compositionContext, workspaceBindings)
   return composed ? [composed] : []
 }
 

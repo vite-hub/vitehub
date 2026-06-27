@@ -1,6 +1,7 @@
 import type { WorkspaceDefinitionInput } from "./types.ts"
 
 const workspaceDefinitionKeys = new Set([
+  "bindings",
   "hooks",
   "loaders",
   "plugins",

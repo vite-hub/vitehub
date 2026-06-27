@@ -15,6 +15,7 @@ export interface ResolveInstructionImportsOptions {
 
 export interface ComposeInstructionDocumentOptions {
   context?: Record<string, unknown>
+  workspace?: Record<string, unknown>
 }
 
 type ConditionOperator = "!" | "!=" | "!==" | "&&" | "(" | ")" | "==" | "===" | "||"
@@ -28,11 +29,13 @@ type ComarkComment = [null, ComarkElementAttributes, string]
 type ComarkNode = ComarkComment | ComarkElement | string
 interface ComposeInstructionState {
   context: Record<string, unknown>
+  workspace: Record<string, unknown>
   tripleBindings: string[]
 }
 
 const defaultImportDepth = 4
 const contextPathPattern = /context(?:\.[A-Za-z_$][\w$-]*)+/
+const compositionPathPattern = /^(?:context|workspace)(?:\.[A-Za-z_$][\w$-]*)+$/
 const tripleBindingPattern = /\{\{\{\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}\}/g
 const tripleBindingPlaceholderPattern = /%%VITEHUB_TRIPLE_BINDING_(\d+)%%/g
 const scalarBindingPattern = /\{\{(?!\{)\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}/g
@@ -54,12 +57,14 @@ export async function resolveInstructionImports(content: string, options: Resolv
 }
 
 export async function composeInstructionDocument(content: string, options: ComposeInstructionDocumentOptions = {}): Promise<string> {
-  const context = options.context || {}
+  const state = { context: options.context || {}, workspace: options.workspace || {} }
   const shorthand = normalizeConditionShorthand(content)
   validateConditionalDirectives(shorthand)
-  const normalized = await normalizeTripleBindings(shorthand)
+  const imported = await expandWorkspaceInstructionImports(shorthand, state.workspace)
+  validateConditionalDirectives(imported)
+  const normalized = await normalizeTripleBindings(imported)
   const tree = await parseInstructionMarkdown(normalized.content, true)
-  const nodes = await composeNodes(tree.nodes, { context, tripleBindings: normalized.tripleBindings })
+  const nodes = await composeNodes(tree.nodes, { ...state, tripleBindings: normalized.tripleBindings })
   return cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: comarkComponents }))
 }
 
@@ -136,6 +141,93 @@ async function replaceImportsInText(
     index = match.index + token.length
   }
   return rendered + text.slice(index)
+}
+
+async function expandWorkspaceInstructionImports(
+  content: string,
+  workspace: Record<string, unknown>,
+  depth = 0,
+  seen: Set<string> = new Set(),
+): Promise<string> {
+  const tree = await parseInstructionMarkdown(content)
+  const nodes = await expandWorkspaceImportNodes(tree.nodes, workspace, depth, seen)
+  const rendered = cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: comarkComponents }))
+  return content.endsWith("\n") ? `${rendered}\n` : rendered
+}
+
+async function expandWorkspaceImportNodes(
+  nodes: ComarkNode[],
+  workspace: Record<string, unknown>,
+  depth: number,
+  seen: Set<string>,
+): Promise<ComarkNode[]> {
+  const expanded: ComarkNode[] = []
+  for (const node of nodes) {
+    expanded.push(...await expandWorkspaceImportNode(node, workspace, depth, seen))
+  }
+  return expanded
+}
+
+async function expandWorkspaceImportNode(
+  node: ComarkNode,
+  workspace: Record<string, unknown>,
+  depth: number,
+  seen: Set<string>,
+): Promise<ComarkNode[]> {
+  if (typeof node === "string") {
+    return [await replaceWorkspaceImportsInText(node, workspace, depth, seen)]
+  }
+  if (!isElement(node)) return [node]
+
+  const [tag, attrs, ...children] = node
+  if (tag === "code") return [node]
+  return [[tag, attrs, ...(await expandWorkspaceImportNodes(children, workspace, depth, seen))] as ComarkElement]
+}
+
+async function replaceWorkspaceImportsInText(
+  text: string,
+  workspace: Record<string, unknown>,
+  depth: number,
+  seen: Set<string>,
+): Promise<string> {
+  let rendered = ""
+  let index = 0
+  for (const match of text.matchAll(/@workspace(?:\.[A-Za-z_$][\w$-]*)+/g)) {
+    rendered += text.slice(index, match.index)
+    const token = match[0]
+    rendered += await workspaceImportReplacement(token, workspace, depth, seen)
+    index = match.index + token.length
+  }
+  return rendered + text.slice(index)
+}
+
+async function workspaceImportReplacement(
+  token: string,
+  workspace: Record<string, unknown>,
+  depth: number,
+  seen: Set<string>,
+): Promise<string> {
+  if (depth >= defaultImportDepth) {
+    throw new Error(`[vitehub] Instruction workspace import depth exceeded ${defaultImportDepth}.`)
+  }
+  const path = token.slice(1)
+  const value = namespacePathValue(workspace, path)
+  if (value === null || value === undefined) {
+    throw new Error(`[vitehub] Instruction workspace import "${token}" is not defined.`)
+  }
+  if (typeof value !== "string") {
+    throw new TypeError(`[vitehub] Instruction workspace import "${token}" must resolve to a string.`)
+  }
+  if (seen.has(path)) {
+    throw new Error(`[vitehub] Circular instruction workspace import: ${token}.`)
+  }
+  seen.add(path)
+  try {
+    return await expandWorkspaceInstructionImports(normalizeConditionShorthand(value), workspace, depth + 1, seen)
+  }
+  finally {
+    seen.delete(path)
+  }
 }
 
 async function importReplacement(
@@ -231,7 +323,7 @@ async function composeNode(
   if (tag === "else" || tag === "else-if") {
     throw new Error(`[vitehub] Instruction ${tag} block must follow an if block.`)
   }
-  if (tag === "binding") return [renderBinding(attrs, state.context)]
+  if (tag === "binding") return [renderBinding(attrs, state)]
   if (tag === "vitehubTriple" || tag === "vitehub-triple") {
     return await renderTripleBinding(attrs, state.context, parent)
   }
@@ -256,11 +348,17 @@ async function composeTextNode(
   return nodes.filter(node => node !== "")
 }
 
-function renderBinding(attrs: Record<string, unknown>, context: Record<string, unknown>): ComarkNode {
+function renderBinding(
+  attrs: Record<string, unknown>,
+  scopes: { context: Record<string, unknown>, workspace: Record<string, unknown> },
+): ComarkNode {
   const path = attrs[":value"]
-  if (typeof path !== "string" || !path.startsWith("context.")) return ["binding", attrs]
-  const value = contextPathValue(context, path)
-  if (value === null || value === undefined) return ""
+  if (typeof path !== "string" || !compositionPathPattern.test(path)) return ["binding", attrs]
+  if (path === "workspace.sources" && namespacePathValue(scopes.workspace, path) === undefined) return ["binding", attrs]
+  const value = namespacePathValue(path.startsWith("workspace.") ? scopes.workspace : scopes.context, path)
+  if (value === null || value === undefined) {
+    throw new Error(`[vitehub] Instruction binding "{{ ${path} }}" is not defined.`)
+  }
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value)
   throw new TypeError(`[vitehub] Instruction binding "{{ ${path} }}" must resolve to a scalar value.`)
 }
@@ -280,8 +378,10 @@ async function renderTripleBindingPath(
   context: Record<string, unknown>,
   parent?: string,
 ): Promise<ComarkNode[]> {
-  const value = contextPathValue(context, path)
-  if (value === null || value === undefined) return []
+  const value = namespacePathValue(context, path)
+  if (value === null || value === undefined) {
+    throw new Error(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" is not defined.`)
+  }
   if (typeof value !== "string") {
     throw new TypeError(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" must resolve to a string.`)
   }
@@ -535,7 +635,7 @@ function createConditionParser(tokens: ConditionToken[], expression: string, con
     const token = take()
     if (!token) throw error()
     if (token.type === "literal") return token.value
-    if (token.type === "path") return contextPathValue(context, token.path)
+    if (token.type === "path") return namespacePathValue(context, token.path)
     if (token.type === "op" && token.value === "(") {
       const value = parseOr()
       take(")")
@@ -592,7 +692,7 @@ function createConditionParser(tokens: ConditionToken[], expression: string, con
   }
 }
 
-function contextPathValue(context: Record<string, unknown>, path: string): unknown {
+function namespacePathValue(context: Record<string, unknown>, path: string): unknown {
   const segments = path.split(".").slice(1)
   for (let count = segments.length; count > 0; count -= 1) {
     const key = segments.slice(0, count).join(".")
@@ -615,7 +715,7 @@ function nestedPathValue(value: unknown, segments: string[]): unknown {
 function renderStaticContextBindings(content: string, context: Record<string, unknown>): string {
   return content
     .replace(tripleBindingPattern, (_match, path: string) => {
-      const value = contextPathValue(context, path)
+      const value = namespacePathValue(context, path)
       if (value === null || value === undefined) return ""
       if (typeof value !== "string") {
         throw new TypeError(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" must resolve to a string.`)
@@ -623,7 +723,7 @@ function renderStaticContextBindings(content: string, context: Record<string, un
       return value
     })
     .replace(scalarBindingPattern, (_match, path: string) => {
-      const value = contextPathValue(context, path)
+      const value = namespacePathValue(context, path)
       if (value === null || value === undefined) return ""
       if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value)
       throw new TypeError(`[vitehub] Instruction binding "{{ ${path} }}" must resolve to a scalar value.`)

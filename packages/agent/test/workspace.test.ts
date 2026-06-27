@@ -1478,6 +1478,43 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toBe("")
   })
 
+  it("resolves explicit workspace instruction bindings through workspace files", async () => {
+    readFile.mockImplementation(async (path: string) => {
+      if (path === "policy.md") return "Workspace policy."
+      if (path === "unused.md") return "Do not load this."
+      throw new Error(`Unexpected read: ${path}`)
+    })
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {
+        bindings: {
+          policy: { path: "policy.md" },
+          tone: "brief",
+        },
+        sources: {
+          unused: { path: "unused.md" },
+        },
+      },
+      instructions: [
+        "Use {{ workspace.tone }} tone.",
+        "Inline {{ workspace.policy }}",
+        "@workspace.policy",
+      ],
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(readFile).toHaveBeenCalledWith("policy.md")
+    expect(readFile).not.toHaveBeenCalledWith("unused.md")
+    expect(agentSettings.at(-1)?.instructions).toBe([
+      "Use brief tone.",
+      "Inline Workspace policy.",
+      "Workspace policy.",
+    ].join("\n\n"))
+  })
+
   it("rebinds synthetic workspace runs when applying discovered defaults", async () => {
     const { defineAgent } = await import("../src/index.ts")
 
