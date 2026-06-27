@@ -282,7 +282,6 @@ export type {
   AgentToolResolver,
   AgentToolStep,
   AgentWaitUntil,
-  CloudflareExportedHandlerFetchHandler,
   DiscoveredAgentDefinition,
   MaybePromise,
   MaybeResolvable,

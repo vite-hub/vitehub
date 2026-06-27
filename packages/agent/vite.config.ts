@@ -37,7 +37,6 @@ export default defineConfig({
       "src/server.ts",
       "src/server/routes.ts",
       "src/test.ts",
-      "src/vercel.ts",
       "src/vite.ts",
     ],
     exports: {

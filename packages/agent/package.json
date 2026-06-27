@@ -109,10 +109,6 @@
       "types": "./dist/test.d.ts",
       "import": "./dist/test.js"
     },
-    "./vercel": {
-      "types": "./dist/vercel.d.ts",
-      "import": "./dist/vercel.js"
-    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js"
@@ -158,7 +154,6 @@
     "@ai-sdk/harness-codex": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@ai-sdk/sandbox-vercel": "catalog:ai",
-    "agents": "catalog:ai",
     "ai": "catalog:ai-compat",
     "evalite": "catalog:ai",
     "vite": "catalog:vite-compat"
@@ -174,9 +169,6 @@
       "optional": true
     },
     "@ai-sdk/sandbox-vercel": {
-      "optional": true
-    },
-    "agents": {
       "optional": true
     },
     "ai": {

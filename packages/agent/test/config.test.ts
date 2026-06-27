@@ -87,8 +87,8 @@ describe("agent config", () => {
     })
     try {
       const server = await import("../src/server/routes.ts")
-      expect(server.defineAgentChatFetchHandler).toBeTypeOf("function")
-      expect(server.defineAgentChatWebhookFetchHandler).toBeTypeOf("function")
+      expect(server.createChannelChatRouteHandler).toBeTypeOf("function")
+      expect(server.createChannelWebhookRouteHandler).toBeTypeOf("function")
     }
     finally {
       vi.doUnmock("@vite-hub/workspace")
@@ -126,8 +126,8 @@ describe("agent config", () => {
     try {
       const { defineAgent } = await import("../src/index.ts")
       const { chat } = await import("../src/capabilities.ts")
-      const { defineAgentChatFetchHandler } = await import("../src/server/routes.ts")
-      const handler = defineAgentChatFetchHandler(defineAgent({
+      const { createChannelChatRouteHandler } = await import("../src/server/routes.ts")
+      const handler = createChannelChatRouteHandler(defineAgent({
         capabilities: [chat()],
         run({ messages }) {
           const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined

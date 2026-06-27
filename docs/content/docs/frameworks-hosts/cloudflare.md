@@ -65,16 +65,7 @@ pnpm build
 find dist -maxdepth 4 -type f | sort
 ```
 
-Agent-only Vite apps are different in 0.0.2. `VITEHUB_HOSTING=cloudflare pnpm build` writes generated Agent route source under `.vitehub/agent`, but it does not emit a Worker bundle or `wrangler.json`. For a Cloudflare Worker entry, use the public Agent Package handler.
-
-```ts [worker.ts]
-import { defineCloudflareAgentHandler } from '@vite-hub/agent/cloudflare'
-import echo from './server/agents/echo/config'
-
-export default {
-  fetch: defineCloudflareAgentHandler(echo),
-}
-```
+Agent routes should come from generated Provider Output. Raw Cloudflare Worker fetch handlers are not a public Agent API.
 
 ## Production notes
 
@@ -85,7 +76,7 @@ Use Provider Output Contracts and Local Provider Runs for pull request checks, t
 Cloudflare Provider Output can require real Worker bindings such as D1, R2, KV, Queues, Durable Objects, Cloudflare Artifacts, or Agent state. Verify generated bindings before deploy, then smoke test the deployed Worker when runtime bindings matter.
 ::
 
-Agent Definitions can run on Cloudflare through the Agent Package's Cloudflare handler, or through generated host output where the Agent integration owns that route. Keep model keys, Durable Object state bindings, and other Runtime Env in Worker bindings.
+Agent Definitions run on Cloudflare through generated host output where the Agent integration owns the route. Keep model keys, Durable Object state bindings, and other Runtime Env in Worker bindings.
 
 ## Next steps
 

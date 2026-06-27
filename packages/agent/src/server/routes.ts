@@ -73,29 +73,29 @@ interface AgentRouteRuntimeOptions {
   waitUntil?: AgentWaitUntil
 }
 
-export interface AgentChatWebhookFetchOptions extends AgentRouteRuntimeOptions {
+export interface AgentChannelWebhookRouteOptions extends AgentRouteRuntimeOptions {
   agentName?: string
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
 }
 
-export interface AgentChatFetchOptions extends AgentRouteRuntimeOptions {
+export interface AgentChannelChatRouteRequestOptions extends AgentRouteRuntimeOptions {
   agentName?: string
 }
 
-export interface AgentChatFetchMapInputContext {
+export interface AgentChannelChatRouteMapInputContext {
   agentName: string
   body: AgentChatFetchBody
   input: AgentChatMessageTriggerInput
   request: Request
 }
 
-type AgentChatFetchInputPatch = Omit<Partial<AgentChatMessageTriggerInput>, "run"> & {
+type AgentChannelChatRouteInputPatch = Omit<Partial<AgentChatMessageTriggerInput>, "run"> & {
   run?: Partial<AgentRunMetadata>
 }
 
-export interface AgentChatFetchHandlerOptions {
+export interface AgentChannelChatRouteHandlerOptions {
   channelId?: string
-  mapInput?: (context: AgentChatFetchMapInputContext) => MaybePromise<AgentChatFetchInputPatch | undefined | void>
+  mapInput?: (context: AgentChannelChatRouteMapInputContext) => MaybePromise<AgentChannelChatRouteInputPatch | undefined | void>
   origin?: string
 }
 
@@ -682,7 +682,7 @@ async function resolveChatState(
   options: AgentChatOptions | undefined,
   context: ViteAgentRouteRuntimeContext,
   registration: AgentWebhookRegistrationDefinition,
-  handlerOptions: AgentChatWebhookFetchOptions,
+  handlerOptions: AgentChannelWebhookRouteOptions,
 ): Promise<StateAdapter> {
   const agentName = handlerOptions.agentName || "agent"
   const origin = chatRegistrationOrigin(registration)
@@ -1078,7 +1078,7 @@ async function createChatWebhookHandler(
   adapterName: string,
   adapter: Adapter,
   options: AgentChatOptions | undefined,
-  handlerOptions: AgentChatWebhookFetchOptions,
+  handlerOptions: AgentChannelWebhookRouteOptions,
 ): Promise<(request: Request, webhookOptions: WebhookOptions) => Promise<Response>> {
   const chat = new Chat(createChatSdkConfig({
     [adapterName]: adapter,
@@ -1143,7 +1143,7 @@ interface AgentChatDevtoolsSession {
   uiMessages: UIMessage[]
 }
 
-interface AgentChatDevtoolsFetchState {
+interface AgentChannelDevtoolsRouteState {
   metadata: ChatDevtoolsMetadata
   metadataError?: string
   metadataSelectionKey?: string
@@ -1152,14 +1152,14 @@ interface AgentChatDevtoolsFetchState {
   session: AgentChatDevtoolsSession
 }
 
-export interface AgentChatDevtoolsFetchHandlerOptions extends AgentRouteRuntimeOptions {
+export interface AgentChannelDevtoolsRouteHandlerOptions extends AgentRouteRuntimeOptions {
   defaults?: WorkspaceAgentDefaults
   emptyAssistantText?: string
   meta?: Record<string, unknown>
   name?: string
 }
 
-export type AgentChatDevtoolsFetchRequestOptions = AgentRouteRuntimeOptions
+export type AgentChannelDevtoolsRouteRequestOptions = AgentRouteRuntimeOptions
 
 function normalizeChatDevtoolsAction(action: string): AgentChatDevtoolsAction | undefined {
   if (action === "get-state" || action === chatDevtoolsGetStateRpc) return "get-state"
@@ -1172,7 +1172,7 @@ function optionalRecord(value: unknown): Record<string, unknown> | undefined {
   return isRecord(value) && !Array.isArray(value) ? { ...value } : undefined
 }
 
-function agentChatDevtoolsName(agent: AgentInput<ViteAgentRouteRuntimeContext>, options: AgentChatDevtoolsFetchHandlerOptions): string {
+function agentChannelDevtoolsName(agent: AgentInput<ViteAgentRouteRuntimeContext>, options: AgentChannelDevtoolsRouteHandlerOptions): string {
   const candidate = options.name || (isRecord(agent) && typeof agent.name === "string" ? agent.name : undefined)
   return candidate?.trim() || "agent"
 }
@@ -1291,8 +1291,8 @@ function metadataErrorMessage(cause: unknown): string {
 
 async function startAgentDevtoolsMetadataResolution(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
-  state: AgentChatDevtoolsFetchState,
-  options: AgentChatDevtoolsFetchHandlerOptions,
+  state: AgentChannelDevtoolsRouteState,
+  options: AgentChannelDevtoolsRouteHandlerOptions,
   runtime: ViteAgentRouteRuntimeContext,
   selection: AgentChatDevtoolsInvokerSelection = {},
   resolution: { force?: boolean } = {},
@@ -1309,7 +1309,7 @@ async function startAgentDevtoolsMetadataResolution(
   const selectionKey = metadataSelectionKey(metadataSelection)
   if (!resolution.force && state.metadataSelectionKey === selectionKey) return
 
-  const name = agentChatDevtoolsName(agent, options)
+  const name = agentChannelDevtoolsName(agent, options)
   state.metadata = createStaticAgentDevtoolsMetadata(agent, name)
   state.metadataError = undefined
   state.metadataSelectionKey = selectionKey
@@ -1369,7 +1369,7 @@ function sessionTitle(session: AgentChatDevtoolsSession): string | undefined {
 
 function serializeAgentChatDevtoolsState(
   name: string,
-  state: AgentChatDevtoolsFetchState,
+  state: AgentChannelDevtoolsRouteState,
   requestedSelection: AgentChatDevtoolsInvokerSelection = {},
 ): ChatDevtoolsStateResult {
   const title = sessionTitle(state.session) || state.metadata.name
@@ -1426,7 +1426,7 @@ function createHttpChatRunMetadata(
   agentName: string,
   body: AgentChatFetchBody,
   messages: UIMessage[],
-  options: Pick<AgentChatFetchHandlerOptions, "channelId" | "origin"> = {},
+  options: Pick<AgentChannelChatRouteHandlerOptions, "channelId" | "origin"> = {},
 ): AgentRunMetadata {
   const chatId = optionalBodyString(body.id, "id") || "default"
   const messageId = optionalBodyString(body.messageId, "messageId") || messages.at(-1)?.id || randomToken()
@@ -1472,7 +1472,7 @@ function agentChatFetchInput(
   body: AgentChatFetchBody,
   agentName: string,
   allowTrustedInput = false,
-  options: Pick<AgentChatFetchHandlerOptions, "channelId" | "origin"> = {},
+  options: Pick<AgentChannelChatRouteHandlerOptions, "channelId" | "origin"> = {},
 ): AgentChatMessageTriggerInput {
   if (!Array.isArray(body.messages)) {
     throw createRouteBodyError("Agent chat payload requires a messages array.")
@@ -1490,7 +1490,7 @@ function agentChatFetchInput(
   }
 }
 
-function agentChannelRouteOptions(channelId: string, channel: AgentChannelDefinition): AgentChatFetchHandlerOptions | undefined {
+function agentChannelRouteOptions(channelId: string, channel: AgentChannelDefinition): AgentChannelChatRouteHandlerOptions | undefined {
   if (channel.route === undefined || channel.route === false) return undefined
   if (channel.route === true) {
     return {
@@ -1503,24 +1503,24 @@ function agentChannelRouteOptions(channelId: string, channel: AgentChannelDefini
       channelId,
       origin: channel.kind,
       ...channel.route,
-    } as AgentChatFetchHandlerOptions
+    } as AgentChannelChatRouteHandlerOptions
   }
   throw new TypeError(`[vitehub] Channel "${channelId}" route must be true or an agent chat route options object.`)
 }
 
-function resolveAgentChatFetchHandlerOptions(
+function resolveAgentChannelChatRouteHandlerOptions(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
-  options: AgentChatFetchHandlerOptions = {},
-): AgentChatFetchHandlerOptions {
+  options: AgentChannelChatRouteHandlerOptions = {},
+): AgentChannelChatRouteHandlerOptions {
   const channels = isRecord(agent) && isRecord(agent.channels) && !Array.isArray(agent.channels)
     ? agent.channels as Record<string, AgentChannelDefinition>
     : {}
   const routeEntries = Object.entries(channels)
     .map(([channelId, channel]) => [channelId, agentChannelRouteOptions(channelId, channel)] as const)
-    .filter((entry): entry is readonly [string, AgentChatFetchHandlerOptions] => entry[1] !== undefined)
+    .filter((entry): entry is readonly [string, AgentChannelChatRouteHandlerOptions] => entry[1] !== undefined)
 
   if (routeEntries.length > 1) {
-    throw new TypeError("[vitehub] defineAgentChatFetchHandler() found multiple route-enabled Channels. Keep one route-enabled Channel per generated chat route.")
+    throw new TypeError("[vitehub] createChannelChatRouteHandler() found multiple route-enabled Channels. Keep one route-enabled Channel per generated chat route.")
   }
 
   const channelOptions = routeEntries[0]?.[1]
@@ -1533,7 +1533,7 @@ function resolveAgentChatFetchHandlerOptions(
 
 function mergeAgentChatFetchInput(
   input: AgentChatMessageTriggerInput,
-  patch: AgentChatFetchInputPatch | undefined | void,
+  patch: AgentChannelChatRouteInputPatch | undefined | void,
 ): AgentChatMessageTriggerInput {
   if (patch === undefined) return input
   if (!isRecord(patch)) throw createRouteBodyError("Agent chat route input mapper must return an object.")
@@ -1666,8 +1666,8 @@ function withChatDevtoolsCors(response: Response): Response {
 
 async function materializeDevtoolsSource(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
-  state: AgentChatDevtoolsFetchState,
-  options: AgentChatDevtoolsFetchHandlerOptions,
+  state: AgentChannelDevtoolsRouteState,
+  options: AgentChannelDevtoolsRouteHandlerOptions,
   runtime: ViteAgentRouteRuntimeContext,
   input: AgentChatDevtoolsBridgeBody,
 ): Promise<Response | ChatDevtoolsStateResult> {
@@ -1693,7 +1693,7 @@ async function materializeDevtoolsSource(
       runtime,
       sources: materializedSourceKeys(state.metadata),
     } as never)
-    state.metadata = metadataWithAgentName(metadata, agentChatDevtoolsName(agent, options))
+    state.metadata = metadataWithAgentName(metadata, agentChannelDevtoolsName(agent, options))
     state.metadataSelectionKey = metadataSelectionKey(metadataSelection)
     state.metadataStatus = "ready"
     state.metadataTask = undefined
@@ -1703,15 +1703,15 @@ async function materializeDevtoolsSource(
     state.metadataStatus = "error"
   }
 
-  return serializeAgentChatDevtoolsState(agentChatDevtoolsName(agent, options), state, requestedSelection)
+  return serializeAgentChatDevtoolsState(agentChannelDevtoolsName(agent, options), state, requestedSelection)
 }
 
 async function sendDevtoolsUIMessage(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   request: Request,
-  state: AgentChatDevtoolsFetchState,
-  options: AgentChatDevtoolsFetchHandlerOptions,
-  requestOptions: AgentChatDevtoolsFetchRequestOptions,
+  state: AgentChannelDevtoolsRouteState,
+  options: AgentChannelDevtoolsRouteHandlerOptions,
+  requestOptions: AgentChannelDevtoolsRouteRequestOptions,
   input: AgentChatDevtoolsBridgeBody,
   onChange?: (next: ChatDevtoolsStateResult) => void | Promise<void>,
 ): Promise<Response | ChatDevtoolsStateResult> {
@@ -1742,7 +1742,7 @@ async function sendDevtoolsUIMessage(
       : requestedProfileId || state.metadata.invokerProfiles?.[0]?.id
   }
 
-  const name = agentChatDevtoolsName(agent, options)
+  const name = agentChannelDevtoolsName(agent, options)
   const userMessage = createUserUIMessage(text)
   const baseMessages = [...createChatDevtoolsPromptHistory(state.session.uiMessages), userMessage]
   const run = createDevtoolsRunMetadata(name, userMessage.id)
@@ -1819,12 +1819,12 @@ async function sendDevtoolsUIMessage(
   return serializeAgentChatDevtoolsState(name, state, requestedSelection)
 }
 
-async function handleAgentChatDevtoolsFetchRequest(
+async function handleAgentChannelDevtoolsRouteRequest(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   request: Request,
-  state: AgentChatDevtoolsFetchState,
-  options: AgentChatDevtoolsFetchHandlerOptions,
-  requestOptions: AgentChatDevtoolsFetchRequestOptions = {},
+  state: AgentChannelDevtoolsRouteState,
+  options: AgentChannelDevtoolsRouteHandlerOptions,
+  requestOptions: AgentChannelDevtoolsRouteRequestOptions = {},
 ): Promise<Response> {
   if (request.method === "OPTIONS") {
     return withChatDevtoolsCors(new Response(null, { status: 204 }))
@@ -1850,7 +1850,7 @@ async function handleAgentChatDevtoolsFetchRequest(
 
     const action = normalizeChatDevtoolsAction(body.action)
     if (action === "get-state") {
-      return withChatDevtoolsCors(Response.json(serializeAgentChatDevtoolsState(agentChatDevtoolsName(agent, options), state, invokerSelection)))
+      return withChatDevtoolsCors(Response.json(serializeAgentChatDevtoolsState(agentChannelDevtoolsName(agent, options), state, invokerSelection)))
     }
     if (action === "send") {
       if (!body.stream) {
@@ -1876,7 +1876,7 @@ async function handleAgentChatDevtoolsFetchRequest(
       state.session.invokerProfileId = state.session.invokerFallback ? undefined : requestedSelection.invokerProfileId
       state.session.title = undefined
       state.session.uiMessages = []
-      return withChatDevtoolsCors(Response.json(serializeAgentChatDevtoolsState(agentChatDevtoolsName(agent, options), state, requestedSelection)))
+      return withChatDevtoolsCors(Response.json(serializeAgentChatDevtoolsState(agentChannelDevtoolsName(agent, options), state, requestedSelection)))
     }
     if (action === "materialize-source") {
       const result = await runWithRuntimeCloudflareEnv(runtime, async () => await materializeDevtoolsSource(agent, state, options, runtime, body))
@@ -1890,17 +1890,17 @@ async function handleAgentChatDevtoolsFetchRequest(
   }
 }
 
-export function defineAgentChatDevtoolsFetchHandler(
+export function createChannelDevtoolsRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
-  options: AgentChatDevtoolsFetchHandlerOptions = {},
-): (request: Request, options?: AgentChatDevtoolsFetchRequestOptions) => Promise<Response> {
-  const name = agentChatDevtoolsName(agent, options)
-  const state: AgentChatDevtoolsFetchState = {
+  options: AgentChannelDevtoolsRouteHandlerOptions = {},
+): (request: Request, options?: AgentChannelDevtoolsRouteRequestOptions) => Promise<Response> {
+  const name = agentChannelDevtoolsName(agent, options)
+  const state: AgentChannelDevtoolsRouteState = {
     metadata: createStaticAgentDevtoolsMetadata(agent, name),
     metadataStatus: chatDevtoolsMetadataStatus(agent),
     session: { uiMessages: [] },
   }
-  return async (request, requestOptions = {}) => await handleAgentChatDevtoolsFetchRequest(agent, request, state, options, requestOptions)
+  return async (request, requestOptions = {}) => await handleAgentChannelDevtoolsRouteRequest(agent, request, state, options, requestOptions)
 }
 
 async function toAgentChatFetchResponse(result: unknown): Promise<Response> {
@@ -1917,11 +1917,11 @@ function agentChatFetchErrorResponse(error: unknown): Response {
   return createJsonErrorResponse(500, error instanceof Error ? error.message : "Agent chat request failed.")
 }
 
-export function defineAgentChatFetchHandler(
+export function createChannelChatRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
-  options: AgentChatFetchHandlerOptions = {},
-): (request: Request, options?: AgentChatFetchOptions) => Promise<Response> {
-  const routeOptions = resolveAgentChatFetchHandlerOptions(agent, options)
+  options: AgentChannelChatRouteHandlerOptions = {},
+): (request: Request, options?: AgentChannelChatRouteRequestOptions) => Promise<Response> {
+  const routeOptions = resolveAgentChannelChatRouteHandlerOptions(agent, options)
   return async (request, handlerOptions = {}) => {
     if (request.method !== "POST") {
       return createJsonErrorResponse(405, "Agent chat route only accepts POST requests.")
@@ -1952,9 +1952,9 @@ export function defineAgentChatFetchHandler(
   }
 }
 
-export function defineAgentChatWebhookFetchHandler(
+export function createChannelWebhookRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
-): (request: Request, webhook?: string, options?: AgentChatWebhookFetchOptions) => Promise<Response> {
+): (request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions) => Promise<Response> {
   return async (request, webhook, handlerOptions = {}) => {
     if (request.method !== "POST") {
       return createJsonErrorResponse(405, "Agent webhook route only accepts POST requests.")

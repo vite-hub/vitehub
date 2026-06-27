@@ -21,7 +21,7 @@ import type {
   MaybeResolvable,
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
-import type { AgentChatFetchHandlerOptions } from "./server.ts"
+import type { AgentChannelChatRouteHandlerOptions } from "./server.ts"
 
 export type {
   AgentChannelDeliveryEffectContext,
@@ -50,7 +50,7 @@ export interface AgentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
 
 export interface AgentStreamChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentChannelOptions<TRuntimeConfig> {
-  route?: true | AgentChatFetchHandlerOptions
+  route?: true | AgentChannelChatRouteHandlerOptions
 }
 
 export interface AgentDeliveryArtifactPublishInput {
