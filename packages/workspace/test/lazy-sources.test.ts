@@ -94,6 +94,35 @@ describe("lazy sources", () => {
     ])
   })
 
+  it("materializes build sources when a path explicitly requests them", async () => {
+    const view = createWorkspaceSourceView({
+      name: "build-source-path",
+      sources: {
+        skills: custom({
+          materialize: "build",
+          mount: "skills",
+          async getKeys() {
+            return ["SKILL.md"]
+          },
+          async getItem(key) {
+            return { key, path: key, content: "# Skills\n", mediaType: "text/markdown" }
+          },
+        }),
+      },
+    }, createMemoryWorkspaceStore())
+
+    await expect(view.materializeSources()).resolves.toMatchObject({
+      files: 0,
+      sources: [],
+    })
+
+    await expect(view.materializeSources({ path: "skills" })).resolves.toMatchObject({
+      files: 1,
+      sources: [expect.objectContaining({ source: "skills", status: "ready" })],
+    })
+    await expect(view.readFile("skills/SKILL.md")).resolves.toBe("# Skills\n")
+  })
+
   it("defaults cached GitHub sources to lazy repo basename mounts", () => {
     const resolved = normalizeWorkspaceSources({
       forecastingEngine: githubSource({

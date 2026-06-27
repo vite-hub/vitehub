@@ -163,6 +163,7 @@ function copySourceRuntimeOptions(
     instructions: input.instructions as WorkspaceSourceInstructions | undefined ?? defaults.instructions,
     materialize: input.materialize as WorkspaceMaterializeMode | undefined ?? defaults.materialize,
     mount: input.mount as WorkspaceSourceMount | undefined ?? defaults.mount,
+    probeKeys: input.probeKeys as string[] | undefined ?? defaults.probeKeys,
     sync: input.sync as WorkspaceSourceSyncConfig | undefined ?? defaults.sync,
   }
 }
@@ -177,6 +178,7 @@ function applyWorkspaceSourceBinding(
     instructions: hasOwn(input, "instructions") ? input.instructions as WorkspaceSourceInstructions | undefined : descriptor.instructions,
     materialize: hasOwn(input, "materialize") ? input.materialize as WorkspaceMaterializeMode | undefined : descriptor.materialize,
     mount: hasOwn(input, "mount") ? input.mount as WorkspaceSourceMount | undefined : descriptor.mount,
+    probeKeys: hasOwn(input, "probeKeys") ? input.probeKeys as string[] | undefined : descriptor.probeKeys,
     sync: hasOwn(input, "sync") ? input.sync as WorkspaceSourceSyncConfig | undefined : descriptor.sync,
   }
 }
