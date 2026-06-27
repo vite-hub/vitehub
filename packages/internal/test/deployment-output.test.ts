@@ -109,6 +109,33 @@ describe("provider deployment outputs", () => {
     })
   })
 
+  it("does not copy client output for config-only Cloudflare output", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await writeFile(join(rootDir, "dist", "index.html"), "<!doctype html>\n")
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist",
+      cloudflare: {
+        wranglerConfig: {
+          kv_namespaces: [{ binding: "SETTINGS", id: "namespace-id" }],
+        },
+        wranglerConfigKeys: ["kv_namespaces"],
+      },
+      rootDir,
+    })
+
+    expect(existsSync(join(rootDir, "dist", "client"))).toBe(false)
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      kv_namespaces: [{ binding: "SETTINGS", id: "namespace-id" }],
+    })
+  })
+
   it("preserves sibling Vercel functions and config keys", async () => {
     const rootDir = await createTempProject()
     const {

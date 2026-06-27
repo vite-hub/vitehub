@@ -195,7 +195,7 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
 
   const writes = [
     writeMergedJsonObject(resolve(outputRoot, "wrangler.json"), options.wranglerConfig, options.wranglerConfigKeys),
-    staticIndex
+    options.bundleEntry && staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? createDefaultCloudflareStaticOutputDir(options.rootDir))
       : Promise.resolve(),
   ]
