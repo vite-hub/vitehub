@@ -1059,6 +1059,52 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("keeps harness UI message streams readable after session cleanup wrapping", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessStream.mockResolvedValueOnce({
+      fullStream: new ReadableStream<unknown>({
+        start(controller) {
+          controller.enqueue({ messageId: "msg-1", type: "start" })
+          controller.enqueue({ id: "msg-1", type: "text-start" })
+          controller.enqueue({ delta: "ok", id: "msg-1", type: "text-delta" })
+          controller.enqueue({ id: "msg-1", type: "text-end" })
+          controller.enqueue({ finishReason: "stop", type: "finish" })
+          controller.close()
+        },
+      }),
+      toUIMessageStream(this: { fullStream: ReadableStream<unknown> }) {
+        return this.fullStream.pipeThrough(new TransformStream<unknown, unknown>({
+          transform(chunk, controller) {
+            controller.enqueue(chunk)
+          },
+        }))
+      },
+    })
+
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+    })
+
+    const stream = await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      { prompt: "hello" },
+      { output: "ui-message-stream" },
+    ) as ReadableStream<unknown>
+    const chunks: unknown[] = []
+    for await (const chunk of stream) {
+      chunks.push(chunk)
+    }
+
+    expect(chunks).toContainEqual({ delta: "ok", id: "msg-1", type: "text-delta" })
+    expect(session.destroy).toHaveBeenCalledOnce()
+  })
+
   it("passes model-facing Capability tools into harness Agent Drivers", async () => {
     const { defineCapability } = await import("../src/capability-runtime.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")
