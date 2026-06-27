@@ -1253,6 +1253,61 @@ describe("defineAgent workspace option", () => {
     ].join("\n\n"))
   })
 
+  it("composes colocated instruction documents from invocation context", async () => {
+    const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
+    tempRoots.push(sourceRootDir)
+    const document = [
+      "# Support",
+      "@./policy.md",
+      "",
+      "::if{context.audience === 'technical'}",
+      "Use technical detail for {{ context.customerName }}.",
+      "::else",
+      "Use support detail.",
+      "::",
+      "",
+      "{{{ context.supportPolicy }}}",
+      "",
+      "{{ workspace.sources }}",
+    ].join("\n")
+    await writeLocalFile(join(sourceRootDir, "instructions.md"), document)
+    await writeLocalFile(join(sourceRootDir, "policy.md"), "Imported policy.\n")
+    readFile.mockResolvedValueOnce(document)
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "support-context",
+          configure(context) {
+            context.context.set("audience", "technical")
+            context.context.set("customerName", "Acme")
+            context.context.set("supportPolicy", "## Runtime policy\nUse trusted runtime context.")
+            context.instructions.add("Capability note for {{ context.customerName }}.", { id: "support-note" })
+          },
+        }),
+      ],
+      workspace: {
+        sourceRootDir,
+        sources: {
+          docs: { instructions: "Use docs for {{ context.customerName }}.", name: "docs" } as never,
+        },
+      },
+      model: {} as never,
+    }), { workspace: "docs" })
+
+    await agent.run!(context())
+
+    expect(agentSettings.at(-1)?.instructions).toBe([
+      "# Support\nImported policy.",
+      "Use technical detail for Acme.",
+      "## Runtime policy\nUse trusted runtime context.",
+      "## Workspace Sources",
+      "### docs\n\nUse docs for Acme.",
+      "Capability note for Acme.",
+    ].join("\n\n"))
+  })
+
   it("reads materialized colocated instructions without host fs", async () => {
     const processWithBuiltins = globalThis.process as typeof process & {
       getBuiltinModule?: (name: string) => unknown

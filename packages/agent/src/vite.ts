@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
-import { dirname, join, relative } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 
 import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
@@ -16,6 +16,7 @@ import {
 } from "./cloudflare.ts"
 import { normalizeAgentOptions } from "./config.ts"
 import { discoverAgentDefinitions } from "./discovery.ts"
+import { resolveInstructionImports } from "./instruction-composition.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 
 import type { Plugin, ResolvedConfig } from "vite"
@@ -216,7 +217,17 @@ function resolveWorkspaceSourceRoot(file: string): string {
 
 function readColocatedAgentInstructions(handler: string): string | undefined {
   const file = join(dirname(handler), "instructions.md")
-  if (existsSync(file) && statSync(file).isFile()) return readFileSync(file, "utf8")
+  if (!existsSync(file) || !statSync(file).isFile()) return
+  return resolveInstructionImports(readFileSync(file, "utf8"), {
+    file,
+    read(specifier, importer) {
+      const imported = resolve(dirname(importer), specifier)
+      return {
+        content: readFileSync(imported, "utf8"),
+        file: imported,
+      }
+    },
+  })
 }
 
 function moduleImportSpecifier(fromFile: string, targetFile: string): string {

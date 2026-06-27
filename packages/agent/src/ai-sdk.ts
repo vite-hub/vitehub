@@ -9,6 +9,7 @@ import {
   applyCapabilityInstructionSlots,
   applyCapabilityToolTransforms,
 } from "./capability-runtime.ts"
+import { composeInstructionDocument } from "./instruction-composition.ts"
 import { applyWorkspaceSourceInstructionSlot } from "./workspace-agent.ts"
 import {
   applyAgentToolPolicies,
@@ -564,6 +565,10 @@ async function resolveInstructions(options: AiSdkAdapterOptions, context: AgentA
   return joinInstructions(...instructions)
 }
 
+function composeInstructions(instructions: string, context: AgentAdapterMetadataContext) {
+  return composeInstructionDocument(instructions, { context: context.context.toJSON() })
+}
+
 async function resolveTools(options: AiSdkAdapterOptions, context: AgentAdapterMetadataContext, reportToolStep?: AgentAdapterRunContext["devtools"] extends infer T ? T extends { reportToolStep?: infer R } ? R : never : never) {
   if (!options.tools) return undefined
   const resolved = await resolveValue(options.tools as never, context)
@@ -821,10 +826,10 @@ async function createAgent(
   const instrumentedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
-  const instructions = applyWorkspaceSourceInstructionSlot(
+  const instructions = composeInstructions(applyWorkspaceSourceInstructionSlot(
     applyCapabilityInstructionSlots(context.instructions ?? await resolveInstructions(options, metadataContext), context.capabilityInstructions),
     context.sourceInstructions,
-  )
+  ), metadataContext)
   const adapterTools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)
   const resolvedTools = withDefaultToolInputSchemas(withWorkspaceFallbackToolEvidence(await applyCapabilityToolTransforms({
     ...context.tools,
