@@ -17,7 +17,7 @@ Put shared Agent instructions beside the colocated Agent config:
 Answer from the docs workspace. Say when the answer is not present.
 ```
 
-ViteHub materializes `server/agents/<name>/instructions.md` into the Agent Workspace as `AGENTS.md`. Model-backed Agent Drivers use it as the default instructions when `driver.instructions` or legacy `instructions` are not configured. Harness-backed Agent Drivers receive the same file in their Workspace session.
+ViteHub materializes `server/agents/<name>/instructions.md` into the Agent Workspace as `AGENTS.md`. Model-backed Agent Drivers use it as the default instructions when `driver.instructions` or legacy `instructions` are not configured. Harness-backed Agent Drivers receive the rendered document in their Workspace session as `AGENTS.md`, plus `CLAUDE.md` for Claude Code-compatible harnesses.
 
 ## Declare Sources
 

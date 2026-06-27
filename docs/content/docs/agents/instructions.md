@@ -204,7 +204,7 @@ Only visible Sources render Source Instructions. When Access selects a Workspace
 
 ## Harness and run drivers
 
-Harness-backed drivers do not receive Model Driver Instructions by default. Use harness-specific configuration or Workspace instruction surfaces instead.
+Harness-backed drivers do not receive Model Driver Instructions by default. When a workspace-backed Agent has a colocated `instructions.md`, ViteHub renders that Instruction Document into the Harness Workspace Session as `AGENTS.md` and `CLAUDE.md`. Use harness-specific configuration for adapter behavior that is not expressible as workspace instructions.
 
 Custom `driver.run` code receives prepared runtime context and decides which values to read. It does not receive a composed model prompt unless your code builds one.
 

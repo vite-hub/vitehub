@@ -63,7 +63,7 @@ import type {
 const defaultWorkspaceName = "workspace"
 const colocatedAgentInstructionsPath = "instructions.md"
 const colocatedAgentInstructionsWorkspacePath = "AGENTS.md"
-const colocatedAgentInstructionsSourceKey = "__vitehubAgentInstructions"
+export const colocatedAgentInstructionsSourceKey = "__vitehubAgentInstructions"
 const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"]
 const sourceRequestCommands = ["curl"]
 const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
@@ -648,11 +648,18 @@ function resolveInstructionImportFromFile(specifier: string, importer: string): 
   }
 }
 
-async function resolveInstructionDocumentImports(content: string, file: string): Promise<string> {
+export async function resolveInstructionDocumentImports(content: string, file: string): Promise<string> {
   return await resolveInstructionImports(content, {
     file,
     read: resolveInstructionImportFromFile,
   })
+}
+
+export async function resolveColocatedAgentInstructionDocument(content: string, sourceRootDir: string | undefined): Promise<string> {
+  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
+  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  if (!fs || !path || !sourceRootDir || !hasColocatedAgentInstructions(sourceRootDir)) return content
+  return await resolveInstructionDocumentImports(content, path.join(sourceRootDir, colocatedAgentInstructionsPath))
 }
 
 async function composeInstructions(
@@ -970,7 +977,7 @@ async function readColocatedAgentInstructions<
   const sourceRootDir = workspaceDefinitionFromOptions(options).sourceRootDir
   if (!fs || !path || !hasColocatedAgentInstructions(sourceRootDir)) return undefined
   const file = path.join(sourceRootDir!, colocatedAgentInstructionsPath)
-  const content = (await resolveInstructionDocumentImports(fs.readFileSync(file, "utf8"), file)).trim()
+  const content = (await resolveColocatedAgentInstructionDocument(fs.readFileSync(file, "utf8"), sourceRootDir)).trim()
   if (content) return content
 }
 
@@ -995,7 +1002,7 @@ export async function resolveWorkspaceAgentDefaultInstructions<
   const path = getNodeBuiltin<typeof import("node:path")>("node:path")
   const sourceRootDir = definition.sourceRootDir
   if (fs && path && sourceRootDir && hasColocatedAgentInstructions(sourceRootDir)) {
-    return await resolveInstructionDocumentImports(content, path.join(sourceRootDir, colocatedAgentInstructionsPath))
+    return await resolveColocatedAgentInstructionDocument(content, sourceRootDir)
   }
   return content
 }
