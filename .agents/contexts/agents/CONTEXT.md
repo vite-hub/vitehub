@@ -20,6 +20,14 @@ _Avoid_: Adapter, runtime, top-level model selector, top-level harness selector,
 Model-facing instruction text or callbacks configured on a model-backed Agent Driver and composed before the model call.
 _Avoid_: Root Agent Definition instructions, harness instructions, workspace `AGENTS.md`
 
+**Instruction Document**:
+Markdown authored for an Agent and rendered through ViteHub Instruction Composition into model-facing instructions.
+_Avoid_: Prompt config, raw system prompt, model adapter prompt
+
+**Instruction Composition**:
+The ViteHub-owned render pass that expands local Markdown imports, evaluates safe `context.*` conditions, resolves `context.*` bindings, inserts Capability instruction slots, and inserts visible Source Instructions.
+_Avoid_: Prompt templating engine, arbitrary JavaScript, access policy
+
 **Agent Model Execution**:
 The model-backed Agent Driver boundary for `execution` settings such as model call settings, step limits, workspace fallback behavior, and model execution instrumentation.
 _Avoid_: Adapter options, provider options, passthrough
@@ -222,6 +230,10 @@ _Avoid_: Fake agent, dummy model, test bot
 - An **Agent Driver** may be model-backed, harness-backed, or custom-run-backed.
 - A model-backed **Agent Driver** uses the AI SDK model execution path when it uses a model.
 - A model-backed **Agent Driver** may configure **Model Driver Instructions**.
+- **Model Driver Instructions** may be authored as an **Instruction Document**.
+- **Instruction Composition** reads only explicit **Agent Invocation Context Values** through `context.*` paths.
+- **Instruction Composition** does not execute arbitrary JavaScript and does not grant **Capabilities**, **Workspace Scope**, Source visibility, or runtime access.
+- **Instruction Composition** can insert visible **Source Instructions** through the `{{ workspace.sources }}` slot while keeping `WorkspaceSource.instructions` as the low-level Source guidance field.
 - A model-backed **Agent Driver** uses `execution` for **Agent Model Execution** settings.
 - A harness-backed **Agent Driver** does not receive **Model Driver Instructions** as a system prompt by default.
 - Harness-backed instruction behavior should rely on explicit harness or Workspace instruction surfaces, such as workspace `AGENTS.md`, unless a future harness-specific option is introduced.

@@ -12,7 +12,7 @@ Use it when a product event needs an Agent Trigger but the behavior has not earn
 
 ## Installation
 
-Import the Capability factory from `-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
+Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
 Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
 
 ## What it adds

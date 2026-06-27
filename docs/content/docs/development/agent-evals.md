@@ -53,6 +53,12 @@ export default defineEval({
 
 ## Run the evals
 
+Install the CLI and Evalite peer in the app that owns the Agent Definitions. ViteHub contributes the `agent eval` command through `hubAgent()`, so the app also needs an ESM Vite config, such as `"type": "module"` in `package.json`.
+
+```bash [Terminal]
+pnpm add -D @vite-hub/cli evalite@1.0.0-beta.16
+```
+
 Run all discovered Agent Evals with no target.
 Pass a path when you want one Agent Eval Target.
 

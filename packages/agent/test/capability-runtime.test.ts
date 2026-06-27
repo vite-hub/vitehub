@@ -171,6 +171,27 @@ describe("agent capability runtime", () => {
     await expect(applyOutputRenderers({ text: "base" }, resolved.registries.outputRenderers)).resolves.toEqual({ text: "base:rendered" })
   })
 
+  it("rejects duplicate capability instruction composition keys", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "first",
+          resolve(context) {
+            context.instructions.add("First.", { id: "audience" })
+          },
+        }),
+        defineCapability({
+          id: "second",
+          resolve(context) {
+            context.instructions.add("Second.", { id: "audience" })
+          },
+        }),
+      ],
+    }, runtime(), {})).rejects.toThrow('Duplicate capability instruction block "capabilities.audience"')
+  })
+
   it("passes named invocation context values through capabilities and custom runs", async () => {
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
 
