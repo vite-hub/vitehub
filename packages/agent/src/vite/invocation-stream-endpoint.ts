@@ -384,7 +384,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
     let output: Awaited<ReturnType<typeof streamAgent>>
     const trigger = selectedTrigger(entry, body)
     if (trigger) {
-      const triggerContext = trigger.id === "chat.message" ? context : { ...context, request: undefined }
+      const triggerContext = { ...context, request: undefined }
       const invocation = await resolveAgentTriggerInvocation(entry.agent as never, triggerContext as never, trigger.id, triggerInput(trigger, body, signal, run, timeout))
       if (isResolvedAgentTriggerHandledInvocation(invocation)) {
         output = invocation.response

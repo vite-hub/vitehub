@@ -656,6 +656,52 @@ describe("agent chat capability discovery", () => {
     ])
   })
 
+  it("does not require Telegram webhook secrets for Agent Dev Loop chat invocations", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-telegram-dev-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "nuxt.ts"), "export default {}", "utf8")
+
+    const { telegram } = await import("../src/channels.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({
+          adapter: () => ({}) as never,
+          webhooks: { secretToken: "secret-token" },
+        }),
+      },
+      run: ({ messages }) => `nuxt ${getMessageText(messages[0]!)}`,
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "nuxt",
+      messages: [{
+        id: "user-1",
+        parts: [{ text: "difference between useFetch and lazy use fetch?", type: "text" }],
+        role: "user",
+      }],
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+    const events = response.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+
+    expect(events).toEqual([
+      expect.objectContaining({ agent: "nuxt", trigger: "chat.message", type: "start" }),
+      { text: "nuxt difference between useFetch and lazy use fetch?", type: "text-delta" },
+      { type: "finish" },
+      { type: "done" },
+    ])
+  })
+
   it("passes Agent Dev Loop context and prompt into explicit channel trigger invocations", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-channel-context-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
