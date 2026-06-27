@@ -346,12 +346,20 @@ type WorkspaceSourceNames<TWorkspace> =
   TWorkspace extends { sources: infer TSources }
     ? Extract<keyof NonNullable<TSources>, string>
     : string
-type WorkspaceSourceInputScopeNames<TSource> =
-  TSource extends { scopes?: readonly (infer TScope)[] }
-    ? Extract<TScope, string>
-    : TSource extends { source: infer TInnerSource }
-      ? WorkspaceSourceInputScopeNames<TInnerSource>
+type WorkspaceSourceScopeOptionNames<TSource> =
+  "scopes" extends keyof TSource
+    ? TSource extends { scopes?: infer TScopes }
+      ? NonNullable<TScopes> extends readonly (infer TScope)[]
+        ? string extends TScope ? never : Extract<TScope, string>
+        : never
       : never
+    : never
+type WorkspaceSourceInputScopeNames<TSource> =
+  TSource extends { source: infer TInnerSource }
+    ? "scopes" extends keyof TSource
+      ? WorkspaceSourceScopeOptionNames<TSource>
+      : WorkspaceSourceInputScopeNames<TInnerSource>
+    : WorkspaceSourceScopeOptionNames<TSource>
 type WorkspaceSourceScopeNames<TWorkspace> =
   TWorkspace extends { sources: infer TSources }
     ? { [Key in keyof NonNullable<TSources>]: WorkspaceSourceInputScopeNames<NonNullable<TSources>[Key]> }[keyof NonNullable<TSources>]

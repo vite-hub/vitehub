@@ -185,6 +185,26 @@ describe("Workspace Source Resolution", () => {
     })
   })
 
+  it("preserves source binding scopes when resolving sources", async () => {
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        ingestion: {
+          source: customerSource(),
+          scopes: ["support"],
+        },
+      },
+    }
+
+    const resolved = await resolveWorkspaceSources(definition, scope("support", ["ingestion/support"]))
+    const [ingestion] = normalizeWorkspaceSources(resolved.sources)
+
+    expect(ingestion).toMatchObject({
+      key: "ingestion",
+      scopes: ["support"],
+    })
+  })
+
   it("defaults resolved GitHub sources to lazy materialization", async () => {
     const definition: WorkspaceDefinition = {
       name: "support",

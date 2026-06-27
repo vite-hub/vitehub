@@ -1,6 +1,7 @@
 import { resolveRuntimeValue } from "@vite-hub/runtime"
 
 import { hasTrustedWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "./access-runtime.ts"
+import { getAccessCapabilityOptions } from "./capabilities/access-metadata.ts"
 import { createMessage } from "./messages.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import { normalizeAgentWorkspaceSource, workspaceSourceScopeNames } from "./workspace-source-metadata.ts"
@@ -596,6 +597,28 @@ function withInvocationReadableSources(sources: Record<string, WorkspaceSourceIn
   return Object.fromEntries(Object.entries(sources).map(([key, source]) => [key, withInvocationReadableSource(source)]))
 }
 
+function assertWorkspaceSourceScopesRequireAccess(
+  workspaceDefinition: WorkspaceDefinition | undefined,
+  capabilities: AgentCapabilityDefinition[],
+) {
+  const sourceScopes = workspaceSourceScopeNames(workspaceDefinition?.sources)
+  if (!sourceScopes.length) return
+  if (!capabilities.some(capabilityUsesWorkspaceAccess)) {
+    throw new Error("[vitehub] Workspace Source scopes require access({ workspace }).")
+  }
+  const accessScopeNames = new Set(getAccessCapabilityOptions<AgentRuntimeConfig>(capabilities).flatMap(options =>
+    options.workspace?.scopes ? Object.keys(options.workspace.scopes) : [],
+  ))
+  if (!accessScopeNames.size) {
+    throw new Error("[vitehub] Workspace Source scopes require access({ workspace }).scopes.")
+  }
+  for (const scope of sourceScopes) {
+    if (!accessScopeNames.has(scope)) {
+      throw new Error(`[vitehub] Workspace Source scope "${scope}" is not defined in access({ workspace }).scopes.`)
+    }
+  }
+}
+
 async function applyCapabilityWorkspaceContributions<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -696,9 +719,7 @@ export async function resolveAgentCapabilities<
   const driverKind = invocationOptions.driverKind || "model"
   ensureAgentInvokerContext(invocationContext, invoker)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
-  if (workspaceSourceScopeNames(invocationOptions.workspaceDefinition?.sources).length && !capabilities.some(capabilityUsesWorkspaceAccess)) {
-    throw new Error("[vitehub] Workspace Source scopes require access({ workspace }).")
-  }
+  assertWorkspaceSourceScopesRequireAccess(invocationOptions.workspaceDefinition, capabilities)
   validateAccessCapabilityOrder(capabilities)
   const harnessWorkspacePaths = driverKind === "harness"
     ? compactWorkspacePaths(capabilities.flatMap(capability => [
@@ -797,6 +818,7 @@ export async function resolveAgentCapabilities<
       ? invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
       : undefined
     if (sourceResolvedDefinition) currentWorkspaceDefinition = sourceResolvedDefinition
+    assertWorkspaceSourceScopesRequireAccess(currentWorkspaceDefinition, capabilities)
     const workspaceContribution = await applyCapabilityWorkspaceContributions(capabilities, {
       ...runtimeContext,
       actor: invoker,
@@ -814,6 +836,7 @@ export async function resolveAgentCapabilities<
       currentWorkspaceDefinition = workspaceContribution.definition
       registries.workspaceContributions = workspaceContribution.registries
     }
+    assertWorkspaceSourceScopesRequireAccess(currentWorkspaceDefinition, capabilities)
     for (const item of capabilityContexts) syncCapabilityWorkspaceContext(item.context)
   }
 

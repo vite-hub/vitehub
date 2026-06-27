@@ -936,6 +936,49 @@ describe("agent public types", () => {
       model: {} as never,
     })
 
+    // @ts-expect-error unscoped sources do not disable Workspace Source scope checks
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["missing"] as const }),
+          readme: file("README.md"),
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "customer",
+            scopes: {
+              customer: { source: "docs" },
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+    })
+
+    const dynamicScopes: string[] = ["dynamic"]
+    // @ts-expect-error broad source scopes do not disable literal Workspace Source scope checks
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["missing"] as const }),
+          dynamic: githubSource({ repo: "acme/dynamic", scopes: dynamicScopes }),
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "customer",
+            scopes: {
+              customer: { source: "docs" },
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+    })
+
     // @ts-expect-error Workspace Source scopes require access({ workspace })
     defineAgent({
       workspace: {

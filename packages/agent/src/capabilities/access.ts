@@ -405,9 +405,13 @@ function validateWorkspaceSourceScopeNames(
   options: { scopes?: Record<string, unknown> },
   workspaceDefinition: WorkspaceDefinition | undefined,
 ): void {
-  if (!options.scopes) return
+  const scopes = workspaceSourceScopeNames(workspaceDefinition?.sources)
+  if (!scopes.length) return
+  if (!options.scopes) {
+    throw new Error("[vitehub] Workspace Source scopes require access({ workspace }).scopes.")
+  }
   const allowed = new Set(Object.keys(options.scopes))
-  for (const scope of workspaceSourceScopeNames(workspaceDefinition?.sources)) {
+  for (const scope of scopes) {
     if (!allowed.has(scope)) {
       throw new Error(`[vitehub] Workspace Source scope "${scope}" is not defined in access({ workspace }).scopes.`)
     }

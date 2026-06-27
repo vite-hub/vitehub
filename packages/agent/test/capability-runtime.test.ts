@@ -299,6 +299,77 @@ describe("agent capability runtime", () => {
     ])
   })
 
+  it("requires Access when capability workspace contributions add scoped sources", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              pullRequest: {
+                mount: "pull-request",
+                scopes: ["review"],
+                async getKeys() {
+                  return ["summary.md"]
+                },
+                async getItem(key: string) {
+                  return { content: "review context", key }
+                },
+              },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })).rejects.toThrow("Workspace Source scopes require access({ workspace })")
+  })
+
+  it("requires contributed source scopes to be declared in Access", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "review",
+            scopes: {
+              review: { paths: ["pull-request"] },
+            },
+          },
+        }),
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              pullRequest: {
+                mount: "pull-request",
+                scopes: ["missing"],
+                async getKeys() {
+                  return ["summary.md"]
+                },
+                async getItem(key: string) {
+                  return { content: "review context", key }
+                },
+              },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })).rejects.toThrow('Workspace Source scope "missing"')
+  })
+
   it("rejects capability workspace source conflicts", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 

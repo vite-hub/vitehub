@@ -1143,6 +1143,31 @@ describe("access capability", () => {
     })).rejects.toThrow("Workspace Source scope \"missing\"")
   })
 
+  it("fails closed when Workspace Source scopes use inline Access definitions", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: {
+              scope: "support",
+              paths: ["customers/acme"],
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace(), "read", {
+      workspaceDefinition: {
+        name: "support",
+        sources: {
+          customerDocs: { mount: "customers/acme", scopes: ["support"] } as never,
+        },
+      },
+    })).rejects.toThrow("Workspace Source scopes require access({ workspace }).scopes")
+  })
+
   it("fails closed when Workspace Source scopes are configured without Access", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 
