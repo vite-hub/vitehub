@@ -1,3 +1,5 @@
+import { delimiter, join } from "node:path"
+
 import type { DBModulePublicOptions } from "./types.ts"
 import type { ResolvedDBViteConfig } from "./types.ts"
 
@@ -58,6 +60,14 @@ function toConfigPath(rootDir: string, file: string): string {
   return isAbsolute(file) ? relative(rootDir, file) || file : file
 }
 
+function withProjectBinPath(rootDir: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const pathKey = Object.keys(env).find(key => key.toLowerCase() === "path") || "PATH"
+  return {
+    ...env,
+    [pathKey]: [join(rootDir, "node_modules", ".bin"), env[pathKey]].filter(Boolean).join(delimiter),
+  }
+}
+
 async function runDrizzleKit(
   feature: "generate" | "migrate",
   args: string[],
@@ -85,7 +95,7 @@ async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: st
   ]
   const result = await context.spawn("drizzle-kit", drizzleArgs, {
     cwd: context.rootDir,
-    env: context.env,
+    env: withProjectBinPath(context.rootDir, context.env),
     stderr: "inherit",
     stdout: "inherit",
   })

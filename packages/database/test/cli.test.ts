@@ -1,11 +1,14 @@
+import { delimiter, join } from "node:path"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { createDbCliContributor } from "../src/cli.ts"
 
 import type { ResolvedDBViteConfig } from "../src/types.ts"
 
-function cliContext(spawn: ReturnType<typeof vi.fn>) {
+function cliContext(spawn: ReturnType<typeof vi.fn>, env?: NodeJS.ProcessEnv) {
   return {
+    env,
     rootDir: "/repo",
     spawn,
     stderr: { write: vi.fn() },
@@ -65,5 +68,24 @@ describe("DB CLI contributor", () => {
       "--config",
       ".vitehub/database/drizzle.config.ts",
     ], expect.objectContaining({ cwd: "/repo" }))
+  })
+
+  it("prepends the project bin directory for Drizzle Kit", async () => {
+    const spawn = vi.fn(async () => ({ exitCode: 0 }))
+    const contributor = createDbCliContributor()!
+    const generate = contributor.namespaces[0]!.features.find(feature => feature.name === "generate")!
+
+    await expect(generate.run([], cliContext(spawn, { PATH: "/usr/bin" }))).resolves.toBe(0)
+
+    expect(spawn).toHaveBeenCalledWith("drizzle-kit", [
+      "generate",
+      "--config",
+      ".vitehub/database/drizzle.config.ts",
+    ], expect.objectContaining({
+      cwd: "/repo",
+      env: expect.objectContaining({
+        PATH: [join("/repo", "node_modules", ".bin"), "/usr/bin"].join(delimiter),
+      }),
+    }))
   })
 })
