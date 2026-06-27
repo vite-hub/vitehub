@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs"
 import { cp, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
-import { join, resolve } from "node:path"
+import { basename, join, relative, resolve } from "node:path"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
@@ -15,6 +15,11 @@ const tempDirs: string[] = []
 function resolvePlaygroundNodeModules() {
   const nodeModules = join(playgroundDir, "node_modules")
   return existsSync(nodeModules) ? nodeModules : resolve(playgroundDir, "../../node_modules")
+}
+
+function createDefaultCloudflareOutputRoot(rootDir: string) {
+  const appName = basename(rootDir).replace(/[^a-z0-9-]+/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase()
+  return join(rootDir, "dist", appName)
 }
 
 async function createWorkspaceTempDir(prefix: string) {
@@ -113,10 +118,14 @@ describe("Vite provider outputs", () => {
 
   it("copies Vercel static output from Vite's default dist directory", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-default-dist-")
+    const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    const staleWranglerStaticPath = join(rootDir, ".vercel", "output", "static", relative(join(rootDir, "dist"), cloudflareOutputRoot), "wrangler.json")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
+    await mkdir(cloudflareOutputRoot, { recursive: true })
     await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
     await writeFile(join(rootDir, "dist", "index.html"), "<!doctype html><title>vitehub</title>\n", "utf8")
+    await writeFile(join(cloudflareOutputRoot, "wrangler.json"), "{}\n", "utf8")
 
     await generateProviderOutputs({
       clientOutDir: "dist",
@@ -125,6 +134,8 @@ describe("Vite provider outputs", () => {
     })
 
     expect(await readFile(join(rootDir, ".vercel", "output", "static", "index.html"), "utf8")).toContain("<title>vitehub</title>")
+    expect(existsSync(join(rootDir, ".vitehub", "queue", "cloudflare-worker.mjs"))).toBe(false)
+    expect(existsSync(staleWranglerStaticPath)).toBe(false)
     const vercelServerContents = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
     expect(vercelServerContents).toContain("globalThis.__vitehubVercelQueue =")
   })
@@ -163,7 +174,7 @@ describe("Vite provider outputs", () => {
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel"))).toBe(false)
   })
 
-  it("does not preload or emit Vercel queue functions for a non-Vercel queue provider", async () => {
+  it("does not preload or emit Vercel output for a non-Vercel queue provider", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-cloudflare-provider-")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
@@ -176,8 +187,7 @@ describe("Vite provider outputs", () => {
       rootDir,
     })
 
-    const vercelServerContents = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
-    expect(vercelServerContents).not.toContain("@vercel/queue")
+    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"))).toBe(false)
     expect(existsSync(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel"))).toBe(false)
   })
 

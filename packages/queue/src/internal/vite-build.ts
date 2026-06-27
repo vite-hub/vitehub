@@ -2,7 +2,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises"
 import { relative, resolve } from "node:path"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
-import { createDefaultVercelOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg, toGeneratedPath } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
@@ -47,6 +47,21 @@ function isVercelQueueEnabled(queueConfig: NormalizedQueueOptions) {
 function resolveOutputQueueConfig(queue: QueueModuleOptions | undefined, hosting: string): NormalizedQueueOptions {
   if (typeof queue === "undefined") return false
   return normalizeQueueOptions(queue, { hosting }) || false
+}
+
+function shouldWriteProviderEntry(spec: ProviderEntrySpec, queue: QueueModuleOptions | undefined) {
+  const queueConfig = resolveOutputQueueConfig(queue, spec.hosting)
+  return queueConfig === false ? spec.name === "vercel" : queueConfig.provider === spec.name
+}
+
+function shouldCreateCloudflareOutput(queue: QueueModuleOptions | undefined) {
+  const queueConfig = resolveOutputQueueConfig(queue, "cloudflare")
+  return queueConfig !== false && queueConfig.provider === "cloudflare"
+}
+
+function shouldCreateVercelOutput(queue: QueueModuleOptions | undefined) {
+  const queueConfig = resolveOutputQueueConfig(queue, "vercel")
+  return queueConfig === false || queueConfig.provider === "vercel"
 }
 
 interface GeneratedQueueArtifacts {
@@ -120,6 +135,9 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
 
   const entryFiles: Record<QueueProvider, string> = { cloudflare: "", vercel: "" }
   for (const spec of providerEntrySpecs) {
+    if (!shouldWriteProviderEntry(spec, queue)) {
+      continue
+    }
     const entryFile = resolve(generatedDir, spec.entryFile)
     const queueConfig = resolveOutputQueueConfig(queue, spec.hosting)
     const preloadVercelQueue = spec.name === "vercel" && definitions.length > 0 && isVercelQueueEnabled(queueConfig)
@@ -247,6 +265,14 @@ function createVercelOutput(artifacts: GeneratedQueueArtifacts): VercelProviderD
   }
 }
 
+async function cleanupCloudflareOutput(rootDir: string) {
+  const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
+  await Promise.all([
+    rm(resolve(outputRoot, "index.js"), { force: true, recursive: true }),
+    rm(resolve(outputRoot, "wrangler.json"), { force: true, recursive: true }),
+  ])
+}
+
 async function writeVercelQueueFunctions(rootDir: string, queue: QueueModuleOptions | undefined, artifacts: GeneratedQueueArtifacts) {
   const outputRoot = createDefaultVercelOutputRoot(rootDir)
   const queueRoot = resolve(outputRoot, "functions", "api", "vitehub", "queues", "vercel")
@@ -291,11 +317,16 @@ async function writeVercelQueueFunctions(rootDir: string, queue: QueueModuleOpti
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedQueueArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.queue)
+  const createCloudflare = shouldCreateCloudflareOutput(options.queue)
+  const createVercel = shouldCreateVercelOutput(options.queue)
+  if (!createCloudflare && createVercel) {
+    await cleanupCloudflareOutput(options.rootDir)
+  }
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
-    cloudflare: createCloudflareOutput(artifacts),
+    cloudflare: createCloudflare ? createCloudflareOutput(artifacts) : undefined,
     rootDir: options.rootDir,
-    vercel: createVercelOutput(artifacts),
+    vercel: createVercel ? createVercelOutput(artifacts) : undefined,
   })
   await writeVercelQueueFunctions(options.rootDir, options.queue, artifacts)
   return artifacts
