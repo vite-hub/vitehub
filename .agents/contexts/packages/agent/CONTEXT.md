@@ -60,6 +60,10 @@ _Avoid_: Chat adapter API, DevTools bridge API, client SDK
 The Agent Package implementation role that invokes a resolved Agent Trigger on behalf of a Channel, DevTools bridge, webhook, app route, or generated route.
 _Avoid_: Channel, chat handler, trigger definition, capability config
 
+**Agent Dev Loop Payload Loading**:
+The Agent Package CLI behavior that reads a JSON object from `vitehub agent dev --payload <path>` and passes it through the Agent Invocation Stream Endpoint as raw Agent Trigger input.
+_Avoid_: Agent Definition dev samples, CLI context merge, inline input flag, preset registry
+
 **Agent Error Normalization**:
 The Agent Package behavior that turns unknown Agent Invocation failures into a stable message for lifecycle observers while preserving the original thrown value.
 _Avoid_: Result framework, error wrapping policy, typed exception hierarchy
@@ -135,6 +139,8 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - The **Agent Package** owns **Agent Error Normalization** for Agent Invocation lifecycle events and public response boundaries.
 - An **Agent Trigger Consumer** uses the **Agent Trigger API** and does not create a parallel chat-specific behavior surface.
 - An **Agent Trigger Consumer** may pass a trusted Agent Actor through trigger input when it has already authenticated or resolved caller identity; trigger metadata should not become a parallel identity or command-admission boundary.
+- The Agent Invocation Stream Endpoint consumes **Agent Dev Loop Payload Loading** by passing payload files to the selected Agent Trigger before any Agent Invocation is streamed.
+- The Agent Package should not put development-only sample payloads on the public Agent Definition shape.
 - A **Channel** may be implemented by an **Agent Trigger Consumer**, but Channel is the framework term for Agent reachability.
 - Generated routes and DevTools use Channel identity when exposing delivery entry paths.
 - The Agent Invocation Stream Endpoint is a V1 development client surface that invokes plain discovered **Agent Definitions** directly and remains an **Agent Trigger Consumer** for message-shaped Channels.

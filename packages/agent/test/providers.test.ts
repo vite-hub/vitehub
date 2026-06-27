@@ -821,7 +821,6 @@ describe("server helpers", () => {
       }),
     })
     const handler = createChannelDevtoolsRouteHandler(agent as never, {
-      meta: { email: "user@example.com" },
       name: "support",
     })
 
@@ -829,6 +828,7 @@ describe("server helpers", () => {
       body: JSON.stringify({
         action: "get-state",
         invokerProfileId: "customer:demo:support",
+        meta: { email: "user@example.com" },
       }),
       headers: { "content-type": "application/json" },
       method: "POST",

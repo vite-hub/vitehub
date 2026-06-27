@@ -224,16 +224,19 @@ describe("agent CLI", () => {
     expect(stderr.output()).toBe("")
   })
 
-  it("loads Agent Invocation Context Values from a JSON file", async () => {
-    const workspaceDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-context-"))
+  it("loads an Agent Trigger payload from a JSON file", async () => {
+    const workspaceDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-payload-"))
     const rootDir = join(workspaceDir, "app")
     await mkdir(rootDir)
     try {
-      const contextPath = join(rootDir, "context.json")
-      await writeFile(contextPath, JSON.stringify({
-        pullRequest: {
-          repository: "acme/repo",
-          trigger: { command: "/summary" },
+      const payloadPath = join(rootDir, "payload.json")
+      await writeFile(payloadPath, JSON.stringify({
+        meta: {
+          audience: "technical",
+        },
+        user: {
+          email: "dev@example.com",
+          id: "dev_1",
         },
       }), "utf8")
       const stdout = stream()
@@ -252,7 +255,7 @@ describe("agent CLI", () => {
         })
       })
 
-      const exitCode = await runAgentDevCli(["--agent", "review", "--context", "context.json", "--prompt=/summary"], {
+      const exitCode = await runAgentDevCli(["--agent", "review", "--payload", "payload.json", "--prompt=/summary"], {
         cwd: workspaceDir,
         env: {},
         rootDir,
@@ -262,20 +265,23 @@ describe("agent CLI", () => {
       }, { fetch: fetchAgentStream as never })
 
       expect(exitCode).toBe(0)
-      expect(stdout.output()).toBe(`Loaded context: ${contextPath}\nsummary\n`)
+      expect(stdout.output()).toBe(`Loaded payload: ${payloadPath}\nsummary\n`)
       const post = fetchAgentStream.mock.calls.find(([, init]) => init?.method === "POST")
       expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
         agent: "review",
-        context: {
-          pullRequest: {
-            repository: "acme/repo",
-            trigger: { command: "/summary" },
-          },
-        },
         messages: [{
           parts: [{ text: "/summary", type: "text" }],
           role: "user",
         }],
+        payload: {
+          meta: {
+            audience: "technical",
+          },
+          user: {
+            email: "dev@example.com",
+            id: "dev_1",
+          },
+        },
       })
     }
     finally {
@@ -283,13 +289,13 @@ describe("agent CLI", () => {
     }
   })
 
-  it("rejects non-object Agent Dev Loop context files", async () => {
-    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-context-"))
+  it("rejects non-object Agent Dev Loop payload files", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-payload-"))
     try {
-      await writeFile(join(rootDir, "context.json"), "[1,2,3]", "utf8")
+      await writeFile(join(rootDir, "payload.json"), "[1,2,3]", "utf8")
       const stderr = stream()
       const fetchAgentStream = vi.fn()
-      const exitCode = await runAgentDevCli(["--context", "context.json", "hello"], {
+      const exitCode = await runAgentDevCli(["--payload", "payload.json", "hello"], {
         cwd: rootDir,
         env: {},
         rootDir,
@@ -300,7 +306,7 @@ describe("agent CLI", () => {
 
       expect(exitCode).toBe(1)
       expect(fetchAgentStream).not.toHaveBeenCalled()
-      expect(stderr.output()).toContain("Agent Dev Loop context file must contain a JSON object.")
+      expect(stderr.output()).toContain("Agent Dev Loop payload file must contain a JSON object.")
     }
     finally {
       await rm(rootDir, { force: true, recursive: true })
@@ -467,6 +473,7 @@ describe("agent CLI", () => {
   it("renders Agent Dev Loop delivery previews", async () => {
     const stderr = stream()
     const stdout = stream()
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-delivery-payload-"))
     const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       if (init?.method === "POST") {
         return ndjson([
@@ -479,21 +486,29 @@ describe("agent CLI", () => {
       }
       return Response.json({
         agents: [{ name: "review", triggers: ["github.webhook"] }],
-        root: "/repo",
+        root: rootDir,
       })
     })
 
-    const exitCode = await runAgentDevCli(["--agent", "review", "--trigger", "github.webhook", "--input", "{}"], {
-      cwd: "/repo",
-      env: {},
-      rootDir: "/repo",
-      spawn: vi.fn(),
-      stderr,
-      stdout,
-    }, { fetch: fetchAgentStream as never })
+    try {
+      const payloadPath = join(rootDir, "payload.json")
+      await writeFile(payloadPath, "{}", "utf8")
+      const exitCode = await runAgentDevCli(["--agent", "review", "--trigger", "github.webhook", "--payload", "payload.json"], {
+        cwd: rootDir,
+        env: {},
+        rootDir,
+        spawn: vi.fn(),
+        stderr,
+        stdout,
+      }, { fetch: fetchAgentStream as never })
 
-    expect(exitCode).toBe(0)
-    expect(stdout.output()).toBe("")
+      expect(exitCode).toBe(0)
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+
+    expect(stdout.output()).toBe(`Loaded payload: ${join(rootDir, "payload.json")}\n`)
     expect(stderr.output()).toContain("[delivery preview] would reply on github")
     expect(stderr.output()).toContain("body: Summary: Short review.")
     expect(stderr.output()).not.toContain("Usage telemetry")

@@ -1155,7 +1155,6 @@ interface AgentChannelDevtoolsRouteState {
 export interface AgentChannelDevtoolsRouteHandlerOptions extends AgentRouteRuntimeOptions {
   defaults?: WorkspaceAgentDefaults
   emptyAssistantText?: string
-  meta?: Record<string, unknown>
   name?: string
 }
 
@@ -1247,8 +1246,8 @@ function assertKnownInvokerProfile(metadata: ChatDevtoolsMetadata | undefined, i
   }
 }
 
-function normalizeInvokerSelection(input: { invokerFallback?: boolean, invokerProfileId?: string, meta?: unknown } | undefined, defaultMeta?: Record<string, unknown>): AgentChatDevtoolsInvokerSelection {
-  const meta = optionalRecord(input?.meta) ?? optionalRecord(defaultMeta)
+function normalizeInvokerSelection(input: { invokerFallback?: boolean, invokerProfileId?: string, meta?: unknown } | undefined): AgentChatDevtoolsInvokerSelection {
+  const meta = optionalRecord(input?.meta)
   if (input?.invokerFallback === true) {
     return {
       invokerFallback: true,
@@ -1675,7 +1674,7 @@ async function materializeDevtoolsSource(
     return createBadRequest("Missing workspace source or path.")
   }
 
-  const requestedSelection = normalizeInvokerSelection(input, options.meta)
+  const requestedSelection = normalizeInvokerSelection(input)
   const invalidProfile = assertKnownInvokerProfile(state.metadata, requestedSelection.invokerProfileId)
   if (invalidProfile) return invalidProfile
 
@@ -1724,7 +1723,7 @@ async function sendDevtoolsUIMessage(
     return createBadRequest("Missing chat message text.")
   }
 
-  const requestedSelection = normalizeInvokerSelection(input, options.meta)
+  const requestedSelection = normalizeInvokerSelection(input)
   const requestedProfileId = requestedSelection.invokerProfileId
   const invalidProfile = assertKnownInvokerProfile(state.metadata, requestedProfileId)
   if (invalidProfile) return invalidProfile
@@ -1845,7 +1844,7 @@ async function handleAgentChannelDevtoolsRouteRequest(
       await resolveRuntimeWaitUntil(requestOptions.waitUntil ?? options.waitUntil),
       requestOptions.cloudflare ?? options.cloudflare,
     )
-    const invokerSelection = normalizeInvokerSelection(body, options.meta)
+    const invokerSelection = normalizeInvokerSelection(body)
     await runWithRuntimeCloudflareEnv(runtime, async () => await startAgentDevtoolsMetadataResolution(agent, state, options, runtime, invokerSelection))
 
     const action = normalizeChatDevtoolsAction(body.action)
@@ -1868,7 +1867,7 @@ async function handleAgentChannelDevtoolsRouteRequest(
       }))
     }
     if (action === "clear") {
-      const requestedSelection = normalizeInvokerSelection(body, options.meta)
+      const requestedSelection = normalizeInvokerSelection(body)
       const invalidProfile = assertKnownInvokerProfile(state.metadata, requestedSelection.invokerProfileId)
       if (invalidProfile) return withChatDevtoolsCors(invalidProfile)
       state.session.thinkingFallback = null

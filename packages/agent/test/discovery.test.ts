@@ -11,6 +11,7 @@ import { getMessageText } from "../src/messages.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Connect } from "vite"
+import type { AgentRunInput } from "../src/index.ts"
 
 const { withAgentDefaults } = await import("../src/index.ts")
 
@@ -598,8 +599,8 @@ describe("agent chat capability discovery", () => {
     ])
   })
 
-  it("passes Agent Dev Loop context into message-shaped channel invocations", async () => {
-    const root = await createTempRoot("vitehub-agent-invocation-stream-context-")
+  it("passes Agent Dev Loop payload into message-shaped channel invocations", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-payload-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
 
@@ -614,7 +615,7 @@ describe("agent chat capability discovery", () => {
       channels: {
         portal: webChat(),
       },
-      run: ({ context, invoker, messages }) => `context ${context.get<{ number: number }>("pullRequest")?.number} ${invoker.id} ${getMessageText(messages[0]!)}`,
+      run: ({ context, invoker, messages }) => `payload ${context.get<{ meta?: { audience?: string } }>("chat")?.meta?.audience} ${invoker.id} ${getMessageText(messages[0]!)}`,
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -633,9 +634,9 @@ describe("agent chat capability discovery", () => {
 
     const response = await invokeMiddleware(handlers[0]!, {
       agent: "support",
-      context: {
-        actor: { id: "github:onmax", kind: "github" },
-        pullRequest: { number: 42 },
+      payload: {
+        meta: { audience: "technical" },
+        user: { id: "github:onmax" },
       },
       messages: [{
         id: "user-1",
@@ -650,7 +651,7 @@ describe("agent chat capability discovery", () => {
 
     expect(events).toEqual([
       expect.objectContaining({ agent: "support", trigger: "chat.message", type: "start" }),
-      { text: "context 42 github:onmax /summary", type: "text-delta" },
+      { text: "payload technical dev:github:onmax /summary", type: "text-delta" },
       { type: "finish" },
       { type: "done" },
     ])
@@ -702,8 +703,8 @@ describe("agent chat capability discovery", () => {
     ])
   })
 
-  it("passes Agent Dev Loop context and prompt into explicit channel trigger invocations", async () => {
-    const root = await createTempRoot("vitehub-agent-invocation-stream-channel-context-")
+  it("passes Agent Dev Loop payload and prompt into explicit channel trigger invocations", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-channel-payload-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
 
@@ -720,7 +721,10 @@ describe("agent chat capability discovery", () => {
               invoke: (_context, input) => {
                 triggerInputs.push(input)
                 return {
-                  input: { prompt: (input as { prompt?: string }).prompt },
+                  input: {
+                    context: { pullRequest: (input as { pullRequest?: unknown }).pullRequest } as AgentRunInput["context"],
+                    prompt: (input as { prompt?: string }).prompt,
+                  },
                   run: { channelId: "github", origin: "github-pull-request-comment", runId: "github-run" },
                 }
               },
@@ -738,7 +742,7 @@ describe("agent chat capability discovery", () => {
 
     const response = await invokeMiddleware(handlers[0]!, {
       agent: "review",
-      context: {
+      payload: {
         pullRequest: { number: 42 },
       },
       messages: [{
@@ -757,7 +761,7 @@ describe("agent chat capability discovery", () => {
       .map(line => JSON.parse(line))
 
     expect(triggerInputs).toEqual([expect.objectContaining({
-      context: { pullRequest: { number: 42 } },
+      pullRequest: { number: 42 },
       prompt: "/review",
     })])
     expect(events).toEqual([
@@ -768,8 +772,8 @@ describe("agent chat capability discovery", () => {
     ])
   })
 
-  it("derives built-in GitHub webhook dev input from pull request context", async () => {
-    const root = await createTempRoot("vitehub-agent-invocation-stream-github-context-")
+  it("derives built-in GitHub webhook dev input from webhook payload", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-github-payload-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
 
@@ -793,31 +797,25 @@ describe("agent chat capability discovery", () => {
 
     const response = await invokeMiddleware(handlers[0]!, {
       agent: "review",
-      context: {
-        pullRequest: {
-          pullRequest: {
-            htmlUrl: "https://github.com/quiverdk/portal/pull/709",
+      payload: {
+        github: { event: "issue_comment" },
+        payload: {
+          action: "created",
+          comment: {
+            body: "/review",
+            id: 123,
+            user: { login: "maxi" },
+          },
+          issue: {
             number: 709,
-            source: {
-              mount: "portal",
-              ref: "refs/pull/709/head",
-              repo: "quiverdk/portal",
+            pull_request: {
+              html_url: "https://github.com/quiverdk/portal/pull/709",
+              url: "https://api.github.com/repos/quiverdk/portal/pulls/709",
             },
           },
-          repository: { fullName: "quiverdk/portal" },
-          trigger: {
-            actor: { login: "maxi" },
-            args: "",
-            command: "review",
-            comment: { body: "/review", id: 123 },
-          },
+          repository: { full_name: "quiverdk/portal" },
         },
       },
-      messages: [{
-        id: "user-1",
-        parts: [{ text: "/review", type: "text" }],
-        role: "user",
-      }],
       trigger: "github.webhook",
     }, agentInvocationStreamRoute, {
       "content-type": "application/json",
@@ -998,7 +996,7 @@ describe("agent chat capability discovery", () => {
 
     const response = await invokeMiddleware(handlers[0]!, {
       agent: "review",
-      input: { prompt: "review" },
+      payload: { prompt: "review" },
       timeout: 1234,
       trigger: "github.webhook",
     }, agentInvocationStreamRoute, {

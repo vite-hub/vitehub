@@ -68,6 +68,10 @@ _Avoid_: DevTools state format, raw model stream format, trace log format
 The lower-level server-side primitive that maps a product event into an Agent Invocation.
 _Avoid_: Channel, Chat adapter, client integration, model adapter
 
+**Agent Trigger Payload**:
+The JSON-shaped event input passed to one Agent Trigger before that trigger maps it into an Agent Invocation.
+_Avoid_: Agent Definition dev config, Agent Invocation Context Values file, DevTools meta, dev samples, preset
+
 **Channel**:
 A host or integration entry surface through which Agent Invocations are triggered, such as HTTP, Stream, Slack, Teams, Telegram, Discord, CLI, DevTools, or Web Chat. It owns delivery coordination and caller mapping for that surface.
 _Avoid_: Agent Actor, Agent Trigger, Chat Platform Adapter, Auth User
@@ -234,6 +238,9 @@ _Avoid_: Fake agent, dummy model, test bot
 - **Instruction Composition** reads only explicit **Agent Invocation Context Values** through `context.*` paths.
 - **Instruction Composition** does not execute arbitrary JavaScript and does not grant **Capabilities**, **Workspace Scope**, Source visibility, or runtime access.
 - **Instruction Composition** can insert visible **Source Instructions** through the `{{ workspace.sources }}` slot while keeping `WorkspaceSource.instructions` as the low-level Source guidance field.
+- An **Agent Trigger Payload** belongs to the trigger consumer for one run; it is not authored on an **Agent Definition**.
+- An **Agent Trigger** owns mapping an **Agent Trigger Payload** into trusted **Agent Invocation Context Values**, **Agent Run** metadata, and delivery behavior.
+- **Agent Definitions** should not carry development-only payload examples such as `dev.samples` or `devtools.meta`.
 - A model-backed **Agent Driver** uses `execution` for **Agent Model Execution** settings.
 - A harness-backed **Agent Driver** does not receive **Model Driver Instructions** as a system prompt by default.
 - Harness-backed instruction behavior should rely on explicit harness or Workspace instruction surfaces, such as workspace `AGENTS.md`, unless a future harness-specific option is introduced.

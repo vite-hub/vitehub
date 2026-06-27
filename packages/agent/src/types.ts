@@ -924,7 +924,7 @@ export interface ResolvedAgentRoutesOptions {
 
 export interface AgentModuleOptions {
   cli?: false | AgentCliOptions
-  devtools?: false | { meta?: Record<string, unknown> }
+  devtools?: false
   execution?: AgentExecution
   eval?: false | AgentEvalOptions
   imports?: boolean

@@ -251,7 +251,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
 
     const response = await invokeMiddleware(handlers[0]!, {
       agent: "review",
-      input: { prompt: "review" },
+      payload: { prompt: "review" },
       trigger: "github.webhook",
     }, agentInvocationStreamRoute, {
       "content-type": "application/json",
@@ -322,7 +322,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
 
     const response = await invokeMiddleware(handlers[0]!, {
       agent: "review",
-      input: { prompt: "review" },
+      payload: { prompt: "review" },
       timeout: 100,
       trigger: "github.webhook",
     }, agentInvocationStreamRoute, {
