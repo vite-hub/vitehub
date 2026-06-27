@@ -161,10 +161,10 @@ function selectedWorkspaceScopePaths(context: AgentAdapterRunContext): string[] 
   return paths.length ? paths : []
 }
 
-function toHarnessCallInput(context: AgentAdapterRunContext) {
+async function toHarnessCallInput(context: AgentAdapterRunContext) {
   const compositionContext = { context: context.context.toJSON() }
-  const baseInstructions = composeInstructionDocument(context.instructions || "", compositionContext)
-  const instructions = composeInstructionDocument(applyWorkspaceSourceInstructionSlot(
+  const baseInstructions = await composeInstructionDocument(context.instructions || "", compositionContext)
+  const instructions = await composeInstructionDocument(applyWorkspaceSourceInstructionSlot(
     applyCapabilityInstructionSlots(baseInstructions, context.capabilityInstructions),
     context.sourceInstructions,
   ), compositionContext)
@@ -506,7 +506,7 @@ export function createHarnessAgentAdapter<
       const { agent, cleanup, session } = await createAgentAndSession(context)
       try {
         const result = defineAgentUsageMetadata(await agent.generate({
-          ...toHarnessCallInput(context),
+          ...await toHarnessCallInput(context),
           session,
         }), usageMetadata)
         await cleanup()
@@ -522,7 +522,7 @@ export function createHarnessAgentAdapter<
       const { agent, cleanup, session } = await createAgentAndSession(context)
       try {
         const result = defineAgentUsageMetadata(await agent.stream({
-          ...toHarnessCallInput(context),
+          ...await toHarnessCallInput(context),
           session,
         }), usageMetadata)
         return await withSessionCleanup(result, cleanup, context.input.abortSignal)

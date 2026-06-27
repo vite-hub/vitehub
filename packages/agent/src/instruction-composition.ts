@@ -1,3 +1,7 @@
+import { parse } from "comark"
+import binding, { Binding } from "comark/plugins/binding"
+import { renderMarkdown } from "comark/render"
+
 export interface InstructionImportResolution {
   content: string
   file: string
@@ -18,88 +22,107 @@ type ConditionToken =
   | { type: "literal", value: unknown }
   | { type: "op", value: ConditionOperator }
   | { path: string, type: "path" }
+type ComarkElementAttributes = Record<string, unknown>
+type ComarkElement = [string, ComarkElementAttributes, ...ComarkNode[]]
+type ComarkComment = [null, ComarkElementAttributes, string]
+type ComarkNode = ComarkComment | ComarkElement | string
 
 const defaultImportDepth = 4
 const contextPathPattern = /context(?:\.[A-Za-z_$][\w$-]*)+/
 const tripleBindingPattern = /\{\{\{\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}\}/g
-const scalarBindingPattern = /\{\{(?!\{)\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}/g
+const comarkComponents = { Binding }
+const noLinkify = {
+  markdownItPlugins: [(md: { disable: (rule: string) => unknown, set: (options: Record<string, unknown>) => unknown }) => {
+    md.disable("linkify")
+    md.set({ linkify: false })
+  }],
+  name: "vitehub-no-linkify",
+}
 
-export function resolveInstructionImports(content: string, options: ResolveInstructionImportsOptions): string {
-  return expandInstructionImports(content, {
+export async function resolveInstructionImports(content: string, options: ResolveInstructionImportsOptions): Promise<string> {
+  return await expandInstructionImports(normalizeConditionShorthand(content), {
     ...options,
     maxDepth: options.maxDepth ?? defaultImportDepth,
     seen: new Set([options.file]),
   })
 }
 
-export function composeInstructionDocument(content: string, options: ComposeInstructionDocumentOptions = {}): string {
+export async function composeInstructionDocument(content: string, options: ComposeInstructionDocumentOptions = {}): Promise<string> {
   const context = options.context || {}
-  return renderContextBindings(renderConditionals(content, context), context).trim().replace(/\n{3,}/g, "\n\n")
+  const normalized = await normalizeTripleBindings(normalizeConditionShorthand(content))
+  const tree = await parseInstructionMarkdown(normalized, true)
+  const nodes = await composeNodes(tree.nodes, context)
+  return cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: comarkComponents }))
 }
 
-function expandInstructionImports(
+async function parseInstructionMarkdown(content: string, bindings = false) {
+  return await parse(content, {
+    autoClose: false,
+    autoUnwrap: false,
+    plugins: bindings ? [noLinkify, binding()] : [noLinkify],
+  })
+}
+
+function cleanMarkdown(content: string): string {
+  return content.trim().replace(/\n{3,}/g, "\n\n")
+}
+
+async function expandInstructionImports(
   content: string,
   options: ResolveInstructionImportsOptions & { maxDepth: number, seen: Set<string> },
   depth = 0,
-): string {
-  let fenced = false
-  return content.split(/\r?\n/).map((line) => {
-    if (/^\s*(```|~~~)/.test(line)) {
-      fenced = !fenced
-      return line
-    }
-    return fenced ? line : replaceImportsInLine(line, options, depth)
-  }).join("\n")
+): Promise<string> {
+  const tree = await parseInstructionMarkdown(content)
+  const nodes = await expandImportNodes(tree.nodes, options, depth)
+  const rendered = cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: comarkComponents }))
+  return content.endsWith("\n") ? `${rendered}\n` : rendered
 }
 
-function replaceImportsInLine(
-  line: string,
+async function expandImportNodes(
+  nodes: ComarkNode[],
   options: ResolveInstructionImportsOptions & { maxDepth: number, seen: Set<string> },
   depth: number,
-): string {
-  let rendered = ""
-  let inlineCode: string | undefined
-  for (let index = 0; index < line.length;) {
-    const char = line[index]
-    if (char === "`") {
-      const fence = line.slice(index).match(/^`+/)![0]
-      if (!inlineCode) inlineCode = fence
-      else if (fence === inlineCode) inlineCode = undefined
-      rendered += fence
-      index += fence.length
-      continue
-    }
-    if (char !== "@" || inlineCode) {
-      rendered += char
-      index += 1
-      continue
-    }
+): Promise<ComarkNode[]> {
+  return (await Promise.all(nodes.map(node => expandImportNode(node, options, depth)))).flat()
+}
 
-    const end = importTokenEnd(line, index)
-    const token = line.slice(index, end)
-    const replacement = importReplacement(token, options, depth)
-    if (replacement === undefined) {
-      rendered += token
-    }
-    else {
-      rendered += replacement
-    }
-    index = end
+async function expandImportNode(
+  node: ComarkNode,
+  options: ResolveInstructionImportsOptions & { maxDepth: number, seen: Set<string> },
+  depth: number,
+): Promise<ComarkNode[]> {
+  if (typeof node === "string") {
+    return [await replaceImportsInText(node, options, depth)]
   }
-  return rendered
+  if (!isElement(node)) return [node]
+
+  const [tag, attrs, ...children] = node
+  if (tag === "code") return [node]
+  return [[tag, attrs, ...(await expandImportNodes(children, options, depth))] as ComarkElement]
 }
 
-function importTokenEnd(line: string, start: number): number {
-  let index = start
-  while (index < line.length && !/\s|[<>{}\[\]]/.test(line[index]!)) index += 1
-  return index
+async function replaceImportsInText(
+  text: string,
+  options: ResolveInstructionImportsOptions & { maxDepth: number, seen: Set<string> },
+  depth: number,
+): Promise<string> {
+  let rendered = ""
+  let index = 0
+  for (const match of text.matchAll(/@[^\s<>{}\[\]]+/g)) {
+    rendered += text.slice(index, match.index)
+    const token = match[0]
+    const replacement = await importReplacement(token, options, depth)
+    rendered += replacement ?? token
+    index = match.index + token.length
+  }
+  return rendered + text.slice(index)
 }
 
-function importReplacement(
+async function importReplacement(
   token: string,
   options: ResolveInstructionImportsOptions & { maxDepth: number, seen: Set<string> },
   depth: number,
-): string | undefined {
+): Promise<string | undefined> {
   if (/^@(?:https?:)?\/\//.test(token) || token.startsWith("@/")) {
     throw new Error(`[vitehub] Instruction import "${token}" must be a relative file path.`)
   }
@@ -120,105 +143,137 @@ function importReplacement(
   }
   options.seen.add(resolved.file)
   try {
-    return `${expandInstructionImports(resolved.content, { ...options, file: resolved.file }, depth + 1)}${trailing}`
+    return `${await expandInstructionImports(resolved.content, { ...options, file: resolved.file }, depth + 1)}${trailing}`
   }
   finally {
     options.seen.delete(resolved.file)
   }
 }
 
-function renderConditionals(content: string, context: Record<string, unknown>): string {
-  const lines = content.split(/\r?\n/)
-  const rendered: string[] = []
-  for (let index = 0; index < lines.length;) {
-    const line = lines[index]!
-    const directive = directiveLine(line)
-    if (directive?.kind === "if") {
-      const result = renderIfChain(lines, index, directive.expression, context)
-      rendered.push(result.content)
-      index = result.next
-      continue
+function normalizeConditionShorthand(content: string): string {
+  let fenced: string | undefined
+  return content.split(/\r?\n/).map((line) => {
+    const fence = line.match(/^\s*(```|~~~)/)?.[1]
+    if (fence) {
+      fenced = fenced ? undefined : fence
+      return line
     }
-    if (directive?.kind === "else" || directive?.kind === "else-if") {
-      throw new Error(`[vitehub] Instruction ${directive.kind} block must follow an if block.`)
-    }
-    rendered.push(line)
-    index += 1
-  }
-  return rendered.join("\n")
+    if (fenced) return line
+    return line.replace(/^(\s*::(?:if|else-if))\{([\s\S]+)\}(\s*)$/, (match, start: string, expression: string, end: string) =>
+      /^(?:if|condition)\s*=/.test(expression.trim())
+        ? match
+        : `${start}{condition=${JSON.stringify(expression.trim())}}${end}`)
+  }).join("\n")
 }
 
-function renderIfChain(
-  lines: string[],
-  start: number,
-  expression: string | undefined,
+async function normalizeTripleBindings(content: string): Promise<string> {
+  const tree = await parseInstructionMarkdown(content)
+  const nodes = replaceTextOutsideCode(tree.nodes, value =>
+    value.replace(tripleBindingPattern, (_match, path: string) => `:vitehubTriple{path=${JSON.stringify(path)}}`))
+  return await renderMarkdown({ ...tree, nodes }, { components: comarkComponents })
+}
+
+function replaceTextOutsideCode(nodes: ComarkNode[], replace: (value: string) => string): ComarkNode[] {
+  return nodes.map((node) => {
+    if (typeof node === "string") return replace(node)
+    if (!isElement(node)) return node
+    const [tag, attrs, ...children] = node
+    if (tag === "code") return node
+    return [tag, attrs, ...replaceTextOutsideCode(children, replace)] as ComarkElement
+  })
+}
+
+async function composeNodes(
+  nodes: ComarkNode[],
   context: Record<string, unknown>,
-): { content: string, next: number } {
-  const branches: Array<{ expression?: string, lines: string[] }> = [{ expression, lines: [] }]
-  let depth = 0
-  let sawElse = false
+  parent?: string,
+): Promise<ComarkNode[]> {
+  return (await Promise.all(nodes.map(node => composeNode(node, context, parent)))).flat()
+}
 
-  for (let index = start + 1; index < lines.length; index += 1) {
-    const line = lines[index]!
-    const directive = directiveLine(line)
+async function composeNode(
+  node: ComarkNode,
+  context: Record<string, unknown>,
+  parent?: string,
+): Promise<ComarkNode[]> {
+  if (typeof node === "string" || !isElement(node)) return [node]
+  const [tag, attrs, ...children] = node
 
-    if (directive?.kind === "if") {
-      depth += 1
-      branches.at(-1)!.lines.push(line)
-      continue
-    }
-    if (isDirectiveClose(line)) {
-      if (depth > 0) {
-        depth -= 1
-        branches.at(-1)!.lines.push(line)
-        continue
-      }
-      const selected = branches.find(branch =>
-        branch.expression === undefined || evaluateCondition(branch.expression, context))
-      return {
-        content: selected ? renderConditionals(selected.lines.join("\n"), context) : "",
-        next: index + 1,
-      }
-    }
-    if (depth === 0 && directive?.kind === "else-if") {
-      if (sawElse) throw new Error("[vitehub] Instruction else-if block cannot follow else.")
-      branches.push({ expression: directive.expression, lines: [] })
-      continue
-    }
-    if (depth === 0 && directive?.kind === "else") {
-      if (sawElse) throw new Error("[vitehub] Instruction if chain cannot contain more than one else block.")
-      sawElse = true
-      branches.push({ lines: [] })
-      continue
-    }
-    branches.at(-1)!.lines.push(line)
+  if (tag === "if") return await composeIfNode(node, context)
+  if (tag === "else" || tag === "else-if") {
+    throw new Error(`[vitehub] Instruction ${tag} block must follow an if block.`)
   }
-
-  throw new Error("[vitehub] Instruction if block is missing a closing :: line.")
-}
-
-function directiveLine(line: string): { expression?: string, kind: "else" | "else-if" | "if" } | undefined {
-  const match = line.match(/^\s*::(if|else-if|else)(?:\{(.+)\})?\s*$/)
-  if (!match) return
-  const kind = match[1] as "else" | "else-if" | "if"
-  if (kind === "else") {
-    if (match[2]?.trim()) throw new Error("[vitehub] Instruction else block does not accept a condition.")
-    return { kind }
+  if (tag === "binding") return [renderBinding(attrs, context)]
+  if (tag === "vitehubTriple" || tag === "vitehub-triple") {
+    return await renderTripleBinding(attrs, context, parent)
   }
-  const expression = conditionExpression(match[2])
-  if (!expression) throw new Error(`[vitehub] Instruction ${kind} block requires a condition.`)
-  return { expression, kind }
+  if (tag === "code") return [node]
+  return [[tag, attrs, ...(await composeNodes(children, context, tag))] as ComarkElement]
 }
 
-function isDirectiveClose(line: string): boolean {
-  return /^\s*::\s*$/.test(line)
+function renderBinding(attrs: Record<string, unknown>, context: Record<string, unknown>): ComarkNode {
+  const path = attrs[":value"]
+  if (typeof path !== "string" || !path.startsWith("context.")) return ["binding", attrs]
+  const value = contextPathValue(context, path)
+  if (value === null || value === undefined) return ""
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value)
+  throw new TypeError(`[vitehub] Instruction binding "{{ ${path} }}" must resolve to a scalar value.`)
 }
 
-function conditionExpression(raw: string | undefined): string | undefined {
-  const value = raw?.trim()
-  if (!value) return
-  const attr = value.match(/^(?:if|condition)\s*=\s*(["'])([\s\S]*)\1$/)
-  return (attr ? attr[2] : value).trim()
+async function renderTripleBinding(
+  attrs: Record<string, unknown>,
+  context: Record<string, unknown>,
+  parent?: string,
+): Promise<ComarkNode[]> {
+  const path = attrs.path
+  if (typeof path !== "string" || !path.startsWith("context.")) return []
+  const value = contextPathValue(context, path)
+  if (value === null || value === undefined) return []
+  if (typeof value !== "string") {
+    throw new TypeError(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" must resolve to a string.`)
+  }
+  if (parent === "p") return [value]
+  return (await parseInstructionMarkdown(value)).nodes
+}
+
+async function composeIfNode(node: ComarkElement, context: Record<string, unknown>): Promise<ComarkNode[]> {
+  const { after, branches } = conditionalBranches(node)
+  const selected = branches.find(branch =>
+    branch.expression === undefined || evaluateCondition(branch.expression, context))
+  return [
+    ...(selected ? await composeNodes(selected.nodes, context) : []),
+    ...await composeNodes(after, context),
+  ]
+}
+
+function conditionalBranches(node: ComarkElement): { after: ComarkNode[], branches: Array<{ expression?: string, nodes: ComarkNode[] }> } {
+  const branches: Array<{ expression?: string, nodes: ComarkNode[] }> = []
+  let current: ComarkElement | undefined = node
+  const after: ComarkNode[] = []
+  while (current) {
+    const [tag, attrs, ...children] = current
+    const expression = tag === "else" ? undefined : conditionExpressionFromAttrs(attrs, tag)
+    const nextIndex = children.findIndex(child => isElement(child) && (child[0] === "else-if" || child[0] === "else"))
+    branches.push({
+      expression,
+      nodes: nextIndex === -1 ? children : children.slice(0, nextIndex),
+    })
+    if (nextIndex !== -1) after.push(...children.slice(nextIndex + 1))
+    current = nextIndex === -1 ? undefined : children[nextIndex] as ComarkElement
+  }
+  return { after, branches }
+}
+
+function isElement(node: ComarkNode): node is ComarkElement {
+  return Array.isArray(node) && typeof node[0] === "string"
+}
+
+function conditionExpressionFromAttrs(attrs: Record<string, unknown>, kind: string): string {
+  const expression = attrs.condition ?? attrs.if
+  if (typeof expression !== "string" || !expression.trim()) {
+    throw new Error(`[vitehub] Instruction ${kind} block requires a condition.`)
+  }
+  return expression.trim()
 }
 
 function evaluateCondition(expression: string, context: Record<string, unknown>): boolean {
@@ -361,22 +416,4 @@ function nestedPathValue(value: unknown, segments: string[]): unknown {
     current = (current as Record<string, unknown>)[segment]
   }
   return current
-}
-
-function renderContextBindings(content: string, context: Record<string, unknown>): string {
-  return content
-    .replace(tripleBindingPattern, (_match, path: string) => {
-      const value = contextPathValue(context, path)
-      if (value === null || value === undefined) return ""
-      if (typeof value !== "string") {
-        throw new TypeError(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" must resolve to a string.`)
-      }
-      return value
-    })
-    .replace(scalarBindingPattern, (_match, path: string) => {
-      const value = contextPathValue(context, path)
-      if (value === null || value === undefined) return ""
-      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value)
-      throw new TypeError(`[vitehub] Instruction binding "{{ ${path} }}" must resolve to a scalar value.`)
-    })
 }

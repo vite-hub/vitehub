@@ -19,13 +19,13 @@ function importReader(files: Map<string, string>) {
 }
 
 describe("instruction composition", () => {
-  it("expands relative markdown imports outside code spans and fences", () => {
+  it("expands relative markdown imports outside code spans and fences", async () => {
     const files = new Map([
       ["/agent/nested.md", "Nested\n@./policy.md"],
       ["/agent/policy.md", "Policy"],
     ])
 
-    expect(resolveInstructionImports([
+    expect(await resolveInstructionImports([
       "Base",
       "@./nested.md",
       "`@./ignored.md`",
@@ -41,14 +41,15 @@ describe("instruction composition", () => {
       "Nested",
       "Policy",
       "`@./ignored.md`",
-      "``@./ignored.md``",
+      "`@./ignored.md`",
+      "",
       "```",
       "@./ignored.md",
       "```",
     ].join("\n"))
   })
 
-  it("renders condition chains and context bindings without executing JavaScript", () => {
+  it("renders condition chains and context bindings without executing JavaScript", async () => {
     const document = [
       "Hello {{ context.customerName }}.",
       "{{{ context.supportPolicy }}}",
@@ -61,7 +62,7 @@ describe("instruction composition", () => {
       "::",
     ].join("\n")
 
-    expect(composeInstructionDocument(document, {
+    expect(await composeInstructionDocument(document, {
       context: {
         audience: "technical",
         customerName: "Acme",
@@ -71,12 +72,13 @@ describe("instruction composition", () => {
       "Hello Acme.",
       "## Policy",
       "Use trusted policy.",
+      "",
       "Use technical detail.",
     ].join("\n"))
   })
 
-  it("parses boolean chains without skipping the right side", () => {
-    expect(composeInstructionDocument([
+  it("parses boolean chains without skipping the right side", async () => {
+    expect(await composeInstructionDocument([
       "::if{context.enabled && context.customerName}",
       "Enabled.",
       "::else",
@@ -84,7 +86,7 @@ describe("instruction composition", () => {
       "::",
     ].join("\n"), { context: { customerName: "Acme", enabled: false } })).toBe("Disabled.")
 
-    expect(composeInstructionDocument([
+    expect(await composeInstructionDocument([
       "::if{context.enabled || context.customerName}",
       "Enabled.",
       "::else",
@@ -93,8 +95,8 @@ describe("instruction composition", () => {
     ].join("\n"), { context: { customerName: "Acme", enabled: true } })).toBe("Enabled.")
   })
 
-  it("reads stable context ids with hyphens and dotted names", () => {
-    expect(composeInstructionDocument([
+  it("reads stable context ids with hyphens and dotted names", async () => {
+    expect(await composeInstructionDocument([
       "{{ context.llm-route.choice }}",
       "{{ context.support.customer.name }}",
     ].join("\n"), {
@@ -105,7 +107,34 @@ describe("instruction composition", () => {
     })).toBe("fast\nAcme")
   })
 
-  it("renders conditionals before consuming capability and source instruction slots", () => {
+  it("does not render bindings or directives inside code spans and fences", async () => {
+    expect(await composeInstructionDocument([
+      "Hello {{ context.name }}.",
+      "`{{ context.name }}`",
+      "`::if{context.enabled}`",
+      "```md",
+      "{{ context.name }}",
+      "::if{context.enabled}",
+      "Hidden",
+      "::",
+      "```",
+    ].join("\n"), {
+      context: { enabled: false, name: "Acme" },
+    })).toBe([
+      "Hello Acme.",
+      "`{{ context.name }}`",
+      "`::if{context.enabled}`",
+      "",
+      "```md",
+      "{{ context.name }}",
+      "::if{context.enabled}",
+      "Hidden",
+      "::",
+      "```",
+    ].join("\n"))
+  })
+
+  it("renders conditionals before consuming capability and source instruction slots", async () => {
     const document = [
       "::if{context.showCapability}",
       "{{ capabilities.docs }}",
@@ -114,7 +143,7 @@ describe("instruction composition", () => {
       "No capability instructions.",
       "::",
     ].join("\n")
-    const baseInstructions = composeInstructionDocument(document, {
+    const baseInstructions = await composeInstructionDocument(document, {
       context: { showCapability: false },
     })
 
@@ -125,18 +154,18 @@ describe("instruction composition", () => {
       .toBe("No capability instructions.\n\nUse docs source.")
   })
 
-  it("rejects unsafe expressions and non-scalar double bindings", () => {
-    expect(() => composeInstructionDocument("::if{process.exit()}\nNo\n::"))
-      .toThrow("Unsafe instruction condition")
-    expect(() => composeInstructionDocument("{{ context.customer }}", { context: { customer: { name: "Acme" } } }))
-      .toThrow("must resolve to a scalar")
-    expect(() => resolveInstructionImports("@https://example.com/policy.md", {
+  it("rejects unsafe expressions and non-scalar double bindings", async () => {
+    await expect(composeInstructionDocument("::if{process.exit()}\nNo\n::"))
+      .rejects.toThrow("Unsafe instruction condition")
+    await expect(composeInstructionDocument("{{ context.customer }}", { context: { customer: { name: "Acme" } } }))
+      .rejects.toThrow("must resolve to a scalar")
+    await expect(resolveInstructionImports("@https://example.com/policy.md", {
       file: "/agent/instructions.md",
       read: importReader(new Map()),
-    })).toThrow("must be a relative file path")
-    expect(() => resolveInstructionImports("@./*.md", {
+    })).rejects.toThrow("must be a relative file path")
+    await expect(resolveInstructionImports("@./*.md", {
       file: "/agent/instructions.md",
       read: importReader(new Map()),
-    })).toThrow("cannot use globs")
+    })).rejects.toThrow("cannot use globs")
   })
 })
