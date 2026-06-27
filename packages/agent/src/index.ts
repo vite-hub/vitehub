@@ -347,7 +347,11 @@ type WorkspaceSourceNames<TWorkspace> =
     ? Extract<keyof NonNullable<TSources>, string>
     : string
 type WorkspaceSourceScopeOptionNames<TSource> =
-  "scopes" extends keyof TSource
+  TSource extends { __vitehubWorkspaceSourceScopeNames?: infer TScopes }
+    ? NonNullable<TScopes> extends readonly (infer TScope)[]
+      ? Extract<TScope, string>
+      : never
+    : "scopes" extends keyof TSource
     ? TSource extends { scopes?: infer TScopes }
       ? NonNullable<TScopes> extends readonly (infer TScope)[]
         ? string extends TScope ? never : Extract<TScope, string>
@@ -398,9 +402,14 @@ type ValidateAgentCapabilities<TCapabilities, TWorkspace> =
       : TCapabilities
 type CapabilityWorkspaceScopeNames<TCapability> =
   TCapability extends AgentCapabilityDefinition<any, any, infer TTypeContract>
-    ? TTypeContract extends { workspaceScopes: infer TScopeName }
-      ? Extract<TScopeName, string>
-      : never
+    ? (TTypeContract extends { workspaceScopes: infer TScopeName }
+          ? Extract<TScopeName, string>
+          : AgentCapabilityTypeContract extends TTypeContract
+            ? string
+            : never)
+        | (TCapability extends { capabilities: infer TNestedCapabilities }
+            ? AgentCapabilitiesWorkspaceScopeNames<TNestedCapabilities>
+            : never)
     : never
 type AgentCapabilitiesWorkspaceScopeNames<TCapabilities> =
   TCapabilities extends readonly [unknown, ...unknown[]] | readonly []
@@ -411,9 +420,7 @@ type AgentCapabilitiesWorkspaceScopeNames<TCapabilities> =
 type ValidateWorkspaceSourceScopes<TCapabilities, TWorkspace> =
   [WorkspaceSourceScopeNames<TWorkspace>] extends [never]
     ? unknown
-    : string extends WorkspaceSourceScopeNames<TWorkspace>
-      ? unknown
-      : Exclude<WorkspaceSourceScopeNames<TWorkspace>, AgentCapabilitiesWorkspaceScopeNames<TCapabilities>> extends never
+    : Exclude<WorkspaceSourceScopeNames<TWorkspace>, AgentCapabilitiesWorkspaceScopeNames<TCapabilities>> extends never
         ? unknown
         : InvalidWorkspaceSourceScope<Exclude<WorkspaceSourceScopeNames<TWorkspace>, AgentCapabilitiesWorkspaceScopeNames<TCapabilities>>>
 

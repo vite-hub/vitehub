@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineAgentInvoker, type AgentActor, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentDeliveryArtifact, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, type AgentActor, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentDeliveryArtifact, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
 import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceExec, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
@@ -9,7 +9,7 @@ import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../src/output.ts"
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentUsageRecord, StreamEvent } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
-import { file, github as githubSource } from "@vite-hub/workspace"
+import { fetch as fetchSource, file, github as githubSource } from "@vite-hub/workspace"
 import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatPlatformResolver, AgentChatRunContext, FetchCapabilityToolOptions, PullRequestContextValue, RepositoryHostClient, TranscriptionResult, UsageTelemetryOutputExtension, UsageTelemetrySummaryOptions } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
@@ -979,6 +979,30 @@ describe("agent public types", () => {
       model: {} as never,
     })
 
+    // @ts-expect-error typed fetch response generics do not disable Workspace Source scope checks
+    defineAgent({
+      workspace: {
+        sources: {
+          status: fetchSource<{ status: string }>({
+            scopes: ["missing"] as const,
+            url: "https://status.example.com/api/summary",
+            workspacePath: "status/summary.json",
+          }),
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "customer",
+            scopes: {
+              customer: { source: "status" },
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+    })
+
     // @ts-expect-error Workspace Source scopes require access({ workspace })
     defineAgent({
       workspace: {
@@ -1020,6 +1044,49 @@ describe("agent public types", () => {
         },
       },
       capabilities: broadCapabilities,
+      model: {} as never,
+    })
+
+    const widenedAccessCapability: AgentCapabilityDefinition = access({
+      workspace: {
+        defaultScope: "customer",
+        scopes: {
+          customer: { source: "docs" },
+        },
+      },
+    })
+
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["customer"] as const }),
+        },
+      },
+      capabilities: [widenedAccessCapability],
+      model: {} as never,
+    })
+
+    const bundledAccessCapability = defineCapability({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "customer",
+            scopes: {
+              customer: { source: "docs" },
+            },
+          },
+        }),
+      ],
+      id: "workspace-access-bundle",
+    })
+
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["customer"] as const }),
+        },
+      },
+      capabilities: [bundledAccessCapability],
       model: {} as never,
     })
   })

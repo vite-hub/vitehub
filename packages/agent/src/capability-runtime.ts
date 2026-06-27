@@ -150,9 +150,10 @@ export function defineCapability<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
+  const TCapability extends AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract> = AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract>,
 >(
-  capability: AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract>,
-): AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract> {
+  capability: TCapability,
+): TCapability {
   if (!capability || typeof capability !== "object") {
     throw new TypeError("[vitehub] defineCapability() requires a capability definition.")
   }
