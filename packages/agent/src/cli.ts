@@ -716,6 +716,7 @@ async function sendDevMessage(
   const delayTextForPreview = Boolean(parsed.trigger && parsed.trigger !== "chat.message")
   let canWriteDelayedUsage = false
   const visibleTools = new Set<string>()
+  const pendingToolInputs = new Map<string, unknown>()
   const writeUsageNote = () => {
     if (delayTextForPreview && !canWriteDelayedUsage) return
     if (previewSeen) return
@@ -764,19 +765,26 @@ async function sendDevMessage(
       }
       if (event.type === "tool-call" || event.type === "tool-input-start") {
         clearPendingFallback()
-        if (event.type === "tool-input-start") continue
+        if (event.type === "tool-input-start") {
+          if (event.input !== undefined) pendingToolInputs.set(event.id, event.input)
+          continue
+        }
         if (!visibleTools.has(event.id)) {
           visibleTools.add(event.id)
-          context.stderr.write(`\n${toolHeader(event.name, event.input)}\n`)
+          const input = event.input !== undefined ? event.input : pendingToolInputs.get(event.id)
+          context.stderr.write(`\n${toolHeader(event.name, input)}\n`)
         }
+        pendingToolInputs.delete(event.id)
         continue
       }
       if (event.type === "tool-result") {
         clearPendingFallback()
         if (!visibleTools.has(event.id)) {
           visibleTools.add(event.id)
-          context.stderr.write(`\n${toolHeader(event.name, undefined, event.output)}\n`)
+          const pendingInput = pendingToolInputs.get(event.id)
+          context.stderr.write(`\n${toolHeader(event.name, pendingToolInputs.has(event.id) ? pendingInput : undefined, event.output)}\n`)
         }
+        pendingToolInputs.delete(event.id)
         if (!writeShellOutput(context, event.output, event.error) && !writeToolTextOutput(context, event.output)) {
           writeDevPayload(context, "output", event.output)
           writeDevPayload(context, "error", event.error)
