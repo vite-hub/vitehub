@@ -1,4 +1,5 @@
 import { defineCapability } from "../capability-runtime.ts"
+import { usageTelemetry } from "./usage-telemetry.ts"
 
 import type {
   AgentActor,
@@ -10,9 +11,11 @@ import type {
   AgentRunInput,
   AgentRunMetadata,
   AgentRuntimeConfig,
+  AgentUsageRecord,
   MaybePromise,
   ResolvedAgentRuntimeContext,
 } from "../types.ts"
+import type { UsageTelemetryOptions } from "./usage-telemetry.ts"
 
 export type AgentObservabilityStatus = "completed" | "failed"
 
@@ -56,12 +59,14 @@ export interface AgentObservabilityOptions<
 > {
   instrumentation?: AgentModelExecutionInstrumentation<TRuntimeConfig, CALL_OPTIONS>
   onEvent?: AgentObservabilityEventHandler<TRuntimeConfig>
+  usageTelemetry?: boolean | UsageTelemetryOptions
 }
 
 export interface AgentObservabilityFinishExtension {
   durationMs: number
   resultKind?: string
   status: AgentObservabilityStatus
+  usage?: AgentUsageRecord
 }
 
 interface AgentObservabilityCapabilityMetadata<
@@ -81,6 +86,15 @@ function resultKind(result: unknown): string {
   if (isAsyncIterable(result)) return "stream"
   if (Array.isArray(result)) return "array"
   return typeof result
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null
+}
+
+function usageRecordFromFinishEvent(event: AgentFinishEvent): AgentUsageRecord | undefined {
+  const usageExtension = event.extensions.get<AgentUsageRecord>("usage-telemetry")
+  return isRecord(usageExtension?.usage) ? usageExtension : undefined
 }
 
 function capabilityEventBase<TRuntimeConfig extends AgentRuntimeConfig>(
@@ -123,7 +137,13 @@ export function observability<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 >(options: AgentObservabilityOptions<TRuntimeConfig, CALL_OPTIONS> = {}): AgentCapabilityDefinition<TRuntimeConfig> {
-  return defineCapability({
+  const usage = options.usageTelemetry === undefined || options.usageTelemetry === true
+    ? usageTelemetry() as AgentCapabilityDefinition<TRuntimeConfig>
+    : typeof options.usageTelemetry === "object" && options.usageTelemetry !== null
+      ? usageTelemetry(options.usageTelemetry) as AgentCapabilityDefinition<TRuntimeConfig>
+      : undefined
+  return defineCapability<TRuntimeConfig>({
+    ...(usage ? { capabilities: [usage] } : {}),
     id: "observability",
     metadata: {
       kind: "observability",
@@ -157,10 +177,12 @@ export function observability<
       }
     },
     async finish(event: AgentFinishEvent<TRuntimeConfig>) {
+      const usage = options.usageTelemetry === false ? undefined : usageRecordFromFinishEvent(event)
       if (event.error !== undefined) {
         return {
           durationMs: event.invocation.durationMs,
           status: "failed",
+          ...(usage ? { usage } : {}),
         } satisfies AgentObservabilityFinishExtension
       }
 
@@ -168,6 +190,7 @@ export function observability<
         durationMs: event.invocation.durationMs,
         resultKind: resultKind(event.result),
         status: "completed",
+        ...(usage ? { usage } : {}),
       } satisfies AgentObservabilityFinishExtension
     },
     input(context) {
