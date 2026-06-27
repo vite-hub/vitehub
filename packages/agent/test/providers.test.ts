@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -619,6 +619,34 @@ describe("agent Vite plugin", () => {
 
     expect(config).toContain('"esbuild"')
     expect(pkg.dependencies?.esbuild).toBe("catalog:esbuild-v27")
+  })
+
+  it("does not publish subpath-only integrations as root peers", async () => {
+    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
+      dependencies?: Record<string, string>
+      peerDependencies?: Record<string, string>
+      peerDependenciesMeta?: Record<string, unknown>
+    }
+    const distDir = new URL("../dist/", import.meta.url)
+    const builtJs = (await Promise.all((await readdir(distDir))
+      .filter(file => file.endsWith(".js"))
+      .map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
+      + "\n"
+      + await readFile(new URL("../dist/runtime/workflow.js", import.meta.url), "utf8")
+
+    expect(pkg.peerDependencies?.agents).toBeUndefined()
+    expect(pkg.peerDependencies?.["@vite-hub/workflow"]).toBeUndefined()
+    expect(pkg.peerDependencies?.evalite).toBeUndefined()
+    expect(pkg.peerDependenciesMeta?.agents).toBeUndefined()
+    expect(pkg.peerDependenciesMeta?.["@vite-hub/workflow"]).toBeUndefined()
+    expect(pkg.peerDependenciesMeta?.evalite).toBeUndefined()
+    expect(pkg.peerDependencies?.ai).toBe("catalog:ai-compat")
+    expect(pkg.dependencies?.["@types/json-schema"]).toBe("catalog:ai")
+    expect(builtJs).not.toContain("import(\"@vite-hub/workflow\")")
+    expect(builtJs).not.toContain("import('@vite-hub/workflow')")
+    expect(builtJs).not.toContain("import(\"@vite-hub/workflow/runtime/state\")")
+    expect(builtJs).not.toContain("import('@vite-hub/workflow/runtime/state')")
+    expect(builtJs).toContain("@vite-hub/workflow")
   })
 
   it("publishes the route-only Agent server subpath", async () => {

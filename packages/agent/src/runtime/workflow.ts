@@ -1,5 +1,4 @@
 import { getActiveCloudflareEnv, getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { getWorkflowRuntimeEvent } from "@vite-hub/workflow/runtime/state"
 
 import { createAgentRuntimeContext } from "./context.ts"
 
@@ -13,6 +12,8 @@ import type {
   AgentRuntimeName,
 } from "../types.ts"
 import type { WorkflowExecutionContext, WorkflowProvider } from "@vite-hub/workflow"
+
+const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
 
 export interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   input?: AgentRunInput<CALL_OPTIONS>
@@ -49,6 +50,7 @@ export async function runAgentWorkflowDefinition<
   runAgentInline: AgentWorkflowRunner<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
   const payload = context.payload || {}
+  const { getWorkflowRuntimeEvent } = await import(/* @vite-ignore */ workflowRuntimeStateSpecifier)
   const cloudflareEnv = context.provider === "cloudflare"
     ? getActiveCloudflareEnv() || getCloudflareEnv(getWorkflowRuntimeEvent())
     : undefined
