@@ -1,3 +1,5 @@
+/// <reference path="../virtual-module.d.ts" />
+
 import { readEnv } from "@vite-hub/internal/env"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 

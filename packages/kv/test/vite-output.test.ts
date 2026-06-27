@@ -1,10 +1,13 @@
+import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it } from "vitest"
 
 const tempDirs: string[] = []
+const execFileAsync = promisify(execFile)
 
 async function createConsumerRoot() {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-kv-vite-"))
@@ -83,5 +86,42 @@ describe("KV Vite output", () => {
     expect(output).not.toContain("@upstash/redis")
     expect(output).toContain("cloudflare-kv-binding")
     expect(output).toContain("KV_CUSTOM")
+  })
+})
+
+describe("KV source type visibility", () => {
+  it("typechecks source consumers that resolve @vite-hub/kv to package source", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-kv-source-types-"))
+    tempDirs.push(rootDir)
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await writeFile(join(rootDir, "package.json"), JSON.stringify({ type: "module" }))
+    await writeFile(join(rootDir, "src", "consumer.ts"), [
+      `import { kv } from "@vite-hub/kv"`,
+      ``,
+      `await kv.get("settings")`,
+      ``,
+    ].join("\n"))
+
+    const repoRoot = resolve(import.meta.dirname, "../../..")
+    await writeFile(join(rootDir, "tsconfig.json"), JSON.stringify({
+      extends: join(repoRoot, "tsconfig.json"),
+      compilerOptions: {
+        baseUrl: repoRoot,
+        paths: {
+          "@vite-hub/internal/*": ["packages/internal/src/*.ts"],
+          "@vite-hub/kv": ["packages/kv/src/index.ts"],
+        },
+        typeRoots: [join(repoRoot, "node_modules", "@types")],
+      },
+      files: ["src/consumer.ts"],
+    }, null, 2))
+
+    try {
+      await execFileAsync(resolve(repoRoot, "node_modules/.bin/tsc"), ["--noEmit", "-p", join(rootDir, "tsconfig.json")])
+    }
+    catch (error) {
+      const output = (error as { stderr?: string, stdout?: string }).stdout || (error as { stderr?: string, stdout?: string }).stderr
+      throw new Error(output)
+    }
   })
 })
