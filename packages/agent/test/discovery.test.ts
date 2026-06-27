@@ -616,6 +616,96 @@ describe("agent chat capability discovery", () => {
     })
   })
 
+  it("preserves handled Responses from Capability CLI invocations", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-cli-response-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              list: {
+                run: () => {
+                  throw new Error("CLI command should not run")
+                },
+              },
+            },
+            name: "portal",
+          },
+          id: "portal-runtime",
+          input: () => Response.json({ reason: "blocked" }, { status: 409 }),
+        }),
+      ],
+      run: () => "chat fallback",
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      cli: {
+        argv: ["list"],
+        name: "portal",
+      },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(JSON.parse(response.body)).toEqual({ reason: "blocked" })
+  })
+
+  it("enforces Capability CLI invocation timeouts", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-cli-timeout-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              slow: {
+                run: () => new Promise(() => {}) as never,
+              },
+            },
+            name: "portal",
+          },
+          id: "portal-runtime",
+        }),
+      ],
+      run: () => "chat fallback",
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      cli: {
+        argv: ["slow"],
+        name: "portal",
+      },
+      timeout: 1,
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.statusCode).toBe(504)
+    expect(response.body).toBe("Agent Invocation Stream timed out after 1ms.")
+  })
+
   it("normalizes Agent Invocation Stream usage before serializing endpoint events", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-usage-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

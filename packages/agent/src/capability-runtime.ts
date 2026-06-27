@@ -1048,6 +1048,11 @@ export async function resolveAgentCapabilities<
       if (invocationOptions.resolveTools !== false && capability.tools) {
         const resolved = await resolveRuntimeValue(capability.tools as never, context) as unknown
         if (isToolSet(resolved)) {
+          for (const name of Object.keys(resolved)) {
+            if (tools?.[name]?.metadata?.vitehubCapabilityCli === true) {
+              throw new Error(`[vitehub] Capability tool "${name}" conflicts with an existing Capability CLI.`)
+            }
+          }
           recordDriverContribution("Capability tools", capability.id, Object.keys(resolved))
           tools = { ...tools, ...resolved }
         }
@@ -1098,6 +1103,7 @@ export async function resolveStaticCapabilityTools<
 
   for (const capability of capabilities) {
     await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, workspace, workspaceMode)
+    if (!capability.tools) continue
     const capabilityContext = {
       ...runtimeContext,
       actor: invoker,
@@ -1107,15 +1113,9 @@ export async function resolveStaticCapabilityTools<
       mode: capability.mode,
       runtimeContext: runtime,
       workspace,
-    } as unknown as AgentCapabilityRuntimeContext<TRuntimeConfig, Name>
-    if (capability.cli) {
-      const resolved = createCapabilityCliTool(capability, capabilityContext)
-      if (isToolSet(resolved)) tools = { ...tools, ...resolved }
-    }
-    if (capability.tools) {
-      const resolved = await resolveRuntimeValue(capability.tools as never, capabilityContext as unknown as AgentCapabilityContext<TRuntimeConfig, Name>) as unknown
-      if (isToolSet(resolved)) tools = { ...tools, ...resolved }
-    }
+    } as unknown as AgentCapabilityContext<TRuntimeConfig, Name>
+    const resolved = await resolveRuntimeValue(capability.tools as never, capabilityContext as never) as unknown
+    if (isToolSet(resolved)) tools = { ...tools, ...resolved }
   }
 
   return tools

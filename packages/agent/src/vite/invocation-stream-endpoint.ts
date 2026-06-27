@@ -384,6 +384,38 @@ function withCapabilityCliRun(agent: AgentInput, cli: string, execution: AgentCa
   return clone
 }
 
+async function runCapabilityCliWithTimeout(
+  agent: AgentInput,
+  cli: string,
+  execution: AgentCapabilityCliExecutionInput,
+  context: ViteAgentDevRuntimeContext,
+  input: AgentRunInput<unknown>,
+  timeout: number,
+): Promise<Response | AgentCapabilityCliExecutionResult> {
+  const controller = new AbortController()
+  const run = runAgentInline(withCapabilityCliRun(agent, cli, execution) as never, context as never, {
+    ...input,
+    abortSignal: controller.signal,
+    timeout,
+  }) as Promise<Response | AgentCapabilityCliExecutionResult>
+  if (timeout <= 0) return await run
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  const timedOut = new Promise<Response>((resolve) => {
+    timeoutId = setTimeout(() => {
+      const error = new Error(`Agent Invocation Stream timed out after ${timeout}ms.`)
+      controller.abort(error)
+      resolve(new Response(error.message, { status: 504 }))
+    }, timeout)
+  })
+  try {
+    return await Promise.race([run, timedOut])
+  }
+  finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
+}
+
 async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: IncomingMessage): Promise<Response> {
   const entries = await discoverStreamAgents(server)
   if (req.method === "GET") {
@@ -408,15 +440,15 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
     if (typeof body.cli.name !== "string" || !body.cli.name.trim()) {
       return new Response("Missing Agent Capability CLI name.", { status: 400 })
     }
-    return Response.json(await runAgentInline(withCapabilityCliRun(entry.agent as never, body.cli.name, {
+    const result = await runCapabilityCliWithTimeout(entry.agent as never, body.cli.name, {
       argv: Array.isArray(body.cli.argv) ? body.cli.argv : [],
       ...(body.cli.input !== undefined ? { input: body.cli.input } : {}),
       ...(body.cli.json !== undefined ? { json: body.cli.json } : {}),
-    }) as never, context as never, {
-      abortSignal: AbortSignal.timeout(timeout),
+    }, context, {
       ...(payload ? { context: payload } : {}),
-      timeout,
-    }) as AgentCapabilityCliExecutionResult)
+    }, timeout)
+    if (result instanceof Response) return result
+    return Response.json(result)
   }
 
   return createAgentInvocationStreamResponse(async (emit, signal) => {

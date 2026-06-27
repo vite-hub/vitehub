@@ -268,6 +268,31 @@ describe("agent capability runtime", () => {
     })).toThrow('output format must be "json" or "text"')
   })
 
+  it("rejects Capability tools that overwrite a Capability CLI", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              list: {
+                run: () => "ok",
+              },
+            },
+            name: "portal",
+          },
+          id: "portal-runtime",
+          tools: {
+            portal: {
+              name: "portal",
+            },
+          },
+        }),
+      ],
+    }, runtime(), {})).rejects.toThrow('Capability tool "portal" conflicts with an existing Capability CLI')
+  })
+
   it("rejects duplicate capability instruction composition keys", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 
