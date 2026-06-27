@@ -8,6 +8,7 @@ import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 describe("published package types", () => {
   it("resolves virtual schema types from the drizzle subpath without manual ambient imports", () => {
     expectTypeOf(schema).toMatchTypeOf<Record<string, unknown>>()
+    expectTypeOf(schema.notes).toEqualTypeOf<unknown>()
     expectTypeOf(databases.default.schema).toMatchTypeOf<typeof schema>()
     expectTypeOf(db).toMatchTypeOf<typeof databases.default.db>()
   })

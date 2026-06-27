@@ -57,6 +57,8 @@ export default defineConfig({
 
 Use `src/database.ts` for the default database, or `src/<name>.database.ts` for named databases. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `@vite-hub/database/drizzle`.
 
+`@vite-hub/database/drizzle` is resolved by the Vite integration for server code and provider output. Plain `node` execution of files that import it is not a supported local runtime path.
+
 ## Nuxt D1 host wiring
 
 Nuxt apps can declare one D1 database resource and let the Database Nuxt bridge wire framework consumers and Cloudflare output.

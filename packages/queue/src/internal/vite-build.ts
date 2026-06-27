@@ -49,6 +49,21 @@ function resolveOutputQueueConfig(queue: QueueModuleOptions | undefined, hosting
   return normalizeQueueOptions(queue, { hosting }) || false
 }
 
+function shouldWriteProviderEntry(spec: ProviderEntrySpec, queue: QueueModuleOptions | undefined) {
+  const queueConfig = resolveOutputQueueConfig(queue, spec.hosting)
+  return queueConfig === false ? spec.name === "vercel" : queueConfig.provider === spec.name
+}
+
+function shouldCreateCloudflareOutput(queue: QueueModuleOptions | undefined) {
+  const queueConfig = resolveOutputQueueConfig(queue, "cloudflare")
+  return queueConfig !== false && queueConfig.provider === "cloudflare"
+}
+
+function shouldCreateVercelOutput(queue: QueueModuleOptions | undefined) {
+  const queueConfig = resolveOutputQueueConfig(queue, "vercel")
+  return queueConfig === false || queueConfig.provider === "vercel"
+}
+
 interface GeneratedQueueArtifacts {
   cloudflareWorkerFile: string
   definitions: DiscoveredQueueDefinition[]
@@ -120,6 +135,9 @@ async function writeProviderEntries(rootDir: string, queue: QueueModuleOptions |
 
   const entryFiles: Record<QueueProvider, string> = { cloudflare: "", vercel: "" }
   for (const spec of providerEntrySpecs) {
+    if (!shouldWriteProviderEntry(spec, queue)) {
+      continue
+    }
     const entryFile = resolve(generatedDir, spec.entryFile)
     const queueConfig = resolveOutputQueueConfig(queue, spec.hosting)
     const preloadVercelQueue = spec.name === "vercel" && definitions.length > 0 && isVercelQueueEnabled(queueConfig)
@@ -291,11 +309,25 @@ async function writeVercelQueueFunctions(rootDir: string, queue: QueueModuleOpti
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedQueueArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.queue)
+  const createCloudflare = shouldCreateCloudflareOutput(options.queue)
+  const createVercel = shouldCreateVercelOutput(options.queue)
+  if (!createCloudflare && createVercel) {
+    await writeProviderDeploymentOutputs({
+      cleanup: {
+        cloudflare: { wranglerConfigKeys: ["queues"] },
+      },
+      clientOutDir: options.clientOutDir,
+      rootDir: options.rootDir,
+    })
+  }
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
-    cloudflare: createCloudflareOutput(artifacts),
+    cloudflare: createCloudflare ? createCloudflareOutput(artifacts) : undefined,
+    cleanup: {
+      vercel: { serverFunctionName: "__server.func" },
+    },
     rootDir: options.rootDir,
-    vercel: createVercelOutput(artifacts),
+    vercel: createVercel ? createVercelOutput(artifacts) : undefined,
   })
   await writeVercelQueueFunctions(options.rootDir, options.queue, artifacts)
   return artifacts

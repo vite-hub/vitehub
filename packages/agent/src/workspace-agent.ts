@@ -13,6 +13,7 @@ import {
 } from "./invoker.ts"
 import {
   composeInstructionDocument,
+  composeStaticInstructionDocument,
   resolveInstructionImports,
 } from "./instruction-composition.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
@@ -646,22 +647,26 @@ function resolveInstructionImportFromFile(specifier: string, importer: string): 
   }
 }
 
-export function resolveInstructionDocumentImports(content: string, file: string): string {
-  return resolveInstructionImports(content, {
+export async function resolveInstructionDocumentImports(content: string, file: string): Promise<string> {
+  return await resolveInstructionImports(content, {
     file,
     read: resolveInstructionImportFromFile,
   })
 }
 
-export function resolveColocatedAgentInstructionDocument(content: string, sourceRootDir: string | undefined): string {
+export async function resolveColocatedAgentInstructionDocument(content: string, sourceRootDir: string | undefined): Promise<string> {
   const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
   const path = getNodeBuiltin<typeof import("node:path")>("node:path")
   if (!fs || !path || !sourceRootDir || !hasColocatedAgentInstructions(sourceRootDir)) return content
-  return resolveInstructionDocumentImports(content, path.join(sourceRootDir, colocatedAgentInstructionsPath))
+  return await resolveInstructionDocumentImports(content, path.join(sourceRootDir, colocatedAgentInstructionsPath))
 }
 
-function composeInstructions(content: string, context?: AgentInvocationContextStore): string {
-  return composeInstructionDocument(content, { context: context?.toJSON() })
+async function composeInstructions(content: string, context?: AgentInvocationContextStore): Promise<string> {
+  return await composeInstructionDocument(content, { context: context?.toJSON() })
+}
+
+function cleanInstructions(content: string): string {
+  return content.trim().replace(/\n{3,}/g, "\n\n")
 }
 
 function localWorkspaceRoots<
@@ -876,7 +881,7 @@ function workspaceMetadataInstructions<
 ): string[] {
   const configuredInstructions = modelDriverInstructions(options)
   const defaultInstructions = shouldUseColocatedAgentInstructions(options)
-    ? readColocatedAgentInstructions(options)
+    ? readColocatedAgentInstructionsRaw(options)
     : undefined
   const parts = Array.isArray(configuredInstructions) ? configuredInstructions : [configuredInstructions]
   const instructions = parts.flatMap((part) => {
@@ -896,7 +901,7 @@ function workspaceMetadataInstructions<
     )],
     renderWorkspaceSourceInstructionBlock(workspaceDefinitionFromOptions(options).sources),
   )
-  const composed = composeInstructions(renderedInstructions.join("\n\n"))
+  const composed = composeStaticInstructionDocument(renderedInstructions.join("\n\n"))
   return composed ? [composed] : []
 }
 
@@ -917,7 +922,7 @@ function readLocalWorkspaceInstructions<
   }
 }
 
-function readColocatedAgentInstructions<
+function readColocatedAgentInstructionsRaw<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
 >(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): string | undefined {
@@ -926,7 +931,20 @@ function readColocatedAgentInstructions<
   const sourceRootDir = workspaceDefinitionFromOptions(options).sourceRootDir
   if (!fs || !path || !hasColocatedAgentInstructions(sourceRootDir)) return undefined
   const file = path.join(sourceRootDir!, colocatedAgentInstructionsPath)
-  const content = resolveColocatedAgentInstructionDocument(fs.readFileSync(file, "utf8"), sourceRootDir).trim()
+  const content = fs.readFileSync(file, "utf8").trim()
+  if (content) return content
+}
+
+async function readColocatedAgentInstructions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(options: WorkspaceAgentOptions<TRuntimeConfig, Name>): Promise<string | undefined> {
+  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
+  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  const sourceRootDir = workspaceDefinitionFromOptions(options).sourceRootDir
+  if (!fs || !path || !hasColocatedAgentInstructions(sourceRootDir)) return undefined
+  const file = path.join(sourceRootDir!, colocatedAgentInstructionsPath)
+  const content = (await resolveColocatedAgentInstructionDocument(fs.readFileSync(file, "utf8"), sourceRootDir)).trim()
   if (content) return content
 }
 
@@ -951,7 +969,7 @@ export async function resolveWorkspaceAgentDefaultInstructions<
   const path = getNodeBuiltin<typeof import("node:path")>("node:path")
   const sourceRootDir = definition.sourceRootDir
   if (fs && path && sourceRootDir && hasColocatedAgentInstructions(sourceRootDir)) {
-    return resolveColocatedAgentInstructionDocument(content, sourceRootDir)
+    return await resolveColocatedAgentInstructionDocument(content, sourceRootDir)
   }
   return content
 }
@@ -988,7 +1006,7 @@ async function resolveWorkspaceMetadataInstructions<
     [applyPassiveCapabilityInstructionSlots(baseInstructions.join("\n\n"), capabilityBlocks)],
     await resolveWorkspaceSourceInstructionBlock(sourceDefinition, workspace),
   )
-  const composed = composeInstructions(renderedInstructions.join("\n\n"), compositionContext)
+  const composed = await composeInstructions(renderedInstructions.join("\n\n"), compositionContext)
   return composed ? [composed] : []
 }
 

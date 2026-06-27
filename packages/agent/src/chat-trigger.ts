@@ -8,7 +8,7 @@ import type {
   AgentChatFinishExtension,
   AgentChatOptions,
   AgentChatPlatformResolver,
-  AgentChatWebhookRegistrationDefinition,
+  AgentChannelWebhookRegistrationDefinition,
   AgentInvocationContextStore,
   AgentRunMetadata,
   AgentRuntimeConfig,
@@ -140,7 +140,7 @@ function hasExplicitChatWebhook(options: AgentChatOptions, platform: string): bo
 
 function normalizeChatWebhookRegistrations(
   platform: string,
-  input: false | AgentChatWebhookRegistrationDefinition | AgentChatWebhookRegistrationDefinition[],
+  input: false | AgentChannelWebhookRegistrationDefinition | AgentChannelWebhookRegistrationDefinition[],
 ): AgentWebhookRegistrationDefinition[] {
   if (input === false) return []
   const defaults: Partial<AgentWebhookRegistrationDefinition> & { provider?: string } = isKnownChatWebhookPlatform(platform)
@@ -168,7 +168,7 @@ function explicitChatWebhookRegistrations(options: AgentChatOptions): AgentWebho
     .flatMap(([platform, input]) => normalizeChatWebhookRegistrations(platform, input))
 }
 
-export function chatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] | undefined {
+export function resolveChatWebhookRegistrations(options: AgentChatOptions): AgentWebhookRegistrationDefinition[] | undefined {
   const registrations = [...explicitChatWebhookRegistrations(options), ...inferredChatWebhookRegistrations(options)]
   return registrations.length ? registrations : undefined
 }
@@ -180,7 +180,7 @@ function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
     devtools: true,
     input: "ui-message[]",
     output: "ui-message-stream",
-    webhooks: chatWebhookRegistrations(options),
+    webhooks: resolveChatWebhookRegistrations(options),
     async invoke(_context, triggerInput) {
       const { hookArgs, input } = createChatMessageTriggerInput(options, triggerInput)
       const thinkingFallback = await resolveChatThinkingFallback(options, hookArgs)

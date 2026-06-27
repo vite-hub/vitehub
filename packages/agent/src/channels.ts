@@ -9,7 +9,7 @@ import type {
   AgentChannelDeliveryEffects,
   AgentChannelDeliveryFinishEffect,
   AgentDeliveryArtifact,
-  AgentChatWebhookRegistrationDefinition,
+  AgentChannelWebhookRegistrationDefinition,
   AgentFinishEvent,
   AgentRunInput,
   AgentTriggerDefinition,
@@ -1007,7 +1007,7 @@ function githubWebhookDefaults<TRuntimeConfig extends AgentRuntimeConfig>(
   }
   if (webhooks === undefined || webhooks === true) return defaults
   if (webhooks === false) return false
-  const apply = (webhook: AgentChatWebhookRegistrationDefinition<TRuntimeConfig>) => ({ ...defaults, ...webhook })
+  const apply = (webhook: AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>) => ({ ...defaults, ...webhook })
   return Array.isArray(webhooks) ? webhooks.map(apply) : apply(webhooks)
 }
 
@@ -1017,7 +1017,7 @@ function telegramWebhookDefaults<TRuntimeConfig extends AgentRuntimeConfig>(
   const defaults = { secretHeader: "x-telegram-bot-api-secret-token" }
   if (webhooks === undefined || webhooks === true) return defaults
   if (webhooks === false) return false
-  const apply = (webhook: AgentChatWebhookRegistrationDefinition<TRuntimeConfig>) => ({ ...defaults, ...webhook })
+  const apply = (webhook: AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>) => ({ ...defaults, ...webhook })
   return Array.isArray(webhooks) ? webhooks.map(apply) : apply(webhooks)
 }
 

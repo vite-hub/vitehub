@@ -223,6 +223,7 @@ Resolved Sources are evaluated at invocation time and default to lazy materializ
 ## Sync Sources
 
 Workspace Source Sync is an explicit Workspace lifecycle operation. It reconciles selected Source-Backed Paths into the Workspace Store when a Source Sync Policy allows it.
+Only Sources declared with `sync: true` or a sync policy participate in runtime `workspace.sync()`.
 
 ```ts [server/tasks/sync-docs.ts]
 import { useWorkspace } from '@vite-hub/workspace'

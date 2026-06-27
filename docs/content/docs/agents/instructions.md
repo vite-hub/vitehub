@@ -5,7 +5,7 @@ navigation.order: 24
 icon: i-lucide-scroll-text
 ---
 
-An instruction document is Markdown that ViteHub composes into model-facing instructions. Use it for durable behavior, trust boundaries, source-use policy, and uncertainty handling. Capabilities and Sources contribute their own instruction blocks when they own the guidance.
+An instruction document is Markdown parsed through Comark that ViteHub composes into model-facing instructions. Use it for durable behavior, trust boundaries, source-use policy, and uncertainty handling. Capabilities and Sources contribute their own instruction blocks when they own the guidance.
 
 Model Driver Instructions are the model-backed Agent Driver field that receives the composed document. ViteHub keeps that model-facing surface separate from harness and custom-run execution.
 
@@ -100,6 +100,8 @@ Keep the answer concise.
 ```
 
 Conditions use a small safe expression subset: `context.*` paths, string, number, boolean, and `null` literals, equality checks, `&&`, `||`, `!`, and parentheses. ViteHub rejects function calls, property access outside `context.*`, and other JavaScript.
+
+Use Comark attribute syntax such as `::if{condition="context.audience === 'technical'"}` when authoring new condition blocks. The shorter `::if{context.audience === 'technical'}` form remains supported.
 
 ## Place Capability slots
 

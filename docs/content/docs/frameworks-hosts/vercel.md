@@ -73,7 +73,7 @@ find .vercel/output -maxdepth 4 -type f | sort
 Vercel provider output should make provider-specific runtime packages reachable only when selected.
 If a build bundles an unselected provider dependency, treat that as a Provider Output Contract issue in the owning package.
 
-Agent Definitions can run on Vercel through the Agent Package's Vercel handler, or through generated host output where the Agent integration owns that route. Keep model keys, state credentials, and other Runtime Env in Vercel environment variables.
+Agent Definitions run on Vercel through generated host output where the Agent integration owns the route. Keep model keys, state credentials, and other Runtime Env in Vercel environment variables.
 
 ## Next steps
 

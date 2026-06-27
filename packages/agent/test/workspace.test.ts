@@ -1377,9 +1377,9 @@ describe("defineAgent workspace option", () => {
     await agent.run!(context())
 
     expect(agentSettings.at(-1)?.instructions).toBe([
-      "# Support\nImported policy.",
+      "# Support\n\nImported policy.",
       "Use technical detail for Acme.",
-      "## Runtime policy\nUse trusted runtime context.",
+      "## Runtime policy\n\nUse trusted runtime context.",
       "## Workspace Sources",
       "### docs\n\nUse docs for Acme.",
       "Capability note for Acme.",
@@ -1733,6 +1733,7 @@ describe("defineAgent workspace option", () => {
       "Answer from the workspace.",
       [
         "API-backed Sources you can inspect with curl:",
+        "",
         "- inventoryHealthSummary: read `.vitehub/sources/inventoryHealthSummary.json` before using curl.",
         "Use normal curl syntax that matches the descriptor.",
       ].join("\n"),
@@ -2930,6 +2931,24 @@ describe("defineAgent workspace option", () => {
         }),
       ]),
     })
+  })
+
+  it("composes static DevTools instruction metadata", async () => {
+    const { createAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {},
+      instructions: [
+        "::if{context.enabled}",
+        "Hidden.",
+        "::else",
+        "Answer from the workspace.",
+        "::",
+        "{{ context.missing }}",
+      ].join("\n"),
+      model: {} as never,
+    }), { workspace: "support" })
+
+    expect(createAgentDevtoolsMetadata(agent).instructions).toEqual(["Answer from the workspace."])
   })
 
   it("includes skill sources in DevTools file metadata", async () => {

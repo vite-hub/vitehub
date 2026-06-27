@@ -342,6 +342,79 @@ describe("hubWorkspace", () => {
     expect(pluginSource).not.toContain("configureCloudflareWorkspaceRuntime")
   })
 
+  it("emits Nitro runtime setup when the Nitro Vite plugin is installed", async () => {
+    const root = await createViteRoot()
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const config = plugin.config as (
+      config: { plugins?: unknown[], root: string },
+      env: { command: "serve", mode: string },
+    ) => Promise<{ nitro?: { plugins?: string[] } }>
+
+    await expect(config({
+      plugins: [{ name: "nitro:main" }],
+      root,
+    }, { command: "serve", mode: "development" })).resolves.toMatchObject({
+      nitro: {
+        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+      },
+    })
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    const registrySource = await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")
+    expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")
+    expect(registrySource).toContain('"docs": async () => {')
+  })
+
+  it("does not discover Nitro workspaces when workspace is disabled", async () => {
+    const root = await createViteRoot()
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
+
+    await expect(createWorkspaceNitroConfig({
+      viteRoot: root,
+      workspace: false,
+    })).resolves.toBe(null)
+    await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")).rejects.toThrow()
+  })
+
+  it("uses discovered source roots from generated Nitro workspace registries", async () => {
+    const testRoot = join(process.cwd(), "..", "..", ".vitest-tmp")
+    await mkdir(testRoot, { recursive: true })
+    const root = await mkdtemp(join(testRoot, "vitehub-workspace-nitro-source-root-"))
+    tempDirs.push(root)
+    await mkdir(join(root, "server", "workspaces", "sync"), { recursive: true })
+    await writeFile(join(root, "source.md"), "PROJECT_ROOT_FALLBACK_SHOULD_NOT_BE_READ\n")
+    await writeFile(join(root, "server", "workspaces", "sync", "source.md"), "COLOCATED_SOURCE_SYNC_OK\n")
+    await writeFile(join(root, "server", "workspaces", "sync", "config.ts"), [
+      `import { defineWorkspace, file } from "@vite-hub/workspace"`,
+      `export default defineWorkspace({`,
+      `  store: { provider: "memory" },`,
+      `  sources: {`,
+      `    colocated: file({ path: "source.md", workspacePath: "synced/source.md", sync: true }),`,
+      `  },`,
+      `})`,
+      ``,
+    ].join("\n"))
+
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
+    await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
+      plugins: [".vitehub/nitro/workspace/plugin.ts"],
+    })
+
+    const registry = (await import(`${pathToFileURL(join(root, ".vitehub", "nitro", "workspace", "registry.js")).href}?t=${Date.now()}`)).default
+    const { resetWorkspaceRegistry } = await import("../src/core/registry.ts")
+    const { setWorkspaceRuntimeRegistry, useWorkspace } = await import("../src/runtime.ts")
+    setWorkspaceRuntimeRegistry(registry)
+    try {
+      const workspace = useWorkspace("sync", { mode: "write" })
+      await workspace.sync({ sources: ["colocated"] })
+      await expect(workspace.fs.readFile("synced/source.md", { encoding: "utf8" })).resolves.toBe("COLOCATED_SOURCE_SYNC_OK\n")
+    }
+    finally {
+      resetWorkspaceRegistry()
+    }
+  })
+
   it("keeps generated workspace files in project ViteHub state when Vite root is app", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-app-root-"))
     tempDirs.push(root)

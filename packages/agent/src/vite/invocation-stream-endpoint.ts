@@ -2,7 +2,7 @@ import { existsSync, statSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/internal/runtime/state"
+import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
 
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
 import { streamAgentOutputToEvents } from "../agent-output.ts"

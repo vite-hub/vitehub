@@ -1,11 +1,14 @@
+import { delimiter, join } from "node:path"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { createDbCliContributor } from "../src/cli.ts"
 
 import type { ResolvedDBViteConfig } from "../src/types.ts"
 
-function cliContext(spawn: ReturnType<typeof vi.fn>) {
+function cliContext(spawn: ReturnType<typeof vi.fn>, env?: NodeJS.ProcessEnv) {
   return {
+    env,
     rootDir: "/repo",
     spawn,
     stderr: { write: vi.fn() },
@@ -29,18 +32,14 @@ describe("DB CLI contributor", () => {
 
     await expect(generate.run(["--name", "init"], cliContext(spawn))).resolves.toBe(0)
 
-    expect(spawn).toHaveBeenNthCalledWith(1, "pnpm", [
-      "exec",
-      "drizzle-kit",
+    expect(spawn).toHaveBeenNthCalledWith(1, "drizzle-kit", [
       "generate",
       "--config",
       ".vitehub/database/drizzle/analytics.config.ts",
       "--name",
       "init",
     ], expect.objectContaining({ cwd: "/repo" }))
-    expect(spawn).toHaveBeenNthCalledWith(2, "pnpm", [
-      "exec",
-      "drizzle-kit",
+    expect(spawn).toHaveBeenNthCalledWith(2, "drizzle-kit", [
       "generate",
       "--config",
       ".vitehub/database/drizzle/primary.config.ts",
@@ -64,12 +63,48 @@ describe("DB CLI contributor", () => {
     await expect(migrate.run([], cliContext(spawn))).resolves.toBe(0)
 
     expect(spawn).toHaveBeenCalledOnce()
-    expect(spawn).toHaveBeenCalledWith("pnpm", [
-      "exec",
-      "drizzle-kit",
+    expect(spawn).toHaveBeenCalledWith("drizzle-kit", [
       "migrate",
       "--config",
       ".vitehub/database/drizzle.config.ts",
     ], expect.objectContaining({ cwd: "/repo" }))
+  })
+
+  it("prepends the project bin directory for Drizzle Kit", async () => {
+    const spawn = vi.fn(async () => ({ exitCode: 0 }))
+    const contributor = createDbCliContributor()!
+    const generate = contributor.namespaces[0]!.features.find(feature => feature.name === "generate")!
+
+    await expect(generate.run([], cliContext(spawn, { PATH: "/usr/bin" }))).resolves.toBe(0)
+
+    expect(spawn).toHaveBeenCalledWith("drizzle-kit", [
+      "generate",
+      "--config",
+      ".vitehub/database/drizzle.config.ts",
+    ], expect.objectContaining({
+      cwd: "/repo",
+      env: expect.objectContaining({
+        PATH: [join("/repo", "node_modules", ".bin"), "/usr/bin"].join(delimiter),
+      }),
+    }))
+  })
+
+  it("preserves the current PATH when custom CLI env omits it", async () => {
+    const spawn = vi.fn(async () => ({ exitCode: 0 }))
+    const contributor = createDbCliContributor()!
+    const generate = contributor.namespaces[0]!.features.find(feature => feature.name === "generate")!
+
+    await expect(generate.run([], cliContext(spawn, { DATABASE_URL: "file:dev.db" }))).resolves.toBe(0)
+
+    expect(spawn).toHaveBeenCalledWith("drizzle-kit", [
+      "generate",
+      "--config",
+      ".vitehub/database/drizzle.config.ts",
+    ], expect.objectContaining({
+      env: expect.objectContaining({
+        DATABASE_URL: "file:dev.db",
+        PATH: [join("/repo", "node_modules", ".bin"), process.env.PATH].filter(Boolean).join(delimiter),
+      }),
+    }))
   })
 })

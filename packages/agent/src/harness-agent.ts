@@ -166,17 +166,17 @@ function selectedWorkspaceScopePaths(context: AgentAdapterRunContext): string[] 
   return paths.length ? paths : []
 }
 
-function composeHarnessInstructions(content: string, context: AgentAdapterRunContext) {
+async function composeHarnessInstructions(content: string, context: AgentAdapterRunContext) {
   const compositionContext = { context: context.context.toJSON() }
-  const baseInstructions = composeInstructionDocument(content, compositionContext)
-  return composeInstructionDocument(applyWorkspaceSourceInstructionSlot(
+  const baseInstructions = await composeInstructionDocument(content, compositionContext)
+  return await composeInstructionDocument(applyWorkspaceSourceInstructionSlot(
     applyCapabilityInstructionSlots(baseInstructions, context.capabilityInstructions),
     context.sourceInstructions,
   ), compositionContext)
 }
 
-function toHarnessCallInput(context: AgentAdapterRunContext) {
-  const instructions = composeHarnessInstructions(context.instructions || "", context)
+async function toHarnessCallInput(context: AgentAdapterRunContext) {
+  const instructions = await composeHarnessInstructions(context.instructions || "", context)
   const base = {
     abortSignal: context.input.abortSignal,
     ...(instructions ? { instructions } : {}),
@@ -282,7 +282,7 @@ async function resolveHarnessInstructions(context: AgentAdapterRunContext): Prom
   if (!hasHarnessInstructionDocument(context)) return
   if (!await context.workspace.fs.exists("AGENTS.md")) return
   const content = await context.workspace.fs.readFile("AGENTS.md")
-  const document = resolveColocatedAgentInstructionDocument(content, context.workspaceDefinition?.sourceRootDir)
+  const document = await resolveColocatedAgentInstructionDocument(content, context.workspaceDefinition?.sourceRootDir)
   return document ? composeHarnessInstructions(document, context) : undefined
 }
 
@@ -560,7 +560,7 @@ export function createHarnessAgentAdapter<
       const { agent, cleanup, session } = await createAgentAndSession(context)
       try {
         const result = defineAgentUsageMetadata(await agent.generate({
-          ...toHarnessCallInput(context),
+          ...await toHarnessCallInput(context),
           session,
         }), usageMetadata)
         await cleanup()
@@ -576,7 +576,7 @@ export function createHarnessAgentAdapter<
       const { agent, cleanup, session } = await createAgentAndSession(context)
       try {
         const result = defineAgentUsageMetadata(await agent.stream({
-          ...toHarnessCallInput(context),
+          ...await toHarnessCallInput(context),
           session,
         }), usageMetadata)
         return await withSessionCleanup(result, cleanup, context.input.abortSignal)

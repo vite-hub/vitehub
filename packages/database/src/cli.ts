@@ -1,9 +1,12 @@
+import { delimiter, join } from "node:path"
+
 import type { DBModulePublicOptions } from "./types.ts"
 import type { ResolvedDBViteConfig } from "./types.ts"
 
 import { isAbsolute, relative } from "pathe"
 
 interface ViteHubCliContext {
+  env?: NodeJS.ProcessEnv
   rootDir: string
   spawn: (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv, stderr?: "inherit" | "pipe", stdout?: "inherit" | "pipe" }) => Promise<{ exitCode: number | null }>
   stderr: { write: (chunk: string | Uint8Array) => unknown }
@@ -57,6 +60,15 @@ function toConfigPath(rootDir: string, file: string): string {
   return isAbsolute(file) ? relative(rootDir, file) || file : file
 }
 
+function withProjectBinPath(rootDir: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const pathKey = Object.keys(env).find(key => key.toLowerCase() === "path") || "PATH"
+  const processPathKey = Object.keys(process.env).find(key => key.toLowerCase() === "path") || "PATH"
+  return {
+    ...env,
+    [pathKey]: [join(rootDir, "node_modules", ".bin"), env[pathKey] ?? process.env[processPathKey]].filter(Boolean).join(delimiter),
+  }
+}
+
 async function runDrizzleKit(
   feature: "generate" | "migrate",
   args: string[],
@@ -82,8 +94,9 @@ async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: st
     configFile,
     ...forwardDrizzleArgs(args),
   ]
-  const result = await context.spawn("pnpm", ["exec", "drizzle-kit", ...drizzleArgs], {
+  const result = await context.spawn("drizzle-kit", drizzleArgs, {
     cwd: context.rootDir,
+    env: withProjectBinPath(context.rootDir, context.env),
     stderr: "inherit",
     stdout: "inherit",
   })
