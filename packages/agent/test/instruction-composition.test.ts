@@ -100,6 +100,18 @@ describe("instruction composition", () => {
     ].join("\n"))
   })
 
+  it("preserves trusted markdown bindings after punctuation", async () => {
+    expect(await composeInstructionDocument("Use ({{{ context.policy }}}).", {
+      context: { policy: "trusted policy" },
+    })).toBe("Use (trusted policy).")
+  })
+
+  it("preserves XML-style prompt tags as authored text", async () => {
+    expect(await composeInstructionDocument("<policy>Use {{ context.name }}.</policy>", {
+      context: { name: "Acme" },
+    })).toBe("<policy>Use Acme.</policy>")
+  })
+
   it("parses boolean chains without skipping the right side", async () => {
     expect(await composeInstructionDocument([
       "::if{context.enabled && context.customerName}",
@@ -184,6 +196,10 @@ describe("instruction composition", () => {
       .rejects.toThrow("must resolve to a scalar")
     await expect(composeInstructionDocument("::if{context.enabled}\nEnabled\n::else{condition=\"context.admin\"}\nFallback\n::"))
       .rejects.toThrow("else block does not accept a condition")
+    await expect(composeInstructionDocument("::if{context.enabled}\nEnabled"))
+      .rejects.toThrow("missing a closing")
+    await expect(composeInstructionDocument("::if{context.enabled}\nEnabled\n::else\nFallback\n::else-if{context.admin}\nAdmin\n::"))
+      .rejects.toThrow("else-if block cannot follow else")
     await expect(resolveInstructionImports("@https://example.com/policy.md", {
       file: "/agent/instructions.md",
       read: importReader(new Map()),

@@ -13,6 +13,7 @@ import {
 } from "./invoker.ts"
 import {
   composeInstructionDocument,
+  composeStaticInstructionDocument,
   resolveInstructionImports,
 } from "./instruction-composition.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
@@ -893,7 +894,7 @@ function workspaceMetadataInstructions<
     )],
     renderWorkspaceSourceInstructionBlock(workspaceDefinitionFromOptions(options).sources),
   )
-  const composed = cleanInstructions(renderedInstructions.join("\n\n"))
+  const composed = composeStaticInstructionDocument(renderedInstructions.join("\n\n"))
   return composed ? [composed] : []
 }
 

@@ -26,10 +26,16 @@ type ComarkElementAttributes = Record<string, unknown>
 type ComarkElement = [string, ComarkElementAttributes, ...ComarkNode[]]
 type ComarkComment = [null, ComarkElementAttributes, string]
 type ComarkNode = ComarkComment | ComarkElement | string
+interface ComposeInstructionState {
+  context: Record<string, unknown>
+  tripleBindings: string[]
+}
 
 const defaultImportDepth = 4
 const contextPathPattern = /context(?:\.[A-Za-z_$][\w$-]*)+/
 const tripleBindingPattern = /\{\{\{\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}\}/g
+const tripleBindingPlaceholderPattern = /%%VITEHUB_TRIPLE_BINDING_(\d+)%%/g
+const scalarBindingPattern = /\{\{(?!\{)\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}/g
 const comarkComponents = { Binding }
 const noLinkify = {
   markdownItPlugins: [(md: { disable: (rule: string) => unknown, set: (options: Record<string, unknown>) => unknown }) => {
@@ -49,16 +55,26 @@ export async function resolveInstructionImports(content: string, options: Resolv
 
 export async function composeInstructionDocument(content: string, options: ComposeInstructionDocumentOptions = {}): Promise<string> {
   const context = options.context || {}
-  const normalized = await normalizeTripleBindings(normalizeConditionShorthand(content))
-  const tree = await parseInstructionMarkdown(normalized, true)
-  const nodes = await composeNodes(tree.nodes, context)
+  const shorthand = normalizeConditionShorthand(content)
+  validateConditionalDirectives(shorthand)
+  const normalized = await normalizeTripleBindings(shorthand)
+  const tree = await parseInstructionMarkdown(normalized.content, true)
+  const nodes = await composeNodes(tree.nodes, { context, tripleBindings: normalized.tripleBindings })
   return cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: comarkComponents }))
+}
+
+export function composeStaticInstructionDocument(content: string, options: ComposeInstructionDocumentOptions = {}): string {
+  const context = options.context || {}
+  const normalized = normalizeConditionShorthand(content)
+  validateConditionalDirectives(normalized)
+  return renderStaticContextBindings(renderStaticConditionals(normalized, context), context).trim().replace(/\n{3,}/g, "\n\n")
 }
 
 async function parseInstructionMarkdown(content: string, bindings = false) {
   return await parse(content, {
     autoClose: false,
     autoUnwrap: false,
+    html: false,
     plugins: bindings ? [noLinkify, binding()] : [noLinkify],
   })
 }
@@ -170,11 +186,18 @@ function normalizeConditionShorthand(content: string): string {
   }).join("\n")
 }
 
-async function normalizeTripleBindings(content: string): Promise<string> {
+async function normalizeTripleBindings(content: string): Promise<{ content: string, tripleBindings: string[] }> {
+  const tripleBindings: string[] = []
   const tree = await parseInstructionMarkdown(content)
   const nodes = replaceTextOutsideCode(tree.nodes, value =>
-    value.replace(tripleBindingPattern, (_match, path: string) => `:vitehubTriple{path=${JSON.stringify(path)}}`))
-  return await renderMarkdown({ ...tree, nodes }, { components: comarkComponents })
+    value.replace(tripleBindingPattern, (_match, path: string) => {
+      const index = tripleBindings.push(path) - 1
+      return `%%VITEHUB_TRIPLE_BINDING_${index}%%`
+    }))
+  return {
+    content: await renderMarkdown({ ...tree, nodes }, { components: comarkComponents }),
+    tripleBindings,
+  }
 }
 
 function replaceTextOutsideCode(nodes: ComarkNode[], replace: (value: string) => string): ComarkNode[] {
@@ -189,30 +212,48 @@ function replaceTextOutsideCode(nodes: ComarkNode[], replace: (value: string) =>
 
 async function composeNodes(
   nodes: ComarkNode[],
-  context: Record<string, unknown>,
+  state: ComposeInstructionState,
   parent?: string,
 ): Promise<ComarkNode[]> {
-  return (await Promise.all(nodes.map(node => composeNode(node, context, parent)))).flat()
+  return (await Promise.all(nodes.map(node => composeNode(node, state, parent)))).flat()
 }
 
 async function composeNode(
   node: ComarkNode,
-  context: Record<string, unknown>,
+  state: ComposeInstructionState,
   parent?: string,
 ): Promise<ComarkNode[]> {
-  if (typeof node === "string" || !isElement(node)) return [node]
+  if (typeof node === "string") return await composeTextNode(node, state, parent)
+  if (!isElement(node)) return [node]
   const [tag, attrs, ...children] = node
 
-  if (tag === "if") return await composeIfNode(node, context)
+  if (tag === "if") return await composeIfNode(node, state)
   if (tag === "else" || tag === "else-if") {
     throw new Error(`[vitehub] Instruction ${tag} block must follow an if block.`)
   }
-  if (tag === "binding") return [renderBinding(attrs, context)]
+  if (tag === "binding") return [renderBinding(attrs, state.context)]
   if (tag === "vitehubTriple" || tag === "vitehub-triple") {
-    return await renderTripleBinding(attrs, context, parent)
+    return await renderTripleBinding(attrs, state.context, parent)
   }
   if (tag === "code") return [node]
-  return [[tag, attrs, ...(await composeNodes(children, context, tag))] as ComarkElement]
+  return [[tag, attrs, ...(await composeNodes(children, state, tag))] as ComarkElement]
+}
+
+async function composeTextNode(
+  value: string,
+  state: ComposeInstructionState,
+  parent?: string,
+): Promise<ComarkNode[]> {
+  const nodes: ComarkNode[] = []
+  let index = 0
+  for (const match of value.matchAll(tripleBindingPlaceholderPattern)) {
+    nodes.push(value.slice(index, match.index))
+    const path = state.tripleBindings[Number(match[1])]
+    nodes.push(...(path ? await renderTripleBindingPath(path, state.context, parent) : [match[0]]))
+    index = match.index + match[0].length
+  }
+  nodes.push(value.slice(index))
+  return nodes.filter(node => node !== "")
 }
 
 function renderBinding(attrs: Record<string, unknown>, context: Record<string, unknown>): ComarkNode {
@@ -231,6 +272,14 @@ async function renderTripleBinding(
 ): Promise<ComarkNode[]> {
   const path = attrs.path
   if (typeof path !== "string" || !path.startsWith("context.")) return []
+  return await renderTripleBindingPath(path, context, parent)
+}
+
+async function renderTripleBindingPath(
+  path: string,
+  context: Record<string, unknown>,
+  parent?: string,
+): Promise<ComarkNode[]> {
   const value = contextPathValue(context, path)
   if (value === null || value === undefined) return []
   if (typeof value !== "string") {
@@ -240,13 +289,13 @@ async function renderTripleBinding(
   return (await parseInstructionMarkdown(value)).nodes
 }
 
-async function composeIfNode(node: ComarkElement, context: Record<string, unknown>): Promise<ComarkNode[]> {
+async function composeIfNode(node: ComarkElement, state: ComposeInstructionState): Promise<ComarkNode[]> {
   const { after, branches } = conditionalBranches(node)
   const selected = branches.find(branch =>
-    branch.expression === undefined || evaluateCondition(branch.expression, context))
+    branch.expression === undefined || evaluateCondition(branch.expression, state.context))
   return [
-    ...(selected ? await composeNodes(selected.nodes, context) : []),
-    ...await composeNodes(after, context),
+    ...(selected ? await composeNodes(selected.nodes, state) : []),
+    ...await composeNodes(after, state),
   ]
 }
 
@@ -261,6 +310,9 @@ function conditionalBranches(node: ComarkElement): { after: ComarkNode[], branch
     }
     const expression = tag === "else" ? undefined : conditionExpressionFromAttrs(attrs, tag)
     const nextIndex = children.findIndex(child => isElement(child) && (child[0] === "else-if" || child[0] === "else"))
+    if (tag === "else" && nextIndex !== -1) {
+      throw new Error("[vitehub] Instruction else block cannot be followed by another branch.")
+    }
     branches.push({
       expression,
       nodes: nextIndex === -1 ? children : children.slice(0, nextIndex),
@@ -281,6 +333,141 @@ function conditionExpressionFromAttrs(attrs: Record<string, unknown>, kind: stri
     throw new Error(`[vitehub] Instruction ${kind} block requires a condition.`)
   }
   return expression.trim()
+}
+
+function validateConditionalDirectives(content: string): void {
+  const stack: Array<{ sawElse: boolean }> = []
+  let fenced: string | undefined
+
+  for (const line of content.split(/\r?\n/)) {
+    const fence = line.match(/^\s*(```|~~~)/)?.[1]
+    if (fence) {
+      fenced = fenced === fence ? undefined : fence
+      continue
+    }
+    if (fenced) continue
+    if (/^\s*::\s*$/.test(line)) {
+      stack.pop()
+      continue
+    }
+
+    const directive = directiveLine(line)
+    if (!directive) continue
+    if (directive.kind === "if") {
+      stack.push({ sawElse: false })
+      continue
+    }
+
+    const current = stack.at(-1)
+    if (!current) {
+      throw new Error(`[vitehub] Instruction ${directive.kind} block must follow an if block.`)
+    }
+    if (directive.kind === "else-if") {
+      if (current.sawElse) throw new Error("[vitehub] Instruction else-if block cannot follow else.")
+      continue
+    }
+    if (directive.raw?.trim()) {
+      throw new Error("[vitehub] Instruction else block does not accept a condition.")
+    }
+    if (current.sawElse) throw new Error("[vitehub] Instruction if chain cannot contain more than one else block.")
+    current.sawElse = true
+  }
+
+  if (stack.length) throw new Error("[vitehub] Instruction if block is missing a closing :: line.")
+}
+
+function renderStaticConditionals(content: string, context: Record<string, unknown>): string {
+  const lines = content.split(/\r?\n/)
+  const rendered: string[] = []
+  for (let index = 0; index < lines.length;) {
+    const line = lines[index]!
+    const directive = directiveLine(line)
+    if (directive?.kind === "if") {
+      const result = renderStaticIfChain(lines, index, directive.expression, context)
+      rendered.push(result.content)
+      index = result.next
+      continue
+    }
+    if (directive?.kind === "else" || directive?.kind === "else-if") {
+      throw new Error(`[vitehub] Instruction ${directive.kind} block must follow an if block.`)
+    }
+    rendered.push(line)
+    index += 1
+  }
+  return rendered.join("\n")
+}
+
+function renderStaticIfChain(
+  lines: string[],
+  start: number,
+  expression: string | undefined,
+  context: Record<string, unknown>,
+): { content: string, next: number } {
+  const branches: Array<{ expression?: string, lines: string[] }> = [{ expression, lines: [] }]
+  let depth = 0
+  let sawElse = false
+
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index]!
+    const directive = directiveLine(line)
+
+    if (directive?.kind === "if") {
+      depth += 1
+      branches.at(-1)!.lines.push(line)
+      continue
+    }
+    if (isDirectiveClose(line)) {
+      if (depth > 0) {
+        depth -= 1
+        branches.at(-1)!.lines.push(line)
+        continue
+      }
+      const selected = branches.find(branch =>
+        branch.expression === undefined || evaluateCondition(branch.expression, context))
+      return {
+        content: selected ? renderStaticConditionals(selected.lines.join("\n"), context) : "",
+        next: index + 1,
+      }
+    }
+    if (depth === 0 && directive?.kind === "else-if") {
+      if (sawElse) throw new Error("[vitehub] Instruction else-if block cannot follow else.")
+      branches.push({ expression: directive.expression, lines: [] })
+      continue
+    }
+    if (depth === 0 && directive?.kind === "else") {
+      if (sawElse) throw new Error("[vitehub] Instruction if chain cannot contain more than one else block.")
+      sawElse = true
+      branches.push({ lines: [] })
+      continue
+    }
+    branches.at(-1)!.lines.push(line)
+  }
+
+  throw new Error("[vitehub] Instruction if block is missing a closing :: line.")
+}
+
+function directiveLine(line: string): { expression?: string, kind: "else" | "else-if" | "if", raw?: string } | undefined {
+  const match = line.match(/^\s*::(if|else-if|else)(?:\{(.+)\})?\s*$/)
+  if (!match) return
+  const kind = match[1] as "else" | "else-if" | "if"
+  if (kind === "else") {
+    if (match[2]?.trim()) throw new Error("[vitehub] Instruction else block does not accept a condition.")
+    return { kind, raw: match[2] }
+  }
+  const expression = conditionExpression(match[2])
+  if (!expression) throw new Error(`[vitehub] Instruction ${kind} block requires a condition.`)
+  return { expression, kind, raw: match[2] }
+}
+
+function isDirectiveClose(line: string): boolean {
+  return /^\s*::\s*$/.test(line)
+}
+
+function conditionExpression(raw: string | undefined): string | undefined {
+  const value = raw?.trim()
+  if (!value) return
+  const attr = value.match(/^(?:if|condition)\s*=\s*(["'])([\s\S]*)\1$/)
+  return (attr ? attr[2] : value).trim()
 }
 
 function evaluateCondition(expression: string, context: Record<string, unknown>): boolean {
@@ -423,4 +610,22 @@ function nestedPathValue(value: unknown, segments: string[]): unknown {
     current = (current as Record<string, unknown>)[segment]
   }
   return current
+}
+
+function renderStaticContextBindings(content: string, context: Record<string, unknown>): string {
+  return content
+    .replace(tripleBindingPattern, (_match, path: string) => {
+      const value = contextPathValue(context, path)
+      if (value === null || value === undefined) return ""
+      if (typeof value !== "string") {
+        throw new TypeError(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" must resolve to a string.`)
+      }
+      return value
+    })
+    .replace(scalarBindingPattern, (_match, path: string) => {
+      const value = contextPathValue(context, path)
+      if (value === null || value === undefined) return ""
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value)
+      throw new TypeError(`[vitehub] Instruction binding "{{ ${path} }}" must resolve to a scalar value.`)
+    })
 }
