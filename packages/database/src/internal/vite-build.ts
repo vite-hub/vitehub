@@ -274,10 +274,30 @@ function shouldCreateCloudflareOutput(runtimeConfig: ResolvedDBViteConfig, provi
   return getCloudflareUnsupportedDatabases(runtimeConfig, provisionState).length === 0
 }
 
+function getSupportedProviderRuntimeModules(
+  artifacts: GeneratedDBArtifacts,
+  runtimeConfig: ResolvedDBViteConfig,
+  provisionState: ProvisionState,
+): Record<string, string> {
+  return {
+    ...(shouldCreateCloudflareOutput(runtimeConfig, provisionState) ? { cloudflare: artifacts.runtimeModuleFiles.cloudflare } : {}),
+    ...(shouldCreateVercelOutput(runtimeConfig) ? { vercel: artifacts.runtimeModuleFiles.vercel } : {}),
+  }
+}
+
+function registerSupportedProviderRuntimeModules(
+  providerOutput: ComposedProviderOutput | undefined,
+  artifacts: GeneratedDBArtifacts,
+  runtimeConfig: ResolvedDBViteConfig,
+  provisionState: ProvisionState,
+): void {
+  registerProviderRuntimeModules(providerOutput, productName, getSupportedProviderRuntimeModules(artifacts, runtimeConfig, provisionState))
+}
+
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedDBArtifacts> {
   const artifacts = options.artifacts ?? await prepareProviderOutputs(options)
-  registerProviderRuntimeModules(options.providerOutput, productName, artifacts.runtimeModuleFiles)
   const provisionState = readProvisionStateSync(options.rootDir)
+  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.runtimeConfig, provisionState)
   const writeOptions: ProviderWriteOptions = { artifacts, provisionState, ...options }
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
@@ -293,6 +313,6 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
 
 export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "providerOutput" | "rootDir" | "runtimeConfig">): Promise<GeneratedDBArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.runtimeConfig)
-  registerProviderRuntimeModules(options.providerOutput, productName, artifacts.runtimeModuleFiles)
+  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.runtimeConfig, readProvisionStateSync(options.rootDir))
   return artifacts
 }

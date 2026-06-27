@@ -5,6 +5,11 @@ import { dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { afterAll, describe, expect, it } from "vitest"
+import { getProviderRuntimeModule, type ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
+
+import { prepareProviderOutputs as prepareDatabaseProviderOutputs } from "../src/internal/vite-build.ts"
+
+import type { ResolvedDBViteConfig } from "../src/types.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -101,6 +106,31 @@ async function createDbBuildProject(prefix: string) {
     ].join("\n"),
   })
   return rootDir
+}
+
+function createRuntimeConfig(rootDir: string, database: Record<string, unknown>): ResolvedDBViteConfig {
+  return {
+    databaseNames: ["primary"],
+    databases: {
+      primary: {
+        connection: {},
+        drizzle: {},
+        migrationsDir: "server/databases/primary/migrations",
+        ...database,
+      },
+    },
+    definitions: [{
+      handler: join(rootDir, "server", "databases", "primary", "config.ts"),
+      name: "primary",
+    }],
+    generatedConfigFile: join(rootDir, ".vitehub", "database", "drizzle.config.ts"),
+    generatedConfigFiles: [],
+    generatedConfigFilesByDatabase: {},
+    generatedSchemaFile: join(rootDir, ".vitehub", "database", "schema.ts"),
+    generatedSchemaFilesByDatabase: {
+      primary: join(rootDir, ".vitehub", "database", "primary-schema.ts"),
+    },
+  } as unknown as ResolvedDBViteConfig
 }
 
 async function createDbBlobBuildProject(prefix: string, plugins: string) {
@@ -225,6 +255,26 @@ afterAll(async () => {
 })
 
 describe("Vite db provider outputs", () => {
+  it("does not register unsupported Vercel database runtimes for composed sibling output", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-db-vite-vercel-registry-")
+    const providerOutput = { runtimeModuleFilesByProduct: {} } satisfies ComposedProviderOutput
+
+    await prepareDatabaseProviderOutputs({
+      providerOutput,
+      rootDir,
+      runtimeConfig: createRuntimeConfig(rootDir, {
+        cloudflare: {
+          binding: "DB_PRIMARY",
+          databaseId: "primary-d1-id",
+          databaseName: "primary",
+        },
+      }),
+    })
+
+    expect(getProviderRuntimeModule(providerOutput, "database", "cloudflare")).toContain("cloudflare-runtime.mjs")
+    expect(getProviderRuntimeModule(providerOutput, "database", "vercel")).toBeUndefined()
+  })
+
   it("composes direct Blob and Database provider output in either plugin order", async () => {
     for (const [label, plugins] of [
       ["blob-db", "hubBlob({ driver: 'cloudflare-r2', bucketName: 'assets' }), hubDb()"],

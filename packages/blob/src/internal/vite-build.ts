@@ -347,10 +347,22 @@ function hasExplicitFsStore(blob: BlobModuleOptions | ResolvedBlobModuleOptions 
   return "driver" in blob && blob.driver === "fs"
 }
 
+function shouldCreateProviderOutput(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined) {
+  return !hasExplicitFsStore(blob)
+}
+
+function registerSupportedProviderRuntimeModules(
+  providerOutput: ComposedProviderOutput | undefined,
+  artifacts: GeneratedBlobArtifacts,
+  blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined,
+): void {
+  registerProviderRuntimeModules(providerOutput, productName, shouldCreateProviderOutput(blob) ? artifacts.runtimeModuleFiles : {})
+}
+
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedBlobArtifacts> {
   const artifacts = options.artifacts ?? await prepareProviderOutputs(options)
-  registerProviderRuntimeModules(options.providerOutput, productName, artifacts.runtimeModuleFiles)
-  const localOnly = hasExplicitFsStore(options.blob)
+  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.blob)
+  const localOnly = !shouldCreateProviderOutput(options.blob)
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
     cloudflare: localOnly ? undefined : createCloudflareOutput(options.blob, artifacts, options.providerOutput),
@@ -362,6 +374,6 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
 
 export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "blob" | "providerOutput" | "rootDir">): Promise<GeneratedBlobArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.blob)
-  registerProviderRuntimeModules(options.providerOutput, productName, artifacts.runtimeModuleFiles)
+  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.blob)
   return artifacts
 }
