@@ -157,9 +157,15 @@ describe("instruction composition", () => {
   it("throws when instruction bindings are missing", async () => {
     await expect(composeInstructionDocument("Hello {{ context.doesNotExist }}."))
       .rejects.toThrow("Instruction binding \"{{ context.doesNotExist }}\" is not defined")
+    await expect(composeInstructionDocument("{{ context.customerName }}", { context: { customerName: null } }))
+      .rejects.toThrow("Instruction binding \"{{ context.customerName }}\" is not defined")
     await expect(composeInstructionDocument("{{ workspace.tone }}"))
       .rejects.toThrow("Instruction binding \"{{ workspace.tone }}\" is not defined")
+    await expect(composeInstructionDocument("{{ workspace.tone }}", { workspace: { tone: null } }))
+      .rejects.toThrow("Instruction binding \"{{ workspace.tone }}\" is not defined")
     await expect(composeInstructionDocument("{{{ context.policy }}}"))
+      .rejects.toThrow("Instruction markdown binding \"{{{ context.policy }}}\" is not defined")
+    await expect(composeInstructionDocument("{{{ context.policy }}}", { context: { policy: null } }))
       .rejects.toThrow("Instruction markdown binding \"{{{ context.policy }}}\" is not defined")
   })
 
