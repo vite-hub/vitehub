@@ -2,7 +2,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises"
 import { relative, resolve } from "node:path"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
-import { createDefaultCloudflareOutputRoot, createDefaultVercelOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { createDefaultVercelOutputRoot, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { bundleEsmEntry } from "@vite-hub/internal/build/esbuild"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg, toGeneratedPath } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
@@ -265,14 +265,6 @@ function createVercelOutput(artifacts: GeneratedQueueArtifacts): VercelProviderD
   }
 }
 
-async function cleanupCloudflareOutput(rootDir: string) {
-  const outputRoot = createDefaultCloudflareOutputRoot(rootDir)
-  await Promise.all([
-    rm(resolve(outputRoot, "index.js"), { force: true, recursive: true }),
-    rm(resolve(outputRoot, "wrangler.json"), { force: true, recursive: true }),
-  ])
-}
-
 async function writeVercelQueueFunctions(rootDir: string, queue: QueueModuleOptions | undefined, artifacts: GeneratedQueueArtifacts) {
   const outputRoot = createDefaultVercelOutputRoot(rootDir)
   const queueRoot = resolve(outputRoot, "functions", "api", "vitehub", "queues", "vercel")
@@ -320,11 +312,20 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   const createCloudflare = shouldCreateCloudflareOutput(options.queue)
   const createVercel = shouldCreateVercelOutput(options.queue)
   if (!createCloudflare && createVercel) {
-    await cleanupCloudflareOutput(options.rootDir)
+    await writeProviderDeploymentOutputs({
+      cleanup: {
+        cloudflare: { wranglerConfigKeys: ["queues"] },
+      },
+      clientOutDir: options.clientOutDir,
+      rootDir: options.rootDir,
+    })
   }
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
     cloudflare: createCloudflare ? createCloudflareOutput(artifacts) : undefined,
+    cleanup: {
+      vercel: { serverFunctionName: "__server.func" },
+    },
     rootDir: options.rootDir,
     vercel: createVercel ? createVercelOutput(artifacts) : undefined,
   })

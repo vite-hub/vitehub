@@ -125,7 +125,12 @@ describe("Vite provider outputs", () => {
     await mkdir(cloudflareOutputRoot, { recursive: true })
     await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
     await writeFile(join(rootDir, "dist", "index.html"), "<!doctype html><title>vitehub</title>\n", "utf8")
-    await writeFile(join(cloudflareOutputRoot, "wrangler.json"), "{}\n", "utf8")
+    await writeFile(join(cloudflareOutputRoot, "wrangler.json"), `${JSON.stringify({
+      queues: {
+        consumers: [{ queue: "stale" }],
+        producers: [{ binding: "STALE_QUEUE", queue: "stale" }],
+      },
+    }, null, 2)}\n`, "utf8")
 
     await generateProviderOutputs({
       clientOutDir: "dist",
@@ -135,9 +140,37 @@ describe("Vite provider outputs", () => {
 
     expect(await readFile(join(rootDir, ".vercel", "output", "static", "index.html"), "utf8")).toContain("<title>vitehub</title>")
     expect(existsSync(join(rootDir, ".vitehub", "queue", "cloudflare-worker.mjs"))).toBe(false)
+    expect(existsSync(join(cloudflareOutputRoot, "wrangler.json"))).toBe(false)
     expect(existsSync(staleWranglerStaticPath)).toBe(false)
     const vercelServerContents = await readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
     expect(vercelServerContents).toContain("globalThis.__vitehubVercelQueue =")
+  })
+
+  it("preserves shared Cloudflare output during Vercel queue cleanup", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-shared-cloudflare-")
+    const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await mkdir(cloudflareOutputRoot, { recursive: true })
+    await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "dist", "index.html"), "<!doctype html><title>vitehub</title>\n", "utf8")
+    await writeFile(join(cloudflareOutputRoot, "wrangler.json"), `${JSON.stringify({
+      queues: {
+        consumers: [{ queue: "stale" }],
+        producers: [{ binding: "STALE_QUEUE", queue: "stale" }],
+      },
+      triggers: { crons: ["0 0 * * *"] },
+    }, null, 2)}\n`, "utf8")
+
+    await generateProviderOutputs({
+      clientOutDir: "dist",
+      queue: { provider: "vercel" },
+      rootDir,
+    })
+
+    await expect(readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      triggers: { crons: ["0 0 * * *"] },
+    })
   })
 
   it("does not preload Vercel queue without queue definitions", async () => {
@@ -176,10 +209,16 @@ describe("Vite provider outputs", () => {
 
   it("does not preload or emit Vercel output for a non-Vercel queue provider", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-queue-vite-cloudflare-provider-")
+    const staleVercelServer = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
+    const staleVercelConsumer = join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "stale", "stale.func", "index.mjs")
     await mkdir(join(rootDir, "src"), { recursive: true })
     await mkdir(join(rootDir, "dist"), { recursive: true })
+    await mkdir(join(rootDir, ".vercel", "output", "functions", "__server.func"), { recursive: true })
+    await mkdir(join(rootDir, ".vercel", "output", "functions", "api", "vitehub", "queues", "vercel", "stale", "stale.func"), { recursive: true })
     await writeFile(join(rootDir, "src", "welcome.queue.ts"), "export default null\n", "utf8")
     await writeFile(join(rootDir, "dist", "index.html"), "<!doctype html><title>vitehub</title>\n", "utf8")
+    await writeFile(staleVercelServer, "import '@vercel/queue'\n", "utf8")
+    await writeFile(staleVercelConsumer, "import '@vercel/queue'\n", "utf8")
 
     await generateProviderOutputs({
       clientOutDir: "dist",
