@@ -289,6 +289,44 @@ describe("agent CLI", () => {
     }
   })
 
+  it("keeps payload-only chat runs interactive unless messages are in the payload", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-payload-interactive-"))
+    const stdin = process.stdin as { isTTY?: boolean }
+    const originalIsTTY = process.stdin.isTTY
+    stdin.isTTY = false
+    try {
+      const payloadPath = join(rootDir, "payload.json")
+      await writeFile(payloadPath, JSON.stringify({
+        meta: { audience: "technical" },
+        user: { id: "dev_1" },
+      }), "utf8")
+      const stderr = stream()
+      const stdout = stream()
+      const fetchAgentStream = vi.fn(async () => Response.json({
+        agents: [{ name: "support", triggers: ["chat.message"] }],
+        root: rootDir,
+      }))
+
+      const exitCode = await runAgentDevCli(["--agent", "support", "--payload", "payload.json"], {
+        cwd: rootDir,
+        env: {},
+        rootDir,
+        spawn: vi.fn(),
+        stderr,
+        stdout,
+      }, { fetch: fetchAgentStream as never })
+
+      expect(exitCode).toBe(1)
+      expect(stdout.output()).toBe(`Loaded payload: ${payloadPath}\n`)
+      expect(stderr.output()).toBe("Pass a message or run in an interactive terminal.\n")
+      expect(fetchAgentStream).toHaveBeenCalledTimes(1)
+    }
+    finally {
+      stdin.isTTY = originalIsTTY
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("rejects non-object Agent Dev Loop payload files", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-payload-"))
     try {

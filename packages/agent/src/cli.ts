@@ -923,7 +923,11 @@ export async function runAgentDevCli(
   const target = await readDiscovery(parsed, context, fetchImpl)
   if (!target) return 1
 
-  if (parsed.message || parsed.payload) {
+  const payloadStartsInvocation = parsed.payload && (
+    parsed.trigger && parsed.trigger !== "chat.message"
+    || Array.isArray(parsed.payload.messages) && parsed.payload.messages.length > 0
+  )
+  if (parsed.message || payloadStartsInvocation) {
     return await sendDevMessage(target.url, target.agent, parsed.message || "", [], parsed, context, fetchImpl, new AbortController().signal) ? 0 : 1
   }
   if (!process.stdin.isTTY) {
