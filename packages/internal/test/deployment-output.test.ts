@@ -167,6 +167,17 @@ describe("provider deployment outputs", () => {
       ],
       triggers: { crons: ["0 0 * * *"] },
     })
+
+    await writeCloudflareWranglerConfig({
+      rootDir,
+      wranglerArrayMergeKeys: { kv_namespaces: "binding" },
+      wranglerArrayOwnedValues: { kv_namespaces: ["SETTINGS"] },
+    })
+
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      kv_namespaces: [{ binding: "MANUAL", id: "manual-namespace" }],
+      triggers: { crons: ["0 0 * * *"] },
+    })
   })
 
   it("preserves sibling Vercel functions and config keys", async () => {

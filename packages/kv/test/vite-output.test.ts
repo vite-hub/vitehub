@@ -10,6 +10,7 @@ import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/clou
 
 const tempDirs: string[] = []
 const execFileAsync = promisify(execFile)
+const kvBindingsFile = ".vitehub-kv-bindings.json"
 
 async function createConsumerRoot() {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-kv-vite-"))
@@ -232,6 +233,95 @@ describe("KV Vite output", () => {
       kv_namespaces: [{ binding: "MANUAL", id: "manual-namespace" }],
       triggers: { crons: ["0 0 * * *"] },
     })
+  })
+
+  it("replaces stale generated Cloudflare KV namespaces without deleting manual bindings", async () => {
+    const rootDir = await createConsumerRoot()
+    const entry = join(rootDir, "src", "worker.ts")
+    const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareOutputRoot, { recursive: true })
+    await writeFile(join(cloudflareOutputRoot, "wrangler.json"), `${JSON.stringify({
+      kv_namespaces: [
+        { binding: "MANUAL", id: "manual-namespace" },
+        { binding: "OLD", id: "old-namespace" },
+      ],
+    }, null, 2)}\n`, "utf8")
+    await writeFile(join(cloudflareOutputRoot, kvBindingsFile), `${JSON.stringify(["OLD"], null, 2)}\n`, "utf8")
+    const [{ build }, { hubKv }] = await Promise.all([
+      import("vite"),
+      import("../src/vite.ts"),
+    ])
+
+    await build({
+      appType: "custom",
+      build: {
+        emptyOutDir: false,
+        outDir: "dist",
+        rollupOptions: {
+          input: entry,
+          output: { entryFileNames: "worker.js" },
+        },
+        ssr: entry,
+      },
+      configFile: false,
+      kv: {
+        binding: "NEW",
+        driver: "cloudflare-kv-binding",
+        namespaceId: "new-namespace",
+      },
+      logLevel: "silent",
+      plugins: [hubKv()],
+      root: rootDir,
+    })
+
+    const wrangler = JSON.parse(await readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8"))
+
+    expect(wrangler.kv_namespaces).toEqual([
+      { binding: "MANUAL", id: "manual-namespace" },
+      { binding: "NEW", id: "new-namespace" },
+    ])
+    await expect(readFile(join(cloudflareOutputRoot, kvBindingsFile), "utf8").then(JSON.parse)).resolves.toEqual(["NEW"])
+  })
+
+  it("removes stale generated Cloudflare KV namespaces when KV stops contributing", async () => {
+    const rootDir = await createConsumerRoot()
+    const entry = join(rootDir, "src", "worker.ts")
+    const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareOutputRoot, { recursive: true })
+    await writeFile(join(cloudflareOutputRoot, "wrangler.json"), `${JSON.stringify({
+      kv_namespaces: [
+        { binding: "MANUAL", id: "manual-namespace" },
+        { binding: "OLD", id: "old-namespace" },
+      ],
+    }, null, 2)}\n`, "utf8")
+    await writeFile(join(cloudflareOutputRoot, kvBindingsFile), `${JSON.stringify(["OLD"], null, 2)}\n`, "utf8")
+    const [{ build }, { hubKv }] = await Promise.all([
+      import("vite"),
+      import("../src/vite.ts"),
+    ])
+
+    await build({
+      appType: "custom",
+      build: {
+        emptyOutDir: false,
+        outDir: "dist",
+        rollupOptions: {
+          input: entry,
+          output: { entryFileNames: "worker.js" },
+        },
+        ssr: entry,
+      },
+      configFile: false,
+      kv: { driver: "fs-lite" },
+      logLevel: "silent",
+      plugins: [hubKv()],
+      root: rootDir,
+    })
+
+    const wrangler = JSON.parse(await readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8"))
+
+    expect(wrangler.kv_namespaces).toEqual([{ binding: "MANUAL", id: "manual-namespace" }])
+    expect(existsSync(join(cloudflareOutputRoot, kvBindingsFile))).toBe(false)
   })
 })
 

@@ -6,6 +6,7 @@ import { toSafeAppName } from "./user-entry.ts"
 export const defaultCloudflareCompatibilityDate = "2026-04-20"
 
 interface CloudflareWranglerConfigOptions {
+  wranglerArrayOwnedValues?: Record<string, unknown[]>
   outputRoot?: string
   rootDir: string
   wranglerArrayMergeKeys?: Record<string, string>
@@ -45,22 +46,32 @@ function mergeJsonObjectArrays(
   existing: Record<string, unknown>,
   value: Record<string, unknown>,
   arrayMergeKeys: Record<string, string> | undefined,
+  arrayOwnedValues: Record<string, unknown[]> | undefined,
 ): Record<string, unknown> {
   if (!arrayMergeKeys) return value
   const next = { ...value }
   for (const [field, key] of Object.entries(arrayMergeKeys)) {
-    const incoming = value[field]
-    if (!Array.isArray(incoming)) continue
     const current = existing[field]
-    if (!Array.isArray(current)) continue
+    const incoming = value[field]
+    const currentArray = Array.isArray(current) ? current : []
+    const incomingArray = Array.isArray(incoming) ? incoming : []
+    const ownedValues = new Set(arrayOwnedValues?.[field] ?? [])
+    if (!currentArray.length && !incomingArray.length) continue
+
     const incomingKeys = new Set<unknown>()
-    for (const item of incoming) {
+    for (const item of incomingArray) {
       if (isJsonObject(item) && item[key] !== undefined) incomingKeys.add(item[key])
     }
-    next[field] = [
-      ...current.filter(item => !isJsonObject(item) || !incomingKeys.has(item[key])),
-      ...incoming,
+    const removedKeys = new Set([...ownedValues, ...incomingKeys])
+    const merged = [
+      ...currentArray.filter(item => !isJsonObject(item) || !removedKeys.has(item[key])),
+      ...incomingArray,
     ]
+    if (!merged.length) {
+      delete next[field]
+      continue
+    }
+    next[field] = merged
   }
   return next
 }
@@ -70,9 +81,18 @@ async function writeMergedJsonObject(
   value: object,
   ownedKeys?: string[],
   arrayMergeKeys?: Record<string, string>,
+  arrayOwnedValues?: Record<string, unknown[]>,
 ): Promise<void> {
   const existing = await readJsonObject(file)
-  const next = { ...deleteJsonObjectKeys(existing, ownedKeys), ...mergeJsonObjectArrays(existing, value as Record<string, unknown>, arrayMergeKeys) }
+  const ownedTopLevelKeys = [...(ownedKeys ?? []), ...Object.keys(arrayMergeKeys ?? {})]
+  const next = {
+    ...deleteJsonObjectKeys(existing, ownedTopLevelKeys),
+    ...mergeJsonObjectArrays(existing, value as Record<string, unknown>, arrayMergeKeys, arrayOwnedValues),
+  }
+  if (!Object.keys(next).length) {
+    await rm(file, { force: true })
+    return
+  }
   await writeFile(file, `${JSON.stringify(next, null, 2)}\n`, "utf8")
 }
 
@@ -107,10 +127,21 @@ export async function writeCloudflareWranglerConfig(options: CloudflareWranglerC
   const outputRoot = options.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir)
   const configFile = resolve(outputRoot, "wrangler.json")
   if (!options.wranglerConfig) {
+    if (options.wranglerArrayOwnedValues && options.wranglerArrayMergeKeys) {
+      await mkdir(outputRoot, { recursive: true })
+      await writeMergedJsonObject(configFile, {}, options.wranglerConfigKeys, options.wranglerArrayMergeKeys, options.wranglerArrayOwnedValues)
+      return
+    }
     await deleteJsonObjectKeysFromFile(configFile, options.wranglerConfigKeys)
     return
   }
 
   await mkdir(outputRoot, { recursive: true })
-  await writeMergedJsonObject(configFile, options.wranglerConfig, options.wranglerConfigKeys, options.wranglerArrayMergeKeys)
+  await writeMergedJsonObject(
+    configFile,
+    options.wranglerConfig,
+    options.wranglerConfigKeys,
+    options.wranglerArrayMergeKeys,
+    options.wranglerArrayOwnedValues,
+  )
 }
