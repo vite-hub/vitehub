@@ -17,6 +17,7 @@ import type { Plugin } from "esbuild"
 import type { DiscoveredScheduleDefinition } from "../types.ts"
 
 export const schedulePackageName = "@vite-hub/schedule"
+const scheduleStaticRuntimeImport = "@vite-hub/vite/schedule/runtime/static"
 const productName = "schedule"
 const denoCronFileName = "deno-cron.mjs"
 const generatedRegistryFileName = "registry.mjs"
@@ -527,7 +528,7 @@ function renderDenoCronEntry(file: string, registryFile: string, crons: Map<stri
   const scheduleCrons = Object.fromEntries([...crons.entries()].sort(([left], [right]) => left.localeCompare(right)))
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { executeStaticSchedule } from "@vite-hub/schedule/runtime/static"`,
+    `import { executeStaticSchedule } from ${JSON.stringify(scheduleStaticRuntimeImport)}`,
     "",
     `const scheduleCrons = ${JSON.stringify(scheduleCrons, null, 2)}`,
     "",

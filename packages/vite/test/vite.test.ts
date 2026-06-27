@@ -13,6 +13,7 @@ vi.mock("@vite-hub/database/vite", () => ({ hubDb: () => ({ name: "@vite-hub/dat
 vi.mock("@vite-hub/devtools", () => ({ hubDevtools: () => ({ name: "@vite-hub/devtools" }) }))
 vi.mock("@vite-hub/env/vite", () => ({ env: "env-helper", hubEnv: () => ({ name: "@vite-hub/env/vite" }) }))
 vi.mock("@vite-hub/kv/vite", () => ({ hubKv: () => ({ name: "@vite-hub/kv/vite" }) }))
+vi.mock("@vite-hub/queue", () => ({ defineQueue: "define-queue" }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: queueMocks.hubQueue }))
 vi.mock("@vite-hub/sandbox/vite", () => ({ hubSandbox: () => ({ name: "@vite-hub/sandbox/vite" }) }))
 vi.mock("@vite-hub/schedule/vite", () => ({ hubSchedule: () => ({ name: "@vite-hub/schedule/vite" }) }))
@@ -24,6 +25,7 @@ import * as agent from "../src/agent.ts"
 import * as capabilities from "../src/agent/capabilities.ts"
 import * as channels from "../src/agent/channels.ts"
 import { env, vitehub } from "../src/index.ts"
+import * as queue from "../src/queue.ts"
 
 function pluginNames(plugins: PluginOption[]): string[] {
   return plugins.map(plugin => (plugin as Plugin).name)
@@ -61,24 +63,20 @@ describe("vitehub", () => {
     expect(queueMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "cloudflare" })
   })
 
-  it("aliases generated runtime imports through the facade", () => {
+  it("resolves public ViteHub imports through the facade", async () => {
     const plugin = vitehub()[0] as Plugin
-    const config = plugin.config as (config: { resolve?: { alias?: unknown } }) => { resolve: { alias: unknown } }
+    const resolveId = plugin.resolveId as unknown as (this: { resolve: (id: string) => Promise<string> }, id: string, importer?: string, options?: object) => Promise<string | undefined>
+    const context = {
+      async resolve(id: string) {
+        return `resolved:${id}`
+      },
+    }
 
-    expect(config({}).resolve.alias).toMatchObject({
-      "@vite-hub/agent/server": "@vite-hub/vite/agent/server",
-      "@vite-hub/env/server": "@vite-hub/vite/env/server",
-      "@vite-hub/kv": "@vite-hub/vite/kv",
-      "@vite-hub/sandbox": "@vite-hub/vite/sandbox",
-      "@vite-hub/schedule/runtime/static": "@vite-hub/vite/schedule/runtime/static",
-      "@vite-hub/workflow/runtime/state": "@vite-hub/vite/workflow/runtime/state",
-      "@vite-hub/workspace/runtime": "@vite-hub/vite/workspace/runtime",
-    })
-    expect(config({ resolve: { alias: [{ find: "#app", replacement: "/tmp/app.ts" }] } }).resolve.alias).toEqual(expect.arrayContaining([
-      { find: "#app", replacement: "/tmp/app.ts" },
-      expect.objectContaining({ find: "@vite-hub/agent", replacement: "@vite-hub/vite/agent" }),
-      expect.objectContaining({ find: "@vite-hub/workspace/server", replacement: "@vite-hub/vite/workspace/server" }),
-    ]))
+    await expect(resolveId.call(context, "@vite-hub/database", "/app/src/db.ts")).resolves.toBe("resolved:@vite-hub/vite/database")
+    await expect(resolveId.call(context, "@vite-hub/database/drizzle", "/app/src/db.ts")).resolves.toBe("resolved:@vite-hub/vite/database/drizzle")
+    await expect(resolveId.call(context, "@vite-hub/queue", "/app/src/welcome.queue.ts")).resolves.toBe("resolved:@vite-hub/vite/queue")
+    await expect(resolveId.call(context, "@vite-hub/workspace/internal/runtime/state", "/app/src/server.ts")).resolves.toBeUndefined()
+    await expect(resolveId.call(context, "@vite-hub/agent", "/app/node_modules/@vite-hub/vite/dist/agent.js")).resolves.toBeUndefined()
 
     const configEnvironment = plugin.configEnvironment as (name: string, config: { consumer?: string, resolve?: { noExternal?: unknown } }) => unknown
     expect(configEnvironment("ssr", { consumer: "server" })).toEqual({
@@ -102,5 +100,9 @@ describe("vitehub", () => {
     expect(agent.defineAgent).toBe("define-agent")
     expect(capabilities.workspaceShell).toBe("workspace-shell")
     expect(channels.stream).toBe("stream-channel")
+  })
+
+  it("forwards the Queue primitive import surface", () => {
+    expect(queue.defineQueue).toBe("define-queue")
   })
 })

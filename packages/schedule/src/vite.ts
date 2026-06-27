@@ -20,6 +20,7 @@ const RESOLVED_SCHEDULE_TARGETS_ID = `\0${SCHEDULE_TARGETS_ID}`
 const registryImportAnchor = ".vitehub/schedule/registry.js"
 const generatedNitroCloudflarePlugin = ".vitehub/nitro/schedule/plugin.ts"
 const generatedNitroCloudflareModule = "./.vitehub/nitro/schedule/module.ts"
+const scheduleStaticRuntimeImport = "@vite-hub/vite/schedule/runtime/static"
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
 
 export interface ScheduleVitePluginOptions {
@@ -128,11 +129,10 @@ function mergeNitroScheduleConfig(value: unknown, options: { crons: string[], pl
 
 function renderNitroCloudflarePlugin(definitions: DiscoveredScheduleDefinition[], pluginFile: string, registryFile: string): string {
   const registryImport = moduleImportSpecifier(pluginFile, registryFile)
-  const scheduleRuntimeImport = "@vite-hub/schedule/runtime/static"
   return [
     "import { definePlugin } from 'nitro'",
     `import scheduleRegistry from ${JSON.stringify(registryImport)}`,
-    `import { executeCloudflareStaticSchedules } from ${JSON.stringify(scheduleRuntimeImport)}`,
+    `import { executeCloudflareStaticSchedules } from ${JSON.stringify(scheduleStaticRuntimeImport)}`,
     "",
     "export default definePlugin((nitroApp) => {",
     "  nitroApp.hooks.hook('cloudflare:scheduled', async (event) => {",

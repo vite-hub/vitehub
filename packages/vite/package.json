@@ -47,6 +47,7 @@
     "./env/server": "./dist/env/server.js",
     "./env/vite": "./dist/env/vite.js",
     "./kv": "./dist/kv.js",
+    "./queue": "./dist/queue.js",
     "./sandbox": "./dist/sandbox.js",
     "./sandbox/runtime/provider-loader": "./dist/sandbox/runtime/provider-loader.js",
     "./sandbox/runtime/state": "./dist/sandbox/runtime/state.js",

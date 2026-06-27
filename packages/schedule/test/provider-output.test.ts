@@ -122,7 +122,7 @@ describe("schedule provider output", () => {
     const source = await readFile(denoCron, "utf8")
 
     expect(source).toContain("Deno.cron(`vitehub:${name}`, cron")
-    expect(source).toContain('from "@vite-hub/schedule/runtime/static"')
+    expect(source).toContain('from "@vite-hub/vite/schedule/runtime/static"')
     expect(source).toContain('"cleanup": "0 0 * * *"')
     expect(source).toContain("executeStaticSchedule")
   })

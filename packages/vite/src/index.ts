@@ -21,7 +21,7 @@ import type { SandboxPublicOptions } from "@vite-hub/sandbox/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
 import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
-import type { AliasOptions, Plugin, PluginOption } from "vite"
+import type { Plugin, PluginOption } from "vite"
 
 export { env } from "@vite-hub/env/vite"
 
@@ -29,6 +29,8 @@ type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
 
 const facadeAliases: Record<string, string> = {
   "@vite-hub/agent": "@vite-hub/vite/agent",
+  "@vite-hub/agent/capabilities": "@vite-hub/vite/agent/capabilities",
+  "@vite-hub/agent/channels": "@vite-hub/vite/agent/channels",
   "@vite-hub/agent/cloudflare": "@vite-hub/vite/agent/cloudflare",
   "@vite-hub/agent/cloudflare/state": "@vite-hub/vite/agent/cloudflare/state",
   "@vite-hub/agent/runtime/workflow": "@vite-hub/vite/agent/runtime/workflow",
@@ -37,10 +39,14 @@ const facadeAliases: Record<string, string> = {
   "@vite-hub/blob": "@vite-hub/vite/blob",
   "@vite-hub/blob/ensure": "@vite-hub/vite/blob/ensure",
   "@vite-hub/blob/storage": "@vite-hub/vite/blob/storage",
+  "@vite-hub/database": "@vite-hub/vite/database",
+  "@vite-hub/database/drizzle": "@vite-hub/vite/database/drizzle",
   "@vite-hub/env": "@vite-hub/vite/env",
   "@vite-hub/env/secret": "@vite-hub/vite/env/secret",
   "@vite-hub/env/server": "@vite-hub/vite/env/server",
+  "@vite-hub/env/vite": "@vite-hub/vite/env/vite",
   "@vite-hub/kv": "@vite-hub/vite/kv",
+  "@vite-hub/queue": "@vite-hub/vite/queue",
   "@vite-hub/sandbox": "@vite-hub/vite/sandbox",
   "@vite-hub/sandbox/runtime/provider-loader": "@vite-hub/vite/sandbox/runtime/provider-loader",
   "@vite-hub/sandbox/runtime/state": "@vite-hub/vite/sandbox/runtime/state",
@@ -59,12 +65,6 @@ const facadeAliases: Record<string, string> = {
   "@vite-hub/workspace/server": "@vite-hub/vite/workspace/server",
 }
 
-function mergeFacadeAliases(alias: AliasOptions | undefined): AliasOptions {
-  const entries = Object.entries(facadeAliases).map(([find, replacement]) => ({ find, replacement }))
-  if (Array.isArray(alias)) return [...alias, ...entries]
-  return { ...facadeAliases, ...(alias && typeof alias === "object" ? alias : {}) }
-}
-
 function mergeNoExternal(current: NoExternalValue): NoExternalValue {
   if (current === true) return true
   if (!current) return ["@vite-hub/vite"]
@@ -72,16 +72,24 @@ function mergeNoExternal(current: NoExternalValue): NoExternalValue {
   return values.includes("@vite-hub/vite") ? values : [...values, "@vite-hub/vite"]
 }
 
+function isFacadeImporter(importer: string | undefined): boolean {
+  if (!importer) return false
+  const normalized = importer.replace(/\\/g, "/")
+  return /(?:^|\/)(?:packages\/vite\/src|packages\/vite\/dist|@vite-hub\/vite\/dist)\//.test(normalized)
+}
+
 function vitehubFacadeAlias(): Plugin {
   return {
     name: "@vite-hub/vite/facade-alias",
     enforce: "pre",
-    config(config) {
-      return { resolve: { alias: mergeFacadeAliases(config.resolve?.alias) } }
-    },
     configEnvironment(name, config) {
       if (name !== "ssr" && config.consumer !== "server") return
       return { resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) } }
+    },
+    async resolveId(id, importer, options) {
+      const facadeId = facadeAliases[id]
+      if (!facadeId || isFacadeImporter(importer)) return
+      return await this.resolve(facadeId, importer, { ...options, skipSelf: true })
     },
   }
 }

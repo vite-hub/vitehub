@@ -35,6 +35,7 @@ export default defineConfig({
       "src/env/vite.ts",
       "src/index.ts",
       "src/kv.ts",
+      "src/queue.ts",
       "src/sandbox.ts",
       "src/sandbox/runtime/provider-loader.ts",
       "src/sandbox/runtime/state.ts",
