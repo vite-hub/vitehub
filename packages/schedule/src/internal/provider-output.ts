@@ -17,7 +17,7 @@ import type { Plugin } from "esbuild"
 import type { DiscoveredScheduleDefinition } from "../types.ts"
 
 export const schedulePackageName = "@vite-hub/schedule"
-const scheduleStaticRuntimeImport = "@vite-hub/vite/schedule/runtime/static"
+const scheduleStaticRuntimeImport = "@vite-hub/schedule/runtime/static"
 const productName = "schedule"
 const denoCronFileName = "deno-cron.mjs"
 const generatedRegistryFileName = "registry.mjs"
@@ -66,6 +66,7 @@ interface GenerateProviderOutputsOptions {
   bundleAlias?: Record<string, string>
   clientOutDir: string
   rootDir: string
+  runtimeImport?: string
   source?: DiscoveredScheduleDefinition["source"]
 }
 
@@ -524,11 +525,11 @@ function sanitizeNetlifyScheduleFunctionName(name: string): string {
   return `vitehub-schedule-${safeName || "schedule"}.mjs`
 }
 
-function renderDenoCronEntry(file: string, registryFile: string, crons: Map<string, string>) {
+function renderDenoCronEntry(file: string, registryFile: string, crons: Map<string, string>, runtimeImport = scheduleStaticRuntimeImport) {
   const scheduleCrons = Object.fromEntries([...crons.entries()].sort(([left], [right]) => left.localeCompare(right)))
   return [
     `import scheduleRegistry from ${JSON.stringify(createImportPath(file, registryFile))}`,
-    `import { executeStaticSchedule } from ${JSON.stringify(scheduleStaticRuntimeImport)}`,
+    `import { executeStaticSchedule } from ${JSON.stringify(runtimeImport)}`,
     "",
     `const scheduleCrons = ${JSON.stringify(scheduleCrons, null, 2)}`,
     "",
@@ -744,7 +745,7 @@ async function writeCloudflareScheduleOutput(options: {
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedScheduleArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.source)
   const crons = await readDefinitionCrons(artifacts.definitions)
-  await writeFile(artifacts.denoCronFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons), "utf8")
+  await writeFile(artifacts.denoCronFile, renderDenoCronEntry(artifacts.denoCronFile, artifacts.registryFile, crons, options.runtimeImport), "utf8")
   await writeCloudflareScheduleOutput({
     bundleAlias: options.bundleAlias,
     bundleEntry: artifacts.cloudflareWorkerFile,

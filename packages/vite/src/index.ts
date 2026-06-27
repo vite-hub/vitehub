@@ -27,15 +27,24 @@ export { env } from "@vite-hub/env/vite"
 
 type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
 
+const presetScheduleStaticRuntimeImport = "@vite-hub/vite/schedule/runtime/static"
+const presetAgentImportBase = "@vite-hub/vite/agent"
+const presetWorkspaceImportBase = "@vite-hub/vite/workspace"
+
 const facadeAliases: Record<string, string> = {
   "@vite-hub/agent": "@vite-hub/vite/agent",
   "@vite-hub/agent/capabilities": "@vite-hub/vite/agent/capabilities",
   "@vite-hub/agent/channels": "@vite-hub/vite/agent/channels",
   "@vite-hub/agent/cloudflare": "@vite-hub/vite/agent/cloudflare",
   "@vite-hub/agent/cloudflare/state": "@vite-hub/vite/agent/cloudflare/state",
+  "@vite-hub/agent/eval": "@vite-hub/vite/agent/eval",
+  "@vite-hub/agent/harness/local-sandbox": "@vite-hub/vite/agent/harness/local-sandbox",
+  "@vite-hub/agent/mcp": "@vite-hub/vite/agent/mcp",
+  "@vite-hub/agent/mcp/stdio": "@vite-hub/vite/agent/mcp/stdio",
   "@vite-hub/agent/runtime/workflow": "@vite-hub/vite/agent/runtime/workflow",
   "@vite-hub/agent/server": "@vite-hub/vite/agent/server",
   "@vite-hub/agent/server/routes": "@vite-hub/vite/agent/server/routes",
+  "@vite-hub/agent/state/sqlite": "@vite-hub/vite/agent/state/sqlite",
   "@vite-hub/blob": "@vite-hub/vite/blob",
   "@vite-hub/blob/ensure": "@vite-hub/vite/blob/ensure",
   "@vite-hub/blob/storage": "@vite-hub/vite/blob/storage",
@@ -87,8 +96,9 @@ function vitehubFacadeAlias(): Plugin {
       return { resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) } }
     },
     async resolveId(id, importer, options) {
-      const facadeId = facadeAliases[id]
+      const facadeId = facadeAliases[id] ?? id.replace(/^@vite-hub\/blob\/drivers\//, "@vite-hub/vite/blob/drivers/")
       if (!facadeId || isFacadeImporter(importer)) return
+      if (facadeId === id) return
       return await this.resolve(facadeId, importer, { ...options, skipSelf: true })
     },
   }
@@ -111,13 +121,20 @@ export interface ViteHubPresetOptions {
 export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
   const plugins: unknown[] = [vitehubFacadeAlias()]
   if (options.env !== false) plugins.push(hubEnv(options.env))
-  if (options.agent !== false) plugins.push(hubAgent(options.agent))
+  if (options.agent !== false) plugins.push(hubAgent({
+    ...options.agent,
+    importBase: presetAgentImportBase,
+    workspaceImportBase: presetWorkspaceImportBase,
+  } as AgentModuleOptions))
   if (options.database !== false) plugins.push(hubDb(options.database))
   if (options.blob !== false) plugins.push(hubBlob(options.blob))
   if (options.kv !== false) plugins.push(hubKv(options.kv))
   if (options.queue) plugins.push(hubQueue(options.queue === true ? {} : options.queue))
   if (options.sandbox !== false) plugins.push(hubSandbox(options.sandbox))
-  if (options.schedule !== false) plugins.push(hubSchedule(options.schedule))
+  if (options.schedule !== false) plugins.push(hubSchedule({
+    ...options.schedule,
+    runtimeImport: presetScheduleStaticRuntimeImport,
+  } as ScheduleVitePluginOptions & { runtimeImport: string }))
   if (options.workflow !== false) plugins.push(hubWorkflow(options.workflow))
   if (options.workspace !== false) plugins.push(hubWorkspace(options.workspace))
   if (options.devtools !== false) plugins.push(hubDevtools(options.devtools))

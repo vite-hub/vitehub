@@ -20,7 +20,7 @@ const RESOLVED_SCHEDULE_TARGETS_ID = `\0${SCHEDULE_TARGETS_ID}`
 const registryImportAnchor = ".vitehub/schedule/registry.js"
 const generatedNitroCloudflarePlugin = ".vitehub/nitro/schedule/plugin.ts"
 const generatedNitroCloudflareModule = "./.vitehub/nitro/schedule/module.ts"
-const scheduleStaticRuntimeImport = "@vite-hub/vite/schedule/runtime/static"
+const scheduleStaticRuntimeImport = "@vite-hub/schedule/runtime/static"
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
 
 export interface ScheduleVitePluginOptions {
@@ -32,6 +32,10 @@ export interface ScheduleNitroConfigOptions extends ScheduleVitePluginOptions {
   command?: "build" | "serve"
   nitro?: unknown
   root?: string
+}
+
+interface InternalScheduleVitePluginOptions extends ScheduleVitePluginOptions {
+  runtimeImport?: string
 }
 
 export interface ScheduleVitePlugin {
@@ -127,12 +131,12 @@ function mergeNitroScheduleConfig(value: unknown, options: { crons: string[], pl
   return nitro
 }
 
-function renderNitroCloudflarePlugin(definitions: DiscoveredScheduleDefinition[], pluginFile: string, registryFile: string): string {
+function renderNitroCloudflarePlugin(definitions: DiscoveredScheduleDefinition[], pluginFile: string, registryFile: string, runtimeImport = scheduleStaticRuntimeImport): string {
   const registryImport = moduleImportSpecifier(pluginFile, registryFile)
   return [
     "import { definePlugin } from 'nitro'",
     `import scheduleRegistry from ${JSON.stringify(registryImport)}`,
-    `import { executeCloudflareStaticSchedules } from ${JSON.stringify(scheduleStaticRuntimeImport)}`,
+    `import { executeCloudflareStaticSchedules } from ${JSON.stringify(runtimeImport)}`,
     "",
     "export default definePlugin((nitroApp) => {",
     "  nitroApp.hooks.hook('cloudflare:scheduled', async (event) => {",
@@ -179,7 +183,7 @@ function renderScheduleRegistryTypes(): string {
   ].join("\n")
 }
 
-async function writeNitroCloudflarePlugin(root: string, definitions: DiscoveredScheduleDefinition[], crons: string[]): Promise<string> {
+async function writeNitroCloudflarePlugin(root: string, definitions: DiscoveredScheduleDefinition[], crons: string[], runtimeImport?: string): Promise<string> {
   const pluginFile = resolve(root, generatedNitroCloudflarePlugin)
   const moduleFile = resolve(root, generatedNitroCloudflareModule)
   const registryFile = resolve(root, registryImportAnchor)
@@ -190,7 +194,7 @@ async function writeNitroCloudflarePlugin(root: string, definitions: DiscoveredS
   ])
   await writeFile(registryFile, createRuntimeRegistryContents(registryFile, definitions), "utf8")
   await writeFile(registryFile.replace(/\.js$/, ".d.ts"), renderScheduleRegistryTypes(), "utf8")
-  await writeFile(pluginFile, renderNitroCloudflarePlugin(definitions, pluginFile, registryFile), "utf8")
+  await writeFile(pluginFile, renderNitroCloudflarePlugin(definitions, pluginFile, registryFile, runtimeImport), "utf8")
   await writeFile(moduleFile, renderNitroCloudflareModule(crons), "utf8")
   return generatedNitroCloudflarePlugin
 }
@@ -240,11 +244,12 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
   const crons = options.command === "build"
     ? [...new Set((await readDefinitionCrons(nitroDefinitions)).values())]
     : []
-  const plugin = await writeNitroCloudflarePlugin(roots.projectRoot, nitroDefinitions, crons)
+  const plugin = await writeNitroCloudflarePlugin(roots.projectRoot, nitroDefinitions, crons, (options as InternalScheduleVitePluginOptions).runtimeImport)
   return mergeNitroScheduleConfig(options.nitro, { crons, plugin })
 }
 
 export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVitePlugin {
+  const internalOptions = options as InternalScheduleVitePluginOptions
   let resolved: ResolvedConfig | undefined
   let emitStandaloneProviderOutput = true
   let projectRoot: string | undefined
@@ -364,6 +369,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         bundleAlias: resolveStringAliases(resolved),
         clientOutDir: resolved.build.outDir,
         rootDir: resolved.root,
+        runtimeImport: internalOptions.runtimeImport,
         source: standaloneProviderSource,
       })
     },

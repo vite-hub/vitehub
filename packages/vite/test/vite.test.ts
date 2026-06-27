@@ -72,6 +72,8 @@ describe("vitehub", () => {
       },
     }
 
+    await expect(resolveId.call(context, "@vite-hub/agent/eval", "/app/server/agents/support.eval.ts")).resolves.toBe("resolved:@vite-hub/vite/agent/eval")
+    await expect(resolveId.call(context, "@vite-hub/blob/drivers/s3", "/app/src/blob.ts")).resolves.toBe("resolved:@vite-hub/vite/blob/drivers/s3")
     await expect(resolveId.call(context, "@vite-hub/database", "/app/src/db.ts")).resolves.toBe("resolved:@vite-hub/vite/database")
     await expect(resolveId.call(context, "@vite-hub/database/drizzle", "/app/src/db.ts")).resolves.toBe("resolved:@vite-hub/vite/database/drizzle")
     await expect(resolveId.call(context, "@vite-hub/queue", "/app/src/welcome.queue.ts")).resolves.toBe("resolved:@vite-hub/vite/queue")
