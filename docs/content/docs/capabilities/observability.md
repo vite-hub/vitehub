@@ -8,7 +8,7 @@ icon: i-lucide-radar
 ---
 
 `observability()` gives an Agent Definition one place to attach runtime telemetry.
-It can instrument model execution, emit lifecycle events, and provide a finish extension with invocation status, duration, and result kind.
+It can instrument model execution, emit lifecycle events, provide a finish extension with invocation status, duration, and result kind, and enable usage telemetry for the same invocation.
 
 ## Installation
 
@@ -34,8 +34,15 @@ The Capability emits a `start` event before driver execution.
 When `onEvent` is configured, it also emits a `finish` or `error` event after the invocation completes.
 `onEvent` is a telemetry sink; sink failures are swallowed so observability cannot change Agent output or hide the original driver failure.
 
-It provides an `observability` finish extension with `{ status, durationMs, resultKind }` for completed invocations and `{ status, durationMs }` for failed invocations.
+It provides an `observability` finish extension with `{ status, durationMs, resultKind, usage }` for completed invocations and `{ status, durationMs, usage }` for failed invocations.
 Agent Evals and the Agent test runner capture this finish extension automatically.
+
+`observability()` enables `usageTelemetry()` by default.
+When usage is reported by the Agent Driver or custom result, `observability.usage` points at the same Agent Usage Record exposed through the `usage-telemetry` finish extension and final `result.usageRecord`.
+Use `observability({ usageTelemetry: false })` to opt out.
+
+If an Agent also lists `usageTelemetry(...)` in `capabilities`, that explicit configuration wins.
+This keeps usage telemetry independent while letting observability carry the same usage record in its metadata.
 
 ## Eval assertions
 
@@ -63,9 +70,17 @@ For custom checks, read `observation.extensions.get('observability')` or `t.capa
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Supports model instrumentation, lifecycle events, and finish extensions. |
-| Harness-backed | Supports lifecycle events and finish extensions; instrumentation applies only to model-backed execution. |
-| Custom-run-backed | Supports lifecycle events and finish extensions around the custom result. |
+| Model-backed | Supports model instrumentation, lifecycle events, finish extensions, and usage records when the model result reports usage. |
+| Harness-backed | Supports lifecycle events, finish extensions, and usage records when the harness reports usage; instrumentation applies only to model-backed execution. |
+| Custom-run-backed | Supports lifecycle events, finish extensions, and usage records around the custom result. |
+
+## Options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `instrumentation` | `AgentModelExecutionInstrumentation` | none | Model and call-settings instrumentation for model-backed drivers. |
+| `onEvent` | `(event) => void` | none | Lifecycle event sink for start, finish, and error events. |
+| `usageTelemetry` | `boolean \| UsageTelemetryOptions` | `true` | Enables usage telemetry by default, accepts inline usage telemetry options, or opts out when set to `false`. |
 
 ## Reference
 

@@ -26,6 +26,8 @@ Use `context.output.final()` when a renderer needs the completed final text from
 
 Attach `usageTelemetry()` when an Agent should report usage to application telemetry.
 The callback receives a normalized Agent Usage Record.
+Agents that use `observability()` get usage telemetry by default.
+Add `usageTelemetry(...)` explicitly when the Agent needs custom pricing, summaries, raw payload retention, or an `onUsage` sink.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
@@ -48,6 +50,9 @@ It reads usage from result objects or finish stream chunks, normalizes token and
 
 Pricing functions enrich telemetry only.
 Pricing errors do not fail the Agent Invocation.
+
+When `observability()` is also enabled, the `observability` finish extension references the same Agent Usage Record.
+Do not treat it as a second usage record to persist.
 
 Final output shaping can stay Capability-owned:
 

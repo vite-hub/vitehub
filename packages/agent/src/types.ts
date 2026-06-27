@@ -588,6 +588,7 @@ export interface AgentCapabilityDefinition<
 > {
   readonly __vitehubTypeContract?: TTypeContract
   bind?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
+  capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   close?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   configure?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   finish?: AgentFinishExtensionProvider<TRuntimeConfig>

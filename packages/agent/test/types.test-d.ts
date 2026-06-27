@@ -153,7 +153,9 @@ describe("agent public types", () => {
               expectTypeOf(event.status).toEqualTypeOf<"failed">()
             }
           },
+          usageTelemetry: { summary: true },
         }),
+        observability({ usageTelemetry: false }),
         chatTitle({
           model: () => ({}),
           template({ fallback, maxLength, text, trigger }) {

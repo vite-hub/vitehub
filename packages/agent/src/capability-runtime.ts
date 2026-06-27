@@ -166,15 +166,27 @@ export function normalizeCapabilities(
   if (!Array.isArray(capabilities)) {
     throw new TypeError("[vitehub] defineAgent({ capabilities }) must be an ordered array.")
   }
-  const seen = new Set<string>()
-  return capabilities.map((capability) => {
-    const normalized = defineCapability(capability)
-    if (seen.has(normalized.id)) {
-      throw new Error(`[vitehub] Duplicate capability id "${normalized.id}" in one agent.`)
+  const explicit = capabilities.map(capability => defineCapability(capability))
+  const explicitById = new Map<string, AgentCapabilityDefinition>()
+  for (const capability of explicit) {
+    if (explicitById.has(capability.id)) {
+      throw new Error(`[vitehub] Duplicate capability id "${capability.id}" in one agent.`)
     }
-    seen.add(normalized.id)
-    return normalized
-  })
+    explicitById.set(capability.id, capability)
+  }
+
+  const normalized: AgentCapabilityDefinition[] = []
+  const seen = new Set<string>()
+  const add = (capability: AgentCapabilityDefinition) => {
+    const resolved = explicitById.get(capability.id) || defineCapability(capability)
+    if (seen.has(resolved.id)) return
+    seen.add(resolved.id)
+    for (const nested of resolved.capabilities || []) add(nested as AgentCapabilityDefinition)
+    normalized.push(resolved)
+  }
+
+  for (const capability of explicit) add(capability)
+  return normalized
 }
 
 export function capabilityWorkspaceSources(

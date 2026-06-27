@@ -142,6 +142,109 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("enables usage telemetry from observability by default", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [observability()],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({
+        text: "ok",
+        totalUsage: {
+          inputTokens: 4,
+          outputTokens: 6,
+        },
+      }),
+    })
+
+    const result = await runAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-1" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })
+
+    expect(result).toMatchObject({
+      text: "ok",
+      usageRecord: {
+        usage: {
+          inputTokens: 4,
+          outputTokens: 6,
+          totalTokens: 10,
+        },
+      },
+    })
+    const extensions = finish.mock.calls[0]![0].extensions
+    const usage = extensions.get("usage-telemetry")
+    expect(usage).toBe((result as { usageRecord?: unknown }).usageRecord)
+    expect(extensions.get("observability", "usage")).toBe(usage)
+  })
+
+  it("lets observability opt out of default usage telemetry", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [observability({ usageTelemetry: false })],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({
+        text: "ok",
+        totalUsage: {
+          inputTokens: 4,
+          outputTokens: 6,
+        },
+      }),
+    })
+
+    const result = await runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })
+
+    expect((result as { usageRecord?: unknown }).usageRecord).toBeUndefined()
+    const extensions = finish.mock.calls[0]![0].extensions
+    expect(extensions.get("usage-telemetry")).toBeUndefined()
+    expect(extensions.get("observability", "usage")).toBeUndefined()
+  })
+
+  it("uses explicit usage telemetry configuration for observability", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const finish = vi.fn()
+    const onUsage = vi.fn()
+    const agent = defineAgent({
+      capabilities: [
+        observability(),
+        usageTelemetry({ onUsage }),
+      ],
+      hooks: {
+        "agent:finish": finish,
+      },
+      run: () => ({
+        text: "ok",
+        totalUsage: {
+          inputTokens: 8,
+          outputTokens: 2,
+        },
+      }),
+    })
+
+    await runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })
+
+    expect(onUsage).toHaveBeenCalledTimes(1)
+    const extensions = finish.mock.calls[0]![0].extensions
+    const usage = extensions.get("usage-telemetry")
+    expect(extensions.get("observability", "usage")).toBe(usage)
+  })
+
   it("does not let observability sink failures change Agent output", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const onEvent = vi.fn(() => {
