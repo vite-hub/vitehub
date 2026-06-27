@@ -296,7 +296,11 @@ function shellCommand(value: unknown): string | undefined {
 }
 
 function toolHeader(name: string, input?: unknown, output?: unknown): string {
-  return `[tool] ${shellCommand(input) ?? shellCommand(output) ?? name}`
+  const command = shellCommand(input) ?? shellCommand(output)
+  if (command) return `[tool] ${command}`
+
+  const formattedInput = formatDevPayload(input)
+  return `[tool] ${name}${formattedInput ? ` ${formattedInput}` : ""}`
 }
 
 function writeShellOutput(context: AgentCliContext, output: unknown, error: unknown): boolean {
@@ -760,12 +764,11 @@ async function sendDevMessage(
       }
       if (event.type === "tool-call" || event.type === "tool-input-start") {
         clearPendingFallback()
-        if (event.type === "tool-input-start" && event.input === undefined) continue
+        if (event.type === "tool-input-start") continue
         if (!visibleTools.has(event.id)) {
           visibleTools.add(event.id)
           context.stderr.write(`\n${toolHeader(event.name, event.input)}\n`)
         }
-        if (!shellCommand(event.input)) writeDevPayload(context, "input", event.input)
         continue
       }
       if (event.type === "tool-result") {

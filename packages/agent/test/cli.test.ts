@@ -349,6 +349,9 @@ describe("agent CLI", () => {
           { id: "tool-1", input: { command: "cat file.md" }, name: "shell", type: "tool-call" },
           { id: "tool-1", name: "shell", output: { command: "cat file.md", exitCode: 0, stderr: "", stdout: longOutput }, type: "tool-result" },
           { id: "tool-4", input: { cmd: "pnpm test" }, name: "bash", type: "tool-call" },
+          { id: "tool-5", input: {}, name: "mcp_nuxt_get_documentation_page", type: "tool-input-start" },
+          { id: "tool-5", input: { path: "/docs/4.x/api/composables/use-lazy-fetch" }, name: "mcp_nuxt_get_documentation_page", type: "tool-call" },
+          { id: "tool-5", name: "mcp_nuxt_get_documentation_page", output: { content: "useLazyFetch docs" }, type: "tool-result" },
           { id: "tool-2", name: "workspace_list", output: { path: "." }, type: "tool-result" },
           { id: "tool-3", name: "run_summary", output: { raw: { raw: { steps: longOutput } }, text: "summary body" }, type: "tool-result" },
           { text: "done", type: "text-delta" },
@@ -379,6 +382,9 @@ describe("agent CLI", () => {
     expect(stderr.output()).not.toContain("[tool] bash")
     expect(stderr.output()).not.toContain("[tool done]")
     expect(stderr.output()).not.toContain(`input: {"command":"cat file.md"}`)
+    expect(stderr.output()).toContain(`\n[tool] mcp_nuxt_get_documentation_page {"path":"/docs/4.x/api/composables/use-lazy-fetch"}\n`)
+    expect(stderr.output()).toContain(`output: {"content":"useLazyFetch docs"}`)
+    expect(stderr.output()).not.toContain(`input: {"path":"/docs/4.x/api/composables/use-lazy-fetch"}`)
     expect(stderr.output()).toContain("[truncated ")
     expect(stderr.output()).not.toContain(longOutput)
     expect(stderr.output()).toContain("---")
