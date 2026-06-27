@@ -5,16 +5,51 @@ import {
 } from "../messages.ts"
 
 import type {
+  AgentChannelDeliveryEffectIntent,
   AgentCapabilityDefinition,
   AgentCapabilityRuntimeContext,
+  AgentFinishEvent,
+  AgentRunCallbackContext,
   AgentRunInput,
   MaybePromise,
 } from "../types.ts"
 import type { Message } from "../messages.ts"
 
+export interface InputCommandDeliveryMessage {
+  react: (content: string, options?: { transient?: boolean }) => Promise<void>
+  reply: (body: string) => Promise<void>
+  update: (body: string) => Promise<void>
+}
+
+export interface InputCommandAgentInputHookContext extends AgentRunCallbackContext {
+  args: string
+  command: InputCommand
+  message: InputCommandDeliveryMessage
+  name: string
+  text: string
+}
+
+export interface InputCommandAgentFinishHookContext extends AgentFinishEvent {
+  args: string
+  command: InputCommand
+  message: InputCommandDeliveryMessage
+  name: string
+  text: string
+}
+
+export interface InputCommandHooks {
+  "agent:finish"?: (context: InputCommandAgentFinishHookContext) => MaybePromise<void>
+  "agent:input"?: (context: InputCommandAgentInputHookContext) => MaybePromise<void>
+}
+
+export type InputCommandCall = (input: InputCommandRunInput) => MaybePromise<InputCommandResult>
+
 export interface InputCommand {
+  call?: InputCommandCall
+  channels?: readonly string[]
   description: string
-  run: (input: InputCommandRunInput) => MaybePromise<InputCommandResult>
+  hooks?: InputCommandHooks
+  run?: InputCommandCall
 }
 
 export type InputCommandResult = Partial<AgentRunInput> | Response | string | void
@@ -57,6 +92,8 @@ export interface InputCommandTextReplacement {
   start: number
 }
 
+let transientReactionId = 0
+
 export function assertInputCommandName(name: string): void {
   if (!/^[a-z][a-z0-9_-]*$/.test(name)) {
     throw new TypeError(`[vitehub] Input command "${name}" must be a lowercase stable identifier.`)
@@ -75,8 +112,11 @@ function normalizeInputCommands(options: InputCommandsOptions): Record<string, I
     if (typeof command.description !== "string" || !command.description.trim()) {
       throw new TypeError(`[vitehub] Input command "${name}" requires a description.`)
     }
-    if (typeof command.run !== "function") {
-      throw new TypeError(`[vitehub] Input command "${name}" requires a run() handler.`)
+    if (typeof command.call !== "function" && typeof command.run !== "function") {
+      throw new TypeError(`[vitehub] Input command "${name}" requires a call() handler.`)
+    }
+    if (command.channels !== undefined && (!Array.isArray(command.channels) || command.channels.some(channel => typeof channel !== "string" || !channel.trim()))) {
+      throw new TypeError(`[vitehub] Input command "${name}" channels must be non-empty Channel IDs.`)
     }
   }
   return options.commands
@@ -261,13 +301,112 @@ function mergeInputCommandResult(input: AgentRunInput, result: Partial<AgentRunI
   return next
 }
 
+function inputCommandCall(command: InputCommand): InputCommandCall {
+  return command.call || command.run!
+}
+
+function activeChannelId(context: AgentCapabilityRuntimeContext): string | undefined {
+  return context.run?.channelId || context.context.get<{ channelId?: string }>("agent.trigger")?.channelId
+}
+
+function commandAllowsCurrentChannel(command: InputCommand, context: AgentCapabilityRuntimeContext): boolean {
+  return !command.channels?.length || command.channels.includes(activeChannelId(context) || "")
+}
+
+function createInputCommandMessage(
+  emit: (intent: AgentChannelDeliveryEffectIntent, options?: { transient?: boolean }) => void,
+): InputCommandDeliveryMessage {
+  return {
+    async react(content, options) {
+      const key = options?.transient === false ? undefined : `input-command:${++transientReactionId}`
+      emit({
+        kind: "reaction",
+        metadata: key ? { transient: true, transientKey: key } : undefined,
+        payload: { content },
+      }, { transient: Boolean(key) })
+    },
+    async reply(body) {
+      emit({ kind: "reply", payload: body })
+    },
+    async update(body) {
+      emit({ kind: "update", payload: body })
+    },
+  }
+}
+
+function inputPhaseMessage(context: AgentCapabilityRuntimeContext): InputCommandDeliveryMessage {
+  return createInputCommandMessage((intent, options) => {
+    context.delivery.effect(intent)
+    if (options?.transient && typeof intent.metadata?.transientKey === "string") {
+      context.delivery.finishEffect(() => ({
+        kind: intent.kind,
+        metadata: {
+          transient: true,
+          transientKey: intent.metadata!.transientKey,
+        },
+        payload: {
+          action: "remove",
+          content: typeof intent.payload === "string" ? intent.payload : (intent.payload as { content?: unknown } | undefined)?.content,
+        },
+      }))
+    }
+  })
+}
+
+function finishPhaseMessage(effects: AgentChannelDeliveryEffectIntent[]): InputCommandDeliveryMessage {
+  return createInputCommandMessage(intent => effects.push(intent))
+}
+
+async function runInputCommandInputHook(
+  command: InputCommand,
+  context: AgentCapabilityRuntimeContext,
+  invocation: InputCommandInvocation,
+): Promise<void> {
+  const hook = command.hooks?.["agent:input"]
+  if (!hook) return
+  const input = context.input.get()
+  await hook({
+    ...context,
+    args: invocation.args,
+    command,
+    input,
+    message: inputPhaseMessage(context),
+    name: invocation.name,
+    text: invocation.text,
+  } as InputCommandAgentInputHookContext)
+}
+
+function scheduleInputCommandFinishHook(
+  command: InputCommand,
+  context: AgentCapabilityRuntimeContext,
+  invocation: InputCommandInvocation,
+): void {
+  const hook = command.hooks?.["agent:finish"]
+  if (!hook) return
+  context.delivery.finishEffect(async (event) => {
+    const effects: AgentChannelDeliveryEffectIntent[] = []
+    await hook({
+      ...event,
+      args: invocation.args,
+      command,
+      message: finishPhaseMessage(effects),
+      name: invocation.name,
+      text: invocation.text,
+    } as InputCommandAgentFinishHookContext)
+    return effects.length ? effects : false
+  })
+}
+
 export function inputCommands(options: InputCommandsOptions): AgentCapabilityDefinition {
   const commands = normalizeInputCommands(options)
   const trigger = normalizeInputCommandTrigger(options.trigger)
   return defineCapability({
     id: options.id || "inputCommands",
     metadata: {
-      commands: Object.fromEntries(Object.entries(commands).map(([name, command]) => [name, { description: command.description }])),
+      commands: Object.fromEntries(Object.entries(commands).map(([name, command]) => [name, {
+        ...(command.channels?.length ? { channels: [...command.channels] } : {}),
+        description: command.description,
+      }])),
       trigger,
     },
     input: async (context) => {
@@ -285,7 +424,11 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
         if (++runs > maxRuns) throw new Error("[vitehub] inputCommands exceeded the maximum command expansion depth.")
 
         const command = commands[invocation.name]!
-        const result = await command.run({
+        if (!commandAllowsCurrentChannel(command, context as AgentCapabilityRuntimeContext)) {
+          cursor = invocation.end
+          continue
+        }
+        const result = await inputCommandCall(command)({
           args: invocation.args,
           command,
           context: context as AgentCapabilityRuntimeContext,
@@ -296,6 +439,7 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
         })
         if (result instanceof Response) return result
 
+        scheduleInputCommandFinishHook(command, context as AgentCapabilityRuntimeContext, invocation)
         const previousText = text
         input = context.input.get()
         target = getInputCommandTarget(input)
@@ -319,6 +463,7 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
           target = getInputCommandTarget(input)
           if (!target) return
           maxRuns = Math.max(maxRuns, text.length + 1)
+          await runInputCommandInputHook(command, context as AgentCapabilityRuntimeContext, invocation)
           cursor = replacement === invocation.text ? invocation.end : invocation.start
           continue
         }
@@ -332,10 +477,12 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
           text = target.text
           maxRuns = Math.max(maxRuns, text.length + 1)
           if (text !== previousText) {
+            await runInputCommandInputHook(command, context as AgentCapabilityRuntimeContext, invocation)
             cursor = 0
             continue
           }
           if (changesText) {
+            await runInputCommandInputHook(command, context as AgentCapabilityRuntimeContext, invocation)
             cursor = invocation.end
             continue
           }
@@ -348,14 +495,17 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
           if (!target) return
           text = target.text
           maxRuns = Math.max(maxRuns, text.length + 1)
+          await runInputCommandInputHook(command, context as AgentCapabilityRuntimeContext, invocation)
           cursor = 0
           continue
         }
 
         if (text !== previousText) {
+          await runInputCommandInputHook(command, context as AgentCapabilityRuntimeContext, invocation)
           cursor = 0
           continue
         }
+        await runInputCommandInputHook(command, context as AgentCapabilityRuntimeContext, invocation)
         cursor = invocation.end
       }
     },

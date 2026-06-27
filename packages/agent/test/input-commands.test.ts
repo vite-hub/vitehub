@@ -19,7 +19,7 @@ describe("inputCommands", () => {
         commands: {
           review: {
             description: "Review the request.",
-            run: ({ args }) => `Review this: ${args}`,
+            call: ({ args }) => `Review this: ${args}`,
           },
         },
       })],
@@ -368,7 +368,13 @@ describe("inputCommands", () => {
       commands: {
         review: { description: "Review." } as never,
       },
-    })).toThrow("requires a run() handler")
+    })).toThrow("requires a call() handler")
+
+    expect(() => inputCommands({
+      commands: {
+        review: { description: "Review.", call: () => undefined, channels: [""] },
+      },
+    })).toThrow("channels must be non-empty Channel IDs")
   })
 
   it("leaves unknown commands unchanged", async () => {
