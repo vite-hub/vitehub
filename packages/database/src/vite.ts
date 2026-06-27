@@ -6,7 +6,7 @@ import { normalize } from "pathe"
 import { createDbCliContributor } from "./cli.ts"
 import { resolveDBViteConfig } from "./config.ts"
 import { writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
-import { dbPackageName, generateProviderOutputs } from "./internal/vite-build.ts"
+import { dbPackageName, generateProviderOutputs, prepareProviderOutputs } from "./internal/vite-build.ts"
 import { createDatabaseProvisionStep } from "./provision.ts"
 
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
@@ -119,6 +119,7 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
 }
 
 export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
+  let providerArtifacts: Awaited<ReturnType<typeof prepareProviderOutputs>> | undefined
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
 
@@ -177,6 +178,17 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       if (schemaModule) context.server.moduleGraph.invalidateModule(schemaModule)
       if (databasesModule) context.server.moduleGraph.invalidateModule(databasesModule)
     },
+    async buildEnd() {
+      if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
+        return
+      }
+
+      await writeGeneratedDatabaseArtifacts(runtimeConfig)
+      providerArtifacts = await prepareProviderOutputs({
+        rootDir: resolved.root,
+        runtimeConfig,
+      })
+    },
     resolveId(id) {
       return resolveDatabaseVirtualId(id)
     },
@@ -194,6 +206,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
       await writeGeneratedDatabaseArtifacts(runtimeConfig)
       await generateProviderOutputs({
+        artifacts: providerArtifacts,
         clientOutDir: resolved.build.outDir,
         rootDir: resolved.root,
         runtimeConfig,

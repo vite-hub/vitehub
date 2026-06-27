@@ -2,7 +2,7 @@ import { getViteMode } from "@vite-hub/internal/build/mode"
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 
-import { generateProviderOutputs, blobPackageName } from "./internal/vite-build.ts"
+import { generateProviderOutputs, prepareProviderOutputs, blobPackageName } from "./internal/vite-build.ts"
 import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
   BLOB_VIRTUAL_CONFIG_ID,
@@ -44,6 +44,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
   let blob: BlobModuleOptions | undefined = options
   let clientOutDir = "dist"
   let command: "build" | "serve" = "serve"
+  let providerArtifacts: Awaited<ReturnType<typeof prepareProviderOutputs>> | undefined
   let rootDir = process.cwd()
   let runtimeConfig: BlobViteRuntimeConfig | undefined
   const getConfig = () => runtimeConfig ??= resolveBlobViteConfig(options)
@@ -80,6 +81,16 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
         },
       }
     },
+    async buildEnd() {
+      if (shouldSkipViteProviderBuild(command, getViteMode())) {
+        return
+      }
+
+      providerArtifacts = await prepareProviderOutputs({
+        blob,
+        rootDir,
+      })
+    },
     async closeBundle() {
       if (shouldSkipViteProviderBuild(command, getViteMode())) {
         return
@@ -88,6 +99,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       await generateProviderOutputs({
         blob,
         clientOutDir,
+        artifacts: providerArtifacts,
         rootDir,
       })
     },

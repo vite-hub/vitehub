@@ -103,6 +103,38 @@ async function createDbBuildProject(prefix: string) {
   return rootDir
 }
 
+async function createDbBlobBuildProject(prefix: string, plugins: string) {
+  const rootDir = await createDbBuildProject(prefix)
+  await writeFile(join(rootDir, "src/server.ts"), [
+    "import { blob } from '@vite-hub/blob'",
+    "import { databases } from '@vite-hub/database/drizzle'",
+    "export default {",
+    "  async fetch() {",
+    "    await blob.put('proof.txt', Object.keys(databases).join(','))",
+    "    return new Response(await (await blob.get('proof.txt'))?.text())",
+    "  },",
+    "}",
+    "",
+  ].join("\n"))
+  await writeFile(join(rootDir, "vite.config.ts"), [
+    "import { resolve } from 'node:path'",
+    "import { defineConfig } from 'vite'",
+    "import { hubBlob } from '@vite-hub/blob/vite'",
+    "import { hubDb } from '@vite-hub/database/vite'",
+    "export default defineConfig({",
+    "  appType: 'custom',",
+    "  build: {",
+    "    outDir: 'dist/client',",
+    "    rollupOptions: { input: resolve(import.meta.dirname, 'src/server.ts') },",
+    "    ssr: true,",
+    "  },",
+    `  plugins: [${plugins}],`,
+    "})",
+    "",
+  ].join("\n"))
+  return rootDir
+}
+
 async function runDbBuild(rootDir: string, env: NodeJS.ProcessEnv = {}) {
   return execFileAsync("vp", ["build"], {
     cwd: rootDir,
@@ -122,6 +154,14 @@ async function readCloudflareConfig(rootDir: string) {
   return JSON.parse(await readFile(join(distDir, outputDir, "wrangler.json"), "utf8"))
 }
 
+async function readCloudflareWorker(rootDir: string) {
+  const distDir = join(rootDir, "dist")
+  const entries = await readdir(distDir)
+  const outputDir = entries.find(entry => entry !== "client")
+  if (!outputDir) throw new Error("Cloudflare output directory was not generated.")
+  return await readFile(join(distDir, outputDir, "index.js"), "utf8")
+}
+
 function errorText(error: unknown) {
   return (error as { stderr?: string; message?: string } | undefined)?.stderr
     || (error as { message?: string } | undefined)?.message
@@ -132,11 +172,45 @@ function outputText(output: Awaited<ReturnType<typeof runDbBuild>>) {
   return `${output.stdout}\n${output.stderr}`
 }
 
+function expectNoRuntimeImport(code: string, specifier: string) {
+  const escaped = specifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  expect(code).not.toMatch(new RegExp(`\\b(?:from\\s+|import\\(|require\\()["']${escaped}["']`))
+}
+
 afterAll(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
 describe("Vite db provider outputs", () => {
+  it("composes direct Blob and Database provider output in either plugin order", async () => {
+    for (const [label, plugins] of [
+      ["blob-db", "hubBlob({ driver: 'cloudflare-r2', bucketName: 'assets' }), hubDb()"],
+      ["db-blob", "hubDb(), hubBlob({ driver: 'cloudflare-r2', bucketName: 'assets' })"],
+    ]) {
+      const rootDir = await createDbBlobBuildProject(`vitehub-db-blob-${label}-`, plugins)
+
+      await runDbBuild(rootDir, {
+        TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
+        TURSO_AUTH_TOKEN: "token",
+        TURSO_DATABASE_URL: "libsql://database.example.turso.io",
+        VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
+        VITEHUB_D1_DATABASE_ID: "primary-d1-id",
+      })
+
+      const cloudflareConfig = await readCloudflareConfig(rootDir)
+      const cloudflareWorker = await readCloudflareWorker(rootDir)
+      const vercelServer = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
+      const vercelServerCode = await readFile(vercelServer, "utf8")
+
+      expect(cloudflareConfig.r2_buckets).toContainEqual({ binding: "BLOB", bucket_name: "assets" })
+      expect(cloudflareConfig.d1_databases).toHaveLength(2)
+      expectNoRuntimeImport(cloudflareWorker, "@vite-hub/blob")
+      expectNoRuntimeImport(cloudflareWorker, "@vite-hub/database/drizzle")
+      expectNoRuntimeImport(vercelServerCode, "@vite-hub/blob")
+      expectNoRuntimeImport(vercelServerCode, "@vite-hub/database/drizzle")
+    }
+  }, 60_000)
+
   it("builds and emits named database Cloudflare and Vercel outputs", async () => {
     const rootDir = await createDbBuildProject("vitehub-db-vite-output-")
 

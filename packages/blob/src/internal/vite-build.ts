@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
 import { resolve } from "pathe"
 
@@ -40,6 +41,7 @@ const providerEntrySpecs: ProviderEntrySpec[] = [
 ]
 
 interface GenerateProviderOutputsOptions {
+  artifacts?: GeneratedBlobArtifacts
   blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined
   clientOutDir: string
   rootDir: string
@@ -268,8 +270,14 @@ async function writeProviderEntries(rootDir: string, blob: BlobModuleOptions | R
   } satisfies GeneratedBlobArtifacts
 }
 
+function getSiblingRuntimeAlias(artifacts: GeneratedBlobArtifacts, product: string, provider: BlobProvider) {
+  const runtimeFile = resolve(artifacts.generatedDir, "..", product, `${provider}-runtime.mjs`)
+  return existsSync(runtimeFile) ? runtimeFile : undefined
+}
+
 function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined, artifacts: GeneratedBlobArtifacts): CloudflareProviderDeploymentOutput {
   const resolved = resolveBlobConfig(blob, "cloudflare")
+  const databaseRuntime = getSiblingRuntimeAlias(artifacts, "database", "cloudflare")
 
   const wranglerConfig: CloudflareBlobConfig = {
     compatibility_date: defaultCloudflareCompatibilityDate,
@@ -284,6 +292,7 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
     bundleOptions: {
       alias: {
         "@vite-hub/blob": artifacts.runtimeModuleFiles.cloudflare,
+        ...(databaseRuntime ? { "@vite-hub/database/drizzle": databaseRuntime } : {}),
       },
       conditions: ["workerd", "worker", "browser", "default"],
       external: [
@@ -299,11 +308,14 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
 }
 
 function createVercelOutput(artifacts: GeneratedBlobArtifacts): VercelProviderDeploymentOutput {
+  const databaseRuntime = getSiblingRuntimeAlias(artifacts, "database", "vercel")
+
   return {
     bundleEntry: artifacts.vercelServerFile,
     bundleOptions: {
       alias: {
         "@vite-hub/blob": artifacts.runtimeModuleFiles.vercel,
+        ...(databaseRuntime ? { "@vite-hub/database/drizzle": databaseRuntime } : {}),
       },
       external: [
         "files-sdk",
@@ -341,7 +353,7 @@ function hasExplicitFsStore(blob: BlobModuleOptions | ResolvedBlobModuleOptions 
 }
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedBlobArtifacts> {
-  const artifacts = await writeProviderEntries(options.rootDir, options.blob)
+  const artifacts = options.artifacts ?? await prepareProviderOutputs(options)
   const localOnly = hasExplicitFsStore(options.blob)
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
@@ -350,4 +362,8 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     vercel: localOnly ? undefined : createVercelOutput(artifacts),
   })
   return artifacts
+}
+
+export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "blob" | "rootDir">): Promise<GeneratedBlobArtifacts> {
+  return await writeProviderEntries(options.rootDir, options.blob)
 }
