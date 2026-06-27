@@ -128,6 +128,10 @@ function errorText(error: unknown) {
     || String(error)
 }
 
+function outputText(output: Awaited<ReturnType<typeof runDbBuild>>) {
+  return `${output.stdout}\n${output.stderr}`
+}
+
 afterAll(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
@@ -136,13 +140,14 @@ describe("Vite db provider outputs", () => {
   it("builds and emits named database Cloudflare and Vercel outputs", async () => {
     const rootDir = await createDbBuildProject("vitehub-db-vite-output-")
 
-    await runDbBuild(rootDir, {
+    const output = await runDbBuild(rootDir, {
       TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
       TURSO_AUTH_TOKEN: "token",
       TURSO_DATABASE_URL: "libsql://database.example.turso.io",
       VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
       VITEHUB_D1_DATABASE_ID: "primary-d1-id",
     })
+    expect(outputText(output)).not.toMatch(/Duplicate key "(?:cloudflare|connection|url|drizzle)"/)
 
     const cloudflareConfig = await readCloudflareConfig(rootDir)
     const vercelServer = join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs")
