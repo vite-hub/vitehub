@@ -178,10 +178,13 @@ export function normalizeCapabilities(
   const normalized: AgentCapabilityDefinition[] = []
   const seen = new Set<string>()
   const add = (capability: AgentCapabilityDefinition) => {
-    const resolved = explicitById.get(capability.id) || defineCapability(capability)
+    const resolved = defineCapability(capability)
     if (seen.has(resolved.id)) return
     seen.add(resolved.id)
-    for (const nested of resolved.capabilities || []) add(nested as AgentCapabilityDefinition)
+    for (const nested of resolved.capabilities || []) {
+      const normalizedNested = defineCapability(nested as AgentCapabilityDefinition)
+      if (!explicitById.has(normalizedNested.id)) add(normalizedNested)
+    }
     normalized.push(resolved)
   }
 

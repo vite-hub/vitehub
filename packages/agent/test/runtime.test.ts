@@ -263,8 +263,8 @@ describe("agent message protocol", () => {
     const onUsage = vi.fn()
     const agent = defineAgent({
       capabilities: [
-        observability(),
         usageTelemetry({ onUsage }),
+        observability(),
       ],
       hooks: {
         "agent:finish": finish,
@@ -288,6 +288,43 @@ describe("agent message protocol", () => {
     const extensions = finish.mock.calls[0]![0].extensions
     const usage = extensions.get("usage-telemetry")
     expect(extensions.get("observability", "usage")).toBe(usage)
+  })
+
+  it("preserves explicit capability order over nested defaults", async () => {
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const agent = defineAgent({
+      capabilities: [
+        observability(),
+        defineCapability({
+          id: "usage-renderer",
+          output(context) {
+            context.output.render(result => ({
+              ...(result as Record<string, unknown>),
+              totalUsage: {
+                inputTokens: 4,
+                outputTokens: 6,
+              },
+            }))
+          },
+        }),
+        usageTelemetry(),
+      ],
+      run: () => ({ text: "ok" }),
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "hello" })).resolves.toMatchObject({
+      text: "ok",
+      usageRecord: {
+        usage: {
+          totalTokens: 10,
+        },
+      },
+    })
   })
 
   it("does not let observability sink failures change Agent output", async () => {

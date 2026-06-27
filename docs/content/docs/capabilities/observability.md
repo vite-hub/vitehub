@@ -42,8 +42,9 @@ When enabled usage telemetry records usage from the Agent Driver or custom resul
 Use `observability({ usageTelemetry: false })` to opt out.
 With that opt-out, a custom `result.usageRecord` can still stay on the result, but `observability.usage` is not populated.
 
-If an Agent also lists `usageTelemetry(...)` in `capabilities`, that explicit configuration wins for the Agent Usage Record itself.
-`observability({ usageTelemetry: false })` still suppresses the `observability.usage` alias; omit the opt-out when observability should carry the same usage record in its metadata.
+If an Agent also lists `usageTelemetry(...)` in `capabilities`, that explicit Capability keeps its top-level order and wins for the Agent Usage Record itself.
+Place `usageTelemetry(...)` before `observability()` when `observability.usage` should reference the explicit record.
+`observability({ usageTelemetry: false })` still suppresses the `observability.usage` alias.
 
 ## Eval assertions
 

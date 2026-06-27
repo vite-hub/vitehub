@@ -60,6 +60,8 @@ The Agent Package root stays focused on Agent Definition, invocation, message, a
 
 Capabilities are attached before the Agent Invocation runs. Pre-Invocation Decisions can record context values, reject, or influence conditional contributions, but they do not dynamically attach new Capabilities.
 
+Capabilities run in array order. A Capability can include nested default Capabilities, but an explicitly listed Capability keeps its top-level position.
+
 ## Next steps
 
 - Read the [Capabilities](/docs/capabilities) section.
