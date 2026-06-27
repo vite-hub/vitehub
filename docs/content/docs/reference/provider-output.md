@@ -48,6 +48,8 @@ pnpm --filter @vite-hub/workflow test
 Application code should import Runtime Helpers and stable handlers.
 Generated Provider Output may import generated files, virtual modules, or provider runtime packages internally.
 
+Netlify Agent output is not a public 0.0.2 contract yet: there is no documented stable `@vite-hub/agent/netlify` import or Netlify output family. Use the documented Cloudflare, Vercel, Deno, or Node-shaped host paths until Netlify support is documented.
+
 | Do | Avoid |
 | --- | --- |
 | Call `runQueue('welcome-email', payload)`. | Import a generated queue consumer from `.vitehub`. |

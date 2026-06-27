@@ -62,6 +62,8 @@ They may resolve to Runtime Registries, generated files, virtual modules, or pac
 | Vite virtual module ids with `\0` prefixes | Internal | Never import directly. |
 | `@vite-hub/internal/*` | Internal | Package implementation only. |
 
+The 0.0.2 preview does not expose a stable `@vite-hub/agent/netlify` app import. Treat Netlify Agent output as undocumented until a provider page names the public contract.
+
 ## Related
 
 - [Generated files](/docs/development/generated-files)

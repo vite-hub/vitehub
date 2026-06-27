@@ -72,6 +72,7 @@ deno run --unstable-kv --allow-net=127.0.0.1:8787 .vitehub/agent/deno-server.ts 
 ```
 
 For a single discovered `support` Agent with the default chat route enabled, send a chat request to the generated route.
+The target Agent must expose the `chat.message` trigger, usually by attaching `chat()` from `@vite-hub/agent/capabilities`; a custom `driver.run` Agent without that Capability can mount the route but will reject chat requests.
 
 ```bash [Terminal]
 curl -X POST http://127.0.0.1:8787/api/_vitehub/agents/support/chat \
