@@ -61,7 +61,9 @@ function renderWorkspaceYaml(overrides) {
   const overrideLines = Object.entries(overrides).map(([name, spec]) => `  ${JSON.stringify(name)}: ${JSON.stringify(spec)}`)
   return [
     "allowBuilds:",
+    "  '@mongodb-js/zstd': true",
     "  esbuild: true",
+    "  node-liblzma: true",
     "catalog:",
     "  vite: npm:@voidzero-dev/vite-plus-core@latest",
     "  vitest: npm:@voidzero-dev/vite-plus-test@latest",
@@ -87,8 +89,8 @@ async function writeFixtureFiles(overrides) {
   await mkdir(join(appDir, "server", "agents"), { recursive: true })
   await writeFile(join(appDir, "src", "lib", "reply.ts"), "export const replyMarker = \"netlify-alias-ok\"\n", "utf8")
   await writeFile(join(appDir, "server", "agents", "support.ts"), [
-    "import { defineAgent } from \"@vite-hub/agent\"",
-    "import { chat } from \"@vite-hub/agent/capabilities\"",
+    "import { defineAgent } from \"@vite-hub/vite/agent\"",
+    "import { chat } from \"@vite-hub/vite/agent/capabilities\"",
     "import { replyMarker } from \"@/lib/reply\"",
     "",
     "export default defineAgent({",
@@ -104,20 +106,20 @@ async function writeFixtureFiles(overrides) {
   await writeFile(join(appDir, "vite.config.ts"), [
     "import { fileURLToPath, URL } from \"node:url\"",
     "",
-    "import { hubAgent } from \"@vite-hub/agent/vite\"",
-    "import { hubBlob } from \"@vite-hub/blob/vite\"",
+    "import { vitehub } from \"@vite-hub/vite\"",
     "import { defineConfig } from \"vite-plus\"",
     "",
     "export default defineConfig({",
-    "  agent: {",
-    "    providers: { state: { provider: \"memory\" } },",
-    "    routes: { chat: true },",
-    "  },",
-    "  blob: {},",
     "  build: { outDir: \"dist/client\" },",
     "  fmt: {},",
     "  lint: { options: { typeAware: true, typeCheck: true } },",
-    "  plugins: [hubBlob(), hubAgent()],",
+    "  plugins: [vitehub({",
+    "    agent: {",
+    "      providers: { state: { provider: \"memory\" } },",
+    "      routes: { chat: true },",
+    "    },",
+    "    blob: {},",
+    "  })],",
     "  resolve: {",
     "    alias: { \"@\": fileURLToPath(new URL(\"./src\", import.meta.url)) },",
     "  },",
@@ -168,8 +170,8 @@ async function createProject({ packageSource, preview }) {
   await writeFixtureFiles(overrides)
 
   const packageSpecs = packageSource === "local"
-    ? ["@vite-hub/agent", "@vite-hub/blob"].map(name => overrides[name])
-    : ["@vite-hub/agent", "@vite-hub/blob"].map(name => previewSpec(name, preview))
+    ? [overrides["@vite-hub/vite"]]
+    : [previewSpec("@vite-hub/vite", preview)]
 
   run("pnpm", [
     "add",
