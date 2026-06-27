@@ -96,6 +96,29 @@ describe("lazy sources", () => {
     ])
   })
 
+  it("normalizes source binding scopes", () => {
+    const resolved = normalizeWorkspaceSources({
+      docs: {
+        source: custom({
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            return { key, path: key, content: "" }
+          },
+        }),
+        scopes: ["support"],
+      },
+    })
+
+    expect(resolved).toEqual([
+      expect.objectContaining({
+        key: "docs",
+        scopes: ["support"],
+      }),
+    ])
+  })
+
   it("materializes build sources when a path explicitly requests them", async () => {
     const view = createWorkspaceSourceView({
       name: "build-source-path",
