@@ -186,6 +186,46 @@ describe("KV Vite output", () => {
       kv_namespaces: [{ binding: "SETTINGS", id: "22222222222222222222222222222222" }],
     })
   })
+
+  it("leaves existing Cloudflare KV namespaces alone without a Cloudflare KV contribution", async () => {
+    const rootDir = await createConsumerRoot()
+    const entry = join(rootDir, "src", "worker.ts")
+    const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareOutputRoot, { recursive: true })
+    await writeFile(join(cloudflareOutputRoot, "wrangler.json"), `${JSON.stringify({
+      kv_namespaces: [{ binding: "MANUAL", id: "manual-namespace" }],
+      triggers: { crons: ["0 0 * * *"] },
+    }, null, 2)}\n`, "utf8")
+    const [{ build }, { hubKv }] = await Promise.all([
+      import("vite"),
+      import("../src/vite.ts"),
+    ])
+
+    await build({
+      appType: "custom",
+      build: {
+        emptyOutDir: false,
+        outDir: "dist",
+        rollupOptions: {
+          input: entry,
+          output: { entryFileNames: "worker.js" },
+        },
+        ssr: entry,
+      },
+      configFile: false,
+      kv: { driver: "fs-lite" },
+      logLevel: "silent",
+      plugins: [hubKv()],
+      root: rootDir,
+    })
+
+    const wrangler = JSON.parse(await readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8"))
+
+    expect(wrangler).toEqual({
+      kv_namespaces: [{ binding: "MANUAL", id: "manual-namespace" }],
+      triggers: { crons: ["0 0 * * *"] },
+    })
+  })
 })
 
 describe("KV source type visibility", () => {

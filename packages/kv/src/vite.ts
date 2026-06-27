@@ -125,9 +125,12 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
       async handler() {
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
 
+        const wranglerConfig = createCloudflareKVWranglerConfig(getConfig().kv)
+        if (!wranglerConfig) return
+
         await writeCloudflareWranglerConfig({
           rootDir: resolved.root,
-          wranglerConfig: createCloudflareKVWranglerConfig(getConfig().kv),
+          wranglerConfig,
           wranglerConfigKeys: ["kv_namespaces"],
         })
       },
