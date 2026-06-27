@@ -4,7 +4,7 @@ import { hasTrustedWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefi
 import { getAccessCapabilityOptions } from "./capabilities/access-metadata.ts"
 import { createMessage } from "./messages.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
-import { normalizeAgentWorkspaceSource, workspaceSourceScopeNames } from "./workspace-source-metadata.ts"
+import { normalizeAgentWorkspaceSource, workspaceSourceScopeNames, workspaceSourceScopePaths } from "./workspace-source-metadata.ts"
 import {
   createFallbackAgentInvoker,
   ensureAgentInvokerContext,
@@ -343,6 +343,7 @@ type WorkspaceContributionRuntime = Pick<
   typeof import("@vite-hub/workspace"),
   | "createWorkspaceSourceResolutionFacade"
   | "isWorkspaceSourceRequestOnly"
+  | "resolveWorkspaceSources"
   | "workspaceSourceRequestDescriptorPath"
 >
 
@@ -523,12 +524,41 @@ function selectedWorkspaceScopeFromContext(context: AgentInvocationContextStore)
   }
 }
 
+function setSelectedWorkspaceScopeContext(context: AgentInvocationContextStore, scope: WorkspaceSelectedScope | undefined) {
+  if (!scope || !hasTrustedWorkspaceAccessScope(context)) return
+  const access = context.get<{ workspaceScope?: { all?: boolean, paths?: readonly string[], role?: string, scope?: string } }>("access")
+  context.set("access", {
+    ...access,
+    workspaceScope: {
+      ...access?.workspaceScope,
+      all: scope.all,
+      paths: scope.paths,
+      role: scope.role,
+      scope: scope.name,
+    },
+  }, { overwrite: true })
+}
+
 function mergeSelectedWorkspaceScopePaths(scope: WorkspaceSelectedScope | undefined, paths: readonly string[]): WorkspaceSelectedScope | undefined {
   if (!scope || scope.all || !paths.length) return scope
   return {
     ...scope,
-    paths: [...new Set([...(scope.paths || []), ...paths])],
+    paths: compactWorkspacePaths([...(scope.paths || []), ...paths]),
   }
+}
+
+function mergeSelectedWorkspaceSourceScopePaths(
+  scope: WorkspaceSelectedScope | undefined,
+  definition: WorkspaceDefinition,
+  runtime: WorkspaceContributionRuntime,
+): WorkspaceSelectedScope | undefined {
+  if (!scope || scope.all || !scope.name) return scope
+  const paths = Object.entries(definition.sources || {}).flatMap(([key, source]) => {
+    const metadata = normalizeAgentWorkspaceSource(key, source)
+    if (!metadata.scopes?.includes(scope.name)) return []
+    return workspaceSourceScopePaths(key, source, runtime)
+  })
+  return mergeSelectedWorkspaceScopePaths(scope, paths)
 }
 
 function selectedScopeContainsMount(scope: WorkspaceSelectedScope | undefined, mountPath: string): boolean {
@@ -662,9 +692,19 @@ async function applyCapabilityWorkspaceContributions<
   }
 
   if (!registries.length) return
-  const selectedWorkspaceScope = mergeSelectedWorkspaceScopePaths(selectedWorkspaceScopeFromContext(context.context), context.harnessWorkspacePaths || [])
+  let selectedWorkspaceScope = mergeSelectedWorkspaceScopePaths(selectedWorkspaceScopeFromContext(context.context), context.harnessWorkspacePaths || [])
+  selectedWorkspaceScope = mergeSelectedWorkspaceSourceScopePaths(selectedWorkspaceScope, definition, workspaceRuntime)
   assertStaticWorkspaceContributionSourcesInScope(registries, definition, selectedWorkspaceScope, workspaceRuntime)
-  const sourceResolution = await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace, definition, {
+  const resolvedDefinition = await workspaceRuntime.resolveWorkspaceSources(definition, {
+    invocation: {
+      context: context.context,
+      run: context.run,
+    },
+    selectedWorkspaceScope,
+  })
+  selectedWorkspaceScope = mergeSelectedWorkspaceSourceScopePaths(selectedWorkspaceScope, resolvedDefinition, workspaceRuntime)
+  setSelectedWorkspaceScopeContext(context.context, selectedWorkspaceScope)
+  const sourceResolution = await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace, resolvedDefinition, {
     invocation: {
       context: context.context,
       run: context.run,

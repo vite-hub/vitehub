@@ -205,6 +205,46 @@ describe("Workspace Source Resolution", () => {
     })
   })
 
+  it("resolves scoped resolver sources before filtering by final mount", async () => {
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        ingestion: {
+          source: custom({
+            async resolve({ selectedWorkspaceScope }) {
+              return custom({
+                materialize: "lazy",
+                mount: `customers/${selectedWorkspaceScope?.name}`,
+                async getKeys() {
+                  return ["summary.md"]
+                },
+                async getItem(key) {
+                  return { key, path: key, content: "summary\n" }
+                },
+              })
+            },
+            async getKeys() {
+              return []
+            },
+            async getItem(key) {
+              throw new Error(`unresolved source read: ${key}`)
+            },
+          }),
+          scopes: ["support"],
+        },
+      },
+    }
+
+    const resolved = await resolveWorkspaceSources(definition, scope("support", ["ingestion"]))
+    const [ingestion] = normalizeWorkspaceSources(resolved.sources)
+
+    expect(ingestion).toMatchObject({
+      key: "ingestion",
+      mountPath: "customers/support",
+      scopes: ["support"],
+    })
+  })
+
   it("defaults resolved GitHub sources to lazy materialization", async () => {
     const definition: WorkspaceDefinition = {
       name: "support",

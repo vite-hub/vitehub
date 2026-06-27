@@ -74,6 +74,25 @@ export function workspaceSourceScopeNames(sources: WorkspaceDefinition["sources"
   return [...new Set(normalizeAgentWorkspaceSources(sources).flatMap(source => source.scopes || []))].sort()
 }
 
+export function workspaceSourceScopePaths(
+  key: string,
+  input: WorkspaceSourceInput,
+  runtime: Pick<typeof import("@vite-hub/workspace"), "isWorkspaceSourceRequestOnly" | "workspaceSourceRequestDescriptorPath">,
+): string[] {
+  const metadata = normalizeAgentWorkspaceSource(key, input)
+  const descriptorPath = runtime.workspaceSourceRequestDescriptorPath(key)
+  if (metadata.source && runtime.isWorkspaceSourceRequestOnly(metadata.source)) {
+    return [descriptorPath]
+  }
+  const paths = metadata.mountPath
+    ? [metadata.mountPath]
+    : metadata.probeKeys?.map(sourcePath => joinSourcePath(metadata.mountPath, sourcePath)).filter(Boolean) || []
+  if (!paths.length) {
+    throw new Error(`[vitehub] Workspace Scope source grant "${key}" is root-mounted; grant explicit paths instead.`)
+  }
+  return [...paths, descriptorPath]
+}
+
 function describeWorkspaceSourceInput(input: WorkspaceSourceInput): WorkspaceSourceMetadataDescriptor {
   if (typeof input === "string") {
     return {
@@ -255,6 +274,10 @@ function inferFetchWorkspacePath(input: Record<string, unknown>) {
 
 function inferRepositoryMount(repo: unknown) {
   return typeof repo === "string" ? repo.split("/").filter(Boolean).at(-1) : undefined
+}
+
+function joinSourcePath(mountPath: string, sourcePath: string): string {
+  return [mountPath, sourcePath].filter(Boolean).join("/")
 }
 
 function dirname(path: string) {

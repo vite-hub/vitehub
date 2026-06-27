@@ -46,7 +46,7 @@ export interface FetchSourceStandardJsonSchemaV1<T = unknown> extends FetchSourc
   }
 }
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "scopes" | "sync">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "probeKeys" | "scopes" | "sync">
 type SourceScopes<T> = T extends { scopes?: infer TScopes } ? { scopes?: TScopes } : {}
 type TypedWorkspaceSource<T> = WorkspaceSource & SourceScopes<T>
 type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
@@ -135,6 +135,7 @@ export function fetch<TResponse = unknown, TOutput = TResponse>(input: FetchSour
     instructions: options.instructions,
     materialize: options.materialize || (options.sync ? "none" : "lazy"),
     mount: mountPath,
+    probeKeys: options.probeKeys || (key ? [key] : undefined),
     scopes: options.scopes,
     sync: options.sync,
     async getKeys() {

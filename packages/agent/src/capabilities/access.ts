@@ -1,6 +1,6 @@
 import { markTrustedWorkspaceAccessScope, markTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "../access-runtime.ts"
 import { defineCapability } from "../capability-runtime.ts"
-import { normalizeAgentWorkspaceSource, workspaceSourceKeysForScope, workspaceSourceScopeNames } from "../workspace-source-metadata.ts"
+import { workspaceSourceKeysForScope, workspaceSourceScopeNames, workspaceSourceScopePaths } from "../workspace-source-metadata.ts"
 import type { AccessCapabilityMetadata } from "./access-metadata.ts"
 
 import type {
@@ -44,6 +44,7 @@ type WorkspaceAccessRuntime = Pick<
   | "getWorkspaceSourceRequestExecution"
   | "hasWorkspaceSourceResolvers"
   | "isWorkspaceSourceRequestOnly"
+  | "resolveWorkspaceSources"
   | "workspaceSourceRequestDescriptorPath"
 >
 
@@ -317,24 +318,26 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       const workspaceRuntime = await loadWorkspaceAccessRuntime()
       const scope = await resolveWorkspaceScope(options.workspace, context, workspaceRuntime)
       const sourceResolutionScope = withHarnessWorkspacePaths(scope, context.harnessWorkspacePaths)
+      const sourceResolutionOptions = {
+        invocation: {
+          context: context.context,
+          run: context.run,
+        },
+        selectedWorkspaceScope: toWorkspaceSelectedScope(sourceResolutionScope),
+      }
+      const resolvedDefinition = context.workspaceDefinition
+        ? await workspaceRuntime.resolveWorkspaceSources(context.workspaceDefinition, sourceResolutionOptions)
+        : undefined
       const hasSourceResolvers = context.workspaceDefinition
         ? workspaceRuntime.hasWorkspaceSourceResolvers(context.workspaceDefinition)
         : false
-      const sourceResolution = context.workspaceDefinition
-        ? await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace, context.workspaceDefinition, {
-            invocation: {
-              context: context.context,
-              run: context.run,
-            },
-            selectedWorkspaceScope: {
-              all: sourceResolutionScope.all,
-              name: sourceResolutionScope.scope,
-              paths: sourceResolutionScope.paths,
-              role: sourceResolutionScope.role,
-            },
+      const finalScope = withHarnessWorkspacePaths(finalizeResolvedWorkspaceScope(scope, resolvedDefinition, workspaceRuntime), context.harnessWorkspacePaths)
+      const sourceResolution = resolvedDefinition
+        ? await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace, resolvedDefinition, {
+            ...sourceResolutionOptions,
+            selectedWorkspaceScope: toWorkspaceSelectedScope(finalScope),
           })
-        : { definition: context.workspaceDefinition, workspace: context.workspace }
-      const finalScope = withHarnessWorkspacePaths(finalizeResolvedWorkspaceScope(scope, sourceResolution.definition, workspaceRuntime), context.harnessWorkspacePaths)
+        : { definition: resolvedDefinition, workspace: context.workspace }
       const workspaceForScope = hasSourceResolvers ? sourceResolution.workspace : context.workspace
       const scopedWorkspace = finalScope.all
         ? workspaceForScope
@@ -360,6 +363,15 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function toWorkspaceSelectedScope(scope: ResolvedWorkspaceScope) {
+  return {
+    all: scope.all,
+    name: scope.scope,
+    paths: scope.paths,
+    role: scope.role,
+  }
 }
 
 async function resolveWorkspaceScope<
@@ -529,9 +541,6 @@ function scopePaths(
     paths.push(...sourcePaths(normalizeStringList(grant.source, grant.sources), workspaceDefinition, workspaceRuntime))
   }
   const normalized = [...new Set(paths.map(path => normalizeScopePath(path)))]
-  if (!normalized.length) {
-    throw new Error("[vitehub] Workspace Scope must grant at least one path or source.")
-  }
   return normalized.sort((left, right) => left.length - right.length || left.localeCompare(right))
 }
 
@@ -608,20 +617,7 @@ function sourceScopePaths(
   if (!definition) {
     throw new Error(`[vitehub] Workspace Scope source grant references unknown source "${source}".`)
   }
-  const metadata = normalizeAgentWorkspaceSource(source, definition)
-  const descriptorSource = metadata.source
-  const descriptorPath = workspaceRuntime.workspaceSourceRequestDescriptorPath(source)
-  if (descriptorSource && workspaceRuntime.isWorkspaceSourceRequestOnly(descriptorSource)) {
-    return [descriptorPath]
-  }
-  const mountPath = metadata.mountPath
-  if (normalizeScopePath(mountPath) === "") {
-    throw new Error(`[vitehub] Workspace Scope source grant "${source}" is root-mounted; grant explicit paths instead.`)
-  }
-  return [
-    mountPath,
-    descriptorPath,
-  ]
+  return workspaceSourceScopePaths(source, definition, workspaceRuntime)
 }
 
 function normalizeScopePath(path = ""): string {

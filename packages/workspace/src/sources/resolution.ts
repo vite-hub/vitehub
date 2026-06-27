@@ -774,6 +774,7 @@ function selectedScopeIntersectsSource(
   source: ReturnType<typeof normalizeWorkspaceSources>[number],
 ): boolean {
   if (!scope || scope.all) return true
+  if (scope.name && source.scopes?.includes(scope.name)) return true
   return Boolean(scope.paths?.some((path) => {
     if (source.requestDescriptor && pathIntersects(path, workspaceSourceRequestDescriptorPath(source.key))) return true
     return !source.requestOnly && pathIntersects(path, source.mountPath)

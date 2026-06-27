@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import type { AgentRuntimeContext, AgentToolSet } from "../src/types.ts"
-import { attachWorkspaceSourceRequestExecution, custom, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceStat } from "@vite-hub/workspace"
+import { attachWorkspaceSourceRequestExecution, custom, file, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceStat } from "@vite-hub/workspace"
 
 function runtime(): AgentRuntimeContext {
   return {
@@ -91,6 +91,27 @@ function createWorkspace(executor?: Parameters<typeof attachWorkspaceSourceReque
       inspect: () => ({}),
       none: () => ({}),
     } as unknown as ReadonlyWorkspaceFacade["tools"],
+  }
+}
+
+function createWorkspaceWithRootFile(path: string, content: string): ReadonlyWorkspaceFacade {
+  const base = createWorkspace()
+  return {
+    ...base,
+    fs: {
+      ...base.fs,
+      async readFile(requested, options) {
+        if (requested === path) return (options?.encoding === "binary" ? new TextEncoder().encode(content) : content) as never
+        return await base.fs.readFile(requested, options as never)
+      },
+      async stat(requested) {
+        if (requested === path) return { path, size: content.length, type: "file" } as WorkspaceStat
+        return await base.fs.stat(requested)
+      },
+      async exists(requested) {
+        return requested === path || await base.fs.exists(requested)
+      },
+    },
   }
 }
 
@@ -1086,6 +1107,88 @@ describe("access capability", () => {
     })
 
     await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
+    await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(false)
+  })
+
+  it("honors root file sources granted by Workspace Source scopes", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "support",
+            scopes: {
+              support: {},
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspaceWithRootFile("README.md", "root readme"), "read", {
+      workspaceDefinition: {
+        name: "support",
+        sources: {
+          readme: file({ path: "README.md", scopes: ["support"] }),
+        },
+      },
+    })
+
+    await expect(resolved.workspace!.fs.readFile("README.md")).resolves.toBe("root readme")
+    await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(false)
+  })
+
+  it("resolves scoped resolver sources before applying final scope paths", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const resolveSource = vi.fn(({ selectedWorkspaceScope }) => ({
+      materialize: "lazy" as const,
+      mount: `customers/${selectedWorkspaceScope?.name}`,
+      async getKeys() {
+        return ["resolved.md"]
+      },
+      async getItem(key: string) {
+        return { content: `resolved for ${selectedWorkspaceScope?.name}`, key }
+      },
+    }))
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "acme",
+            scopes: {
+              acme: {},
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace(), "read", {
+      workspaceDefinition: {
+        name: "support",
+        sources: {
+          customerDocs: {
+            source: custom({
+              async resolve(context) {
+                return resolveSource(context)
+              },
+              async getKeys() {
+                return []
+              },
+              async getItem(key: string) {
+                return { content: "", key }
+              },
+            }),
+            scopes: ["acme"],
+          } as never,
+        },
+      },
+    })
+
+    expect(resolveSource).toHaveBeenCalledWith(expect.objectContaining({
+      selectedWorkspaceScope: expect.objectContaining({ name: "acme" }),
+    }))
+    await expect(resolved.workspace!.fs.readFile("customers/acme/resolved.md")).resolves.toBe("resolved for acme")
     await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(false)
   })
 
