@@ -18,6 +18,7 @@ They may resolve to Runtime Registries, generated files, virtual modules, or pac
 | `@vite-hub/agent/eval` | Agent Package | Agent Eval authoring helpers. |
 | `@vite-hub/agent/test` | Agent Package | Agent test runner helpers for local and CI Agent Invocation checks. |
 | `@vite-hub/agent/harness/local-sandbox` | Agent Package | Trusted local harness sandbox helper for development and Agent Evals. |
+| `@vite-hub/agent/cloudflare` | Agent Package | Cloudflare Worker handler helpers and Agent state helpers. |
 | `@vite-hub/vite/agent` | Vite Preset | Agent Definition helpers forwarded by the preset package. |
 | `@vite-hub/vite/agent/capabilities` | Vite Preset | Official Capability factories forwarded by the preset package. |
 | `@vite-hub/vite/agent/channels` | Vite Preset | Official Channel Kind helpers forwarded by the preset package. |
@@ -58,9 +59,12 @@ They may resolve to Runtime Registries, generated files, virtual modules, or pac
 | --- | --- | --- |
 | `.vitehub/**` | Generated | Inspect during development; do not author imports against these files. |
 | `.vercel/output/**` | Generated Provider Output | Deploy or inspect as Vercel Build Output. |
+| `.netlify/v1/**` | Generated Provider Output | Deploy or inspect as Netlify function output. |
 | `dist/**/wrangler.json` | Generated Provider Output | Deploy or inspect as Cloudflare output. |
 | Vite virtual module ids with `\0` prefixes | Internal | Never import directly. |
 | `@vite-hub/internal/*` | Internal | Package implementation only. |
+
+The 0.0.2 preview does not expose a stable `@vite-hub/agent/netlify` app import. Netlify Agent output is generated Provider Output under `.netlify/v1` plus the `.vitehub/agent/netlify-function.mjs` source wrapper.
 
 ## Related
 

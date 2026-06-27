@@ -25,7 +25,7 @@ ViteHub starts with the `@vite-hub/vite` preset. Add direct primitive, Agent Pac
 
 - Node 24 or newer.
 - Vite 8 or newer.
-- A server app with a `vite.config.ts` file.
+- A server app with an ESM Vite config, such as `vite.config.ts` in a `"type": "module"` package or `vite.config.mts`.
 - A package manager such as `pnpm`, `npm`, `yarn`, or `bun`.
 - A local `.env` file or provider environment variable system for host credentials.
 
@@ -47,7 +47,7 @@ Install only the packages you use. Add Env, Database, Blob, Queue, Workflow, Sch
 
 ## Register the Vite Integration
 
-Register the preset Vite Integration with `vitehub()` in `vite.config.ts`.
+Register the preset Vite Integration with `vitehub()` in `vite.config.ts`. ViteHub packages are ESM-only, so fresh npm projects should either set `"type": "module"` in `package.json` or name the config `vite.config.mts`.
 
 ```ts [vite.config.ts]
 import { vitehub } from "@vite-hub/vite";
