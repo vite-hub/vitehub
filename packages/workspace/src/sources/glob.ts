@@ -2,11 +2,13 @@ import { glob as createGlobSource, type GlobSourceOptions as SourcePackageGlobSo
 
 import type { WorkspaceSource } from "../core/types.ts"
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "mount" | "sync" | "validate">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "mount" | "scopes" | "sync" | "validate">
+type SourceScopes<T> = T extends { scopes?: infer TScopes } ? { scopes?: TScopes } : {}
+type TypedWorkspaceSource<T> = WorkspaceSource & SourceScopes<T>
 
 export type GlobSourceOptions = SourcePackageGlobSourceOptions & SourceRuntimeOptions
 
-export function glob(options: GlobSourceOptions): WorkspaceSource {
+export function glob<const TOptions extends GlobSourceOptions>(options: TOptions): TypedWorkspaceSource<TOptions> {
   const source = createGlobSource({
     ...options,
     keyCache: options.keyCache ?? !isLazySource(options),
@@ -17,9 +19,10 @@ export function glob(options: GlobSourceOptions): WorkspaceSource {
     instructions: options.instructions,
     materialize: options.materialize,
     mount: options.mount,
+    scopes: options.scopes,
     sync: options.sync,
     validate: options.validate,
-  }
+  } as unknown as TypedWorkspaceSource<TOptions>
 }
 
 function isLazySource(options: GlobSourceOptions) {

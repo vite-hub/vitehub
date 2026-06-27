@@ -46,7 +46,10 @@ export interface FetchSourceStandardJsonSchemaV1<T = unknown> extends FetchSourc
   }
 }
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "sync">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "scopes" | "sync">
+type SourceScopes<T> = T extends { scopes?: infer TScopes } ? { scopes?: TScopes } : {}
+type TypedWorkspaceSource<T> = WorkspaceSource & SourceScopes<T>
+type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
 
 export interface FetchSourceCredentialOptions {
   cookies?: Record<string, string>
@@ -102,7 +105,7 @@ export type FetchSourceInput<TResponse = unknown, TOutput = TResponse> =
   | FetchSourceOptions<TResponse, TOutput>
   | FetchSourceResolver<TResponse, TOutput>
 
-export function fetch<TResponse = unknown, TOutput = TResponse>(options: FetchSourceOptions<TResponse, TOutput>): WorkspaceSource
+export function fetch<TResponse = unknown, TOutput = TResponse, const TOptions extends FetchSourceOptions<TResponse, TOutput> = FetchSourceOptions<TResponse, TOutput>>(options: ExactOptions<TOptions, FetchSourceOptions<TResponse, TOutput>>): TypedWorkspaceSource<TOptions>
 export function fetch<TResponse = unknown, TOutput = TResponse>(resolve: FetchSourceResolver<TResponse, TOutput>): WorkspaceSource
 export function fetch<TResponse = unknown, TOutput = TResponse>(input: FetchSourceInput<TResponse, TOutput>): WorkspaceSource {
   if (typeof input === "function") return resolvableFetchSource(input)
@@ -132,6 +135,7 @@ export function fetch<TResponse = unknown, TOutput = TResponse>(input: FetchSour
     instructions: options.instructions,
     materialize: options.materialize || (options.sync ? "none" : "lazy"),
     mount: mountPath,
+    scopes: options.scopes,
     sync: options.sync,
     async getKeys() {
       if (!workspacePath) return []
@@ -203,7 +207,7 @@ function resolvableFetchSource<TResponse, TOutput>(resolve: FetchSourceResolver<
     },
     async resolve(ctx) {
       const options = await resolve(ctx)
-      return options ? fetch(options) : false
+      return options ? fetch<TResponse, TOutput>(options) : false
     },
   }
 }

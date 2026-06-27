@@ -3,7 +3,7 @@ import { resolveRuntimeValue } from "@vite-hub/runtime"
 import { hasTrustedWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "./access-runtime.ts"
 import { createMessage } from "./messages.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
-import { normalizeAgentWorkspaceSource } from "./workspace-source-metadata.ts"
+import { normalizeAgentWorkspaceSource, workspaceSourceScopeNames } from "./workspace-source-metadata.ts"
 import {
   createFallbackAgentInvoker,
   ensureAgentInvokerContext,
@@ -137,6 +137,12 @@ function assertTriggerName(name: unknown, capabilityId: string): asserts name is
   if (!/^[a-z][a-z0-9-_]*$/i.test(name)) {
     throw new TypeError(`[vitehub] Capability "${capabilityId}" trigger "${name}" must be a stable local identifier.`)
   }
+}
+
+function capabilityUsesWorkspaceAccess(capability: AgentCapabilityDefinition): boolean {
+  return capability.id === "access"
+    && isPlainRecord(capability.metadata)
+    && capability.metadata.workspace === true
 }
 
 export function defineCapability<
@@ -690,6 +696,9 @@ export async function resolveAgentCapabilities<
   const driverKind = invocationOptions.driverKind || "model"
   ensureAgentInvokerContext(invocationContext, invoker)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
+  if (workspaceSourceScopeNames(invocationOptions.workspaceDefinition?.sources).length && !capabilities.some(capabilityUsesWorkspaceAccess)) {
+    throw new Error("[vitehub] Workspace Source scopes require access({ workspace }).")
+  }
   validateAccessCapabilityOrder(capabilities)
   const harnessWorkspacePaths = driverKind === "harness"
     ? compactWorkspacePaths(capabilities.flatMap(capability => [

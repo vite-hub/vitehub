@@ -62,6 +62,7 @@ describe("lazy sources", () => {
       docs: custom({
         materialize: "lazy",
         cache: { maxAge: 3600 },
+        scopes: ["support", "technical"],
         async getKeys() {
           return []
         },
@@ -90,6 +91,7 @@ describe("lazy sources", () => {
         mountPath: "docs",
         materialize: "lazy",
         cache: { maxAge: 3600 },
+        scopes: ["support", "technical"],
       }),
     ])
   })

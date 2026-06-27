@@ -896,6 +896,68 @@ describe("agent public types", () => {
         },
       },
     })
+
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["customer"] as const }),
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "customer",
+            scopes: {
+              customer: { source: "docs" },
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+    })
+
+    // @ts-expect-error source-local scopes are checked against access workspace scope keys
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["missing"] as const }),
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "customer",
+            scopes: {
+              customer: { source: "docs" },
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+    })
+
+    // @ts-expect-error Workspace Source scopes require access({ workspace })
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["customer"] as const }),
+        },
+      },
+      model: {} as never,
+    })
+
+    // @ts-expect-error non-Access capabilities do not satisfy Workspace Source scopes
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["customer"] as const }),
+        },
+      },
+      capabilities: [
+        workspaceShell(),
+      ],
+      model: {} as never,
+    })
   })
 
   it("types Agent Actor consumers in access and lifecycle callbacks", () => {

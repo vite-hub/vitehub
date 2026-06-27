@@ -57,6 +57,7 @@ import {
   workspaceModeFromOptions,
   workspaceNameFromOptions,
 } from "./workspace-agent.ts"
+import { workspaceSourceScopeNames } from "./workspace-source-metadata.ts"
 
 import type {
   AgentAdapter,
@@ -345,8 +346,21 @@ type WorkspaceSourceNames<TWorkspace> =
   TWorkspace extends { sources: infer TSources }
     ? Extract<keyof NonNullable<TSources>, string>
     : string
+type WorkspaceSourceInputScopeNames<TSource> =
+  TSource extends { scopes?: readonly (infer TScope)[] }
+    ? Extract<TScope, string>
+    : TSource extends { source: infer TInnerSource }
+      ? WorkspaceSourceInputScopeNames<TInnerSource>
+      : never
+type WorkspaceSourceScopeNames<TWorkspace> =
+  TWorkspace extends { sources: infer TSources }
+    ? { [Key in keyof NonNullable<TSources>]: WorkspaceSourceInputScopeNames<NonNullable<TSources>[Key]> }[keyof NonNullable<TSources>]
+    : never
 type InvalidWorkspaceSourceGrant<TSourceName> = {
   readonly __vitehubInvalidWorkspaceSourceGrant: TSourceName
+}
+type InvalidWorkspaceSourceScope<TScopeName> = {
+  readonly __vitehubInvalidWorkspaceSourceScope: TScopeName
 }
 type ValidateCapabilityWorkspaceSources<
   TSourceName,
@@ -364,8 +378,8 @@ type ValidateCapabilityWorkspaceSources<
     : TCapability
 type ValidateAgentCapability<TCapability, TWorkspace> =
   TCapability extends AgentCapabilityDefinition<any, any, infer TTypeContract>
-    ? TTypeContract extends AgentCapabilityTypeContract
-      ? ValidateCapabilityWorkspaceSources<TTypeContract["workspaceSources"], TWorkspace, TCapability>
+    ? TTypeContract extends { workspaceSources: infer TSourceName }
+      ? ValidateCapabilityWorkspaceSources<TSourceName, TWorkspace, TCapability>
       : TCapability
     : TCapability
 type ValidateAgentCapabilities<TCapabilities, TWorkspace> =
@@ -374,6 +388,26 @@ type ValidateAgentCapabilities<TCapabilities, TWorkspace> =
     : TCapabilities extends readonly (infer TCapability)[]
       ? ValidateAgentCapability<TCapability, TWorkspace>[]
       : TCapabilities
+type CapabilityWorkspaceScopeNames<TCapability> =
+  TCapability extends AgentCapabilityDefinition<any, any, infer TTypeContract>
+    ? TTypeContract extends { workspaceScopes: infer TScopeName }
+      ? Extract<TScopeName, string>
+      : never
+    : never
+type AgentCapabilitiesWorkspaceScopeNames<TCapabilities> =
+  TCapabilities extends readonly [unknown, ...unknown[]] | readonly []
+    ? CapabilityWorkspaceScopeNames<TCapabilities[number]>
+    : TCapabilities extends readonly (infer TCapability)[]
+      ? CapabilityWorkspaceScopeNames<TCapability>
+      : never
+type ValidateWorkspaceSourceScopes<TCapabilities, TWorkspace> =
+  [WorkspaceSourceScopeNames<TWorkspace>] extends [never]
+    ? unknown
+    : string extends WorkspaceSourceScopeNames<TWorkspace>
+      ? unknown
+      : Exclude<WorkspaceSourceScopeNames<TWorkspace>, AgentCapabilitiesWorkspaceScopeNames<TCapabilities>> extends never
+        ? unknown
+        : InvalidWorkspaceSourceScope<Exclude<WorkspaceSourceScopeNames<TWorkspace>, AgentCapabilitiesWorkspaceScopeNames<TCapabilities>>>
 
 type UnionToIntersection<T> =
   (T extends unknown ? (value: T) => void : never) extends (value: infer TIntersection) => void
@@ -397,7 +431,7 @@ type AgentCapabilitiesInvocationContextValues<TCapabilities> =
   >
 type ValidateWorkspaceAgentOptions<TOptions> =
   TOptions extends { capabilities?: infer TCapabilities, workspace: infer TWorkspace }
-    ? { capabilities?: ValidateAgentCapabilities<TCapabilities, TWorkspace> }
+    ? { capabilities?: ValidateAgentCapabilities<TCapabilities, TWorkspace> } & ValidateWorkspaceSourceScopes<TCapabilities, TWorkspace>
     : unknown
 type BaseAgentResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown> =
   (context: AgentRuntimeContext<TRuntimeConfig>) => Promise<AgentAdapter<CALL_OPTIONS>>
@@ -691,9 +725,12 @@ function validateSandboxCommands(commands: unknown): string[] {
   return commands
 }
 
-function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>): void {
+function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: WorkspaceAgentOptions<AgentRuntimeConfig, Name>, workspaceDefinition: Pick<WorkspaceDefinition, "sources">): void {
   const capabilities = normalizeCapabilities(options.capabilities)
   const workspaceMode = workspaceModeFromOptions(options)
+  if (workspaceSourceScopeNames(workspaceDefinition.sources).length && !capabilities.some(accessCapabilityRequiresWorkspace)) {
+    throw new Error("[vitehub] Workspace Source scopes require access({ workspace }).")
+  }
   for (const capability of capabilities) {
     if (capability.id === "workspace-shell" && normalizeMode(capability.mode, "Workspace Shell") === "write" && workspaceMode !== "write") {
       throw new Error("[vitehub] workspaceShell({ mode: \"write\" }) requires workspace.mode: \"write\".")
@@ -923,7 +960,7 @@ function createWorkspaceAgentDefinition<
   defaults: WorkspaceAgentDefaults<Name> = {},
 ): WorkspaceAgentDefinition<TRuntimeConfig, Name, CALL_OPTIONS> {
   const workspaceDefinition = workspaceDefinitionFromOptions(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
-  validateWorkspaceCapabilities(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>)
+  validateWorkspaceCapabilities(options as unknown as WorkspaceAgentOptions<AgentRuntimeConfig, Name>, workspaceDefinition)
   const definition = defineBaseAgent<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>({
     ...options,
     description: options.description,

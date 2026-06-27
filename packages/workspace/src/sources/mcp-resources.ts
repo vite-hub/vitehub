@@ -6,12 +6,14 @@ import { markLiveWorkspaceSource } from "./live.ts"
 import type { WorkspaceSource } from "../core/types.ts"
 import type { McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions } from "@vite-hub/source"
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "mount" | "sync" | "validate">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "mount" | "scopes" | "sync" | "validate">
+type SourceScopes<T> = T extends { scopes?: infer TScopes } ? { scopes?: TScopes } : {}
+type TypedWorkspaceSource<T> = WorkspaceSource & SourceScopes<T>
 
 export interface McpResourcesSourceOptions<TKey extends string = string>
   extends Omit<SourcePackageMcpResourcesSourceOptions<TKey>, "cache">, SourceRuntimeOptions {}
 
-export function mcpResources<const TKey extends string = string>(options: McpResourcesSourceOptions<TKey>): WorkspaceSource {
+export function mcpResources<const TKey extends string = string, const TOptions extends McpResourcesSourceOptions<TKey> = McpResourcesSourceOptions<TKey>>(options: TOptions): TypedWorkspaceSource<TOptions> {
   const livePaths: Record<string, string> = {}
   const baseSource = createMcpResourcesSource({
     ...options,
@@ -24,6 +26,7 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
     instructions: options.instructions,
     materialize: options.materialize || (options.sync ? "none" : "lazy"),
     mount: options.mount,
+    scopes: options.scopes,
     async prepare(ctx) {
       await baseSource.prepare?.(ctx)
       const mountPath = resolveMountPath(options.mount, ctx)
@@ -32,7 +35,7 @@ export function mcpResources<const TKey extends string = string>(options: McpRes
     },
     sync: options.sync,
     validate: options.validate,
-  }, livePaths)
+  }, livePaths) as unknown as TypedWorkspaceSource<TOptions>
 }
 
 function resolveMountPath(mount: WorkspaceSource["mount"], ctx: { mountPath?: string, source?: string }) {
