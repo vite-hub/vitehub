@@ -17,8 +17,11 @@ export const DB_VIRTUAL_SCHEMA_ID = "#vitehub/database/schema"
 export const DB_VIRTUAL_DATABASES_ID = "#vitehub/database/databases"
 export const DB_VITE_PLUGIN_NAME = "@vite-hub/database/vite"
 
+const DB_INTERNAL_VIRTUAL_SCHEMA_ID = "virtual:vitehub/database/schema"
+const DB_INTERNAL_VIRTUAL_DATABASES_ID = "virtual:vitehub/database/databases"
 const RESOLVED_DB_VIRTUAL_SCHEMA_ID = `\0${DB_VIRTUAL_SCHEMA_ID}`
 const RESOLVED_DB_VIRTUAL_DATABASES_ID = `\0${DB_VIRTUAL_DATABASES_ID}`
+const DB_DRIZZLE_ENTRY_PATTERN = /(?:^|\/)(?:@vite-hub\/database|database)\/dist\/drizzle\.js$/
 
 export interface DBVitePluginAPI {
   getConfig: () => ResolvedDBViteConfig | undefined
@@ -34,6 +37,17 @@ interface DBCliContributingPlugin {
 export type DBVitePlugin = Plugin & DBCliContributingPlugin & { api: DBVitePluginAPI }
 
 const mergeNoExternal = createNoExternalMerger(dbPackageName)
+
+function resolveDatabaseVirtualId(id: string) {
+  if (id === DB_VIRTUAL_SCHEMA_ID || id === DB_INTERNAL_VIRTUAL_SCHEMA_ID) return RESOLVED_DB_VIRTUAL_SCHEMA_ID
+  if (id === DB_VIRTUAL_DATABASES_ID || id === DB_INTERNAL_VIRTUAL_DATABASES_ID) return RESOLVED_DB_VIRTUAL_DATABASES_ID
+}
+
+function rewriteDrizzleVirtualImports(code: string) {
+  return code
+    .replaceAll(DB_VIRTUAL_SCHEMA_ID, DB_INTERNAL_VIRTUAL_SCHEMA_ID)
+    .replaceAll(DB_VIRTUAL_DATABASES_ID, DB_INTERNAL_VIRTUAL_DATABASES_ID)
+}
 
 function renderSchemaModule(config: ResolvedDBViteConfig | undefined) {
   if (!config?.databaseNames.length) {
@@ -146,8 +160,10 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       if (databasesModule) context.server.moduleGraph.invalidateModule(databasesModule)
     },
     resolveId(id) {
-      if (id === DB_VIRTUAL_SCHEMA_ID) return RESOLVED_DB_VIRTUAL_SCHEMA_ID
-      if (id === DB_VIRTUAL_DATABASES_ID) return RESOLVED_DB_VIRTUAL_DATABASES_ID
+      return resolveDatabaseVirtualId(id)
+    },
+    transform(code, id) {
+      if (DB_DRIZZLE_ENTRY_PATTERN.test(normalize(id))) return rewriteDrizzleVirtualImports(code)
     },
     load(id) {
       if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) return renderSchemaModule(runtimeConfig)
