@@ -130,8 +130,8 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
 
         await writeCloudflareWranglerConfig({
           rootDir: resolved.root,
+          wranglerArrayMergeKeys: { kv_namespaces: "binding" },
           wranglerConfig,
-          wranglerConfigKeys: ["kv_namespaces"],
         })
       },
     },

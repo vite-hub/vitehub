@@ -136,6 +136,39 @@ describe("provider deployment outputs", () => {
     })
   })
 
+  it("merges keyed Cloudflare config arrays without dropping unrelated entries", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeCloudflareWranglerConfig,
+    } = await import("../src/build/cloudflare.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(join(cloudflareDir, "wrangler.json"), `${JSON.stringify({
+      kv_namespaces: [
+        { binding: "MANUAL", id: "manual-namespace" },
+        { binding: "SETTINGS", id: "old-namespace" },
+      ],
+      triggers: { crons: ["0 0 * * *"] },
+    }, null, 2)}\n`)
+
+    await writeCloudflareWranglerConfig({
+      rootDir,
+      wranglerArrayMergeKeys: { kv_namespaces: "binding" },
+      wranglerConfig: {
+        kv_namespaces: [{ binding: "SETTINGS", id: "new-namespace" }],
+      },
+    })
+
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      kv_namespaces: [
+        { binding: "MANUAL", id: "manual-namespace" },
+        { binding: "SETTINGS", id: "new-namespace" },
+      ],
+      triggers: { crons: ["0 0 * * *"] },
+    })
+  })
+
   it("preserves sibling Vercel functions and config keys", async () => {
     const rootDir = await createTempProject()
     const {

@@ -132,7 +132,10 @@ describe("KV Vite output", () => {
     expect(existsSync(join(cloudflareOutputRoot, "index.js"))).toBe(false)
     expect(wrangler).toEqual({
       d1_databases: [{ binding: "DB", database_id: "database-id", database_name: "app" }],
-      kv_namespaces: [{ binding: "SETTINGS", id: "11111111111111111111111111111111" }],
+      kv_namespaces: [
+        { binding: "OLD", id: "old-namespace" },
+        { binding: "SETTINGS", id: "11111111111111111111111111111111" },
+      ],
       triggers: { crons: ["0 0 * * *"] },
     })
   })
@@ -172,6 +175,7 @@ describe("KV Vite output", () => {
             await mkdir(cloudflareOutputRoot, { recursive: true })
             await writeFile(join(cloudflareOutputRoot, "wrangler.json"), `${JSON.stringify({
               d1_databases: [{ binding: "DB", database_id: "database-id", database_name: "app" }],
+              kv_namespaces: [{ binding: "MANUAL", id: "manual-namespace" }],
             }, null, 2)}\n`, "utf8")
           },
         },
@@ -183,7 +187,10 @@ describe("KV Vite output", () => {
 
     expect(wrangler).toEqual({
       d1_databases: [{ binding: "DB", database_id: "database-id", database_name: "app" }],
-      kv_namespaces: [{ binding: "SETTINGS", id: "22222222222222222222222222222222" }],
+      kv_namespaces: [
+        { binding: "MANUAL", id: "manual-namespace" },
+        { binding: "SETTINGS", id: "22222222222222222222222222222222" },
+      ],
     })
   })
 

@@ -8,6 +8,7 @@ export const defaultCloudflareCompatibilityDate = "2026-04-20"
 interface CloudflareWranglerConfigOptions {
   outputRoot?: string
   rootDir: string
+  wranglerArrayMergeKeys?: Record<string, string>
   wranglerConfig?: object
   wranglerConfigKeys?: string[]
 }
@@ -40,9 +41,39 @@ function deleteJsonObjectKeys(value: Record<string, unknown>, keys: string[] | u
   return next
 }
 
-async function writeMergedJsonObject(file: string, value: object, ownedKeys?: string[]): Promise<void> {
+function mergeJsonObjectArrays(
+  existing: Record<string, unknown>,
+  value: Record<string, unknown>,
+  arrayMergeKeys: Record<string, string> | undefined,
+): Record<string, unknown> {
+  if (!arrayMergeKeys) return value
+  const next = { ...value }
+  for (const [field, key] of Object.entries(arrayMergeKeys)) {
+    const incoming = value[field]
+    if (!Array.isArray(incoming)) continue
+    const current = existing[field]
+    if (!Array.isArray(current)) continue
+    const incomingKeys = new Set<unknown>()
+    for (const item of incoming) {
+      if (isJsonObject(item) && item[key] !== undefined) incomingKeys.add(item[key])
+    }
+    next[field] = [
+      ...current.filter(item => !isJsonObject(item) || !incomingKeys.has(item[key])),
+      ...incoming,
+    ]
+  }
+  return next
+}
+
+async function writeMergedJsonObject(
+  file: string,
+  value: object,
+  ownedKeys?: string[],
+  arrayMergeKeys?: Record<string, string>,
+): Promise<void> {
   const existing = await readJsonObject(file)
-  await writeFile(file, `${JSON.stringify({ ...deleteJsonObjectKeys(existing, ownedKeys), ...value }, null, 2)}\n`, "utf8")
+  const next = { ...deleteJsonObjectKeys(existing, ownedKeys), ...mergeJsonObjectArrays(existing, value as Record<string, unknown>, arrayMergeKeys) }
+  await writeFile(file, `${JSON.stringify(next, null, 2)}\n`, "utf8")
 }
 
 async function deleteJsonObjectKeysFromFile(file: string, keys: string[] | undefined): Promise<void> {
@@ -81,5 +112,5 @@ export async function writeCloudflareWranglerConfig(options: CloudflareWranglerC
   }
 
   await mkdir(outputRoot, { recursive: true })
-  await writeMergedJsonObject(configFile, options.wranglerConfig, options.wranglerConfigKeys)
+  await writeMergedJsonObject(configFile, options.wranglerConfig, options.wranglerConfigKeys, options.wranglerArrayMergeKeys)
 }
