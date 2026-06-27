@@ -62,7 +62,7 @@ import type {
 const defaultWorkspaceName = "workspace"
 const colocatedAgentInstructionsPath = "instructions.md"
 const colocatedAgentInstructionsWorkspacePath = "AGENTS.md"
-const colocatedAgentInstructionsSourceKey = "__vitehubAgentInstructions"
+export const colocatedAgentInstructionsSourceKey = "__vitehubAgentInstructions"
 const readCommands = ["pwd", "ls", "find", "rg", "grep", "cat", "head", "tail", "wc"]
 const sourceRequestCommands = ["curl"]
 const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
