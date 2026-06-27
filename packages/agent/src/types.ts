@@ -356,6 +356,7 @@ export interface AgentFinishEvent<
 > {
   actor: AgentActor
   error?: unknown
+  errorMessage?: string
   extensions: AgentInvocationExtensions
   input: AgentRunInput<CALL_OPTIONS>
   invoker: AgentInvoker

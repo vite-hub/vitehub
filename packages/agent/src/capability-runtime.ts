@@ -1233,9 +1233,13 @@ export async function createAgentInvocationExtensions(
   return extensions
 }
 
+type CapabilityCleanupOutcome =
+  | { failed: false }
+  | { error: unknown, failed: true }
+
 export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
   stream: T,
-  close: (error?: unknown) => Promise<void>,
+  close: (outcome: CapabilityCleanupOutcome) => Promise<void>,
   options: { abortSignal?: AbortSignal } = {},
 ): AsyncIterable<unknown> {
   return (async function* () {
@@ -1256,34 +1260,34 @@ export function withCapabilityCleanup<T extends AsyncIterable<unknown>>(
     }
     finally {
       if (failed) void iterator.return?.().catch(() => {})
-      await close(failed ? error : undefined)
+      await close(failed ? { error, failed: true } : { failed: false })
     }
   })()
 }
 
-export function withResponseCleanup(response: Response, close: (error?: unknown) => Promise<void>): Response | Promise<Response> {
+export function withResponseCleanup(response: Response, close: (outcome: CapabilityCleanupOutcome) => Promise<void>): Response | Promise<Response> {
   if (!response.body) {
-    return close().then(() => response)
+    return close({ failed: false }).then(() => response)
   }
   const reader = response.body.getReader()
   let closed = false
-  async function closeOnce(error?: unknown) {
+  async function closeOnce(outcome: CapabilityCleanupOutcome = { failed: false }) {
     if (closed) return
     closed = true
-    await close(error)
+    await close(outcome)
   }
   return new Response(new ReadableStream({
     async cancel(reason) {
-      let cancelError: unknown
+      let cancelOutcome: CapabilityCleanupOutcome = reason === undefined ? { failed: false } : { error: reason, failed: true }
       try {
         await reader.cancel(reason)
       }
       catch (error) {
-        cancelError = error
+        cancelOutcome = { error, failed: true }
         throw error
       }
       finally {
-        await closeOnce(cancelError)
+        await closeOnce(cancelOutcome)
       }
     },
     async pull(controller) {
@@ -1297,7 +1301,7 @@ export function withResponseCleanup(response: Response, close: (error?: unknown)
         controller.enqueue(result.value)
       }
       catch (error) {
-        await closeOnce(error)
+        await closeOnce({ error, failed: true })
         throw error
       }
     },

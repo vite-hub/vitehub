@@ -5,6 +5,12 @@ export interface EnvIntegrationOptions {
   diagnostics?: EnvDiagnostics
   prefix?: string
   projectRoot?: string
+  runtimeImports?: EnvRuntimeImportSpecifiers
+}
+
+export interface EnvRuntimeImportSpecifiers {
+  secret?: string
+  server?: string
 }
 
 export interface EnvSourceContext {

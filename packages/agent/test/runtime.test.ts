@@ -529,6 +529,95 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("exposes normalized error messages on failed finish events", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const throwingGetterError = Object.defineProperty({}, "message", {
+      get() {
+        throw new Error("getter failed")
+      },
+    })
+    const throwingPrototypeError = new Proxy({}, {
+      getPrototypeOf() {
+        throw new Error("prototype failed")
+      },
+    })
+    const cases: { error: unknown, message: string }[] = [
+      { error: undefined, message: "Unknown error." },
+      { error: "", message: "Unknown error." },
+      { error: "string failed", message: "string failed" },
+      { error: { code: "E_OBJECT", message: "object failed" }, message: "object failed" },
+      { error: { code: "E_OBJECT" }, message: "Unknown error." },
+      { error: throwingGetterError, message: "Unknown error." },
+      { error: throwingPrototypeError, message: "Unknown error." },
+      { error: Object.assign(new Error("error failed"), { name: "CustomError" }), message: "error failed" },
+    ]
+
+    for (const { error, message } of cases) {
+      const finish = vi.fn()
+      const agent = defineAgent({
+        driver: {
+          run: () => {
+            throw error
+          },
+        },
+        hooks: { "agent:finish": finish },
+      })
+
+      await runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, {}).catch(() => {})
+
+      const finishEvent = finish.mock.calls[0]?.[0]
+      expect(finishEvent?.error).toBe(error)
+      expect(finishEvent).toMatchObject({ errorMessage: message })
+    }
+  })
+
+  it("uses error messages as the failed finish signal", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const onEvent = vi.fn()
+    const finish = vi.fn()
+    const agent = defineAgent({
+      capabilities: [observability({ onEvent })],
+      driver: {
+        run: () => {
+          throw undefined
+        },
+      },
+      hooks: { "agent:finish": finish },
+    })
+
+    await runAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, {}).catch(() => {})
+
+    expect(onEvent).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: "failed",
+      type: "error",
+    }))
+    expect(finish.mock.calls[0]?.[0].extensions.get("observability")).toMatchObject({
+      status: "failed",
+    })
+  })
+
+  it("treats stream cancellation without reason as successful cleanup", async () => {
+    const { withReadableStreamCleanup } = await import("../src/stream-output.ts")
+    const outcomes: unknown[] = []
+    const stream = withReadableStreamCleanup(new ReadableStream({
+      start(controller) {
+        controller.enqueue({ type: "start" })
+      },
+    }), async outcome => { outcomes.push(outcome) })
+
+    await stream.cancel()
+
+    expect(outcomes).toEqual([{ failed: false }])
+  })
+
   it("records a failed invocation when failure cleanup also fails", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()

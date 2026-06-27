@@ -1085,6 +1085,23 @@ describe("agent capability runtime", () => {
     expect(order).toEqual(["close"])
   })
 
+  it("passes Response cancel reasons into cleanup", async () => {
+    const { withResponseCleanup } = await import("../src/capability-runtime.ts")
+    const cleanupErrors: unknown[] = []
+    const responseBody = new ReadableStream()
+    vi.spyOn(responseBody, "getReader").mockReturnValue({
+      cancel: vi.fn(async () => {}),
+      read: vi.fn(() => new Promise(() => {})),
+      releaseLock: vi.fn(),
+      closed: Promise.resolve(undefined),
+    } as never)
+    const response = await withResponseCleanup(new Response(responseBody), async outcome => { cleanupErrors.push(outcome) }) as Response
+
+    await response.body?.cancel("client disconnected")
+
+    expect(cleanupErrors).toEqual([{ error: "client disconnected", failed: true }])
+  })
+
   it("passes Response cancel errors into cleanup", async () => {
     const { withResponseCleanup } = await import("../src/capability-runtime.ts")
     const cancelError = new Error("cancel failed")
@@ -1097,10 +1114,10 @@ describe("agent capability runtime", () => {
       closed: Promise.resolve(undefined),
     } as never)
 
-    const response = await withResponseCleanup(new Response(responseBody), async error => { cleanupErrors.push(error) }) as Response
+    const response = await withResponseCleanup(new Response(responseBody), async outcome => { cleanupErrors.push(outcome) }) as Response
 
     await expect(response.body?.cancel()).rejects.toThrow("cancel failed")
-    expect(cleanupErrors).toEqual([cancelError])
+    expect(cleanupErrors).toEqual([{ error: cancelError, failed: true }])
   })
 
   it("rejects write workspace requirements when the run workspace is read-only", async () => {

@@ -248,6 +248,37 @@ describe("Vite plugin", () => {
     })
   })
 
+  it("can generate env runtime modules through a facade import path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-env-facade-runtime-imports-"))
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "facade-app", type: "module" }), "utf8")
+
+    const plugin = hubEnv({
+      runtimeImports: {
+        secret: "@vite-hub/vite/env/secret",
+        server: "@vite-hub/vite/env/server",
+      },
+    })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+    await configHook({
+      env: {
+        server: {
+          token: env({ secret: true }),
+        },
+      },
+      root,
+    }, { command: "build", mode: "production" })
+
+    const configResolvedHook = plugin.configResolved as (config: unknown) => Promise<void> | void
+    await configResolvedHook({
+      logger: { info: vi.fn() },
+      root,
+    } as never)
+
+    await expect(readFile(join(root, ".vitehub", "env", "server.mjs"), "utf8")).resolves.toContain("from \"@vite-hub/vite/env/server\"")
+    await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("from \"@vite-hub/vite/env/secret\"")
+    await expect(readFile(join(root, ".vitehub", "types", "env.d.ts"), "utf8")).resolves.toContain("from \"@vite-hub/vite/env/secret\"")
+  })
+
   it("applies prefixes to inferred Vite env names", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-env-vite-"))
     await writeFile(join(root, ".env.production"), "VITEHUB_PUBLIC_APP_NAME=Quiver\n", "utf8")
