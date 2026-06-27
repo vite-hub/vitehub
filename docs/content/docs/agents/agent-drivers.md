@@ -51,7 +51,7 @@ Use a harness-backed driver when the Agent should delegate execution to a harnes
 Install the Agent Package with the harness adapter package you use.
 
 ```bash [Terminal]
-pnpm add @vite-hub/agent @ai-sdk/harness-codex
+pnpm add @vite-hub/agent @ai-sdk/harness @ai-sdk/harness-codex @ai-sdk/sandbox-vercel
 ```
 
 ```ts [server/agents/codex/config.ts]
