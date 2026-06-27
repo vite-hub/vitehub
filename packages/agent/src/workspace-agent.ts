@@ -11,6 +11,10 @@ import {
   normalizeAgentInvokerProfiles,
   resolveAgentInvoker,
 } from "./invoker.ts"
+import {
+  composeInstructionDocument,
+  resolveInstructionImports,
+} from "./instruction-composition.ts"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
 import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 
@@ -629,6 +633,30 @@ function getNodeBuiltin<T>(name: string): T | undefined {
   }
 }
 
+function resolveInstructionImportFromFile(specifier: string, importer: string): { content: string, file: string } {
+  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
+  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  if (!fs || !path) {
+    throw new Error(`[vitehub] Instruction import "${specifier}" requires local filesystem access.`)
+  }
+  const file = path.resolve(path.dirname(importer), specifier)
+  return {
+    content: fs.readFileSync(file, "utf8"),
+    file,
+  }
+}
+
+function resolveInstructionDocumentImports(content: string, file: string): string {
+  return resolveInstructionImports(content, {
+    file,
+    read: resolveInstructionImportFromFile,
+  })
+}
+
+function composeInstructions(content: string, context?: AgentInvocationContextStore): string {
+  return composeInstructionDocument(content, { context: context?.toJSON() })
+}
+
 function localWorkspaceRoots<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -854,14 +882,15 @@ function workspaceMetadataInstructions<
     return []
   })
   if (defaultInstructions) instructions.unshift(defaultInstructions)
-  const renderedInstructions = applyPassiveCapabilityInstructionSlots(
-    instructions.join("\n\n"),
-    staticCapabilityInstructionBlocks(options),
-  )
-  return applyWorkspaceSourceInstructionsToParts(
-    renderedInstructions ? [renderedInstructions] : [],
+  const renderedInstructions = applyWorkspaceSourceInstructionsToParts(
+    [applyPassiveCapabilityInstructionSlots(
+      instructions.join("\n\n"),
+      staticCapabilityInstructionBlocks(options),
+    )],
     renderWorkspaceSourceInstructionBlock(workspaceDefinitionFromOptions(options).sources),
   )
+  const composed = composeInstructions(renderedInstructions.join("\n\n"))
+  return composed ? [composed] : []
 }
 
 function readLocalWorkspaceInstructions<
@@ -889,11 +918,9 @@ function readColocatedAgentInstructions<
   const path = getNodeBuiltin<typeof import("node:path")>("node:path")
   const sourceRootDir = workspaceDefinitionFromOptions(options).sourceRootDir
   if (!fs || !path || !hasColocatedAgentInstructions(sourceRootDir)) return undefined
-  try {
-    const content = fs.readFileSync(path.join(sourceRootDir!, colocatedAgentInstructionsPath), "utf8").trim()
-    if (content) return content
-  }
-  catch {}
+  const file = path.join(sourceRootDir!, colocatedAgentInstructionsPath)
+  const content = resolveInstructionDocumentImports(fs.readFileSync(file, "utf8"), file).trim()
+  if (content) return content
 }
 
 export async function resolveWorkspaceAgentDefaultInstructions<
@@ -906,11 +933,20 @@ export async function resolveWorkspaceAgentDefaultInstructions<
   if (!shouldUseColocatedAgentInstructions(options)) return undefined
   const definition = workspaceDefinitionFromOptions(options)
   if (!definition.sources || !(colocatedAgentInstructionsSourceKey in definition.sources)) return undefined
+  let content: string | undefined
   try {
-    const content = (await workspace.fs.readFile(colocatedAgentInstructionsWorkspacePath as never)).trim()
-    if (content) return content
+    content = (await workspace.fs.readFile(colocatedAgentInstructionsWorkspacePath as never)).trim()
   }
   catch {}
+  if (!content) return undefined
+
+  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
+  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  const sourceRootDir = definition.sourceRootDir
+  if (fs && path && sourceRootDir && hasColocatedAgentInstructions(sourceRootDir)) {
+    return resolveInstructionDocumentImports(content, path.join(sourceRootDir, colocatedAgentInstructionsPath))
+  }
+  return content
 }
 
 async function resolveWorkspaceMetadataInstructions<
@@ -922,6 +958,7 @@ async function resolveWorkspaceMetadataInstructions<
   resolution: AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name> = {},
   capabilityBlocks: AgentInstructionBlock[] = staticCapabilityInstructionBlocks(options),
   sourceDefinition: WorkspaceDefinition = workspaceDefinitionWithNameFromOptions(options, resolution),
+  compositionContext?: AgentInvocationContextStore,
 ) {
   const instructionContext = {
     fs: workspace.fs,
@@ -940,17 +977,12 @@ async function resolveWorkspaceMetadataInstructions<
     .map(part => part?.trim())
     .filter((part): part is string => Boolean(part))
   if (defaultInstructions) baseInstructions.unshift(defaultInstructions)
-  const renderedInstructions = applyPassiveCapabilityInstructionSlots(
-    baseInstructions.join("\n\n"),
-    capabilityBlocks,
+  const renderedInstructions = applyWorkspaceSourceInstructionsToParts(
+    [applyPassiveCapabilityInstructionSlots(baseInstructions.join("\n\n"), capabilityBlocks)],
+    await resolveWorkspaceSourceInstructionBlock(sourceDefinition, workspace),
   )
-  return applyWorkspaceSourceInstructionsToParts(
-    renderedInstructions ? [renderedInstructions] : [],
-    await resolveWorkspaceSourceInstructionBlock(
-      sourceDefinition,
-      workspace,
-    ),
-  )
+  const composed = composeInstructions(renderedInstructions.join("\n\n"), compositionContext)
+  return composed ? [composed] : []
 }
 
 function sourceInstructionsText(value: AgentWorkspaceSourceMetadata["instructions"]): string | undefined {
@@ -1322,6 +1354,7 @@ export async function resolveAgentDevtoolsMetadata<
       defaultsOverride,
       capabilityContext.capabilityInstructions,
       capabilityContext.definition,
+      capabilityContext.metadataContext.context,
     ),
     ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
     ...(config ? { config } : {}),
@@ -1387,6 +1420,7 @@ export async function materializeAgentDevtoolsSourceMetadata<
       options,
       capabilityContext.capabilityInstructions,
       capabilityContext.definition,
+      capabilityContext.metadataContext.context,
     ),
     ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
     ...(config ? { config } : {}),
