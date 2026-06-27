@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
+import { readFile } from "node:fs/promises"
 
 const queueMocks = vi.hoisted(() => ({
   hubQueue: vi.fn(() => ({ name: "@vite-hub/queue/vite" })),
@@ -7,9 +8,104 @@ const envMocks = vi.hoisted(() => ({
   hubEnv: vi.fn(() => ({ name: "@vite-hub/env/vite" })),
 }))
 
-vi.mock("@vite-hub/agent", () => ({ defineAgent: "define-agent" }))
-vi.mock("@vite-hub/agent/capabilities", () => ({ workspaceShell: "workspace-shell" }))
-vi.mock("@vite-hub/agent/channels", () => ({ stream: "stream-channel" }))
+vi.mock("@vite-hub/agent", () => Object.fromEntries([
+  "agentChatContextKey",
+  "agentInvocationStreamRoute",
+  "agentInvokerContextKey",
+  "appendMessageText",
+  "applyAgentToolPolicies",
+  "applyStreamEvent",
+  "collectStreamEvents",
+  "createAgentDevtoolsMetadata",
+  "createAgentInvocationStreamResponse",
+  "createMessage",
+  "defineAgent",
+  "defineAgentInvoker",
+  "defineCapability",
+  "deserializeMessages",
+  "getAgent",
+  "getAgentChatContext",
+  "getAgentFromRegistry",
+  "getMessageText",
+  "getToolInvocations",
+  "isResolvedAgentTriggerHandledInvocation",
+  "materializeAgentDevtoolsSourceMetadata",
+  "readAgentInvocationStream",
+  "resolveAgent",
+  "resolveAgentDevtoolsMetadata",
+  "resolveAgentTriggerInvocation",
+  "resolveAgentTriggers",
+  "runAgent",
+  "runAgentInline",
+  "runAgentTrigger",
+  "runScheduledAgent",
+  "serializeMessages",
+  "streamAgent",
+  "streamAgentInline",
+  "streamAgentTrigger",
+  "validateMessage",
+  "verifyAgentWebhookRequest",
+  "withAgentDefaults",
+  "withAgentToolStepReporting",
+  "workflow",
+  "workspaceAgentOwnsWorkspaceDefinition",
+  "workspaceDefinitionFromOptions",
+].map(name => [name, name === "defineAgent" ? "define-agent" : name])))
+vi.mock("@vite-hub/agent/capabilities", () => Object.fromEntries([
+  "LlmGateRejectedError",
+  "RateLimitRejectedError",
+  "access",
+  "agentChatContextKey",
+  "agentScheduleIdFromCron",
+  "audioBytes",
+  "blob",
+  "chat",
+  "chatSummary",
+  "chatTitle",
+  "db",
+  "entry",
+  "fetch",
+  "getAgentChatContext",
+  "getTranscriptionResults",
+  "git",
+  "inputCommands",
+  "kv",
+  "llmGate",
+  "llmRoute",
+  "mcp",
+  "memory",
+  "memoryRateLimitStore",
+  "normalizeAgentUsage",
+  "observability",
+  "openapi",
+  "pullRequestContext",
+  "rateLimit",
+  "repositoryHost",
+  "sandbox",
+  "schedule",
+  "skills",
+  "staticModelPricing",
+  "subagents",
+  "transcribe",
+  "usageTelemetry",
+  "vercelAiGatewayPricing",
+  "webSearch",
+  "workspaceExec",
+  "workspaceJsonlMemoryStore",
+  "workspaceShell",
+].map(name => [name, name === "workspaceShell" ? "workspace-shell" : name])))
+vi.mock("@vite-hub/agent/channels", () => Object.fromEntries([
+  "defineChannel",
+  "discord",
+  "github",
+  "http",
+  "publishWorkspaceArtifacts",
+  "slack",
+  "stream",
+  "teams",
+  "telegram",
+  "webChat",
+].map(name => [name, name === "stream" ? "stream-channel" : name])))
 vi.mock("@vite-hub/agent/vite", () => ({ hubAgent: () => ({ name: "@vite-hub/agent/vite" }) }))
 vi.mock("@vite-hub/blob/vite", () => ({ hubBlob: () => ({ name: "@vite-hub/blob/vite" }) }))
 vi.mock("@vite-hub/database/vite", () => ({ hubDb: () => ({ name: "@vite-hub/database/vite" }) }))
@@ -113,5 +209,12 @@ describe("vitehub", () => {
     expect(agent.defineAgent).toBe("define-agent")
     expect(capabilities.workspaceShell).toBe("workspace-shell")
     expect(channels.stream).toBe("stream-channel")
+  })
+
+  it("emits explicit facade re-exports for generated route imports", async () => {
+    await expect(readFile(new URL("../dist/agent.js", import.meta.url), "utf8")).resolves.toContain("withAgentDefaults")
+    await expect(readFile(new URL("../dist/agent.js", import.meta.url), "utf8")).resolves.not.toContain("export * from \"@vite-hub/agent\"")
+    await expect(readFile(new URL("../dist/agent/server.js", import.meta.url), "utf8")).resolves.toContain("defineAgentChatFetchHandler")
+    await expect(readFile(new URL("../dist/agent/runtime/workflow.js", import.meta.url), "utf8")).resolves.toContain("runAgentWorkflowDefinition")
   })
 })

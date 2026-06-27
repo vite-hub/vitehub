@@ -1,1 +1,24 @@
-export * from "@vite-hub/workspace"
+export type * from "@vite-hub/workspace"
+export {
+  attachWorkspaceSourceRequestExecution,
+  createWorkspaceSourceResolutionFacade,
+  createWorkspaceTools,
+  custom,
+  defineWorkspace,
+  fetch,
+  file,
+  getWorkspaceSourceRequestDescriptor,
+  getWorkspaceSourceRequestExecution,
+  github,
+  glob,
+  hasWorkspaceSourceResolvers,
+  isWorkspaceSourceRequestOnly,
+  markdown,
+  mcpResources,
+  prepareHarnessWorkspaceSession,
+  resolveRegisteredWorkspaceDefinition,
+  resolveWorkspaceAutoCommit,
+  resolveWorkspaceSources,
+  useWorkspace,
+  workspaceSourceRequestDescriptorPath,
+} from "@vite-hub/workspace"
