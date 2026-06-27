@@ -83,7 +83,7 @@ Answer for {{ context.customerName }}.
 {{{ context.supportPolicy }}}
 ```
 
-The value must already exist in invocation context. Composition does not read arbitrary runtime objects, environment variables, request fields, or JavaScript expressions.
+The value must already exist in invocation context. Missing `context.*` bindings fail during Instruction Composition instead of rendering empty output. Composition does not read arbitrary runtime objects, environment variables, request fields, or JavaScript expressions.
 
 ## Read Workspace bindings
 
@@ -112,6 +112,8 @@ export default defineAgent({
 ```
 
 `@workspace.<name>` inserts a Markdown binding and then runs the same Instruction Composition pass on that inserted Markdown. Use it for explicit instruction fragments that live in the Workspace. ViteHub reads only bindings declared under `workspace.bindings`; it does not scan or auto-load every Markdown file in the Workspace.
+
+Missing `workspace.*` bindings fail during Instruction Composition instead of rendering empty output.
 
 `workspace.sources` is reserved for Source Instructions. Keep using `{{ workspace.sources }}` to place visible Source Instructions in the final model instructions.
 
