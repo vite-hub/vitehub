@@ -11,7 +11,8 @@
 ## Install
 
 ```sh
-pnpm add @vite-hub/workspace
+pnpm add @vite-hub/workspace vite nitropack h3
+pnpm add -D typescript @types/node
 ```
 
 ## Minimal API
@@ -22,8 +23,9 @@ server/
     docs/
       README.md
       config.ts
-  api/
-    docs.get.ts
+routes/
+  docs.get.ts
+nitro.config.ts
 vite.config.ts
 ```
 
@@ -53,7 +55,7 @@ export default defineWorkspace({
 ```
 
 ```ts
-// server/api/docs.get.ts
+// routes/docs.get.ts
 import { useWorkspace } from "@vite-hub/workspace"
 import { defineEventHandler } from "h3"
 
@@ -84,6 +86,13 @@ export default defineWorkspaceFileHandler({
 ```
 
 ```ts
+// nitro.config.ts
+import { createWorkspaceNitroConfig } from "@vite-hub/workspace/vite"
+
+export default createWorkspaceNitroConfig()
+```
+
+```ts
 // vite.config.ts
 import { hubWorkspace } from "@vite-hub/workspace/vite"
 import { defineConfig } from "vite"
@@ -92,6 +101,8 @@ export default defineConfig({
   plugins: [hubWorkspace()],
 })
 ```
+
+Use named Workspace Source Binding helpers such as `file()` and `github()`. The lower-level Source registry lives in `@vite-hub/source`; install and import it directly only when you use that package's registry APIs.
 
 ## Sandbox sessions
 
