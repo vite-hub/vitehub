@@ -80,8 +80,13 @@ function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]):
   return store.provider === "cloudflare-artifacts" || store.provider === "github"
 }
 
+function hasNitroPlugin(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasNitroPlugin)
+  return isRecord(value) && typeof value.name === "string" && value.name.startsWith("nitro:")
+}
+
 function hasNitroConfig(config: UserConfig): boolean {
-  return "nitro" in config
+  return "nitro" in config || hasNitroPlugin(config.plugins)
 }
 
 function hasExplicitWorkspaceRuntimeOptions(options: false | WorkspaceModuleOptions | undefined): boolean {
