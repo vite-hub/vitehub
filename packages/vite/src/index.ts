@@ -25,6 +25,8 @@ import type { AliasOptions, Plugin, PluginOption } from "vite"
 
 export { env } from "@vite-hub/env/vite"
 
+type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
+
 const facadeAliases: Record<string, string> = {
   "@vite-hub/agent": "@vite-hub/vite/agent",
   "@vite-hub/agent/cloudflare": "@vite-hub/vite/agent/cloudflare",
@@ -32,6 +34,20 @@ const facadeAliases: Record<string, string> = {
   "@vite-hub/agent/runtime/workflow": "@vite-hub/vite/agent/runtime/workflow",
   "@vite-hub/agent/server": "@vite-hub/vite/agent/server",
   "@vite-hub/agent/server/routes": "@vite-hub/vite/agent/server/routes",
+  "@vite-hub/blob": "@vite-hub/vite/blob",
+  "@vite-hub/blob/ensure": "@vite-hub/vite/blob/ensure",
+  "@vite-hub/blob/storage": "@vite-hub/vite/blob/storage",
+  "@vite-hub/env": "@vite-hub/vite/env",
+  "@vite-hub/env/secret": "@vite-hub/vite/env/secret",
+  "@vite-hub/env/server": "@vite-hub/vite/env/server",
+  "@vite-hub/kv": "@vite-hub/vite/kv",
+  "@vite-hub/sandbox": "@vite-hub/vite/sandbox",
+  "@vite-hub/sandbox/runtime/provider-loader": "@vite-hub/vite/sandbox/runtime/provider-loader",
+  "@vite-hub/sandbox/runtime/state": "@vite-hub/vite/sandbox/runtime/state",
+  "@vite-hub/schedule": "@vite-hub/vite/schedule",
+  "@vite-hub/schedule/runtime": "@vite-hub/vite/schedule/runtime",
+  "@vite-hub/schedule/runtime/state": "@vite-hub/vite/schedule/runtime/state",
+  "@vite-hub/schedule/runtime/static": "@vite-hub/vite/schedule/runtime/static",
   "@vite-hub/workflow": "@vite-hub/vite/workflow",
   "@vite-hub/workflow/runtime/execute": "@vite-hub/vite/workflow/runtime/execute",
   "@vite-hub/workflow/runtime/state": "@vite-hub/vite/workflow/runtime/state",
@@ -49,12 +65,23 @@ function mergeFacadeAliases(alias: AliasOptions | undefined): AliasOptions {
   return { ...facadeAliases, ...(alias && typeof alias === "object" ? alias : {}) }
 }
 
+function mergeNoExternal(current: NoExternalValue): NoExternalValue {
+  if (current === true) return true
+  if (!current) return ["@vite-hub/vite"]
+  const values = Array.isArray(current) ? current : [current]
+  return values.includes("@vite-hub/vite") ? values : [...values, "@vite-hub/vite"]
+}
+
 function vitehubFacadeAlias(): Plugin {
   return {
     name: "@vite-hub/vite/facade-alias",
     enforce: "pre",
     config(config) {
       return { resolve: { alias: mergeFacadeAliases(config.resolve?.alias) } }
+    },
+    configEnvironment(name, config) {
+      if (name !== "ssr" && config.consumer !== "server") return
+      return { resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) } }
     },
   }
 }

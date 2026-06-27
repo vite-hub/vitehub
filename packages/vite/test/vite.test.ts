@@ -67,6 +67,10 @@ describe("vitehub", () => {
 
     expect(config({}).resolve.alias).toMatchObject({
       "@vite-hub/agent/server": "@vite-hub/vite/agent/server",
+      "@vite-hub/env/server": "@vite-hub/vite/env/server",
+      "@vite-hub/kv": "@vite-hub/vite/kv",
+      "@vite-hub/sandbox": "@vite-hub/vite/sandbox",
+      "@vite-hub/schedule/runtime/static": "@vite-hub/vite/schedule/runtime/static",
       "@vite-hub/workflow/runtime/state": "@vite-hub/vite/workflow/runtime/state",
       "@vite-hub/workspace/runtime": "@vite-hub/vite/workspace/runtime",
     })
@@ -75,6 +79,14 @@ describe("vitehub", () => {
       expect.objectContaining({ find: "@vite-hub/agent", replacement: "@vite-hub/vite/agent" }),
       expect.objectContaining({ find: "@vite-hub/workspace/server", replacement: "@vite-hub/vite/workspace/server" }),
     ]))
+
+    const configEnvironment = plugin.configEnvironment as (name: string, config: { consumer?: string, resolve?: { noExternal?: unknown } }) => unknown
+    expect(configEnvironment("ssr", { consumer: "server" })).toEqual({
+      resolve: { noExternal: ["@vite-hub/vite"] },
+    })
+    expect(configEnvironment("ssr", { consumer: "server", resolve: { noExternal: ["existing"] } })).toEqual({
+      resolve: { noExternal: ["existing", "@vite-hub/vite"] },
+    })
   })
 
   it("can be used as one nested Vite plugin entry", () => {
