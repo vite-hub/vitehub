@@ -5,13 +5,13 @@ navigation.order: 29
 icon: i-lucide-messages-square
 ---
 
-Chat History is ordered conversational messages for one chat interaction with an Agent. A Chat Session is the host-visible boundary that decides which messages are eligible for the Chat History Window.
+Chat History is ordered conversational messages for one chat interaction with an Agent. A Chat Session is the host-visible boundary that decides which supplied messages are eligible for the Chat History Window.
 
 Chat History is not Agent Memory. Chat History is conversation-scoped message state, while Agent Memory is durable knowledge or preferences across Agent Invocations.
 
 ## Enable Chat History
 
-The Chat Capability owns Chat History behavior. Configure it on the Agent Definition when message history should be included in future `chat.message` invocations.
+The Chat Capability owns Chat History selection. Configure it on the Agent Definition when prior messages should be included in future `chat.message` invocations.
 
 ```ts [server/agents/support.ts]
 import { gateway } from '@ai-sdk/gateway'
@@ -32,6 +32,28 @@ export default defineAgent({
 ```
 
 The Chat History Window limits how many prior messages enter the Agent Invocation. It does not delete the host's preserved history.
+
+## Use threads as conversation boundaries
+
+Use thread-scoped Chat History when the platform or application already has a visible conversation thread. Discord threads, Slack channel threads, Teams conversations, GitHub comment threads, and app-owned support chats should usually keep follow-up context inside that thread.
+
+```ts [server/agents/support.ts]
+import { chat } from '@vite-hub/agent/capabilities'
+
+export const supportChat = chat({
+  history: { maxMessages: 20, source: 'thread' },
+  concurrency: 'queue',
+  lockScope: 'thread',
+})
+```
+
+With this configuration, a follow-up in the same thread can keep the same Chat History Window. A new Discord or Slack thread starts a separate conversation boundary, so it should not inherit the previous thread's context.
+
+This is not Agent Memory. Thread-scoped Chat History keeps recent conversation input together; it does not remember user preferences or facts across unrelated threads.
+
+For Chat Platform Adapters, ViteHub receives normalized channel, message, and thread facts from the message-shaped Channel. For app-owned chat routes, pass the current thread's messages to `chat.message` and include a stable `run.threadId` so DevTools, traces, sessions, and finish hooks can describe the same boundary.
+
+Use `sessions` only when one platform thread can contain more than one host-visible conversation. For example, add sessions when a support UI has a "new conversation" button inside the same customer chat, or when inactivity should start a fresh conversation without creating a new platform thread.
 
 ## Add sessions
 
