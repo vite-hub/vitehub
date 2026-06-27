@@ -170,22 +170,14 @@ describe("vitehub", () => {
 
   it("aliases generated runtime imports through the facade", () => {
     const plugin = vitehub()[0] as Plugin
-    const config = plugin.config as (config: { resolve?: { alias?: unknown } }) => { resolve: { alias: unknown } }
+    const resolveId = plugin.resolveId as unknown as (this: { resolve: ReturnType<typeof vi.fn> }, source: string, importer?: string, options?: Record<string, unknown>) => Promise<unknown>
+    const resolve = vi.fn(async (source: string) => ({ id: `/resolved/${source}` }))
 
-    expect(config({}).resolve.alias).toMatchObject({
-      "@vite-hub/agent/server": "@vite-hub/vite/agent/server",
-      "@vite-hub/env/server": "@vite-hub/vite/env/server",
-      "@vite-hub/kv": "@vite-hub/vite/kv",
-      "@vite-hub/sandbox": "@vite-hub/vite/sandbox",
-      "@vite-hub/schedule/runtime/static": "@vite-hub/vite/schedule/runtime/static",
-      "@vite-hub/workflow/runtime/state": "@vite-hub/vite/workflow/runtime/state",
-      "@vite-hub/workspace/runtime": "@vite-hub/vite/workspace/runtime",
-    })
-    expect(config({ resolve: { alias: [{ find: "#app", replacement: "/tmp/app.ts" }] } }).resolve.alias).toEqual(expect.arrayContaining([
-      { find: "#app", replacement: "/tmp/app.ts" },
-      expect.objectContaining({ find: "@vite-hub/agent", replacement: "@vite-hub/vite/agent" }),
-      expect.objectContaining({ find: "@vite-hub/workspace/server", replacement: "@vite-hub/vite/workspace/server" }),
-    ]))
+    expect(resolveId.call({ resolve }, "@vite-hub/agent/server", "/app/.vitehub/agent/chat.ts", {})).resolves.toEqual({ id: "/resolved/@vite-hub/vite/agent/server" })
+    expect(resolveId.call({ resolve }, "@vite-hub/env/server", "/app/.vitehub/env/server.mjs", {})).resolves.toEqual({ id: "/resolved/@vite-hub/vite/env/server" })
+    expect(resolveId.call({ resolve }, "@vite-hub/workspace/runtime", "/app/.vitehub/workspace/runtime.ts", {})).resolves.toEqual({ id: "/resolved/@vite-hub/vite/workspace/runtime" })
+    expect(resolveId.call({ resolve }, "@vite-hub/agent", "/app/node_modules/@vite-hub/vite/dist/agent.js", {})).resolves.toBeUndefined()
+    expect(resolve).toHaveBeenCalledWith("@vite-hub/vite/agent/server", "/app/.vitehub/agent/chat.ts", { skipSelf: true })
 
     const configEnvironment = plugin.configEnvironment as (name: string, config: { consumer?: string, resolve?: { noExternal?: unknown } }) => unknown
     expect(configEnvironment("ssr", { consumer: "server" })).toEqual({

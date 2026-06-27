@@ -21,7 +21,7 @@ import type { SandboxPublicOptions } from "@vite-hub/sandbox/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
 import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
-import type { AliasOptions, Plugin, PluginOption } from "vite"
+import type { Plugin, PluginOption } from "vite"
 
 export { env } from "@vite-hub/env/vite"
 
@@ -59,12 +59,6 @@ const facadeAliases: Record<string, string> = {
   "@vite-hub/workspace/server": "@vite-hub/vite/workspace/server",
 }
 
-function mergeFacadeAliases(alias: AliasOptions | undefined): AliasOptions {
-  const entries = Object.entries(facadeAliases).map(([find, replacement]) => ({ find, replacement }))
-  if (Array.isArray(alias)) return [...alias, ...entries]
-  return { ...facadeAliases, ...(alias && typeof alias === "object" ? alias : {}) }
-}
-
 function mergeNoExternal(current: NoExternalValue): NoExternalValue {
   if (current === true) return true
   if (!current) return ["@vite-hub/vite"]
@@ -72,12 +66,20 @@ function mergeNoExternal(current: NoExternalValue): NoExternalValue {
   return values.includes("@vite-hub/vite") ? values : [...values, "@vite-hub/vite"]
 }
 
+function isViteHubViteImporter(importer: string | undefined): boolean {
+  if (!importer) return false
+  const id = importer.replace(/\\/g, "/")
+  return id.includes("/node_modules/@vite-hub/vite/") || id.includes("/packages/vite/src/")
+}
+
 function vitehubFacadeAlias(): Plugin {
   return {
     name: "@vite-hub/vite/facade-alias",
     enforce: "pre",
-    config(config) {
-      return { resolve: { alias: mergeFacadeAliases(config.resolve?.alias) } }
+    async resolveId(source, importer, options) {
+      const replacement = facadeAliases[source]
+      if (!replacement || isViteHubViteImporter(importer)) return
+      return await this.resolve(replacement, importer, { ...options, skipSelf: true }) ?? replacement
     },
     configEnvironment(name, config) {
       if (name !== "ssr" && config.consumer !== "server") return
