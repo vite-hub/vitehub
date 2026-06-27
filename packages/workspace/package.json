@@ -115,7 +115,6 @@
   "dependencies": {
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/source": "workspace:*",
-    "@vite-hub/shell": "workspace:*",
     "defu": "catalog:unjs",
     "exsolve": "catalog:unjs",
     "h3": "catalog:unjs",
@@ -129,6 +128,7 @@
     "@vite-hub/env": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
+    "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai",
     "files-sdk": "catalog:storage",
     "ocache": "catalog:unjs",

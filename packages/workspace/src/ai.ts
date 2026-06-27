@@ -3,10 +3,97 @@ import { appendWorkspaceFile, copyWorkspacePath } from "./fs-ops.ts"
 import { getWorkspaceSourceRequestExecution } from "./sources/request-execution.ts"
 
 import type { Workspace, WorkspaceAssets, WorkspaceMaterializeSourcesResult, WriteFileOptions } from "./core/types.ts"
-import type { ShellExecutionProvider, ShellObservation, ShellRuntimeExecOptions, ShellSessionPolicy } from "@vite-hub/shell"
 import type { JSONSchema7, Schema, Tool, ToolSet } from "ai"
 
 export type { WorkspaceMaterializeSourcesResult } from "./core/types.ts"
+
+type ShellObservationEvent =
+  | "command_finished"
+  | "command_timed_out"
+  | "policy_denied"
+  | "session_disposed"
+
+interface ShellRuntimeExecOptions {
+  cwd?: string
+  env?: Record<string, string>
+  onStderr?: (chunk: string) => void
+  onStdout?: (chunk: string) => void
+  stdin?: string
+  timeout?: number
+  workspacePaths?: string[]
+}
+
+interface ShellObservation {
+  command?: string
+  cwd?: string
+  durationMs?: number
+  event: ShellObservationEvent
+  exitCode: number | null
+  maxOutputLength?: number
+  outputTruncated?: boolean
+  stderr: string
+  stdout: string
+  timedOut?: boolean
+  workspaceGuardrail?: {
+    kind: "broad_search" | "missing_path" | "no_match" | "timeout"
+    path?: string
+  }
+}
+
+interface ShellAnalyzeOptions {
+  maxInputBytes?: number
+  timeoutMs?: number
+}
+
+interface ShellAnalyzeResult {
+  commands?: string[]
+  error?: string
+  hasCommandSubstitution?: boolean
+  hasHeredocs?: boolean
+  hasPipelines?: boolean
+  hasRedirects?: boolean
+  ok: boolean
+  parser: "sh-syntax"
+}
+
+interface ShellProcess {
+  id: string
+  command: string
+  cwd?: string
+  stop(): Promise<ShellObservation>
+}
+
+interface ShellBoundary {
+  cwd: boolean
+  env: boolean
+  filesystem: {
+    mountPoint?: string
+    writable: boolean
+  }
+  network: boolean | "unknown"
+  processes: {
+    background: boolean
+    interactive: boolean
+  }
+  streaming: boolean
+  timeout: {
+    enforcedBy: "provider" | "runtime" | "unsupported"
+    supported: boolean
+  }
+}
+
+interface ShellExecutionProvider {
+  analyze?: (command: string, options?: ShellAnalyzeOptions) => Promise<ShellAnalyzeResult>
+  boundary: ShellBoundary
+  exec(command: string, options?: ShellRuntimeExecOptions): Promise<ShellObservation>
+  startProcess?: (command: string, options?: ShellRuntimeExecOptions) => Promise<ShellProcess>
+}
+
+interface ShellSessionPolicy {
+  maxOutputLength?: number
+  maxShellCalls?: number
+  timeout?: number
+}
 
 export type WorkspaceShellResult = ShellObservation
 

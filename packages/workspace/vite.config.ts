@@ -11,6 +11,7 @@ export default defineConfig({
         "#vitehub-workspace-registry",
         "@vercel/nft",
         /^@vite-hub\/sandbox/,
+        /^@vite-hub\/shell/,
       ],
       onlyBundle: false,
     },
