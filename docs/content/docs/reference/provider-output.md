@@ -15,6 +15,7 @@ It belongs to the package that owns the primitive and should not become applicat
 | Worker bundle | Cloudflare | Package integration using Cloudflare output | Runs server or primitive runtime code in Workers. |
 | `wrangler.json` entries | Cloudflare | Blob, Database, Queue, Schedule, Workflow, Sandbox, Agent state as applicable | Declares bindings, crons, durable objects, queues, and other worker config. |
 | Vercel Build Output | Vercel | Package integration using Vercel output | Writes functions, static files, routes, and function config under `.vercel/output`. |
+| Netlify function output | Netlify | Agent and Schedule Packages | Writes generated functions and static config under `.netlify/v1`. |
 | Deno Agent server output | Deno | Agent Package | Writes `.vitehub/agent/deno-server.ts` for `Deno.serve` chat and webhook routes. |
 | Deno cron output | Deno | Schedule Package | Writes `.vitehub/schedule/deno-cron.mjs` for `Deno.cron` static schedule wake output. |
 | Generated Runtime Registry | Local and hosted | Package that discovers Definitions | Maps Discovery Identity to lazy-loaded Definitions. |
@@ -48,7 +49,7 @@ pnpm --filter @vite-hub/workflow test
 Application code should import Runtime Helpers and stable handlers.
 Generated Provider Output may import generated files, virtual modules, or provider runtime packages internally.
 
-Netlify Agent output is not a public 0.0.2 contract yet: there is no documented stable `@vite-hub/agent/netlify` import or Netlify output family. Use the documented Cloudflare, Vercel, Deno, or Node-shaped host paths until Netlify support is documented.
+Netlify Agent output is Provider Output, not an app import: there is no stable `@vite-hub/agent/netlify` import. Inspect `.netlify/v1/functions/vitehub-agent.mjs` and `.vitehub/agent/netlify-function.mjs` during deployment debugging instead of importing them from application code.
 
 | Do | Avoid |
 | --- | --- |

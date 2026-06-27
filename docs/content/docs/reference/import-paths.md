@@ -59,11 +59,12 @@ They may resolve to Runtime Registries, generated files, virtual modules, or pac
 | --- | --- | --- |
 | `.vitehub/**` | Generated | Inspect during development; do not author imports against these files. |
 | `.vercel/output/**` | Generated Provider Output | Deploy or inspect as Vercel Build Output. |
+| `.netlify/v1/**` | Generated Provider Output | Deploy or inspect as Netlify function output. |
 | `dist/**/wrangler.json` | Generated Provider Output | Deploy or inspect as Cloudflare output. |
 | Vite virtual module ids with `\0` prefixes | Internal | Never import directly. |
 | `@vite-hub/internal/*` | Internal | Package implementation only. |
 
-The 0.0.2 preview does not expose a stable `@vite-hub/agent/netlify` app import. Treat Netlify Agent output as undocumented until a provider page names the public contract.
+The 0.0.2 preview does not expose a stable `@vite-hub/agent/netlify` app import. Netlify Agent output is generated Provider Output under `.netlify/v1` plus the `.vitehub/agent/netlify-function.mjs` source wrapper.
 
 ## Related
 
