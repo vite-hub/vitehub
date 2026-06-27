@@ -1330,7 +1330,3 @@ export type AgentAdapterFactory<
   TOptions = unknown,
   Name extends WorkspaceName = WorkspaceName,
 > = (context: ResolvedAgentRuntimeContext<TRuntimeConfig>) => MaybePromise<AgentAdapter<TOptions, TRuntimeConfig, Name>>
-
-export interface CloudflareExportedHandlerFetchHandler<TEnv = unknown> {
-  (request: Request, env: TEnv, ctx: { waitUntil?: (promise: Promise<unknown>) => void }): Response | Promise<Response>
-}

@@ -109,10 +109,6 @@
       "types": "./dist/test.d.ts",
       "import": "./dist/test.js"
     },
-    "./vercel": {
-      "types": "./dist/vercel.d.ts",
-      "import": "./dist/vercel.js"
-    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js"
