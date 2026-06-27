@@ -437,9 +437,9 @@ export function inputCommands(options: InputCommandsOptions): AgentCapabilityDef
           name: invocation.name,
           text: invocation.text,
         })
+        scheduleInputCommandFinishHook(command, context as AgentCapabilityRuntimeContext, invocation)
         if (result instanceof Response) return result
 
-        scheduleInputCommandFinishHook(command, context as AgentCapabilityRuntimeContext, invocation)
         const previousText = text
         input = context.input.get()
         target = getInputCommandTarget(input)
