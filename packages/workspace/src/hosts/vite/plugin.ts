@@ -135,9 +135,9 @@ function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptio
   return [
     ...runtimeImports,
     `import registry from ${JSON.stringify(registryImport)}`,
-    "import { definePlugin } from 'nitro'",
+    "import { defineNitroPlugin } from 'nitropack/runtime'",
     "",
-    "export default definePlugin(() => {",
+    "export default defineNitroPlugin(() => {",
     "  setWorkspaceRuntimeRegistry(registry)",
     ...runtimeSetup,
     "})",
@@ -165,10 +165,11 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
     hosting: options.hosting ?? process.env.VITEHUB_HOSTING,
     rootDir: roots.projectRoot,
   })
-  if (!normalized || !isHostedWorkspaceStore(normalized.store)) return null
-
   const definitions = discoverDefinitions(roots)
-  await writeNitroWorkspacePlugin(roots.projectRoot, normalized, definitions)
+  if (!normalized || (!isHostedWorkspaceStore(normalized.store) && !hasExplicitWorkspaceRuntimeOptions(workspaceOptions) && definitions.length === 0)) return null
+
+  const runtimeConfig = shouldConfigureRuntime(workspaceOptions, normalized) ? normalized : false
+  await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, definitions)
   return mergeNitroWorkspaceConfig(options.nitro)
 }
 
