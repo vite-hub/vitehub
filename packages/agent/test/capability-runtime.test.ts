@@ -71,6 +71,21 @@ const writableWorkspace = () => {
   }
 }
 
+function schema<T>(validate: (value: unknown) => T) {
+  return {
+    "~standard": {
+      validate(value: unknown) {
+        try {
+          return { value: validate(value) }
+        }
+        catch (error) {
+          return { issues: [error instanceof Error ? error.message : String(error)] }
+        }
+      },
+    },
+  }
+}
+
 describe("agent capability runtime", () => {
   it("runs lifecycle phases in capability order and closes in reverse order", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
@@ -169,6 +184,88 @@ describe("agent capability runtime", () => {
       original: { name: "original" },
     })
     await expect(applyOutputRenderers({ text: "base" }, resolved.registries.outputRenderers)).resolves.toEqual({ text: "base:rendered" })
+  })
+
+  it("projects Capability CLI metadata into generated guidance and a CLI-named tool", async () => {
+    const {
+      applyCapabilityInstructionSlots,
+      defineCapability,
+      resolveAgentCapabilities,
+    } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              "purchase-orders": {
+                commands: {
+                  list: {
+                    description: "List purchase orders for the current Portal context.",
+                    effects: ["read", "network:portal"],
+                    examples: ["portal purchase-orders list --json"],
+                    input: schema((value) => {
+                      const record = value as { limit?: unknown }
+                      return { limit: typeof record.limit === "number" ? record.limit : 10 }
+                    }),
+                    output: {
+                      format: "json",
+                      schema: schema((value) => value as { count: number }),
+                    },
+                    run: ({ input, json }) => {
+                      const parsedInput = input as { limit: number }
+                      return {
+                        count: parsedInput.limit,
+                        json,
+                      }
+                    },
+                  },
+                },
+                description: "Purchase-order runtime data.",
+              },
+            },
+            description: "Inspect live Portal runtime data.",
+            name: "portal",
+          },
+          id: "portal-runtime",
+        }),
+      ],
+    }, runtime(), {})
+
+    expect(resolved.capabilityInstructions).toHaveLength(1)
+    expect(applyCapabilityInstructionSlots("{{ capabilities.portal-runtime }}", resolved.capabilityInstructions)).toContain("## Capability CLI: portal")
+    expect(resolved.capabilityInstructions[0]?.instructions).toContain("portal purchase-orders list --json")
+    expect(resolved.capabilityInstructions[0]?.instructions).toContain("instead of generic Bash")
+    expect(Object.keys(resolved.tools || {})).toEqual(["portal"])
+
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["purchase-orders", "list", "--json"],
+      input: { limit: 3 },
+    })).resolves.toMatchObject({
+      argv: ["purchase-orders", "list", "--json"],
+      capability: "portal-runtime",
+      cli: "portal",
+      exitCode: 0,
+      json: { count: 3, json: true },
+      stdout: "{\n  \"count\": 3,\n  \"json\": true\n}\n",
+    })
+  })
+
+  it("rejects invalid Capability CLI output formats", async () => {
+    const { defineCapability } = await import("../src/capability-runtime.ts")
+
+    expect(() => defineCapability({
+      cli: {
+        commands: {
+          list: {
+            output: { format: "xml" as never },
+            run: () => "ok",
+          },
+        },
+        name: "portal",
+      },
+      id: "portal-runtime",
+    })).toThrow('output format must be "json" or "text"')
   })
 
   it("rejects duplicate capability instruction composition keys", async () => {

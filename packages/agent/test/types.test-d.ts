@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineAgentInvoker, type AgentActor, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentDeliveryArtifact, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, type AgentActor, type AgentCapabilityCliCommand, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentDeliveryArtifact, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
 import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceExec, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
@@ -508,6 +508,54 @@ describe("agent public types", () => {
     type _PublicAudioExtensionFor = CapabilityExports["audioExtensionFor"]
     // @ts-expect-error transcription context storage key is internal, not public capabilities API
     type _PublicTranscriptionContextKey = CapabilityExports["TRANSCRIPTION_RESULTS_CONTEXT_KEY"]
+  })
+
+  it("accepts flat Capability CLI contributions", () => {
+    const inputSchema = {
+      "~standard": {
+        validate: (input: unknown) => ({ value: input as { limit?: number } }),
+      },
+    }
+    const outputSchema = {
+      "~standard": {
+        validate: (input: unknown) => ({ value: input as { orders: string[] } }),
+      },
+    }
+    const listPurchaseOrders = {
+      description: "List purchase orders for the current Portal context.",
+      effects: ["read", "network:portal"],
+      input: inputSchema,
+      output: { format: "json", schema: outputSchema },
+      async run({ context, input, json }) {
+        expectTypeOf(context.capability.id).toEqualTypeOf<string>()
+        expectTypeOf(input).toEqualTypeOf<{ limit?: number }>()
+        expectTypeOf(json).toEqualTypeOf<boolean>()
+        return { orders: [] }
+      },
+    } satisfies AgentCapabilityCliCommand<AgentRuntimeConfig, string, { limit?: number }, { orders: string[] }>
+
+    const portalRuntime = defineCapability({
+      id: "portal-runtime",
+      cli: {
+        name: "portal",
+        description: "Inspect live Portal runtime data.",
+        commands: {
+          "purchase-orders": {
+            description: "Purchase-order runtime data.",
+            commands: {
+              list: listPurchaseOrders,
+            },
+          },
+        },
+      },
+    })
+
+    expectTypeOf(portalRuntime.cli?.commands).toEqualTypeOf<Record<string, AgentCapabilityCliCommand> | undefined>()
+    type RootAgentExports = typeof import("../src/index.ts")
+    // @ts-expect-error Capability CLI builders are not root Agent Package exports
+    type _RootCliBuilder = RootAgentExports["cli"]
+    // @ts-expect-error Capability CLI command builders are not root Agent Package exports
+    type _RootCommandBuilder = RootAgentExports["command"]
   })
 
   it("accepts message settings and channels from the Agent Definition", () => {

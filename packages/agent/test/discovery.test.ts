@@ -556,6 +556,66 @@ describe("agent chat capability discovery", () => {
     expect(abortSignal).toBeInstanceOf(AbortSignal)
   })
 
+  it("runs Capability CLI commands through the Vite endpoint", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-cli-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              "purchase-orders": {
+                commands: {
+                  list: {
+                    description: "List purchase orders.",
+                    output: { format: "json" },
+                    run: ({ json }) => ({ json, orders: [{ id: "po_1" }] }),
+                  },
+                },
+                description: "Purchase-order runtime data.",
+              },
+            },
+            name: "portal",
+          },
+          id: "portal-runtime",
+        }),
+      ],
+      run: () => "chat fallback",
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      cli: {
+        argv: ["purchase-orders", "list", "--json"],
+        name: "portal",
+      },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({
+      argv: ["purchase-orders", "list", "--json"],
+      capability: "portal-runtime",
+      cli: "portal",
+      command: "portal purchase-orders list --json",
+      exitCode: 0,
+      json: {
+        json: true,
+        orders: [{ id: "po_1" }],
+      },
+    })
+  })
+
   it("normalizes Agent Invocation Stream usage before serializing endpoint events", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-usage-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

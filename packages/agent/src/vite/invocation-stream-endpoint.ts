@@ -8,7 +8,7 @@ import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInv
 import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
-import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation, resolveAgentTriggers, streamAgent, withAgentDefaults } from "../index.ts"
+import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent, withAgentDefaults } from "../index.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { workspaceAgentOwnsWorkspaceDefinition, workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
 
@@ -18,6 +18,8 @@ import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { AgentInvocationStreamEvent } from "../invocation-stream.ts"
 import type {
   AgentChannelDeliveryEffectContext,
+  AgentCapabilityCliExecutionInput,
+  AgentCapabilityCliExecutionResult,
   AgentInput,
   AgentRunInput,
   AgentRunMetadata,
@@ -39,6 +41,12 @@ interface ViteAgentDevRuntimeContext extends AgentRuntimeContext<ViteAgentDevRun
 
 interface AgentInvocationStreamBody {
   agent?: string
+  cli?: {
+    argv?: string[]
+    input?: unknown
+    json?: boolean
+    name?: string
+  }
   invokerProfileId?: string
   messages?: AgentChatMessageTriggerInput["messages"]
   meta?: Record<string, unknown>
@@ -363,6 +371,19 @@ function devRun(agent: string): AgentRunMetadata {
   }
 }
 
+function withCapabilityCliRun(agent: AgentInput, cli: string, execution: AgentCapabilityCliExecutionInput): AgentInput {
+  const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput
+  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
+  clone.run = async (context) => {
+    const tool = context.tools?.[cli]
+    if (!tool || tool.metadata?.vitehubCapabilityCli !== true || typeof tool.execute !== "function") {
+      throw new Error(`[vitehub] Agent Capability CLI "${cli}" is not defined by this agent.`)
+    }
+    return await tool.execute(execution) as AgentCapabilityCliExecutionResult
+  }
+  return clone
+}
+
 async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: IncomingMessage): Promise<Response> {
   const entries = await discoverStreamAgents(server)
   if (req.method === "GET") {
@@ -382,6 +403,21 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
   const context = createRuntimeContext(server, req, run)
   const payload = payloadFromBody(body)
   const timeout = typeof body.timeout === "number" && Number.isFinite(body.timeout) ? body.timeout : 90_000
+
+  if (body.cli) {
+    if (typeof body.cli.name !== "string" || !body.cli.name.trim()) {
+      return new Response("Missing Agent Capability CLI name.", { status: 400 })
+    }
+    return Response.json(await runAgentInline(withCapabilityCliRun(entry.agent as never, body.cli.name, {
+      argv: Array.isArray(body.cli.argv) ? body.cli.argv : [],
+      ...(body.cli.input !== undefined ? { input: body.cli.input } : {}),
+      ...(body.cli.json !== undefined ? { json: body.cli.json } : {}),
+    }) as never, context as never, {
+      abortSignal: AbortSignal.timeout(timeout),
+      ...(payload ? { context: payload } : {}),
+      timeout,
+    }) as AgentCapabilityCliExecutionResult)
+  }
 
   return createAgentInvocationStreamResponse(async (emit, signal) => {
     let output: Awaited<ReturnType<typeof streamAgent>>

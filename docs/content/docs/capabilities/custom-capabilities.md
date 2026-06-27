@@ -113,6 +113,64 @@ export function ticketContext() {
 
 Use `harnessWorkspacePaths` when a harness-backed Agent needs specific contributed paths materialized into the harness Workspace Session.
 
+## Add a Capability CLI
+
+Use `cli` when the Capability owns a real command tree that agents and developers should run instead of a generic shell command.
+The public API is a flat object on the Capability Definition.
+
+```ts [server/agents/capabilities/portal-runtime.ts]
+import { defineCapability } from '@vite-hub/agent'
+
+const portalPurchaseOrdersInput = {
+  '~standard': {
+    validate(input: unknown) {
+      return { value: input as { limit?: number } }
+    },
+  },
+}
+
+const portalPurchaseOrdersOutput = {
+  '~standard': {
+    validate(input: unknown) {
+      return { value: input as { orders: Array<{ id: string }> } }
+    },
+  },
+}
+
+export const portalRuntime = defineCapability({
+  id: 'portal-runtime',
+  cli: {
+    name: 'portal',
+    description: 'Inspect live Portal runtime data.',
+    commands: {
+      'purchase-orders': {
+        description: 'Purchase-order runtime data.',
+        commands: {
+          list: {
+            description: 'List purchase orders for the current Portal context.',
+            input: portalPurchaseOrdersInput,
+            output: { format: 'json', schema: portalPurchaseOrdersOutput },
+            effects: ['read', 'network:portal'],
+            async run({ input }) {
+              return await listPortalPurchaseOrders(input)
+            },
+          },
+        },
+      },
+    },
+  },
+})
+```
+
+ViteHub generates the command guidance from the command metadata and places it in the Capability instruction slot.
+Keep `instructions.md` focused on policy and include `{{ capabilities.portal-runtime }}` or `{{ capabilities }}` where the generated guidance should appear.
+
+During development, run the Capability CLI through the Agent Dev Loop.
+
+```bash [Terminal]
+pnpm vitehub agent dev --url http://localhost:3000 --agent chat --cli portal -- purchase-orders list --json
+```
+
 ## Driver support
 
 | Agent Driver | Custom Capability behavior |

@@ -1,6 +1,11 @@
 import { resolveRuntimeValue } from "@vite-hub/runtime"
 
 import { hasTrustedWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefinition, workspaceOverrideSymbol } from "./access-runtime.ts"
+import {
+  assertCapabilityCliContribution,
+  createCapabilityCliTool,
+  renderCapabilityCliInstructions,
+} from "./capability-cli.ts"
 import { createMessage } from "./messages.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import { normalizeAgentWorkspaceSource } from "./workspace-source-metadata.ts"
@@ -150,6 +155,7 @@ export function defineCapability<
     throw new TypeError("[vitehub] defineCapability() requires a capability definition.")
   }
   assertCapabilityId((capability as { id?: unknown }).id)
+  assertCapabilityCliContribution((capability as { id: string }).id, (capability as AgentCapabilityDefinition).cli)
   return capability
 }
 
@@ -285,6 +291,15 @@ function toAgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig>(
 ): AgentCallbackContext<TRuntimeConfig> {
   const { runtimeConfig: _runtimeConfig, ...context } = runtime
   return context
+}
+
+function compactInstructionValues(values: Array<AgentAdapterInstructionsValue | false | undefined>): AgentAdapterInstructionsValue | false | undefined {
+  const instructions = values
+    .filter((value): value is AgentAdapterInstructionsValue => value !== false && value !== undefined)
+    .flatMap(value => Array.isArray(value) ? value : [value])
+    .map(value => value.trim())
+    .filter(Boolean)
+  return instructions.length ? instructions : undefined
 }
 
 function pathContains(container: string, path: string): boolean {
@@ -1013,10 +1028,21 @@ export async function resolveAgentCapabilities<
     }
     await applyWorkspaceContributions()
     for (const { capability, context } of capabilityContexts) {
-      if (invocationOptions.resolveInstructions !== false && capability.instructions !== undefined) {
-        const values = await resolveInstructionValue(capability, context)
-        for (const value of values) {
-          addCapabilityInstructionContribution(capability.id, value)
+      if (invocationOptions.resolveInstructions !== false) {
+        const values = capability.instructions !== undefined ? await resolveInstructionValue(capability, context) : []
+        const cliInstructions = capability.cli && driverKind !== "harness"
+          ? renderCapabilityCliInstructions(capability.id, capability.cli)
+          : undefined
+        addCapabilityInstructionContribution(capability.id, compactInstructionValues([...values, cliInstructions]))
+      }
+      if (invocationOptions.resolveTools !== false && capability.cli && driverKind !== "harness") {
+        const resolved = createCapabilityCliTool(capability, context)
+        if (isToolSet(resolved)) {
+          if (tools?.[capability.cli.name]) {
+            throw new Error(`[vitehub] Capability CLI "${capability.cli.name}" conflicts with an existing Agent tool.`)
+          }
+          recordDriverContribution("Capability tools", capability.id, Object.keys(resolved))
+          tools = { ...tools, ...resolved }
         }
       }
       if (invocationOptions.resolveTools !== false && capability.tools) {
@@ -1072,8 +1098,6 @@ export async function resolveStaticCapabilityTools<
 
   for (const capability of capabilities) {
     await validateCapabilityRuntimeRequirement(capability as AgentCapabilityDefinition, workspace, workspaceMode)
-    if (!capability.tools) continue
-
     const capabilityContext = {
       ...runtimeContext,
       actor: invoker,
@@ -1083,9 +1107,15 @@ export async function resolveStaticCapabilityTools<
       mode: capability.mode,
       runtimeContext: runtime,
       workspace,
-    } as unknown as AgentCapabilityContext<TRuntimeConfig, Name>
-    const resolved = await resolveRuntimeValue(capability.tools as never, capabilityContext as never) as unknown
-    if (isToolSet(resolved)) tools = { ...tools, ...resolved }
+    } as unknown as AgentCapabilityRuntimeContext<TRuntimeConfig, Name>
+    if (capability.cli) {
+      const resolved = createCapabilityCliTool(capability, capabilityContext)
+      if (isToolSet(resolved)) tools = { ...tools, ...resolved }
+    }
+    if (capability.tools) {
+      const resolved = await resolveRuntimeValue(capability.tools as never, capabilityContext as unknown as AgentCapabilityContext<TRuntimeConfig, Name>) as unknown
+      if (isToolSet(resolved)) tools = { ...tools, ...resolved }
+    }
   }
 
   return tools

@@ -93,6 +93,13 @@ pnpm vitehub agent dev --agent support --payload server/agents/support/dev.paylo
 pnpm vitehub agent dev --agent support --timeout 180000 -p "/summary"
 ```
 
+Use `--cli` when a Capability attached to the Agent declares a Capability CLI.
+Everything after `--` is parsed as the nested Capability CLI command.
+
+```bash [Terminal]
+pnpm vitehub agent dev --url http://localhost:3000 --agent chat --cli portal -- purchase-orders list --json
+```
+
 Expected output includes the resolved payload file path before the Agent Invocation starts.
 In interactive mode, type a message or command such as `/summary` at the prompt.
 
