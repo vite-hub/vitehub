@@ -84,7 +84,7 @@ export interface AgentChannelChatRouteRequestOptions extends AgentRouteRuntimeOp
 
 export interface AgentChannelChatRouteMapInputContext {
   agentName: string
-  body: AgentChatFetchBody
+  body: AgentChannelChatRouteBody
   input: AgentChatMessageTriggerInput
   request: Request
 }
@@ -1103,7 +1103,7 @@ async function createChatWebhookHandler(
 type AgentChatDevtoolsAction = "clear" | "get-state" | "materialize-source" | "send"
 type ReadUIMessageStream = typeof import("ai").readUIMessageStream
 
-export type AgentChatFetchBody = {
+export type AgentChannelChatRouteBody = {
   history?: AgentChatMessageTriggerInput["history"]
   id?: string
   invoker?: unknown
@@ -1424,7 +1424,7 @@ function createUserUIMessage(text: string): UIMessage {
 
 function createHttpChatRunMetadata(
   agentName: string,
-  body: AgentChatFetchBody,
+  body: AgentChannelChatRouteBody,
   messages: UIMessage[],
   options: Pick<AgentChannelChatRouteHandlerOptions, "channelId" | "origin"> = {},
 ): AgentRunMetadata {
@@ -1441,11 +1441,11 @@ function createHttpChatRunMetadata(
   }
 }
 
-async function parseAgentChatFetchBody(request: Request): Promise<AgentChatFetchBody> {
+async function parseAgentChannelChatRouteBody(request: Request): Promise<AgentChannelChatRouteBody> {
   const raw = await request.text()
   if (!raw.trim()) throw createRouteBodyError("Missing agent chat payload.")
   try {
-    const body = JSON.parse(raw) as AgentChatFetchBody
+    const body = JSON.parse(raw) as AgentChannelChatRouteBody
     if (!isRecord(body)) throw createRouteBodyError("Agent chat payload must be a JSON object.")
     return body
   }
@@ -1468,8 +1468,8 @@ function optionalBodyString(value: unknown, label: string): string | undefined {
   return trimmed || undefined
 }
 
-function agentChatFetchInput(
-  body: AgentChatFetchBody,
+function agentChannelChatRouteInput(
+  body: AgentChannelChatRouteBody,
   agentName: string,
   allowTrustedInput = false,
   options: Pick<AgentChannelChatRouteHandlerOptions, "channelId" | "origin"> = {},
@@ -1531,7 +1531,7 @@ function resolveAgentChannelChatRouteHandlerOptions(
   }
 }
 
-function mergeAgentChatFetchInput(
+function mergeAgentChannelChatRouteInput(
   input: AgentChatMessageTriggerInput,
   patch: AgentChannelChatRouteInputPatch | undefined | void,
 ): AgentChatMessageTriggerInput {
@@ -1928,7 +1928,7 @@ export function createChannelChatRouteHandler(
     }
 
     try {
-      const body = await parseAgentChatFetchBody(request)
+      const body = await parseAgentChannelChatRouteBody(request)
       const agentName = handlerOptions.agentName || "agent"
       const context = createRuntimeContext(
         request,
@@ -1936,8 +1936,8 @@ export function createChannelChatRouteHandler(
         await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
         handlerOptions.cloudflare,
       )
-      const baseInput = agentChatFetchInput(body, agentName, Boolean(routeOptions.mapInput), routeOptions)
-      const triggerInput = mergeAgentChatFetchInput(
+      const baseInput = agentChannelChatRouteInput(body, agentName, Boolean(routeOptions.mapInput), routeOptions)
+      const triggerInput = mergeAgentChannelChatRouteInput(
         baseInput,
         await routeOptions.mapInput?.({ agentName, body, input: baseInput, request }),
       )

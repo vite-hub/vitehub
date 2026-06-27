@@ -1,13 +1,6 @@
-import type { AgentRequestBody } from "./types.ts"
-
 interface AgentStreamResult {
   toTextStreamResponse?: () => Response
   toUIMessageStreamResponse?: () => Response
-}
-
-export async function readAgentRequestBody(request: Request): Promise<AgentRequestBody> {
-  const body = await request.json().catch(() => undefined)
-  return typeof body === "object" && body !== null ? body as AgentRequestBody : {}
 }
 
 function isAgentStreamResult(value: unknown): value is AgentStreamResult {

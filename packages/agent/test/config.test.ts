@@ -86,7 +86,7 @@ describe("agent config", () => {
       throw new Error("workspace runtime should only load when workspace registration is used")
     })
     try {
-      const server = await import("../src/server/routes.ts")
+      const server = await import("../src/server.ts")
       expect(server.createChannelChatRouteHandler).toBeTypeOf("function")
       expect(server.createChannelWebhookRouteHandler).toBeTypeOf("function")
     }
@@ -126,7 +126,7 @@ describe("agent config", () => {
     try {
       const { defineAgent } = await import("../src/index.ts")
       const { chat } = await import("../src/capabilities.ts")
-      const { createChannelChatRouteHandler } = await import("../src/server/routes.ts")
+      const { createChannelChatRouteHandler } = await import("../src/server.ts")
       const handler = createChannelChatRouteHandler(defineAgent({
         capabilities: [chat()],
         run({ messages }) {
