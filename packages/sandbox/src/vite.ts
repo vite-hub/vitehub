@@ -151,6 +151,7 @@ async function prepareSandboxRuntimeAliases(
   rawConfig: Record<string, unknown>,
   rawEnv: ConfigEnv,
   resolved: ResolvedConfig | undefined,
+  options: { writeArtifacts?: boolean } = {},
 ): Promise<PreparedSandboxRuntime> {
   const rootDir = resolved?.root || resolve(process.cwd(), typeof rawConfig.root === 'string' ? rawConfig.root : '.')
   const context = await buildFeatureViteContext(engine, { ...rawConfig, root: rootDir }, rawEnv)
@@ -174,6 +175,13 @@ async function prepareSandboxRuntimeAliases(
     },
   )
   const aliases = createGeneratedAliasMap(rootDir, plan)
+  if (options.writeArtifacts === false) {
+    return {
+      aliases,
+      definitions,
+      files: [],
+    }
+  }
   const emitted = await writeSandboxArtifacts(rootDir, plan)
   await writeFileIfChanged(
     facadeFile,
@@ -271,7 +279,10 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       const result = typeof configHook === 'function'
         ? await configHook.call(this, config, env)
         : undefined
-      await refreshSandboxRuntime()
+      const prepared = await prepareSandboxRuntimeAliases(engine, rawConfig, rawEnv, resolvedConfig, { writeArtifacts: false })
+      generatedAliases = prepared.aliases
+      generatedFiles = prepared.files
+      definitions = prepared.definitions
       return {
         ...(result && typeof result === 'object' ? result : {}),
         resolve: {

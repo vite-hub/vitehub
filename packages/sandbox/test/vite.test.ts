@@ -46,6 +46,7 @@ describe("hubSandbox", () => {
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox()
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     const resolveId = plugin.resolveId as (id: string) => string | undefined | Promise<string | undefined>
     const load = plugin.load as (id: string) => string | undefined | Promise<string | undefined>
 
@@ -58,6 +59,7 @@ describe("hubSandbox", () => {
       command: "serve",
       mode: "development",
     })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
 
     const resolvedId = await resolveId("#vitehub/sandbox")
     const code = await load(resolvedId as string)
@@ -126,6 +128,7 @@ describe("hubSandbox", () => {
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox({ provider: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: AliasOptions } }) => unknown | Promise<unknown>
 
     await configHook({
       root: rootDir,
@@ -138,8 +141,55 @@ describe("hubSandbox", () => {
       command: "serve",
       mode: "development",
     })
+    await configResolved({
+      root: rootDir,
+      resolve: {
+        alias: [
+          {
+            find: "@",
+            replacement: join(rootDir, "src"),
+          },
+        ],
+      },
+    })
 
     await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs"), "utf8")).resolves.toContain("from alias")
+  })
+
+  it("defers generated definition bundling until Vite aliases are resolved", async () => {
+    const rootDir = await createViteRoot()
+    await mkdir(join(rootDir, "src/lib"), { recursive: true })
+    await writeFile(join(rootDir, "src/lib/message.ts"), `export const message = "from late alias"\n`)
+    await writeFile(join(rootDir, "src/tools/release-notes.sandbox.ts"), [
+      `import { message } from "#late/message"`,
+      ``,
+      `export default defineSandbox(async () => ({ message }))`,
+      ``,
+    ].join("\n"))
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: AliasOptions } }) => unknown | Promise<unknown>
+
+    await configHook({
+      root: rootDir,
+    }, {
+      command: "serve",
+      mode: "development",
+    })
+    await configResolved({
+      root: rootDir,
+      resolve: {
+        alias: [
+          {
+            find: "#late",
+            replacement: join(rootDir, "src/lib"),
+          },
+        ],
+      },
+    })
+
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs"), "utf8")).resolves.toContain("from late alias")
   })
 
   it("lets Vite config override direct integration options", async () => {
@@ -287,12 +337,14 @@ describe("hubSandbox", () => {
     const { hubSandbox } = await import("../src/vite.ts")
     const plugin = hubSandbox({ provider: "vercel" })
     const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
     await configHook({
       root: rootDir,
     }, {
       command: "serve",
       mode: "development",
     })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
 
     const configEnvironment = plugin.configEnvironment as (name: string, environment: { consumer: "client" | "server" }) => unknown
     const sandboxAlias = readAlias((configEnvironment("ssr", { consumer: "server" }) as { resolve: { alias: AliasOptions } }).resolve.alias, "@vite-hub/sandbox")!
