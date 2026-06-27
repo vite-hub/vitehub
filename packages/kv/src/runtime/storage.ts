@@ -33,13 +33,8 @@ function shouldFallbackHostedConfigImport(error: unknown) {
 }
 
 async function resolveHostedConfig(): Promise<false | ResolvedKVModuleOptions | undefined> {
-  const virtualConfigId = "#vitehub/kv/config"
-
   try {
-    const module = await import(
-      /* @vite-ignore */
-      virtualConfigId
-    ) as { kv: false | ResolvedKVModuleOptions }
+    const module = await import("#vitehub/kv/config") as { kv: false | ResolvedKVModuleOptions }
     return module.kv
   }
   catch (error) {
