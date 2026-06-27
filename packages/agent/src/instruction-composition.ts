@@ -356,7 +356,9 @@ function renderBinding(
   if (typeof path !== "string" || !compositionPathPattern.test(path)) return ["binding", attrs]
   if (path === "workspace.sources" && namespacePathValue(scopes.workspace, path) === undefined) return ["binding", attrs]
   const value = namespacePathValue(path.startsWith("workspace.") ? scopes.workspace : scopes.context, path)
-  if (value === null || value === undefined) return ""
+  if (value === null || value === undefined) {
+    throw new Error(`[vitehub] Instruction binding "{{ ${path} }}" is not defined.`)
+  }
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value)
   throw new TypeError(`[vitehub] Instruction binding "{{ ${path} }}" must resolve to a scalar value.`)
 }
@@ -377,7 +379,9 @@ async function renderTripleBindingPath(
   parent?: string,
 ): Promise<ComarkNode[]> {
   const value = namespacePathValue(context, path)
-  if (value === null || value === undefined) return []
+  if (value === null || value === undefined) {
+    throw new Error(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" is not defined.`)
+  }
   if (typeof value !== "string") {
     throw new TypeError(`[vitehub] Instruction markdown binding "{{{ ${path} }}}" must resolve to a string.`)
   }
