@@ -38,6 +38,21 @@ describe("discoverServerSandboxDefinitions", () => {
     ])
   })
 
+  it("does not discover server sandbox files through suffix scanning", async () => {
+    const rootDir = await createTempDir("vitehub-sandbox-vite-server-suffix-")
+    await mkdir(join(rootDir, "server", "sandboxes"), { recursive: true })
+    await mkdir(join(rootDir, "src", "server", "sandboxes"), { recursive: true })
+    await writeFile(join(rootDir, "server", "sandboxes", "release-notes.sandbox.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "src", "server", "sandboxes", "ignored.sandbox.ts"), "export default null\n", "utf8")
+
+    expect(discoverSandboxDefinitions({ rootDir }).map(definition => ({
+      name: definition.name,
+      source: definition.source,
+    }))).toEqual([
+      { name: "release-notes", source: "server-sandboxes" },
+    ])
+  })
+
   it("discovers sandbox names from server/sandboxes directories", async () => {
     const scanDir = await createTempDir("vitehub-sandbox-server-discovery-")
     await mkdir(join(scanDir, "sandboxes", "content"), { recursive: true })

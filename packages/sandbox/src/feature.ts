@@ -187,14 +187,22 @@ export async function createSandboxFeaturePlan(
 ): Promise<FeatureRuntimePlan> {
   const resolvedConfig = resolveSandboxFeatureConfig(sandboxConfig, hosting)
   const manifest = createSandboxManifest(paths.aliasPath, createSandboxTypeTemplateContents(definitions))
-  const definitionCompiler = await createDiscoveredDefinitionCompiler(discoveredDefinitionOptions)
-  const definitionMetadata = await loadSandboxDefinitionMetadata(definitions)
-  const metadataByName = new Map(definitionMetadata.map(definition => [definition.name, definition] as const))
   const sandboxDefinitions = definitions.map(definition => ({
     ...definition,
     definitionArtifactKey: `sandbox-definition:${definition.name}`,
     definitionFilename: `runtime/sandbox-definitions/${toTemplateSafeName(definition.name)}.mjs`,
   }))
+  const definitionFileByName = new Map<string, string>()
+  for (const definition of sandboxDefinitions) {
+    const existing = definitionFileByName.get(definition.definitionFilename)
+    if (existing) {
+      throw new Error(`[vitehub] Sandbox definitions "${existing}" and "${definition.name}" generate the same artifact path "${definition.definitionFilename}".`)
+    }
+    definitionFileByName.set(definition.definitionFilename, definition.name)
+  }
+  const definitionCompiler = await createDiscoveredDefinitionCompiler(discoveredDefinitionOptions)
+  const definitionMetadata = await loadSandboxDefinitionMetadata(definitions)
+  const metadataByName = new Map(definitionMetadata.map(definition => [definition.name, definition] as const))
   const sandboxArtifacts: GeneratedArtifact[] = sandboxDefinitions.map(definition => ({
     key: definition.definitionArtifactKey,
     filename: definition.definitionFilename,

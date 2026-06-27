@@ -65,10 +65,13 @@ describe("hubSandbox", () => {
     expect(code).toContain('"feature": "sandbox"')
     expect(code).toContain('"provider": "vercel"')
     const alias = (configResult as { resolve: { alias: AliasOptions } }).resolve.alias
-    const sandboxAlias = readAlias(alias, "@vite-hub/sandbox")!
     const registryAlias = readAlias(alias, "#vitehub-sandbox-registry")!
     const providerLoaderAlias = readAlias(alias, "vitehub-sandbox-provider-loader")!
+    const configEnvironment = plugin.configEnvironment as (name: string, environment: { consumer: "client" | "server" }) => unknown
+    const serverConfig = configEnvironment("ssr", { consumer: "server" }) as { resolve: { alias: AliasOptions } }
+    const sandboxAlias = readAlias(serverConfig.resolve.alias, "@vite-hub/sandbox")!
 
+    expect(readAlias(alias, "@vite-hub/sandbox")).toBeUndefined()
     expect(sandboxAlias).toContain(".vitehub/sandbox/runtime/sandbox.mjs")
     expect(registryAlias).toContain(".vitehub/sandbox/runtime/sandbox-registry.mjs")
     expect(providerLoaderAlias).toContain(".vitehub/sandbox/runtime/sandbox-provider-loader.mjs")
@@ -86,6 +89,7 @@ describe("hubSandbox", () => {
     expect(registry).toContain('"tools/release-notes"')
     expect(providerLoader).toContain("createVercelSandboxClient")
     expect(providerLoader).not.toContain("import('./providers/vercel.js')")
+    await expect(readFile(join(rootDir, ".vitehub/sandbox/runtime/sandbox.d.ts"), "utf8")).resolves.toContain('"tools/release-notes"')
   })
 
   it("accepts direct integration options", async () => {
@@ -224,6 +228,17 @@ describe("hubSandbox", () => {
     }))
   })
 
+  it("rejects generated sandbox artifact path collisions", async () => {
+    const { createSandboxFeaturePlan } = await import("../src/feature.ts")
+
+    await expect(createSandboxFeaturePlan({}, [
+      { handler: "/tmp/tools/release-notes.ts", name: "tools/release-notes", _meta: { filename: "tools/release-notes", sourcePath: "/tmp/tools/release-notes.ts" } },
+      { handler: "/tmp/tools__release-notes.ts", name: "tools__release-notes", _meta: { filename: "tools__release-notes", sourcePath: "/tmp/tools__release-notes.ts" } },
+    ], {
+      aliasPath: "/tmp/vitehub-sandbox/index.js",
+    }, {})).rejects.toThrow("generate the same artifact path")
+  })
+
   it("passes explicit Cloudflare sandbox container names to Cloudflare targets", async () => {
     const { createSandboxFeaturePlan } = await import("../src/feature.ts")
     const plan = await createSandboxFeaturePlan({ provider: "cloudflare", name: "custom-sandbox" }, [], {
@@ -236,5 +251,58 @@ describe("hubSandbox", () => {
       migrationTag: "v1",
       name: "custom-sandbox",
     })
+  })
+
+  it("refreshes generated artifacts during sandbox definition hot updates", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandbox } = await import("../src/vite.ts")
+    const plugin = hubSandbox({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    await configHook({
+      root: rootDir,
+    }, {
+      command: "serve",
+      mode: "development",
+    })
+
+    const configEnvironment = plugin.configEnvironment as (name: string, environment: { consumer: "client" | "server" }) => unknown
+    const sandboxAlias = readAlias((configEnvironment("ssr", { consumer: "server" }) as { resolve: { alias: AliasOptions } }).resolve.alias, "@vite-hub/sandbox")!
+    const registryAlias = join(rootDir, ".vitehub/sandbox/runtime/sandbox-registry.mjs")
+    const definitionArtifact = join(rootDir, ".vitehub/sandbox/runtime/sandbox-definitions/tools__release-notes.mjs")
+    const definition = join(rootDir, "src/tools/release-notes.sandbox.ts")
+    const invalidated: string[] = []
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: {
+        moduleGraph: {
+          getModuleById: (id: string) => { id: string } | undefined
+          invalidateModule: (module: { id: string }) => void
+        }
+      }
+    }) => Promise<void>
+
+    await writeFile(definition, [
+      `import { defineSandbox } from "@vite-hub/sandbox"`,
+      ``,
+      `export default defineSandbox(async () => ({ message: "updated" }))`,
+      ``,
+    ].join("\n"))
+    await handleHotUpdate({
+      file: definition,
+      server: {
+        moduleGraph: {
+          getModuleById(id) {
+            if ([sandboxAlias, registryAlias, definitionArtifact].includes(id))
+              return { id }
+          },
+          invalidateModule(module) {
+            invalidated.push(module.id)
+          },
+        },
+      },
+    })
+
+    expect(invalidated).toEqual(expect.arrayContaining([sandboxAlias, registryAlias, definitionArtifact]))
+    await expect(readFile(definitionArtifact, "utf8")).resolves.toContain("updated")
   })
 })

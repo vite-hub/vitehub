@@ -7,7 +7,7 @@ import {
   normalizeSuffixDefinitionName,
   resolveDefinitionScanRoots,
 } from '@vite-hub/internal/definition-catalog'
-import { resolve } from 'pathe'
+import { relative, resolve } from 'pathe'
 import type { ScannedDefinition } from './internal/shared/feature-definitions'
 
 export interface DiscoveredSandboxDefinition extends ScannedDefinition {
@@ -28,12 +28,19 @@ function createDiscoveredSandboxDefinition(source: DiscoveredSandboxDefinition['
   })
 }
 
+function isServerSandboxFile(rootDir: string, file: string) {
+  const path = relative(rootDir, file).replace(/\\/g, '/')
+  return path.startsWith('server/sandboxes/') || path.startsWith('src/server/sandboxes/')
+}
+
 function normalizeSuffixSandboxName(rootDir: string, file: string) {
+  if (isServerSandboxFile(rootDir, file))
+    return undefined
   return normalizeSuffixDefinitionName(rootDir, file, sandboxSuffixPattern, { stripPrefix: 'src/' })
 }
 
 function normalizeDirectorySandboxName(directory: string, file: string) {
-  return normalizePathDefinitionName(directory, file)
+  return normalizePathDefinitionName(directory, file).replace(/\.sandbox$/, '')
 }
 
 export function discoverServerSandboxDefinitions(scanDirs: string[]): DiscoveredSandboxDefinition[] {

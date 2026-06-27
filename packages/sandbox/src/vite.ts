@@ -2,7 +2,7 @@ import { buildFeatureViteContext } from '@vite-hub/internal/feature-bridge'
 import { createImportPath, ensureGeneratedDir } from '@vite-hub/internal/build/paths'
 import { createNoExternalMerger, isServerEnvironment } from '@vite-hub/internal/build/vite'
 import { writeFileIfChanged } from '@vite-hub/internal/definition-catalog'
-import { resolve } from 'pathe'
+import { normalize, resolve } from 'pathe'
 
 import { createFeatureVitePlugin } from './internal/shared/vite'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
@@ -12,6 +12,7 @@ import { sandboxFeatureEngine, type SandboxPublicOptions } from './integration'
 import type { AgentSandboxConfig } from './module-types'
 import type { EmittedArtifact, FeatureRuntimePlan } from './internal/shared/runtime-artifacts'
 import type { Alias, AliasOptions, ConfigEnv, Plugin, ResolvedConfig } from 'vite'
+import type { DiscoveredSandboxDefinition } from './discovery'
 
 export { createViteHubDefinitionAutoImportsPlugin } from './internal/shared/vitehub-auto-imports'
 export type { SandboxPublicOptions } from './integration'
@@ -24,6 +25,17 @@ const SANDBOX_REGISTRY_ID = '#vitehub-sandbox-registry'
 
 type AliasMap = Record<string, string>
 type SandboxAlias = Alias & { replacement: string }
+type PreparedSandboxRuntime = {
+  aliases: AliasMap
+  definitions: DiscoveredSandboxDefinition[]
+  files: string[]
+}
+
+const emptyPreparedSandboxRuntime: PreparedSandboxRuntime = {
+  aliases: {},
+  definitions: [],
+  files: [],
+}
 
 function sandboxProviderLoaderFallback() {
   return resolveFeatureRuntimePath(import.meta.url, '@vite-hub/sandbox', './runtime/provider-loader', 'runtime/provider-loader.js')
@@ -52,6 +64,11 @@ function readAliasEntries(alias: unknown): Alias[] {
 function mergeAliases(alias: unknown, aliases: AliasMap): AliasOptions | undefined {
   const entries = [...toSandboxAliasEntries(aliases), ...readAliasEntries(alias)]
   return entries.length ? entries : undefined
+}
+
+function withoutSandboxPackageAlias(aliases: AliasMap): AliasMap {
+  const { [SANDBOX_PACKAGE_ID]: _sandboxAlias, ...rest } = aliases
+  return rest
 }
 
 function readResolveOptions(config: unknown): { alias?: unknown } {
@@ -102,6 +119,10 @@ function createGeneratedAliasMap(rootDir: string, plan: FeatureRuntimePlan): Ali
 async function writeSandboxArtifacts(rootDir: string, plan: FeatureRuntimePlan) {
   const generatedDir = ensureGeneratedDir(rootDir, 'sandbox')
   const emitted = new Map<string, EmittedArtifact>()
+  const typeTemplate = plan.manifest.typeTemplate
+
+  if (typeTemplate)
+    await writeFileIfChanged(resolve(generatedDir, typeTemplate.filename), typeTemplate.contents)
 
   for (const artifact of plan.artifacts || []) {
     const dst = resolve(generatedDir, artifact.filename)
@@ -121,12 +142,12 @@ async function prepareSandboxRuntimeAliases(
   rawConfig: Record<string, unknown>,
   rawEnv: ConfigEnv,
   resolved: ResolvedConfig | undefined,
-): Promise<AliasMap> {
+): Promise<PreparedSandboxRuntime> {
   const rootDir = resolved?.root || resolve(process.cwd(), typeof rawConfig.root === 'string' ? rawConfig.root : '.')
   const context = await buildFeatureViteContext(engine, { ...rawConfig, root: rootDir }, rawEnv)
   const sandboxConfig = context?.config as AgentSandboxConfig | false | undefined
   if (!context || !sandboxConfig)
-    return {}
+    return emptyPreparedSandboxRuntime
 
   const facadeFile = resolve(ensureGeneratedDir(rootDir, 'sandbox'), 'runtime/sandbox.mjs')
   const definitions = discoverSandboxDefinitions({ rootDir })
@@ -138,7 +159,7 @@ async function prepareSandboxRuntimeAliases(
     context.hosting,
   )
   const aliases = createGeneratedAliasMap(rootDir, plan)
-  await writeSandboxArtifacts(rootDir, plan)
+  const emitted = await writeSandboxArtifacts(rootDir, plan)
   await writeFileIfChanged(
     facadeFile,
     createSandboxRuntimeFacadeContents(
@@ -147,7 +168,32 @@ async function prepareSandboxRuntimeAliases(
       aliases[SANDBOX_REGISTRY_ID]!,
     ),
   )
-  return aliases
+  return {
+    aliases,
+    definitions,
+    files: [facadeFile, ...Array.from(emitted.values(), artifact => artifact.dst)],
+  }
+}
+
+function isSandboxSourceFile(file: string) {
+  return /\.(?:c|m)?[jt]s$/i.test(file) && !/\.d\.(?:c|m)?[jt]s$/i.test(file)
+}
+
+function isSandboxDefinitionUpdate(file: string, definitions: DiscoveredSandboxDefinition[]) {
+  const changedFile = normalize(file)
+  if (definitions.some(definition => normalize(definition.handler) === changedFile))
+    return true
+  if (!isSandboxSourceFile(changedFile))
+    return false
+  return /\.sandbox\.(?:c|m)?[jt]s$/i.test(changedFile) || /(?:^|\/)(?:src\/)?server\/sandboxes\//.test(changedFile)
+}
+
+function invalidateGeneratedSandboxModules(files: string[], moduleGraph: { getModuleById: (id: string) => unknown, invalidateModule: (module: never) => void }) {
+  for (const file of [...new Set(files.map(file => normalize(file)))]) {
+    const module = moduleGraph.getModuleById(file)
+    if (module)
+      moduleGraph.invalidateModule(module as never)
+  }
 }
 
 export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
@@ -167,9 +213,20 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
   const configEnvironment = plugin.configEnvironment
   const mergeNoExternal = createNoExternalMerger('@vite-hub/sandbox')
   let generatedAliases: AliasMap = {}
+  let generatedFiles: string[] = []
+  let definitions: DiscoveredSandboxDefinition[] = []
   let rawConfig: Record<string, unknown> = {}
   let rawEnv: ConfigEnv = { command: 'serve', mode: 'development' }
   let resolvedConfig: ResolvedConfig | undefined
+
+  async function refreshSandboxRuntime() {
+    const prepared = await prepareSandboxRuntimeAliases(engine, rawConfig, rawEnv, resolvedConfig)
+    generatedAliases = prepared.aliases
+    generatedFiles = prepared.files
+    definitions = prepared.definitions
+    return prepared
+  }
+
   return {
     ...plugin,
     async config(config, env) {
@@ -178,21 +235,29 @@ export function hubSandbox(options?: SandboxPublicOptions): SandboxVitePlugin {
       const result = typeof configHook === 'function'
         ? await configHook.call(this, config, env)
         : undefined
-      generatedAliases = await prepareSandboxRuntimeAliases(engine, rawConfig, rawEnv, resolvedConfig)
+      await refreshSandboxRuntime()
       return {
         ...(result && typeof result === 'object' ? result : {}),
         resolve: {
           ...readResolveOptions(result),
           alias: mergeAliases(readResolveOptions(result).alias, {
             [SANDBOX_PROVIDER_LOADER_ID]: sandboxProviderLoaderFallback(),
-            ...generatedAliases,
+            ...withoutSandboxPackageAlias(generatedAliases),
           }),
         },
       }
     },
     async configResolved(config) {
       resolvedConfig = config
-      generatedAliases = await prepareSandboxRuntimeAliases(engine, rawConfig, rawEnv, resolvedConfig)
+      await refreshSandboxRuntime()
+    },
+    async handleHotUpdate(context) {
+      if (!isSandboxDefinitionUpdate(context.file, definitions))
+        return
+
+      const previousFiles = [...generatedFiles, ...Object.values(generatedAliases)]
+      await refreshSandboxRuntime()
+      invalidateGeneratedSandboxModules([...previousFiles, ...generatedFiles, ...Object.values(generatedAliases)], context.server.moduleGraph)
     },
     configEnvironment(name, config) {
       const result = typeof configEnvironment === 'function'
