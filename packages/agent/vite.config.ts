@@ -10,6 +10,8 @@ export default defineConfig({
         "esbuild",
         "#vitehub/agent/registry",
         "@vercel/nft",
+        "@vite-hub/workflow",
+        /^@vite-hub\/workflow\//,
         "cloudflare:workers",
         /^@chat-adapter\/telegram$/,
         /^evalite/,

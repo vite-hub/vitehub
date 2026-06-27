@@ -67,6 +67,7 @@
     "test": "vp run -t @vite-hub/source#build && vp test"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "catalog:ai",
     "mrmime": "catalog:workspace",
     "ocache": "catalog:unjs",
     "pathe": "catalog:unjs",
@@ -74,21 +75,12 @@
     "tinyglobby": "catalog:workspace"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@types/picomatch": "catalog:tooling",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"
-  },
-  "peerDependencies": {
-    "@modelcontextprotocol/sdk": "catalog:ai"
-  },
-  "peerDependenciesMeta": {
-    "@modelcontextprotocol/sdk": {
-      "optional": true
-    }
   },
   "engines": {
     "node": ">=24.0.0"

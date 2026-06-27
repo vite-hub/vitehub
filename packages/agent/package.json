@@ -123,15 +123,16 @@
   },
   "dependencies": {
     "@libsql/client": "catalog:database",
+    "@types/json-schema": "catalog:ai",
     "@vercel/functions": "catalog:vercel",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/devtools": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
-    "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vitejs/devtools-kit": "catalog:vite",
     "chat": "catalog:chat",
     "esbuild": "catalog:esbuild-v27",
+    "evalite": "catalog:ai",
     "hookable": "catalog:unjs",
     "vitest": "catalog:tooling"
   },
@@ -141,9 +142,9 @@
     "@ai-sdk/sandbox-vercel": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "@vite-hub/workflow": "workspace:*",
     "@vitejs/devtools-kit": "catalog:vite",
     "ai": "catalog:ai",
-    "evalite": "catalog:ai",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
@@ -155,7 +156,6 @@
     "@ai-sdk/mcp": "catalog:ai",
     "@ai-sdk/sandbox-vercel": "catalog:ai",
     "ai": "catalog:ai-compat",
-    "evalite": "catalog:ai",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
@@ -172,9 +172,6 @@
       "optional": true
     },
     "ai": {
-      "optional": true
-    },
-    "evalite": {
       "optional": true
     },
     "vite": {

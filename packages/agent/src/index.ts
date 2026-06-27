@@ -339,6 +339,8 @@ const syntheticWorkspaceRun = Symbol.for("vitehub.syntheticWorkspaceRun")
 const baseAgentResolve = Symbol("vitehub.baseAgentResolve")
 const baseAgentModel = Symbol("vitehub.baseAgentModel")
 const baseAgentDriverKind = Symbol("vitehub.baseAgentDriverKind")
+const workflowSpecifier = "@vite-hub/workflow"
+const workflowRuntimeStateSpecifier = "@vite-hub/workflow/runtime/state"
 
 type NormalizedCapability = AgentCapabilityDefinition & { mode?: AgentCapabilityMode }
 type WorkspaceSourceNames<TWorkspace> =
@@ -494,8 +496,8 @@ async function getAgentWorkflowHandle<
   const existing = handles.get(name)
   if (existing) return existing as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>
 
-  const { createWorkflow } = await import("@vite-hub/workflow")
-  const { getInlineWorkflowDefinitions } = await import("@vite-hub/workflow/runtime/state")
+  const { createWorkflow } = await import(/* @vite-ignore */ workflowSpecifier) as typeof import("@vite-hub/workflow")
+  const { getInlineWorkflowDefinitions } = await import(/* @vite-ignore */ workflowRuntimeStateSpecifier) as typeof import("@vite-hub/workflow/runtime/state")
   const handle = agentWorkflowNames.has(name) && getInlineWorkflowDefinitions().has(name)
     ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>(name)
     : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, unknown>(name, async (workflowContext) => {
@@ -535,7 +537,7 @@ async function runAgentAsWorkflow<
       waitUntil: context.waitUntil,
     },
   }
-  const { runWithWorkflowRuntimeEvent } = await import("@vite-hub/workflow/runtime/state")
+  const { runWithWorkflowRuntimeEvent } = await import(/* @vite-ignore */ workflowRuntimeStateSpecifier) as typeof import("@vite-hub/workflow/runtime/state")
   return await runWithWorkflowRuntimeEvent(workflowEvent, () => handle.run(payload, context.run?.runId ? { id: context.run.runId } : {}))
 }
 
