@@ -25,6 +25,42 @@ const emptyWorkspace = () => ({
   },
 })
 
+const workspaceWithFiles = (files: Record<string, string>) => {
+  const paths = new Set(Object.keys(files))
+  for (const path of Object.keys(files)) {
+    const parts = path.split("/")
+    parts.pop()
+    while (parts.length) {
+      paths.add(parts.join("/"))
+      parts.pop()
+    }
+  }
+  return {
+    fs: {
+      exists: vi.fn(async (path: string) => paths.has(path)),
+      glob: vi.fn(async () => [...paths].map(path => ({ path, type: files[path] === undefined ? "directory" : "file" }))),
+      list: vi.fn(async (path = "") => [...paths]
+        .filter(candidate => candidate !== path && (!path || candidate.startsWith(`${path}/`)))
+        .map(path => ({ path, type: files[path] === undefined ? "directory" : "file" }))),
+      materializeSources: vi.fn(async () => ({ bytes: 0, directories: 0, durationMs: 0, files: 0, path: "", sources: [] })),
+      readFile: vi.fn(async (path: string) => {
+        const content = files[path]
+        if (content === undefined) throw new Error("missing")
+        return content
+      }),
+      search: vi.fn(async () => []),
+      stat: vi.fn(async (path: string) => {
+        if (!paths.has(path)) throw new Error("missing")
+        return { path, type: files[path] === undefined ? "directory" : "file" }
+      }),
+    },
+    tools: {
+      inspect: vi.fn(() => ({})),
+      none: vi.fn(() => ({})),
+    },
+  }
+}
+
 const writableWorkspace = () => {
   const files = new Map<string, string>()
   const fs = {
@@ -410,6 +446,46 @@ describe("agent capability runtime", () => {
     })
 
     await expect(resolved.workspace?.fs.readFile("pull-request/summary.md")).resolves.toBe("review context")
+  })
+
+  it("rejects scoped capability workspace sources that shadow unscoped base paths", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { access } = await import("../src/capabilities.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "review",
+            scopes: {
+              review: {},
+            },
+          },
+        }),
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              pullRequest: {
+                mount: "pull-request",
+                scopes: ["review"],
+                async getKeys() {
+                  return ["summary.md"]
+                },
+                async getItem(key: string) {
+                  return { content: "review context", key }
+                },
+              },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, workspaceWithFiles({ "pull-request/summary.md": "existing summary" }) as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })).rejects.toThrow('workspace contribution source "pullRequest" conflicts with an existing Workspace path at mount "pull-request"')
   })
 
   it("rejects capability workspace source conflicts", async () => {

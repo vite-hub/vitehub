@@ -84,9 +84,8 @@ export function workspaceSourceScopePaths(
   if (metadata.source && runtime.isWorkspaceSourceRequestOnly(metadata.source)) {
     return [descriptorPath]
   }
-  const paths = metadata.mountPath
-    ? [metadata.mountPath]
-    : metadata.probeKeys?.map(sourcePath => joinSourcePath(metadata.mountPath, sourcePath)).filter(Boolean) || []
+  const probePaths = metadata.probeKeys?.map(sourcePath => joinSourcePath(metadata.mountPath, sourcePath)).filter(Boolean) || []
+  const paths = probePaths.length ? probePaths : metadata.mountPath ? [metadata.mountPath] : []
   if (!paths.length) {
     throw new Error(`[vitehub] Workspace Scope source grant "${key}" is root-mounted; grant explicit paths instead.`)
   }

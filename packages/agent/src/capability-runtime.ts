@@ -660,6 +660,7 @@ async function applyCapabilityWorkspaceContributions<
     workspaceDefinition: WorkspaceDefinition
   },
   workspaceMode: AgentCapabilityMode,
+  baseWorkspace: ReadonlyWorkspaceFacade<Name>,
 ): Promise<{ definition: WorkspaceDefinition, registries: AgentCapabilityRegistries["workspaceContributions"], workspace: ReadonlyWorkspaceFacade<Name> } | undefined> {
   let definition = context.workspaceDefinition
   const registries: AgentCapabilityRegistries["workspaceContributions"] = []
@@ -716,7 +717,7 @@ async function applyCapabilityWorkspaceContributions<
     registries,
     sourceResolution.definition,
     selectedWorkspaceScope,
-    context.workspace,
+    baseWorkspace,
     workspaceRuntime,
   )
   return {
@@ -870,7 +871,7 @@ export async function resolveAgentCapabilities<
       runtimeContext: runtime,
       workspace: currentWorkspace,
       workspaceDefinition: currentWorkspaceDefinition,
-    }, workspaceMode)
+    }, workspaceMode, workspace || currentWorkspace)
     if (workspaceContribution) {
       currentWorkspace = workspaceContribution.workspace
       currentWorkspaceDefinition = workspaceContribution.definition

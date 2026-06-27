@@ -205,6 +205,44 @@ describe("Workspace Source Resolution", () => {
     })
   })
 
+  it("preserves direct resolver source scopes when resolving sources", async () => {
+    const definition: WorkspaceDefinition = {
+      name: "support",
+      sources: {
+        ingestion: custom({
+          scopes: ["support"],
+          async resolve({ selectedWorkspaceScope }) {
+            return custom({
+              materialize: "lazy",
+              mount: `customers/${selectedWorkspaceScope?.name}`,
+              async getKeys() {
+                return ["summary.md"]
+              },
+              async getItem(key) {
+                return { key, path: key, content: "summary\n" }
+              },
+            })
+          },
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            throw new Error(`unresolved source read: ${key}`)
+          },
+        }),
+      },
+    }
+
+    const resolved = await resolveWorkspaceSources(definition, scope("support", ["ingestion"]))
+    const [ingestion] = normalizeWorkspaceSources(resolved.sources)
+
+    expect(ingestion).toMatchObject({
+      key: "ingestion",
+      mountPath: "customers/support",
+      scopes: ["support"],
+    })
+  })
+
   it("resolves scoped resolver sources before filtering by final mount", async () => {
     const definition: WorkspaceDefinition = {
       name: "support",

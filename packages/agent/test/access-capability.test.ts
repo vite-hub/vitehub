@@ -1138,6 +1138,16 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(false)
   })
 
+  it("derives probed source grant paths before broad mounts", async () => {
+    const { workspaceSourceScopePaths } = await import("../src/workspace-source-metadata.ts")
+    const workspaceRuntime = await import("@vite-hub/workspace")
+
+    expect(workspaceSourceScopePaths("docs", file({ path: "README.md", mount: "docs", scopes: ["support"] }), workspaceRuntime)).toEqual([
+      "docs/README.md",
+      ".vitehub/sources/docs.json",
+    ])
+  })
+
   it("resolves scoped resolver sources before applying final scope paths", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")

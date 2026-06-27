@@ -405,9 +405,9 @@ type CapabilityWorkspaceScopeNames<TCapability> =
 type AgentCapabilitiesWorkspaceScopeNames<TCapabilities> =
   TCapabilities extends readonly [unknown, ...unknown[]] | readonly []
     ? CapabilityWorkspaceScopeNames<TCapabilities[number]>
-    : TCapabilities extends readonly (infer TCapability)[]
-      ? CapabilityWorkspaceScopeNames<TCapability>
-      : never
+  : TCapabilities extends readonly (infer TCapability)[]
+    ? AgentCapabilityDefinition extends TCapability ? string : CapabilityWorkspaceScopeNames<TCapability>
+    : never
 type ValidateWorkspaceSourceScopes<TCapabilities, TWorkspace> =
   [WorkspaceSourceScopeNames<TWorkspace>] extends [never]
     ? unknown

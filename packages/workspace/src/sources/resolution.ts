@@ -549,8 +549,13 @@ async function resolveWorkspaceSource(
 }
 
 function applyResolvedWorkspaceSourceBinding(input: WorkspaceSourceInput, source: WorkspaceSource): WorkspaceSource {
-  if (!isPlainRecord(input) || !("source" in input)) return source
+  if (!isPlainRecord(input)) return source
   const next: WorkspaceSource = { ...source }
+  copyWorkspaceSourceMetadata(source, next)
+  if (!("source" in input)) {
+    copyDefinedWorkspaceBindingOption(next, input, "scopes")
+    return next
+  }
   copyDefinedWorkspaceBindingOption(next, input, "cache")
   copyDefinedWorkspaceBindingOption(next, input, "instructions")
   copyDefinedWorkspaceBindingOption(next, input, "materialize")
