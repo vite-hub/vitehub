@@ -1,5 +1,6 @@
 import { createBlobStorage } from "../storage.ts"
 import { resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
+import { createDriver as createCloudflareR2Driver } from "../drivers/cloudflare.ts"
 
 import { getBlobRuntimeConfig, getNamedBlobRuntimeStorage, setNamedBlobRuntimeStorage } from "./state.ts"
 
@@ -27,6 +28,10 @@ const driverModules = {
 } satisfies Record<ResolvedBlobStoreConfig["driver"], string>
 
 async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
+  if (config.driver === "cloudflare-r2") {
+    return createCloudflareR2Driver(config)
+  }
+
   const isSourceRuntime = typeof import.meta !== "undefined"
     && typeof import.meta.url === "string"
     && import.meta.url.endsWith(".ts")
