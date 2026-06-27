@@ -4,6 +4,7 @@ import type { ResolvedDBViteConfig } from "./types.ts"
 import { isAbsolute, relative } from "pathe"
 
 interface ViteHubCliContext {
+  env?: NodeJS.ProcessEnv
   rootDir: string
   spawn: (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv, stderr?: "inherit" | "pipe", stdout?: "inherit" | "pipe" }) => Promise<{ exitCode: number | null }>
   stderr: { write: (chunk: string | Uint8Array) => unknown }
@@ -82,8 +83,9 @@ async function runDrizzleKitWithConfig(feature: "generate" | "migrate", args: st
     configFile,
     ...forwardDrizzleArgs(args),
   ]
-  const result = await context.spawn("pnpm", ["exec", "drizzle-kit", ...drizzleArgs], {
+  const result = await context.spawn("drizzle-kit", drizzleArgs, {
     cwd: context.rootDir,
+    env: context.env,
     stderr: "inherit",
     stdout: "inherit",
   })

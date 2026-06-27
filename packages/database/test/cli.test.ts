@@ -29,18 +29,14 @@ describe("DB CLI contributor", () => {
 
     await expect(generate.run(["--name", "init"], cliContext(spawn))).resolves.toBe(0)
 
-    expect(spawn).toHaveBeenNthCalledWith(1, "pnpm", [
-      "exec",
-      "drizzle-kit",
+    expect(spawn).toHaveBeenNthCalledWith(1, "drizzle-kit", [
       "generate",
       "--config",
       ".vitehub/database/drizzle/analytics.config.ts",
       "--name",
       "init",
     ], expect.objectContaining({ cwd: "/repo" }))
-    expect(spawn).toHaveBeenNthCalledWith(2, "pnpm", [
-      "exec",
-      "drizzle-kit",
+    expect(spawn).toHaveBeenNthCalledWith(2, "drizzle-kit", [
       "generate",
       "--config",
       ".vitehub/database/drizzle/primary.config.ts",
@@ -64,9 +60,7 @@ describe("DB CLI contributor", () => {
     await expect(migrate.run([], cliContext(spawn))).resolves.toBe(0)
 
     expect(spawn).toHaveBeenCalledOnce()
-    expect(spawn).toHaveBeenCalledWith("pnpm", [
-      "exec",
-      "drizzle-kit",
+    expect(spawn).toHaveBeenCalledWith("drizzle-kit", [
       "migrate",
       "--config",
       ".vitehub/database/drizzle.config.ts",
