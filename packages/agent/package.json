@@ -136,6 +136,7 @@
     "@vitejs/devtools-kit": "catalog:vite",
     "chat": "catalog:chat",
     "esbuild": "catalog:esbuild-v27",
+    "evalite": "catalog:ai",
     "hookable": "catalog:unjs",
     "vitest": "catalog:tooling"
   },
@@ -148,7 +149,6 @@
     "@vite-hub/workflow": "workspace:*",
     "@vitejs/devtools-kit": "catalog:vite",
     "ai": "catalog:ai",
-    "evalite": "catalog:ai",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

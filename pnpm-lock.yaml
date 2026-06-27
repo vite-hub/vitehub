@@ -446,6 +446,9 @@ importers:
       esbuild:
         specifier: catalog:esbuild-v27
         version: 0.27.7
+      evalite:
+        specifier: catalog:ai
+        version: 1.0.0-beta.16(ai@7.0.0(zod@4.4.3))(better-sqlite3@12.9.0)
       hookable:
         specifier: catalog:unjs
         version: 6.1.1
@@ -477,9 +480,6 @@ importers:
       ai:
         specifier: catalog:ai
         version: 7.0.0(zod@4.4.3)
-      evalite:
-        specifier: catalog:ai
-        version: 1.0.0-beta.16(ai@7.0.0(zod@4.4.3))(better-sqlite3@12.9.0)
       publint:
         specifier: catalog:tooling
         version: 0.3.21
