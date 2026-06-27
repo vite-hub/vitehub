@@ -14,8 +14,8 @@ interface SharedDeploymentOptions {
 }
 
 interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptions {
-  bundleEntry: string
-  bundleOptions: BundleOptions
+  bundleEntry?: string
+  bundleOptions?: BundleOptions
   bundleOutfileName?: string
   outputRoot?: string
   staticOutputDir?: string
@@ -190,18 +190,23 @@ async function appendNetlifyFunctionConfig(outfile: string, config: object | und
 async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutputOptions): Promise<void> {
   const { clientDir, staticIndex } = resolveClientOutput(options.rootDir, options.clientOutDir)
   const outputRoot = options.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir)
-  const workerOutfile = resolve(outputRoot, options.bundleOutfileName ?? "index.js")
 
   await mkdir(outputRoot, { recursive: true })
-  await rm(workerOutfile, { force: true, recursive: true })
 
-  await Promise.all([
-    bundleEsmEntry(options.bundleEntry, workerOutfile, options.bundleOptions),
+  const writes = [
     writeMergedJsonObject(resolve(outputRoot, "wrangler.json"), options.wranglerConfig, options.wranglerConfigKeys),
     staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? createDefaultCloudflareStaticOutputDir(options.rootDir))
       : Promise.resolve(),
-  ])
+  ]
+
+  if (options.bundleEntry) {
+    const workerOutfile = resolve(outputRoot, options.bundleOutfileName ?? "index.js")
+    await rm(workerOutfile, { force: true, recursive: true })
+    writes.push(bundleEsmEntry(options.bundleEntry, workerOutfile, options.bundleOptions))
+  }
+
+  await Promise.all(writes)
 }
 
 async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOptions): Promise<void> {

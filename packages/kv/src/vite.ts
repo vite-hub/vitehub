@@ -4,11 +4,15 @@ import {
   resolveKVViteConfig,
 } from "./vite-config.ts"
 
+import { getViteMode } from "@vite-hub/internal/build/mode"
+import { shouldSkipViteProviderBuild, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
+
+import { configureCloudflareKV } from "./integrations/cloudflare.ts"
 
 import type { KVViteRuntimeConfig } from "./vite-config.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "./types.ts"
-import type { Plugin } from "vite"
+import type { Plugin, ResolvedConfig } from "vite"
 
 const RESOLVED_KV_VIRTUAL_CONFIG_ID = `\0${KV_VIRTUAL_CONFIG_ID}`
 const KV_RUNTIME_ID = "#vitehub/kv/runtime"
@@ -37,6 +41,13 @@ function serializeVirtualConfig(config: KVViteRuntimeConfig): string {
 function isCloudflareKVConfig(kv: KVViteRuntimeConfig["kv"]): kv is ResolvedKVModuleOptions {
   return Boolean(kv) && Object.values((kv as ResolvedKVModuleOptions).stores || { default: (kv as ResolvedKVModuleOptions).store })
     .every(store => store.driver === "cloudflare-kv-binding")
+}
+
+function createCloudflareKVWranglerConfig(kv: KVViteRuntimeConfig["kv"]) {
+  if (!kv) return
+  const target: { cloudflare?: { wrangler?: { kv_namespaces?: Array<{ binding: string, id?: string }> } } } = {}
+  configureCloudflareKV(target, kv)
+  return target.cloudflare?.wrangler?.kv_namespaces?.length ? target.cloudflare.wrangler : undefined
 }
 
 function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
@@ -76,6 +87,7 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
 }
 
 export function hubKv(options?: KVModuleOptions): KVVitePlugin {
+  let resolved: ResolvedConfig | undefined
   let runtimeConfig: KVViteRuntimeConfig | undefined
   const getConfig = () => runtimeConfig ??= resolveKVViteConfig(options)
 
@@ -84,6 +96,7 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
     enforce: "pre",
     api: { getConfig },
     configResolved(config) {
+      resolved = config
       runtimeConfig = resolveKVViteConfig(config.kv ?? options)
     },
     configEnvironment(name, config) {
@@ -105,6 +118,19 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
         if (isCloudflareKVConfig(kv)) return serializeCloudflareRuntime(kv)
       }
       if (id === RESOLVED_KV_VIRTUAL_CONFIG_ID) return serializeVirtualConfig(getConfig())
+    },
+    async closeBundle() {
+      if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+
+      const wranglerConfig = createCloudflareKVWranglerConfig(getConfig().kv)
+      await writeProviderDeploymentOutputs({
+        clientOutDir: resolved.build.outDir,
+        cloudflare: wranglerConfig
+          ? { wranglerConfig, wranglerConfigKeys: ["kv_namespaces"] }
+          : undefined,
+        cleanup: { cloudflare: { wranglerConfigKeys: ["kv_namespaces"] } },
+        rootDir: resolved.root,
+      })
     },
   }
 }

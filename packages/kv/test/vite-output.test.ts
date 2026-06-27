@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs"
 import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -5,6 +6,7 @@ import { join, resolve } from "node:path"
 import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it } from "vitest"
+import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 
 const tempDirs: string[] = []
 const execFileAsync = promisify(execFile)
@@ -86,6 +88,53 @@ describe("KV Vite output", () => {
     expect(output).not.toContain("@upstash/redis")
     expect(output).toContain("cloudflare-kv-binding")
     expect(output).toContain("KV_CUSTOM")
+  })
+
+  it("merges configured Cloudflare KV namespaces into provider output", async () => {
+    const rootDir = await createConsumerRoot()
+    const entry = join(rootDir, "src", "worker.ts")
+    const cloudflareOutputRoot = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareOutputRoot, { recursive: true })
+    await writeFile(join(cloudflareOutputRoot, "wrangler.json"), `${JSON.stringify({
+      d1_databases: [{ binding: "DB", database_id: "database-id", database_name: "app" }],
+      kv_namespaces: [{ binding: "OLD", id: "old-namespace" }],
+      triggers: { crons: ["0 0 * * *"] },
+    }, null, 2)}\n`, "utf8")
+    const [{ build }, { hubKv }] = await Promise.all([
+      import("vite"),
+      import("../src/vite.ts"),
+    ])
+
+    await build({
+      appType: "custom",
+      build: {
+        emptyOutDir: false,
+        outDir: "dist",
+        rollupOptions: {
+          input: entry,
+          output: { entryFileNames: "worker.js" },
+        },
+        ssr: entry,
+      },
+      configFile: false,
+      kv: {
+        binding: "SETTINGS",
+        driver: "cloudflare-kv-binding",
+        namespaceId: "11111111111111111111111111111111",
+      },
+      logLevel: "silent",
+      plugins: [hubKv()],
+      root: rootDir,
+    })
+
+    const wrangler = JSON.parse(await readFile(join(cloudflareOutputRoot, "wrangler.json"), "utf8"))
+
+    expect(existsSync(join(cloudflareOutputRoot, "index.js"))).toBe(false)
+    expect(wrangler).toEqual({
+      d1_databases: [{ binding: "DB", database_id: "database-id", database_name: "app" }],
+      kv_namespaces: [{ binding: "SETTINGS", id: "11111111111111111111111111111111" }],
+      triggers: { crons: ["0 0 * * *"] },
+    })
   })
 })
 
