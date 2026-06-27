@@ -366,6 +366,17 @@ describe("hubWorkspace", () => {
     expect(registrySource).toContain('"docs": async () => {')
   })
 
+  it("does not discover Nitro workspaces when workspace is disabled", async () => {
+    const root = await createViteRoot()
+    const { createWorkspaceNitroConfig } = await import("../src/vite.ts")
+
+    await expect(createWorkspaceNitroConfig({
+      viteRoot: root,
+      workspace: false,
+    })).resolves.toBe(null)
+    await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")).rejects.toThrow()
+  })
+
   it("uses discovered source roots from generated Nitro workspace registries", async () => {
     const testRoot = join(process.cwd(), "..", "..", ".vitest-tmp")
     await mkdir(testRoot, { recursive: true })

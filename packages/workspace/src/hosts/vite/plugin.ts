@@ -165,8 +165,10 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
     hosting: options.hosting ?? process.env.VITEHUB_HOSTING,
     rootDir: roots.projectRoot,
   })
+  if (!normalized) return null
+
   const definitions = discoverDefinitions(roots)
-  if (!normalized || (!isHostedWorkspaceStore(normalized.store) && !hasExplicitWorkspaceRuntimeOptions(workspaceOptions) && definitions.length === 0)) return null
+  if (!isHostedWorkspaceStore(normalized.store) && !hasExplicitWorkspaceRuntimeOptions(workspaceOptions) && definitions.length === 0) return null
 
   const runtimeConfig = shouldConfigureRuntime(workspaceOptions, normalized) ? normalized : false
   await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, definitions)
