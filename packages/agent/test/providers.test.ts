@@ -177,7 +177,8 @@ describe("agent Vite plugin", () => {
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(wrapper).toContain("export default async function viteHubAgentNetlifyFunction(request, context)")
-      expect(wrapper).toContain("setWorkspaceRuntimeRegistry } from \"@vite-hub/agent/server\"")
+      expect(wrapper).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from \"@vite-hub/agent/server\"")
+      expect(wrapper).toContain("import { setWorkspaceRuntimeRegistry } from \"@vite-hub/workspace/runtime\"")
       expect(wrapper).not.toContain("@vite-hub/workspace/internal/runtime/state")
       expect(wrapper).toContain("process.env.VITEHUB_HOSTING = 'netlify'")
       expect(wrapper).toContain("const waitUntil = waitUntilFromContext(context)")
@@ -670,7 +671,7 @@ describe("server helpers", () => {
 
     try {
       const { defineAgent } = await import("../src/index.ts")
-      const { registerWorkspaceAgent } = await import("../src/server.ts")
+      const { registerWorkspaceAgent } = await import("../src/server/workspace.ts")
       const { defineWorkspace, file, useWorkspace } = await import("@vite-hub/workspace")
       const agent = defineAgent({
         async run() {
@@ -708,7 +709,7 @@ describe("server helpers", () => {
 
     try {
       const { defineAgent } = await import("../src/index.ts")
-      const { registerWorkspaceAgent } = await import("../src/server.ts")
+      const { registerWorkspaceAgent } = await import("../src/server/workspace.ts")
       const { defineWorkspace, file, useWorkspace } = await import("@vite-hub/workspace")
       const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
       const workspaceName = "support-runtime-named-reference"
@@ -747,7 +748,7 @@ describe("server helpers", () => {
 
     try {
       const { defineAgent } = await import("../src/index.ts")
-      const { registerWorkspaceAgent } = await import("../src/server.ts")
+      const { registerWorkspaceAgent } = await import("../src/server/workspace.ts")
       const { defineWorkspace, file, useWorkspace } = await import("@vite-hub/workspace")
       const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
       const workspaceName = "support-runtime-object-reference"

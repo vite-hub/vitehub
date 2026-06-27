@@ -97,6 +97,10 @@
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js"
     },
+    "./server/workspace": {
+      "types": "./dist/server/workspace.d.ts",
+      "import": "./dist/server/workspace.js"
+    },
     "./state/sqlite": {
       "types": "./dist/state/sqlite.d.ts",
       "import": "./dist/state/sqlite.js"

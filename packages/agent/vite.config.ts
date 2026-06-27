@@ -37,6 +37,7 @@ export default defineConfig({
       "src/runtime/empty-registry.ts",
       "src/runtime/workflow.ts",
       "src/server.ts",
+      "src/server/workspace.ts",
       "src/test.ts",
       "src/vite.ts",
     ],
