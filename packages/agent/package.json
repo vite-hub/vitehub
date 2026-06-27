@@ -127,6 +127,7 @@
   },
   "dependencies": {
     "@libsql/client": "catalog:database",
+    "@types/json-schema": "catalog:ai",
     "@vercel/functions": "catalog:vercel",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/devtools": "workspace:*",
@@ -158,10 +159,7 @@
     "@ai-sdk/harness-codex": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@ai-sdk/sandbox-vercel": "catalog:ai",
-    "@vite-hub/workflow": "workspace:*",
-    "agents": "catalog:ai",
     "ai": "catalog:ai-compat",
-    "evalite": "catalog:ai",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
@@ -177,16 +175,7 @@
     "@ai-sdk/sandbox-vercel": {
       "optional": true
     },
-    "@vite-hub/workflow": {
-      "optional": true
-    },
-    "agents": {
-      "optional": true
-    },
     "ai": {
-      "optional": true
-    },
-    "evalite": {
       "optional": true
     },
     "vite": {

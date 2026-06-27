@@ -9,6 +9,7 @@ export default defineConfig({
         "vite",
         "esbuild",
         "#vitehub/agent/registry",
+        "agents",
         "@vercel/nft",
         "cloudflare:workers",
         /^@chat-adapter\/telegram$/,
