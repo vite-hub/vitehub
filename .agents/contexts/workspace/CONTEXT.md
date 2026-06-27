@@ -226,6 +226,7 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - **Source Instructions** may be declared statically or produced by **Source Resolution**.
 - **Source Instructions** are explicit developer-authored Source configuration, not inferred provider metadata.
 - **Source Instructions** guide model-backed Agent Driver behavior, but they do not grant access to hidden Sources or change Workspace Scope.
+- **Source Instructions** remain the low-level `WorkspaceSource.instructions` field even when the Agent Package renders them through **Instruction Composition**.
 - A **Source** may contribute a **Source Network Grant** separately from its **Source Instructions**.
 - **Source Network Grants** grant controlled shell network access; **Source Instructions** only guide model-backed Agent Driver behavior.
 - A visible API-backed **Source** may contribute a **Source Network Grant** automatically when a Workspace-backed Shell Runtime is enabled.

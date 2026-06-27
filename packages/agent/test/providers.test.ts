@@ -177,7 +177,7 @@ describe("agent Vite plugin", () => {
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(wrapper).toContain("export default async function viteHubAgentNetlifyFunction(request, context)")
-      expect(wrapper).toContain("setWorkspaceRuntimeRegistry } from '@vite-hub/agent/server'")
+      expect(wrapper).toContain("setWorkspaceRuntimeRegistry } from \"@vite-hub/agent/server\"")
       expect(wrapper).not.toContain("@vite-hub/workspace/internal/runtime/state")
       expect(wrapper).toContain("process.env.VITEHUB_HOSTING = 'netlify'")
       expect(wrapper).toContain("const waitUntil = waitUntilFromContext(context)")
@@ -475,7 +475,7 @@ describe("agent Vite plugin", () => {
 
       expect(webhookRoute).toContain("defineAgentChatFetchHandler")
       expect(webhookRoute).toContain("withAgentDefaults(withWorkspaceSourceRoot(resolveAgentModule")
-      expect(webhookRoute).toContain("import { createCloudflareAgentState } from '@vite-hub/agent/cloudflare'")
+      expect(webhookRoute).toContain("import { createCloudflareAgentState } from \"@vite-hub/agent/cloudflare\"")
       expect(webhookRoute).toContain("async function toRequest(event)")
       expect(webhookRoute).toContain("function waitUntilFromEvent(event)")
       expect(webhookRoute).toContain("function chatStateFromCloudflare(cloudflare)")
@@ -508,8 +508,8 @@ describe("agent Vite plugin", () => {
 
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
 
-      expect(denoServer).toContain("import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server/routes'")
-      expect(denoServer).not.toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
+      expect(denoServer).toContain("import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from \"@vite-hub/agent/server/routes\"")
+      expect(denoServer).not.toContain("import { setWorkspaceRuntimeRegistry } from \"@vite-hub/workspace/runtime\"")
       expect(denoServer).toContain("await import('../schedule/deno-cron.mjs').catch")
       expect(denoServer).toContain("const chatRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/chat$\")")
       expect(denoServer).toContain("const webhookRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/webhooks/(?<webhook>[^/]+)$\")")
@@ -557,7 +557,7 @@ describe("agent Vite plugin", () => {
 
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
 
-      expect(denoServer).toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
+      expect(denoServer).toContain("import { setWorkspaceRuntimeRegistry } from \"@vite-hub/workspace/runtime\"")
       expect(denoServer).toContain("workspaceAgentOwnsWorkspaceDefinition")
       expect(denoServer).toContain("withWorkspaceSourceRoot(resolveAgentModule(agent0)")
       expect(denoServer).toContain("workspaceRegistryEntry(\"support\", agent0")

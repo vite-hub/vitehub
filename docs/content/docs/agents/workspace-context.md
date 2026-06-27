@@ -23,6 +23,25 @@ ViteHub materializes `server/agents/<name>/instructions.md` into the Agent Works
 
 Declare a colocated Workspace when the Agent primarily owns the file-tree context. Add Source Instructions when the model-backed driver needs guidance about a Source.
 
+Install the Workspace Package and register its Vite integration before the Agent integration when the Agent declares Workspace Sources.
+
+```bash [Terminal]
+pnpm add @vite-hub/workspace
+```
+
+```ts [vite.config.ts]
+import { hubAgent } from '@vite-hub/agent/vite'
+import { hubWorkspace } from '@vite-hub/workspace/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [
+    hubWorkspace(),
+    hubAgent(),
+  ],
+})
+```
+
 ```ts [server/agents/docs/config.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'

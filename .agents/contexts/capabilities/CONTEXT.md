@@ -253,6 +253,8 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A **Capability Definition** may provide **Capability Driver Contributions** when the ability needs to feed the active Agent Driver.
 - **Capability Driver Contributions** are conditional on the selected **Agent Driver**.
 - A model-backed **Agent Driver** may receive model-facing tools and model-facing instructions from **Capability Driver Contributions**.
+- A model-backed **Agent Driver** may receive Instruction Composition context from **Capability Driver Contributions** by writing explicit **Agent Invocation Context Values** before instructions are rendered.
+- Duplicate Capability instruction block ids fail instead of merging, overriding, or silently ordering competing composition keys.
 - A harness-backed **Agent Driver** receives only explicitly supported harness-compatible **Capability Driver Contributions**; model-facing prompt and tool assumptions must not be silently passed into the harness.
 - A **Harness Workspace Path Contribution** is an explicitly supported harness-compatible **Capability Driver Contribution**.
 - A **Harness Workspace Path Contribution** is runtime support for the Capability, not a **Workspace Scope Grant** and not model-facing prompt text.

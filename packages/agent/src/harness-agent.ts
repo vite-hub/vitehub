@@ -4,6 +4,7 @@ import {
 } from "./internal/agent-usage-metadata.ts"
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
 import { applyCapabilityInstructionSlots } from "./capability-runtime.ts"
+import { composeInstructionDocument } from "./instruction-composition.ts"
 import { applyWorkspaceSourceInstructionSlot } from "./workspace-agent.ts"
 import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
@@ -161,10 +162,12 @@ function selectedWorkspaceScopePaths(context: AgentAdapterRunContext): string[] 
 }
 
 function toHarnessCallInput(context: AgentAdapterRunContext) {
-  const instructions = applyWorkspaceSourceInstructionSlot(
-    applyCapabilityInstructionSlots(context.instructions || "", context.capabilityInstructions),
+  const compositionContext = { context: context.context.toJSON() }
+  const baseInstructions = composeInstructionDocument(context.instructions || "", compositionContext)
+  const instructions = composeInstructionDocument(applyWorkspaceSourceInstructionSlot(
+    applyCapabilityInstructionSlots(baseInstructions, context.capabilityInstructions),
     context.sourceInstructions,
-  )
+  ), compositionContext)
   const base = {
     abortSignal: context.input.abortSignal,
     ...(instructions ? { instructions } : {}),

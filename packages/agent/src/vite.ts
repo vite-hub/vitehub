@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
-import { dirname, join, relative } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 
 import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
@@ -16,6 +16,7 @@ import {
 } from "./cloudflare.ts"
 import { normalizeAgentOptions } from "./config.ts"
 import { discoverAgentDefinitions } from "./discovery.ts"
+import { resolveInstructionImports } from "./instruction-composition.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 
 import type { Plugin, ResolvedConfig } from "vite"
@@ -37,6 +38,7 @@ const generatedAgentDenoServer = ".vitehub/agent/deno-server.ts"
 const generatedAgentWebhookRouteHandler = ".vitehub/agent/chat-webhook-route.ts"
 const generatedAgentNetlifyFunction = ".vitehub/agent/netlify-function.mjs"
 const netlifyAgentFunctionName = "vitehub-agent"
+const workspacePackageName = "@vite-hub/workspace"
 const optionalNetlifyAgentBundleExternals = [
   "@ai-sdk/harness",
   "@ai-sdk/harness/*",
@@ -53,6 +55,32 @@ const optionalNetlifyAgentBundleExternals = [
   "evalite/*",
   "vitest/*",
 ]
+
+interface InternalAgentModuleOptions extends AgentModuleOptions {
+  importBase?: string
+  workspaceImportBase?: string
+}
+
+interface AgentGeneratedImportOptions {
+  agentImportBase?: string
+  workspaceImportBase?: string
+}
+
+function getInternalAgentOptions(options: AgentModuleOptions | false | undefined): InternalAgentModuleOptions | undefined {
+  return options && typeof options === "object" ? options as InternalAgentModuleOptions : undefined
+}
+
+function getAgentImportBase(options: AgentModuleOptions | false | undefined): string {
+  return getInternalAgentOptions(options)?.importBase ?? agentPackageName
+}
+
+function getWorkspaceImportBase(options: AgentModuleOptions | false | undefined): string {
+  return getInternalAgentOptions(options)?.workspaceImportBase ?? workspacePackageName
+}
+
+function subpath(base: string, path: string): string {
+  return `${base}/${path}`
+}
 
 type NitroConfig = Record<string, unknown> & CloudflareAgentStateRollupTarget & CloudflareAgentStateTarget
 type RollupExternalFunction = (source: string, importer?: string, isResolved?: boolean) => boolean | null | undefined | void
@@ -216,7 +244,17 @@ function resolveWorkspaceSourceRoot(file: string): string {
 
 function readColocatedAgentInstructions(handler: string): string | undefined {
   const file = join(dirname(handler), "instructions.md")
-  if (existsSync(file) && statSync(file).isFile()) return readFileSync(file, "utf8")
+  if (!existsSync(file) || !statSync(file).isFile()) return
+  return resolveInstructionImports(readFileSync(file, "utf8"), {
+    file,
+    read(specifier, importer) {
+      const imported = resolve(dirname(importer), specifier)
+      return {
+        content: readFileSync(imported, "utf8"),
+        file: imported,
+      }
+    },
+  })
 }
 
 function moduleImportSpecifier(fromFile: string, targetFile: string): string {
@@ -278,8 +316,10 @@ function generatedNetlifyRuntimeHelpers(): string[] {
 function generateAgentWebhookRouteHandler(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
-  options: { chatRoute?: false | string, cloudflareState?: boolean, webhookRoute?: false | string } = {},
+  options: { chatRoute?: false | string, cloudflareState?: boolean, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): string {
+  const agentImportBase = options.agentImportBase ?? agentPackageName
+  const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
   const imports = definitions
     .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
     .join("\n")
@@ -306,10 +346,10 @@ function generateAgentWebhookRouteHandler(
   const webhookSelector = webhookRoute.includes("[webhook]") ? "getRouterParam(event, 'webhook')" : "''"
 
   return [
-    "import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from '@vite-hub/agent'",
-    ...(options.cloudflareState ? ["import { createCloudflareAgentState } from '@vite-hub/agent/cloudflare'"] : []),
-    "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server'",
-    "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
+    `import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
+    ...(options.cloudflareState ? [`import { createCloudflareAgentState } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`] : []),
+    `import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from ${JSON.stringify(subpath(agentImportBase, "server"))}`,
+    `import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(workspaceImportBase, "runtime"))}`,
     "import { createError, defineEventHandler, getRequestHeaders, getRequestURL, getRouterParam, readRawBody } from 'h3'",
     imports,
     "",
@@ -388,8 +428,9 @@ function generateAgentWebhookRouteHandler(
 function generateAgentNetlifyFunctionRouteHandler(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
-  options: { chatRoute?: false | string, webhookRoute?: false | string } = {},
+  options: { chatRoute?: false | string, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): string {
+  const agentImportBase = options.agentImportBase ?? agentPackageName
   const imports = definitions
     .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
     .join("\n")
@@ -415,8 +456,8 @@ function generateAgentNetlifyFunctionRouteHandler(
   const webhookSelector = routeUsesParam(options.webhookRoute, "webhook") ? "netlifyParam(context, 'webhook')" : "''"
 
   return [
-    "import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from '@vite-hub/agent'",
-    "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler, setWorkspaceRuntimeRegistry } from '@vite-hub/agent/server'",
+    `import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
+    `import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler, setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(agentImportBase, "server"))}`,
     imports,
     "",
     "function resolveAgentModule(module) {",
@@ -479,7 +520,7 @@ function generateAgentNetlifyFunctionRouteHandler(
 
 async function writeAgentWebhookRouteHandler(
   root: string,
-  options: { chatRoute?: false | string, cloudflareState?: boolean, webhookRoute?: false | string } = {},
+  options: { chatRoute?: false | string, cloudflareState?: boolean, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentWebhookRouteHandler)
   const definitions = discoverAgentDefinitions({
@@ -493,8 +534,10 @@ async function writeAgentWebhookRouteHandler(
 function generateAgentDenoServer(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
-  options: { chatRoute?: false | string, webhookRoute?: false | string } = {},
+  options: { chatRoute?: false | string, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): string {
+  const agentImportBase = options.agentImportBase ?? agentPackageName
+  const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
   const imports = definitions
     .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
     .join("\n")
@@ -519,7 +562,7 @@ function generateAgentDenoServer(
     .join(",\n  ")
   const workspaceRuntimeLines = workspaceEntries
     ? [
-        "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
+        `import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(workspaceImportBase, "runtime"))}`,
         "",
         `setWorkspaceRuntimeRegistry(Object.fromEntries([\n  ${workspaceEntries}\n].filter(Boolean)))`,
         "",
@@ -527,8 +570,8 @@ function generateAgentDenoServer(
     : []
 
   return [
-    "import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from '@vite-hub/agent'",
-    "import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from '@vite-hub/agent/server/routes'",
+    `import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
+    `import { defineAgentChatFetchHandler, defineAgentChatWebhookFetchHandler } from ${JSON.stringify(subpath(agentImportBase, "server/routes"))}`,
     ...workspaceRuntimeLines.slice(0, 1),
     imports,
     "",
@@ -631,7 +674,7 @@ function generateAgentDenoServer(
 
 async function writeAgentDenoServer(
   root: string,
-  options: { chatRoute?: false | string, webhookRoute?: false | string } = {},
+  options: { chatRoute?: false | string, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentDenoServer)
   const definitions = discoverAgentDefinitions({
@@ -644,7 +687,7 @@ async function writeAgentDenoServer(
 
 async function writeAgentNetlifyFunctionRouteHandler(
   root: string,
-  options: { chatRoute?: false | string, webhookRoute?: false | string } = {},
+  options: { chatRoute?: false | string, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
   const handlerPath = join(root, generatedAgentNetlifyFunction)
   const definitions = discoverAgentDefinitions({
@@ -669,8 +712,9 @@ function createNetlifyAgentFunctionConfig(options: { chatRoute?: false | string,
   }
 }
 
-async function writeNetlifyAgentProviderOutput(config: ResolvedConfig, options: ResolvedAgentModuleOptions): Promise<void> {
+async function writeNetlifyAgentProviderOutput(config: ResolvedConfig, options: ResolvedAgentModuleOptions, imports: AgentGeneratedImportOptions = {}): Promise<void> {
   const handlerPath = await writeAgentNetlifyFunctionRouteHandler(config.root, {
+    ...imports,
     chatRoute: options.routes.chat,
     webhookRoute: options.routes.webhooks,
   })
@@ -780,18 +824,25 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       if (normalized && (normalized.routes.chat || normalized.routes.webhooks)) {
         if (normalized.runtime === "deno") {
           await writeAgentDenoServer(config.root, {
+            agentImportBase: getAgentImportBase(agent),
             chatRoute: normalized.routes.chat,
+            workspaceImportBase: getWorkspaceImportBase(agent),
             webhookRoute: normalized.routes.webhooks,
           })
         }
         else {
           await writeAgentWebhookRouteHandler(config.root, {
+            agentImportBase: getAgentImportBase(agent),
             chatRoute: normalized.routes.chat,
             cloudflareState: shouldInstallCloudflareAgentState(normalized),
+            workspaceImportBase: getWorkspaceImportBase(agent),
             webhookRoute: normalized.routes.webhooks,
           })
           if (config.command === "serve" && isNetlifyHosting(config)) {
-            await writeNetlifyAgentProviderOutput(config, normalized)
+            await writeNetlifyAgentProviderOutput(config, normalized, {
+              agentImportBase: getAgentImportBase(agent),
+              workspaceImportBase: getWorkspaceImportBase(agent),
+            })
           }
         }
       } else if (config.command === "serve" && isNetlifyHosting(config)) {
@@ -825,7 +876,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         const normalized = normalizeAgentOptions(agent)
         if (normalized && normalized.runtime === "deno") return
         if (normalized && isNetlifyHosting(resolved) && (normalized.routes.chat || normalized.routes.webhooks)) {
-          await writeNetlifyAgentProviderOutput(resolved, normalized)
+          await writeNetlifyAgentProviderOutput(resolved, normalized, {
+            agentImportBase: getAgentImportBase(agent),
+            workspaceImportBase: getWorkspaceImportBase(agent),
+          })
         } else if (isNetlifyHosting(resolved)) {
           await cleanupNetlifyAgentProviderOutput(resolved)
         }

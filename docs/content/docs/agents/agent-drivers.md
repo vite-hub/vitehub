@@ -48,6 +48,12 @@ Capability Driver Contributions such as model-facing tools and instructions are 
 
 Use a harness-backed driver when the Agent should delegate execution to a harness adapter. ViteHub adapts the harness behind the Agent Harness Driver Contract and keeps permission policy under ViteHub runtime boundaries.
 
+Install the Agent Package with the harness adapter package you use.
+
+```bash [Terminal]
+pnpm add @vite-hub/agent @ai-sdk/harness @ai-sdk/harness-codex @ai-sdk/sandbox-vercel
+```
+
 ```ts [server/agents/codex/config.ts]
 import { createCodex } from '@ai-sdk/harness-codex'
 import { defineAgent } from '@vite-hub/agent'
@@ -87,6 +93,27 @@ Harness-backed drivers do not receive `driver.instructions` as a model prompt. U
 
 Harness-backed drivers also do not receive model-facing Capability tools, provider tools, or Capability instructions.
 When a Capability should support harness execution, give the harness files it can inspect through Workspace Sources, `harnessWorkspacePaths`, or a harness-native configuration surface.
+
+For a fresh TypeScript app, use ESM and NodeNext resolution so the ESM-only ViteHub and harness subpath imports load correctly.
+
+```json [package.json]
+{
+  "type": "module"
+}
+```
+
+```json [tsconfig.json]
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022"
+  },
+  "include": ["server/**/*.ts"]
+}
+```
+
+`tsc --noEmit` only checks the Agent Definition imports and driver shape. It does not start a real harness invocation.
 
 ## Custom run driver
 

@@ -65,6 +65,17 @@ pnpm build
 find dist -maxdepth 4 -type f | sort
 ```
 
+Agent-only Vite apps are different in 0.0.2. `VITEHUB_HOSTING=cloudflare pnpm build` writes generated Agent route source under `.vitehub/agent`, but it does not emit a Worker bundle or `wrangler.json`. For a Cloudflare Worker entry, use the public Agent Package handler.
+
+```ts [worker.ts]
+import { defineCloudflareAgentHandler } from '@vite-hub/agent/cloudflare'
+import echo from './server/agents/echo/config'
+
+export default {
+  fetch: defineCloudflareAgentHandler(echo),
+}
+```
+
 ## Production notes
 
 Cloudflare local development and deployed Workers do not always expose the same runtime behavior.

@@ -265,8 +265,12 @@ function addInstructionBlock(
     .filter(Boolean)
     .join("\n\n")
   if (instructions) {
+    const id = capabilityInstructionBlockId(options?.id || capabilityId)
+    if (capabilityInstructions.some(block => block.id === id)) {
+      throw new Error(`[vitehub] Duplicate capability instruction block "${id}".`)
+    }
     capabilityInstructions.push({
-      id: capabilityInstructionBlockId(options?.id || capabilityId),
+      id,
       instructions,
     })
   }

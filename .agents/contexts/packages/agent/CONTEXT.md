@@ -32,6 +32,10 @@ _Avoid_: `defineAgent({ name })`, display name
 The Agent Package-owned boundary where model-backed Agent Drivers configure `execution` settings and instrumentation.
 _Avoid_: Adapter options, provider package, model package
 
+**Instruction Composition Renderer**:
+The Agent Package-owned implementation that turns Instruction Documents, Capability instruction blocks, explicit `context.*` bindings, and visible Source Instructions into final model-facing instructions.
+_Avoid_: Prompt framework, host markdown engine, access layer
+
 **Agent Driver Boundary**:
 The Agent Package-owned Agent Definition boundary for selecting and configuring how Agent Invocations are driven, including model-backed and harness-backed drivers.
 _Avoid_: Public adapter selector, top-level model selector, top-level harness selector, driver factory wrapper, root run callback
@@ -119,6 +123,8 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - **Agent Driver Boundary** variants are mutually exclusive; the Agent Package should reject a driver object that combines `model`, `harness`, or `run`.
 - The **Agent Package** owns filtering Capability Driver Contributions for the selected Agent Driver.
 - The **Agent Package** owns composing visible Workspace Source Instructions into final model instructions for model-backed Agent Drivers.
+- The **Agent Package** owns the **Instruction Composition Renderer** for model-backed Agent Drivers and generated Agent Package metadata.
+- The **Instruction Composition Renderer** accepts local Markdown imports and safe `context.*` expressions; it must not execute arbitrary JavaScript or widen runtime access.
 - The **Agent Package** does not pass model-facing instructions to harness-backed Agent Drivers by default.
 - The **Agent Package** treats **Harness Workspace Path Contributions** as harness filesystem support, not as model-facing instructions or public Agent Definition fields.
 - The **Agent Package** owns the **Agent Trigger API** that resolves trigger contributions from Agent Capabilities and declared Channel delivery paths.

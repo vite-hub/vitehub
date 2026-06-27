@@ -18,7 +18,6 @@ import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
 
 export default defineAgent({
-  title: 'Support Agent',
   driver: {
     model: gateway('openai/gpt-5.1-mini'),
     instructions: 'Answer support requests with short, concrete replies.',
