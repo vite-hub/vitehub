@@ -21,9 +21,70 @@ import type { SandboxPublicOptions } from "@vite-hub/sandbox/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
 import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
-import type { PluginOption } from "vite"
+import type { AliasOptions, Plugin, PluginOption } from "vite"
 
 export { env } from "@vite-hub/env/vite"
+
+type NoExternalValue = string | true | RegExp | (string | RegExp)[] | undefined
+
+const facadeAliases: Record<string, string> = {
+  "@vite-hub/agent": "@vite-hub/vite/agent",
+  "@vite-hub/agent/cloudflare": "@vite-hub/vite/agent/cloudflare",
+  "@vite-hub/agent/cloudflare/state": "@vite-hub/vite/agent/cloudflare/state",
+  "@vite-hub/agent/runtime/workflow": "@vite-hub/vite/agent/runtime/workflow",
+  "@vite-hub/agent/server": "@vite-hub/vite/agent/server",
+  "@vite-hub/agent/server/routes": "@vite-hub/vite/agent/server/routes",
+  "@vite-hub/blob": "@vite-hub/vite/blob",
+  "@vite-hub/blob/ensure": "@vite-hub/vite/blob/ensure",
+  "@vite-hub/blob/storage": "@vite-hub/vite/blob/storage",
+  "@vite-hub/env": "@vite-hub/vite/env",
+  "@vite-hub/env/secret": "@vite-hub/vite/env/secret",
+  "@vite-hub/env/server": "@vite-hub/vite/env/server",
+  "@vite-hub/kv": "@vite-hub/vite/kv",
+  "@vite-hub/sandbox": "@vite-hub/vite/sandbox",
+  "@vite-hub/sandbox/runtime/provider-loader": "@vite-hub/vite/sandbox/runtime/provider-loader",
+  "@vite-hub/sandbox/runtime/state": "@vite-hub/vite/sandbox/runtime/state",
+  "@vite-hub/schedule": "@vite-hub/vite/schedule",
+  "@vite-hub/schedule/runtime": "@vite-hub/vite/schedule/runtime",
+  "@vite-hub/schedule/runtime/state": "@vite-hub/vite/schedule/runtime/state",
+  "@vite-hub/schedule/runtime/static": "@vite-hub/vite/schedule/runtime/static",
+  "@vite-hub/workflow": "@vite-hub/vite/workflow",
+  "@vite-hub/workflow/runtime/execute": "@vite-hub/vite/workflow/runtime/execute",
+  "@vite-hub/workflow/runtime/state": "@vite-hub/vite/workflow/runtime/state",
+  "@vite-hub/workspace": "@vite-hub/vite/workspace",
+  "@vite-hub/workspace/cloudflare": "@vite-hub/vite/workspace/cloudflare",
+  "@vite-hub/workspace/loader": "@vite-hub/vite/workspace/loader",
+  "@vite-hub/workspace/publish": "@vite-hub/vite/workspace/publish",
+  "@vite-hub/workspace/runtime": "@vite-hub/vite/workspace/runtime",
+  "@vite-hub/workspace/server": "@vite-hub/vite/workspace/server",
+}
+
+function mergeFacadeAliases(alias: AliasOptions | undefined): AliasOptions {
+  const entries = Object.entries(facadeAliases).map(([find, replacement]) => ({ find, replacement }))
+  if (Array.isArray(alias)) return [...alias, ...entries]
+  return { ...facadeAliases, ...(alias && typeof alias === "object" ? alias : {}) }
+}
+
+function mergeNoExternal(current: NoExternalValue): NoExternalValue {
+  if (current === true) return true
+  if (!current) return ["@vite-hub/vite"]
+  const values = Array.isArray(current) ? current : [current]
+  return values.includes("@vite-hub/vite") ? values : [...values, "@vite-hub/vite"]
+}
+
+function vitehubFacadeAlias(): Plugin {
+  return {
+    name: "@vite-hub/vite/facade-alias",
+    enforce: "pre",
+    config(config) {
+      return { resolve: { alias: mergeFacadeAliases(config.resolve?.alias) } }
+    },
+    configEnvironment(name, config) {
+      if (name !== "ssr" && config.consumer !== "server") return
+      return { resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) } }
+    },
+  }
+}
 
 export interface ViteHubPresetOptions {
   agent?: false | AgentModuleOptions
@@ -39,9 +100,20 @@ export interface ViteHubPresetOptions {
   workspace?: false | WorkspaceModuleOptions
 }
 
+function envOptions(options: EnvIntegrationOptions | undefined): EnvIntegrationOptions {
+  return {
+    ...options,
+    runtimeImports: {
+      secret: "@vite-hub/vite/env/secret",
+      server: "@vite-hub/vite/env/server",
+      ...options?.runtimeImports,
+    },
+  }
+}
+
 export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
-  const plugins: unknown[] = []
-  if (options.env !== false) plugins.push(hubEnv(options.env))
+  const plugins: unknown[] = [vitehubFacadeAlias()]
+  if (options.env !== false) plugins.push(hubEnv(envOptions(options.env)))
   if (options.agent !== false) plugins.push(hubAgent(options.agent))
   if (options.database !== false) plugins.push(hubDb(options.database))
   if (options.blob !== false) plugins.push(hubBlob(options.blob))
