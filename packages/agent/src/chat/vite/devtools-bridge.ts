@@ -104,14 +104,9 @@ interface ChatDevtoolsAgentEntry {
 }
 
 interface ChatDevtoolsBridgeState {
-  defaultMeta?: Record<string, unknown>
   entries: Map<string, ChatDevtoolsAgentEntry>
   sessions: Map<string, ChatDevtoolsSession>
   selected?: string
-}
-
-export interface ChatDevtoolsBridgeOptions {
-  meta?: Record<string, unknown>
 }
 
 function normalizeChatDevtoolsAction(action: string): ChatDevtoolsAction | undefined {
@@ -461,8 +456,8 @@ function assertKnownInvokerProfile(metadata: ChatDevtoolsMetadata | undefined, i
   }
 }
 
-function normalizeInvokerSelection(input: { invokerFallback?: boolean, invokerProfileId?: string, meta?: unknown } | undefined, defaultMeta?: Record<string, unknown>): ChatDevtoolsInvokerSelection {
-  const meta = optionalRecord(input?.meta) ?? optionalRecord(defaultMeta)
+function normalizeInvokerSelection(input: { invokerFallback?: boolean, invokerProfileId?: string, meta?: unknown } | undefined): ChatDevtoolsInvokerSelection {
+  const meta = optionalRecord(input?.meta)
   if (input?.invokerFallback === true) {
     return {
       invokerFallback: true,
@@ -640,7 +635,7 @@ async function sendDevtoolsUIMessage(
 
   const session = getSession(state, selected)
   state.selected = selected
-  const requestedSelection = normalizeInvokerSelection(input, state.defaultMeta)
+  const requestedSelection = normalizeInvokerSelection(input)
   const requestedProfileId = requestedSelection.invokerProfileId
   assertKnownInvokerProfile(selectedEntry.metadata, requestedProfileId)
   if (
@@ -731,7 +726,7 @@ async function clearDevtoolsMessages(state: ChatDevtoolsBridgeState, input: { ch
   const entry = state.entries.get(selected)
   if (!entry) return await serializeState(state)
   const session = getSession(state, selected)
-  const requestedSelection = normalizeInvokerSelection(input, state.defaultMeta)
+  const requestedSelection = normalizeInvokerSelection(input)
   assertKnownInvokerProfile(entry.metadata, requestedSelection.invokerProfileId)
   state.selected = selected
   session.thinkingFallback = null
@@ -754,7 +749,7 @@ async function materializeDevtoolsSource(
     throw new Response("Missing workspace source or path.", { status: 400 })
   }
 
-  const requestedSelection = normalizeInvokerSelection(input, state.defaultMeta)
+  const requestedSelection = normalizeInvokerSelection(input)
   assertKnownInvokerProfile(entry.metadata, requestedSelection.invokerProfileId)
   const metadataSelection = metadataSelectionForAgent(entry.agent, requestedSelection)
   state.selected = selected
@@ -809,7 +804,7 @@ async function handleChatDevtoolsRequest(
     return new Response("Missing chat devtools action.", { status: 400 })
   }
 
-  const invokerSelection = normalizeInvokerSelection(body, state.defaultMeta)
+  const invokerSelection = normalizeInvokerSelection(body)
   await discoverChatAgents(server, state)
   if (body.chat && state.entries.has(body.chat)) {
     state.selected = body.chat
@@ -892,10 +887,8 @@ function errorResponse(error: unknown): Response {
   })
 }
 
-export function registerChatDevtoolsBridge(server: ViteDevServer, options: ChatDevtoolsBridgeOptions = {}): void {
-  const defaultMeta = optionalRecord(options.meta)
+export function registerChatDevtoolsBridge(server: ViteDevServer): void {
   const state: ChatDevtoolsBridgeState = {
-    ...(defaultMeta ? { defaultMeta } : {}),
     entries: new Map(),
     sessions: new Map(),
   }

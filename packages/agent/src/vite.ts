@@ -21,7 +21,6 @@ import { resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/eva
 
 import type { Plugin, ResolvedConfig } from "vite"
 import type { CloudflareAgentStateMigration, CloudflareAgentStateRollupTarget, CloudflareAgentStateTarget } from "./cloudflare.ts"
-import type { ChatDevToolsOptions } from "./chat/devtools.ts"
 import type { AgentModuleOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "./types.ts"
 
 interface AgentCliContributingPlugin {
@@ -180,12 +179,6 @@ function mergeNitroHandlers(nitro: NitroConfig, handlers: Array<{ handler: strin
 
 function agentDevtoolsEnabled(agent: AgentModuleOptions | false | undefined): boolean {
   return agent !== false && agent?.devtools !== false
-}
-
-function agentDevtoolsMeta(agent: AgentModuleOptions | false | undefined): ChatDevToolsOptions["meta"] {
-  return agent && isRecord(agent.devtools) && isRecord(agent.devtools.meta) && !Array.isArray(agent.devtools.meta)
-    ? { ...agent.devtools.meta }
-    : undefined
 }
 
 function normalizeNitroRoute(route: string): string {
@@ -763,13 +756,13 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     devtools: {
       setup(ctx) {
         if (agentDevtoolsEnabled(agent)) {
-          return chatDevTools({ meta: agentDevtoolsMeta(agent) }).devtools?.setup?.(ctx)
+          return chatDevTools().devtools?.setup?.(ctx)
         }
       },
     },
     configureServer(server) {
       if (agentDevtoolsEnabled(agent)) {
-        registerChatDevtoolsBridge(server, { meta: agentDevtoolsMeta(agent) })
+        registerChatDevtoolsBridge(server)
       }
       if (agent !== false) {
         registerAgentInvocationStreamEndpoint(server)

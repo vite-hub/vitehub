@@ -105,7 +105,6 @@ export interface ChatDevtoolsAdapterOptions {
 
 export interface ChatDevToolsOptions {
   devtools?: false
-  meta?: Record<string, unknown>
 }
 
 export type ChatDevToolsPlugin = Plugin
@@ -797,7 +796,6 @@ export function chatDevTools(options: ChatDevToolsOptions = {}): ChatDevToolsPlu
 }
 
 export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToolsPanelPlugin {
-  const defaultMeta = optionalRecord(options.meta)
   return {
     name: chatDevtoolsPanelPluginName,
     devtools: {
@@ -827,7 +825,7 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
               ...(input?.chat ? { chat: input.chat } : {}),
               ...(input?.invokerFallback ? { invokerFallback: input.invokerFallback } : {}),
               ...(input?.invokerProfileId ? { invokerProfileId: input.invokerProfileId } : {}),
-              ...(input?.meta ? { meta: input.meta } : defaultMeta ? { meta: defaultMeta } : {}),
+              ...(input?.meta ? { meta: input.meta } : {}),
             }),
           }),
         }) as never)
@@ -839,7 +837,6 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
               const body = {
                 action: "send" as const,
                 ...input,
-                ...(input.meta ? {} : defaultMeta ? { meta: defaultMeta } : {}),
               }
               if (!chatStream) {
                 return await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, body)
@@ -861,7 +858,6 @@ export function chatDevToolsPanel(options: ChatDevToolsOptions = {}): ChatDevToo
             handler: async input => await postChatDevtoolsBridge(ctx, chatDevtoolsBridgeRoute, {
               action: "clear",
               ...input,
-              ...(input.meta ? {} : defaultMeta ? { meta: defaultMeta } : {}),
             }),
           }),
         }) as never)

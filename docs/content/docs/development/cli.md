@@ -67,34 +67,37 @@ pnpm vitehub agent dev --agent support --prompt "/summary"
 pnpm vitehub agent dev --agent support -p "/summary"
 ```
 
-Use `--context` when the invocation needs trusted Agent Invocation Context Values that would normally come from a Channel, route, or webhook.
-The file can live anywhere in the app, but colocating it as `server/agents/<agent>/dev.context.json` keeps local Agent fixtures next to the Agent Definition without making them part of production behavior.
-It must contain one JSON object.
+Use `--payload` when the invocation needs event input that would normally come from a Channel, route, webhook, or app transport.
+The file can live anywhere in the app, but colocating it as `server/agents/<agent>/dev.payload.json` keeps local fixtures next to the Agent Definition without making them part of production behavior.
+It must contain one JSON object shaped for the selected Agent Trigger.
+For non-chat triggers, pass `--trigger` and shape the file for that trigger instead of Agent Invocation Context Values.
 
-```json [server/agents/support/dev.context.json]
+```json [server/agents/support/dev.payload.json]
 {
-  "actor": {
+  "user": {
     "id": "user_123",
-    "kind": "developer",
-    "label": "Local Developer"
+    "name": "Local Developer"
   },
-  "workspace": {
-    "id": "local-review"
+  "session": {
+    "id": "local-support"
+  },
+  "meta": {
+    "audience": "technical"
   }
 }
 ```
 
 ```bash [Terminal]
-pnpm vitehub agent dev --agent support --context server/agents/support/dev.context.json
-pnpm vitehub agent dev --agent support --context server/agents/support/dev.context.json -p "/summary"
+pnpm vitehub agent dev --agent support --payload server/agents/support/dev.payload.json
+pnpm vitehub agent dev --agent support --payload server/agents/support/dev.payload.json -p "/summary"
 pnpm vitehub agent dev --agent support --timeout 180000 -p "/summary"
 ```
 
-Expected output includes the resolved context file path before the Agent Invocation starts.
+Expected output includes the resolved payload file path before the Agent Invocation starts.
 In interactive mode, type a message or command such as `/summary` at the prompt.
 
 ```txt [Output]
-Loaded context: /Users/acme/app/server/agents/support/dev.context.json
+Loaded payload: /Users/acme/app/server/agents/support/dev.payload.json
 Connected to support at http://localhost:5173
 > /summary
 ```
@@ -121,7 +124,7 @@ pnpm vitehub provision run --provider vercel --dry-run
 | Vite config fails while loading a ViteHub plugin import | A fresh npm project is loading `vite.config.ts` as CommonJS, but ViteHub packages are ESM-only. | Set `"type": "module"` in `package.json` or rename the config to `vite.config.mts`. |
 | `No Compatible Vite Development Server found` | The app dev server is not running or `--url` points at the wrong port. | Start Vite separately, then pass the dev server URL. |
 | Agent Dev Loop request times out | The invocation exceeded the CLI request timeout. | Pass `--timeout <ms>` for the dev-loop command or shorten the Agent work. |
-| `Agent Dev Loop context file must contain a JSON object` | The `--context` file is not a JSON object. | Replace the file contents with one object whose keys are Agent Invocation Context Value ids. |
+| `Agent Dev Loop payload file must contain a JSON object` | The `--payload` file is not a JSON object. | Replace the file contents with one object shaped for the selected Agent Trigger. |
 
 ## Next steps
 

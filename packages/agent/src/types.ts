@@ -924,7 +924,7 @@ export interface ResolvedAgentRoutesOptions {
 
 export interface AgentModuleOptions {
   cli?: false | AgentCliOptions
-  devtools?: false | { meta?: Record<string, unknown> }
+  devtools?: false
   execution?: AgentExecution
   eval?: false | AgentEvalOptions
   imports?: boolean
@@ -1086,7 +1086,6 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
   route?: unknown
   triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, any, any, AgentChannelTriggerContext<TRuntimeConfig>>>
   webhooks?: boolean | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig> | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>[]
-  [key: string]: unknown
 }
 
 export type AgentChannels<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =

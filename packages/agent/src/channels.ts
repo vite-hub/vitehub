@@ -45,8 +45,10 @@ export interface AgentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   triggers?: AgentChannelDefinition<TRuntimeConfig>["triggers"]
   webhooks?: AgentChannelDefinition<TRuntimeConfig>["webhooks"]
-  [key: string]: unknown
 }
+
+type AgentChannelDefinitionOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  Omit<AgentChannelDefinition<TRuntimeConfig>, "kind">
 
 export interface AgentStreamChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentChannelOptions<TRuntimeConfig> {
@@ -503,61 +505,6 @@ function githubCommandFromUnknown(value: unknown): GitHubPullRequestCommand | un
     ...(maybeString(value.commentNodeId) ? { commentNodeId: maybeString(value.commentNodeId) } : {}),
     ...(maybeString(value.deliveryId) ? { deliveryId: maybeString(value.deliveryId) } : {}),
     ...(maybeNumber(value.installationId) ? { installationId: maybeNumber(value.installationId) } : {}),
-    issueNumber,
-    owner,
-    pullRequestUrl,
-    repo,
-    repository,
-  }
-}
-
-function commandWithSlash(value: unknown): `/${string}` | (string & {}) | undefined {
-  const command = maybeString(value)
-  if (!command) return
-  return command.startsWith("/") ? command : `/${command}`
-}
-
-function githubCommandFromInvocationContext(input: unknown): GitHubPullRequestCommand | undefined {
-  if (!isRecord(input) || !isRecord(input.context)) return
-  const pullRequestContext = isRecord(input.context.pullRequest) ? input.context.pullRequest : undefined
-  const pullRequest = isRecord(pullRequestContext?.pullRequest) ? pullRequestContext.pullRequest : undefined
-  const repositoryContext = isRecord(pullRequestContext?.repository) ? pullRequestContext.repository : undefined
-  const trigger = isRecord(pullRequestContext?.trigger) ? pullRequestContext.trigger : undefined
-  const triggerComment = isRecord(trigger?.comment) ? trigger.comment : undefined
-  const repository = maybeString(repositoryContext?.fullName) || maybeString(isRecord(pullRequest?.source) ? pullRequest.source.repo : undefined)
-  const [owner, repo] = repository?.split("/") || []
-  const issueNumber = maybeNumber(pullRequest?.number)
-  const pullRequestUrl = maybeString(pullRequest?.apiUrl)
-    || (repository && issueNumber ? `https://api.github.com/repos/${repository}/pulls/${issueNumber}` : undefined)
-  const commentId = maybeNumber(triggerComment?.id) || 1
-  const command = commandWithSlash(trigger?.command) || commandWithSlash(triggerComment?.body) || "/review"
-  const prompt = maybeString(input.prompt)
-  const body = prompt?.trim()
-    ? prompt.trim().startsWith("/") ? prompt.trim() : `${command} ${prompt.trim()}`
-    : maybeString(triggerComment?.body) || command
-  const parsed = parseSlashCommand(body)
-  if (!repository || !owner || !repo || !issueNumber || !pullRequestUrl || !parsed) return
-  const commentNodeId = maybeString(triggerComment?.nodeId)
-  const deliveryId = maybeString(trigger?.deliveryId)
-  const installationId = maybeNumber(trigger?.installationId)
-  const actor = isRecord(trigger?.actor) && maybeString(trigger.actor.login)
-    ? {
-        ...(maybeString(trigger.actor.association) ? { association: maybeString(trigger.actor.association) } : {}),
-        ...(maybeNumber(trigger.actor.id) ? { id: maybeNumber(trigger.actor.id) } : {}),
-        login: maybeString(trigger.actor.login)!,
-        ...(maybeString(trigger.actor.type) ? { type: maybeString(trigger.actor.type) } : {}),
-      }
-    : { login: "dev" }
-  return {
-    action: "created",
-    actor,
-    args: parsed.args,
-    body,
-    command: parsed.command,
-    commentId,
-    ...(commentNodeId ? { commentNodeId } : {}),
-    ...(deliveryId ? { deliveryId } : {}),
-    ...(installationId ? { installationId } : {}),
     issueNumber,
     owner,
     pullRequestUrl,
@@ -1036,7 +983,6 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
       async invoke(context, input): Promise<AgentTriggerInvokeResult> {
         const payload = inputPayloadOrBody(input)
         const command = githubPullRequestCommandFromInput(isRecord(input) ? { ...input, payload } : { payload })
-          || githubCommandFromInvocationContext(input)
         if (!payload && !command) return options.ignored?.("missing_payload") || ignored("missing_payload")
         if (!command) return options.ignored?.("not_command") || ignored("not_command")
         if (declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
@@ -1060,7 +1006,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
 
 export function defineChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   kind: string,
-  options: AgentChannelOptions<TRuntimeConfig> = {},
+  options: AgentChannelDefinitionOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
   if (typeof kind !== "string" || !kind.trim()) {
     throw new TypeError("[vitehub] defineChannel() requires a non-empty Channel kind.")
@@ -1083,25 +1029,26 @@ export function discord<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntime
 export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: GitHubChannelOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
-  const app = githubAppOptions(options.app)
-  const appEffects: AgentChannelDeliveryEffects<TRuntimeConfig> | undefined = options.app
+  const { app: appOptions, events, ...channelOptions } = options
+  const app = githubAppOptions(appOptions)
+  const appEffects: AgentChannelDeliveryEffects<TRuntimeConfig> | undefined = appOptions
     ? githubPullRequestEffects<TRuntimeConfig>({
         apiBaseUrl: app?.apiBaseUrl,
         fetch: app?.fetch,
         statusContext: app?.statusContext,
-        token: context => githubAppInstallationToken(options.app!, context),
+        token: context => githubAppInstallationToken(appOptions, context),
         userAgent: app?.userAgent,
       })
     : undefined
   return defineChannel("github", {
-    ...options,
+    ...channelOptions,
     effects: appEffects ? { ...appEffects, ...options.effects } as AgentChannelDeliveryEffects<TRuntimeConfig> : options.effects,
     messages: false,
     triggers: {
-      ...githubEventTriggers(options.events),
+      ...githubEventTriggers(events),
       ...options.triggers,
     },
-    webhooks: githubWebhookDefaults(options.webhooks, options.app),
+    webhooks: githubWebhookDefaults(options.webhooks, appOptions),
   })
 }
 

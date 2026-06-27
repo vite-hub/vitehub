@@ -39,11 +39,10 @@ interface ViteAgentDevRuntimeContext extends AgentRuntimeContext<ViteAgentDevRun
 
 interface AgentInvocationStreamBody {
   agent?: string
-  context?: unknown
-  input?: unknown
   invokerProfileId?: string
   messages?: AgentChatMessageTriggerInput["messages"]
   meta?: Record<string, unknown>
+  payload?: unknown
   run?: AgentRunMetadata
   text?: string
   timeout?: number
@@ -61,35 +60,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
-function contextFromBody(body: AgentInvocationStreamBody): Record<string, unknown> | undefined {
-  if (body.context === undefined) return undefined
-  if (!isRecord(body.context)) {
-    throw new Response("Agent Dev Loop context must be a JSON object.", { status: 400 })
+function payloadFromBody(body: AgentInvocationStreamBody): Record<string, unknown> | undefined {
+  if (body.payload === undefined) return undefined
+  if (!isRecord(body.payload)) {
+    throw new Response("Agent Dev Loop payload must be a JSON object.", { status: 400 })
   }
-  return body.context
+  return body.payload
 }
 
-function withDevContext<CALL_OPTIONS>(
-  input: AgentRunInput<CALL_OPTIONS>,
-  context: Record<string, unknown> | undefined,
-): AgentRunInput<CALL_OPTIONS> {
-  const mergedContext: Record<string, unknown> = { ...input.context, ...context }
-  if (context?.actor !== undefined && context.invoker === undefined) {
-    mergedContext.invoker = context.actor
-  }
-  return { ...input, context: mergedContext as AgentRunInput<CALL_OPTIONS>["context"] }
-}
-
-function withDevLoopControls<CALL_OPTIONS>(
-  input: AgentRunInput<CALL_OPTIONS>,
+function withDevLoopControls<TInput extends object>(
+  input: TInput,
   signal: AbortSignal,
   timeout: number,
-): AgentRunInput<CALL_OPTIONS> {
+): TInput & { abortSignal: AbortSignal, timeout: number } {
   return {
     ...input,
     abortSignal: signal,
     timeout,
   }
+}
+
+function withPayloadDefaults(payload: Record<string, unknown>, defaults: Record<string, unknown>): Record<string, unknown> {
+  const input = { ...payload }
+  for (const [key, value] of Object.entries(defaults)) {
+    if (value !== undefined && input[key] === undefined) input[key] = value
+  }
+  return input
 }
 
 function withDeliveryPreviewChannels(
@@ -305,14 +301,20 @@ function selectedTrigger(entry: AgentInvocationStreamEntry, body: AgentInvocatio
 }
 
 function triggerInput(trigger: ResolvedAgentTriggerDefinition, body: AgentInvocationStreamBody, signal: AbortSignal, run: AgentRunMetadata, timeout: number): unknown {
-  if ("input" in body) return body.input
+  const payload = payloadFromBody(body)
   if (trigger.id !== "chat.message") {
     const prompt = promptFromBody(body)
-    if (!prompt) throw new Response("Missing Agent Trigger input. Pass input or prompt.", { status: 400 })
-    const context = contextFromBody(body)
+    if (payload) {
+      return withDevLoopControls(withPayloadDefaults(payload, {
+        ...(prompt ? { prompt } : {}),
+        ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}),
+        ...(isRecord(body.meta) ? { meta: body.meta } : {}),
+        run,
+      }) as AgentRunInput<unknown>, signal, timeout)
+    }
+    if (!prompt) throw new Response("Missing Agent Trigger payload. Pass --payload or prompt.", { status: 400 })
     return {
       abortSignal: signal,
-      ...(context ? { context } : {}),
       prompt,
       run,
       timeout,
@@ -320,18 +322,19 @@ function triggerInput(trigger: ResolvedAgentTriggerDefinition, body: AgentInvoca
       ...(isRecord(body.meta) ? { meta: body.meta } : {}),
     }
   }
-  return {
-    abortSignal: signal,
-    messages: messagesFromBody(body),
+  const messages = payload && Array.isArray(payload.messages) && payload.messages.length
+    ? undefined
+    : messagesFromBody(body)
+  return withDevLoopControls(withPayloadDefaults(payload || {}, {
+    ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}),
+    ...(isRecord(body.meta) ? { meta: body.meta } : {}),
+    ...(messages ? { messages } : {}),
     run,
-    timeout,
     user: {
       id: "dev",
       name: "ViteHub Dev Loop",
     },
-    ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}),
-    ...(isRecord(body.meta) ? { meta: body.meta } : {}),
-  } satisfies AgentChatMessageTriggerInput
+  }) as unknown as AgentChatMessageTriggerInput, signal, timeout)
 }
 
 function parseBody(rawBody: string): AgentInvocationStreamBody {
@@ -377,7 +380,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
   const entry = selectedEntry(entries, body.agent)
   const run = body.run || devRun(entry.name)
   const context = createRuntimeContext(server, req, run)
-  const devContext = contextFromBody(body)
+  const payload = payloadFromBody(body)
   const timeout = typeof body.timeout === "number" && Number.isFinite(body.timeout) ? body.timeout : 90_000
 
   return createAgentInvocationStreamResponse(async (emit, signal) => {
@@ -394,7 +397,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
         const previewAgent = withDeliveryPreviewChannels(entry.agent, event => {
           if (!signal.aborted) emit(event)
         })
-        output = await streamAgent(previewAgent as never, { ...context, ...(invocation.run ? { run: invocation.run } : {}) } as never, withDevContext(withDevLoopControls(invocation.input, signal, timeout), devContext) as never, {
+        output = await streamAgent(previewAgent as never, { ...context, ...(invocation.run ? { run: invocation.run } : {}) } as never, withDevLoopControls(invocation.input, signal, timeout) as never, {
           output: "events",
         })
       }
@@ -406,9 +409,10 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
         if (!signal.aborted) emit(event)
       })
       output = await streamAgent(previewAgent as never, context as never, {
+        ...payload,
         abortSignal: signal,
-        ...(devContext || typeof body.invokerProfileId === "string"
-          ? { context: { ...devContext, ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}) } }
+        ...(typeof body.invokerProfileId === "string" && payload?.invokerProfileId === undefined
+          ? { context: { ...(isRecord(payload?.context) ? payload.context : {}), invokerProfileId: body.invokerProfileId } }
           : {}),
         messages: uiMessagesToAgentMessages(messages),
         timeout,

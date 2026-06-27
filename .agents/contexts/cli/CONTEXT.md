@@ -33,6 +33,10 @@ _Avoid_: Server-side Chat Session, Agent Memory, persisted transcript
 The discovered Agent selected for one Agent Dev Loop terminal session.
 _Avoid_: Eval target, DevTools selected chat, default bot
 
+**Agent Dev Loop Payload File**:
+A JSON object loaded by the Agent Dev Loop and sent as the selected Agent Trigger's payload for local development.
+_Avoid_: Context file, input JSON flag, preset, dev sample, Agent Definition dev config
+
 **Remote Agent Dev Target**:
 A future Agent Dev Loop Target reached through an explicit URL for preview or deployed Agent proof, using the same Agent Invocation Stream shape as local development.
 _Avoid_: production shell, dashboard chat, remote model runner
@@ -117,7 +121,10 @@ _Avoid_: Secrets file, env file, GitHub output
 - The **Agent Dev Loop Transcript** is not the Vite Development Server log stream.
 - The **Agent Dev Loop Chat History** is client-held state for the terminal session.
 - The **Agent Dev Loop Target** defaults to the only compatible discovered Agent and must be explicit when multiple compatible Agents exist.
-- An **Agent Dev Loop Target** must expose the `chat.message` Agent Trigger in V1.
+- An **Agent Dev Loop Target** uses `chat.message` by default and can target another Agent Trigger explicitly.
+- `vitehub agent dev --payload <path>` loads an **Agent Dev Loop Payload File** and sends it as an **Agent Trigger Payload**.
+- The **Agent Dev Loop Payload File** is run input, not Agent Definition configuration.
+- The **Agent Dev Loop** does not expose `--context`, `--input`, `dev.samples`, `devtools.meta`, or preset files for local fixture selection.
 - **Agent Dev Loop Controls** are host behavior and do not consume the Input Command namespace.
 - `Ctrl+C` is the V1 **Agent Dev Loop Control** for aborting an active request or exiting when idle.
 - The **Agent Dev Loop** consumes an **Agent Invocation Stream Endpoint** exposed through the **Vite Development Server** instead of invoking Agents inside the CLI process.
@@ -169,3 +176,5 @@ _Avoid_: Secrets file, env file, GitHub output
 - `vitehub.config.ts` was considered for CLI defaults - resolved: prefer existing Vite Integration surfaces and internal host-adapter behavior, with durable Agent Eval defaults under `agent.eval` rather than `agent.cli.eval`.
 - Package-contributed CLI behavior was described as one command with many features - resolved: use **CLI Command Namespace** for the package-owned command group and **CLI Feature** for workflows inside it.
 - CLI registration was considered as public app API - resolved: use internal **CLI Primitives** and package-owned **CLI Contributors**.
+- "Context file" was considered for local Agent Dev Loop fixtures - resolved: use **Agent Dev Loop Payload File** because the selected **Agent Trigger** owns mapping event input into invocation context.
+- Agent Definition-level development samples were considered for convenient local runs - resolved: keep Agent Definitions production-shaped and select payload files at the CLI.

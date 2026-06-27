@@ -518,6 +518,10 @@ describe("agent public types", () => {
     }
     const channel: AgentChannelDefinition = teams()
     expectTypeOf(channel.kind).toEqualTypeOf<string>()
+    // @ts-expect-error Development samples belong in CLI payload files, not Channel options.
+    teams({ dev: { samples: {} } })
+    // @ts-expect-error Development samples belong in CLI payload files, not Channel Definitions.
+    defineChannel("portal", { dev: { samples: {} } })
     const custom = defineChannel("portal", {
       effects: {
         reaction(context) {
