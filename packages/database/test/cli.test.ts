@@ -88,4 +88,23 @@ describe("DB CLI contributor", () => {
       }),
     }))
   })
+
+  it("preserves the current PATH when custom CLI env omits it", async () => {
+    const spawn = vi.fn(async () => ({ exitCode: 0 }))
+    const contributor = createDbCliContributor()!
+    const generate = contributor.namespaces[0]!.features.find(feature => feature.name === "generate")!
+
+    await expect(generate.run([], cliContext(spawn, { DATABASE_URL: "file:dev.db" }))).resolves.toBe(0)
+
+    expect(spawn).toHaveBeenCalledWith("drizzle-kit", [
+      "generate",
+      "--config",
+      ".vitehub/database/drizzle.config.ts",
+    ], expect.objectContaining({
+      env: expect.objectContaining({
+        DATABASE_URL: "file:dev.db",
+        PATH: [join("/repo", "node_modules", ".bin"), process.env.PATH].filter(Boolean).join(delimiter),
+      }),
+    }))
+  })
 })
