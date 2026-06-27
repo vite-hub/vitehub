@@ -2,9 +2,12 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
+import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "./cloudflare.ts"
 import { bundleEsmEntry } from "./esbuild.ts"
-import { toSafeAppName } from "./user-entry.ts"
 import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
+
+export { createDefaultCloudflareOutputRoot } from "./cloudflare.ts"
+export { shouldSkipViteProviderBuild } from "./vite.ts"
 
 type BundleOptions = NonNullable<Parameters<typeof bundleEsmEntry>[2]>
 
@@ -150,14 +153,6 @@ async function deleteJsonObjectKeysFromFile(file: string, keys: string[] | undef
   await writeFile(file, `${JSON.stringify(next, null, 2)}\n`, "utf8")
 }
 
-export function shouldSkipViteProviderBuild(command: "build" | "serve" | undefined, mode?: string): boolean {
-  return command === "serve" || mode === "e2e"
-}
-
-export function createDefaultCloudflareOutputRoot(rootDir: string): string {
-  return resolve(rootDir, "dist", toSafeAppName(rootDir))
-}
-
 function createDefaultCloudflareStaticOutputDir(rootDir: string): string {
   return resolve(rootDir, "dist", "client")
 }
@@ -194,7 +189,12 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
   await mkdir(outputRoot, { recursive: true })
 
   const writes = [
-    writeMergedJsonObject(resolve(outputRoot, "wrangler.json"), options.wranglerConfig, options.wranglerConfigKeys),
+    writeCloudflareWranglerConfig({
+      outputRoot,
+      rootDir: options.rootDir,
+      wranglerConfig: options.wranglerConfig,
+      wranglerConfigKeys: options.wranglerConfigKeys,
+    }),
     options.bundleEntry && staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? createDefaultCloudflareStaticOutputDir(options.rootDir))
       : Promise.resolve(),
@@ -256,7 +256,11 @@ async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanup: Cloud
   if (cleanup.bundleOutfileName) {
     writes.push(rm(resolve(outputRoot, cleanup.bundleOutfileName), { force: true, recursive: true }))
   }
-  writes.push(deleteJsonObjectKeysFromFile(resolve(outputRoot, "wrangler.json"), cleanup.wranglerConfigKeys))
+  writes.push(writeCloudflareWranglerConfig({
+    outputRoot,
+    rootDir,
+    wranglerConfigKeys: cleanup.wranglerConfigKeys,
+  }))
   await Promise.all(writes)
 }
 

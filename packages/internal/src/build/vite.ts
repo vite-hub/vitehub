@@ -35,6 +35,10 @@ export function isServerEnvironment(name: string, config: { consumer?: string })
   return name === "ssr" || config.consumer === "server"
 }
 
+export function shouldSkipViteProviderBuild(command: "build" | "serve" | undefined, mode?: string): boolean {
+  return command === "serve" || mode === "e2e"
+}
+
 export function mergeGeneratedViteHubWatchIgnored(ignored: WatchIgnoredValue): WatchIgnoredValue {
   if (!ignored) return [generatedViteHubFilesPattern]
   if (Array.isArray(ignored)) {

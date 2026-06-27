@@ -4,9 +4,9 @@ import {
   resolveKVViteConfig,
 } from "./vite-config.ts"
 
+import { writeCloudflareWranglerConfig } from "@vite-hub/internal/build/cloudflare"
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { shouldSkipViteProviderBuild, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
-import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
+import { createNoExternalMerger, isServerEnvironment, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/vite"
 
 import { configureCloudflareKV } from "./integrations/cloudflare.ts"
 
@@ -119,18 +119,18 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
       }
       if (id === RESOLVED_KV_VIRTUAL_CONFIG_ID) return serializeVirtualConfig(getConfig())
     },
-    async closeBundle() {
-      if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+    closeBundle: {
+      order: "post",
+      sequential: true,
+      async handler() {
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
 
-      const wranglerConfig = createCloudflareKVWranglerConfig(getConfig().kv)
-      await writeProviderDeploymentOutputs({
-        clientOutDir: resolved.build.outDir,
-        cloudflare: wranglerConfig
-          ? { wranglerConfig, wranglerConfigKeys: ["kv_namespaces"] }
-          : undefined,
-        cleanup: { cloudflare: { wranglerConfigKeys: ["kv_namespaces"] } },
-        rootDir: resolved.root,
-      })
+        await writeCloudflareWranglerConfig({
+          rootDir: resolved.root,
+          wranglerConfig: createCloudflareKVWranglerConfig(getConfig().kv),
+          wranglerConfigKeys: ["kv_namespaces"],
+        })
+      },
     },
   }
 }
