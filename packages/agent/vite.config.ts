@@ -11,6 +11,8 @@ export default defineConfig({
         "#vitehub/agent/registry",
         "agents",
         "@vercel/nft",
+        "@vite-hub/workflow",
+        /^@vite-hub\/workflow\//,
         "cloudflare:workers",
         /^@chat-adapter\/telegram$/,
         /^evalite/,
