@@ -1,4 +1,5 @@
 import { LlmGateRejectedError } from "./capabilities/llm-gate.ts"
+import { agentErrorPublicMessage } from "./agent-error.ts"
 
 function readStatusCode(error: unknown): number | undefined {
   if (error instanceof LlmGateRejectedError) return (error as unknown as { statusCode: number }).statusCode
@@ -14,7 +15,7 @@ export function getHttpErrorStatusCode(error: unknown): number | undefined {
 }
 
 export function getHttpErrorMessage(error: unknown): string {
-  return error instanceof Error && error.message ? error.message : "Agent request failed."
+  return agentErrorPublicMessage(error, "Agent request failed.")
 }
 
 function readHeaders(error: unknown): Headers | Record<string, string> | undefined {

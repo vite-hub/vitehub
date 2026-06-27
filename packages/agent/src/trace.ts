@@ -1,5 +1,6 @@
 import { emitTraceEvent } from "@vite-hub/runtime"
 
+import { agentErrorDetails } from "./agent-error.ts"
 import type { StreamEvent } from "./messages.ts"
 import type {
   AgentInvocationContextStore,
@@ -133,10 +134,11 @@ export async function traceAgentInvocationError<TRuntimeConfig extends AgentRunt
   context: AgentTraceContext<TRuntimeConfig>,
   error: unknown,
 ): Promise<void> {
+  const details = agentErrorDetails(error)
   await traceAgentEvent(context, {
     attributes: invocationAttributes(context, {
-      "error.message": error instanceof Error ? error.message : String(error),
-      "error.name": error instanceof Error ? error.name : undefined,
+      "error.message": details.message,
+      "error.name": details.name,
     }),
     name: "agent.invocation.error",
     type: "error",

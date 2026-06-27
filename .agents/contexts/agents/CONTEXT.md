@@ -120,6 +120,10 @@ _Avoid_: Channel hook, Capability hook, Agent Finish Hook, Trace Event
 The final Agent Invocation Lifecycle hook for observing the completed invocation outcome.
 _Avoid_: onUsage, onRecord, afterRun
 
+**Agent Error Message**:
+The normalized failure message exposed on a failed Agent Invocation lifecycle event for reporting or logging.
+_Avoid_: Result value, exception wrapper, error detail object
+
 **Agent Invocation Extension**:
 Capability-owned data attached to an Agent Invocation Lifecycle event without becoming a top-level lifecycle field.
 _Avoid_: Event metadata, arbitrary event fields, built-in usage field
@@ -306,6 +310,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - **Hook Observer** failures are isolated and logged or traced; they never affect **Agent Invocation** control flow.
 - **Hook Observers** see structured, redacted hook facts by default; raw payloads require owner-provided debug serializers.
 - An **Agent Finish Hook** belongs to the **Agent Invocation Lifecycle**.
+- A failed **Agent Invocation** preserves the original thrown value and exposes an **Agent Error Message** for the common reporting path.
 - Capabilities can expose **Agent Invocation Extensions** on Agent Invocation Lifecycle events.
 - An **Agent Eval** runs an **Agent Definition** to create scored **Agent Invocations**.
 - An **Agent** can attach zero or more Capabilities.
@@ -365,6 +370,9 @@ _Avoid_: Fake agent, dummy model, test bot
 > **Dev:** "Should we put customer, staff, and technical-user branching into both `access()` and prompt instructions?"
 > **Domain expert:** "Keep the shared facts on the **Agent Actor**. Let `access()` map `context.actor` to Workspace Scope, and let any prompt Capability or instruction callback read the same actor metadata for model-facing text. `context.invoker` remains a compatibility alias."
 >
+> **Dev:** "Should a failed Agent Invocation become a Result object so finish hooks can show the error?"
+> **Domain expert:** "No. Keep the original unknown error on the lifecycle event and expose an **Agent Error Message** for reporting."
+>
 > **Dev:** "Is a new Chat Session the same as Agent Memory reset?"
 > **Domain expert:** "No. A **Chat Session** changes which Chat History messages enter the Chat History Window; **Agent Memory** is durable knowledge across invocations."
 
@@ -422,3 +430,4 @@ _Avoid_: Fake agent, dummy model, test bot
 - Agent Triggers were considered chat-only because chat is the first major use case - resolved: message-shaped **Channels** can provide official triggers, but Agent Triggers remain general and do not require message-shaped input.
 - Chat helper APIs were considered the primary exposure path - resolved: declared Channel delivery paths are the primary server-side path, with helpers only as optional callers or ergonomics around registered triggers.
 - Client-provided flags were considered Capability configuration - resolved: triggers may pass host or client intent with the Agent Invocation, while Capabilities remain server-configured Agent behavior and the exact input field name is not fixed yet.
+- Result or Effect-style failure values were considered for Agent Invocation lifecycle errors - resolved: preserve the original unknown error and expose an **Agent Error Message** at the Agent Invocation boundary.

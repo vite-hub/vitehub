@@ -344,6 +344,40 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("exposes normalized error messages on failed finish events", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const cases: { error: unknown, message: string }[] = [
+      { error: undefined, message: "Unknown error." },
+      { error: "", message: "Unknown error." },
+      { error: "string failed", message: "string failed" },
+      { error: { code: "E_OBJECT", message: "object failed" }, message: "object failed" },
+      { error: Object.assign(new Error("error failed"), { name: "CustomError" }), message: "error failed" },
+    ]
+
+    for (const { error, message } of cases) {
+      const finish = vi.fn()
+      const agent = defineAgent({
+        driver: {
+          run: () => {
+            throw error
+          },
+        },
+        hooks: { "agent:finish": finish },
+      })
+
+      await runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, {}).catch(() => {})
+
+      expect(finish).toHaveBeenCalledWith(expect.objectContaining({
+        error,
+        errorMessage: message,
+      }))
+    }
+  })
+
   it("records a failed invocation when failure cleanup also fails", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()

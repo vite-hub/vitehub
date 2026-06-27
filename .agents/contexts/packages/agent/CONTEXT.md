@@ -56,6 +56,10 @@ _Avoid_: Chat adapter API, DevTools bridge API, client SDK
 The Agent Package implementation role that invokes a resolved Agent Trigger on behalf of a Channel, DevTools bridge, webhook, app route, or generated route.
 _Avoid_: Channel, chat handler, trigger definition, capability config
 
+**Agent Error Normalization**:
+The Agent Package behavior that turns unknown Agent Invocation failures into a stable message for lifecycle observers while preserving the original thrown value.
+_Avoid_: Result framework, error wrapping policy, typed exception hierarchy
+
 **Agent Webhook Route**:
 The Agent Package generated POST route that receives Channel webhook deliveries for discovered Agents and dispatches them through webhook-backed Agent Triggers.
 _Avoid_: App route, provider-specific webhook file, chat-only webhook route
@@ -122,6 +126,7 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - The **Agent Package** does not pass model-facing instructions to harness-backed Agent Drivers by default.
 - The **Agent Package** treats **Harness Workspace Path Contributions** as harness filesystem support, not as model-facing instructions or public Agent Definition fields.
 - The **Agent Package** owns the **Agent Trigger API** that resolves trigger contributions from Agent Capabilities and declared Channel delivery paths.
+- The **Agent Package** owns **Agent Error Normalization** for Agent Invocation lifecycle events and public response boundaries.
 - An **Agent Trigger Consumer** uses the **Agent Trigger API** and does not create a parallel chat-specific behavior surface.
 - An **Agent Trigger Consumer** may pass a trusted Agent Actor through trigger input when it has already authenticated or resolved caller identity; trigger metadata should not become a parallel identity or command-admission boundary.
 - A **Channel** may be implemented by an **Agent Trigger Consumer**, but Channel is the framework term for Agent reachability.
@@ -161,6 +166,9 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 >
 > **Dev:** "Should Chat DevTools expose the reusable server-side send primitive?"
 > **Domain expert:** "No. The **Agent Trigger API** belongs to the **Agent Package**; the message-shaped Channel contributes the trigger and Chat DevTools consumes it."
+>
+> **Dev:** "Should applications inspect unknown thrown values to build finish-hook error replies?"
+> **Domain expert:** "No. The **Agent Package** performs **Agent Error Normalization** and exposes the message on the Agent Invocation lifecycle event."
 
 ## Flagged Ambiguities
 
@@ -210,3 +218,4 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - Public `chat.identity` invocation context was considered for convenience - resolved: remove it because callers should use `context.actor`, with `context.invoker` as a compatibility alias, or Chat context values instead of a parallel identity string.
 - `AccessChatIdentity` was considered for chat admission - resolved: Access should consume the resolved Agent Actor plus chat/request facts rather than owning a separate chat identity shape.
 - Source Instruction prompt rendering was considered Workspace Package ownership - resolved: Agent Package composes visible Source Instructions into model-backed driver instructions while Workspace Package exposes Source Instruction metadata.
+- Result dependencies and Effect-style workflows were considered for Agent Invocation failure reporting - resolved: keep **Agent Error Normalization** inside the Agent Package and expose a message on lifecycle events without changing the programming model.

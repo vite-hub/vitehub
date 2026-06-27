@@ -12,6 +12,10 @@ interface AgentUIMessageStreamWriter {
   write(event: unknown): void
 }
 
+type StreamCleanupOutcome =
+  | { failed: false }
+  | { error: unknown, failed: true }
+
 const uiMessageStreamHeaders = {
   "cache-control": "no-cache",
   connection: "keep-alive",
@@ -89,15 +93,15 @@ export function createAgentUIMessageStreamResponse(options: {
 
 export function withReadableStreamCleanup<T>(
   stream: ReadableStream<T>,
-  cleanup: (error?: unknown) => Promise<void>,
+  cleanup: (outcome: StreamCleanupOutcome) => Promise<void>,
   options: { onChunk?: (chunk: T) => void } = {},
 ): ReadableStream<T> {
   const reader = stream.getReader()
   let cleaned = false
-  const runCleanup = async (error?: unknown) => {
+  const runCleanup = async (outcome: StreamCleanupOutcome = { failed: false }) => {
     if (cleaned) return
     cleaned = true
-    await cleanup(error)
+    await cleanup(outcome)
   }
   return new ReadableStream<T>({
     async pull(controller) {
@@ -112,13 +116,13 @@ export function withReadableStreamCleanup<T>(
         controller.enqueue(result.value)
       }
       catch (error) {
-        await runCleanup(error)
+        await runCleanup({ error, failed: true })
         controller.error(error)
       }
     },
     async cancel(reason) {
       await reader.cancel(reason)
-      await runCleanup(reason)
+      await runCleanup({ error: reason, failed: true })
     },
   })
 }
@@ -205,7 +209,7 @@ async function writeEventsToUiMessageStream(writer: AgentUIMessageStreamWriter, 
 export async function finalizeUiMessageStreamOutput(
   rendered: unknown,
   shouldWrapOutput: boolean,
-  finish: (error?: unknown, streamedText?: string) => MaybePromise<void>,
+  finish: (outcome: StreamCleanupOutcome, streamedText?: string) => MaybePromise<void>,
 ): Promise<FinalizedStreamOutput<unknown>> {
   const hasUiMessageStream = isUIMessageStreamResult(rendered)
   const hasAsyncIterable = isAsyncIterable(rendered)
@@ -234,7 +238,7 @@ export async function finalizeUiMessageStreamOutput(
     deferFinish: shouldWrapOutput,
     finishResult: rendered,
     value: shouldWrapOutput
-      ? withReadableStreamCleanup(stream, error => Promise.resolve(finish(error, streamedText)), {
+      ? withReadableStreamCleanup(stream, outcome => Promise.resolve(finish(outcome, streamedText)), {
           onChunk(chunk) {
             streamedText += uiMessageTextDelta(chunk) || ""
           },

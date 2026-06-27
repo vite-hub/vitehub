@@ -134,6 +134,29 @@ export default defineAgent({
 
 Finish hooks should not quietly grant new abilities. Capabilities and Agent Drivers remain the authority boundaries.
 
+### Handle failures
+
+When an Agent Invocation fails, the finish event keeps the original thrown value on `event.error` and exposes a normalized message on `event.errorMessage`.
+
+Use `event.errorMessage` for status updates, logs, and delivery effects. Use `event.error` only when you need to inspect the original thrown value.
+
+```ts [server/agents/support.ts]
+export default defineAgent({
+  driver: {
+    run: () => {
+      throw new Error('Support sync failed')
+    },
+  },
+  hooks: {
+    'agent:finish'(event) {
+      if (event.errorMessage) {
+        event.runtime.waitUntil(reportFailure(event.errorMessage))
+      }
+    },
+  },
+})
+```
+
 ## Next steps
 
 - Read [Triggers](/docs/agents/triggers) for Capability-owned entry points.
