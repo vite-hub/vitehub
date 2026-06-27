@@ -131,6 +131,7 @@
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/devtools": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "@vite-hub/workflow": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vitejs/devtools-kit": "catalog:vite",
     "chat": "catalog:chat",
@@ -144,7 +145,6 @@
     "@ai-sdk/sandbox-vercel": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
-    "@vite-hub/workflow": "workspace:*",
     "@vitejs/devtools-kit": "catalog:vite",
     "ai": "catalog:ai",
     "evalite": "catalog:ai",
@@ -158,7 +158,6 @@
     "@ai-sdk/harness-codex": "catalog:ai",
     "@ai-sdk/mcp": "catalog:ai",
     "@ai-sdk/sandbox-vercel": "catalog:ai",
-    "@vite-hub/workflow": "workspace:*",
     "agents": "catalog:ai",
     "ai": "catalog:ai-compat",
     "evalite": "catalog:ai",
@@ -175,9 +174,6 @@
       "optional": true
     },
     "@ai-sdk/sandbox-vercel": {
-      "optional": true
-    },
-    "@vite-hub/workflow": {
       "optional": true
     },
     "agents": {

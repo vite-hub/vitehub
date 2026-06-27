@@ -1,6 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
+import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
+import { getViteMode } from "@vite-hub/internal/build/mode"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatchIgnored, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 
@@ -280,7 +282,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     closeBundle: {
       order: "post",
       async handler() {
-        if (!resolved || resolved.command !== "build") return
+        if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
         await copyVercelFunctionRuntimePackages({
           packages: [{ name: WORKSPACE_PACKAGE_NAME, resolveFrom: import.meta.url }],
           rootDir: projectRoot || resolveViteHubProjectRoot(resolved.root),
