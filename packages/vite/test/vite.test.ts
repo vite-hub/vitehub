@@ -32,6 +32,7 @@ function pluginNames(plugins: PluginOption[]): string[] {
 describe("vitehub", () => {
   it("composes ViteHub primitive integrations explicitly", () => {
     expect(pluginNames(vitehub())).toEqual([
+      "@vite-hub/vite/facade-alias",
       "@vite-hub/env/vite",
       "@vite-hub/agent/vite",
       "@vite-hub/database/vite",
@@ -44,6 +45,7 @@ describe("vitehub", () => {
       "@vite-hub/devtools",
     ])
     expect(pluginNames(vitehub({ database: false, devtools: false, kv: false }))).toEqual([
+      "@vite-hub/vite/facade-alias",
       "@vite-hub/env/vite",
       "@vite-hub/agent/vite",
       "@vite-hub/blob/vite",
@@ -57,6 +59,22 @@ describe("vitehub", () => {
     expect(queueMocks.hubQueue).toHaveBeenLastCalledWith({})
     expect(pluginNames(vitehub({ queue: { provider: "cloudflare" } }))).toContain("@vite-hub/queue/vite")
     expect(queueMocks.hubQueue).toHaveBeenLastCalledWith({ provider: "cloudflare" })
+  })
+
+  it("aliases generated runtime imports through the facade", () => {
+    const plugin = vitehub()[0] as Plugin
+    const config = plugin.config as (config: { resolve?: { alias?: unknown } }) => { resolve: { alias: unknown } }
+
+    expect(config({}).resolve.alias).toMatchObject({
+      "@vite-hub/agent/server": "@vite-hub/vite/agent/server",
+      "@vite-hub/workflow/runtime/state": "@vite-hub/vite/workflow/runtime/state",
+      "@vite-hub/workspace/runtime": "@vite-hub/vite/workspace/runtime",
+    })
+    expect(config({ resolve: { alias: [{ find: "#app", replacement: "/tmp/app.ts" }] } }).resolve.alias).toEqual(expect.arrayContaining([
+      { find: "#app", replacement: "/tmp/app.ts" },
+      expect.objectContaining({ find: "@vite-hub/agent", replacement: "@vite-hub/vite/agent" }),
+      expect.objectContaining({ find: "@vite-hub/workspace/server", replacement: "@vite-hub/vite/workspace/server" }),
+    ]))
   })
 
   it("can be used as one nested Vite plugin entry", () => {

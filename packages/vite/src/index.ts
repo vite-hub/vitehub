@@ -21,9 +21,43 @@ import type { SandboxPublicOptions } from "@vite-hub/sandbox/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
 import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
-import type { PluginOption } from "vite"
+import type { AliasOptions, Plugin, PluginOption } from "vite"
 
 export { env } from "@vite-hub/env/vite"
+
+const facadeAliases: Record<string, string> = {
+  "@vite-hub/agent": "@vite-hub/vite/agent",
+  "@vite-hub/agent/cloudflare": "@vite-hub/vite/agent/cloudflare",
+  "@vite-hub/agent/cloudflare/state": "@vite-hub/vite/agent/cloudflare/state",
+  "@vite-hub/agent/runtime/workflow": "@vite-hub/vite/agent/runtime/workflow",
+  "@vite-hub/agent/server": "@vite-hub/vite/agent/server",
+  "@vite-hub/agent/server/routes": "@vite-hub/vite/agent/server/routes",
+  "@vite-hub/workflow": "@vite-hub/vite/workflow",
+  "@vite-hub/workflow/runtime/execute": "@vite-hub/vite/workflow/runtime/execute",
+  "@vite-hub/workflow/runtime/state": "@vite-hub/vite/workflow/runtime/state",
+  "@vite-hub/workspace": "@vite-hub/vite/workspace",
+  "@vite-hub/workspace/cloudflare": "@vite-hub/vite/workspace/cloudflare",
+  "@vite-hub/workspace/loader": "@vite-hub/vite/workspace/loader",
+  "@vite-hub/workspace/publish": "@vite-hub/vite/workspace/publish",
+  "@vite-hub/workspace/runtime": "@vite-hub/vite/workspace/runtime",
+  "@vite-hub/workspace/server": "@vite-hub/vite/workspace/server",
+}
+
+function mergeFacadeAliases(alias: AliasOptions | undefined): AliasOptions {
+  const entries = Object.entries(facadeAliases).map(([find, replacement]) => ({ find, replacement }))
+  if (Array.isArray(alias)) return [...alias, ...entries]
+  return { ...facadeAliases, ...(alias && typeof alias === "object" ? alias : {}) }
+}
+
+function vitehubFacadeAlias(): Plugin {
+  return {
+    name: "@vite-hub/vite/facade-alias",
+    enforce: "pre",
+    config(config) {
+      return { resolve: { alias: mergeFacadeAliases(config.resolve?.alias) } }
+    },
+  }
+}
 
 export interface ViteHubPresetOptions {
   agent?: false | AgentModuleOptions
@@ -40,7 +74,7 @@ export interface ViteHubPresetOptions {
 }
 
 export function vitehub(options: ViteHubPresetOptions = {}): PluginOption[] {
-  const plugins: unknown[] = []
+  const plugins: unknown[] = [vitehubFacadeAlias()]
   if (options.env !== false) plugins.push(hubEnv(options.env))
   if (options.agent !== false) plugins.push(hubAgent(options.agent))
   if (options.database !== false) plugins.push(hubDb(options.database))
