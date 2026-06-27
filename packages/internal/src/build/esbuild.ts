@@ -5,6 +5,7 @@ interface BundleEsmEntryOptions {
   conditions?: string[]
   external?: string[]
   format?: "esm" | "cjs"
+  mainFields?: string[]
   minifyIdentifiers?: boolean
   platform?: "browser" | "node" | "neutral"
   plugins?: Plugin[]
@@ -38,6 +39,7 @@ export async function bundleEsmEntry(
     external: options.external,
     format,
     logLevel: "silent",
+    mainFields: options.mainFields ?? (platform === "neutral" ? ["module", "main"] : undefined),
     minifyIdentifiers: options.minifyIdentifiers,
     outfile,
     platform,

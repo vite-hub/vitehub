@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -55,5 +55,22 @@ describe("bundleEsmEntry", () => {
       filename: "netlify-runtime",
       requireType: "function",
     })
+  })
+
+  it("resolves package entry fields in neutral bundles", async () => {
+    const rootDir = await createTempDir()
+    const packageDir = join(rootDir, "node_modules", "main-only-package")
+    const entry = join(rootDir, "entry.mjs")
+    const outfile = join(rootDir, "bundle.mjs")
+    await mkdir(packageDir, { recursive: true })
+    await writeFile(join(packageDir, "package.json"), JSON.stringify({ main: "index.js", name: "main-only-package", type: "module" }), "utf8")
+    await writeFile(join(packageDir, "index.js"), "export const value = 'neutral-main'\n", "utf8")
+    await writeFile(entry, "import { value } from 'main-only-package'\nexport default value\n", "utf8")
+
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, { format: "esm", platform: "neutral" })
+
+    const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as { default: string }
+    expect(loaded.default).toBe("neutral-main")
   })
 })
