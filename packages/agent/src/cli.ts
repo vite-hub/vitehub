@@ -769,12 +769,15 @@ async function sendDevMessage(
           if (event.input !== undefined) pendingToolInputs.set(event.id, event.input)
           continue
         }
+        if (event.input !== undefined) pendingToolInputs.set(event.id, event.input)
         if (!visibleTools.has(event.id)) {
-          visibleTools.add(event.id)
           const input = event.input !== undefined ? event.input : pendingToolInputs.get(event.id)
-          context.stderr.write(`\n${toolHeader(event.name, input)}\n`)
+          if (shellCommand(input)) {
+            visibleTools.add(event.id)
+            pendingToolInputs.delete(event.id)
+            context.stderr.write(`\n${toolHeader(event.name, input)}\n`)
+          }
         }
-        pendingToolInputs.delete(event.id)
         continue
       }
       if (event.type === "tool-result") {

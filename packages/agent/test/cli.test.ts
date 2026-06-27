@@ -354,6 +354,9 @@ describe("agent CLI", () => {
           { id: "tool-5", name: "mcp_nuxt_get_documentation_page", output: { content: "useLazyFetch docs" }, type: "tool-result" },
           { id: "tool-6", input: { query: "Agent Dev Loop" }, name: "search_docs", type: "tool-input-start" },
           { id: "tool-6", name: "search_docs", output: { text: "search result" }, type: "tool-result" },
+          { id: "tool-7", input: {}, name: "lookup_doc", type: "tool-call" },
+          { id: "tool-7", input: { slug: "final" }, name: "lookup_doc", type: "tool-call" },
+          { id: "tool-7", name: "lookup_doc", output: { text: "lookup result" }, type: "tool-result" },
           { id: "tool-2", name: "workspace_list", output: { path: "." }, type: "tool-result" },
           { id: "tool-3", name: "run_summary", output: { raw: { raw: { steps: longOutput } }, text: "summary body" }, type: "tool-result" },
           { text: "done", type: "text-delta" },
@@ -388,6 +391,8 @@ describe("agent CLI", () => {
     expect(stderr.output()).toContain(`output: {"content":"useLazyFetch docs"}`)
     expect(stderr.output()).not.toContain(`input: {"path":"/docs/4.x/api/composables/use-lazy-fetch"}`)
     expect(stderr.output()).toContain(`\n[tool] search_docs {"query":"Agent Dev Loop"}\nsearch result\n---\n`)
+    expect(stderr.output()).toContain(`\n[tool] lookup_doc {"slug":"final"}\nlookup result\n---\n`)
+    expect(stderr.output()).not.toContain(`\n[tool] lookup_doc {}\n`)
     expect(stderr.output()).toContain("[truncated ")
     expect(stderr.output()).not.toContain(longOutput)
     expect(stderr.output()).toContain("---")
