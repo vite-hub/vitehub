@@ -296,7 +296,11 @@ function shellCommand(value: unknown): string | undefined {
 }
 
 function toolHeader(name: string, input?: unknown, output?: unknown): string {
-  return `[tool] ${shellCommand(input) ?? shellCommand(output) ?? name}`
+  const command = shellCommand(input) ?? shellCommand(output)
+  if (command) return `[tool] ${command}`
+
+  const formattedInput = isRecord(input) && Object.keys(input).length === 0 ? undefined : formatDevPayload(input)
+  return `[tool] ${name}${formattedInput ? ` ${formattedInput}` : ""}`
 }
 
 function writeShellOutput(context: AgentCliContext, output: unknown, error: unknown): boolean {
@@ -712,6 +716,7 @@ async function sendDevMessage(
   const delayTextForPreview = Boolean(parsed.trigger && parsed.trigger !== "chat.message")
   let canWriteDelayedUsage = false
   const visibleTools = new Set<string>()
+  const visibleToolInputs = new Map<string, string | undefined>()
   const writeUsageNote = () => {
     if (delayTextForPreview && !canWriteDelayedUsage) return
     if (previewSeen) return
@@ -763,9 +768,16 @@ async function sendDevMessage(
         if (event.type === "tool-input-start" && event.input === undefined) continue
         if (!visibleTools.has(event.id)) {
           visibleTools.add(event.id)
+          visibleToolInputs.set(event.id, formatDevPayload(event.input))
           context.stderr.write(`\n${toolHeader(event.name, event.input)}\n`)
         }
-        if (!shellCommand(event.input)) writeDevPayload(context, "input", event.input)
+        else if (event.input !== undefined && !shellCommand(event.input)) {
+          const formattedInput = formatDevPayload(event.input)
+          if (formattedInput !== visibleToolInputs.get(event.id)) {
+            visibleToolInputs.set(event.id, formattedInput)
+            writeDevPayload(context, "input", event.input)
+          }
+        }
         continue
       }
       if (event.type === "tool-result") {
@@ -774,6 +786,7 @@ async function sendDevMessage(
           visibleTools.add(event.id)
           context.stderr.write(`\n${toolHeader(event.name, undefined, event.output)}\n`)
         }
+        visibleToolInputs.delete(event.id)
         if (!writeShellOutput(context, event.output, event.error) && !writeToolTextOutput(context, event.output)) {
           writeDevPayload(context, "output", event.output)
           writeDevPayload(context, "error", event.error)
