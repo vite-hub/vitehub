@@ -3,28 +3,35 @@ interface NormalizedAgentError {
   name?: string
 }
 
-export function agentErrorDetails(error: unknown, fallback = "Unknown error."): NormalizedAgentError {
-  if (error instanceof Error) {
-    return {
-      message: error.message || error.name || fallback,
-      ...(error.name ? { name: error.name } : {}),
-    }
+function errorProperty(error: object, key: "message" | "name"): unknown {
+  try {
+    return (error as Record<string, unknown>)[key]
   }
+  catch {
+    return undefined
+  }
+}
+
+export function agentErrorDetails(error: unknown, fallback = "Unknown error."): NormalizedAgentError {
   if (typeof error === "string") return { message: error || fallback }
   if (typeof error === "object" && error !== null) {
-    const message = (error as { message?: unknown }).message
-    const name = (error as { name?: unknown }).name
+    const message = errorProperty(error, "message")
+    const name = errorProperty(error, "name")
     if (typeof message === "string" && message) {
       return {
         message,
         ...(typeof name === "string" && name ? { name } : {}),
       }
     }
-    try {
-      const json = JSON.stringify(error)
-      if (json) return { message: json }
+    if (error instanceof Error && typeof name === "string" && name) {
+      return {
+        message: name,
+        name,
+      }
     }
-    catch {}
+    return {
+      message: fallback,
+    }
   }
   if (error === undefined || error === null) return { message: fallback }
   return { message: String(error) || fallback }
@@ -35,9 +42,9 @@ export function agentErrorMessage(error: unknown, fallback?: string): string {
 }
 
 export function agentErrorPublicMessage(error: unknown, fallback = "Agent request failed."): string {
-  if (error instanceof Error) return error.message || fallback
-  if (typeof error === "object" && error !== null && typeof (error as { message?: unknown }).message === "string") {
-    return (error as { message: string }).message || fallback
+  if (typeof error === "object" && error !== null) {
+    const message = errorProperty(error, "message")
+    if (typeof message === "string") return message || fallback
   }
   return fallback
 }

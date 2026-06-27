@@ -1076,10 +1076,10 @@ describe("agent capability runtime", () => {
       closed: Promise.resolve(undefined),
     } as never)
 
-    const response = await withResponseCleanup(new Response(responseBody), async error => { cleanupErrors.push(error) }) as Response
+    const response = await withResponseCleanup(new Response(responseBody), async outcome => { cleanupErrors.push(outcome) }) as Response
 
     await expect(response.body?.cancel()).rejects.toThrow("cancel failed")
-    expect(cleanupErrors).toEqual([cancelError])
+    expect(cleanupErrors).toEqual([{ error: cancelError, failed: true }])
   })
 
   it("rejects write workspace requirements when the run workspace is read-only", async () => {

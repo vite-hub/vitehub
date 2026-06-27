@@ -121,8 +121,17 @@ export function withReadableStreamCleanup<T>(
       }
     },
     async cancel(reason) {
-      await reader.cancel(reason)
-      await runCleanup({ error: reason, failed: true })
+      let outcome: StreamCleanupOutcome = reason === undefined ? { failed: false } : { error: reason, failed: true }
+      try {
+        await reader.cancel(reason)
+      }
+      catch (error) {
+        outcome = { error, failed: true }
+        throw error
+      }
+      finally {
+        await runCleanup(outcome)
+      }
     },
   })
 }
