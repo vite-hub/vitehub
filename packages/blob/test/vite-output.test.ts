@@ -225,7 +225,10 @@ describe("Vite provider outputs", () => {
   it("skips provider output for local fs stores", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-local-fs-")
     await mkdir(join(rootDir, "src"), { recursive: true })
-    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await mkdir(join(rootDir, "dist", toSafeAppName(rootDir)), { recursive: true })
+    await mkdir(join(rootDir, ".vercel", "output", "functions", "__server.func"), { recursive: true })
+    await writeFile(join(rootDir, "dist", toSafeAppName(rootDir), "index.js"), "existing cloudflare output\n", "utf8")
+    await writeFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "existing vercel output\n", "utf8")
     await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
 
     await generateProviderOutputs({
@@ -234,8 +237,8 @@ describe("Vite provider outputs", () => {
       rootDir,
     })
 
-    expect(existsSync(join(rootDir, "dist", toSafeAppName(rootDir), "index.js"))).toBe(false)
-    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__server.func"))).toBe(false)
+    await expect(readFile(join(rootDir, "dist", toSafeAppName(rootDir), "index.js"), "utf8")).resolves.toBe("existing cloudflare output\n")
+    await expect(readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")).resolves.toBe("existing vercel output\n")
   })
 
   it("rehydrates masked Vercel tokens from generated runtime output", async () => {

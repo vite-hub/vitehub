@@ -346,10 +346,6 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
     cloudflare: localOnly ? undefined : createCloudflareOutput(options.blob, artifacts),
-    cleanup: {
-      cloudflare: { bundleOutfileName: "index.js", wranglerConfigKeys: ["r2_buckets"] },
-      vercel: { serverFunctionName: "__server.func" },
-    },
     rootDir: options.rootDir,
     vercel: localOnly ? undefined : createVercelOutput(artifacts),
   })
