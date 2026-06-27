@@ -333,13 +333,25 @@ function createVercelOutput(artifacts: GeneratedBlobArtifacts): VercelProviderDe
   }
 }
 
+function hasExplicitFsStore(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined) {
+  if (!blob || typeof blob !== "object") return false
+  if ("stores" in blob && blob.stores) return Object.values(blob.stores).some(store => store.driver === "fs")
+  if ("store" in blob) return blob.store.driver === "fs"
+  return "driver" in blob && blob.driver === "fs"
+}
+
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedBlobArtifacts> {
   const artifacts = await writeProviderEntries(options.rootDir, options.blob)
+  const localOnly = hasExplicitFsStore(options.blob)
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
-    cloudflare: createCloudflareOutput(options.blob, artifacts),
+    cloudflare: localOnly ? undefined : createCloudflareOutput(options.blob, artifacts),
+    cleanup: {
+      cloudflare: { bundleOutfileName: "index.js", wranglerConfigKeys: ["r2_buckets"] },
+      vercel: { serverFunctionName: "__server.func" },
+    },
     rootDir: options.rootDir,
-    vercel: createVercelOutput(artifacts),
+    vercel: localOnly ? undefined : createVercelOutput(artifacts),
   })
   return artifacts
 }

@@ -222,6 +222,22 @@ describe("Vite provider outputs", () => {
     ])
   })
 
+  it("skips provider output for local fs stores", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-local-fs-")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
+
+    await generateProviderOutputs({
+      blob: { driver: "fs", base: ".data/blob" },
+      clientOutDir: "dist",
+      rootDir,
+    })
+
+    expect(existsSync(join(rootDir, "dist", toSafeAppName(rootDir), "index.js"))).toBe(false)
+    expect(existsSync(join(rootDir, ".vercel", "output", "functions", "__server.func"))).toBe(false)
+  })
+
   it("rehydrates masked Vercel tokens from generated runtime output", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-vercel-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
