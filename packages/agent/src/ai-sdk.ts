@@ -826,8 +826,9 @@ async function createAgent(
   const instrumentedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
+  const baseInstructions = composeInstructions(context.instructions ?? await resolveInstructions(options, metadataContext), metadataContext)
   const instructions = composeInstructions(applyWorkspaceSourceInstructionSlot(
-    applyCapabilityInstructionSlots(context.instructions ?? await resolveInstructions(options, metadataContext), context.capabilityInstructions),
+    applyCapabilityInstructionSlots(baseInstructions, context.capabilityInstructions),
     context.sourceInstructions,
   ), metadataContext)
   const adapterTools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)

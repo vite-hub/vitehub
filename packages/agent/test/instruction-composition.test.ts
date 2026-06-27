@@ -2,10 +2,12 @@ import { dirname, resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
+import { applyCapabilityInstructionSlots } from "../src/capability-runtime.ts"
 import {
   composeInstructionDocument,
   resolveInstructionImports,
 } from "../src/instruction-composition.ts"
+import { applyWorkspaceSourceInstructionSlot } from "../src/workspace-agent.ts"
 
 function importReader(files: Map<string, string>) {
   return (specifier: string, importer: string) => {
@@ -71,6 +73,56 @@ describe("instruction composition", () => {
       "Use trusted policy.",
       "Use technical detail.",
     ].join("\n"))
+  })
+
+  it("parses boolean chains without skipping the right side", () => {
+    expect(composeInstructionDocument([
+      "::if{context.enabled && context.customerName}",
+      "Enabled.",
+      "::else",
+      "Disabled.",
+      "::",
+    ].join("\n"), { context: { customerName: "Acme", enabled: false } })).toBe("Disabled.")
+
+    expect(composeInstructionDocument([
+      "::if{context.enabled || context.customerName}",
+      "Enabled.",
+      "::else",
+      "Disabled.",
+      "::",
+    ].join("\n"), { context: { customerName: "Acme", enabled: true } })).toBe("Enabled.")
+  })
+
+  it("reads stable context ids with hyphens and dotted names", () => {
+    expect(composeInstructionDocument([
+      "{{ context.llm-route.choice }}",
+      "{{ context.support.customer.name }}",
+    ].join("\n"), {
+      context: {
+        "llm-route": { choice: "fast" },
+        "support.customer": { name: "Acme" },
+      },
+    })).toBe("fast\nAcme")
+  })
+
+  it("renders conditionals before consuming capability and source instruction slots", () => {
+    const document = [
+      "::if{context.showCapability}",
+      "{{ capabilities.docs }}",
+      "{{ workspace.sources }}",
+      "::else",
+      "No capability instructions.",
+      "::",
+    ].join("\n")
+    const baseInstructions = composeInstructionDocument(document, {
+      context: { showCapability: false },
+    })
+
+    expect(applyCapabilityInstructionSlots(baseInstructions, [
+      { id: "capabilities.docs", instructions: "Use docs capability." },
+    ])).toBe("No capability instructions.\n\nUse docs capability.")
+    expect(applyWorkspaceSourceInstructionSlot(baseInstructions, "Use docs source."))
+      .toBe("No capability instructions.\n\nUse docs source.")
   })
 
   it("rejects unsafe expressions and non-scalar double bindings", () => {

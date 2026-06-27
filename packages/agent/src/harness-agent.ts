@@ -163,8 +163,9 @@ function selectedWorkspaceScopePaths(context: AgentAdapterRunContext): string[] 
 
 function toHarnessCallInput(context: AgentAdapterRunContext) {
   const compositionContext = { context: context.context.toJSON() }
+  const baseInstructions = composeInstructionDocument(context.instructions || "", compositionContext)
   const instructions = composeInstructionDocument(applyWorkspaceSourceInstructionSlot(
-    applyCapabilityInstructionSlots(context.instructions || "", context.capabilityInstructions),
+    applyCapabilityInstructionSlots(baseInstructions, context.capabilityInstructions),
     context.sourceInstructions,
   ), compositionContext)
   const base = {

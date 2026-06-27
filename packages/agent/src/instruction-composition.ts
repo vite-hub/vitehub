@@ -20,9 +20,9 @@ type ConditionToken =
   | { path: string, type: "path" }
 
 const defaultImportDepth = 4
-const contextPathPattern = /context(?:\.[A-Za-z_$][\w$]*)+/
-const tripleBindingPattern = /\{\{\{\s*(context(?:\.[A-Za-z_$][\w$]*)+)\s*\}\}\}/g
-const scalarBindingPattern = /\{\{(?!\{)\s*(context(?:\.[A-Za-z_$][\w$]*)+)\s*\}\}/g
+const contextPathPattern = /context(?:\.[A-Za-z_$][\w$-]*)+/
+const tripleBindingPattern = /\{\{\{\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}\}/g
+const scalarBindingPattern = /\{\{(?!\{)\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}/g
 
 export function resolveInstructionImports(content: string, options: ResolveInstructionImportsOptions): string {
   return expandInstructionImports(content, {
@@ -319,7 +319,8 @@ function createConditionParser(tokens: ConditionToken[], expression: string, con
     let value = parseEquality()
     while (peek()?.type === "op" && (peek() as { value: string }).value === "&&") {
       take("&&")
-      value = Boolean(value) && Boolean(parseEquality())
+      const right = parseEquality()
+      value = Boolean(value) && Boolean(right)
     }
     return value
   }
@@ -328,7 +329,8 @@ function createConditionParser(tokens: ConditionToken[], expression: string, con
     let value = parseAnd()
     while (peek()?.type === "op" && (peek() as { value: string }).value === "||") {
       take("||")
-      value = Boolean(value) || Boolean(parseAnd())
+      const right = parseAnd()
+      value = Boolean(value) || Boolean(right)
     }
     return value
   }
@@ -342,8 +344,19 @@ function createConditionParser(tokens: ConditionToken[], expression: string, con
 }
 
 function contextPathValue(context: Record<string, unknown>, path: string): unknown {
-  let current: unknown = context
-  for (const segment of path.split(".").slice(1)) {
+  const segments = path.split(".").slice(1)
+  for (let count = segments.length; count > 0; count -= 1) {
+    const key = segments.slice(0, count).join(".")
+    if (Object.hasOwn(context, key)) {
+      return nestedPathValue(context[key], segments.slice(count))
+    }
+  }
+  return nestedPathValue(context, segments)
+}
+
+function nestedPathValue(value: unknown, segments: string[]): unknown {
+  let current = value
+  for (const segment of segments) {
     if (!current || typeof current !== "object" || !Object.hasOwn(current, segment)) return undefined
     current = (current as Record<string, unknown>)[segment]
   }

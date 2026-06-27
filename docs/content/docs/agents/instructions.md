@@ -11,7 +11,7 @@ Model Driver Instructions are the model-backed Agent Driver field that receives 
 
 ## Add an instruction document
 
-Place `instructions.md` beside an Agent module when the instructions are long enough to read better as Markdown. ViteHub loads that sibling file before model execution.
+Place `instructions.md` beside a workspace-backed Agent module when the instructions are long enough to read better as Markdown. ViteHub loads that sibling file before model execution.
 
 ```md [server/agents/support/instructions.md]
 # Support
@@ -30,6 +30,9 @@ import { defineAgent } from '@vite-hub/agent'
 export default defineAgent({
   driver: {
     model: gateway('openai/gpt-5.1-mini'),
+  },
+  workspace: {
+    sources: {},
   },
 })
 ```
