@@ -1,5 +1,5 @@
-import { mkdir, rm, writeFile } from "node:fs/promises"
-import { dirname, resolve } from "node:path"
+import { rm } from "node:fs/promises"
+import { resolve } from "node:path"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 
@@ -10,7 +10,6 @@ import {
 } from "./assets.ts"
 import {
   createWorkspaceManifest,
-  createWorkspaceRegistryContents,
   createWorkspaceVirtualRegistryContents,
 } from "./discovery.ts"
 import { createWorkspaceTypeAugmentation } from "./generated-types.ts"
@@ -52,12 +51,6 @@ export async function refreshWorkspaceBuildState(root: string, definitions: Disc
   const state = await createWorkspaceBuildState(definitions)
   await refreshWorkspaceAmbientTypes(root, definitions)
   return state
-}
-
-export async function writeWorkspaceRuntimeRegistry(registryFile: string, definitions: DiscoveredWorkspaceDefinition[]): Promise<string> {
-  await mkdir(dirname(registryFile), { recursive: true })
-  await writeFile(registryFile, createWorkspaceRegistryContents(registryFile, definitions), "utf8")
-  return registryFile
 }
 
 export async function initializeWorkspaceAssetRegistry(

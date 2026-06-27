@@ -32,7 +32,9 @@ async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
     && import.meta.url.endsWith(".ts")
 
   const moduleName = driverModules[config.driver]
-  const modulePath = new URL(isSourceRuntime ? `../drivers/${moduleName}.ts` : `../drivers/${moduleName}.js`, import.meta.url).href
+  const modulePath = isSourceRuntime
+    ? new URL(`../drivers/${moduleName}.ts`, import.meta.url).href
+    : `@vite-hub/blob/drivers/${moduleName}`
   const module = await import(modulePath) as { createDriver: (options: typeof config) => any }
   return module.createDriver(config)
 }

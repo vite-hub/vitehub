@@ -97,9 +97,9 @@
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js"
     },
-    "./server/routes": {
-      "types": "./dist/server/routes.d.ts",
-      "import": "./dist/server/routes.js"
+    "./server/workspace": {
+      "types": "./dist/server/workspace.d.ts",
+      "import": "./dist/server/workspace.js"
     },
     "./state/sqlite": {
       "types": "./dist/state/sqlite.d.ts",

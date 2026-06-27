@@ -754,7 +754,7 @@ async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     workspaceAssetsRegistryFile = resolve(options.rootDir, ".vitehub/vite-runtime/workspace/assets/registry.mjs")
     alias["#vitehub-workspace-assets-registry"] = workspaceAssetsRegistryFile
     alias["@vite-hub/workspace/internal/runtime/assets"] = workspaceAssetsRuntimeFile
-    alias["@vite-hub/workspace/internal/runtime/state"] = workspaceStateRuntimeFile
+    alias["@vite-hub/workspace/runtime"] = workspaceStateRuntimeFile
     alias["@vite-hub/workspace/loader"] = resolve(workspacePackageDir, "src/loader.ts")
     alias["@vite-hub/workspace/publish"] = resolve(workspacePackageDir, "src/publish.ts")
     alias["@vite-hub/workspace/test"] = resolve(workspacePackageDir, "src/test.ts")
@@ -849,7 +849,7 @@ function renderCloudflareEntry(file: string, options: ViteE2EComposerOptions, ar
   const resolveApp = resolve(packagesDir, "internal/src/runtime/app.ts")
   const cloudflareEnv = resolve(packagesDir, "internal/src/runtime/cloudflare-env.ts")
   const workspaceProvider = options.workspace && options.workspace.store.provider
-  const workspaceRuntimeState = artifacts.alias["@vite-hub/workspace/internal/runtime/state"] || resolve(workspacePackageDir, "src/runtime/state.ts")
+  const workspaceRuntimeState = artifacts.alias["@vite-hub/workspace/runtime"] || resolve(workspacePackageDir, "src/runtime/state.ts")
 
   const imports = [
     `import { H3, toWebHandler } from "h3"`,
@@ -1003,7 +1003,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
   const resolveApp = resolve(packagesDir, "internal/src/runtime/app.ts")
   const workspaceProvider = options.workspace && options.workspace.store.provider
   const preloadVercelQueue = options.queue && options.queue.provider === "vercel"
-  const workspaceRuntimeState = artifacts.alias["@vite-hub/workspace/internal/runtime/state"] || resolve(workspacePackageDir, "src/runtime/state.ts")
+  const workspaceRuntimeState = artifacts.alias["@vite-hub/workspace/runtime"] || resolve(workspacePackageDir, "src/runtime/state.ts")
 
   const imports = [
     `import { waitUntil as vercelWaitUntil } from ${JSON.stringify(createImportPath(file, resolvePackageDependency(queuePackageDir, "@vercel/functions")))}`,

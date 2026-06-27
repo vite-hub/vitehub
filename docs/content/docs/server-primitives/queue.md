@@ -19,6 +19,13 @@ Queue is not Workflow. Queue Enqueue means the Queue Provider accepted the job; 
 pnpm add @vite-hub/queue
 ```
 
+For Vercel Queues, also install the provider package and ambient TypeScript types:
+
+```bash [Terminal]
+pnpm add @vercel/queue
+pnpm add -D @types/node @types/ws
+```
+
 ### Configure
 
 ```ts [vite.config.ts]
@@ -240,12 +247,14 @@ Use the Vite Integration to check that ViteHub discovers your Queue Definitions 
 pnpm vite build
 ```
 
-After the build, inspect `.vitehub/queue/registry.mjs` to confirm that ViteHub found the queue. Then inspect the provider output for the provider you configured.
+After the build, inspect `.vitehub/queue/registry.mjs` to confirm that ViteHub found the queue. Then inspect the Queue Provider Output for the Queue Provider you configured.
 
 | Provider | Output to inspect |
 | --- | --- |
 | Cloudflare | `dist/**/wrangler.json` queue producers and consumers, plus the generated worker bundle. |
 | Vercel | `.vercel/output/functions/api/vitehub/queues/vercel/**` consumer functions and trigger config. |
+
+Vercel projects that typecheck generated Queue Provider Output should include `lib: ['DOM', 'ESNext']` and `types: ['node']` in `tsconfig.json`.
 
 ::note
 Queue does not include an in-memory Queue Provider for local Queue Delivery. Test the code your handler calls when you need fast unit coverage, and use generated provider runtime or deployed provider output when you need to prove Queue Enqueue and Queue Delivery together.

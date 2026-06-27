@@ -137,6 +137,8 @@ export default defineEventHandler(() => {
 })
 ```
 
+The `@vite-hub/database/drizzle` runtime import is resolved by the ViteHub Vite Integration for server code and provider output. Do not run files that import it directly with plain `node`; run them through your Vite-built server path or provider output.
+
 Use Named Databases when separate data boundaries need explicit names.
 
 ```ts [src/analytics.database.ts]

@@ -458,7 +458,8 @@ async function generateAgentNetlifyFunctionRouteHandler(
 
   return [
     `import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
-    `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(agentImportBase, "server"))}`,
+    `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server"))}`,
+    `import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(agentImportBase, "server/workspace"))}`,
     imports,
     "",
     "function resolveAgentModule(module) {",
@@ -572,7 +573,7 @@ async function generateAgentDenoServer(
 
   return [
     `import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
-    `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/routes"))}`,
+    `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server"))}`,
     ...workspaceRuntimeLines.slice(0, 1),
     imports,
     "",

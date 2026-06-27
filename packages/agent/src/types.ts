@@ -255,7 +255,7 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
   url?: string
 }
 
-export type AgentChatWebhookRegistrationDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+export type AgentChannelWebhookRegistrationDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Omit<AgentWebhookRegistrationDefinition<TRuntimeConfig>, "provider"> & { provider?: string }
 
 export interface AgentTriggerContext<
@@ -1085,7 +1085,7 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   route?: unknown
   triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, any, any, AgentChannelTriggerContext<TRuntimeConfig>>>
-  webhooks?: boolean | AgentChatWebhookRegistrationDefinition<TRuntimeConfig> | AgentChatWebhookRegistrationDefinition<TRuntimeConfig>[]
+  webhooks?: boolean | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig> | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>[]
   [key: string]: unknown
 }
 
@@ -1102,16 +1102,9 @@ export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
   identity?: IdentityResolver
   lifecycleHooks?: Record<string, unknown>
   platforms?: AgentChatPlatformsResolver<TRuntimeConfig>
-  webhooks?: Record<string, false | AgentChatWebhookRegistrationDefinition<TRuntimeConfig> | AgentChatWebhookRegistrationDefinition<TRuntimeConfig>[]>
+  webhooks?: Record<string, false | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig> | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>[]>
   workflow?: never
   [key: string]: unknown
-}
-
-export type AgentRequestBody<CALL_OPTIONS = never> = {
-  messages?: Message[]
-  options?: CALL_OPTIONS
-  prompt?: string | Message[]
-  stream?: boolean
 }
 
 export type AgentToolPolicyDecision = "allow" | "deny" | "require-approval" | "retryable-failure"

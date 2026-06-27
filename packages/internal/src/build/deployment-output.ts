@@ -143,6 +143,10 @@ async function deleteJsonObjectKeysFromFile(file: string, keys: string[] | undef
     }
   }
   if (!changed) return
+  if (!Object.keys(next).length) {
+    await rm(file, { force: true })
+    return
+  }
   await writeFile(file, `${JSON.stringify(next, null, 2)}\n`, "utf8")
 }
 

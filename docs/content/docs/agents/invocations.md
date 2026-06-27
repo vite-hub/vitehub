@@ -21,7 +21,11 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<{ prompt: string }>(event)
   const user = await requireAuthenticatedUser(event)
 
-  return runAgent(support, { runtime: 'unknown' }, {
+  return runAgent(support, {
+    memo: (_key, create) => create(),
+    runtime: 'unknown',
+    waitUntil: task => { void task.catch(() => {}) },
+  }, {
     prompt: body.prompt,
     context: {
       invoker: {
@@ -48,7 +52,11 @@ import support from '../agents/support'
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ prompt: string }>(event)
 
-  return streamAgent(support, { runtime: 'unknown' }, {
+  return streamAgent(support, {
+    memo: (_key, create) => create(),
+    runtime: 'unknown',
+    waitUntil: task => { void task.catch(() => {}) },
+  }, {
     prompt: body.prompt,
   }, {
     output: 'ui-message-stream',
@@ -70,7 +78,11 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<{ text: string }>(event)
   const runId = crypto.randomUUID()
 
-  return streamAgentTrigger(support, { runtime: 'unknown' }, 'chat.message', {
+  return streamAgentTrigger(support, {
+    memo: (_key, create) => create(),
+    runtime: 'unknown',
+    waitUntil: task => { void task.catch(() => {}) },
+  }, 'chat.message', {
     messages: [{
       id: runId,
       parts: [{ text: body.text, type: 'text' }],

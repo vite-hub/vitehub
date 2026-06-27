@@ -80,8 +80,13 @@ function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]):
   return store.provider === "cloudflare-artifacts" || store.provider === "github"
 }
 
+function hasNitroPlugin(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasNitroPlugin)
+  return isRecord(value) && typeof value.name === "string" && value.name.startsWith("nitro:")
+}
+
 function hasNitroConfig(config: UserConfig): boolean {
-  return "nitro" in config
+  return "nitro" in config || hasNitroPlugin(config.plugins)
 }
 
 function hasExplicitWorkspaceRuntimeOptions(options: false | WorkspaceModuleOptions | undefined): boolean {
@@ -130,9 +135,9 @@ function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptio
   return [
     ...runtimeImports,
     `import registry from ${JSON.stringify(registryImport)}`,
-    "import { definePlugin } from 'nitro'",
+    "import { defineNitroPlugin } from 'nitropack/runtime'",
     "",
-    "export default definePlugin(() => {",
+    "export default defineNitroPlugin(() => {",
     "  setWorkspaceRuntimeRegistry(registry)",
     ...runtimeSetup,
     "})",
@@ -160,10 +165,13 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
     hosting: options.hosting ?? process.env.VITEHUB_HOSTING,
     rootDir: roots.projectRoot,
   })
-  if (!normalized || !isHostedWorkspaceStore(normalized.store)) return null
+  if (!normalized) return null
 
   const definitions = discoverDefinitions(roots)
-  await writeNitroWorkspacePlugin(roots.projectRoot, normalized, definitions)
+  if (!isHostedWorkspaceStore(normalized.store) && !hasExplicitWorkspaceRuntimeOptions(workspaceOptions) && definitions.length === 0) return null
+
+  const runtimeConfig = shouldConfigureRuntime(workspaceOptions, normalized) ? normalized : false
+  await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, definitions)
   return mergeNitroWorkspaceConfig(options.nitro)
 }
 
