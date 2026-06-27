@@ -23,6 +23,7 @@ describe("types", () => {
 
   it("exposes drizzle types when the virtual ambient module entry is loaded", () => {
     expectTypeOf<DrizzleModule["schema"]>().toMatchTypeOf<Record<string, unknown>>()
+    expectTypeOf<DrizzleModule["schema"]["notes"]>().toEqualTypeOf<unknown>()
     expectTypeOf<DrizzleModule["databases"]["default"]["schema"]>().toMatchTypeOf<DrizzleModule["schema"]>()
     expectTypeOf<DrizzleModule["db"]>().toMatchTypeOf<DrizzleModule["databases"]["default"]["db"]>()
   })
