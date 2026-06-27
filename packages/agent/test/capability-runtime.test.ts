@@ -239,6 +239,7 @@ describe("agent capability runtime", () => {
     expect(Object.keys(resolved.tools || {})).toEqual(["portal"])
     expect(resolved.tools?.portal?.description).toContain("`purchase-orders list --json`")
     expect(resolved.tools?.portal?.description).not.toContain("`portal purchase-orders list --json`")
+    expect((resolved.tools?.portal?.inputSchema as { properties: { input: unknown } }).properties.input).toEqual({})
 
     await expect(resolved.tools?.portal?.execute?.({
       argv: ["purchase-orders", "list", "--json"],
@@ -251,6 +252,38 @@ describe("agent capability runtime", () => {
       json: { count: 3, json: true },
       stdout: "{\n  \"count\": 3,\n  \"json\": true\n}\n",
     })
+  })
+
+  it("merges generated Capability CLI guidance with imperative capability instructions", async () => {
+    const {
+      applyCapabilityInstructionSlots,
+      defineCapability,
+      resolveAgentCapabilities,
+    } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              list: {
+                run: () => "ok",
+              },
+            },
+            name: "portal",
+          },
+          id: "portal-runtime",
+          resolve(context) {
+            context.instructions.add("Use Portal only for runtime data.")
+          },
+        }),
+      ],
+    }, runtime(), {})
+
+    expect(resolved.capabilityInstructions).toHaveLength(1)
+    const instructions = applyCapabilityInstructionSlots("{{ capabilities.portal-runtime }}", resolved.capabilityInstructions)
+    expect(instructions).toContain("Use Portal only for runtime data.")
+    expect(instructions).toContain("## Capability CLI: portal")
   })
 
   it("rejects invalid Capability CLI output formats", async () => {

@@ -364,7 +364,7 @@ export function createCapabilityCliTool<
         additionalProperties: false,
         properties: {
           argv: { items: { type: "string" }, type: "array" },
-          input: { type: "object" },
+          input: {},
           json: { type: "boolean" },
         },
         required: ["argv"],

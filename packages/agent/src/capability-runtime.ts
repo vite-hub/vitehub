@@ -263,7 +263,7 @@ function addInstructionBlock(
   capabilityInstructions: AgentInstructionBlock[],
   capabilityId: string,
   value: AgentAdapterInstructionsValue | false | undefined,
-  options?: { id?: string },
+  options?: { id?: string, merge?: boolean },
 ) {
   if (value === false || value === undefined) return
   const instructions = (Array.isArray(value) ? value : [value])
@@ -272,7 +272,12 @@ function addInstructionBlock(
     .join("\n\n")
   if (instructions) {
     const id = capabilityInstructionBlockId(options?.id || capabilityId)
-    if (capabilityInstructions.some(block => block.id === id)) {
+    const existing = capabilityInstructions.find(block => block.id === id)
+    if (existing && options?.merge) {
+      existing.instructions = `${existing.instructions}\n\n${instructions}`
+      return
+    }
+    if (existing) {
       throw new Error(`[vitehub] Duplicate capability instruction block "${id}".`)
     }
     capabilityInstructions.push({
@@ -754,7 +759,7 @@ export async function resolveAgentCapabilities<
   function addCapabilityInstructionContribution(
     capabilityId: string,
     value: AgentAdapterInstructionsValue | false | undefined,
-    options?: { id?: string },
+    options?: { id?: string, merge?: boolean },
   ) {
     const before = capabilityInstructions.length
     addInstructionBlock(capabilityInstructions, capabilityId, value, options)
@@ -1033,7 +1038,9 @@ export async function resolveAgentCapabilities<
         const cliInstructions = capability.cli && driverKind !== "harness"
           ? renderCapabilityCliInstructions(capability.id, capability.cli)
           : undefined
-        addCapabilityInstructionContribution(capability.id, compactInstructionValues([...values, cliInstructions]))
+        addCapabilityInstructionContribution(capability.id, compactInstructionValues([...values, cliInstructions]), {
+          merge: Boolean(cliInstructions),
+        })
       }
       if (invocationOptions.resolveTools !== false && capability.cli && driverKind !== "harness") {
         const resolved = createCapabilityCliTool(capability, context)
