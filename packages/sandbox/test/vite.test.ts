@@ -1,10 +1,22 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
+import type { AliasOptions } from "vite"
 
 const tempDirs: string[] = []
+
+function readAlias(alias: AliasOptions | undefined, id: string) {
+  if (Array.isArray(alias)) {
+    return alias.find((entry) => {
+      if (typeof entry.find === "string") return entry.find === id
+      return entry.find.test(id)
+    })?.replacement
+  }
+
+  return (alias as Record<string, string> | undefined)?.[id]
+}
 
 async function createViteRoot() {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-sandbox-vite-"))
@@ -52,13 +64,28 @@ describe("hubSandbox", () => {
 
     expect(code).toContain('"feature": "sandbox"')
     expect(code).toContain('"provider": "vercel"')
-    expect(configResult).toEqual({
-      resolve: {
-        alias: {
-          "vitehub-sandbox-provider-loader": expect.stringContaining("runtime/provider-loader"),
-        },
-      },
-    })
+    const alias = (configResult as { resolve: { alias: AliasOptions } }).resolve.alias
+    const sandboxAlias = readAlias(alias, "@vite-hub/sandbox")!
+    const registryAlias = readAlias(alias, "#vitehub-sandbox-registry")!
+    const providerLoaderAlias = readAlias(alias, "vitehub-sandbox-provider-loader")!
+
+    expect(sandboxAlias).toContain(".vitehub/sandbox/runtime/sandbox.mjs")
+    expect(registryAlias).toContain(".vitehub/sandbox/runtime/sandbox-registry.mjs")
+    expect(providerLoaderAlias).toContain(".vitehub/sandbox/runtime/sandbox-provider-loader.mjs")
+    expect(readAlias(alias, "@vite-hub/sandbox/runtime/state")).toBeUndefined()
+    expect(readAlias(alias, "@vite-hub/sandbox/runtime/provider-loader")).toContain(".vitehub/sandbox/runtime/sandbox-provider-loader.mjs")
+
+    const [facade, registry, providerLoader] = await Promise.all([
+      readFile(sandboxAlias, "utf8"),
+      readFile(registryAlias, "utf8"),
+      readFile(providerLoaderAlias, "utf8"),
+    ])
+    expect(facade).toContain("setSandboxRuntimeConfig")
+    expect(facade).toContain("setSandboxRuntimeRegistry(sandboxRegistry)")
+    expect(facade).toContain("export * from")
+    expect(registry).toContain('"tools/release-notes"')
+    expect(providerLoader).toContain("createVercelSandboxClient")
+    expect(providerLoader).not.toContain("import('./providers/vercel.js')")
   })
 
   it("accepts direct integration options", async () => {
@@ -139,9 +166,12 @@ describe("hubSandbox", () => {
         __VITEHUB_ENVIRONMENT_SANDBOX__: "\"rsc\"",
       },
       resolve: {
-        alias: {
-          "vitehub-sandbox-provider-loader": expect.stringContaining("runtime/provider-loader"),
-        },
+        alias: expect.arrayContaining([
+          expect.objectContaining({
+            find: "vitehub-sandbox-provider-loader",
+            replacement: expect.stringContaining("runtime/provider-loader"),
+          }),
+        ]),
         noExternal: ["@vite-hub/sandbox"],
       },
     })
