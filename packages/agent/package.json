@@ -131,6 +131,7 @@
     "@vite-hub/workspace": "workspace:*",
     "@vitejs/devtools-kit": "catalog:vite",
     "chat": "catalog:chat",
+    "comark": "catalog:ui",
     "esbuild": "catalog:esbuild-v27",
     "evalite": "catalog:ai",
     "hookable": "catalog:unjs",
