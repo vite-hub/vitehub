@@ -13,6 +13,8 @@ import type { Plugin } from "vite"
 const RESOLVED_KV_VIRTUAL_CONFIG_ID = `\0${KV_VIRTUAL_CONFIG_ID}`
 const KV_RUNTIME_ID = "#vitehub/kv/runtime"
 const RESOLVED_KV_RUNTIME_ID = `\0${KV_RUNTIME_ID}`
+const UNSTORAGE_IMPORT_ID = import.meta.resolve("unstorage")
+const CLOUDFLARE_KV_DRIVER_IMPORT_ID = import.meta.resolve("unstorage/drivers/cloudflare-kv-binding")
 const mergeNoExternal = createNoExternalMerger("@vite-hub/kv")
 
 export { KV_VIRTUAL_CONFIG_ID, KV_VITE_PLUGIN_NAME, resolveKVViteConfig }
@@ -39,8 +41,8 @@ function isCloudflareKVConfig(kv: KVViteRuntimeConfig["kv"]): kv is ResolvedKVMo
 
 function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
   return [
-    `import { createStorage } from "unstorage";`,
-    `import createDriver from "unstorage/drivers/cloudflare-kv-binding";`,
+    `import { createStorage } from ${JSON.stringify(UNSTORAGE_IMPORT_ID)};`,
+    `import createDriver from ${JSON.stringify(CLOUDFLARE_KV_DRIVER_IMPORT_ID)};`,
     "",
     `const kvConfig = ${JSON.stringify(config, null, 2)}`,
     "const storages = new Map();",
