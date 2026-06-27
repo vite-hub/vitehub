@@ -71,9 +71,6 @@
       "@vite-hub/workspace/*": [
         "packages/workspace/src/*"
       ],
-      "@vite-hub/workspace/internal/runtime/state": [
-        "packages/workspace/src/runtime/state.ts"
-      ],
       "@vite-hub/workflow": [
         "packages/workflow/src/index.ts"
       ],

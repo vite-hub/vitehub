@@ -2,7 +2,7 @@ import type {
   AgentChannels,
   AgentChatOptions,
   AgentChatPlatformResolver,
-  AgentChatWebhookRegistrationDefinition,
+  AgentChannelWebhookRegistrationDefinition,
   AgentMessageChannelSettings,
   AgentRuntimeConfig,
 } from "../types.ts"
@@ -10,12 +10,12 @@ import type {
 function withChannelWebhookProvider<TRuntimeConfig extends AgentRuntimeConfig>(
   channelId: string,
   kind: string,
-  input: AgentChatWebhookRegistrationDefinition<TRuntimeConfig> | AgentChatWebhookRegistrationDefinition<TRuntimeConfig>[],
-): AgentChatWebhookRegistrationDefinition<TRuntimeConfig> | AgentChatWebhookRegistrationDefinition<TRuntimeConfig>[] {
+  input: AgentChannelWebhookRegistrationDefinition<TRuntimeConfig> | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>[],
+): AgentChannelWebhookRegistrationDefinition<TRuntimeConfig> | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>[] {
   const apply = (
-    registration: AgentChatWebhookRegistrationDefinition<TRuntimeConfig>,
+    registration: AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>,
     id?: string,
-  ): AgentChatWebhookRegistrationDefinition<TRuntimeConfig> => ({
+  ): AgentChannelWebhookRegistrationDefinition<TRuntimeConfig> => ({
     ...registration,
     adapter: registration.adapter || channelId,
     channelId: registration.channelId || channelId,

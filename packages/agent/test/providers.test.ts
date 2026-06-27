@@ -177,7 +177,8 @@ describe("agent Vite plugin", () => {
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(wrapper).toContain("export default async function viteHubAgentNetlifyFunction(request, context)")
-      expect(wrapper).toContain("setWorkspaceRuntimeRegistry } from \"@vite-hub/agent/server\"")
+      expect(wrapper).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from \"@vite-hub/agent/server\"")
+      expect(wrapper).toContain("import { setWorkspaceRuntimeRegistry } from \"@vite-hub/agent/server/workspace\"")
       expect(wrapper).not.toContain("@vite-hub/workspace/internal/runtime/state")
       expect(wrapper).toContain("process.env.VITEHUB_HOSTING = 'netlify'")
       expect(wrapper).toContain("const waitUntil = waitUntilFromContext(context)")
@@ -508,7 +509,7 @@ describe("agent Vite plugin", () => {
 
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
 
-      expect(denoServer).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from \"@vite-hub/agent/server/routes\"")
+      expect(denoServer).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from \"@vite-hub/agent/server\"")
       expect(denoServer).not.toContain("import { setWorkspaceRuntimeRegistry } from \"@vite-hub/workspace/runtime\"")
       expect(denoServer).toContain("await import('../schedule/deno-cron.mjs').catch")
       expect(denoServer).toContain("const chatRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/chat$\")")
@@ -649,17 +650,6 @@ describe("agent Vite plugin", () => {
     expect(builtJs).toContain("@vite-hub/workflow")
   })
 
-  it("publishes the route-only Agent server subpath", async () => {
-    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
-      exports?: Record<string, unknown>
-    }
-
-    expect(pkg.exports?.["./server/routes"]).toEqual({
-      types: "./dist/server/routes.d.ts",
-      import: "./dist/server/routes.js",
-    })
-  })
-
   it("publishes the Agent output helper subpath", async () => {
     const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
       exports?: Record<string, unknown>
@@ -681,7 +671,7 @@ describe("server helpers", () => {
 
     try {
       const { defineAgent } = await import("../src/index.ts")
-      const { registerWorkspaceAgent } = await import("../src/server.ts")
+      const { registerWorkspaceAgent } = await import("../src/server/workspace.ts")
       const { defineWorkspace, file, useWorkspace } = await import("@vite-hub/workspace")
       const agent = defineAgent({
         async run() {
@@ -719,7 +709,7 @@ describe("server helpers", () => {
 
     try {
       const { defineAgent } = await import("../src/index.ts")
-      const { registerWorkspaceAgent } = await import("../src/server.ts")
+      const { registerWorkspaceAgent } = await import("../src/server/workspace.ts")
       const { defineWorkspace, file, useWorkspace } = await import("@vite-hub/workspace")
       const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
       const workspaceName = "support-runtime-named-reference"
@@ -758,7 +748,7 @@ describe("server helpers", () => {
 
     try {
       const { defineAgent } = await import("../src/index.ts")
-      const { registerWorkspaceAgent } = await import("../src/server.ts")
+      const { registerWorkspaceAgent } = await import("../src/server/workspace.ts")
       const { defineWorkspace, file, useWorkspace } = await import("@vite-hub/workspace")
       const { registerWorkspace } = await import("@vite-hub/workspace/runtime")
       const workspaceName = "support-runtime-object-reference"

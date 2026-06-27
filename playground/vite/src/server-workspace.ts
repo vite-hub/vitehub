@@ -2,7 +2,7 @@ import { H3, getQuery, readValidatedBody } from "h3"
 import * as v from "valibot"
 
 import { useWorkspace } from "@vite-hub/workspace"
-import { getWorkspaceRuntimeConfig, resetWorkspaceStoreCache } from "@vite-hub/workspace/internal/runtime/state"
+import { getWorkspaceRuntimeConfig, resetWorkspaceStoreCache } from "@vite-hub/workspace/runtime"
 
 const app = new H3()
 const writeBody = v.optional(v.object({

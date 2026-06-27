@@ -1033,7 +1033,7 @@ describe("agent message protocol", () => {
 
   it("shares named workspace references across subagent runAgent calls", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
-    const { registerWorkspaceAgent } = await import("../src/server.ts")
+    const { registerWorkspaceAgent } = await import("../src/server/workspace.ts")
     const workspaceName = `shared-agent-workspace-${Math.random().toString(36).slice(2)}`
     const summaryAgent = defineAgent({
       workspace: { name: workspaceName, mode: "write" },
