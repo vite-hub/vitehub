@@ -83,7 +83,11 @@ async function expandImportNodes(
   options: ResolveInstructionImportsOptions & { maxDepth: number, seen: Set<string> },
   depth: number,
 ): Promise<ComarkNode[]> {
-  return (await Promise.all(nodes.map(node => expandImportNode(node, options, depth)))).flat()
+  const expanded: ComarkNode[] = []
+  for (const node of nodes) {
+    expanded.push(...await expandImportNode(node, options, depth))
+  }
+  return expanded
 }
 
 async function expandImportNode(
@@ -143,7 +147,7 @@ async function importReplacement(
   }
   options.seen.add(resolved.file)
   try {
-    return `${await expandInstructionImports(resolved.content, { ...options, file: resolved.file }, depth + 1)}${trailing}`
+    return `${await expandInstructionImports(normalizeConditionShorthand(resolved.content), { ...options, file: resolved.file }, depth + 1)}${trailing}`
   }
   finally {
     options.seen.delete(resolved.file)
@@ -252,6 +256,9 @@ function conditionalBranches(node: ComarkElement): { after: ComarkNode[], branch
   const after: ComarkNode[] = []
   while (current) {
     const [tag, attrs, ...children] = current
+    if (tag === "else" && Object.keys(attrs).length) {
+      throw new Error("[vitehub] Instruction else block does not accept a condition.")
+    }
     const expression = tag === "else" ? undefined : conditionExpressionFromAttrs(attrs, tag)
     const nextIndex = children.findIndex(child => isElement(child) && (child[0] === "else-if" || child[0] === "else"))
     branches.push({

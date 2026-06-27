@@ -49,6 +49,29 @@ describe("instruction composition", () => {
     ].join("\n"))
   })
 
+  it("allows sibling imports to reuse the same file", async () => {
+    const files = new Map([["/agent/shared.md", "Shared"]])
+
+    expect(await resolveInstructionImports([
+      "@./shared.md",
+      "",
+      "@./shared.md",
+    ].join("\n"), {
+      file: "/agent/instructions.md",
+      read: importReader(files),
+    })).toBe("Shared\n\nShared")
+  })
+
+  it("normalizes shorthand conditions from imported documents", async () => {
+    const files = new Map([["/agent/policy.md", "::if{context.enabled}\nEnabled\n::"]])
+    const imported = await resolveInstructionImports("@./policy.md", {
+      file: "/agent/instructions.md",
+      read: importReader(files),
+    })
+
+    expect(await composeInstructionDocument(imported, { context: { enabled: true } })).toBe("Enabled")
+  })
+
   it("renders condition chains and context bindings without executing JavaScript", async () => {
     const document = [
       "Hello {{ context.customerName }}.",
@@ -159,6 +182,8 @@ describe("instruction composition", () => {
       .rejects.toThrow("Unsafe instruction condition")
     await expect(composeInstructionDocument("{{ context.customer }}", { context: { customer: { name: "Acme" } } }))
       .rejects.toThrow("must resolve to a scalar")
+    await expect(composeInstructionDocument("::if{context.enabled}\nEnabled\n::else{condition=\"context.admin\"}\nFallback\n::"))
+      .rejects.toThrow("else block does not accept a condition")
     await expect(resolveInstructionImports("@https://example.com/policy.md", {
       file: "/agent/instructions.md",
       read: importReader(new Map()),
