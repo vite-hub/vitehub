@@ -56,4 +56,17 @@ describe("hubKv", () => {
     expect(code).toContain("export const kv =")
     expect(code).toContain(".virtual/kv")
   })
+
+  it("anchors generated Cloudflare runtime imports to the KV package", async () => {
+    const { hubKv } = await import("../src/vite.ts")
+    const plugin = hubKv({ binding: "KV", driver: "cloudflare-kv-binding" })
+    const resolveId = plugin.resolveId as unknown as (id: string) => string | undefined | Promise<string | undefined>
+    const load = plugin.load as unknown as (id: string) => string | undefined | Promise<string | undefined>
+    const resolvedId = await resolveId("@vite-hub/kv")
+    const code = await load(resolvedId!)
+
+    expect(code).not.toContain(`from "unstorage"`)
+    expect(code).not.toContain(`from "unstorage/drivers/cloudflare-kv-binding"`)
+    expect(code).toContain("cloudflare-kv-binding")
+  })
 })
