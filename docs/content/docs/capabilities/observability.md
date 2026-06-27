@@ -38,8 +38,9 @@ It provides an `observability` finish extension with `{ status, durationMs, resu
 Agent Evals and the Agent test runner capture this finish extension automatically.
 
 `observability()` enables `usageTelemetry()` by default.
-When usage is reported by the Agent Driver or custom result, `observability.usage` points at the same Agent Usage Record exposed through the `usage-telemetry` finish extension and final `result.usageRecord`.
+When enabled usage telemetry records usage from the Agent Driver or custom result, `observability.usage` points at the same Agent Usage Record exposed through the `usage-telemetry` finish extension and final `result.usageRecord`.
 Use `observability({ usageTelemetry: false })` to opt out.
+With that opt-out, a custom `result.usageRecord` can still stay on the result, but `observability.usage` is not populated.
 
 If an Agent also lists `usageTelemetry(...)` in `capabilities`, that explicit configuration wins.
 This keeps usage telemetry independent while letting observability carry the same usage record in its metadata.
@@ -72,7 +73,7 @@ For custom checks, read `observation.extensions.get('observability')` or `t.capa
 | --- | --- |
 | Model-backed | Supports model instrumentation, lifecycle events, finish extensions, and usage records when the model result reports usage. |
 | Harness-backed | Supports lifecycle events, finish extensions, and usage records when the harness reports usage; instrumentation applies only to model-backed execution. |
-| Custom-run-backed | Supports lifecycle events, finish extensions, and usage records around the custom result. |
+| Custom-run-backed | Supports lifecycle events, finish extensions, and usage records when usage telemetry is enabled and the custom result reports usage. |
 
 ## Options
 
