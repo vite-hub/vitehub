@@ -5,6 +5,7 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
+import { build as bundle } from "esbuild"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 
@@ -239,6 +240,32 @@ describe("Vite provider outputs", () => {
 
     await expect(readFile(join(rootDir, "dist", toSafeAppName(rootDir), "index.js"), "utf8")).resolves.toBe("existing cloudflare output\n")
     await expect(readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")).resolves.toBe("existing vercel output\n")
+  })
+
+  it("loads the fs driver from bundled SSR output", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-bundled-fs-")
+    const entryFile = join(rootDir, "entry.ts")
+    const bundleFile = join(rootDir, "server.mjs")
+
+    await writeFile(entryFile, [
+      `import { blob } from ${JSON.stringify(resolve(import.meta.dirname, "../src/index.ts"))}`,
+      "await blob.put('proof.txt', 'ok')",
+      "console.log(await (await blob.get('proof.txt'))?.text())",
+      "",
+    ].join("\n"), "utf8")
+
+    await bundle({
+      bundle: true,
+      entryPoints: [entryFile],
+      format: "esm",
+      logLevel: "silent",
+      outfile: bundleFile,
+      platform: "node",
+      target: "es2022",
+    })
+
+    const { stdout } = await execFileAsync(process.execPath, [bundleFile], { cwd: rootDir })
+    expect(stdout.trim()).toBe("ok")
   })
 
   it("rehydrates masked Vercel tokens from generated runtime output", async () => {
