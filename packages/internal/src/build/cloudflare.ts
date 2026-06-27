@@ -5,7 +5,7 @@ import { toSafeAppName } from "./user-entry.ts"
 
 export const defaultCloudflareCompatibilityDate = "2026-04-20"
 
-export interface CloudflareWranglerConfigOptions {
+interface CloudflareWranglerConfigOptions {
   outputRoot?: string
   rootDir: string
   wranglerConfig?: object
