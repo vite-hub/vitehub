@@ -3,7 +3,6 @@ import type { UserConfig } from "vite"
 import "../src/virtual.ts"
 
 import { describe, expectTypeOf, it } from "vitest"
-import type { SQLiteTable } from "drizzle-orm/sqlite-core"
 
 import type { DBModulePublicOptions } from "../src/index.ts"
 
@@ -23,7 +22,8 @@ describe("types", () => {
   })
 
   it("exposes drizzle types when the virtual ambient module entry is loaded", () => {
-    expectTypeOf<DrizzleModule["schema"]>().toMatchTypeOf<Record<string, SQLiteTable>>()
+    expectTypeOf<DrizzleModule["schema"]>().toMatchTypeOf<Record<string, unknown>>()
+    expectTypeOf<DrizzleModule["schema"]["notes"]>().toEqualTypeOf<unknown>()
     expectTypeOf<DrizzleModule["databases"]["default"]["schema"]>().toMatchTypeOf<DrizzleModule["schema"]>()
     expectTypeOf<DrizzleModule["db"]>().toMatchTypeOf<DrizzleModule["databases"]["default"]["db"]>()
   })

@@ -1,12 +1,12 @@
 declare module "#vitehub/database/schema" {
-  const schema: Record<string, import("drizzle-orm/sqlite-core").SQLiteTable>
+  const schema: Record<string, unknown>
   export default schema
 }
 
 declare module "#vitehub/database/databases" {
   const databases: Record<string, {
     config: import("./types.ts").ResolvedDrizzleDatabaseConfig
-    schema: Record<string, import("drizzle-orm/sqlite-core").SQLiteTable>
+    schema: Record<string, unknown>
   }>
   export default databases
 }

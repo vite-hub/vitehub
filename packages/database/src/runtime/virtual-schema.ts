@@ -1,6 +1,4 @@
-import type { SQLiteTable } from "drizzle-orm/sqlite-core"
-
-const schema: Record<string, SQLiteTable> = {}
+const schema: Record<string, unknown> = {}
 
 export { schema }
 export default schema

@@ -1,7 +1,7 @@
 import schema from "#vitehub/database/schema"
 import { databases as runtimeDatabases, db as runtimeDb } from "./runtime/drizzle-runtime.ts"
 
-import type { BaseSQLiteDatabase, SQLiteTable } from "drizzle-orm/sqlite-core"
+import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
 
 type DrizzleRuntimeDatabase<TSchema extends Record<string, unknown>> = BaseSQLiteDatabase<"async", unknown, TSchema>
 
@@ -10,7 +10,7 @@ export interface RuntimeDatabaseEntry<TSchema extends Record<string, unknown>> {
   schema: TSchema
 }
 
-export const databases = runtimeDatabases as Record<string, RuntimeDatabaseEntry<Record<string, SQLiteTable>>> & {
+export const databases = runtimeDatabases as Record<string, RuntimeDatabaseEntry<Record<string, unknown>>> & {
   default: RuntimeDatabaseEntry<typeof schema>
 }
 
