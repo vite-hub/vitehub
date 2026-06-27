@@ -27,6 +27,7 @@ export interface HarnessWorkspaceSession {
 
 export interface PrepareHarnessWorkspaceSessionOptions {
   abortSignal?: AbortSignal
+  ignoreWriteBackPaths?: readonly string[]
   paths?: readonly string[]
   session: HarnessSandboxSession
   sessionWorkDir: string
@@ -317,6 +318,7 @@ async function copySandboxChangesToWorkspace(
   sessionWorkDir: string,
   initialTree: InitialTree,
   abortSignal: AbortSignal | undefined,
+  ignoreWriteBackPaths: Set<string>,
 ) {
   if (!sandbox.readBinaryFile) {
     throw new Error("[vitehub] Harness Workspace Session write mode requires sandbox.readBinaryFile.")
@@ -325,6 +327,7 @@ async function copySandboxChangesToWorkspace(
   const sandboxDirectories = await listSandboxPaths(sandbox, sessionWorkDir, "d", abortSignal)
   const sandboxFiles = await listSandboxPaths(sandbox, sessionWorkDir, "f", abortSignal)
   for (const path of initialTree.files.keys()) {
+    if (ignoreWriteBackPaths.has(path)) continue
     if (!sandboxFiles.has(path)) await session.rm(path, { force: true })
   }
   for (const path of [...initialTree.directories].sort((left, right) => right.length - left.length)) {
@@ -334,6 +337,7 @@ async function copySandboxChangesToWorkspace(
     await session.mkdir(path, { recursive: true } satisfies MkdirOptions)
   }
   for (const path of sandboxFiles) {
+    if (ignoreWriteBackPaths.has(path)) continue
     const content = await sandbox.readBinaryFile({
       abortSignal,
       path: sandboxPath(sessionWorkDir, path),
@@ -354,6 +358,7 @@ export async function prepareHarnessWorkspaceSession(
   options: PrepareHarnessWorkspaceSessionOptions,
 ): Promise<HarnessWorkspaceSession> {
   const paths = normalizeSessionPaths(options.paths)
+  const ignoreWriteBackPaths = new Set((options.ignoreWriteBackPaths || []).map(normalizeHarnessWorkspacePath))
   const initialTree = await copyWorkspaceToSandbox(workspace, options.session, options.sessionWorkDir, options.abortSignal, paths)
   const sessionOptions: WorkspaceSessionOptions | undefined = paths ? { paths } : undefined
   const workspaceSession = isWritableWorkspaceFacade(workspace) && (paths === undefined || paths.length)
@@ -370,6 +375,7 @@ export async function prepareHarnessWorkspaceSession(
             options.sessionWorkDir,
             initialTree,
             options.abortSignal,
+            ignoreWriteBackPaths,
           )
         }
       }

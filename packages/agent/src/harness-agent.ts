@@ -42,8 +42,13 @@ type HarnessAgentSessionLike = {
   detach?: () => MaybePromise<unknown>
 }
 
+type HarnessInstructionSandbox = {
+  writeBinaryFile(options: { abortSignal?: AbortSignal, content: Uint8Array, path: string }): MaybePromise<void>
+}
+
 type HarnessAgentConstructor = new (settings: Record<string, unknown>) => HarnessAgentLike
 const harnessResumeStates = new WeakMap<object, Map<string, unknown>>()
+const harnessInstructionFiles = ["AGENTS.md", "CLAUDE.md"] as const
 
 interface HarnessAgentAdapterOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -161,13 +166,17 @@ function selectedWorkspaceScopePaths(context: AgentAdapterRunContext): string[] 
   return paths.length ? paths : []
 }
 
-function toHarnessCallInput(context: AgentAdapterRunContext) {
+function composeHarnessInstructions(content: string, context: AgentAdapterRunContext) {
   const compositionContext = { context: context.context.toJSON() }
-  const baseInstructions = composeInstructionDocument(context.instructions || "", compositionContext)
-  const instructions = composeInstructionDocument(applyWorkspaceSourceInstructionSlot(
+  const baseInstructions = composeInstructionDocument(content, compositionContext)
+  return composeInstructionDocument(applyWorkspaceSourceInstructionSlot(
     applyCapabilityInstructionSlots(baseInstructions, context.capabilityInstructions),
     context.sourceInstructions,
   ), compositionContext)
+}
+
+function toHarnessCallInput(context: AgentAdapterRunContext) {
+  const instructions = composeHarnessInstructions(context.instructions || "", context)
   const base = {
     abortSignal: context.input.abortSignal,
     ...(instructions ? { instructions } : {}),
@@ -258,6 +267,32 @@ async function resolveHarnessSandbox<
     return await sandbox(toRunCallbackContext(context)) ?? await createDefaultHarnessSandbox()
   }
   return sandbox ?? await createDefaultHarnessSandbox()
+}
+
+async function readHarnessInstructionDocument(context: AgentAdapterRunContext): Promise<string | undefined> {
+  if (!context.workspace) return
+  if (!await context.workspace.fs.exists("AGENTS.md")) return
+  return await context.workspace.fs.readFile("AGENTS.md")
+}
+
+async function writeHarnessInstructionFiles(
+  context: AgentAdapterRunContext,
+  session: HarnessInstructionSandbox,
+  sessionWorkDir: string,
+  abortSignal: AbortSignal | undefined,
+) {
+  const content = await readHarnessInstructionDocument(context)
+  const instructions = content ? composeHarnessInstructions(content, context) : undefined
+  if (!instructions) return
+
+  const bytes = new TextEncoder().encode(`${instructions}\n`)
+  await Promise.all(harnessInstructionFiles.map(async file => {
+    await session.writeBinaryFile({
+      abortSignal,
+      content: bytes,
+      path: `${sessionWorkDir.replace(/\/+$/, "")}/${file}`,
+    })
+  }))
 }
 
 async function resolveHarness<
@@ -490,10 +525,12 @@ export function createHarnessAgentAdapter<
       const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
       workspaceSession = await prepareHarnessWorkspaceSession(context.workspace, {
         abortSignal,
+        ignoreWriteBackPaths: harnessInstructionFiles,
         paths: selectedWorkspaceScopePaths(context),
         session: session as never,
         sessionWorkDir,
       })
+      await writeHarnessInstructionFiles(context, session as HarnessInstructionSandbox, sessionWorkDir, abortSignal)
     })
     return {
       agent,
