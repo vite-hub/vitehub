@@ -126,6 +126,12 @@ function materializesCompleteSource(source: ResolvedWorkspaceSource, options: Wo
   return !requested || Boolean(source.mountPath && pathContains(requested, source.mountPath))
 }
 
+function shouldMaterializeSource(source: ResolvedWorkspaceSource, options: WorkspaceMaterializeSourcesOptions | undefined) {
+  if (source.requestOnly || !sourcePathMatches("", source, options)) return false
+  if (source.materialize === "lazy") return true
+  return source.materialize === "build" && Boolean(options?.path)
+}
+
 function parentDirectoryPaths(path: string) {
   const parts = normalizeWorkspacePath(path).split("/").filter(Boolean)
   const paths: string[] = []
@@ -251,7 +257,7 @@ export async function materializeWorkspaceSources(
   options: WorkspaceMaterializeSourcesOptions = {},
 ): Promise<WorkspaceMaterializeSourcesResult> {
   const started = Date.now()
-  const sources = normalizeWorkspaceSources(definition.sources).filter(source => !source.requestOnly && source.materialize === "lazy" && sourcePathMatches("", source, options))
+  const sources = normalizeWorkspaceSources(definition.sources).filter(source => shouldMaterializeSource(source, options))
   const resultSources: WorkspaceSourceMaterializationStatus[] = []
   let files = 0
   let directories = 0

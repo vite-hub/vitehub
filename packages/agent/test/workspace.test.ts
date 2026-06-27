@@ -817,6 +817,48 @@ describe("defineAgent workspace option", () => {
     expect(harnessSession.destroy).toHaveBeenCalledOnce()
   })
 
+  it("passes custom build source probe paths into Harness Workspace Sessions", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { custom } = await import("@vite-hub/workspace")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+      workspace: {
+        sources: {
+          reviewSkills: custom({
+            materialize: "build",
+            mount: "skills",
+            probeKeys: ["SKILL.md", "review-browser-evidence/SKILL.md"],
+            async getKeys() {
+              return ["SKILL.md", "review-browser-evidence/SKILL.md"]
+            },
+            async getItem(key) {
+              return { content: "skill", key, mediaType: "text/markdown", path: key }
+            },
+          }),
+        },
+      },
+    }), { workspace: "review" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      paths: ["skills/SKILL.md", "skills/review-browser-evidence/SKILL.md"],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
+  })
+
   it("uses an unrestricted harness Workspace Session scope when no explicit paths are available", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const harnessWorkspaceSession = { close: vi.fn() }

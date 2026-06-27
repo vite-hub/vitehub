@@ -423,6 +423,7 @@ export interface WorkspaceSource {
   cache?: false | WorkspaceCacheOptions
   validate?: WorkspaceValidateMode
   sync?: WorkspaceSourceSyncConfig
+  probeKeys?: string[]
   fingerprint?: unknown
   instructions?: WorkspaceSourceInstructions
   resolve?: WorkspaceSourceResolver
@@ -446,7 +447,7 @@ export type WorkspaceSourceDefinition = WorkspaceSource | SourcePackageSource
 
 type WorkspaceSourceBindingOptions = Pick<
   WorkspaceSource,
-  "cache" | "instructions" | "materialize" | "mount" | "sync" | "validate"
+  "cache" | "instructions" | "materialize" | "mount" | "probeKeys" | "sync" | "validate"
 >
 
 export interface WorkspaceSourceBindingInput extends WorkspaceSourceBindingOptions {
