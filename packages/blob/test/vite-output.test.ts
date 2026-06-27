@@ -268,6 +268,36 @@ describe("Vite provider outputs", () => {
     expect(stdout.trim()).toBe("ok")
   })
 
+  it("statically reaches the Cloudflare R2 driver from bundled SSR output", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-bundled-r2-")
+    const entryFile = join(rootDir, "entry.ts")
+    const bundleFile = join(rootDir, "worker.mjs")
+
+    await writeFile(entryFile, [
+      `import { blob } from ${JSON.stringify(resolve(import.meta.dirname, "../src/index.ts"))}`,
+      `import { setBlobRuntimeConfig } from ${JSON.stringify(resolve(import.meta.dirname, "../src/runtime/state.ts"))}`,
+      "setBlobRuntimeConfig({ store: { binding: 'BLOB', driver: 'cloudflare-r2' } })",
+      "await blob.put('proof.txt', 'ok')",
+      "",
+    ].join("\n"), "utf8")
+
+    await bundle({
+      bundle: true,
+      entryPoints: [entryFile],
+      external: ["node:async_hooks"],
+      format: "esm",
+      logLevel: "silent",
+      outfile: bundleFile,
+      platform: "neutral",
+      target: "es2022",
+    })
+
+    const bundled = await readFile(bundleFile, "utf8")
+    expect(bundled).not.toContain("@vite-hub/blob/drivers/cloudflare")
+    expect(bundled).toContain("config.driver === \"cloudflare-r2\"")
+    expect(bundled).toContain("R2 binding")
+  })
+
   it("rehydrates masked Vercel tokens from generated runtime output", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-vercel-runtime-")
     await mkdir(join(rootDir, "src"), { recursive: true })
