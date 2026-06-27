@@ -823,11 +823,13 @@ describe("defineAgent workspace option", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
     tempRoots.push(sourceRootDir)
-    await writeLocalFile(join(sourceRootDir, "instructions.md"), "# Support\n\n{{ workspace.sources }}\n")
+    const document = "# Support\n\n@./policy.md\n\n{{ workspace.sources }}\n"
+    await writeLocalFile(join(sourceRootDir, "instructions.md"), document)
+    await writeLocalFile(join(sourceRootDir, "policy.md"), "Use imported policy.\n")
     const harnessWorkspaceSession = { close: vi.fn() }
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
     exists.mockResolvedValueOnce(true)
-    readFile.mockResolvedValueOnce("# Support\n\n{{ workspace.sources }}\n")
+    readFile.mockResolvedValueOnce(document)
 
     const agent = withAgentDefaults(defineAgent({
       driver: {
@@ -859,7 +861,7 @@ describe("defineAgent workspace option", () => {
       expect.objectContaining({ path: "/workspace/codex-session/AGENTS.md" }),
       expect.objectContaining({ path: "/workspace/codex-session/CLAUDE.md" }),
     ]))
-    expect(new TextDecoder().decode(writes[0]!.content)).toBe("# Support\n\n## Workspace Sources\n\n### docs\n\nUse docs for source-backed answers.\n")
+    expect(new TextDecoder().decode(writes[0]!.content)).toBe("# Support\n\nUse imported policy.\n\n## Workspace Sources\n\n### docs\n\nUse docs for source-backed answers.\n")
     expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
   })
 

@@ -646,11 +646,18 @@ function resolveInstructionImportFromFile(specifier: string, importer: string): 
   }
 }
 
-function resolveInstructionDocumentImports(content: string, file: string): string {
+export function resolveInstructionDocumentImports(content: string, file: string): string {
   return resolveInstructionImports(content, {
     file,
     read: resolveInstructionImportFromFile,
   })
+}
+
+export function resolveColocatedAgentInstructionDocument(content: string, sourceRootDir: string | undefined): string {
+  const fs = getNodeBuiltin<typeof import("node:fs")>("node:fs")
+  const path = getNodeBuiltin<typeof import("node:path")>("node:path")
+  if (!fs || !path || !sourceRootDir || !hasColocatedAgentInstructions(sourceRootDir)) return content
+  return resolveInstructionDocumentImports(content, path.join(sourceRootDir, colocatedAgentInstructionsPath))
 }
 
 function composeInstructions(content: string, context?: AgentInvocationContextStore): string {
@@ -919,7 +926,7 @@ function readColocatedAgentInstructions<
   const sourceRootDir = workspaceDefinitionFromOptions(options).sourceRootDir
   if (!fs || !path || !hasColocatedAgentInstructions(sourceRootDir)) return undefined
   const file = path.join(sourceRootDir!, colocatedAgentInstructionsPath)
-  const content = resolveInstructionDocumentImports(fs.readFileSync(file, "utf8"), file).trim()
+  const content = resolveColocatedAgentInstructionDocument(fs.readFileSync(file, "utf8"), sourceRootDir).trim()
   if (content) return content
 }
 
@@ -944,7 +951,7 @@ export async function resolveWorkspaceAgentDefaultInstructions<
   const path = getNodeBuiltin<typeof import("node:path")>("node:path")
   const sourceRootDir = definition.sourceRootDir
   if (fs && path && sourceRootDir && hasColocatedAgentInstructions(sourceRootDir)) {
-    return resolveInstructionDocumentImports(content, path.join(sourceRootDir, colocatedAgentInstructionsPath))
+    return resolveColocatedAgentInstructionDocument(content, sourceRootDir)
   }
   return content
 }

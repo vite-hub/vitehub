@@ -5,7 +5,7 @@ import {
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
 import { applyCapabilityInstructionSlots } from "./capability-runtime.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
-import { applyWorkspaceSourceInstructionSlot, colocatedAgentInstructionsSourceKey } from "./workspace-agent.ts"
+import { applyWorkspaceSourceInstructionSlot, colocatedAgentInstructionsSourceKey, resolveColocatedAgentInstructionDocument } from "./workspace-agent.ts"
 import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
@@ -282,7 +282,8 @@ async function resolveHarnessInstructions(context: AgentAdapterRunContext): Prom
   if (!hasHarnessInstructionDocument(context)) return
   if (!await context.workspace.fs.exists("AGENTS.md")) return
   const content = await context.workspace.fs.readFile("AGENTS.md")
-  return content ? composeHarnessInstructions(content, context) : undefined
+  const document = resolveColocatedAgentInstructionDocument(content, context.workspaceDefinition?.sourceRootDir)
+  return document ? composeHarnessInstructions(document, context) : undefined
 }
 
 async function writeHarnessInstructionFiles(
