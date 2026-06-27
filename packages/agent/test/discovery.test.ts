@@ -616,6 +616,62 @@ describe("agent chat capability discovery", () => {
     })
   })
 
+  it("bypasses output renderers for Capability CLI endpoint envelopes", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-cli-renderer-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const renderOutput = vi.fn(() => ({ wrapped: true }))
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              list: {
+                output: { format: "json" },
+                run: () => [{ id: "po_1" }],
+              },
+            },
+            name: "portal",
+          },
+          id: "portal-runtime",
+          output(context) {
+            context.output.render(renderOutput)
+          },
+        }),
+      ],
+      run: () => "chat fallback",
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      cli: {
+        argv: ["list", "--json"],
+        name: "portal",
+      },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({
+      argv: ["list", "--json"],
+      capability: "portal-runtime",
+      cli: "portal",
+      exitCode: 0,
+      json: [{ id: "po_1" }],
+      stdout: "[\n  {\n    \"id\": \"po_1\"\n  }\n]\n",
+    })
+    expect(renderOutput).not.toHaveBeenCalled()
+  })
+
   it("preserves handled Responses from Capability CLI invocations", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-cli-response-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

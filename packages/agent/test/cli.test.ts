@@ -175,6 +175,60 @@ describe("agent CLI", () => {
     })
   })
 
+  it("keeps payload diagnostics off stdout for Capability CLI commands", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-cli-payload-"))
+    try {
+      const payloadPath = join(rootDir, "payload.json")
+      await writeFile(payloadPath, JSON.stringify({ tenant: "portal" }), "utf8")
+      const stderr = stream()
+      const stdout = stream()
+      const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return Response.json({
+            argv: ["list", "--json"],
+            capability: "portal-runtime",
+            cli: "portal",
+            command: "portal list --json",
+            durationMs: 1,
+            exitCode: 0,
+            outputTruncated: false,
+            stderr: "",
+            stdout: "[]\n",
+          })
+        }
+        return Response.json({
+          agents: [{ name: "chat", triggers: ["chat.message"] }],
+          root: rootDir,
+        })
+      })
+
+      const exitCode = await runAgentDevCli(["--agent", "chat", "--payload", "payload.json", "--cli", "portal", "--", "list", "--json"], {
+        cwd: rootDir,
+        env: {},
+        rootDir,
+        spawn: vi.fn(),
+        stderr,
+        stdout,
+      }, { fetch: fetchAgentStream as never })
+
+      expect(exitCode).toBe(0)
+      expect(stdout.output()).toBe("[]\n")
+      expect(stderr.output()).toBe(`Loaded payload: ${payloadPath}\n`)
+      const post = fetchAgentStream.mock.calls.find(([, init]) => init?.method === "POST")
+      expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
+        agent: "chat",
+        cli: {
+          argv: ["list", "--json"],
+          name: "portal",
+        },
+        payload: { tenant: "portal" },
+      })
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("renders and clears the default Agent Dev Loop thinking fallback", async () => {
     const stderr = stream()
     const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {

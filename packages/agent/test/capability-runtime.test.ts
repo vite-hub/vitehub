@@ -237,6 +237,8 @@ describe("agent capability runtime", () => {
     expect(resolved.capabilityInstructions[0]?.instructions).toContain("portal purchase-orders list --json")
     expect(resolved.capabilityInstructions[0]?.instructions).toContain("instead of generic Bash")
     expect(Object.keys(resolved.tools || {})).toEqual(["portal"])
+    expect(resolved.tools?.portal?.description).toContain("`purchase-orders list --json`")
+    expect(resolved.tools?.portal?.description).not.toContain("`portal purchase-orders list --json`")
 
     await expect(resolved.tools?.portal?.execute?.({
       argv: ["purchase-orders", "list", "--json"],

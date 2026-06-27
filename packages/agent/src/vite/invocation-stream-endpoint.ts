@@ -397,7 +397,7 @@ async function runCapabilityCliWithTimeout(
     ...input,
     abortSignal: controller.signal,
     timeout,
-  }) as Promise<Response | AgentCapabilityCliExecutionResult>
+  }, { output: "raw" }) as Promise<Response | AgentCapabilityCliExecutionResult>
   if (timeout <= 0) return await run
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined

@@ -152,6 +152,11 @@ function firstExample(cliName: string, path: string[], command: AgentCapabilityC
   return example || `${cliName} ${path.join(" ")} --json`
 }
 
+function toolInputExample(cliName: string, path: string[], command: AgentCapabilityCliCommand): string {
+  const example = firstExample(cliName, path, command)
+  return example.startsWith(`${cliName} `) ? example.slice(cliName.length + 1) : example
+}
+
 export function renderCapabilityCliInstructions<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -354,7 +359,7 @@ export function createCapabilityCliTool<
   if (!cli) return
   return {
     [cli.name]: defineInternalTool<AgentCapabilityCliExecutionInput, AgentCapabilityCliExecutionResult>({
-      description: `Run the ${cli.name} Capability CLI. Use argv for subcommands, for example: ${commandLeaves(cli).map(({ command, path }) => `\`${firstExample(cli.name, path, command)}\``).join(", ")}.`,
+      description: `Run the ${cli.name} Capability CLI. Use argv for subcommands, for example: ${commandLeaves(cli).map(({ command, path }) => `\`${toolInputExample(cli.name, path, command)}\``).join(", ")}.`,
       inputSchema: {
         additionalProperties: false,
         properties: {

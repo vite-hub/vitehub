@@ -965,7 +965,8 @@ export async function runAgentDevCli(
     try {
       const loaded = await loadDevPayload(parsed.payloadPath, context.rootDir, context.cwd)
       parsed.payload = loaded.value
-      context.stdout.write(`Loaded payload: ${loaded.path}\n`)
+      const output = parsed.cli ? context.stderr : context.stdout
+      output.write(`Loaded payload: ${loaded.path}\n`)
     }
     catch (error) {
       context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)

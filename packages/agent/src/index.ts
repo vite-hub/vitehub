@@ -1075,6 +1075,10 @@ function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
     && !(syntheticWorkspaceRun in agent.run)
 }
 
+interface RunAgentInlineOptions {
+  output?: "raw" | "rendered"
+}
+
 type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -1759,7 +1763,9 @@ export async function runAgentInline<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
+  options: RunAgentInlineOptions = {},
 ): Promise<Response | AgentRunResult | unknown> {
+  const renderOutput = options.output !== "raw"
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const runContext = await createAgentInvocationContext(agent, context, input)
     runContext.close = once(runContext.close)
@@ -1776,7 +1782,7 @@ export async function runAgentInline<
     const outputExtensions = new Map<string, unknown>()
     let renderedResult = false
     try {
-      if (isAsyncIterable(result)) {
+      if (renderOutput && isAsyncIterable(result)) {
         result = await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
         renderedResult = true
       }
@@ -1785,8 +1791,10 @@ export async function runAgentInline<
       return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
     return await finalizeAgentInvocationResult(runContext, result, async (result) => {
-      const rendered = renderedResult ? result : await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
-      const final = await applyFinalOutputRenderers(rendered, runContext, outputExtensions)
+      const rendered = renderOutput
+        ? renderedResult ? result : await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
+        : result
+      const final = renderOutput ? await applyFinalOutputRenderers(rendered, runContext, outputExtensions) : rendered
       return { finishResult: final, value: final }
     }, "[vitehub] Agent run failed and finish lifecycle also failed.", {
       outputExtensions,
@@ -1810,9 +1818,9 @@ export async function runAgentInline<
   }
   return await finalizeAgentInvocationResult(adapterContext, result, async (result) => {
     const outputExtensions = new Map<string, unknown>()
-    const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions)
-    const final = await applyFinalOutputRenderers(rendered, adapterContext, outputExtensions)
-    const runResult = toAgentRunResult(final)
+    const rendered = renderOutput ? await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions) : result
+    const final = renderOutput ? await applyFinalOutputRenderers(rendered, adapterContext, outputExtensions) : rendered
+    const runResult = renderOutput ? toAgentRunResult(final) : final
     return { finishResult: final, value: runResult }
   }, "[vitehub] Agent run failed and finish lifecycle also failed.")
 }
