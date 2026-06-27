@@ -365,6 +365,44 @@ describe("Harness Workspace Session", () => {
     expect(workspaceSession.close).toHaveBeenCalledOnce()
   })
 
+  it("does not write ignored harness instruction files back to Workspace", async () => {
+    const workspaceSession = {
+      close: vi.fn(async () => {}),
+      commit: vi.fn(async () => {}),
+      diff: vi.fn(async () => ({
+        entries: [{ path: "summary.md", type: "added" }],
+        to: "next",
+      })),
+      mkdir: vi.fn(async () => {}),
+      rm: vi.fn(async () => {}),
+      writeFile: vi.fn(async () => {}),
+    }
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: {
+        list: vi.fn(async () => [{ mediaType: "text/markdown", path: "AGENTS.md", type: "file" }]),
+        readFile: vi.fn(async () => bytes("old instructions")),
+      },
+      startSession: vi.fn(async () => workspaceSession),
+      tools: {},
+    } as never, {
+      ignoreWriteBackPaths: ["AGENTS.md", "CLAUDE.md"],
+      session: {
+        readBinaryFile: vi.fn(async ({ path }: { path: string }) => bytes(path)),
+        run: sandboxRun(["AGENTS.md", "CLAUDE.md", "summary.md"]),
+        writeBinaryFile: vi.fn(async () => {}),
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    await session.close()
+
+    expect(workspaceSession.writeFile).toHaveBeenCalledWith("summary.md", bytes("/work/agent/summary.md"), { mediaType: "text/markdown" })
+    expect(workspaceSession.writeFile).not.toHaveBeenCalledWith("AGENTS.md", expect.anything(), expect.anything())
+    expect(workspaceSession.writeFile).not.toHaveBeenCalledWith("CLAUDE.md", expect.anything(), expect.anything())
+    expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
+  })
+
   it("commits generated files selected by missing Workspace Session paths", async () => {
     const workspace = createWorkspace({
       ...defineWorkspace({
