@@ -299,7 +299,7 @@ function toolHeader(name: string, input?: unknown, output?: unknown): string {
   const command = shellCommand(input) ?? shellCommand(output)
   if (command) return `[tool] ${command}`
 
-  const formattedInput = formatDevPayload(input)
+  const formattedInput = isRecord(input) && Object.keys(input).length === 0 ? undefined : formatDevPayload(input)
   return `[tool] ${name}${formattedInput ? ` ${formattedInput}` : ""}`
 }
 
@@ -716,7 +716,7 @@ async function sendDevMessage(
   const delayTextForPreview = Boolean(parsed.trigger && parsed.trigger !== "chat.message")
   let canWriteDelayedUsage = false
   const visibleTools = new Set<string>()
-  const pendingToolInputs = new Map<string, unknown>()
+  const visibleToolInputs = new Map<string, string | undefined>()
   const writeUsageNote = () => {
     if (delayTextForPreview && !canWriteDelayedUsage) return
     if (previewSeen) return
@@ -765,17 +765,17 @@ async function sendDevMessage(
       }
       if (event.type === "tool-call" || event.type === "tool-input-start") {
         clearPendingFallback()
-        if (event.type === "tool-input-start") {
-          if (event.input !== undefined) pendingToolInputs.set(event.id, event.input)
-          continue
-        }
-        if (event.input !== undefined) pendingToolInputs.set(event.id, event.input)
+        if (event.type === "tool-input-start" && event.input === undefined) continue
         if (!visibleTools.has(event.id)) {
-          const input = event.input !== undefined ? event.input : pendingToolInputs.get(event.id)
-          if (shellCommand(input)) {
-            visibleTools.add(event.id)
-            pendingToolInputs.delete(event.id)
-            context.stderr.write(`\n${toolHeader(event.name, input)}\n`)
+          visibleTools.add(event.id)
+          visibleToolInputs.set(event.id, formatDevPayload(event.input))
+          context.stderr.write(`\n${toolHeader(event.name, event.input)}\n`)
+        }
+        else if (event.input !== undefined && !shellCommand(event.input)) {
+          const formattedInput = formatDevPayload(event.input)
+          if (formattedInput !== visibleToolInputs.get(event.id)) {
+            visibleToolInputs.set(event.id, formattedInput)
+            writeDevPayload(context, "input", event.input)
           }
         }
         continue
@@ -784,10 +784,9 @@ async function sendDevMessage(
         clearPendingFallback()
         if (!visibleTools.has(event.id)) {
           visibleTools.add(event.id)
-          const pendingInput = pendingToolInputs.get(event.id)
-          context.stderr.write(`\n${toolHeader(event.name, pendingToolInputs.has(event.id) ? pendingInput : undefined, event.output)}\n`)
+          context.stderr.write(`\n${toolHeader(event.name, undefined, event.output)}\n`)
         }
-        pendingToolInputs.delete(event.id)
+        visibleToolInputs.delete(event.id)
         if (!writeShellOutput(context, event.output, event.error) && !writeToolTextOutput(context, event.output)) {
           writeDevPayload(context, "output", event.output)
           writeDevPayload(context, "error", event.error)

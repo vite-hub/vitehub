@@ -352,11 +352,17 @@ describe("agent CLI", () => {
           { id: "tool-5", input: {}, name: "mcp_nuxt_get_documentation_page", type: "tool-input-start" },
           { id: "tool-5", input: { path: "/docs/4.x/api/composables/use-lazy-fetch" }, name: "mcp_nuxt_get_documentation_page", type: "tool-call" },
           { id: "tool-5", name: "mcp_nuxt_get_documentation_page", output: { content: "useLazyFetch docs" }, type: "tool-result" },
+          { id: "tool-8", input: { command: "sleep 10" }, name: "shell", type: "tool-input-start" },
           { id: "tool-6", input: { query: "Agent Dev Loop" }, name: "search_docs", type: "tool-input-start" },
           { id: "tool-6", name: "search_docs", output: { text: "search result" }, type: "tool-result" },
           { id: "tool-7", input: {}, name: "lookup_doc", type: "tool-call" },
           { id: "tool-7", input: { slug: "final" }, name: "lookup_doc", type: "tool-call" },
           { id: "tool-7", name: "lookup_doc", output: { text: "lookup result" }, type: "tool-result" },
+          { id: "tool-9", input: { query: "first" }, name: "first_tool", type: "tool-call" },
+          { id: "tool-10", input: { query: "second" }, name: "second_tool", type: "tool-call" },
+          { id: "tool-10", name: "second_tool", output: { text: "second done" }, type: "tool-result" },
+          { id: "tool-9", name: "first_tool", output: { text: "first done" }, type: "tool-result" },
+          { id: "tool-11", input: { query: "still running" }, name: "unfinished_tool", type: "tool-call" },
           { id: "tool-2", name: "workspace_list", output: { path: "." }, type: "tool-result" },
           { id: "tool-3", name: "run_summary", output: { raw: { raw: { steps: longOutput } }, text: "summary body" }, type: "tool-result" },
           { text: "done", type: "text-delta" },
@@ -387,12 +393,17 @@ describe("agent CLI", () => {
     expect(stderr.output()).not.toContain("[tool] bash")
     expect(stderr.output()).not.toContain("[tool done]")
     expect(stderr.output()).not.toContain(`input: {"command":"cat file.md"}`)
-    expect(stderr.output()).toContain(`\n[tool] mcp_nuxt_get_documentation_page {"path":"/docs/4.x/api/composables/use-lazy-fetch"}\n`)
+    expect(stderr.output()).toContain(`\n[tool] mcp_nuxt_get_documentation_page\n  input: {"path":"/docs/4.x/api/composables/use-lazy-fetch"}\n`)
     expect(stderr.output()).toContain(`output: {"content":"useLazyFetch docs"}`)
-    expect(stderr.output()).not.toContain(`input: {"path":"/docs/4.x/api/composables/use-lazy-fetch"}`)
+    expect(stderr.output()).toContain(`\n[tool] sleep 10\n`)
     expect(stderr.output()).toContain(`\n[tool] search_docs {"query":"Agent Dev Loop"}\nsearch result\n---\n`)
-    expect(stderr.output()).toContain(`\n[tool] lookup_doc {"slug":"final"}\nlookup result\n---\n`)
+    expect(stderr.output()).toContain(`\n[tool] lookup_doc\n  input: {"slug":"final"}\nlookup result\n---\n`)
     expect(stderr.output()).not.toContain(`\n[tool] lookup_doc {}\n`)
+    const firstToolIndex = stderr.output().indexOf(`[tool] first_tool {"query":"first"}`)
+    const secondToolIndex = stderr.output().indexOf(`[tool] second_tool {"query":"second"}`)
+    expect(firstToolIndex).toBeGreaterThanOrEqual(0)
+    expect(secondToolIndex).toBeGreaterThan(firstToolIndex)
+    expect(stderr.output()).toContain(`\n[tool] unfinished_tool {"query":"still running"}\n`)
     expect(stderr.output()).toContain("[truncated ")
     expect(stderr.output()).not.toContain(longOutput)
     expect(stderr.output()).toContain("---")
