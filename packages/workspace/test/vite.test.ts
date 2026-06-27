@@ -65,6 +65,7 @@ async function createViteAssetRoot() {
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
 
@@ -433,6 +434,23 @@ describe("hubWorkspace", () => {
       packages: [{ name: "@vite-hub/workspace", resolveFrom: expect.any(String) }],
       rootDir: root,
     })
+  })
+
+  it("leaves e2e hosted output to the e2e composer", async () => {
+    const root = await createViteRoot()
+    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
+    const { VITEHUB_VITE_MODE_KEY } = await import("@vite-hub/internal/build/mode")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+    vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
+    vi.stubEnv(VITEHUB_VITE_MODE_KEY, "e2e")
+
+    await configResolved({ command: "build", root })
+    await closeBundle.handler()
+
+    expect(copyVercelFunctionRuntimePackages).not.toHaveBeenCalled()
   })
 
   it("emits build-time workspace assets for Vite builds", async () => {
