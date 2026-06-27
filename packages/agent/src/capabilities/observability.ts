@@ -177,7 +177,7 @@ export function observability<
       }
     },
     async finish(event: AgentFinishEvent<TRuntimeConfig>) {
-      const usage = usageRecordFromFinishEvent(event)
+      const usage = options.usageTelemetry === false ? undefined : usageRecordFromFinishEvent(event)
       if (event.error !== undefined) {
         return {
           durationMs: event.invocation.durationMs,

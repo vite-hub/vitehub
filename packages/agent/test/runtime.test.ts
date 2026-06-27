@@ -215,6 +215,47 @@ describe("agent message protocol", () => {
     expect(extensions.get("observability", "usage")).toBeUndefined()
   })
 
+  it("keeps observability usage opt-out order-independent with explicit usage telemetry", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const orders = [
+      () => [usageTelemetry(), observability({ usageTelemetry: false })],
+      () => [observability({ usageTelemetry: false }), usageTelemetry()],
+    ]
+
+    for (const capabilities of orders) {
+      const finish = vi.fn()
+      const agent = defineAgent({
+        capabilities: capabilities(),
+        hooks: {
+          "agent:finish": finish,
+        },
+        run: () => ({
+          text: "ok",
+          totalUsage: {
+            inputTokens: 4,
+            outputTokens: 6,
+          },
+        }),
+      })
+
+      const result = await runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      }, { prompt: "hello" })
+
+      expect((result as { usageRecord?: unknown }).usageRecord).toEqual(expect.objectContaining({
+        usage: expect.objectContaining({
+          totalTokens: 10,
+        }),
+      }))
+      const extensions = finish.mock.calls[0]![0].extensions
+      expect(extensions.get("usage-telemetry")).toBe((result as { usageRecord?: unknown }).usageRecord)
+      expect(extensions.get("observability", "usage")).toBeUndefined()
+    }
+  })
+
   it("uses explicit usage telemetry configuration for observability", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { usageTelemetry } = await import("../src/capabilities.ts")
