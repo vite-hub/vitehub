@@ -9,7 +9,7 @@ import { kv } from "@vite-hub/kv"
 import { deferQueue, runQueue } from "@vite-hub/queue"
 import { runSandbox } from "@vite-hub/sandbox"
 import { useWorkspace } from "@vite-hub/workspace"
-import { getWorkspaceRuntimeConfig, resetWorkspaceStoreCache } from "@vite-hub/workspace/internal/runtime/state"
+import { getWorkspaceRuntimeConfig, resetWorkspaceStoreCache } from "@vite-hub/workspace/runtime"
 import { deferWorkflow, getWorkflowRun, runWorkflow } from "@vite-hub/workflow"
 import { resolveTrustedMarkerCallbackUrl } from "../../_shared/queue-test"
 

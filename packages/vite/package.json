@@ -35,7 +35,6 @@
     "./agent/mcp/stdio": "./dist/agent/mcp/stdio.js",
     "./agent/runtime/workflow": "./dist/agent/runtime/workflow.js",
     "./agent/server": "./dist/agent/server.js",
-    "./agent/server/routes": "./dist/agent/server/routes.js",
     "./agent/state/sqlite": "./dist/agent/state/sqlite.js",
     "./blob": "./dist/blob.js",
     "./blob/drivers/akamai": "./dist/blob/drivers/akamai.js",

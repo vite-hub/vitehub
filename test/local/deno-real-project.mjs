@@ -185,7 +185,7 @@ async function assertGeneratedOutput() {
   const source = await readFile(denoServer, "utf8")
   for (const expected of [
     "import { withAgentDefaults } from '@vite-hub/agent'",
-    "import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from '@vite-hub/agent/server/routes'",
+    "import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from '@vite-hub/agent/server'",
     "await import('../schedule/deno-cron.mjs').catch",
     "const chatRoutePattern = new RegExp",
     "/api/_vitehub/agents/(?<agent>[^/]+)/chat",

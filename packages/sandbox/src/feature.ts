@@ -1,10 +1,10 @@
+import { getHostingProvider, getSupportedHostingProvider } from '@vite-hub/internal/feature-bridge/hosting'
 import { createDiscoveredDefinitionCompiler, type DiscoveredDefinitionCompilerOptions } from './internal/shared/discovered-definition'
 import {
   toTemplateSafeName,
   type ScannedDefinition,
 } from './internal/shared/feature-definitions'
 import { resolveFeatureRuntimePath } from './internal/shared/feature-runtime-path'
-import { getHostingProvider, getSupportedHostingProvider } from './internal/shared/hosting'
 import type { FeatureManifest, FeatureRuntimePlan, GeneratedArtifact } from './internal/shared/runtime-artifacts'
 import { bundleSandboxDefinition } from './bundle'
 import {

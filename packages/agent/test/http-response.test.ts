@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 
 import {
-  readAgentRequestBody,
   toAgentEventStreamResponse,
   toAgentFetchResponse,
   toAgentHttpResult,
@@ -9,18 +8,6 @@ import {
 } from "../src/http-response.ts"
 
 describe("agent HTTP response helpers", () => {
-  it("reads object request bodies and falls back to an empty request body", async () => {
-    await expect(readAgentRequestBody(new Request("https://example.com", {
-      body: JSON.stringify({ prompt: "hello", stream: false }),
-      method: "POST",
-    }))).resolves.toEqual({ prompt: "hello", stream: false })
-
-    await expect(readAgentRequestBody(new Request("https://example.com", {
-      body: "not-json",
-      method: "POST",
-    }))).resolves.toEqual({})
-  })
-
   it("keeps only JSON-safe Agent run result fields", () => {
     expect(toJsonSafeAgentResult({
       extra: "private",

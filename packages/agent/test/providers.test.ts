@@ -508,7 +508,7 @@ describe("agent Vite plugin", () => {
 
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
 
-      expect(denoServer).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from \"@vite-hub/agent/server/routes\"")
+      expect(denoServer).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from \"@vite-hub/agent/server\"")
       expect(denoServer).not.toContain("import { setWorkspaceRuntimeRegistry } from \"@vite-hub/workspace/runtime\"")
       expect(denoServer).toContain("await import('../schedule/deno-cron.mjs').catch")
       expect(denoServer).toContain("const chatRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/chat$\")")
@@ -647,17 +647,6 @@ describe("agent Vite plugin", () => {
     expect(builtJs).not.toContain("import(\"@vite-hub/workflow/runtime/state\")")
     expect(builtJs).not.toContain("import('@vite-hub/workflow/runtime/state')")
     expect(builtJs).toContain("@vite-hub/workflow")
-  })
-
-  it("publishes the route-only Agent server subpath", async () => {
-    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
-      exports?: Record<string, unknown>
-    }
-
-    expect(pkg.exports?.["./server/routes"]).toEqual({
-      types: "./dist/server/routes.d.ts",
-      import: "./dist/server/routes.js",
-    })
   })
 
   it("publishes the Agent output helper subpath", async () => {

@@ -77,22 +77,14 @@ describe("agent config", () => {
     }
   })
 
-  it("keeps workspace runtime loading out of the Agent server route import", async () => {
+  it("exposes channel route helpers from the Agent server import", async () => {
     vi.resetModules()
-    vi.doMock("@vite-hub/workspace", () => {
-      throw new Error("workspace should only load when a workspace-backed path is used")
-    })
-    vi.doMock("@vite-hub/workspace/runtime", () => {
-      throw new Error("workspace runtime should only load when workspace registration is used")
-    })
     try {
-      const server = await import("../src/server/routes.ts")
+      const server = await import("../src/server.ts")
       expect(server.createChannelChatRouteHandler).toBeTypeOf("function")
       expect(server.createChannelWebhookRouteHandler).toBeTypeOf("function")
     }
     finally {
-      vi.doUnmock("@vite-hub/workspace")
-      vi.doUnmock("@vite-hub/workspace/runtime")
       vi.resetModules()
     }
   })
@@ -126,7 +118,7 @@ describe("agent config", () => {
     try {
       const { defineAgent } = await import("../src/index.ts")
       const { chat } = await import("../src/capabilities.ts")
-      const { createChannelChatRouteHandler } = await import("../src/server/routes.ts")
+      const { createChannelChatRouteHandler } = await import("../src/server.ts")
       const handler = createChannelChatRouteHandler(defineAgent({
         capabilities: [chat()],
         run({ messages }) {
