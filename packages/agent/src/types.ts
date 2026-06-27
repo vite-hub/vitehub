@@ -222,7 +222,8 @@ export type AgentChannelDeliveryEffects<
 > = Partial<Record<AgentChannelDeliveryEffectKind, AgentChannelDeliveryEffectHandler<TRuntimeConfig> | readonly AgentChannelDeliveryEffectHandler<TRuntimeConfig>[]>>
 export type AgentChannelDeliveryFinishEffect =
   | AgentChannelDeliveryEffectIntent
-  | ((event: AgentFinishEvent, context: AgentChannelDeliveryFinishEffectContext) => MaybePromise<AgentChannelDeliveryEffectIntent | false | null | undefined>)
+  | readonly AgentChannelDeliveryEffectIntent[]
+  | ((event: AgentFinishEvent, context: AgentChannelDeliveryFinishEffectContext) => MaybePromise<AgentChannelDeliveryEffectIntent | readonly AgentChannelDeliveryEffectIntent[] | false | null | undefined>)
 
 export interface AgentTriggerRunInvokeResult<CALL_OPTIONS = unknown> {
   delivery?: {

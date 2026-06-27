@@ -183,6 +183,11 @@ export type {
   GitCapabilityToolPolicy,
 } from "./git.ts"
 export type {
+  InputCommandAgentFinishHookContext,
+  InputCommandAgentInputHookContext,
+  InputCommandCall,
+  InputCommandDeliveryMessage,
+  InputCommandHooks,
   InputCommand,
   InputCommandResult,
   InputCommandRunInput,

@@ -325,10 +325,13 @@ function parseSlashCommand(body: string): { args: string, command: `/${string}` 
 }
 
 type AgentChannelTriggerContextWithCapabilities<TRuntimeConfig extends AgentRuntimeConfig> =
-  AgentCallbackContext<TRuntimeConfig> & { capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig>[] }
+  AgentCallbackContext<TRuntimeConfig> & {
+    capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig>[]
+    trigger?: { channelId?: string }
+  }
 
 type InputCommandsMetadata = {
-  commands: Record<string, unknown>
+  commands: Record<string, { channels?: readonly string[] } | unknown>
   trigger: string
 }
 
@@ -342,13 +345,17 @@ function declaredInputCommand<TRuntimeConfig extends AgentRuntimeConfig>(
   command: string,
 ): boolean | undefined {
   let sawMatchingTrigger = false
+  const channelId = (context as AgentChannelTriggerContextWithCapabilities<TRuntimeConfig>).trigger?.channelId
   for (const capability of (context as AgentChannelTriggerContextWithCapabilities<TRuntimeConfig>).capabilities || []) {
     const metadata = inputCommandsMetadata(capability.metadata)
     if (!metadata || !command.startsWith(metadata.trigger)) continue
     const name = command.slice(metadata.trigger.length)
     if (!name) continue
     sawMatchingTrigger = true
-    if (Object.hasOwn(metadata.commands, name)) return true
+    const configured = metadata.commands[name]
+    if (!configured) continue
+    const channels = isRecord(configured) && Array.isArray(configured.channels) ? configured.channels : undefined
+    if (!channels?.length || channels.includes(channelId || "")) return true
   }
   return sawMatchingTrigger ? false : undefined
 }
@@ -756,6 +763,30 @@ function reactionContent<TRuntimeConfig extends AgentRuntimeConfig>(
   return "eyes"
 }
 
+function reactionAction<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+): string | undefined {
+  return isRecord(context.effect.payload) ? maybeString(context.effect.payload.action) : undefined
+}
+
+function transientReactionKey<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+): string | undefined {
+  return maybeString(context.effect.metadata?.transientKey)
+}
+
+type GitHubTransientReaction = {
+  id: number
+}
+
+function transientReactionStore(input: AgentRunInput): Record<string, GitHubTransientReaction> {
+  const context = input.context as Record<string, unknown> | undefined
+  if (!context) return {}
+  const key = "github.delivery.transientReactions"
+  if (!isRecord(context[key])) context[key] = {}
+  return context[key] as Record<string, GitHubTransientReaction>
+}
+
 function replyBody<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
 ): string | undefined {
@@ -883,11 +914,25 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
       const fetcher = options.fetch || fetch
       const token = await resolveEffectOption(options.token, context)
       const url = `${options.apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/issues/comments/${command.commentId}/reactions`
-      await githubApi(fetcher, url, {
+      const key = transientReactionKey(context)
+      if (reactionAction(context) === "remove") {
+        const id = key ? transientReactionStore(context.input)[key]?.id : undefined
+        if (!id) return
+        await githubApi(fetcher, `${url}/${id}`, {
+          headers: githubApiHeaders(token, options.userAgent),
+          method: "DELETE",
+        })
+        delete transientReactionStore(context.input)[key!]
+        return
+      }
+      const response = await githubApi(fetcher, url, {
         body: JSON.stringify({ content: reactionContent(context) }),
         headers: githubApiHeaders(token, options.userAgent),
         method: "POST",
       })
+      const body = await response.json().catch(() => undefined)
+      const id = isRecord(body) ? maybeNumber(body.id) : undefined
+      if (key && id) transientReactionStore(context.input)[key] = { id }
     },
     async reply(context) {
       const command = githubCommandFromEffect(context)
@@ -900,6 +945,19 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
         body: JSON.stringify({ body }),
         headers: githubApiHeaders(token, options.userAgent),
         method: "POST",
+      })
+    },
+    async update(context) {
+      const command = githubCommandFromEffect(context)
+      const body = githubBodyWithArtifacts(context, replyBody(context))
+      if (!command || !body) return
+      const fetcher = options.fetch || fetch
+      const token = await resolveEffectOption(options.token, context)
+      const url = `${options.apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/issues/comments/${command.commentId}`
+      await githubApi(fetcher, url, {
+        body: JSON.stringify({ body }),
+        headers: githubApiHeaders(token, options.userAgent),
+        method: "PATCH",
       })
     },
     async review(context) {

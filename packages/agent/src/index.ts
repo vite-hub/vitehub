@@ -1577,6 +1577,15 @@ function assertDeliveryEffectIntent(value: unknown): asserts value is AgentChann
   }
 }
 
+function appendDeliveryEffectIntent(intents: AgentChannelDeliveryEffectIntent[], value: unknown): void {
+  if (Array.isArray(value)) {
+    for (const item of value) appendDeliveryEffectIntent(intents, item)
+    return
+  }
+  assertDeliveryEffectIntent(value)
+  intents.push(value)
+}
+
 async function resolveFinishDeliveryEffectIntents<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -1595,8 +1604,7 @@ async function resolveFinishDeliveryEffectIntents<
   for (const provider of providers) {
     const intent = typeof provider === "function" ? await provider(event, finishContext) : provider
     if (!intent) continue
-    assertDeliveryEffectIntent(intent)
-    intents.push(intent)
+    appendDeliveryEffectIntent(intents, intent)
   }
   return intents
 }

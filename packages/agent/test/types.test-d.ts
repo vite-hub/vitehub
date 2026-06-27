@@ -65,7 +65,7 @@ describe("agent public types", () => {
           commands: {
             review: {
               description: "Review the request.",
-              run: ({ args }) => `review:${args}`,
+              call: ({ args }) => `review:${args}`,
             },
           },
         }),
@@ -561,13 +561,22 @@ describe("agent public types", () => {
       }, inputCommands({
         commands: {
           review: {
+            channels: ["github"],
             description: "Review the pull request.",
-            run({ args, input }) {
+            call({ args, input }) {
               expectTypeOf(args).toEqualTypeOf<string>()
               expectTypeOf(input.context?.github).toEqualTypeOf<GitHubPullRequestCommand | undefined>()
               const pullRequest = input.context?.pullRequest
               expectTypeOf(pullRequest).toEqualTypeOf<GitHubPullRequestRunContext | undefined>()
               return { prompt: args }
+            },
+            hooks: {
+              async "agent:input"(context) {
+                await context.message.react("eyes")
+              },
+              async "agent:finish"(context) {
+                if (context.error) await context.message.reply("failed")
+              },
             },
           },
         },

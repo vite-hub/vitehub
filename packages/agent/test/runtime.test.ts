@@ -189,6 +189,108 @@ describe("agent message protocol", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it("runs command input and finish hooks around agent execution", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const events: string[] = []
+    const agent = defineAgent({
+      capabilities: [inputCommands({
+        commands: {
+          review: {
+            description: "Review the request.",
+            call: ({ args }) => `review:${args}`,
+            hooks: {
+              "agent:input"(context) {
+                events.push(`command-input:${context.input.prompt}`)
+              },
+              "agent:finish"(context) {
+                events.push(context.error ? `command-finish:error:${(context.error as Error).message}` : `command-finish:${context.result}`)
+              },
+            },
+          },
+        },
+      })],
+      driver: {
+        run(context) {
+          events.push(`run:${context.prompt}`)
+          if (context.prompt === "review:fail") throw new Error("boom")
+          return `ok:${context.prompt}`
+        },
+      },
+      hooks: {
+        "agent:input"(context) {
+          events.push(`agent-input:${context.input.prompt}`)
+        },
+        "agent:finish"(context) {
+          events.push(context.error ? `agent-finish:error:${(context.error as Error).message}` : `agent-finish:${context.result}`)
+        },
+      },
+    })
+    const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+
+    await expect(runAgent(agent, runtime, { prompt: "/review pass" })).resolves.toBe("ok:review:pass")
+    await expect(runAgent(agent, runtime, { prompt: "/review fail" })).rejects.toThrow("boom")
+
+    expect(events).toEqual([
+      "command-input:review:pass",
+      "agent-input:review:pass",
+      "run:review:pass",
+      "command-finish:ok:review:pass",
+      "agent-finish:ok:review:pass",
+      "command-input:review:fail",
+      "agent-input:review:fail",
+      "run:review:fail",
+      "command-finish:error:boom",
+      "agent-finish:error:boom",
+    ])
+  })
+
+  it("lets command finish hooks reply after agent errors", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { defineChannel } = await import("../src/channels.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const effects: unknown[] = []
+    const agent = defineAgent({
+      capabilities: [inputCommands({
+        commands: {
+          review: {
+            description: "Review the request.",
+            call: ({ args }) => args,
+            hooks: {
+              async "agent:finish"(context) {
+                if (context.error) await context.message.reply("I couldn't start the review.")
+              },
+            },
+          },
+        },
+      })],
+      channels: {
+        github: defineChannel("github", {
+          effects: {
+            reply(context) {
+              effects.push(context.effect)
+            },
+          },
+          messages: false,
+        }),
+      },
+      driver: {
+        run() {
+          throw new Error("failed")
+        },
+      },
+    })
+
+    await expect(runAgent(agent, {
+      memo: vi.fn(),
+      run: { channelId: "github", runId: "run-1" },
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, { prompt: "/review please" })).rejects.toThrow("failed")
+
+    expect(effects).toEqual([{ kind: "reply", payload: "I couldn't start the review." }])
+  })
+
   it("emits invocation Trace Events without persisting prompt content", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
@@ -2215,6 +2317,9 @@ describe("agent message protocol", () => {
       if (href.endsWith("/pulls/42")) {
         return Response.json({ head: { sha: "abc123" } })
       }
+      if (href.endsWith("/issues/comments/99/reactions") && init?.method === "POST") {
+        return Response.json({ id: 777 }, { status: 201 })
+      }
       return Response.json({ ok: true }, { status: init?.method === "POST" ? 201 : 200 })
     })
     const input = {
@@ -2253,15 +2358,13 @@ describe("agent message protocol", () => {
       capabilities: [defineCapability({
         id: "review-feedback",
         prepare(context) {
-          context.delivery.effect({ intent: "started", kind: "reaction" })
-          context.delivery.effect({ kind: "reply", payload: "Review queued." })
           context.delivery.effect({ intent: "completed", kind: "status", metadata: { description: "Review completed." } })
         },
       }), inputCommands({
         commands: {
           review: {
             description: "Review a pull request.",
-            run({ input }) {
+            call({ input }) {
               const command = input.context?.github as Record<string, unknown> | undefined
               const pullRequest = input.context?.pullRequest as Record<string, unknown> | undefined
               if (!command || !pullRequest) throw new Error("Missing GitHub pull request context.")
@@ -2293,6 +2396,12 @@ describe("agent message protocol", () => {
                   sender: { login: "onmax" },
                 },
               })
+            },
+            hooks: {
+              async "agent:input"(context) {
+                await context.message.react("eyes")
+                await context.message.reply("Review queued.")
+              },
             },
           },
         },
@@ -2340,6 +2449,13 @@ describe("agent message protocol", () => {
         body: JSON.stringify({ content: "eyes" }),
         headers: expect.objectContaining({ authorization: "Bearer installation-token" }),
         method: "POST",
+      }),
+    )
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://api.github.test/repos/vite-hub/vitehub/issues/comments/99/reactions/777",
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "Bearer installation-token" }),
+        method: "DELETE",
       }),
     )
     expect(fetcher).toHaveBeenCalledWith(
@@ -2478,6 +2594,74 @@ describe("agent message protocol", () => {
     await expect((response as Response).json()).resolves.toEqual({ accepted: false, ok: true, reason: "not_command" })
     expect(summaryRun).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
+  })
+
+  it("filters GitHub PR comment input commands by configured channel id", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { github } = await import("../src/channels.ts")
+    const calls: string[] = []
+    const agent = defineAgent({
+      capabilities: [inputCommands({
+        commands: {
+          review: {
+            channels: ["github"],
+            description: "Review a pull request.",
+            call: ({ args }) => {
+              calls.push(`review:${args}`)
+              return args
+            },
+          },
+          summary: {
+            description: "Summarize a pull request.",
+            call: ({ args }) => {
+              calls.push(`summary:${args}`)
+              return args
+            },
+          },
+        },
+      })],
+      channels: {
+        github: github({
+          app: { webhookSecret: false },
+          events: { pullRequestComments: true },
+        }),
+        triage: github({
+          app: { webhookSecret: false },
+          events: { pullRequestComments: true },
+        }),
+      },
+      run: context => `ran:${context.prompt}`,
+    })
+    const delivery = (body: string, id: number) => ({
+      github: { deliveryId: `delivery-${id}`, event: "issue_comment" },
+      payload: {
+        action: "created",
+        comment: {
+          body,
+          id,
+          user: { login: "contributor", type: "User" },
+        },
+        issue: {
+          number: 42,
+          pull_request: { url: "https://api.github.test/repos/vite-hub/vitehub/pulls/42" },
+        },
+        repository: {
+          full_name: "vite-hub/vitehub",
+          name: "vitehub",
+          owner: { login: "vite-hub" },
+        },
+      },
+    })
+    const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+
+    const filtered = await runAgentTrigger(agent, runtime, "triage.webhook", delivery("/review please", 201))
+    expect(filtered).toBeInstanceOf(Response)
+    await expect((filtered as Response).json()).resolves.toEqual({ accepted: false, ok: true, reason: "not_command" })
+
+    await expect(runAgentTrigger(agent, runtime, "triage.webhook", delivery("/summary please", 202))).resolves.toBe("ran:please")
+    await expect(runAgentTrigger(agent, runtime, "github.webhook", delivery("/review please", 203))).resolves.toBe("ran:please")
+    expect(calls).toEqual(["summary:please", "review:please"])
   })
 
   it("keeps channel chat triggers discoverable for workspace agents", async () => {

@@ -841,7 +841,8 @@ export async function resolveAgentCapabilities<
             invocationContext.set(channelDeliveryEffectsContextKey, next, { overwrite: true })
           },
           finishEffect(effect) {
-            if (typeof effect !== "function" && (!effect || typeof effect !== "object" || typeof effect.kind !== "string" || !effect.kind.trim())) {
+            const effects = Array.isArray(effect) ? effect : [effect]
+            if (typeof effect !== "function" && effects.some(effect => !effect || typeof effect !== "object" || typeof effect.kind !== "string" || !effect.kind.trim())) {
               throw new TypeError("[vitehub] delivery.finishEffect() requires an effect intent or resolver.")
             }
             const next = [...registries.finishDeliveryEffectProviders, effect]

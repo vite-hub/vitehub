@@ -19,7 +19,7 @@ describe("inputCommands", () => {
         commands: {
           review: {
             description: "Review the request.",
-            run: ({ args }) => `Review this: ${args}`,
+            call: ({ args }) => `Review this: ${args}`,
           },
         },
       })],
@@ -266,6 +266,34 @@ describe("inputCommands", () => {
     expect(resolved.input.prompt).toBe("")
   })
 
+  it("registers finish hooks when a command returns a handled response", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [inputCommands({
+        commands: {
+          block: {
+            description: "Block the request.",
+            run: () => Response.json({ accepted: false }),
+            hooks: {
+              async "agent:finish"(context) {
+                await context.message.reply(`handled:${context.text}`)
+              },
+            },
+          },
+        },
+      })],
+    }, runtime(), { prompt: "/block now" })
+    const finishProvider = resolved.registries.finishDeliveryEffectProviders[0] as (event: unknown, context: unknown) => unknown
+
+    expect(resolved.response).toBeInstanceOf(Response)
+    expect(typeof finishProvider).toBe("function")
+    await expect(finishProvider({ result: resolved.response } as never, {} as never)).resolves.toEqual([
+      { kind: "reply", payload: "handled:/block now" },
+    ])
+  })
+
   it("treats returned messages as authoritative over a stale string prompt", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
@@ -368,7 +396,13 @@ describe("inputCommands", () => {
       commands: {
         review: { description: "Review." } as never,
       },
-    })).toThrow("requires a run() handler")
+    })).toThrow("requires a call() handler")
+
+    expect(() => inputCommands({
+      commands: {
+        review: { description: "Review.", call: () => undefined, channels: [""] },
+      },
+    })).toThrow("channels must be non-empty Channel IDs")
   })
 
   it("leaves unknown commands unchanged", async () => {
