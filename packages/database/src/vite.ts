@@ -1,5 +1,5 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
+import { resetComposedProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 
@@ -10,6 +10,7 @@ import { dbPackageName, generateProviderOutputs, prepareProviderOutputs } from "
 import { createDatabaseProvisionStep } from "./provision.ts"
 
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
+import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
 import type { DBModulePublicOptions, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "./types.ts"
 
@@ -120,6 +121,7 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
 
 export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
   let providerArtifacts: Awaited<ReturnType<typeof prepareProviderOutputs>> | undefined
+  let providerOutput: ComposedProviderOutput | undefined
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
 
@@ -153,6 +155,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     },
     async configResolved(config) {
       resolved = config
+      providerOutput = useComposedProviderOutput(config)
       await refreshRuntimeConfig()
     },
     configEnvironment(name, config) {
@@ -163,6 +166,9 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       return {
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
+    },
+    buildStart() {
+      resetComposedProviderOutput(providerOutput)
     },
     async handleHotUpdate(context) {
       if (!runtimeConfig) return
@@ -185,6 +191,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
       await writeGeneratedDatabaseArtifacts(runtimeConfig)
       providerArtifacts = await prepareProviderOutputs({
+        providerOutput,
         rootDir: resolved.root,
         runtimeConfig,
       })
@@ -208,6 +215,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       await generateProviderOutputs({
         artifacts: providerArtifacts,
         clientOutDir: resolved.build.outDir,
+        providerOutput,
         rootDir: resolved.root,
         runtimeConfig,
       })

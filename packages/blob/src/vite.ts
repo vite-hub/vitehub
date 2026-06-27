@@ -1,5 +1,5 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
+import { resetComposedProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 
 import { generateProviderOutputs, prepareProviderOutputs, blobPackageName } from "./internal/vite-build.ts"
@@ -13,6 +13,7 @@ import {
 import type { BlobViteRuntimeConfig } from "./vite-config.ts"
 import type { BlobModuleOptions } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
+import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin } from "vite"
 
 const RESOLVED_BLOB_VIRTUAL_CONFIG_ID = `\0${BLOB_VIRTUAL_CONFIG_ID}`
@@ -45,6 +46,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
   let clientOutDir = "dist"
   let command: "build" | "serve" = "serve"
   let providerArtifacts: Awaited<ReturnType<typeof prepareProviderOutputs>> | undefined
+  let providerOutput: ComposedProviderOutput | undefined
   let rootDir = process.cwd()
   let runtimeConfig: BlobViteRuntimeConfig | undefined
   const getConfig = () => runtimeConfig ??= resolveBlobViteConfig(options)
@@ -68,6 +70,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
       clientOutDir = config.build.outDir
       rootDir = config.root
       blob = config.blob ?? blob
+      providerOutput = useComposedProviderOutput(config)
       runtimeConfig = resolveBlobViteConfig(blob)
     },
     configEnvironment(name, config) {
@@ -81,6 +84,9 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
         },
       }
     },
+    buildStart() {
+      resetComposedProviderOutput(providerOutput)
+    },
     async buildEnd() {
       if (shouldSkipViteProviderBuild(command, getViteMode())) {
         return
@@ -88,6 +94,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
 
       providerArtifacts = await prepareProviderOutputs({
         blob,
+        providerOutput,
         rootDir,
       })
     },
@@ -100,6 +107,7 @@ export function hubBlob(options?: BlobModuleOptions): BlobVitePlugin {
         blob,
         clientOutDir,
         artifacts: providerArtifacts,
+        providerOutput,
         rootDir,
       })
     },

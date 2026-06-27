@@ -135,6 +135,49 @@ async function createDbBlobBuildProject(prefix: string, plugins: string) {
   return rootDir
 }
 
+async function createBlobBuildProject(prefix: string) {
+  const rootDir = await createWorkspaceTempDir(prefix)
+  const nodeModules = resolvePlaygroundNodeModules()
+  await mkdir(join(rootDir, "src"), { recursive: true })
+  await symlink(nodeModules, join(rootDir, "node_modules"), "dir")
+  await writeFile(join(rootDir, "package.json"), "{\"type\":\"module\"}\n")
+  await writeFile(join(rootDir, "src/server.ts"), [
+    "import { blob } from '@vite-hub/blob'",
+    "import { databases } from '@vite-hub/database/drizzle'",
+    "export default {",
+    "  async fetch() {",
+    "    await blob.put('proof.txt', Object.keys(databases).join(','))",
+    "    return new Response(await (await blob.get('proof.txt'))?.text())",
+    "  },",
+    "}",
+    "",
+  ].join("\n"))
+  await writeFile(join(rootDir, "vite.config.ts"), [
+    "import { resolve } from 'node:path'",
+    "import { defineConfig } from 'vite'",
+    "import { hubBlob } from '@vite-hub/blob/vite'",
+    "export default defineConfig({",
+    "  appType: 'custom',",
+    "  build: {",
+    "    outDir: 'dist/client',",
+    "    rollupOptions: { input: resolve(import.meta.dirname, 'src/server.ts') },",
+    "    ssr: true,",
+    "  },",
+    "  plugins: [hubBlob({ driver: 'cloudflare-r2', bucketName: 'assets' })],",
+    "})",
+    "",
+  ].join("\n"))
+  return rootDir
+}
+
+async function writeStaleRuntimeFiles(rootDir: string, product: string, code: string) {
+  for (const provider of ["cloudflare", "vercel"]) {
+    const file = join(rootDir, ".vitehub", product, `${provider}-runtime.mjs`)
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, code, "utf8")
+  }
+}
+
 async function runDbBuild(rootDir: string, env: NodeJS.ProcessEnv = {}) {
   return execFileAsync("vp", ["build"], {
     cwd: rootDir,
@@ -209,6 +252,57 @@ describe("Vite db provider outputs", () => {
       expectNoRuntimeImport(vercelServerCode, "@vite-hub/blob")
       expectNoRuntimeImport(vercelServerCode, "@vite-hub/database/drizzle")
     }
+  }, 60_000)
+
+  it("ignores stale sibling runtime files that were not prepared in the current build", async () => {
+    const staleDatabaseMarker = "stale_database_runtime_marker"
+    const blobRootDir = await createBlobBuildProject("vitehub-blob-stale-db-runtime-")
+    await writeStaleRuntimeFiles(blobRootDir, "database", [
+      `export const databases = { ${staleDatabaseMarker}: true }`,
+      "export const db = {}",
+      "export const schema = {}",
+      "",
+    ].join("\n"))
+
+    let blobError: Error | undefined
+    try {
+      await runDbBuild(blobRootDir)
+    }
+    catch (caught) {
+      blobError = caught as Error
+    }
+
+    expect(errorText(blobError)).toContain('Could not resolve "node:path"')
+    expect(errorText(blobError)).not.toContain(staleDatabaseMarker)
+
+    const staleBlobMarker = "stale_blob_runtime_marker"
+    const dbRootDir = await createDbBuildProject("vitehub-db-stale-blob-runtime-")
+    await writeFile(join(dbRootDir, "src/server.ts"), [
+      "import { blob } from '@vite-hub/blob'",
+      "import { databases } from '@vite-hub/database/drizzle'",
+      "export default {",
+      "  fetch: () => new Response(`${Object.keys(databases).join(',')}:${String((blob as any).runtimeFlag)}`),",
+      "}",
+      "",
+    ].join("\n"))
+    await writeStaleRuntimeFiles(dbRootDir, "blob", [
+      `export const blob = { runtimeFlag: ${JSON.stringify(staleBlobMarker)} }`,
+      "export const ensureBlob = () => blob",
+      "",
+    ].join("\n"))
+
+    await runDbBuild(dbRootDir, {
+      TURSO_ANALYTICS_DATABASE_URL: "libsql://analytics.example.turso.io",
+      TURSO_AUTH_TOKEN: "token",
+      TURSO_DATABASE_URL: "libsql://database.example.turso.io",
+      VITEHUB_D1_ANALYTICS_DATABASE_ID: "analytics-d1-id",
+      VITEHUB_D1_DATABASE_ID: "primary-d1-id",
+    })
+
+    const dbCloudflareWorker = await readCloudflareWorker(dbRootDir)
+    const dbVercelServer = await readFile(join(dbRootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")
+    expect(dbCloudflareWorker).not.toContain(staleBlobMarker)
+    expect(dbVercelServer).not.toContain(staleBlobMarker)
   }, 60_000)
 
   it("builds and emits named database Cloudflare and Vercel outputs", async () => {

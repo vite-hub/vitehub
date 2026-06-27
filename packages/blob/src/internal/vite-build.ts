@@ -1,16 +1,15 @@
-import { existsSync } from "node:fs"
 import { mkdir, writeFile } from "node:fs/promises"
 import { resolve } from "pathe"
 
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
-import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { getProviderRuntimeModule, registerProviderRuntimeModules, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
 
 import { normalizeBlobOptions } from "../config.ts"
 
 import type { BlobModuleOptions, ResolvedBlobModuleOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, ComposedProviderOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const blobPackageName = "@vite-hub/blob"
 const productName = "blob"
@@ -44,6 +43,7 @@ interface GenerateProviderOutputsOptions {
   artifacts?: GeneratedBlobArtifacts
   blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined
   clientOutDir: string
+  providerOutput?: ComposedProviderOutput
   rootDir: string
 }
 
@@ -270,14 +270,9 @@ async function writeProviderEntries(rootDir: string, blob: BlobModuleOptions | R
   } satisfies GeneratedBlobArtifacts
 }
 
-function getSiblingRuntimeAlias(artifacts: GeneratedBlobArtifacts, product: string, provider: BlobProvider) {
-  const runtimeFile = resolve(artifacts.generatedDir, "..", product, `${provider}-runtime.mjs`)
-  return existsSync(runtimeFile) ? runtimeFile : undefined
-}
-
-function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined, artifacts: GeneratedBlobArtifacts): CloudflareProviderDeploymentOutput {
+function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOptions | undefined, artifacts: GeneratedBlobArtifacts, providerOutput: ComposedProviderOutput | undefined): CloudflareProviderDeploymentOutput {
   const resolved = resolveBlobConfig(blob, "cloudflare")
-  const databaseRuntime = getSiblingRuntimeAlias(artifacts, "database", "cloudflare")
+  const databaseRuntime = getProviderRuntimeModule(providerOutput, "database", "cloudflare")
 
   const wranglerConfig: CloudflareBlobConfig = {
     compatibility_date: defaultCloudflareCompatibilityDate,
@@ -307,8 +302,8 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
   }
 }
 
-function createVercelOutput(artifacts: GeneratedBlobArtifacts): VercelProviderDeploymentOutput {
-  const databaseRuntime = getSiblingRuntimeAlias(artifacts, "database", "vercel")
+function createVercelOutput(artifacts: GeneratedBlobArtifacts, providerOutput: ComposedProviderOutput | undefined): VercelProviderDeploymentOutput {
+  const databaseRuntime = getProviderRuntimeModule(providerOutput, "database", "vercel")
 
   return {
     bundleEntry: artifacts.vercelServerFile,
@@ -354,16 +349,19 @@ function hasExplicitFsStore(blob: BlobModuleOptions | ResolvedBlobModuleOptions 
 
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedBlobArtifacts> {
   const artifacts = options.artifacts ?? await prepareProviderOutputs(options)
+  registerProviderRuntimeModules(options.providerOutput, productName, artifacts.runtimeModuleFiles)
   const localOnly = hasExplicitFsStore(options.blob)
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
-    cloudflare: localOnly ? undefined : createCloudflareOutput(options.blob, artifacts),
+    cloudflare: localOnly ? undefined : createCloudflareOutput(options.blob, artifacts, options.providerOutput),
     rootDir: options.rootDir,
-    vercel: localOnly ? undefined : createVercelOutput(artifacts),
+    vercel: localOnly ? undefined : createVercelOutput(artifacts, options.providerOutput),
   })
   return artifacts
 }
 
-export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "blob" | "rootDir">): Promise<GeneratedBlobArtifacts> {
-  return await writeProviderEntries(options.rootDir, options.blob)
+export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "blob" | "providerOutput" | "rootDir">): Promise<GeneratedBlobArtifacts> {
+  const artifacts = await writeProviderEntries(options.rootDir, options.blob)
+  registerProviderRuntimeModules(options.providerOutput, productName, artifacts.runtimeModuleFiles)
+  return artifacts
 }

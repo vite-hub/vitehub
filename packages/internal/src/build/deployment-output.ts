@@ -81,6 +81,29 @@ interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
   vercel?: VercelProviderDeploymentOutput
 }
 
+const composedProviderOutputKey = Symbol.for("vitehub.composedProviderOutput")
+
+export interface ComposedProviderOutput {
+  runtimeModuleFilesByProduct: Record<string, Record<string, string> | undefined>
+}
+
+export function useComposedProviderOutput(config: object): ComposedProviderOutput {
+  const owner = config as Record<symbol, ComposedProviderOutput | undefined>
+  return owner[composedProviderOutputKey] ??= { runtimeModuleFilesByProduct: {} }
+}
+
+export function resetComposedProviderOutput(composed: ComposedProviderOutput | undefined): void {
+  if (composed) composed.runtimeModuleFilesByProduct = {}
+}
+
+export function registerProviderRuntimeModules(composed: ComposedProviderOutput | undefined, product: string, runtimeModuleFiles: Record<string, string>): void {
+  if (composed) composed.runtimeModuleFilesByProduct[product] = runtimeModuleFiles
+}
+
+export function getProviderRuntimeModule(composed: ComposedProviderOutput | undefined, product: string, provider: string): string | undefined {
+  return composed?.runtimeModuleFilesByProduct[product]?.[provider]
+}
+
 interface ResolvedClientOutput {
   clientDir: string
   staticIndex: boolean
