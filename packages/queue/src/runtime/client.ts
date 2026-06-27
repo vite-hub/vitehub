@@ -10,6 +10,14 @@ import { getQueueClientCache, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQ
 
 import type { CloudflareQueueClient, CloudflareQueueProviderOptions, QueueClient, QueueEnqueueInput, QueueProviderOptions, QueueSendResult, ResolvedQueueOptions, VercelQueueProviderOptions } from "../types.ts"
 
+function createQueueDefinitionNotFoundError(name: string): QueueError {
+  return new QueueError(`Unknown queue definition: ${name}. Queue Runtime Registry is installed by generated Provider Output; direct Node scripts cannot discover Queue Definitions by themselves.`, {
+    code: "QUEUE_DEFINITION_NOT_FOUND",
+    details: { name },
+    httpStatus: 404,
+  })
+}
+
 function resolveCloudflareBinding(binding: string | CloudflareQueueClient["binding"] | undefined, name: string) {
   if (binding && typeof binding !== "string") {
     return binding
@@ -80,11 +88,7 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
 export async function getQueue(name: string): Promise<QueueClient> {
   const definition = await loadQueueDefinition(name)
   if (!definition) {
-    throw new QueueError(`Unknown queue definition: ${name}`, {
-      code: "QUEUE_DEFINITION_NOT_FOUND",
-      details: { name },
-      httpStatus: 404,
-    })
+    throw createQueueDefinitionNotFoundError(name)
   }
 
   const config = getActiveQueueConfig()
@@ -111,11 +115,7 @@ export async function getQueue(name: string): Promise<QueueClient> {
 export async function runQueue<TPayload = unknown>(name: string, input: QueueEnqueueInput<TPayload>): Promise<QueueSendResult> {
   const definition = await loadQueueDefinition(name)
   if (!definition) {
-    throw new QueueError(`Unknown queue definition: ${name}`, {
-      code: "QUEUE_DEFINITION_NOT_FOUND",
-      details: { name },
-      httpStatus: 404,
-    })
+    throw createQueueDefinitionNotFoundError(name)
   }
 
   const normalized = normalizeQueueEnqueueInput(input)
