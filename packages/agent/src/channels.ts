@@ -45,8 +45,10 @@ export interface AgentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   triggers?: AgentChannelDefinition<TRuntimeConfig>["triggers"]
   webhooks?: AgentChannelDefinition<TRuntimeConfig>["webhooks"]
-  [key: string]: unknown
 }
+
+type AgentChannelDefinitionOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  Omit<AgentChannelDefinition<TRuntimeConfig>, "kind">
 
 export interface AgentStreamChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentChannelOptions<TRuntimeConfig> {
@@ -1004,7 +1006,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
 
 export function defineChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   kind: string,
-  options: AgentChannelOptions<TRuntimeConfig> = {},
+  options: AgentChannelDefinitionOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
   if (typeof kind !== "string" || !kind.trim()) {
     throw new TypeError("[vitehub] defineChannel() requires a non-empty Channel kind.")
@@ -1027,25 +1029,26 @@ export function discord<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntime
 export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
   options: GitHubChannelOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
-  const app = githubAppOptions(options.app)
-  const appEffects: AgentChannelDeliveryEffects<TRuntimeConfig> | undefined = options.app
+  const { app: appOptions, events, ...channelOptions } = options
+  const app = githubAppOptions(appOptions)
+  const appEffects: AgentChannelDeliveryEffects<TRuntimeConfig> | undefined = appOptions
     ? githubPullRequestEffects<TRuntimeConfig>({
         apiBaseUrl: app?.apiBaseUrl,
         fetch: app?.fetch,
         statusContext: app?.statusContext,
-        token: context => githubAppInstallationToken(options.app!, context),
+        token: context => githubAppInstallationToken(appOptions, context),
         userAgent: app?.userAgent,
       })
     : undefined
   return defineChannel("github", {
-    ...options,
+    ...channelOptions,
     effects: appEffects ? { ...appEffects, ...options.effects } as AgentChannelDeliveryEffects<TRuntimeConfig> : options.effects,
     messages: false,
     triggers: {
-      ...githubEventTriggers(options.events),
+      ...githubEventTriggers(events),
       ...options.triggers,
     },
-    webhooks: githubWebhookDefaults(options.webhooks, options.app),
+    webhooks: githubWebhookDefaults(options.webhooks, appOptions),
   })
 }
 

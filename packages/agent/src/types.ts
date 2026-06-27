@@ -1086,7 +1086,6 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
   route?: unknown
   triggers?: Record<string, AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, any, any, AgentChannelTriggerContext<TRuntimeConfig>>>
   webhooks?: boolean | AgentChatWebhookRegistrationDefinition<TRuntimeConfig> | AgentChatWebhookRegistrationDefinition<TRuntimeConfig>[]
-  [key: string]: unknown
 }
 
 export type AgentChannels<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
