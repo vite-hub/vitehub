@@ -1274,7 +1274,7 @@ export function withResponseCleanup(response: Response, close: (outcome: Capabil
   }
   return new Response(new ReadableStream({
     async cancel(reason) {
-      let cancelOutcome: CapabilityCleanupOutcome = { failed: false }
+      let cancelOutcome: CapabilityCleanupOutcome = reason === undefined ? { failed: false } : { error: reason, failed: true }
       try {
         await reader.cancel(reason)
       }

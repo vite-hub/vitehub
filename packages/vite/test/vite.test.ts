@@ -175,8 +175,11 @@ describe("vitehub", () => {
 
     expect(resolveId.call({ resolve }, "@vite-hub/agent/server", "/app/.vitehub/agent/chat.ts", {})).resolves.toEqual({ id: "/resolved/@vite-hub/vite/agent/server" })
     expect(resolveId.call({ resolve }, "@vite-hub/env/server", "/app/.vitehub/env/server.mjs", {})).resolves.toEqual({ id: "/resolved/@vite-hub/vite/env/server" })
+    expect(resolveId.call({ resolve }, "@vite-hub/queue", "/app/server/welcome.queue.ts", {})).resolves.toEqual({ id: "/resolved/@vite-hub/vite/queue" })
     expect(resolveId.call({ resolve }, "@vite-hub/workspace/runtime", "/app/.vitehub/workspace/runtime.ts", {})).resolves.toEqual({ id: "/resolved/@vite-hub/vite/workspace/runtime" })
+    expect(resolveId.call({ resolve }, "@vite-hub/agent/messages", "/app/server/agent.ts", {})).resolves.toBeUndefined()
     expect(resolveId.call({ resolve }, "@vite-hub/agent", "/app/node_modules/@vite-hub/vite/dist/agent.js", {})).resolves.toBeUndefined()
+    expect(resolveId.call({ resolve }, "@vite-hub/env/server", "/repo/packages/vite/dist/env/server.js", {})).resolves.toBeUndefined()
     expect(resolve).toHaveBeenCalledWith("@vite-hub/vite/agent/server", "/app/.vitehub/agent/chat.ts", { skipSelf: true })
 
     const configEnvironment = plugin.configEnvironment as (name: string, config: { consumer?: string, resolve?: { noExternal?: unknown } }) => unknown
@@ -208,5 +211,6 @@ describe("vitehub", () => {
     await expect(readFile(new URL("../dist/agent.js", import.meta.url), "utf8")).resolves.not.toContain("export * from \"@vite-hub/agent\"")
     await expect(readFile(new URL("../dist/agent/server.js", import.meta.url), "utf8")).resolves.toContain("defineAgentChatFetchHandler")
     await expect(readFile(new URL("../dist/agent/runtime/workflow.js", import.meta.url), "utf8")).resolves.toContain("runAgentWorkflowDefinition")
+    await expect(readFile(new URL("../dist/queue.js", import.meta.url), "utf8")).resolves.toContain("@vite-hub/queue")
   })
 })

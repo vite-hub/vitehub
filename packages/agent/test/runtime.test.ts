@@ -536,6 +536,11 @@ describe("agent message protocol", () => {
         throw new Error("getter failed")
       },
     })
+    const throwingPrototypeError = new Proxy({}, {
+      getPrototypeOf() {
+        throw new Error("prototype failed")
+      },
+    })
     const cases: { error: unknown, message: string }[] = [
       { error: undefined, message: "Unknown error." },
       { error: "", message: "Unknown error." },
@@ -543,6 +548,7 @@ describe("agent message protocol", () => {
       { error: { code: "E_OBJECT", message: "object failed" }, message: "object failed" },
       { error: { code: "E_OBJECT" }, message: "Unknown error." },
       { error: throwingGetterError, message: "Unknown error." },
+      { error: throwingPrototypeError, message: "Unknown error." },
       { error: Object.assign(new Error("error failed"), { name: "CustomError" }), message: "error failed" },
     ]
 
@@ -563,10 +569,9 @@ describe("agent message protocol", () => {
         waitUntil: vi.fn(),
       }, {}).catch(() => {})
 
-      expect(finish).toHaveBeenCalledWith(expect.objectContaining({
-        error,
-        errorMessage: message,
-      }))
+      const finishEvent = finish.mock.calls[0]?.[0]
+      expect(finishEvent?.error).toBe(error)
+      expect(finishEvent).toMatchObject({ errorMessage: message })
     }
   })
 

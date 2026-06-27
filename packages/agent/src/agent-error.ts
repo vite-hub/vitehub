@@ -12,6 +12,15 @@ function errorProperty(error: object, key: "message" | "name"): unknown {
   }
 }
 
+function isError(error: object): boolean {
+  try {
+    return error instanceof Error
+  }
+  catch {
+    return false
+  }
+}
+
 export function agentErrorDetails(error: unknown, fallback = "Unknown error."): NormalizedAgentError {
   if (typeof error === "string") return { message: error || fallback }
   if (typeof error === "object" && error !== null) {
@@ -23,7 +32,7 @@ export function agentErrorDetails(error: unknown, fallback = "Unknown error."): 
         ...(typeof name === "string" && name ? { name } : {}),
       }
     }
-    if (error instanceof Error && typeof name === "string" && name) {
+    if (isError(error) && typeof name === "string" && name) {
       return {
         message: name,
         name,

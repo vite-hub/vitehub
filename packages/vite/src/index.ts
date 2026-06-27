@@ -41,6 +41,11 @@ const facadeAliases: Record<string, string> = {
   "@vite-hub/env/secret": "@vite-hub/vite/env/secret",
   "@vite-hub/env/server": "@vite-hub/vite/env/server",
   "@vite-hub/kv": "@vite-hub/vite/kv",
+  "@vite-hub/queue": "@vite-hub/vite/queue",
+  "@vite-hub/queue/runtime/cloudflare-vite": "@vite-hub/vite/queue/runtime/cloudflare-vite",
+  "@vite-hub/queue/runtime/hosted": "@vite-hub/vite/queue/runtime/hosted",
+  "@vite-hub/queue/runtime/state": "@vite-hub/vite/queue/runtime/state",
+  "@vite-hub/queue/runtime/vercel-vite": "@vite-hub/vite/queue/runtime/vercel-vite",
   "@vite-hub/sandbox": "@vite-hub/vite/sandbox",
   "@vite-hub/sandbox/runtime/provider-loader": "@vite-hub/vite/sandbox/runtime/provider-loader",
   "@vite-hub/sandbox/runtime/state": "@vite-hub/vite/sandbox/runtime/state",
@@ -69,7 +74,9 @@ function mergeNoExternal(current: NoExternalValue): NoExternalValue {
 function isViteHubViteImporter(importer: string | undefined): boolean {
   if (!importer) return false
   const id = importer.replace(/\\/g, "/")
-  return id.includes("/node_modules/@vite-hub/vite/") || id.includes("/packages/vite/src/")
+  return id.includes("/node_modules/@vite-hub/vite/")
+    || id.includes("/packages/vite/src/")
+    || id.includes("/packages/vite/dist/")
 }
 
 function vitehubFacadeAlias(): Plugin {
