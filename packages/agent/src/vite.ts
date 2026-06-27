@@ -431,7 +431,6 @@ function generateAgentNetlifyFunctionRouteHandler(
   options: { chatRoute?: false | string, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): string {
   const agentImportBase = options.agentImportBase ?? agentPackageName
-  const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
   const imports = definitions
     .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
     .join("\n")
@@ -459,7 +458,7 @@ function generateAgentNetlifyFunctionRouteHandler(
   return [
     `import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
     `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server"))}`,
-    `import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(workspaceImportBase, "runtime"))}`,
+    `import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(agentImportBase, "server/workspace"))}`,
     imports,
     "",
     "function resolveAgentModule(module) {",

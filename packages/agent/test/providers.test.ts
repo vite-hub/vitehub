@@ -178,7 +178,7 @@ describe("agent Vite plugin", () => {
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(wrapper).toContain("export default async function viteHubAgentNetlifyFunction(request, context)")
       expect(wrapper).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from \"@vite-hub/agent/server\"")
-      expect(wrapper).toContain("import { setWorkspaceRuntimeRegistry } from \"@vite-hub/workspace/runtime\"")
+      expect(wrapper).toContain("import { setWorkspaceRuntimeRegistry } from \"@vite-hub/agent/server/workspace\"")
       expect(wrapper).not.toContain("@vite-hub/workspace/internal/runtime/state")
       expect(wrapper).toContain("process.env.VITEHUB_HOSTING = 'netlify'")
       expect(wrapper).toContain("const waitUntil = waitUntilFromContext(context)")
