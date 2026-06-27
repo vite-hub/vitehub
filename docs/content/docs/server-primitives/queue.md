@@ -232,6 +232,25 @@ await runQueue('welcome-email', {
 
 Unsupported provider options throw `QueueError` instead of being ignored.
 
+## Develop locally
+
+Use the Vite Integration to check that ViteHub discovers your Queue Definitions and generates the right provider output. A standalone Node process, such as a `tsx` script, does not run Vite discovery or load the generated Queue Runtime Registry, so `runQueue()` cannot find queue files from there.
+
+```bash [Terminal]
+pnpm vite build
+```
+
+After the build, inspect `.vitehub/queue/registry.mjs` to confirm that ViteHub found the queue. Then inspect the provider output for the provider you configured.
+
+| Provider | Output to inspect |
+| --- | --- |
+| Cloudflare | `dist/**/wrangler.json` queue producers and consumers, plus the generated worker bundle. |
+| Vercel | `.vercel/output/functions/api/vitehub/queues/vercel/**` consumer functions and trigger config. |
+
+::note
+Queue does not include an in-memory Queue Provider for local Queue Delivery. Test the code your handler calls when you need fast unit coverage, and use generated provider runtime or deployed provider output when you need to prove Queue Enqueue and Queue Delivery together.
+::
+
 ## Runtime Helpers
 
 ### `runQueue(name, input)`

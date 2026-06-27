@@ -53,6 +53,10 @@ afterEach(() => {
 })
 
 describe("cloudflare queue runtime", () => {
+  it("points direct Node scripts at generated provider output when no registry is loaded", async () => {
+    await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toThrow(/Queue Runtime Registry is installed by generated Provider Output/)
+  })
+
   it("acks successful messages and retries failed ones", async () => {
     const ack = vi.fn()
     const retry = vi.fn()
