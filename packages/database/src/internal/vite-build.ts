@@ -56,8 +56,12 @@ interface CloudflareDBConfig {
   observability: { enabled: true }
 }
 
-function serializeDatabaseConfig(database: ResolvedDrizzleDatabaseConfig) {
+function serializeDatabaseConfig({ cloudflare: _cloudflare, connection: _connection, drizzle: _drizzle, ...database }: ResolvedDrizzleDatabaseConfig) {
   return JSON.stringify(database, null, 4)
+}
+
+function renderConfigExpression(value: unknown) {
+  return typeof value === "undefined" ? "undefined" : JSON.stringify(value)
 }
 
 function getDefaultCloudflareBindingName(name: string) {
@@ -75,8 +79,8 @@ function renderDatabaseConfigExpression(name: string, runtimeConfig: ResolvedDBV
   return [
     "{",
     `      ...${serializeDatabaseConfig(base)},`,
-    `      cloudflare: ${definitionVariable}.cloudflare ? { ...${definitionVariable}.cloudflare, binding: ${definitionVariable}.cloudflare.binding ?? ${JSON.stringify(base.cloudflare?.binding ?? getDefaultCloudflareBindingName(name))}, migrationsDir: ${JSON.stringify(base.migrationsDir)} } : undefined,`,
-    `      connection: ${definitionVariable}.connection ? { ...${JSON.stringify(base.connection)}, ...${definitionVariable}.connection, authToken: ${definitionVariable}.connection.authToken ?? ${JSON.stringify(base.connection?.authToken)}, url: ${definitionVariable}.connection.url ?? ${JSON.stringify(base.connection?.url)} } : ${JSON.stringify(base.connection)},`,
+    `      cloudflare: ${definitionVariable}.cloudflare ? { binding: ${definitionVariable}.cloudflare.binding ?? ${JSON.stringify(base.cloudflare?.binding ?? getDefaultCloudflareBindingName(name))}, databaseId: ${definitionVariable}.cloudflare.databaseId, databaseName: ${definitionVariable}.cloudflare.databaseName, migrationsDir: ${JSON.stringify(base.migrationsDir)}, migrationsTable: ${definitionVariable}.cloudflare.migrationsTable, previewDatabaseId: ${definitionVariable}.cloudflare.previewDatabaseId } : undefined,`,
+    `      connection: ${definitionVariable}.connection ? { authToken: ${definitionVariable}.connection.authToken ?? ${renderConfigExpression(base.connection?.authToken)}, url: ${definitionVariable}.connection.url ?? ${renderConfigExpression(base.connection?.url)} } : ${renderConfigExpression(base.connection)},`,
     `      drizzle: ${definitionVariable}.drizzle ?? {},`,
     "    }",
   ].join("\n")
