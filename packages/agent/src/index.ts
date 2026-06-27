@@ -51,6 +51,7 @@ import {
 import {
   isWorkspaceAgentOptions,
   resolveWorkspaceAgentDefaultInstructions,
+  resolveWorkspaceInstructionBindings,
   resolveWorkspaceSourceInstructionBlock,
   workspaceAgentOwnsWorkspaceDefinition,
   workspaceDefinitionFromOptions,
@@ -1095,6 +1096,7 @@ type AgentInvocationContext<
   handledResponse?: Response
   workspace?: ReadonlyWorkspaceFacade<WorkspaceName> | WritableWorkspaceFacade<WorkspaceName>
   workspaceDefinition?: WorkspaceDefinition
+  workspaceInstructionBindings?: Record<string, unknown>
   workspaceMode: AgentCapabilityMode
 }
 
@@ -1276,6 +1278,9 @@ async function createAgentInvocationContext<
     const instructions = workspaceOptions && activeWorkspace
       ? await resolveWorkspaceAgentDefaultInstructions(workspaceOptions, activeWorkspace as ReadonlyWorkspaceFacade)
       : undefined
+    const workspaceInstructionBindings = activeWorkspaceDefinition
+      ? await resolveWorkspaceInstructionBindings(activeWorkspaceDefinition, activeWorkspace as ReadonlyWorkspaceFacade | undefined)
+      : undefined
 
     const invocation = {
       ...callbackContext,
@@ -1311,6 +1316,7 @@ async function createAgentInvocationContext<
       tools,
       workspace: activeWorkspace,
       workspaceDefinition: activeWorkspaceDefinition,
+      workspaceInstructionBindings,
       workspaceMode,
     }
     await traceAgentInvocationStart(toTraceContext(invocation))

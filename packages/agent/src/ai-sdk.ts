@@ -565,8 +565,12 @@ async function resolveInstructions(options: AiSdkAdapterOptions, context: AgentA
   return joinInstructions(...instructions)
 }
 
-async function composeInstructions(instructions: string, context: AgentAdapterMetadataContext) {
-  return await composeInstructionDocument(instructions, { context: context.context.toJSON() })
+async function composeInstructions(
+  instructions: string,
+  context: AgentAdapterMetadataContext,
+  workspace?: Record<string, unknown>,
+) {
+  return await composeInstructionDocument(instructions, { context: context.context.toJSON(), workspace })
 }
 
 async function resolveTools(options: AiSdkAdapterOptions, context: AgentAdapterMetadataContext, reportToolStep?: AgentAdapterRunContext["devtools"] extends infer T ? T extends { reportToolStep?: infer R } ? R : never : never) {
@@ -826,11 +830,15 @@ async function createAgent(
   const instrumentedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
-  const baseInstructions = await composeInstructions(context.instructions ?? await resolveInstructions(options, metadataContext), metadataContext)
+  const baseInstructions = await composeInstructions(
+    context.instructions ?? await resolveInstructions(options, metadataContext),
+    metadataContext,
+    context.workspaceInstructionBindings,
+  )
   const instructions = await composeInstructions(applyWorkspaceSourceInstructionSlot(
     applyCapabilityInstructionSlots(baseInstructions, context.capabilityInstructions),
     context.sourceInstructions,
-  ), metadataContext)
+  ), metadataContext, context.workspaceInstructionBindings)
   const adapterTools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)
   const resolvedTools = withDefaultToolInputSchemas(withWorkspaceFallbackToolEvidence(await applyCapabilityToolTransforms({
     ...context.tools,

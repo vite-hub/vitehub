@@ -93,6 +93,8 @@ Only visible Sources render. If Access selects a Workspace Scope, ViteHub omits 
 
 Explicit `driver.instructions` still wins when the Agent needs custom prompt composition, including manual `{{ workspace.sources }}` placement. Ordinary Workspace files named `AGENTS.md` are just files; only colocated `instructions.md` is the default Agent instructions convention.
 
+Use `workspace.bindings` when an instruction document needs an explicit Workspace-owned value or Markdown fragment. `{{ workspace.foo }}` renders scalar text, and `@workspace.foo` inserts the declared Markdown binding before Instruction Composition continues. `{{ workspace.sources }}` remains reserved for Source Instructions and does not come from `workspace.bindings`.
+
 ## Start with read access
 
 Use read mode when the Agent only needs to inspect files. Use write mode only when the product expects the Agent to mutate Workspace files and Workspace Rules allow the target paths.

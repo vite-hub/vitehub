@@ -1312,6 +1312,7 @@ export interface AgentAdapterRunContext<
   tools?: AgentToolSet
   workspace?: ReadonlyWorkspaceFacade<Name>
   workspaceDefinition?: WorkspaceDefinition
+  workspaceInstructionBindings?: Record<string, unknown>
 }
 
 export interface AgentAdapter<

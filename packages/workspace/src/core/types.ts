@@ -377,6 +377,12 @@ export interface WorkspaceSourceItem {
 
 export type WorkspaceSourceInstructions = string | readonly string[]
 
+export type WorkspaceInstructionBindingValue = string | number | boolean | null
+
+export type WorkspaceInstructionBinding =
+  | WorkspaceInstructionBindingValue
+  | { path: string }
+
 export type WorkspaceSourceRequestMethod = "GET" | "HEAD" | "POST"
 
 export interface WorkspaceSourceRequestDescriptor {
@@ -584,6 +590,7 @@ export interface WorkspaceDefinition {
   sourceRootDir?: string
   runtime?: WorkspaceRuntime
   store?: WorkspaceStoreOptions
+  bindings?: Record<string, WorkspaceInstructionBinding>
   sources?: Record<string, WorkspaceSourceInput>
   loaders?: WorkspaceLoader[]
   publish?: WorkspacePublisher[]

@@ -85,6 +85,36 @@ Answer for {{ context.customerName }}.
 
 The value must already exist in invocation context. Composition does not read arbitrary runtime objects, environment variables, request fields, or JavaScript expressions.
 
+## Read Workspace bindings
+
+Use Workspace bindings when instruction text should read explicit Workspace-owned values. Bind scalar values with `{{ workspace.<name> }}`.
+
+```ts [server/agents/support/config.ts]
+import { gateway } from '@ai-sdk/gateway'
+import { defineAgent } from '@vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    model: gateway('openai/gpt-5.1-mini'),
+    instructions: [
+      'Use {{ workspace.tone }} tone.',
+      'Follow this policy:',
+      '@workspace.policy',
+    ],
+  },
+  workspace: {
+    bindings: {
+      tone: 'short',
+      policy: { path: 'policies/support.md' },
+    },
+  },
+})
+```
+
+`@workspace.<name>` inserts a Markdown binding and then runs the same Instruction Composition pass on that inserted Markdown. Use it for explicit instruction fragments that live in the Workspace. ViteHub reads only bindings declared under `workspace.bindings`; it does not scan or auto-load every Markdown file in the Workspace.
+
+`workspace.sources` is reserved for Source Instructions. Keep using `{{ workspace.sources }}` to place visible Source Instructions in the final model instructions.
+
 ## Branch with conditions
 
 Use `if`, `else-if`, and `else` blocks for conditional instruction sections.

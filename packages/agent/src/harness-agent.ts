@@ -162,7 +162,7 @@ function selectedWorkspaceScopePaths(context: AgentAdapterRunContext): string[] 
 }
 
 async function toHarnessCallInput(context: AgentAdapterRunContext) {
-  const compositionContext = { context: context.context.toJSON() }
+  const compositionContext = { context: context.context.toJSON(), workspace: context.workspaceInstructionBindings }
   const baseInstructions = await composeInstructionDocument(context.instructions || "", compositionContext)
   const instructions = await composeInstructionDocument(applyWorkspaceSourceInstructionSlot(
     applyCapabilityInstructionSlots(baseInstructions, context.capabilityInstructions),
