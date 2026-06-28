@@ -528,6 +528,11 @@ export function createHarnessAgentAdapter<
       }
       resumeStates.set(sessionId, await session.detach())
     }
+    if (context.input.abortSignal?.aborted) {
+      const error = context.input.abortSignal.reason || new Error("[vitehub] Harness Agent Driver session aborted.")
+      await cleanup(error)
+      throw error
+    }
     return {
       cleanup,
       session,

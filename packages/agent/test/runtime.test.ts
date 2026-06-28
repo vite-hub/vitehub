@@ -1314,6 +1314,30 @@ describe("agent message protocol", () => {
     expect(session.destroy).toHaveBeenCalledOnce()
   })
 
+  it("destroys harness sessions created after abort before running the harness", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const controller = new AbortController()
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockImplementationOnce(async () => {
+      controller.abort(new Error("timed out"))
+      return session
+    })
+
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      abortSignal: controller.signal,
+      prompt: "hello",
+    })).rejects.toThrow("timed out")
+    expect(session.destroy).toHaveBeenCalledOnce()
+    expect(harnessGenerate).not.toHaveBeenCalled()
+  })
+
   it("finalizes harness result output before finish hooks", async () => {
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
     const { usageTelemetry } = await import("../src/capabilities.ts")

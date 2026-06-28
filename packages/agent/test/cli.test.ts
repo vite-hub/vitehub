@@ -762,6 +762,7 @@ describe("agent CLI", () => {
       if (init?.method === "POST") {
         return ndjson([
           { agent: "review", trigger: "github.webhook", type: "start" },
+          { channelId: "github", effect: { kind: "reaction", payload: { content: "eyes" } }, type: "delivery-preview" },
           { text: "verbose review prose", type: "text-delta" },
           { channelId: "github", effect: { kind: "reply", payload: { body: "**Summary:** Short review.\n\n<details>\n<summary>Usage telemetry</summary>\n\nlarge table\n</details>" } }, type: "delivery-preview" },
           { type: "finish" },
@@ -793,8 +794,10 @@ describe("agent CLI", () => {
     }
 
     expect(stdout.output()).toBe(`Loaded payload: ${join(rootDir, "payload.json")}\n`)
+    expect(stderr.output()).toContain("[delivery] reaction eyes on github")
     expect(stderr.output()).toContain("[delivery preview] would reply on github")
     expect(stderr.output()).toContain("body: Summary: Short review.")
+    expect(stderr.output().indexOf("[delivery] reaction eyes on github")).toBeLessThan(stderr.output().indexOf("body: Summary: Short review."))
     expect(stderr.output()).not.toContain("Usage telemetry")
     expect(stderr.output()).not.toContain("large table")
     expect(stderr.output()).not.toContain("verbose review prose")
