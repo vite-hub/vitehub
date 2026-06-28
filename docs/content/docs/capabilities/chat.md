@@ -8,7 +8,7 @@ icon: i-lucide-messages-square
 ---
 
 `chat()` adds chat-oriented runtime behavior to an Agent Definition.
-It contributes a `chat.message` Agent Trigger, optional Chat Platform Adapter webhooks, Chat History state requirements, and a chat finish extension.
+It contributes a `chat.message` Agent Trigger, Chat History state requirements, and a chat finish extension.
 
 ## Installation
 
@@ -18,7 +18,7 @@ Use the configuration example below as the starting point, then tighten modes, p
 ## What it adds
 
 The Chat Capability turns message-shaped input into Agent Invocations and exposes the trigger to DevTools.
-When adapters are configured, the Agent Package can infer Chat Webhook Routes for supported platform events.
+Message-shaped Channels own route admission and delivery into that trigger.
 
 ## Configuration
 

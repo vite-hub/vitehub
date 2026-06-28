@@ -1,3 +1,9 @@
+export {
+  createChannelChatRouteHandler,
+  createChannelDevtoolsRouteHandler,
+  createChannelWebhookRouteHandler,
+} from "./routes.ts"
+
 export type {
   AgentChannelChatRouteAdmissionContext,
   AgentChannelChatRouteAdmissionOptions,
@@ -14,4 +20,4 @@ export type {
   AgentChannelDevtoolsRouteHandlerOptions,
   AgentChannelDevtoolsRouteRequestOptions,
   AgentChannelWebhookRouteOptions,
-} from "./server/routes.ts"
+} from "./routes.ts"

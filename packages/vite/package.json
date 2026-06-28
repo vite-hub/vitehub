@@ -35,6 +35,7 @@
     "./agent/mcp/stdio": "./dist/agent/mcp/stdio.js",
     "./agent/runtime/workflow": "./dist/agent/runtime/workflow.js",
     "./agent/server": "./dist/agent/server.js",
+    "./agent/server/internal": "./dist/agent/server/internal.js",
     "./agent/server/workspace": "./dist/agent/server/workspace.js",
     "./agent/state/sqlite": "./dist/agent/state/sqlite.js",
     "./blob": "./dist/blob.js",

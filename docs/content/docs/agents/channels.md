@@ -1,6 +1,6 @@
 ---
 title: Channels
-description: Keep message origins, delivery facts, Agent Actors, and input commands separate.
+description: Keep invocation origins, delivery facts, Agent Actors, and input commands separate.
 navigation.order: 25
 icon: i-lucide-radio
 ---
@@ -39,7 +39,7 @@ This split keeps shared channels from becoming implicit access roles. A Teams ch
 
 ## Message-shaped input
 
-Chat and channel surfaces usually start Agents with `messages`. The Chat Capability registers the `chat.message` Agent Trigger and translates UI-message-like input into Agent messages.
+Message-shaped Channels usually start Agents with `messages`. The `chat.message` Agent Trigger maps UI-message-like input into Agent messages; chat history and sessions stay in message Channel settings rather than route admission.
 
 ```ts [server/api/support-chat.post.ts]
 import { streamAgentTrigger } from '@vite-hub/agent'

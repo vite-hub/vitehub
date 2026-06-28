@@ -51,7 +51,7 @@ export default defineAgent({
 })
 ```
 
-The Chat Capability owns Chat History behavior, optional Chat Platform Adapter webhooks, and the `chat.message` trigger. The Agent Definition still owns the active Agent Driver.
+The Chat Capability owns Chat History behavior and the `chat.message` trigger. Message-shaped Channels own delivery and webhook admission; the Agent Definition still owns the active Agent Driver.
 
 ## Consume a trigger from an app route
 
