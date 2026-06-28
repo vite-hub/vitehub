@@ -404,11 +404,7 @@ type CapabilityWorkspaceScopeNames<TCapability> =
   TCapability extends AgentCapabilityDefinition<any, any, infer TTypeContract>
     ? (TTypeContract extends { workspaceScopes: infer TScopeName }
           ? Extract<TScopeName, string>
-          : AgentCapabilityTypeContract extends TTypeContract
-            ? TCapability extends { id: infer TCapabilityId }
-              ? string extends TCapabilityId ? string : never
-              : never
-            : never)
+          : never)
         | (TCapability extends { capabilities: infer TNestedCapabilities }
             ? AgentCapabilitiesWorkspaceScopeNames<TNestedCapabilities>
             : never)

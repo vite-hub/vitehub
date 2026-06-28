@@ -1098,6 +1098,7 @@ describe("agent public types", () => {
       },
     })
 
+    // @ts-expect-error individual widened capabilities cannot prove Access Workspace Scope names
     defineAgent({
       workspace: {
         sources: {
@@ -1105,6 +1106,27 @@ describe("agent public types", () => {
         },
       },
       capabilities: [widenedAccessCapability],
+      model: {} as never,
+    })
+
+    // @ts-expect-error broad official capabilities do not satisfy missing Workspace Source scopes
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["missing"] as const }),
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "customer",
+            scopes: {
+              customer: { source: "docs" },
+            },
+          },
+        }),
+        blob(),
+      ],
       model: {} as never,
     })
 
