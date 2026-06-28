@@ -34,6 +34,7 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
     ...resolvedOptions,
     auth: createGitHubAuthResolver(resolvedOptions.auth),
   })
+  delete (baseSource as typeof baseSource & { instructions?: unknown }).instructions
   const sourceByRootAndToken = new Map<string, typeof baseSource>()
 
   async function getSourceForRoot(rootDir: string) {

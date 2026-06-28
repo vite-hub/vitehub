@@ -40,6 +40,10 @@ _Avoid_: Prompt framework, host markdown engine, access layer
 The Agent Package-owned Agent Definition boundary for selecting and configuring how Agent Invocations are driven, including model-backed and harness-backed drivers.
 _Avoid_: Public adapter selector, top-level model selector, top-level harness selector, driver factory wrapper, root run callback
 
+**Agent Route Handler**:
+The Agent Package server helper used by generated routes to consume resolved Agent Triggers for chat and webhook traffic.
+_Avoid_: Channel authoring API, custom Channel definition API
+
 **Agent Harness Driver Contract**:
 The Agent Package-owned contract implemented by harness-backed Agent Drivers, including invocation input, workspace access, lifecycle events, streams, approvals, and telemetry.
 _Avoid_: AI SDK HarnessAgent as public API, raw harness adapter, provider-owned Agent Driver

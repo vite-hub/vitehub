@@ -73,7 +73,7 @@ export function workspaceSourceScopeNames(sources: WorkspaceDefinition["sources"
 export function workspaceSourceScopePaths(
   key: string,
   input: WorkspaceSourceInput,
-  runtime: Pick<typeof import("@vite-hub/workspace"), "isWorkspaceSourceRequestOnly" | "workspaceSourceRequestDescriptorPath">,
+  runtime: Pick<typeof import("@vite-hub/workspace/runtime"), "isWorkspaceSourceRequestOnly" | "workspaceSourceRequestDescriptorPath">,
 ): string[] {
   const metadata = normalizeAgentWorkspaceSource(key, input)
   const descriptorPath = safeWorkspaceSourceRequestDescriptorPath(runtime, key)
@@ -92,7 +92,7 @@ export function workspaceSourceScopePaths(
 }
 
 function safeWorkspaceSourceRequestDescriptorPath(
-  runtime: Pick<typeof import("@vite-hub/workspace"), "workspaceSourceRequestDescriptorPath">,
+  runtime: Pick<typeof import("@vite-hub/workspace/runtime"), "workspaceSourceRequestDescriptorPath">,
   key: string,
 ): string | undefined {
   try {

@@ -38,7 +38,6 @@ export {
   usageTelemetry,
   vercelAiGatewayPricing,
   webSearch,
-  workspaceExec,
   workspaceJsonlMemoryStore,
   workspaceShell,
 } from "@vite-hub/agent/capabilities"

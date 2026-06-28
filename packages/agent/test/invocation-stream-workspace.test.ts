@@ -259,11 +259,13 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
         }),
       },
       hooks: { "agent:finish": finishHook },
-      run: () => (async function* () {
+      driver: {
+        run: () => (async function* () {
         yield { text: "Review completed.", type: "text-delta" }
         order.push("run-stream-consumed")
         yield { type: "finish" }
       })(),
+      },
       workspace: { mode: "write" },
     })
 
@@ -310,7 +312,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
-      run: () => "unused",
+      driver: { run: () => "unused" },
       workspace: { mode: "write" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
@@ -340,7 +342,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
-      run: () => "unused",
+      driver: { run: () => "unused" },
       workspace: "shared",
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
@@ -378,7 +380,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
           support: { path: "support.md", workspacePath: "support.md" },
         },
       }],
-      run: () => "unused",
+      driver: { run: () => "unused" },
       workspace: { mode: "write", name: "shared" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
@@ -433,7 +435,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
-      run: () => "unused",
+      driver: { run: () => "unused" },
       workspace: { mode: "write", name: "shared" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })

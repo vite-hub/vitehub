@@ -18,6 +18,7 @@ export function file<const TKey extends string = string, const TInput extends Fi
     ? { ...options.mount, path: "" }
     : options.mount ?? ""
   const source = createFileSource(options)
+  delete (source as typeof source & { instructions?: unknown }).instructions
   return {
     ...source,
     cache: options.cache,

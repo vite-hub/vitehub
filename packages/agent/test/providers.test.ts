@@ -687,9 +687,9 @@ describe("server helpers", () => {
       const { registerWorkspaceAgent } = await import("../src/server/workspace.ts")
       const { defineWorkspace, file, useWorkspace } = await import("@vite-hub/workspace")
       const agent = defineAgent({
-        async run() {
-          return "ok"
-        },
+        driver: { async run() {
+            return "ok"
+          } },
         workspace: defineWorkspace({
           store: { provider: "memory" },
           sources: {
@@ -734,9 +734,9 @@ describe("server helpers", () => {
         },
       }))
       const agent = defineAgent({
-        async run() {
-          return "ok"
-        },
+        driver: { async run() {
+            return "ok"
+          } },
         workspace: workspaceName,
       })
 
@@ -773,9 +773,9 @@ describe("server helpers", () => {
         },
       }))
       const agent = defineAgent({
-        async run() {
-          return "ok"
-        },
+        driver: { async run() {
+            return "ok"
+          } },
         workspace: { mode: "write", name: workspaceName },
       })
 
@@ -805,7 +805,7 @@ describe("server helpers", () => {
       invoker: defineAgentInvoker({
         profiles,
       }),
-      run: () => "unused",
+      driver: { run: () => "unused" },
       version: "test-agent",
       workspace: defineWorkspace({
         store: { provider: "memory" },
@@ -900,7 +900,9 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [chat()],
       invoker: { resolve: resolveInvoker },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelChatRouteHandler(agent as never)
 
@@ -971,7 +973,9 @@ describe("server helpers", () => {
           meta: { scope: "acme" },
         }],
       },
-      run,
+      driver: {
+        run
+      },
     }) as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -1053,7 +1057,9 @@ describe("server helpers", () => {
           meta: { scope: "acme" },
         }],
       },
-      run,
+      driver: {
+        run
+      },
     }) as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -1129,7 +1135,7 @@ describe("server helpers", () => {
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const handler = createChannelChatRouteHandler(defineAgent({
       capabilities: [chat()],
-      run: () => "unused",
+      driver: { run: () => "unused" },
     }) as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -1149,7 +1155,7 @@ describe("server helpers", () => {
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const handler = createChannelChatRouteHandler(defineAgent({
       capabilities: [chat()],
-      run: () => "unused",
+      driver: { run: () => "unused" },
     }) as never)
 
     const protectedFields = {
@@ -1199,7 +1205,7 @@ describe("server helpers", () => {
           },
         }),
       },
-      run,
+      driver: { run },
     }) as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -1245,7 +1251,7 @@ describe("server helpers", () => {
           },
         }),
       },
-      run,
+      driver: { run },
     }) as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -1293,7 +1299,7 @@ describe("server helpers", () => {
           },
         }),
       },
-      run,
+      driver: { run },
     }) as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -1324,7 +1330,7 @@ describe("server helpers", () => {
           },
         }),
       },
-      run: () => "unused",
+      driver: { run: () => "unused" },
     }) as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -1362,7 +1368,9 @@ describe("server helpers", () => {
           meta: { scope: "acme" },
         }],
       },
-      run,
+      driver: {
+        run
+      },
     }) as never, {
       mapInput({ body, request }) {
         if (request.headers.get("x-quiver-chat-token") !== "trusted") {
@@ -1460,7 +1468,9 @@ describe("server helpers", () => {
       invoker: {
         resolve: invokerResolve,
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1559,7 +1569,9 @@ describe("server helpers", () => {
           webhooks: { id: "custom-support" },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1601,7 +1613,9 @@ describe("server helpers", () => {
           webhooks: { id: "custom-support", secretHeader: "x-test-secret", secretToken: "secret-token" },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1629,7 +1643,9 @@ describe("server helpers", () => {
           webhooks: { id: "custom-support", secretHeader: "x-test-secret", secretToken: () => "" },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1657,7 +1673,9 @@ describe("server helpers", () => {
           webhooks: { secretToken: "secret-token" },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1683,7 +1701,9 @@ describe("server helpers", () => {
           triggers: { webhook: { invoke: () => ({ input: { prompt: "github delivery" } }) } },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1731,7 +1751,9 @@ describe("server helpers", () => {
           webhooks: { path: "/api/github/webhook", secretToken: "secret-token" },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
     const payload = {
@@ -1822,7 +1844,9 @@ describe("server helpers", () => {
           webhooks: { secretToken: "secret-token" },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
     const body = JSON.stringify({ action: "opened" })
@@ -1862,7 +1886,9 @@ describe("server helpers", () => {
           webhooks: { path: "/api/github/webhook", secretToken: "secret-token" },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
     const body = JSON.stringify({
@@ -1916,7 +1942,7 @@ describe("server helpers", () => {
           ],
         }),
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1939,7 +1965,9 @@ describe("server helpers", () => {
         sales: http({ adapter: () => createTestChatAdapter() as never, webhooks: { id: "sales-hook" } }),
         support: http({ adapter: () => createTestChatAdapter() as never, webhooks: { id: "support-hook" } }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1969,7 +1997,9 @@ describe("server helpers", () => {
           webhooks: { id: "fallback", path: "/api/github/webhook", secretToken: false },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1999,7 +2029,7 @@ describe("server helpers", () => {
           return undefined as never
         },
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (webhook: string) => new Request(`https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`, {
@@ -2036,7 +2066,7 @@ describe("server helpers", () => {
           },
         }),
       ],
-      run: () => ({ text: "ok" }),
+      driver: { run: () => ({ text: "ok" }) },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2090,11 +2120,11 @@ describe("server helpers", () => {
           },
         }),
       ],
-      run: async () => {
-        runStarted()
-        await finishRunPromise
-        return "ok"
-      },
+      driver: { run: async () => {
+          runStarted()
+          await finishRunPromise
+          return "ok"
+        } },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2176,11 +2206,11 @@ describe("server helpers", () => {
           },
         }),
       ],
-      run: async () => {
-        runStarted()
-        await finishRunPromise
-        return "ok"
-      },
+      driver: { run: async () => {
+          runStarted()
+          await finishRunPromise
+          return "ok"
+        } },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2260,11 +2290,11 @@ describe("server helpers", () => {
           },
         }),
       ],
-      run: async () => {
-        runStarted()
-        await finishRunPromise
-        return "done"
-      },
+      driver: { run: async () => {
+          runStarted()
+          await finishRunPromise
+          return "done"
+        } },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2326,10 +2356,12 @@ describe("server helpers", () => {
             },
           }),
         ],
-        run: async () => {
-          runStarted()
-          await finishRunPromise
-          return "done"
+        driver: {
+          run: async () => {
+            runStarted()
+            await finishRunPromise
+            return "done"
+          },
         },
       })
       const handler = createChannelWebhookRouteHandler(agent as never)
@@ -2382,7 +2414,7 @@ describe("server helpers", () => {
           },
         }),
       ],
-      run: () => String(getActiveCloudflareEnv()?.OPENAI_API_KEY),
+      driver: { run: () => String(getActiveCloudflareEnv()?.OPENAI_API_KEY) },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2431,9 +2463,9 @@ describe("server helpers", () => {
           },
         }),
       ],
-      run: () => {
-        throw new Error("transcription failed")
-      },
+      driver: { run: () => {
+          throw new Error("transcription failed")
+        } },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2700,7 +2732,7 @@ describe("server helpers", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({ text: "agent answer" }),
+      driver: { run: () => ({ text: "agent answer" }) },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2777,7 +2809,7 @@ describe("server helpers", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({ text: "agent answer" }),
+      driver: { run: () => ({ text: "agent answer" }) },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2863,7 +2895,7 @@ describe("server helpers", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({ text: "agent `answer`" }),
+      driver: { run: () => ({ text: "agent `answer`" }) },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2943,7 +2975,9 @@ describe("server helpers", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -3020,16 +3054,16 @@ describe("server helpers", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({
-        response: {
-          modelId: "openai/gpt-test",
-        },
-        text: "ok",
-        usage: {
-          inputTokens: 10,
-          outputTokens: 5,
-        },
-      }),
+      driver: { run: () => ({
+          response: {
+            modelId: "openai/gpt-test",
+          },
+          text: "ok",
+          usage: {
+            inputTokens: 10,
+            outputTokens: 5,
+          },
+        }) },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -3086,7 +3120,9 @@ describe("server helpers", () => {
           },
         }),
       ],
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -3123,7 +3159,9 @@ describe("server helpers", () => {
           },
         }),
       ],
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 

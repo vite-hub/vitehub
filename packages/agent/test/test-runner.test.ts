@@ -126,7 +126,7 @@ describe("agent test runner", () => {
           },
         }),
       ],
-      run: () => ({ text: "done" }),
+      driver: { run: () => ({ text: "done" }), },
     })
 
     const result = await runAgentForTest(agent, {
@@ -162,7 +162,7 @@ describe("agent test runner", () => {
 
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never, },
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), {
       name: "support",
@@ -201,7 +201,7 @@ describe("agent test runner", () => {
 
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never, },
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), {
       name: "support",
@@ -238,7 +238,7 @@ describe("agent test runner", () => {
 
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never, },
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), {
       name: "support",
@@ -271,7 +271,7 @@ describe("agent test runner", () => {
 
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never, },
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), {
       name: "support",
@@ -359,7 +359,7 @@ describe("agent test runner", () => {
     try {
       const runner = createAgentTestRunner(defineAgent({
         workspace: {},
-        model: {} as never,
+        driver: { model: {} as never, },
         capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
       }), {
         name: "support",
@@ -388,12 +388,14 @@ describe("agent test runner", () => {
 
     const runner = createAgentTestRunner(defineAgent({
       workspace: {},
-      modelExecution: {
+      driver: {
+        execution: {
         instrumentation: {
           model: agentInstrumentation,
         },
       },
-      model: baseModel as never,
+        model: baseModel as never,
+      },
     }), {
       instrumentModel: testInstrumentation,
       runtimeConfig: {},

@@ -69,7 +69,9 @@ describe("agent config", () => {
     try {
       const agent = await import("../src/index.ts")
       expect(agent.defineAgent).toBeTypeOf("function")
-      expect(agent.withAgentDefaults(agent.defineAgent({ run: async () => "ok" }))?.run).toBeTypeOf("function")
+      expect(agent.withAgentDefaults(agent.defineAgent({
+        driver: { run: async () => "ok", },
+      }))?.run).toBeTypeOf("function")
     }
     finally {
       vi.doUnmock("@vite-hub/workspace")
@@ -132,10 +134,10 @@ describe("agent config", () => {
       const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
       const handler = createChannelChatRouteHandler(defineAgent({
         capabilities: [chat()],
-        run({ messages }) {
-          const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
-          return `deno ${text?.text}`
-        },
+        driver: { run({ messages }) {
+            const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
+            return `deno ${text?.text}`
+          } },
       }) as never)
 
       const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -204,7 +206,7 @@ describe("agent config", () => {
           },
         }),
       ],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })).toThrow("custom() requires an explicit workspace")
   })
 

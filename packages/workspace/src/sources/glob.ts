@@ -14,6 +14,7 @@ export function glob<const TOptions extends GlobSourceOptions>(options: ExactOpt
     ...options,
     keyCache: options.keyCache ?? !isLazySource(options),
   })
+  delete (source as typeof source & { instructions?: unknown }).instructions
   return {
     ...source,
     cache: options.cache,

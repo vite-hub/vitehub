@@ -146,26 +146,7 @@ export function normalizeAgentDriver<
 ): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
   const record = options as Record<string, unknown>
   if (hasOwnDefined(record, "driver")) {
-    if (hasOwnDefined(record, "model") || hasOwnDefined(record, "modelExecution") || hasOwnDefined(record, "instructions") || hasOwnDefined(record, "run")) {
-      throw new Error("[vitehub] defineAgent({ driver }) cannot be combined with root model, modelExecution, instructions, or run options.")
-    }
     return normalizeExplicitAgentDriver<TRuntimeConfig, CALL_OPTIONS>(record.driver)
-  }
-
-  if (hasOwnDefined(record, "model")) {
-    return {
-      execution: record.modelExecution as AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS> | undefined,
-      instructions: record.instructions as AgentAdapterInstructions<TRuntimeConfig> | undefined,
-      kind: "model",
-      model: record.model as AgentModelResolver<TRuntimeConfig>,
-    }
-  }
-
-  if (hasOwnDefined(record, "run")) {
-    return {
-      kind: "run",
-      run: record.run as AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>,
-    }
   }
 
   throw new Error("[vitehub] Agent Driver is required. Expected defineAgent({ driver: { model } }) or defineAgent({ driver: { run } }).")

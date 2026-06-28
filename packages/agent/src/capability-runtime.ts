@@ -333,7 +333,7 @@ function workspaceRulePatterns(definition: WorkspaceDefinition): string[] {
 }
 
 type WorkspaceContributionRuntime = Pick<
-  typeof import("@vite-hub/workspace"),
+  typeof import("@vite-hub/workspace/runtime"),
   | "createWorkspaceSourceResolutionFacade"
   | "isWorkspaceSourceRequestOnly"
   | "resolveWorkspaceSources"
@@ -657,7 +657,7 @@ async function applyCapabilityWorkspaceContributions<
 ): Promise<{ definition: WorkspaceDefinition, registries: AgentCapabilityRegistries["workspaceContributions"], workspace: ReadonlyWorkspaceFacade<Name> } | undefined> {
   let definition = context.workspaceDefinition
   const registries: AgentCapabilityRegistries["workspaceContributions"] = []
-  const workspaceRuntime = await import("@vite-hub/workspace")
+  const workspaceRuntime = await import("@vite-hub/workspace/runtime")
 
   for (const capability of capabilities) {
     if (!capability.workspace) continue
@@ -698,7 +698,7 @@ async function applyCapabilityWorkspaceContributions<
   })
   selectedWorkspaceScope = mergeSelectedWorkspaceSourceScopePaths(selectedWorkspaceScope, resolvedDefinition, workspaceRuntime)
   setSelectedWorkspaceScopeContext(context.context, selectedWorkspaceScope)
-  const sourceResolution = await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace, resolvedDefinition, {
+  const sourceResolution = await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace as never, resolvedDefinition, {
     invocation: {
       context: context.context,
       run: context.run,
@@ -716,7 +716,7 @@ async function applyCapabilityWorkspaceContributions<
   return {
     definition: sourceResolution.definition,
     registries,
-    workspace: sourceResolution.workspace,
+    workspace: sourceResolution.workspace as ReadonlyWorkspaceFacade<Name>,
   }
 }
 

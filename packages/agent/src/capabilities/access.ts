@@ -37,7 +37,7 @@ import type {
 import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
 
 type WorkspaceAccessRuntime = Pick<
-  typeof import("@vite-hub/workspace"),
+  typeof import("@vite-hub/workspace/runtime") & typeof import("@vite-hub/workspace"),
   | "attachWorkspaceSourceRequestExecution"
   | "createWorkspaceSourceResolutionFacade"
   | "createWorkspaceTools"
@@ -271,7 +271,10 @@ function setWorkspaceOverride<
 }
 
 async function loadWorkspaceAccessRuntime(): Promise<WorkspaceAccessRuntime> {
-  return await import("@vite-hub/workspace")
+  return {
+    ...(await import("@vite-hub/workspace")),
+    ...(await import("@vite-hub/workspace/runtime")),
+  }
 }
 
 export function access<
@@ -329,7 +332,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
         : false
       const finalScope = withHarnessWorkspacePaths(finalizeResolvedWorkspaceScope(scope, resolvedDefinition, workspaceRuntime), context.harnessWorkspacePaths)
       const sourceResolution = resolvedDefinition
-        ? await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace, resolvedDefinition, {
+        ? await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace as never, resolvedDefinition, {
             ...sourceResolutionOptions,
             selectedWorkspaceScope: toWorkspaceSelectedScope(finalScope),
           })
@@ -337,7 +340,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       const workspaceForScope = hasSourceResolvers ? sourceResolution.workspace : context.workspace
       const scopedWorkspace = finalScope.all
         ? workspaceForScope
-        : createScopedWorkspaceFacade(workspaceForScope, finalScope, workspaceRuntime)
+        : createScopedWorkspaceFacade(workspaceForScope as ReadonlyWorkspaceFacade<WorkspaceName>, finalScope, workspaceRuntime)
       context.context.set("access", {
         workspaceScope: {
           all: finalScope.all,
@@ -351,7 +354,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
         context.context.set("workspace.sourceResolution.definition", sourceResolution.definition)
         markTrustedWorkspaceSourceResolutionDefinition(context.context)
       }
-      setWorkspaceOverride(context, scopedWorkspace)
+      setWorkspaceOverride(context, scopedWorkspace as ReadonlyWorkspaceFacade<WorkspaceName>)
     },
   })
 }

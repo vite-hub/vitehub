@@ -879,29 +879,9 @@ export type AgentSettings<
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = AgentCapabilitiesList<TRuntimeConfig> | undefined,
-> = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities> & (
-  | {
-    driver: AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
-    instructions?: never
-    model?: never
-    modelExecution?: never
-    run?: never
-  }
-  | {
-    driver?: never
-    instructions?: AgentAdapterInstructions<TRuntimeConfig>
-    model?: never
-    modelExecution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
-    run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
-  }
-  | {
-    driver?: never
-    instructions?: AgentAdapterInstructions<TRuntimeConfig>
-    model: AgentModelResolver<TRuntimeConfig>
-    modelExecution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
-    run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
-  }
-)
+> = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities> & {
+  driver: AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+}
 
 export interface AgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,

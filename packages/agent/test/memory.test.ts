@@ -50,10 +50,10 @@ describe("agent memory capability", () => {
     const { memory } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown, policy?: unknown }> = {}
     const agent = defineAgent({
-      async run(context) {
-        capturedTools = context.tools as typeof capturedTools
-        return { text: Object.keys(context.tools || {}).sort().join(",") }
-      },
+      driver: { async run(context) {
+          capturedTools = context.tools as typeof capturedTools
+          return { text: Object.keys(context.tools || {}).sort().join(",") }
+        } },
       capabilities: [
         memory({
           stores: {
@@ -97,10 +97,10 @@ describe("agent memory capability", () => {
     const { memory } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown, policy?: (context: { input?: unknown }) => unknown }> = {}
     const agent = defineAgent({
-      async run(context) {
-        capturedTools = context.tools as typeof capturedTools
-        return { text: "ok" }
-      },
+      driver: { async run(context) {
+          capturedTools = context.tools as typeof capturedTools
+          return { text: "ok" }
+        } },
       capabilities: [
         memory({
           stores: {
@@ -145,10 +145,10 @@ describe("agent memory capability", () => {
     const { memory } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown }> = {}
     const agent = defineAgent({
-      async run(context) {
-        capturedTools = context.tools as typeof capturedTools
-        return { text: Object.keys(context.tools || {}).sort().join(",") }
-      },
+      driver: { async run(context) {
+          capturedTools = context.tools as typeof capturedTools
+          return { text: Object.keys(context.tools || {}).sort().join(",") }
+        } },
       capabilities: [
         memory({
           stores: {
@@ -187,10 +187,10 @@ describe("agent memory capability", () => {
     const { memory } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown }> = {}
     const agent = defineAgent({
-      async run(context) {
-        capturedTools = context.tools as typeof capturedTools
-        return { text: "ok" }
-      },
+      driver: { async run(context) {
+          capturedTools = context.tools as typeof capturedTools
+          return { text: "ok" }
+        } },
       capabilities: [
         memory({
           stores: {
@@ -223,10 +223,10 @@ describe("agent memory capability", () => {
     const { memory } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown }> = {}
     const agent = defineAgent({
-      async run(context) {
-        capturedTools = context.tools as typeof capturedTools
-        return { text: "ok" }
-      },
+      driver: { async run(context) {
+          capturedTools = context.tools as typeof capturedTools
+          return { text: "ok" }
+        } },
       capabilities: [
         memory({
           stores: {
@@ -253,10 +253,10 @@ describe("agent memory capability", () => {
     const { memory } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { inputSchema?: unknown }> = {}
     const agent = defineAgent({
-      async run(context) {
-        capturedTools = context.tools as typeof capturedTools
-        return { text: "ok" }
-      },
+      driver: { async run(context) {
+          capturedTools = context.tools as typeof capturedTools
+          return { text: "ok" }
+        } },
       capabilities: [
         memory({
           stores: {
@@ -288,9 +288,9 @@ describe("agent memory capability", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { memory } = await import("../src/capabilities.ts")
     const agent = defineAgent({
-      async run(context) {
-        return { text: Object.keys(context.tools || {}).sort().join(",") }
-      },
+      driver: { async run(context) {
+          return { text: Object.keys(context.tools || {}).sort().join(",") }
+        } },
       capabilities: [
         memory({
           stores: {
@@ -399,10 +399,10 @@ describe("agent memory capability", () => {
     const { memory } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown }> = {}
     const agent = defineAgent({
-      async run(context) {
-        capturedTools = context.tools as typeof capturedTools
-        return { text: "ok" }
-      },
+      driver: { async run(context) {
+          capturedTools = context.tools as typeof capturedTools
+          return { text: "ok" }
+        } },
       capabilities: [
         memory({
           stores: {
@@ -436,10 +436,10 @@ describe("agent memory capability", () => {
     const { memory } = await import("../src/capabilities.ts")
     let capturedTools: Record<string, { execute: (input: unknown) => Promise<unknown> | unknown }> = {}
     const agent = defineAgent({
-      async run(context) {
-        capturedTools = context.tools as typeof capturedTools
-        return { text: "ok" }
-      },
+      driver: { async run(context) {
+          capturedTools = context.tools as typeof capturedTools
+          return { text: "ok" }
+        } },
       capabilities: [
         memory({
           stores: {

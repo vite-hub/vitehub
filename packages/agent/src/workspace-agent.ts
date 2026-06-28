@@ -1147,7 +1147,7 @@ async function createDevtoolsMetadataWorkspace<
   const workspaceName = defaults.workspace || defaults.name
   if (!workspaceName || !definition.__vitehubWorkspaceAgentOptions) return
 
-  const { createWorkspaceSourceResolutionFacade, hasWorkspaceSourceResolvers, useWorkspace } = await import("@vite-hub/workspace")
+  const { createWorkspaceSourceResolutionFacade, hasWorkspaceSourceResolvers, useWorkspace } = await import("@vite-hub/workspace/runtime")
   const workspace = useWorkspace(workspaceName)
   const options = definition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
   const workspaceDefinition = workspaceDefinitionWithNameFromOptions(options, defaults)

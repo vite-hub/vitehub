@@ -162,7 +162,7 @@ describe("agent discovery", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-    await writeFile(join(root, "server", "agents", "docs", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "docs", "config.ts"), "export default defineAgent({ workspace: {}, driver: { model } })", "utf8")
 
     expect(discoverAgentDefinitions({
       mode: "server-agents",
@@ -176,7 +176,7 @@ describe("agent discovery", () => {
   it("ignores eval definitions during server agent discovery", async () => {
     const root = await createTempRoot("vitehub-agent-server-eval-")
     await mkdir(join(root, "server", "agents", "support"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {}, driver: { model } })", "utf8")
     await writeFile(join(root, "server", "agents", "support", "config.eval.ts"), "export default defineEval({})", "utf8")
     await writeFile(join(root, "server", "agents", "support", "eval.ts"), "export default defineEval({})", "utf8")
     await writeFile(join(root, "server", "agents", "support.eval.ts"), "export default defineEval({})", "utf8")
@@ -193,12 +193,12 @@ describe("agent discovery", () => {
     const root = await createTempRoot("vitehub-agent-server-helpers-")
     await mkdir(join(root, "server", "agents", "chat", "workspace"), { recursive: true })
     await mkdir(join(root, "server", "agents", "review"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "chat", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "chat", "config.ts"), "export default defineAgent({ workspace: {}, driver: { model } })", "utf8")
     await writeFile(join(root, "server", "agents", "chat", "access.ts"), "export const access = {}", "utf8")
     await writeFile(join(root, "server", "agents", "chat", "audience.test.ts"), "export const test = {}", "utf8")
     await writeFile(join(root, "server", "agents", "chat", "prompts.ts"), "export default { system: 'help' }", "utf8")
     await writeFile(join(root, "server", "agents", "chat", "workspace", "config.ts"), "export const sources = {}", "utf8")
-    await writeFile(join(root, "server", "agents", "review", "config.ts"), "export default defineAgent({ model })", "utf8")
+    await writeFile(join(root, "server", "agents", "review", "config.ts"), "export default defineAgent({ driver: { model } })", "utf8")
 
     expect(discoverAgentDefinitions({
       mode: "server-agents",
@@ -212,7 +212,7 @@ describe("agent discovery", () => {
   it("uses folder identity for colocated workspace agents", async () => {
     const root = await createTempRoot("vitehub-agent-workspace-name-")
     await mkdir(join(root, "server", "agents", "docs"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "docs", "config.ts"), "export default defineAgent({ workspace: {}, name: 'context', model })", "utf8")
+    await writeFile(join(root, "server", "agents", "docs", "config.ts"), "export default defineAgent({ workspace: {}, name: 'context', driver: { model } })", "utf8")
 
     expect(discoverAgentDefinitions({
       mode: "server-agents",
@@ -225,7 +225,7 @@ describe("agent discovery", () => {
   it("discovers nested agents named workspace when no parent agent owns the source root", async () => {
     const root = await createTempRoot("vitehub-agent-nested-workspace-")
     await mkdir(join(root, "server", "agents", "team", "workspace"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "team", "workspace", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "workspace", "config.ts"), "export default defineAgent({ workspace: {}, driver: { model } })", "utf8")
 
     expect(discoverAgentDefinitions({
       mode: "server-agents",
@@ -238,8 +238,8 @@ describe("agent discovery", () => {
   it("discovers nested agents named workspace below plain config agents", async () => {
     const root = await createTempRoot("vitehub-agent-plain-parent-workspace-")
     await mkdir(join(root, "server", "agents", "team", "workspace"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "team", "config.ts"), "export default defineAgent({ run: () => 'ok' })", "utf8")
-    await writeFile(join(root, "server", "agents", "team", "workspace", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "config.ts"), "export default defineAgent({ driver: { run: () => 'ok' } })", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "workspace", "config.ts"), "export default defineAgent({ workspace: {}, driver: { model } })", "utf8")
 
     expect(discoverAgentDefinitions({
       mode: "server-agents",
@@ -253,9 +253,9 @@ describe("agent discovery", () => {
   it("discovers nested file agents below configured agents", async () => {
     const root = await createTempRoot("vitehub-agent-nested-file-agent-")
     await mkdir(join(root, "server", "agents", "team"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "team", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "config.ts"), "export default defineAgent({ workspace: {}, driver: { model } })", "utf8")
     await writeFile(join(root, "server", "agents", "team", "access.ts"), "export const access = {}", "utf8")
-    await writeFile(join(root, "server", "agents", "team", "review.ts"), "export default defineAgent({ model })", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "review.ts"), "export default defineAgent({ driver: { model } })", "utf8")
 
     const definitions = discoverAgentDefinitions({
       mode: "server-agents",
@@ -272,7 +272,7 @@ describe("agent discovery", () => {
   it("discovers nested re-exported file agents below configured agents", async () => {
     const root = await createTempRoot("vitehub-agent-nested-reexport-agent-")
     await mkdir(join(root, "server", "agents", "team"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "team", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "config.ts"), "export default defineAgent({ workspace: {}, driver: { model } })", "utf8")
     await writeFile(join(root, "server", "agents", "team", "prompts.ts"), "export default { system: 'help' }", "utf8")
     await writeFile(join(root, "server", "agents", "team", "review.ts"), "export { default } from './review-agent'", "utf8")
 
@@ -303,8 +303,8 @@ describe("agent discovery", () => {
   it("throws when a configured server agent also has an index definition", async () => {
     const root = await createTempRoot("vitehub-agent-config-index-duplicate-")
     await mkdir(join(root, "server", "agents", "support"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
-    await writeFile(join(root, "server", "agents", "support", "index.ts"), "export default defineAgent({ model })", "utf8")
+    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {}, driver: { model } })", "utf8")
+    await writeFile(join(root, "server", "agents", "support", "index.ts"), "export default defineAgent({ driver: { model } })", "utf8")
 
     expect(() => discoverAgentDefinitions({
       mode: "server-agents",
@@ -315,9 +315,9 @@ describe("agent discovery", () => {
   it("throws when a nested configured server agent also has an index definition", async () => {
     const root = await createTempRoot("vitehub-agent-nested-config-index-duplicate-")
     await mkdir(join(root, "server", "agents", "team", "review"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "team", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
-    await writeFile(join(root, "server", "agents", "team", "review", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
-    await writeFile(join(root, "server", "agents", "team", "review", "index.ts"), "export default defineAgent({ model })", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "config.ts"), "export default defineAgent({ workspace: {}, driver: { model } })", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "review", "config.ts"), "export default defineAgent({ workspace: {}, driver: { model } })", "utf8")
+    await writeFile(join(root, "server", "agents", "team", "review", "index.ts"), "export default defineAgent({ driver: { model } })", "utf8")
 
     expect(() => discoverAgentDefinitions({
       mode: "server-agents",
@@ -420,22 +420,13 @@ describe("agent chat capability discovery", () => {
         }),
         chat(),
       ],
-      instructions: [
-        "# Support",
-        "",
-        "::capability{key=\"access\"}",
-        "Use Access for workspace visibility.",
-        "::",
-        "",
-        "::capability{key=\"chat\"}",
-        "Use Chat for conversation transport.",
-        "::",
-      ].join("\n"),
-      workspace: {},
-      run: (context: { invoker: { kind?: string, meta?: Record<string, unknown> }, workspace?: unknown }) => {
-        const email = typeof context.invoker.meta?.email === "string" ? `:${context.invoker.meta.email}` : ""
-        return `answered as ${context.invoker.kind}${email} with ${context.workspace ? "workspace" : "no workspace"}`
+      driver: {
+        run: (context: { invoker: { kind?: string, meta?: Record<string, unknown> }, workspace?: unknown }) => {
+          const email = typeof context.invoker.meta?.email === "string" ? `:${context.invoker.meta.email}` : ""
+          return `answered as ${context.invoker.kind}${email} with ${context.workspace ? "workspace" : "no workspace"}`
+        },
       },
+      workspace: {},
     }), { workspace: "support" })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent()
@@ -446,7 +437,7 @@ describe("agent chat capability discovery", () => {
     const state = await waitForMetadataState(handlers[0]!, { action: "get-state", invokerProfileId: "support-technical" })
     expect(state).toMatchObject({
       chats: [{ name: "support", uiMessages: [] }],
-      instructions: ["# Support\n\nUse Access for workspace visibility.\n\nUse Chat for conversation transport."],
+      instructions: [],
       metadataStatus: "ready",
       invokerProfileId: "support-technical",
       invokerProfiles: [
@@ -483,7 +474,7 @@ describe("agent chat capability discovery", () => {
     })
     const clearedTechnicalState = JSON.parse(clearedTechnicalResponse.body)
     expect(clearedTechnicalState).toMatchObject({
-      instructions: ["# Support\n\nUse Access for workspace visibility.\n\nUse Chat for conversation transport."],
+      instructions: [],
       invokerProfileId: "support-technical",
       selected: "support",
       uiMessages: [],
@@ -510,7 +501,7 @@ describe("agent chat capability discovery", () => {
       meta: devtoolsMeta,
     })
     expect(resolvedFallbackState).toMatchObject({
-      instructions: ["# Support\n\nUse Access for workspace visibility.\n\nUse Chat for conversation transport."],
+      instructions: [],
       invokerFallback: true,
       metadataStatus: "ready",
       selected: "support",
@@ -548,10 +539,10 @@ describe("agent chat capability discovery", () => {
     let abortSignal: AbortSignal | undefined
     const agent = defineAgent({
       capabilities: [chat()],
-      run: ({ input }: { input: { abortSignal?: AbortSignal } }) => {
-        abortSignal = input.abortSignal
-        return "hello from stream"
-      },
+      driver: { run: ({ input }: { input: { abortSignal?: AbortSignal } }) => {
+          abortSignal = input.abortSignal
+          return "hello from stream"
+        } },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -610,7 +601,7 @@ describe("agent chat capability discovery", () => {
           id: "inventory-runtime",
         }),
       ],
-      run: () => "chat fallback",
+      driver: { run: () => "chat fallback" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -675,7 +666,7 @@ describe("agent chat capability discovery", () => {
           id: "inventory-runtime",
         }),
       ],
-      run: () => "chat fallback",
+      driver: { run: () => "chat fallback" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -848,7 +839,7 @@ describe("agent chat capability discovery", () => {
           messages: false,
         }),
       },
-      run: () => "chat fallback",
+      driver: { run: () => "chat fallback" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -907,7 +898,7 @@ describe("agent chat capability discovery", () => {
           { id: "support-technical", kind: "technical", label: "Technical" },
         ],
       },
-      run: () => "chat fallback",
+      driver: { run: () => "chat fallback" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -958,7 +949,7 @@ describe("agent chat capability discovery", () => {
           },
         }),
       ],
-      run: () => "chat fallback",
+      driver: { run: () => "chat fallback" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -1013,7 +1004,7 @@ describe("agent chat capability discovery", () => {
           },
         }),
       ],
-      run: () => "chat fallback",
+      driver: { run: () => "chat fallback" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -1064,7 +1055,7 @@ describe("agent chat capability discovery", () => {
           input: () => Response.json({ reason: "blocked" }, { status: 409 }),
         }),
       ],
-      run: () => "chat fallback",
+      driver: { run: () => "chat fallback" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -1107,7 +1098,7 @@ describe("agent chat capability discovery", () => {
           id: "inventory-runtime",
         }),
       ],
-      run: () => "chat fallback",
+      driver: { run: () => "chat fallback" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -1139,9 +1130,11 @@ describe("agent chat capability discovery", () => {
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const usage = { inputTokens: 2, outputTokens: 3, totalTokens: 5 }
     const agent = defineAgent({
-      async * run() {
-        yield { text: "hello from stream", type: "text-delta" }
-        yield { finishReason: "stop", totalUsage: usage, type: "finish" }
+      driver: {
+        async * run() {
+          yield { text: "hello from stream", type: "text-delta" }
+          yield { finishReason: "stop", totalUsage: usage, type: "finish" }
+        }
       },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
@@ -1189,7 +1182,7 @@ describe("agent chat capability discovery", () => {
       channels: {
         portal: webChat(),
       },
-      run: ({ context, invoker, messages }) => `payload ${context.get<{ meta?: { audience?: string } }>("chat")?.meta?.audience} ${invoker.id} ${getMessageText(messages[0]!)}`,
+      driver: { run: ({ context, invoker, messages }) => `payload ${context.get<{ meta?: { audience?: string } }>("chat")?.meta?.audience} ${invoker.id} ${getMessageText(messages[0]!)}` },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -1246,7 +1239,7 @@ describe("agent chat capability discovery", () => {
           webhooks: { secretToken: "secret-token" },
         }),
       },
-      run: ({ messages }) => `nuxt ${getMessageText(messages[0]!)}`,
+      driver: { run: ({ messages }) => `nuxt ${getMessageText(messages[0]!)}` },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -1307,7 +1300,7 @@ describe("agent chat capability discovery", () => {
           webhooks: { secretHeader: "x-test-secret", secretToken: "secret-token" },
         }),
       },
-      run: ({ context, input }) => `context ${context.get<{ number: number }>("pullRequest")?.number} ${input.prompt}`,
+      driver: { run: ({ context, input }) => `context ${context.get<{ number: number }>("pullRequest")?.number} ${input.prompt}` },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -1358,11 +1351,11 @@ describe("agent chat capability discovery", () => {
       channels: {
         github: github({ events: { pullRequestComments: { reply: false } }, webhooks: { secretToken: "secret-token" } }),
       },
-      run: ({ context, input }) => {
-        const github = context.get<{ command: string, repository: string }>("github")
-        const pullRequest = context.get<{ pullRequest: { number: number } }>("pullRequest")
-        return `context ${github?.repository}#${pullRequest?.pullRequest.number} ${github?.command} ${input.prompt}`
-      },
+      driver: { run: ({ context, input }) => {
+          const github = context.get<{ command: string, repository: string }>("github")
+          const pullRequest = context.get<{ pullRequest: { number: number } }>("pullRequest")
+          return `context ${github?.repository}#${pullRequest?.pullRequest.number} ${github?.command} ${input.prompt}`
+        } },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -1421,7 +1414,7 @@ describe("agent chat capability discovery", () => {
     }
     const agent = defineAgent({
       name: "summary",
-      run: () => "ok",
+      driver: { run: () => "ok" },
       workspace: {},
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
@@ -1476,11 +1469,11 @@ describe("agent chat capability discovery", () => {
     }
     const aliasAgent = defineAgent({
       name: "summary",
-      run: () => "alias",
+      driver: { run: () => "alias" },
       workspace: {},
     })
     const exactAgent = defineAgent({
-      run: () => "exact",
+      driver: { run: () => "exact" },
     })
     const { handlers, server } = createFakeServer(root, { default: aliasAgent })
     server.ssrLoadModule.mockImplementation(async (...args: unknown[]) => String(args[0] || "").includes("/summary.ts")
@@ -1550,11 +1543,11 @@ describe("agent chat capability discovery", () => {
           },
         }),
       },
-      run: ({ input }) => {
-        abortSignal = input.abortSignal
-        timeout = input.timeout
-        return "Review completed."
-      },
+      driver: { run: ({ input }) => {
+          abortSignal = input.abortSignal
+          timeout = input.timeout
+          return "Review completed."
+        } },
     })
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {})).resolves.toBe("Review completed.")
@@ -1606,10 +1599,10 @@ describe("agent chat capability discovery", () => {
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     let abortSignal: AbortSignal | undefined
     const agent = defineAgent({
-      run: ({ input }) => {
-        abortSignal = input.abortSignal
-        return { text: `plain ${input.messages?.[0] ? getMessageText(input.messages[0]) : ""}` }
-      },
+      driver: { run: ({ input }) => {
+          abortSignal = input.abortSignal
+          return { text: `plain ${input.messages?.[0] ? getMessageText(input.messages[0]) : ""}` }
+        } },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -1652,7 +1645,7 @@ describe("agent chat capability discovery", () => {
     const { handlers, server } = createFakeServer(root, {
       default: defineAgent({
         capabilities: [chat()],
-        run: () => "unused",
+        driver: { run: () => "unused" },
       }),
     })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -1681,7 +1674,7 @@ describe("agent chat capability discovery", () => {
     const { handlers, server } = createFakeServer(root, {
       default: defineAgent({
         capabilities: [chat()],
-        run: () => "unused",
+        driver: { run: () => "unused" },
       }),
     })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -1707,7 +1700,7 @@ describe("agent chat capability discovery", () => {
       default: defineAgent({
         capabilities: [chat()],
         hooks: { "agent:finish": finish },
-        run: () => new Response("hello from response"),
+        driver: { run: () => new Response("hello from response") },
       }),
     })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
@@ -1752,14 +1745,15 @@ describe("agent chat capability discovery", () => {
     const readInstructions = vi.fn(async () => await instructionsReady)
     const agent = withAgentDefaults(defineAgent({
       capabilities: [chat()],
-      instructions: readInstructions,
-      model: {} as never,
+      driver: {
+        instructions: readInstructions,
+        model: {} as never,
+      },
       workspace: {
         sources: {
           docs: { name: "docs" } as never,
         },
       },
-      run: () => "ok",
     }), { workspace: "support" })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent()
@@ -1789,7 +1783,7 @@ describe("agent chat capability discovery", () => {
   it("refreshes chat devtools workspace metadata after source materialization", async () => {
     const root = await createTempRoot("vitehub-agent-devtools-materialized-source-")
     await mkdir(join(root, "server", "agents", "support"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {}, driver: { model } })", "utf8")
 
     const { chat } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
@@ -1797,8 +1791,13 @@ describe("agent chat capability discovery", () => {
     const { registerWorkspace } = await import("@vite-hub/workspace/test")
     const agent = withAgentDefaults(defineAgent({
       capabilities: [chat()],
-      instructions: "Answer from the workspace.",
-      model: {} as never,
+      driver: {
+        async run({ workspace }) {
+          const fs = workspace?.fs as { materializeSources?: (options: { sources: string[] }) => Promise<unknown> } | undefined
+          await fs?.materializeSources?.({ sources: ["ingestion"] })
+          return "materialized ingestion"
+        }
+      },
       workspace: {
         store: { provider: "memory" },
         sources: {
@@ -1814,11 +1813,6 @@ describe("agent chat capability discovery", () => {
             },
           }),
         },
-      },
-      async run({ workspace }) {
-        const fs = workspace?.fs as { materializeSources?: (options: { sources: string[] }) => Promise<unknown> } | undefined
-        await fs?.materializeSources?.({ sources: ["ingestion"] })
-        return "materialized ingestion"
       },
     }), { workspace: "support" })
     registerWorkspace("support", agent as never)
@@ -1876,7 +1870,7 @@ describe("agent chat capability discovery", () => {
   it("materializes resolver-backed lazy sources from the chat devtools file tree", async () => {
     const root = await createTempRoot("vitehub-agent-devtools-click-source-")
     await mkdir(join(root, "server", "agents", "support"), { recursive: true })
-    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {}, model })", "utf8")
+    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default defineAgent({ workspace: {}, driver: { model } })", "utf8")
 
     const { chat } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
@@ -1884,8 +1878,9 @@ describe("agent chat capability discovery", () => {
     const { registerWorkspace } = await import("@vite-hub/workspace/test")
     const agent = withAgentDefaults(defineAgent({
       capabilities: [chat()],
-      instructions: "Answer from the workspace.",
-      model: {} as never,
+      driver: {
+        run: () => "ok"
+      },
       workspace: {
         store: { provider: "memory" },
         sources: {
@@ -1927,7 +1922,6 @@ describe("agent chat capability discovery", () => {
           }),
         },
       },
-      run: () => "ok",
     }), { workspace: "support" })
     registerWorkspace("support", agent as never)
     const { handlers, server } = createFakeServer(root, { default: agent })

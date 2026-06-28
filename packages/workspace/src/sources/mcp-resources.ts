@@ -20,6 +20,7 @@ export function mcpResources<const TKey extends string = string, const TOptions 
     ...options,
     cache: options.cache,
   })
+  delete (baseSource as typeof baseSource & { instructions?: unknown }).instructions
 
   return markLiveWorkspaceSource({
     ...baseSource,

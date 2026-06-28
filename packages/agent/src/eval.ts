@@ -279,17 +279,9 @@ function applyVariant<TRuntimeConfig extends AgentRuntimeConfig>(
   if (!isVariantOverride(variant)) return agent
   const settings = (agent as { __vitehubAgentSettings?: AgentSettings<TRuntimeConfig> }).__vitehubAgentSettings
   if (settings) {
-    const driver = (settings as { driver?: unknown }).driver
-    if (driver) {
-      return defineAgent({
-        ...settings,
-        driver: applyVariantToExplicitDriver(driver, variant) as never,
-      } as never)
-    }
     return defineAgent({
       ...settings,
-      ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),
-      ...(variant.model !== undefined ? { model: variant.model as never } : {}),
+      driver: applyVariantToExplicitDriver(settings.driver, variant) as never,
     } as never)
   }
   if (!isWorkspaceAgentDefinition(agent)) {
@@ -298,16 +290,9 @@ function applyVariant<TRuntimeConfig extends AgentRuntimeConfig>(
 
   const options = agent.__vitehubWorkspaceAgentOptions as WorkspaceAgentOptions<TRuntimeConfig>
   const driver = (options as { driver?: unknown }).driver
-  if (driver) {
-    return defineAgent({
-      ...options,
-      driver: applyVariantToExplicitDriver(driver, variant) as never,
-    } as never)
-  }
   return defineAgent({
     ...options,
-    ...(variant.instructions !== undefined ? { instructions: variant.instructions } : {}),
-    ...(variant.model !== undefined ? { model: variant.model as never } : {}),
+    driver: applyVariantToExplicitDriver(driver, variant) as never,
   } as never)
 }
 

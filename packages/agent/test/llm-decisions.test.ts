@@ -39,9 +39,9 @@ describe("LLM decision capabilities", () => {
             model: "router-model" as never,
           }),
         ],
-        async run(context) {
-          return context.context.get("active-instructions")
-        },
+        driver: { async run(context) {
+            return context.context.get("active-instructions")
+          } },
       })
 
       await expect(runAgent(agent, runtime(), {
@@ -79,9 +79,9 @@ describe("LLM decision capabilities", () => {
             },
           }),
         ],
-        async run() {
-          return "should not run"
-        },
+        driver: { async run() {
+            return "should not run"
+          } },
       })
 
       await expect(runAgent(agent, runtime(), {

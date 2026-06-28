@@ -5,6 +5,7 @@ import type { WorkspaceSource } from "../core/types.ts"
 
 export function markdown(options: FileSourceOptions): WorkspaceSource {
   const source = createMarkdownSource(options)
+  delete (source as typeof source & { instructions?: unknown }).instructions
   return {
     ...source,
     cache: options.cache,

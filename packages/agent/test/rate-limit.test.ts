@@ -35,7 +35,7 @@ describe("rateLimit capability", () => {
           { id: "support" },
         ],
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })).toThrow("Duplicate Agent Invoker Profile id")
   })
 
@@ -50,7 +50,9 @@ describe("rateLimit capability", () => {
           window: "1m",
         }),
       ],
-      run,
+      driver: {
+        run
+      },
     })
 
     await expect(runAgent(agent, runtime(), {
@@ -96,7 +98,7 @@ describe("rateLimit capability", () => {
           window: "1m",
         }),
       ],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(runAgent(agent, runtime(), {
@@ -125,7 +127,7 @@ describe("rateLimit capability", () => {
           }
         },
       },
-      run: context => context.context.get("invoker"),
+      driver: { run: context => context.context.get("invoker") },
     })
 
     await expect(runAgent(agent, runtime(), {
@@ -147,7 +149,7 @@ describe("rateLimit capability", () => {
           }
         },
       },
-      run: context => context.invoker,
+      driver: { run: context => context.invoker },
     })
 
     await expect(runAgent(agent, runtime({
@@ -168,7 +170,7 @@ describe("rateLimit capability", () => {
           { id: "support:acme", kind: "customer", meta: { customer: "acme", scope: "support" } },
         ],
       },
-      run: context => context.invoker,
+      driver: { run: context => context.invoker },
     })
 
     await expect(runAgent(agent, runtime(), {
@@ -207,7 +209,7 @@ describe("rateLimit capability", () => {
           window: "1m",
         }),
       ],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(runAgent(agent, runtime(), {})).resolves.toBe("ok")
@@ -236,7 +238,7 @@ describe("rateLimit capability", () => {
           window: "1m",
         }),
       ],
-      run: context => context.context.get("rate-limit"),
+      driver: { run: context => context.context.get("rate-limit") },
     })
 
     await expect(runAgent(agent, runtime(), {
@@ -276,7 +278,7 @@ describe("rateLimit capability", () => {
           window: "1d",
         }),
       ],
-      run: context => context.context.get("customer-quota"),
+      driver: { run: context => context.context.get("customer-quota") },
     })
 
     await expect(runAgent(agent, runtime(), {
@@ -316,7 +318,7 @@ describe("rateLimit capability", () => {
           window: "1m",
         }),
       ],
-      run: context => context.context.get("rate-limit"),
+      driver: { run: context => context.context.get("rate-limit") },
     })
     const consumeAgent = defineAgent({
       capabilities: [
@@ -327,7 +329,7 @@ describe("rateLimit capability", () => {
           window: "1m",
         }),
       ],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(runAgent(checkAgent, runtime(), {})).resolves.toMatchObject({ action: "check", remaining: 1, used: 0 })
@@ -354,7 +356,7 @@ describe("rateLimit capability", () => {
           window: "1m",
         }),
       ],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(runAgent(agent, runtime(), {})).resolves.toBe("ok")
@@ -380,10 +382,10 @@ describe("rateLimit capability", () => {
           window: "1m",
         }),
       ],
-      run: context => {
-        seen.push(context.invoker)
-        return "ok"
-      },
+      driver: { run: context => {
+          seen.push(context.invoker)
+          return "ok"
+        } },
     })
 
     await expect(runAgent(agent, runtime({ run: { origin: "http", runId: "run_1" } }), {})).resolves.toBe("ok")
@@ -406,7 +408,7 @@ describe("rateLimit capability", () => {
             window: "1s",
           }),
         ],
-        run: () => "ok",
+        driver: { run: () => "ok" },
       })
 
       await expect(runAgent(agent, runtime(), {})).resolves.toBe("ok")
@@ -435,7 +437,7 @@ describe("rateLimit capability", () => {
             window: "1m",
           }),
         ],
-        run: () => "ok",
+        driver: { run: () => "ok" },
       })
       const request = new Request("https://example.com/api/agent", {
         headers: {
@@ -467,7 +469,7 @@ describe("rateLimit capability", () => {
           window: "1m",
         }),
       ],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(runAgent(agent, runtime({
@@ -487,7 +489,7 @@ describe("rateLimit capability", () => {
           window: "1m",
         }),
       ],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
     const withMemoryOptIn = defineAgent({
       capabilities: [
@@ -498,7 +500,7 @@ describe("rateLimit capability", () => {
           window: "1m",
         }),
       ],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(runAgent(withoutStore, runtime({ runtime: "vercel" }), {})).rejects.toThrow("requires an explicit store")
@@ -516,7 +518,7 @@ describe("rateLimit capability", () => {
           window: "1m",
         }),
       ],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(runAgent(agent, runtime({ run: { runId: "run_1" } }), {})).rejects.toThrow("could not resolve Agent Run metadata")
