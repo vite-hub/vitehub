@@ -2,9 +2,12 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
+import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "./cloudflare.ts"
 import { bundleEsmEntry } from "./esbuild.ts"
-import { toSafeAppName } from "./user-entry.ts"
 import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
+
+export { createDefaultCloudflareOutputRoot } from "./cloudflare.ts"
+export { shouldSkipViteProviderBuild } from "./vite.ts"
 
 type BundleOptions = NonNullable<Parameters<typeof bundleEsmEntry>[2]>
 
@@ -14,8 +17,8 @@ interface SharedDeploymentOptions {
 }
 
 interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptions {
-  bundleEntry: string
-  bundleOptions: BundleOptions
+  bundleEntry?: string
+  bundleOptions?: BundleOptions
   bundleOutfileName?: string
   outputRoot?: string
   staticOutputDir?: string
@@ -174,14 +177,6 @@ async function deleteJsonObjectKeysFromFile(file: string, keys: string[] | undef
   await writeFile(file, `${JSON.stringify(next, null, 2)}\n`, "utf8")
 }
 
-export function shouldSkipViteProviderBuild(command: "build" | "serve" | undefined, mode?: string): boolean {
-  return command === "serve" || mode === "e2e"
-}
-
-export function createDefaultCloudflareOutputRoot(rootDir: string): string {
-  return resolve(rootDir, "dist", toSafeAppName(rootDir))
-}
-
 function createDefaultCloudflareStaticOutputDir(rootDir: string): string {
   return resolve(rootDir, "dist", "client")
 }
@@ -214,18 +209,28 @@ async function appendNetlifyFunctionConfig(outfile: string, config: object | und
 async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutputOptions): Promise<void> {
   const { clientDir, staticIndex } = resolveClientOutput(options.rootDir, options.clientOutDir)
   const outputRoot = options.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir)
-  const workerOutfile = resolve(outputRoot, options.bundleOutfileName ?? "index.js")
 
   await mkdir(outputRoot, { recursive: true })
-  await rm(workerOutfile, { force: true, recursive: true })
 
-  await Promise.all([
-    bundleEsmEntry(options.bundleEntry, workerOutfile, options.bundleOptions),
-    writeMergedJsonObject(resolve(outputRoot, "wrangler.json"), options.wranglerConfig, options.wranglerConfigKeys),
-    staticIndex
+  const writes = [
+    writeCloudflareWranglerConfig({
+      outputRoot,
+      rootDir: options.rootDir,
+      wranglerConfig: options.wranglerConfig,
+      wranglerConfigKeys: options.wranglerConfigKeys,
+    }),
+    options.bundleEntry && staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? createDefaultCloudflareStaticOutputDir(options.rootDir))
       : Promise.resolve(),
-  ])
+  ]
+
+  if (options.bundleEntry) {
+    const workerOutfile = resolve(outputRoot, options.bundleOutfileName ?? "index.js")
+    await rm(workerOutfile, { force: true, recursive: true })
+    writes.push(bundleEsmEntry(options.bundleEntry, workerOutfile, options.bundleOptions))
+  }
+
+  await Promise.all(writes)
 }
 
 async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOptions): Promise<void> {
@@ -275,7 +280,11 @@ async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanup: Cloud
   if (cleanup.bundleOutfileName) {
     writes.push(rm(resolve(outputRoot, cleanup.bundleOutfileName), { force: true, recursive: true }))
   }
-  writes.push(deleteJsonObjectKeysFromFile(resolve(outputRoot, "wrangler.json"), cleanup.wranglerConfigKeys))
+  writes.push(writeCloudflareWranglerConfig({
+    outputRoot,
+    rootDir,
+    wranglerConfigKeys: cleanup.wranglerConfigKeys,
+  }))
   await Promise.all(writes)
 }
 
