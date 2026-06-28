@@ -218,7 +218,7 @@ function isWorkspaceRegistry(value: unknown): value is WorkspaceRegistry {
 }
 
 async function loadViteWorkspaceRegistry(server: ViteDevServer): Promise<WorkspaceRegistry> {
-  if (!server.config.plugins.some(plugin => plugin.name === "@vite-hub/workspace/vite")) return {}
+  if (!server.config.plugins?.some(plugin => plugin.name === "@vite-hub/workspace/vite")) return {}
   const mod = await server.ssrLoadModule(workspaceRegistryId) as { default?: unknown }
   return isWorkspaceRegistry(mod.default) ? mod.default : {}
 }
