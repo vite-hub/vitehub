@@ -1027,9 +1027,9 @@ describe("server helpers", () => {
         ? { invokerProfileId: "customer:acme" }
         : false
     })
-    const run = vi.fn(({ context, invoker, run }) => {
+    const run = vi.fn(async ({ context, invoker, run, runtimeContext }) => {
       const chatContext = context.get("chat") as { meta?: { audience?: string, customer?: string }, user?: { email?: string } } | undefined
-      return `web ${run.channelId} ${run.origin} ${run.threadId} ${invoker.id} ${chatContext?.user?.email} ${chatContext?.meta?.customer} ${chatContext?.meta?.audience}`
+      return `web ${run.channelId} ${run.origin} ${run.threadId} ${invoker.id} ${chatContext?.user?.email} ${chatContext?.meta?.customer} ${chatContext?.meta?.audience} runtime-body:${await runtimeContext.request.text()}`
     })
     const handler = createChannelChatRouteHandler(defineAgent({
       channels: {
@@ -1082,7 +1082,7 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
-    await expect(response.text()).resolves.toContain("web portal portal portal:portal-thread customer:acme user@example.com acme technical")
+    await expect(response.text()).resolves.toContain("web portal portal portal:portal-thread customer:acme user@example.com acme technical runtime-body:")
     expect(run).toHaveBeenCalled()
     authenticate.mockClear()
 
