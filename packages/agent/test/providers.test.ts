@@ -17,6 +17,8 @@ vi.mock("@vite-hub/internal/build/deployment-output", () => ({
   writeProviderDeploymentOutputs: vi.fn(async () => undefined),
 }))
 
+vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+
 function githubSignature(secret: string, body: string) {
   return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
 }
@@ -1140,6 +1142,97 @@ describe("server helpers", () => {
       run: () => "unused",
     }) as never)
 
+    const protectedFields = {
+      invoker: { id: "spoofed" },
+      invokerProfileId: "customer:acme",
+      meta: { customer: "acme" },
+      run: { origin: "portal" },
+      session: { id: "portal-session" },
+      user: { id: "spoofed" },
+    }
+
+    for (const [field, value] of Object.entries(protectedFields)) {
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        body: JSON.stringify({
+          messages: [{
+            id: "user-1",
+            parts: [{ text: "hello", type: "text" }],
+            role: "user",
+          }],
+          [field]: value,
+        }),
+        method: "POST",
+      }))
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toMatchObject({
+        error: "Agent chat route identity must be derived server-side with defineAgent({ invoker }).",
+      })
+    }
+  })
+
+  it("copies trusted webChat route input after admission", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server.ts")
+    const authenticate = vi.fn(({ request }) => request.headers.get("x-quiver-chat-token") === "trusted" ? true : false)
+    const run = vi.fn(({ context, invoker, run }) => {
+      const chatContext = context.get("chat") as { meta?: { audience?: string }, session?: { id?: string }, user?: { email?: string } } | undefined
+      return `trusted ${run.channelId} ${run.origin} ${run.threadId} ${invoker.id} ${chatContext?.user?.email} ${chatContext?.meta?.audience} ${chatContext?.session?.id}`
+    })
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: {
+        portal: webChat({
+          route: {
+            admission: { authenticate },
+            input: { trust: ["meta", "user", "session"] },
+          },
+        }),
+      },
+      run,
+    }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        id: "portal-thread",
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+        meta: { audience: "technical", customer: "acme" },
+        run: { origin: "spoofed" },
+        session: { id: "portal-session" },
+        user: { email: "user@example.com" },
+      }),
+      headers: {
+        "content-type": "application/json",
+        "x-quiver-chat-token": "trusted",
+      },
+      method: "POST",
+    }), { agentName: "support" })
+
+    expect(response.status).toBe(200)
+    await expect(response.text()).resolves.toContain("trusted portal web-chat portal:portal-thread web-chat:user@example.com user@example.com technical portal-session")
+    expect(authenticate).toHaveBeenCalled()
+    expect(run).toHaveBeenCalled()
+  })
+
+  it("does not trust route input without admission authentication", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server.ts")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: {
+        portal: webChat({
+          route: {
+            input: { trust: ["meta"] },
+          },
+        }),
+      },
+      run: () => "unused",
+    }) as never)
+
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
       body: JSON.stringify({
         messages: [{
@@ -1147,10 +1240,10 @@ describe("server helpers", () => {
           parts: [{ text: "hello", type: "text" }],
           role: "user",
         }],
-        user: { id: "spoofed" },
+        meta: { customer: "acme" },
       }),
       method: "POST",
-    }))
+    }), { agentName: "support" })
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toMatchObject({
