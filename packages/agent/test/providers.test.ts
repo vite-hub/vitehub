@@ -1218,6 +1218,44 @@ describe("server helpers", () => {
     expect(run).toHaveBeenCalled()
   })
 
+  it("does not copy untrusted session input after admission", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server.ts")
+    const run = vi.fn(({ context }) => {
+      const chatContext = context.get("chat") as { meta?: { audience?: string }, session?: { id?: string }, user?: { email?: string } } | undefined
+      return `trusted ${chatContext?.user?.email} ${chatContext?.meta?.audience} ${chatContext?.session?.id ?? "no-session"}`
+    })
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: {
+        portal: webChat({
+          route: {
+            admission: { authenticate: () => true },
+            input: { trust: ["meta", "user"] },
+          },
+        }),
+      },
+      run,
+    }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+        meta: { audience: "technical" },
+        session: { id: "portal-session" },
+        user: { email: "user@example.com" },
+      }),
+      method: "POST",
+    }), { agentName: "support" })
+
+    expect(response.status).toBe(200)
+    await expect(response.text()).resolves.toContain("trusted user@example.com technical no-session")
+  })
+
   it("does not trust route input without admission authentication", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")

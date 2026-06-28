@@ -1547,12 +1547,10 @@ function agentChannelChatRouteInput(
     throw createRouteBodyError("Agent chat route identity must be derived server-side with defineAgent({ invoker }).")
   }
   const messages = body.messages as UIMessage[]
-  const session = optionalBodyRecord(body.session, "session") as AgentChatMessageTriggerInput["session"] | undefined
   return {
     ...(body.history !== undefined ? { history: body.history } : {}),
     messages,
     run: createHttpChatRunMetadata(agentName, body, messages, options),
-    ...(session ? { session } : {}),
   }
 }
 
