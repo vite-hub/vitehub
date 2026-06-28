@@ -34,9 +34,9 @@ describe("fetch sources", () => {
     registerWorkspace("fetch-json", defineWorkspace({
       store: { provider: "memory" },
       sources: {
-        status: fetch<{ ignored: boolean, status: string }, { status: string }>({
+        status: fetch({
           workspacePath: "api/summary.json",
-          transform: data => ({ status: data.status }),
+          transform: (data: { ignored: boolean, status: string }) => ({ status: data.status }),
           url: "https://status.example.com/api/summary",
         }),
       },

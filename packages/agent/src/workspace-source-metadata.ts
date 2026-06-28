@@ -271,7 +271,11 @@ function fileSourceKey(input: Record<string, unknown>): string {
 
 function inferFetchWorkspacePath(input: Record<string, unknown>) {
   const responseType = input.responseType === "text" ? "text" : "json"
-  const explicitPath = typeof input.path === "string" ? input.path : undefined
+  const explicitPath = typeof input.workspacePath === "string"
+    ? input.workspacePath
+    : typeof input.path === "string"
+      ? input.path
+      : undefined
   if (explicitPath) return normalizeAgentWorkspacePath(explicitPath, { allowEmpty: false })
 
   const url = input.url instanceof URL ? input.url : new URL(String(input.url))

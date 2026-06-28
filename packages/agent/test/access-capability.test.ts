@@ -1182,6 +1182,14 @@ describe("access capability", () => {
       "docs/README.md",
       ".vitehub/sources/docs.json",
     ])
+    expect(workspaceSourceScopePaths("status", {
+      scopes: ["support"],
+      url: "https://status.example.com/health",
+      workspacePath: "external/status/health.json",
+    } as never, workspaceRuntime)).toEqual([
+      "external/status/health.json",
+      ".vitehub/sources/status.json",
+    ])
   })
 
   it("does not derive descriptor paths for non-request path-keyed sources", async () => {

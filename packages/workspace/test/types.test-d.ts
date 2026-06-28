@@ -146,6 +146,15 @@ describe("workspace types", () => {
       url: "https://status.example.com/api/summary",
       workspacePath: "status/summary.json",
     })
+    fetch<{ status: string }>({
+      // @ts-expect-error scoped fetch source options must stay inferred so Workspace Scope literals are preserved
+      scopes: ["support"] as const,
+      transform(data) {
+        return data
+      },
+      url: "https://status.example.com/api/summary",
+      workspacePath: "status/summary.json",
+    })
     fetch({
       body: { scope: "all" },
       cookies: { auth_token: "secret" },

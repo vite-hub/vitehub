@@ -106,13 +106,11 @@ export type FetchSourceInput<TResponse = unknown, TOutput = TResponse> =
   | FetchSourceOptions<TResponse, TOutput>
   | FetchSourceResolver<TResponse, TOutput>
 
-type FetchSourceOptionsWithScopes<TResponse, TOutput, TScopes extends readonly string[]> =
-  Omit<FetchSourceOptions<TResponse, TOutput>, "scopes"> & { scopes: TScopes }
 type FetchSourceOptionsWithoutScopes<TResponse, TOutput> =
   Omit<FetchSourceOptions<TResponse, TOutput>, "scopes"> & { scopes?: undefined }
 
-export function fetch<TResponse = unknown, TOutput = TResponse, const TScopes extends readonly string[] = readonly string[]>(options: ExactOptions<FetchSourceOptionsWithScopes<TResponse, TOutput, TScopes>, FetchSourceOptions<TResponse, TOutput>>): TypedWorkspaceSource<FetchSourceOptionsWithScopes<TResponse, TOutput, TScopes>>
-export function fetch<TResponse = unknown, TOutput = TResponse, const TOptions extends FetchSourceOptionsWithoutScopes<TResponse, TOutput> = FetchSourceOptionsWithoutScopes<TResponse, TOutput>>(options: ExactOptions<TOptions, FetchSourceOptionsWithoutScopes<TResponse, TOutput>>): TypedWorkspaceSource<TOptions>
+export function fetch<TResponse = unknown, TOutput = TResponse>(options: ExactOptions<FetchSourceOptionsWithoutScopes<TResponse, TOutput>, FetchSourceOptions<TResponse, TOutput>>): TypedWorkspaceSource<FetchSourceOptionsWithoutScopes<TResponse, TOutput>>
+export function fetch<const TOptions extends FetchSourceOptions<any, any>>(options: ExactOptions<TOptions, FetchSourceOptions<any, any>>): TypedWorkspaceSource<TOptions>
 export function fetch<TResponse = unknown, TOutput = TResponse>(resolve: FetchSourceResolver<TResponse, TOutput>): WorkspaceSource
 export function fetch<TResponse = unknown, TOutput = TResponse>(input: FetchSourceInput<TResponse, TOutput>): WorkspaceSource {
   if (typeof input === "function") return resolvableFetchSource(input)

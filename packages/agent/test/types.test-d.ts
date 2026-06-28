@@ -982,8 +982,38 @@ describe("agent public types", () => {
     defineAgent({
       workspace: {
         sources: {
-          status: fetchSource<{ status: string }>({
+          status: fetchSource({
             scopes: ["customer"] as const,
+            transform(data: { status: string }) {
+              return data
+            },
+            url: "https://status.example.com/api/summary",
+            workspacePath: "status/summary.json",
+          }),
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "customer",
+            scopes: {
+              customer: { source: "status" },
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+    })
+
+    // @ts-expect-error typed fetch source scopes must be backed by Access Workspace Scopes
+    defineAgent({
+      workspace: {
+        sources: {
+          status: fetchSource({
+            scopes: ["missing"] as const,
+            transform(data: { status: string }) {
+              return data
+            },
             url: "https://status.example.com/api/summary",
             workspacePath: "status/summary.json",
           }),
