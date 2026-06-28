@@ -136,9 +136,12 @@ function workspaceSourceHarnessPaths(context: AgentAdapterRunContext): string[] 
     ? context.context.get("access")?.workspaceScope
     : undefined
   return normalizeAgentWorkspaceSources(sources).flatMap((source) => {
-    if (source.materialize !== "build" || !source.probeKeys?.length) return []
     if (source.scopes?.length && scope && !scope.all && !source.scopes.includes(scope.scope)) return []
-    return source.probeKeys.map(key => [source.mountPath, key].filter(Boolean).join("/"))
+    if (source.materialize === "build" && source.probeKeys?.length) {
+      return source.probeKeys.map(key => [source.mountPath, key].filter(Boolean).join("/"))
+    }
+    if (source.materialize === "lazy") return [source.mountPath || ""]
+    return []
   })
 }
 

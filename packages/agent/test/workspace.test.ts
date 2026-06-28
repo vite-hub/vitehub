@@ -937,6 +937,58 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("passes lazy source mount roots into Harness Workspace Sessions", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { custom } = await import("@vite-hub/workspace")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+      workspace: {
+        sources: {
+          docs: custom({
+            materialize: "lazy",
+            mount: "docs",
+            async getKeys() {
+              return ["guide.md"]
+            },
+            async getItem(key) {
+              return { content: "docs", key, mediaType: "text/markdown", path: key }
+            },
+          }),
+          portal: custom({
+            materialize: "lazy",
+            mount: "portal",
+            async getKeys() {
+              return ["app.vue"]
+            },
+            async getItem(key) {
+              return { content: "portal", key, mediaType: "text/plain", path: key }
+            },
+          }),
+        },
+      },
+    }), { workspace: "support" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      ignoreWriteBackPaths: [],
+      paths: ["docs", "portal"],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
+  })
+
   it("uses an unrestricted harness Workspace Session scope when no explicit paths are available", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const harnessWorkspaceSession = { close: vi.fn() }
