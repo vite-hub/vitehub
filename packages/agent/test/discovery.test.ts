@@ -390,9 +390,9 @@ describe("agent chat capability discovery", () => {
       capabilities: [
         access({
           workspace: {
-            resolve({ invoker }) {
+            resolve({ invoker, run }) {
               const email = typeof invoker.meta?.email === "string" ? invoker.meta.email.toLowerCase() : undefined
-              return invoker.meta?.scope === "support" || (email && technicalEmails.has(email))
+              return run?.origin === "devtools" && (invoker.meta?.scope === "support" || (email && technicalEmails.has(email)))
                 ? { role: "admin", scope: "support" }
                 : { role: "viewer", scope: "customer" }
             },

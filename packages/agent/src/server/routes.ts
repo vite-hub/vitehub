@@ -1317,7 +1317,7 @@ async function startAgentDevtoolsMetadataResolution(
   const task = resolveAgentDevtoolsMetadata(agent as never, {
     ...options.defaults,
     input: createDevtoolsMetadataInput(metadataSelection),
-    runtime,
+    runtime: { ...runtime, run: createDevtoolsMetadataRunMetadata(name) },
   } as never)
     .then((metadata) => {
       if (state.metadataTask !== task || state.metadataSelectionKey !== selectionKey) return
@@ -1407,6 +1407,15 @@ function createDevtoolsRunMetadata(name: string, userMessageId: string): AgentRu
     messageId: userMessageId,
     origin: "devtools",
     runId: globalThis.crypto?.randomUUID?.() || `devtools-run-${randomToken()}`,
+    threadId: `devtools:${name}:thread`,
+  }
+}
+
+function createDevtoolsMetadataRunMetadata(name: string): AgentRunMetadata<"devtools"> {
+  return {
+    channelId: `devtools:${name}`,
+    origin: "devtools",
+    runId: `devtools:${name}:metadata`,
     threadId: `devtools:${name}:thread`,
   }
 }
@@ -1683,15 +1692,16 @@ async function materializeDevtoolsSource(
 
   try {
     const { materializeAgentDevtoolsSourceMetadata } = await import("../workspace-agent.ts")
+    const name = agentChannelDevtoolsName(agent, options)
     const metadata = await materializeAgentDevtoolsSourceMetadata(agent as never, {
       ...options.defaults,
       input: createDevtoolsMetadataInput(metadataSelection),
       ...(input.path ? { path: input.path } : {}),
       ...(input.source ? { source: input.source } : {}),
-      runtime,
+      runtime: { ...runtime, run: createDevtoolsMetadataRunMetadata(name) },
       sources: materializedSourceKeys(state.metadata),
     } as never)
-    state.metadata = metadataWithAgentName(metadata, agentChannelDevtoolsName(agent, options))
+    state.metadata = metadataWithAgentName(metadata, name)
     state.metadataSelectionKey = metadataSelectionKey(metadataSelection)
     state.metadataStatus = "ready"
     state.metadataTask = undefined
