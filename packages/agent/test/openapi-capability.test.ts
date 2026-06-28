@@ -80,7 +80,7 @@ describe("openapi capability", () => {
     const resolved = await resolveAgentCapabilities({
       capabilities: [
         openapi({
-          operations: { allow: ["listCustomers"] },
+          operations: ["listCustomers"],
           spec: portalSpec(),
         }),
       ],
@@ -96,31 +96,30 @@ describe("openapi capability", () => {
     await expect(resolveAgentCapabilities({
       capabilities: [
         openapi({
-          operations: { allow: ["deleteCustomer"] },
+          operations: ["deleteCustomer"],
           spec: portalSpec(),
         }),
       ],
     }, runtime(), { prompt: "delete" })).rejects.toThrow("v1 supports GET, HEAD, and POST")
   })
 
-  it("can hide tools by invocation context", async () => {
+  it("derives request server from OpenAPI servers", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { openapi } = await import("../src/capabilities.ts")
-    const capability = openapi({
-      enabled: ({ actor }) => actor.kind === "portal",
-      operations: { allow: ["listCustomers"] },
-      spec: portalSpec(),
-    })
 
-    const hidden = await resolveAgentCapabilities({
-      capabilities: [capability],
-    }, runtime(), { context: { actor: { id: "support", kind: "support" } }, prompt: "list" })
-    const visible = await resolveAgentCapabilities({
-      capabilities: [capability],
-    }, runtime(), { context: { actor: { id: "portal", kind: "portal" } }, prompt: "list" })
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        openapi({
+          operations: ["listCustomers"],
+          spec: portalSpec(),
+        }),
+      ],
+    }, runtime(), { prompt: "list" })
 
-    expect(hidden.tools).toBeUndefined()
-    expect(Object.keys(visible.tools || {})).toEqual(["listCustomers"])
+    await (resolved.tools as AgentToolSet).listCustomers.execute?.({ query: { region: "eu" } })
+
+    expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/customers?region=eu")
   })
 
   it("resolves dynamic specs per invocation", async () => {
@@ -128,7 +127,7 @@ describe("openapi capability", () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { openapi } = await import("../src/capabilities.ts")
     const capability = openapi({
-      operations: { allow: ["listCustomers"] },
+      operations: ["listCustomers"],
       spec: ({ context }) => ({
         ...portalSpec(),
         servers: [{ url: context.get<{ baseUrl: string }>("portal")?.baseUrl }],
@@ -157,20 +156,24 @@ describe("openapi capability", () => {
     ])
   })
 
-  it("resolves dynamic base URLs per invocation", async () => {
+  it("resolves contextual server overrides per invocation", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({ ok: true }))
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { openapi } = await import("../src/capabilities.ts")
     const capability = openapi({
-      baseUrl: ({ context }) => context.get<{ baseUrl: string }>("portal")?.baseUrl || "https://fallback.example.com",
-      operations: { allow: ["listCustomers"] },
+      operations: ["listCustomers"],
+      server({ context }) {
+        const server = context.get<{ baseUrl: string }>("portal")?.baseUrl
+        if (!server) throw new Error("Portal server missing.")
+        return server
+      },
       spec: { ...portalSpec(), servers: [] },
     })
 
     const first = await resolveAgentCapabilities({
       capabilities: [capability],
     }, runtime(), {
-      context: { portal: { baseUrl: "https://first.example.com/runtime" } },
+      context: { portal: { baseUrl: "https://first-override.example.com/runtime" } },
       prompt: "list",
     })
     await (first.tools as AgentToolSet).listCustomers.execute?.({})
@@ -178,14 +181,14 @@ describe("openapi capability", () => {
     const second = await resolveAgentCapabilities({
       capabilities: [capability],
     }, runtime(), {
-      context: { portal: { baseUrl: "https://second.example.com/runtime" } },
+      context: { portal: { baseUrl: "https://second-override.example.com/runtime" } },
       prompt: "list",
     })
     await (second.tools as AgentToolSet).listCustomers.execute?.({})
 
     expect(request.mock.calls.map(call => call[0])).toEqual([
-      "https://first.example.com/runtime/customers",
-      "https://second.example.com/runtime/customers",
+      "https://first-override.example.com/runtime/customers",
+      "https://second-override.example.com/runtime/customers",
     ])
   })
 
@@ -204,7 +207,7 @@ describe("openapi capability", () => {
             description: "Inspect live Portal data.",
             name: "portal",
           },
-          operations: { allow: ["listCustomers", "createOrder"] },
+          operations: ["listCustomers", "createOrder"],
           spec: ({ context }) => ({
             ...portalSpec(),
             servers: [{ url: context.get<{ baseUrl: string }>("portal")?.baseUrl }],
@@ -237,7 +240,7 @@ describe("openapi capability", () => {
     expect(request.mock.calls[0]?.[0]).toBe("https://cli.example.com/runtime/customers?region=eu")
   })
 
-  it("uses defaults and headers while omitting host-supplied fields from tool schema", async () => {
+  it("prepares requests while hiding host-supplied fields from tool schema", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { openapi } = await import("../src/capabilities.ts")
@@ -245,23 +248,23 @@ describe("openapi capability", () => {
     const resolved = await resolveAgentCapabilities({
       capabilities: [
         openapi({
-          defaults: ({ context }) => ({
-            body: { cubeToken: context.get<{ cubeToken: string }>("portal")?.cubeToken },
-            path: { tenantId: "acme" },
-            query: { currency: "EUR" },
-          }),
-          headers: ({ context }) => ({
-            cookie: `preview=${context.get<{ previewCookie: string }>("portal")?.previewCookie}`,
-            "x-cube-token": context.get<{ cubeToken: string }>("portal")?.cubeToken || "",
-          }),
-          input: {
-            omit: {
+          operations: ["createOrder"],
+          request: {
+            hidden: {
               body: ["cubeToken"],
               path: ["tenantId"],
               query: ["currency"],
             },
+            onRequest({ context, request }) {
+              const cubeToken = context.get<{ cubeToken: string }>("portal")?.cubeToken
+              const previewCookie = context.get<{ previewCookie: string }>("portal")?.previewCookie
+              request.body = { cubeToken, ...(request.body as Record<string, unknown> | undefined) }
+              request.path.tenantId = "acme"
+              request.query.currency = "EUR"
+              if (cubeToken) request.headers.set("x-cube-token", cubeToken)
+              if (previewCookie) request.cookies.preview = previewCookie
+            },
           },
-          operations: { allow: ["createOrder"] },
           spec: portalSpec(),
         }),
       ],
@@ -294,7 +297,7 @@ describe("openapi capability", () => {
     expect((init.headers as Headers).get("x-cube-token")).toBe("cube-token")
   })
 
-  it("omits host-supplied fields from generated OpenAPI CLI inputs", async () => {
+  it("hides host-supplied fields from generated OpenAPI CLI inputs", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { openapi } = await import("../src/capabilities.ts")
@@ -303,19 +306,22 @@ describe("openapi capability", () => {
       capabilities: [
         openapi({
           cli: { name: "portal" },
-          defaults: ({ context }) => ({
-            body: { cubeToken: context.get<{ cubeToken: string }>("portal")?.cubeToken },
-            path: { tenantId: "acme" },
-            query: { currency: "EUR" },
-          }),
-          input: {
-            omit: {
+          operations: ["createOrder"],
+          request: {
+            hidden: {
               body: ["cubeToken"],
               path: ["tenantId"],
               query: ["currency"],
             },
+            onRequest({ context, request }) {
+              request.body = {
+                cubeToken: context.get<{ cubeToken: string }>("portal")?.cubeToken,
+                ...(request.body as Record<string, unknown> | undefined),
+              }
+              request.path.tenantId = "acme"
+              request.query.currency = "EUR"
+            },
           },
-          operations: { allow: ["createOrder"] },
           spec: portalSpec(),
         }),
       ],
@@ -353,7 +359,7 @@ describe("openapi capability", () => {
       capabilities: [
         openapi({
           cli: { name: "portal" },
-          operations: { allow: ["createOrder"] },
+          operations: ["createOrder"],
           spec: portalSpec(),
         }),
       ],
@@ -382,7 +388,7 @@ describe("openapi capability", () => {
       capabilities: [
         openapi({
           cli: { name: "portal" },
-          operations: { allow: ["createOrder"] },
+          operations: ["createOrder"],
           spec: portalSpec(),
         }),
       ],
@@ -418,7 +424,7 @@ describe("openapi capability", () => {
       capabilities: [
         openapi({
           cli: { name: "portal" },
-          operations: { allow: ["listCustomers"] },
+          operations: ["listCustomers"],
           responseType: "text",
           spec: portalSpec(),
         }),
@@ -446,17 +452,17 @@ describe("openapi capability", () => {
     const resolved = await resolveAgentCapabilities({
       capabilities: [
         openapi({
-          defaults: {
-            body: { cubeToken: "cube-token" },
-            path: { tenantId: "acme" },
-          },
-          input: {
-            omit: {
+          operations: ["createOrder"],
+          request: {
+            hidden: {
               body: ["cubeToken"],
               path: ["tenantId"],
             },
+            onRequest({ request }) {
+              request.body = { cubeToken: "cube-token", ...(request.body as Record<string, unknown> | undefined) }
+              request.path.tenantId = "acme"
+            },
           },
-          operations: { allow: ["createOrder"] },
           spec: portalSpec(),
         }),
       ],
@@ -482,12 +488,14 @@ describe("openapi capability", () => {
     const resolved = await resolveAgentCapabilities({
       capabilities: [
         openapi({
-          defaults: {
-            body: { cubeToken: "cube-token" },
-            path: { tenantId: "acme" },
+          operations: ["createOrder"],
+          request: {
+            hidden: { body: ["cubeToken"], path: ["tenantId"] },
+            onRequest({ request }) {
+              request.body = { cubeToken: "cube-token", ...(request.body as Record<string, unknown> | undefined) }
+              request.path.tenantId = "acme"
+            },
           },
-          input: { omit: { body: ["cubeToken"], path: ["tenantId"] } },
-          operations: { allow: ["createOrder"] },
           spec: portalSpec(),
           transformResponse(response, context) {
             return {

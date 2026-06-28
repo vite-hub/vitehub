@@ -682,8 +682,7 @@ describe("agent chat capability discovery", () => {
         capabilities: [
           openapi({
             cli: { name: "portal" },
-            enabled: ({ driver }) => driver?.kind === "model",
-            operations: { allow: ["listCustomers"] },
+            operations: ["listCustomers"],
             spec: {
               paths: {
                 "/customers": {

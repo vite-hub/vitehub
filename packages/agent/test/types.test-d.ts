@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, defineAgentInvoker, defineCapability, type AgentActor, type AgentCapabilityCliCommand, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentDeliveryArtifact, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
-import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceExec, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
+import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, openapi, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceExec, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -14,6 +14,17 @@ import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChat
 
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
+    const openAPISpec = {
+      paths: {
+        "/customers": {
+          get: {
+            operationId: "listCustomers",
+          },
+        },
+      },
+      servers: [{ url: "https://api.example.com" }],
+    }
+
     defineAgent({
       capabilities: [
         access({
@@ -53,6 +64,22 @@ describe("agent public types", () => {
                 return data.status
               },
             } satisfies FetchCapabilityToolOptions<{ region: string }, { status: string }, string>,
+          },
+        }),
+        openapi({
+          operations: ["listCustomers"],
+          request({ context, operation, request }) {
+            expectTypeOf(context.get<{ token: string }>("billing")?.token).toEqualTypeOf<string | undefined>()
+            expectTypeOf(operation.id).toEqualTypeOf<string>()
+            expectTypeOf(request.headers).toEqualTypeOf<Headers>()
+            request.headers.set("authorization", "Bearer token")
+            return { query: { region: "eu" } }
+          },
+          spec: openAPISpec,
+          transformResponse(response, { request }) {
+            expectTypeOf(response).toEqualTypeOf<unknown>()
+            expectTypeOf(request.headers).toEqualTypeOf<Headers>()
+            return response
           },
         }),
         git(),
@@ -204,6 +231,18 @@ describe("agent public types", () => {
 
     // @ts-expect-error skills delegates shell options to Workspace Shell tools
     skills({ shellExecution: "read", timeout: 1000 })
+
+    // @ts-expect-error OpenAPI Capability attachment is the opt-in; use access or Agent Trigger policy instead
+    openapi({ enabled: true, operations: ["listCustomers"], spec: openAPISpec })
+
+    // @ts-expect-error use operations as the direct operationId allowlist
+    openapi({ operations: { allow: ["listCustomers"] }, spec: openAPISpec })
+
+    // @ts-expect-error use request.onRequest for host-supplied request values
+    openapi({ defaults: { body: { token: "secret" } }, operations: ["listCustomers"], spec: openAPISpec })
+
+    // @ts-expect-error use server only as the explicit server override
+    openapi({ baseUrl: "https://api.example.com", operations: ["listCustomers"], spec: openAPISpec })
 
     // @ts-expect-error git mode must be read or write
     git({ mode: "remote-write" })

@@ -126,15 +126,17 @@ openapi({
     name: "billing",
     description: "Inspect live billing API data.",
   },
-  operations: { allow: ["billingListCustomers", "billingGetInvoice", "billingCreateTicket"] },
-  enabled: ({ actor }) => actor.kind === "support",
-  headers: async ({ context }) => ({
-    authorization: `Bearer ${context.get<{ token: string }>("billing")?.token}`,
-  }),
-  defaults: async ({ context }) => ({
-    body: { tenantId: context.get<{ tenantId: string }>("billing")?.tenantId },
-  }),
-  input: { omit: { body: ["tenantId"] } },
+  operations: ["billingListCustomers", "billingGetInvoice", "billingCreateTicket"],
+  request: {
+    hidden: { body: ["tenantId"] },
+    onRequest({ context, request }) {
+      request.body = {
+        tenantId: context.get<{ tenantId: string }>("billing")?.tenantId,
+        ...(request.body as Record<string, unknown> | undefined),
+      }
+      request.headers.set("authorization", `Bearer ${context.get<{ token: string }>("billing")?.token}`)
+    },
+  },
   transformResponse: (response, { operation }) => ({
     operationId: operation.id,
     response,
@@ -142,7 +144,7 @@ openapi({
 })
 ```
 
-`spec` and `baseUrl` can also be callbacks when the OpenAPI document or runtime URL comes from the current Agent Invocation context.
+`spec` can be a callback when the OpenAPI document comes from the current Agent Invocation context. Request servers come from OpenAPI `servers`; use `server` only as an override escape hatch when the spec has no usable server.
 When `cli` is set, the operation tools are replaced by one CLI-named tool. ViteHub generates one subcommand per allowed operation, using the OpenAPI operation summary or description for command guidance.
 Custom Capability authors still define `cli` as a flat command tree; generated command trees stay behind adapter-owned options such as `openapi({ cli })`.
 
