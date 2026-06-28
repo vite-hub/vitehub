@@ -706,6 +706,7 @@ function validateJsonSchema(schema: JsonSchema, value: unknown, label: string): 
   if (types.length && !types.some(type => jsonSchemaTypeMatches(type, value))) {
     return [`${label} must be ${types.join(" or ")}`]
   }
+  if (value === null && types.includes("null")) return []
   const issues: string[] = []
   if (isJsonSchemaObject(schema)) {
     if (!isPlainRecord(value)) return [`${label} must be object`]
@@ -741,8 +742,10 @@ function isJsonSchemaObject(schema: JsonSchema): boolean {
 }
 
 function jsonSchemaTypes(schema: JsonSchema): string[] {
-  if (typeof schema.type === "string") return [schema.type]
-  return Array.isArray(schema.type) ? schema.type.filter((type): type is string => typeof type === "string") : []
+  const types = typeof schema.type === "string"
+    ? [schema.type]
+    : Array.isArray(schema.type) ? schema.type.filter((type): type is string => typeof type === "string") : []
+  return schema.nullable === true && types.length && !types.includes("null") ? [...types, "null"] : types
 }
 
 function jsonSchemaTypeMatches(type: string, value: unknown): boolean {

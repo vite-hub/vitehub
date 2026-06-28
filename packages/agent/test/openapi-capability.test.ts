@@ -51,6 +51,7 @@ function portalSpec() {
                   additionalProperties: false,
                   properties: {
                     cubeToken: { type: "string" },
+                    note: { nullable: true, type: "string" },
                     quantity: { type: "number" },
                     sku: { type: "string" },
                   },
@@ -370,6 +371,39 @@ describe("openapi capability", () => {
       },
     })).rejects.toThrow("input.path.tenantId must be string")
     expect(request).not.toHaveBeenCalled()
+  })
+
+  it("accepts nullable generated OpenAPI CLI input values", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        openapi({
+          cli: { name: "portal" },
+          operations: { allow: ["createOrder"] },
+          spec: portalSpec(),
+        }),
+      ],
+    }, runtime(), { prompt: "create" })
+
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["create-order", "--json"],
+      input: {
+        body: { cubeToken: "cube-token", note: null, sku: "sku-1" },
+        path: { tenantId: "acme" },
+      },
+    })).resolves.toMatchObject({
+      cli: "portal",
+      exitCode: 0,
+      json: { ok: true },
+    })
+    expect((request.mock.calls[0]?.[1] as RequestInit).body).toBe(JSON.stringify({
+      cubeToken: "cube-token",
+      note: null,
+      sku: "sku-1",
+    }))
   })
 
   it("uses text output format for generated OpenAPI CLI text responses", async () => {
