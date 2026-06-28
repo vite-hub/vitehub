@@ -354,9 +354,8 @@ export function createCapabilityCliTool<
 >(
   capability: AgentCapabilityDefinition<TRuntimeConfig, Name>,
   context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
+  cli: AgentCapabilityCliContribution<TRuntimeConfig, Name>,
 ): AgentToolSet | undefined {
-  const cli = capability.cli
-  if (!cli) return
   return {
     [cli.name]: defineInternalTool<AgentCapabilityCliExecutionInput, AgentCapabilityCliExecutionResult>({
       description: `Run the ${cli.name} Capability CLI. Use argv for subcommands, for example: ${commandLeaves(cli).map(({ command, path }) => `\`${toolInputExample(cli.name, path, command)}\``).join(", ")}.`,

@@ -4,6 +4,7 @@ import { defineInternalTool } from "./internal.ts"
 
 import type {
   AgentCapabilityContext,
+  AgentCapabilityCliContribution,
   AgentCapabilityDefinition,
   AgentRuntimeConfig,
   AgentToolDefinition,
@@ -107,11 +108,17 @@ export interface OpenAPIInputOptions {
   }
 }
 
+export interface OpenAPICliOptions {
+  description?: string
+  name: string
+}
+
 export interface OpenAPICapabilityOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
   baseUrl?: OpenAPIContextValue<string | URL, TRuntimeConfig, Name>
+  cli?: false | OpenAPICliOptions
   defaults?: OpenAPIRequestDefaults | ((context: OpenAPIRequestContext<TRuntimeConfig, Name>) => MaybePromise<OpenAPIRequestDefaults | undefined>)
   description?: string
   enabled?: boolean | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<boolean>)
@@ -147,7 +154,17 @@ export function openapi<
         ? "dynamic"
         : typeof options.spec === "object" && !(options.spec instanceof URL) ? "inline" : String(options.spec),
     },
+    cli: options.cli
+      ? async (context) => {
+          if (!await isOpenAPIEnabled(options, context)) return undefined
+          const resolved = dynamicOperations
+            ? await loadOpenAPIOperations(options, context)
+            : await (operations ||= loadOpenAPIOperations(options, context))
+          return createOpenAPICli(options.cli as OpenAPICliOptions, resolved.tools, resolved.baseUrl, options, context)
+        }
+      : undefined,
     async tools(context) {
+      if (options.cli) return undefined
       if (!await isOpenAPIEnabled(options, context)) return undefined
       const resolved = dynamicOperations
         ? await loadOpenAPIOperations(options, context)
@@ -313,25 +330,7 @@ function createOpenAPITool<
   return defineInternalTool({
     description: [options.description, operation.description].filter(Boolean).join(" "),
     async execute(input) {
-      const rawInput = normalizeRawToolInput(operation, input)
-      const rawUrl = operationTemplateUrl(baseUrl, operation.path)
-      const requestInput = normalizeToolInput(operation, mergeToolInput(
-        await resolveDefaults(options, context, operation, rawInput, rawUrl),
-        rawInput,
-      ))
-      const url = operationUrl(baseUrl, operation, requestInput.path)
-      const headers = await resolveHeaders(options, context, operation, requestInput, url)
-      const result = await executeHttpRequest({
-        body: requestInput.body,
-        headers,
-        method: operation.method,
-        query: requestInput.query,
-        timeout: options.timeout,
-        url,
-      }, {
-        responseType: options.responseType || "json",
-      })
-      return transformOpenAPIResponse(options, context, operation, requestInput, url, result)
+      return executeOpenAPIOperation(operation, baseUrl, options, context, input)
     },
     inputSchema: operationInputSchema(operation, options.input),
     metadata: {
@@ -343,6 +342,74 @@ function createOpenAPITool<
     },
     name: operation.operationId,
   })
+}
+
+function createOpenAPICli<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  cli: OpenAPICliOptions,
+  operations: OpenAPIOperationTool[],
+  baseUrl: URL,
+  options: OpenAPICapabilityOptions<TRuntimeConfig, Name>,
+  context: AgentCapabilityContext<TRuntimeConfig, Name>,
+): AgentCapabilityCliContribution<TRuntimeConfig, Name> {
+  const commands: AgentCapabilityCliContribution<TRuntimeConfig, Name>["commands"] = {}
+  for (const operation of operations) {
+    const name = operationCommandName(cli.name, operation.operationId)
+    if (commands[name]) {
+      throw new Error(`[vitehub] OpenAPI operationId "${operation.operationId}" generates duplicate ${cli.name} command "${name}".`)
+    }
+    commands[name] = {
+      description: operation.description,
+      effects: [`http:${operation.method.toLowerCase()}`],
+      examples: [`${cli.name} ${name} --json`],
+      output: { format: "json" },
+      run: ({ input }) => executeOpenAPIOperation(operation, baseUrl, options, context, input),
+    }
+  }
+  return {
+    commands,
+    description: cli.description || options.description || "Call allowed OpenAPI operations.",
+    name: cli.name,
+  }
+}
+
+async function executeOpenAPIOperation<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+>(
+  operation: OpenAPIOperationTool,
+  baseUrl: URL,
+  options: OpenAPICapabilityOptions<TRuntimeConfig, Name>,
+  context: AgentCapabilityContext<TRuntimeConfig, Name>,
+  input: unknown,
+): Promise<unknown> {
+  const rawInput = normalizeRawToolInput(operation, input)
+  const rawUrl = operationTemplateUrl(baseUrl, operation.path)
+  const requestInput = normalizeToolInput(operation, mergeToolInput(
+    await resolveDefaults(options, context, operation, rawInput, rawUrl),
+    rawInput,
+  ))
+  const url = operationUrl(baseUrl, operation, requestInput.path)
+  const headers = await resolveHeaders(options, context, operation, requestInput, url)
+  const result = await executeHttpRequest({
+    body: requestInput.body,
+    headers,
+    method: operation.method,
+    query: requestInput.query,
+    timeout: options.timeout,
+    url,
+  }, {
+    responseType: options.responseType || "json",
+  })
+  return transformOpenAPIResponse(options, context, operation, requestInput, url, result)
+}
+
+function operationCommandName(cliName: string, operationId: string): string {
+  const kebab = operationId.replace(/([a-z0-9])([A-Z])/g, "$1-$2").replace(/_/g, "-").toLowerCase()
+  const prefix = `${cliName.toLowerCase()}-`
+  return kebab.startsWith(prefix) && kebab.length > prefix.length ? kebab.slice(prefix.length) : kebab
 }
 
 async function transformOpenAPIResponse<

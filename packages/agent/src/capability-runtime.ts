@@ -19,6 +19,7 @@ import { nextWithAbort } from "./internal/abortable-stream.ts"
 import type {
   AgentAdapterInstructionsValue,
   AgentCallbackContext,
+  AgentCapabilityCliContribution,
   AgentCapabilityContext,
   AgentCapabilityDefinition,
   AgentCapabilityWorkspaceContribution,
@@ -155,7 +156,10 @@ export function defineCapability<
     throw new TypeError("[vitehub] defineCapability() requires a capability definition.")
   }
   assertCapabilityId((capability as { id?: unknown }).id)
-  assertCapabilityCliContribution((capability as { id: string }).id, (capability as AgentCapabilityDefinition).cli)
+  const cli = (capability as AgentCapabilityDefinition).cli
+  if (typeof cli !== "function") {
+    assertCapabilityCliContribution((capability as { id: string }).id, cli)
+  }
   return capability
 }
 
@@ -1033,20 +1037,27 @@ export async function resolveAgentCapabilities<
     }
     await applyWorkspaceContributions()
     for (const { capability, context } of capabilityContexts) {
+      let cli: AgentCapabilityCliContribution<TRuntimeConfig, Name> | undefined
+      if (capability.cli && driverKind !== "harness" && (invocationOptions.resolveInstructions !== false || invocationOptions.resolveTools !== false)) {
+        cli = typeof capability.cli === "function"
+          ? await capability.cli(context)
+          : capability.cli
+        assertCapabilityCliContribution(capability.id, cli)
+      }
       if (invocationOptions.resolveInstructions !== false) {
         const values = capability.instructions !== undefined ? await resolveInstructionValue(capability, context) : []
-        const cliInstructions = capability.cli && driverKind !== "harness"
-          ? renderCapabilityCliInstructions(capability.id, capability.cli)
+        const cliInstructions = cli && driverKind !== "harness"
+          ? renderCapabilityCliInstructions(capability.id, cli)
           : undefined
         addCapabilityInstructionContribution(capability.id, compactInstructionValues([...values, cliInstructions]), {
           merge: Boolean(cliInstructions),
         })
       }
-      if (invocationOptions.resolveTools !== false && capability.cli && driverKind !== "harness") {
-        const resolved = createCapabilityCliTool(capability, context)
+      if (invocationOptions.resolveTools !== false && cli && driverKind !== "harness") {
+        const resolved = createCapabilityCliTool(capability, context, cli)
         if (isToolSet(resolved)) {
-          if (tools?.[capability.cli.name]) {
-            throw new Error(`[vitehub] Capability CLI "${capability.cli.name}" conflicts with an existing Agent tool.`)
+          if (tools?.[cli.name]) {
+            throw new Error(`[vitehub] Capability CLI "${cli.name}" conflicts with an existing Agent tool.`)
           }
           recordDriverContribution("Capability tools", capability.id, Object.keys(resolved))
           tools = { ...tools, ...resolved }

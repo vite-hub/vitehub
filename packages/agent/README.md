@@ -110,7 +110,7 @@ export default defineConfig({
 - `chat()` exposes the agent as a chat surface; see the [First Agent guide](https://vitehub.dev/docs/getting-started/first-agent).
 - `workspaceShell()` runs scoped shell/file work through [`@vite-hub/shell`](../shell/README.md).
 - `webSearch()` searches and reads the web with [Brave](https://brave.com/search/api/), [Exa](https://docs.exa.ai/), [Jina](https://jina.ai/en-US/reader/), [SearXNG](https://docs.searxng.org/dev/search_api.html), [SerpApi](https://serpapi.com/search-api), [SerpBase](https://serpbase.dev/docs), or [Tavily](https://docs.tavily.com/).
-- `openapi()` turns an allowed OpenAPI `operationId` subset into bounded HTTP tools.
+- `openapi()` turns an allowed OpenAPI `operationId` subset into bounded HTTP tools, or into a generated Capability CLI when `cli` is set.
 - `transcribe()` uses the [AI SDK transcription API](https://ai-sdk.dev/v7/docs/reference/ai-sdk-core/transcribe).
 - `mcp()` connects tools from [Model Context Protocol](https://modelcontextprotocol.io/) servers through `@ai-sdk/mcp`.
 - `kv()`, `blob()`, and `db()` expose [`@vite-hub/kv`](../kv/README.md), [`@vite-hub/blob`](../blob/README.md), and [`@vite-hub/database`](../database/README.md).
@@ -122,15 +122,19 @@ import { openapi } from "@vite-hub/agent/capabilities"
 
 openapi({
   spec: "https://api.example.com/openapi.json",
-  operations: { allow: ["listCustomers", "getInvoice", "createTicket"] },
-  enabled: ({ actor }) => actor.kind === "portal",
+  cli: {
+    name: "billing",
+    description: "Inspect live billing API data.",
+  },
+  operations: { allow: ["billingListCustomers", "billingGetInvoice", "billingCreateTicket"] },
+  enabled: ({ actor }) => actor.kind === "support",
   headers: async ({ context }) => ({
-    authorization: `Bearer ${context.get<{ token: string }>("portal")?.token}`,
+    authorization: `Bearer ${context.get<{ token: string }>("billing")?.token}`,
   }),
   defaults: async ({ context }) => ({
-    body: { cubeToken: context.get<{ cubeToken: string }>("portal")?.cubeToken },
+    body: { tenantId: context.get<{ tenantId: string }>("billing")?.tenantId },
   }),
-  input: { omit: { body: ["cubeToken"] } },
+  input: { omit: { body: ["tenantId"] } },
   transformResponse: (response, { operation }) => ({
     operationId: operation.id,
     response,
@@ -139,6 +143,7 @@ openapi({
 ```
 
 `spec` and `baseUrl` can also be callbacks when the OpenAPI document or runtime URL comes from the current Agent Invocation context.
+When `cli` is set, the operation tools are replaced by one CLI-named tool. ViteHub generates one subcommand per allowed operation, using the OpenAPI operation summary or description for command guidance.
 
 ## Chat state
 

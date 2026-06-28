@@ -230,6 +230,7 @@ export type {
 } from "./observability.ts"
 export type {
   OpenAPICapabilityOptions,
+  OpenAPICliOptions,
   OpenAPIInputOptions,
   OpenAPIRequestContext,
   OpenAPIRequestDefaults,

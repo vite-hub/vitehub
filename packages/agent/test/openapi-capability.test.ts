@@ -188,6 +188,54 @@ describe("openapi capability", () => {
     ])
   })
 
+  it("generates a Capability CLI from allowed operations and OpenAPI descriptions", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({ customers: ["acme"] }))
+    const {
+      applyCapabilityInstructionSlots,
+      resolveAgentCapabilities,
+    } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        openapi({
+          cli: {
+            description: "Inspect live Portal data.",
+            name: "portal",
+          },
+          operations: { allow: ["listCustomers", "createOrder"] },
+          spec: ({ context }) => ({
+            ...portalSpec(),
+            servers: [{ url: context.get<{ baseUrl: string }>("portal")?.baseUrl }],
+          }),
+        }),
+      ],
+    }, runtime(), {
+      context: { portal: { baseUrl: "https://cli.example.com/runtime" } },
+      prompt: "list",
+    })
+
+    expect(Object.keys(resolved.tools || {})).toEqual(["portal"])
+    const instructions = applyCapabilityInstructionSlots("{{ capabilities.openapi }}", resolved.capabilityInstructions)
+    expect(instructions).toContain("## Capability CLI: portal")
+    expect(instructions).toContain("portal list-customers --json")
+    expect(instructions).toContain("List customers.")
+    expect(instructions).toContain("portal create-order --json")
+    expect(instructions).toContain("Create order.")
+
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["list-customers", "--json"],
+      input: { query: { region: "eu" } },
+    })).resolves.toMatchObject({
+      cli: "portal",
+      command: "portal list-customers --json",
+      exitCode: 0,
+      json: { customers: ["acme"] },
+    })
+
+    expect(request.mock.calls[0]?.[0]).toBe("https://cli.example.com/runtime/customers?region=eu")
+  })
+
   it("uses defaults and headers while omitting host-supplied fields from tool schema", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
