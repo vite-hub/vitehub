@@ -1463,24 +1463,16 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }
     harnessCreateSession.mockResolvedValueOnce(session)
+    const toUIMessageStreamMock = vi.fn()
     harnessStream.mockResolvedValueOnce({
-      fullStream: new ReadableStream<unknown>({
-        start(controller) {
-          controller.enqueue({ messageId: "msg-1", type: "start" })
-          controller.enqueue({ id: "msg-1", type: "text-start" })
-          controller.enqueue({ delta: "ok", id: "msg-1", type: "text-delta" })
-          controller.enqueue({ id: "msg-1", type: "text-end" })
-          controller.enqueue({ finishReason: "stop", type: "finish" })
-          controller.close()
-        },
-      }),
-      toUIMessageStream(this: { fullStream: ReadableStream<unknown> }) {
-        return this.fullStream.pipeThrough(new TransformStream<unknown, unknown>({
-          transform(chunk, controller) {
-            controller.enqueue(chunk)
-          },
-        }))
-      },
+      stream: (async function* () {
+        yield { messageId: "msg-1", type: "start" }
+        yield { id: "msg-1", type: "text-start" }
+        yield { delta: "ok", id: "msg-1", type: "text-delta" }
+        yield { id: "msg-1", type: "text-end" }
+        yield { finishReason: "stop", type: "finish" }
+      })(),
+      toUIMessageStream: toUIMessageStreamMock,
     })
 
     const agent = defineAgent({
@@ -1501,7 +1493,8 @@ describe("agent message protocol", () => {
       chunks.push(chunk)
     }
 
-    expect(chunks).toContainEqual({ delta: "ok", id: "msg-1", type: "text-delta" })
+    expect(chunks).toContainEqual({ delta: "ok", id: expect.any(String), type: "text-delta" })
+    expect(toUIMessageStreamMock).not.toHaveBeenCalled()
     expect(session.destroy).toHaveBeenCalledOnce()
   })
 

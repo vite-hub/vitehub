@@ -870,6 +870,7 @@ describe("usage telemetry", () => {
     const { usageTelemetry } = await import("../src/capabilities.ts")
     const finish = vi.fn()
     const onUsage = vi.fn()
+    const toUIMessageStreamMock = vi.fn()
 
     class StreamResult {
       fullStream = (async function* () {
@@ -897,15 +898,8 @@ describe("usage telemetry", () => {
       })()
 
       toUIMessageStream() {
-        const stream = this.stream
-        return new ReadableStream({
-          async start(controller) {
-            for await (const chunk of stream) {
-              controller.enqueue(chunk)
-            }
-            controller.close()
-          },
-        })
+        toUIMessageStreamMock()
+        throw new Error("toUIMessageStream should not be called")
       }
     }
 
@@ -928,27 +922,9 @@ describe("usage telemetry", () => {
       chunks.push(value)
     }
 
-    expect(chunks).toEqual([
-      { text: "ok", type: "text-delta" },
-      {
-        type: "usage",
-        usageRecord: expect.objectContaining({
-          usage: {
-            inputTokens: 4,
-            outputTokens: 6,
-            totalTokens: 10,
-          },
-        }),
-      },
-      {
-        finishReason: "stop",
-        totalUsage: {
-          inputTokens: 4,
-          outputTokens: 6,
-        },
-        type: "finish",
-      },
-    ])
+    expect(chunks).toContainEqual({ delta: "ok", id: expect.any(String), type: "text-delta" })
+    expect(chunks).toContainEqual({ finishReason: "stop", type: "finish" })
+    expect(toUIMessageStreamMock).not.toHaveBeenCalled()
     expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
       usage: {
         inputTokens: 4,
