@@ -450,6 +450,84 @@ export type AgentToolResolverWithWorkspace<
 export type AgentCapabilityMode = "read" | "write"
 export type AgentDriverKind = "harness" | "model" | "run"
 
+export interface AgentCapabilityCliStandardSchemaResultSuccess<T = unknown> {
+  issues?: undefined
+  value: T
+}
+
+export interface AgentCapabilityCliStandardSchemaResultFailure {
+  issues: readonly unknown[]
+}
+
+export interface AgentCapabilityCliStandardSchemaV1<T = unknown> {
+  "~standard": {
+    validate: (input: unknown) => AgentCapabilityCliStandardSchemaResultSuccess<T> | AgentCapabilityCliStandardSchemaResultFailure | Promise<AgentCapabilityCliStandardSchemaResultSuccess<T> | AgentCapabilityCliStandardSchemaResultFailure>
+  }
+}
+
+export type AgentCapabilityCliOutputFormat = "json" | "text"
+
+export interface AgentCapabilityCliOutputDefinition<TOutput = unknown> {
+  format?: AgentCapabilityCliOutputFormat
+  schema?: AgentCapabilityCliStandardSchemaV1<TOutput>
+}
+
+export interface AgentCapabilityCliRunContext<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  TInput = unknown,
+> {
+  argv: readonly string[]
+  context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>
+  input: TInput
+  json: boolean
+}
+
+export interface AgentCapabilityCliCommand<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  TInput = unknown,
+  TOutput = unknown,
+> {
+  commands?: Record<string, AgentCapabilityCliCommand<TRuntimeConfig, Name>>
+  description?: string
+  effects?: readonly string[]
+  examples?: readonly string[]
+  input?: AgentCapabilityCliStandardSchemaV1<TInput>
+  output?: AgentCapabilityCliStandardSchemaV1<TOutput> | AgentCapabilityCliOutputDefinition<TOutput>
+  run?: {
+    bivarianceHack(context: AgentCapabilityCliRunContext<TRuntimeConfig, Name, TInput>): MaybePromise<TOutput>
+  }["bivarianceHack"]
+}
+
+export interface AgentCapabilityCliContribution<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> {
+  commands: Record<string, AgentCapabilityCliCommand<TRuntimeConfig, Name>>
+  description?: string
+  name: string
+}
+
+export interface AgentCapabilityCliExecutionInput {
+  argv?: readonly string[]
+  input?: unknown
+  json?: boolean
+}
+
+export interface AgentCapabilityCliExecutionResult<TOutput = unknown> {
+  argv: string[]
+  capability: string
+  cli: string
+  command: string
+  durationMs: number
+  exitCode: number
+  json?: TOutput
+  outputTruncated: false
+  stderr: string
+  stdout: string
+}
+
 export interface AgentCapabilityRequirement {
   primitive?: "workspace-shell" | "blob" | "db" | "kv" | "mcp" | "sandbox" | "schedule" | "skills" | "workspace" | (string & {})
   workspace?: {
@@ -592,6 +670,7 @@ export interface AgentCapabilityDefinition<
   readonly __vitehubTypeContract?: TTypeContract
   bind?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[]
+  cli?: AgentCapabilityCliContribution<TRuntimeConfig, Name>
   close?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   configure?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   finish?: AgentFinishExtensionProvider<TRuntimeConfig>

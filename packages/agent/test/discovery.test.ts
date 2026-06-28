@@ -556,6 +556,493 @@ describe("agent chat capability discovery", () => {
     expect(abortSignal).toBeInstanceOf(AbortSignal)
   })
 
+  it("runs Capability CLI commands through the Vite endpoint", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-cli-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              items: {
+                commands: {
+                  list: {
+                    description: "List inventory items.",
+                    output: { format: "json" },
+                    run: ({ json }) => ({ items: [{ id: "item_1" }], json }),
+                  },
+                },
+                description: "Inventory item data.",
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+        }),
+      ],
+      run: () => "chat fallback",
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      cli: {
+        argv: ["items", "list", "--json"],
+        name: "inventory",
+      },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({
+      argv: ["items", "list", "--json"],
+      capability: "inventory-runtime",
+      cli: "inventory",
+      command: "inventory items list --json",
+      exitCode: 0,
+      json: {
+        items: [{ id: "item_1" }],
+        json: true,
+      },
+    })
+  })
+
+  it("runs Capability CLI commands on harness-backed agents through the Vite endpoint", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-harness-cli-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              list: {
+                output: { format: "json" },
+                run: () => [{ id: "item_1" }],
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+        }),
+      ],
+      driver: { harness: {} as never },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      cli: {
+        argv: ["list", "--json"],
+        name: "inventory",
+      },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({
+      capability: "inventory-runtime",
+      cli: "inventory",
+      exitCode: 0,
+      json: [{ id: "item_1" }],
+    })
+  })
+
+  it("preserves model driver context for Capability CLI dev runs", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-model-cli-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ customers: ["acme"] }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    }))
+
+    try {
+      const { openapi } = await import("../src/capabilities.ts")
+      const { defineAgent } = await import("../src/index.ts")
+      const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+      const agent = defineAgent({
+        capabilities: [
+          openapi({
+            cli: { name: "portal" },
+            operations: ["listCustomers"],
+            spec: {
+              paths: {
+                "/customers": {
+                  get: {
+                    operationId: "listCustomers",
+                    summary: "List customers.",
+                  },
+                },
+              },
+              servers: [{ url: "https://portal.example.com/runtime" }],
+            },
+          }),
+        ],
+        driver: { model: {} as never },
+      })
+      const { handlers, server } = createFakeServer(root, { default: agent })
+      const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+      await configurePluginServer(plugin, server)
+
+      const response = await invokeMiddleware(handlers[0]!, {
+        agent: "chat",
+        cli: {
+          argv: ["list-customers", "--json"],
+          name: "portal",
+        },
+      }, agentInvocationStreamRoute, {
+        "content-type": "application/json",
+        [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(JSON.parse(response.body)).toMatchObject({
+        cli: "portal",
+        command: "portal list-customers --json",
+        exitCode: 0,
+        json: { customers: ["acme"] },
+      })
+      expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/customers")
+    }
+    finally {
+      request.mockRestore()
+    }
+  })
+
+  it("previews Channel Delivery Effects for Capability CLI dev runs", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-cli-effects-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineChannel } = await import("../src/channels.ts")
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const reactionEffect = vi.fn()
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              list: {
+                output: { format: "json" },
+                run: () => [{ id: "item_1" }],
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+          prepare(context) {
+            context.delivery.effect({ kind: "reaction", payload: "queued" })
+          },
+        }),
+      ],
+      channels: {
+        github: defineChannel("github", {
+          effects: { reaction: reactionEffect },
+          messages: false,
+        }),
+      },
+      run: () => "chat fallback",
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      cli: {
+        argv: ["list", "--json"],
+        name: "inventory",
+      },
+      run: { channelId: "github", origin: "dev", runId: "dev-run" },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.statusCode).toBe(200)
+    const result = JSON.parse(response.body)
+    expect(result).toMatchObject({
+      cli: "inventory",
+      exitCode: 0,
+      json: [{ id: "item_1" }],
+    })
+    expect(result.stderr).toContain("[delivery preview] would reaction on github")
+    expect(result.stderr).toContain("\"payload\": \"queued\"")
+    expect(reactionEffect).not.toHaveBeenCalled()
+  })
+
+  it("passes invoker profile selection into Capability CLI dev runs", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-cli-invoker-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              whoami: {
+                output: { format: "json" },
+                run: ({ context }) => ({ invoker: context.invoker.id }),
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+        }),
+      ],
+      invoker: {
+        profiles: [
+          { id: "support-customer", kind: "customer", label: "Customer" },
+          { id: "support-technical", kind: "technical", label: "Technical" },
+        ],
+      },
+      run: () => "chat fallback",
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      cli: {
+        argv: ["whoami", "--json"],
+        name: "inventory",
+      },
+      invokerProfileId: "support-technical",
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({
+      json: { invoker: "support-technical" },
+    })
+  })
+
+  it("bypasses output renderers for Capability CLI endpoint envelopes", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-cli-renderer-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const renderOutput = vi.fn(() => ({ wrapped: true }))
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              list: {
+                output: { format: "json" },
+                run: () => [{ id: "item_1" }],
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+          output(context) {
+            context.output.render(renderOutput)
+          },
+        }),
+      ],
+      run: () => "chat fallback",
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      cli: {
+        argv: ["list", "--json"],
+        name: "inventory",
+      },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({
+      argv: ["list", "--json"],
+      capability: "inventory-runtime",
+      cli: "inventory",
+      exitCode: 0,
+      json: [{ id: "item_1" }],
+      stdout: "[\n  {\n    \"id\": \"item_1\"\n  }\n]\n",
+    })
+    expect(renderOutput).not.toHaveBeenCalled()
+  })
+
+  it("bypasses tool transforms for Capability CLI endpoint dispatch", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-cli-transform-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              list: {
+                output: { format: "json" },
+                run: () => [{ id: "item_1" }],
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+          prepare(context) {
+            context.tools.transform(() => undefined)
+          },
+        }),
+      ],
+      run: () => "chat fallback",
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      cli: {
+        argv: ["list", "--json"],
+        name: "inventory",
+      },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({
+      capability: "inventory-runtime",
+      cli: "inventory",
+      exitCode: 0,
+      json: [{ id: "item_1" }],
+    })
+  })
+
+  it("preserves handled Responses from Capability CLI invocations", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-cli-response-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              list: {
+                run: () => {
+                  throw new Error("CLI command should not run")
+                },
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+          input: () => Response.json({ reason: "blocked" }, { status: 409 }),
+        }),
+      ],
+      run: () => "chat fallback",
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      cli: {
+        argv: ["list"],
+        name: "inventory",
+      },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(JSON.parse(response.body)).toEqual({ reason: "blocked" })
+  })
+
+  it("enforces Capability CLI invocation timeouts", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-cli-timeout-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              slow: {
+                run: () => new Promise(() => {}) as never,
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+        }),
+      ],
+      run: () => "chat fallback",
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      cli: {
+        argv: ["slow"],
+        name: "inventory",
+      },
+      timeout: 1,
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.statusCode).toBe(504)
+    expect(response.body).toBe("Agent Invocation Stream timed out after 1ms.")
+  })
+
   it("normalizes Agent Invocation Stream usage before serializing endpoint events", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-usage-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

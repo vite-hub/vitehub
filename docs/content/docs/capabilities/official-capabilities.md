@@ -28,6 +28,7 @@ import {
   mcp,
   memory,
   observability,
+  openapi,
   pullRequestContext,
   rateLimit,
   repositoryHost,
@@ -64,6 +65,7 @@ import {
 | MCP servers | [`mcp()`](/docs/capabilities/mcp) | External MCP server tools should become model-facing Agent tools. |
 | Web search | [`webSearch()`](/docs/capabilities/web-search) | The Agent needs model web search or normalized web search/read tools. |
 | Fetch tools | [`fetch()`](/docs/capabilities/fetch) | The Agent needs named HTTP tools for developer-approved endpoints. |
+| OpenAPI tools | [`openapi()`](/docs/capabilities/openapi) | The Agent needs a selected OpenAPI operation catalog exposed as bounded HTTP tools or a generated Capability CLI. |
 | Transcription | [`transcribe()`](/docs/capabilities/transcribe) | Audio input parts should become text before model execution. |
 | Durable memory | [`memory()`](/docs/capabilities/memory) | The Agent needs scoped durable records across invocations. |
 | LLM routing | [`llmRoute()`](/docs/capabilities/llm-route) | A pre-invocation model decision should choose one developer-defined route. |

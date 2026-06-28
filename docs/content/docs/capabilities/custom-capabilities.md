@@ -113,6 +113,62 @@ export function ticketContext() {
 
 Use `harnessWorkspacePaths` when a harness-backed Agent needs specific contributed paths materialized into the harness Workspace Session.
 
+## Add a Capability CLI
+
+Use `cli` when the Capability owns a real command tree that agents and developers should run instead of a generic shell command.
+The public API is a flat object on the Capability Definition.
+
+```ts [server/agents/capabilities/inventory-runtime.ts]
+import { defineCapability } from '@vite-hub/agent'
+import { z } from 'zod'
+
+const inventoryItemsInput = z.object({
+  limit: z.number().int().positive().optional(),
+})
+
+const inventoryItemsOutput = z.object({
+  items: z.array(z.object({ id: z.string() })),
+})
+
+export const inventoryRuntime = defineCapability({
+  id: 'inventory-runtime',
+  cli: {
+    name: 'inventory',
+    description: 'Inspect live inventory data.',
+    commands: {
+      items: {
+        description: 'Inventory item data.',
+        commands: {
+          list: {
+            description: 'List inventory items for the current application context.',
+            input: inventoryItemsInput,
+            output: { format: 'json', schema: inventoryItemsOutput },
+            effects: ['read', 'network:inventory'],
+            async run({ input }) {
+              return await listInventoryItems(input)
+            },
+          },
+        },
+      },
+    },
+  },
+})
+```
+
+The `input` and `output.schema` values accept any Standard Schema-compatible validation library. Use Zod, Valibot, ArkType, or the validator your app already uses.
+
+ViteHub generates the command guidance from the command metadata and places it in the Capability instruction slot.
+Keep `instructions.md` focused on policy and include `{{ capabilities.inventory-runtime }}` or `{{ capabilities }}` where the generated guidance should appear.
+
+First-party adapters can generate the same CLI shape from their own metadata. For example, `openapi({ cli: { name: 'billing' }, ... })` creates one subcommand per allowed OpenAPI operation and uses each operation summary or description in the generated guidance.
+Custom Capability authors still pass a flat `cli` object; dynamic command generation belongs behind adapter-owned options such as `openapi({ cli })`.
+
+During development, run the Capability CLI through the Agent Dev Loop.
+
+```bash [Terminal]
+pnpm vitehub agent dev --url http://localhost:3000 --agent support --cli inventory -- items list --json
+```
+
 ## Driver support
 
 | Agent Driver | Custom Capability behavior |

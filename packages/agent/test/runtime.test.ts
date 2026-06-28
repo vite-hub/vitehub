@@ -5277,6 +5277,38 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("skips Capability CLI tools on static model resolves", async () => {
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+
+    const agent = defineAgent({
+      model: {} as never,
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              list: {
+                run: () => "cli",
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+          tools: {
+            lookup: {
+              execute: () => "tool",
+              name: "lookup",
+            },
+          },
+        }),
+      ],
+    })
+    const resolved = await agent.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }) as unknown as { tools?: Record<string, { execute?: (input: unknown) => Promise<unknown> }> }
+
+    expect(Object.keys(resolved.tools || {})).toEqual(["lookup"])
+    expect(resolved.tools?.inventory).toBeUndefined()
+    await expect(resolved.tools?.lookup?.execute?.({})).resolves.toBe("tool")
+  })
+
   it("resolves static subagent tools with the resolved runtime context", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const browserAgent = {
