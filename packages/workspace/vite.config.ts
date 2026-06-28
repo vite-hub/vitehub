@@ -18,6 +18,7 @@ export default defineConfig({
     entry: [
       "src/ai.ts",
       "src/cloudflare.ts",
+      "src/cli.ts",
       "src/index.ts",
       "src/loader.ts",
       "src/nuxt.ts",

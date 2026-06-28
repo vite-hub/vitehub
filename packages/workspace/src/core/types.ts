@@ -154,6 +154,7 @@ export interface WorkspaceMount {
 }
 
 export interface ExecOptions {
+  abortSignal?: AbortSignal
   cwd?: string
   env?: Record<string, string>
   timeout?: number

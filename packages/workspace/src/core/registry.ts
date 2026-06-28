@@ -48,7 +48,7 @@ function pickWorkspaceFields(definition: WorkspaceDefinitionInput | Record<strin
   return workspace
 }
 
-function normalizeWorkspaceDefinition(name: string, definition: WorkspaceDefinitionInput | undefined): WorkspaceDefinition {
+export function normalizeWorkspaceDefinition(name: string, definition: WorkspaceDefinitionInput | undefined): WorkspaceDefinition {
   if (!definition) throw new WorkspaceNotFoundError(name)
   const workspaceAgentOptions = (definition as { __vitehubWorkspaceAgentOptions?: { workspace?: string | WorkspaceDefinitionInput } }).__vitehubWorkspaceAgentOptions
   if (workspaceAgentOptions?.workspace) {
