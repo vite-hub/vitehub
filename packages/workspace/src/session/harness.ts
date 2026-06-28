@@ -179,9 +179,15 @@ async function resetSandboxWorkDir(
   sessionWorkDir: string,
   abortSignal: AbortSignal | undefined,
 ) {
+  await sandbox.writeBinaryFile({
+    abortSignal,
+    content: new Uint8Array(),
+    path: sandboxPath(sessionWorkDir, ".vitehub-reset"),
+  })
   await runSandbox(sandbox, {
     abortSignal,
-    command: `rm -rf ${shellQuote(sessionWorkDir)} && mkdir -p ${shellQuote(sessionWorkDir)}`,
+    command: "find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +",
+    workingDirectory: sessionWorkDir,
   })
 }
 
