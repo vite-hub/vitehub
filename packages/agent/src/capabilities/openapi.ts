@@ -382,7 +382,7 @@ function createOpenAPICli<
 }
 
 function openAPICliInputSchema(operation: OpenAPIOperationTool): AgentCapabilityCliStandardSchemaV1<OpenAPIToolInput> {
-  const schema = operationInputSchema(operation)
+  const schema = operationInputSchema(operation, false, false)
   return {
     "~standard": {
       validate(value) {
@@ -629,12 +629,12 @@ function operationTemplateUrl(baseUrl: URL, path: string): URL {
   return url
 }
 
-function operationInputSchema(operation: OpenAPIOperationTool, prepared = false): JsonSchema {
+function operationInputSchema(operation: OpenAPIOperationTool, prepared = false, requirePath = true): JsonSchema {
   const properties: Record<string, JsonSchema> = {}
   const required: string[] = []
   if (operation.pathParameters.length) {
     properties.path = parameterObjectSchema(operation.pathParameters)
-    if (operation.pathParameters.some(parameter => parameter.required || parameter.in === "path")) required.push("path")
+    if (requirePath && operation.pathParameters.some(parameter => parameter.required || parameter.in === "path")) required.push("path")
   }
   if (operation.queryParameters.length) {
     properties.query = parameterObjectSchema(operation.queryParameters, prepared)

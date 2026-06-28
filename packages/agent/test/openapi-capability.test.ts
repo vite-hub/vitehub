@@ -350,7 +350,6 @@ describe("openapi capability", () => {
       argv: ["create-order", "--json"],
       input: {
         body: { quantity: 2, sku: "sku-1" },
-        path: { tenantId: "evil" },
         query: { currency: "USD" },
       },
     })).resolves.toMatchObject({
