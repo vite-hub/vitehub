@@ -20,6 +20,7 @@ import {
   defineCapability,
   normalizeCapabilities,
   normalizeMode,
+  optionalWorkspaceCapabilitySymbol,
   resolveAgentCapabilities,
   resolveStaticCapabilityTools,
   withCapabilityCleanup,
@@ -763,10 +764,17 @@ function accessCapabilityRequiresWorkspace(capability: NormalizedCapability): bo
     && (metadata as { workspace?: unknown }).workspace === true
 }
 
+function capabilityWorkspaceIsOptional(capability: NormalizedCapability): boolean {
+  const metadata = capability.metadata
+  return typeof metadata === "object"
+    && metadata !== null
+    && (metadata as { [optionalWorkspaceCapabilitySymbol]?: unknown })[optionalWorkspaceCapabilitySymbol] === true
+}
+
 function validateNonWorkspaceCapabilities(capabilities: NormalizedCapability[], hasWorkspace: boolean): void {
   if (hasWorkspace) return
   for (const capability of capabilities) {
-    if (capability.workspace || capability.id === "workspace-shell" || capability.id === "sandbox" || accessCapabilityRequiresWorkspace(capability)) {
+    if (capability.workspace && !capabilityWorkspaceIsOptional(capability) || capability.id === "workspace-shell" || capability.id === "sandbox" || accessCapabilityRequiresWorkspace(capability)) {
       const name = capability.id === "workspace-shell" ? "workspaceShell" : capability.id
       throw new Error(`[vitehub] ${name}() requires an explicit workspace.`)
     }

@@ -38,6 +38,7 @@ export {
   isWorkspaceSourceRequestOnly,
   workspaceSourceRequestDescriptorPath,
 } from "./sources/config.ts"
+export { markLiveWorkspaceSource } from "./sources/live.ts"
 export {
   attachWorkspaceSourceRequestExecution,
   getWorkspaceSourceRequestExecution,
