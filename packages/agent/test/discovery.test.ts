@@ -666,7 +666,7 @@ describe("agent chat capability discovery", () => {
           id: "inventory-runtime",
         }),
       ],
-      run: () => "chat fallback",
+      driver: { run: () => "chat fallback" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
