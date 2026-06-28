@@ -36,6 +36,7 @@ export interface PrepareHarnessWorkspaceSessionOptions {
 type WorkspaceFacade = ReadonlyWorkspaceFacade | WritableWorkspaceFacade
 type InitialFile = { content: Uint8Array, mediaType?: string }
 type InitialTree = {
+  archiveDirectories: Set<string>
   directories: Set<string>
   files: Map<string, InitialFile>
 }
@@ -307,12 +308,12 @@ async function copyWorkspaceToSandbox(
   const entries = await workspaceEntries(workspace, paths)
   const directoriesToCreate = new Set(workspaceDirectories(entries))
   const initialTree: InitialTree = {
+    archiveDirectories: directoriesToCreate,
     directories: new Set(workspaceDirectories(entries)),
     files: new Map(),
   }
   const files = workspaceFiles(entries)
   for (const entry of files) addParentDirectories(directoriesToCreate, entry.path)
-  for (const directory of directoriesToCreate) initialTree.directories.add(directory)
   await forEachConcurrent(files, workspaceReadConcurrency, async (entry) => {
     const content = await workspace.fs.readFile(entry.path, { encoding: "binary" })
     initialTree.files.set(entry.path, { content: contentToBytes(content), mediaType: entry.mediaType })
@@ -344,7 +345,7 @@ async function copySandboxChangesToWorkspace(
     if (!sandboxDirectories.has(path)) await session.rm(path, { force: true, recursive: true })
   }
   for (const path of sandboxDirectories) {
-    if (initialTree.directories.has(path)) continue
+    if (initialTree.archiveDirectories.has(path)) continue
     await session.mkdir(path, { recursive: true } satisfies MkdirOptions)
   }
   for (const path of sandboxFiles) {

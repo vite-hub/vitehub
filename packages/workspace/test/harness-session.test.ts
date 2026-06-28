@@ -289,7 +289,7 @@ describe("Harness Workspace Session", () => {
     await session.close()
   })
 
-  it("does not remove synthetic parent directories for selected file paths", async () => {
+  it("does not recreate synthetic parent directories for unchanged selected file paths", async () => {
     const workspaceSession = {
       close: vi.fn(async () => {}),
       commit: vi.fn(async () => {}),
@@ -328,6 +328,46 @@ describe("Harness Workspace Session", () => {
     expect(workspaceSession.rm).not.toHaveBeenCalledWith("docs", { force: true, recursive: true })
     expect(workspaceSession.mkdir).not.toHaveBeenCalledWith("docs", { recursive: true })
     expect(workspaceSession.commit).not.toHaveBeenCalled()
+  })
+
+  it("does not remove synthetic parent directories for removed selected file paths", async () => {
+    const workspaceSession = {
+      close: vi.fn(async () => {}),
+      commit: vi.fn(async () => {}),
+      diff: vi.fn(async () => ({
+        entries: [{ path: "docs/README.md", type: "removed" }],
+        to: "next",
+      })),
+      mkdir: vi.fn(async () => {}),
+      rm: vi.fn(async () => {}),
+      writeFile: vi.fn(async () => {}),
+    }
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: {
+        list: vi.fn(async () => {
+          throw new Error("root list should not run")
+        }),
+        readFile: vi.fn(async () => bytes("scoped")),
+        stat: vi.fn(async () => ({ mediaType: "text/markdown", path: "docs/README.md", type: "file" })),
+      },
+      startSession: vi.fn(async () => workspaceSession),
+      tools: {},
+    } as never, {
+      paths: ["docs/README.md"],
+      session: {
+        readBinaryFile: vi.fn(async () => null),
+        run: sandboxRun(),
+        writeBinaryFile: vi.fn(async () => {}),
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    await session.close()
+
+    expect(workspaceSession.rm).toHaveBeenCalledWith("docs/README.md", { force: true })
+    expect(workspaceSession.rm).not.toHaveBeenCalledWith("docs", { force: true, recursive: true })
+    expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
   })
 
   it("commits harness sandbox additions and updates through write-mode Workspace rules", async () => {
