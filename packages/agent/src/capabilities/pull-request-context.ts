@@ -10,7 +10,6 @@ import type {
   AgentTriggerDefinition,
   MaybePromise,
 } from "../types.ts"
-import { markLiveWorkspaceSource } from "@vite-hub/workspace"
 import type {
   WorkspaceSource,
   WorkspaceName,
@@ -68,7 +67,6 @@ type PullRequestContextCapabilityTypeContract<
 
 const defaultSourceKey = "pullRequestContext"
 const defaultSourcePath = "context.md"
-const defaultWorkspacePath = "pull-request-context/context.md"
 
 async function resolveMaybeFunction<TValue, TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(
   value: TValue | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<TValue | false | null | undefined>) | undefined,
@@ -107,7 +105,7 @@ function pullRequestContextSource(
   context: AgentInvocationContextStore,
   contextKey: string,
 ): WorkspaceSource {
-  return markLiveWorkspaceSource({
+  return {
     materialize: "lazy",
     mount: "pull-request-context",
     probeKeys: [defaultSourcePath],
@@ -121,7 +119,7 @@ function pullRequestContextSource(
         mediaType: "text/markdown",
       }
     },
-  }, { [defaultWorkspacePath]: defaultSourcePath })
+  }
 }
 
 export function pullRequestContext<
