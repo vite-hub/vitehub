@@ -175,6 +175,10 @@ _Avoid_: Default admin view, merged workspace, unrestricted context
 A declared visibility grant inside a Workspace Scope, expressed through Source keys, Workspace path prefixes, or both.
 _Avoid_: Prompt filter, role, Workspace Rule
 
+**Workspace Source Scope Membership**:
+Static Workspace Source Binding metadata that names the Workspace Scopes a Source should be granted to when the Access Capability applies Workspace Scope.
+_Avoid_: Source-owned authorization, dynamic resolver, Access Role
+
 **Workspace Scope Instructions**:
 Developer-authored model-facing guidance attached to a selected Workspace Scope, describing how the agent should talk about or handle that explicit scope.
 _Avoid_: Generated scope prompt, Access Role, Source Instructions
@@ -372,6 +376,8 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - A **Workspace Scope** is enforced by Workspace reads, lists, searches, shell-shaped commands, and Workspace Tools; the model sees only the scoped Workspace File Tree.
 - A **Workspace Scope** contains **Workspace Scope Grants**.
 - A **Workspace Scope Grant** can target a Source key, a Workspace path prefix, or a path prefix within a Source.
+- A **Workspace Source Binding** may declare **Workspace Source Scope Membership**.
+- The **Access Capability** derives **Workspace Scope Grants** from **Workspace Source Scope Membership** without moving Workspace Scope selection, Access Roles, All-Scopes Workspace Scope, explicit path grants, or Workspace Scope Instructions into Sources.
 - A **Workspace Scope** may have **Workspace Scope Instructions**.
 - **Workspace Scope Instructions** are explicit developer-authored guidance; ViteHub does not infer them from grants, role, Agent Actor metadata, or Source metadata.
 - **Workspace Scope Instructions** may be declared on a static Workspace Scope or returned by a Workspace Scope Resolver for the selected invocation.

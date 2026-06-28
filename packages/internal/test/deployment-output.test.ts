@@ -109,6 +109,77 @@ describe("provider deployment outputs", () => {
     })
   })
 
+  it("does not copy client output for config-only Cloudflare output", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(join(rootDir, "dist"), { recursive: true })
+    await writeFile(join(rootDir, "dist", "index.html"), "<!doctype html>\n")
+
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist",
+      cloudflare: {
+        wranglerConfig: {
+          kv_namespaces: [{ binding: "SETTINGS", id: "namespace-id" }],
+        },
+        wranglerConfigKeys: ["kv_namespaces"],
+      },
+      rootDir,
+    })
+
+    expect(existsSync(join(rootDir, "dist", "client"))).toBe(false)
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      kv_namespaces: [{ binding: "SETTINGS", id: "namespace-id" }],
+    })
+  })
+
+  it("merges keyed Cloudflare config arrays without dropping unrelated entries", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      writeCloudflareWranglerConfig,
+    } = await import("../src/build/cloudflare.ts")
+    const cloudflareDir = createDefaultCloudflareOutputRoot(rootDir)
+    await mkdir(cloudflareDir, { recursive: true })
+    await writeFile(join(cloudflareDir, "wrangler.json"), `${JSON.stringify({
+      kv_namespaces: [
+        { binding: "MANUAL", id: "manual-namespace" },
+        { binding: "SETTINGS", id: "old-namespace" },
+      ],
+      triggers: { crons: ["0 0 * * *"] },
+    }, null, 2)}\n`)
+
+    await writeCloudflareWranglerConfig({
+      rootDir,
+      wranglerArrayMergeKeys: { kv_namespaces: "binding" },
+      wranglerConfig: {
+        kv_namespaces: [{ binding: "SETTINGS", id: "new-namespace" }],
+      },
+    })
+
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      kv_namespaces: [
+        { binding: "MANUAL", id: "manual-namespace" },
+        { binding: "SETTINGS", id: "new-namespace" },
+      ],
+      triggers: { crons: ["0 0 * * *"] },
+    })
+
+    await writeCloudflareWranglerConfig({
+      rootDir,
+      wranglerArrayMergeKeys: { kv_namespaces: "binding" },
+      wranglerArrayOwnedValues: { kv_namespaces: ["SETTINGS"] },
+    })
+
+    await expect(readFile(join(cloudflareDir, "wrangler.json"), "utf8").then(JSON.parse)).resolves.toEqual({
+      kv_namespaces: [{ binding: "MANUAL", id: "manual-namespace" }],
+      triggers: { crons: ["0 0 * * *"] },
+    })
+  })
+
   it("preserves sibling Vercel functions and config keys", async () => {
     const rootDir = await createTempProject()
     const {
@@ -139,6 +210,75 @@ describe("provider deployment outputs", () => {
     await expect(readFile(join(vercelDir, "config.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
       crons: [{ path: "/api/vitehub/schedules/vercel/daily", schedule: "0 0 * * *" }],
       version: 3,
+    })
+  })
+
+  it("serializes concurrent writes to shared provider config files", async () => {
+    const rootDir = await createTempProject()
+    const {
+      createDefaultCloudflareOutputRoot,
+      createDefaultVercelOutputRoot,
+      writeProviderDeploymentOutputs,
+    } = await import("../src/build/deployment-output.ts")
+
+    await Promise.all([
+      writeProviderDeploymentOutputs({
+        clientOutDir: "dist/client",
+        cloudflare: {
+          bundleEntry: join(rootDir, "blob.mjs"),
+          bundleOptions: {},
+          bundleOutfileName: "blob.js",
+          wranglerConfig: {
+            main: "blob.js",
+            r2_buckets: [{ binding: "BLOB", bucket_name: "assets" }],
+          },
+          wranglerConfigKeys: ["r2_buckets"],
+        },
+        rootDir,
+        vercel: {
+          bundleEntry: join(rootDir, "blob.mjs"),
+          bundleOptions: {},
+          config: {
+            routes: [{ dest: "/blob", src: "/blob" }],
+            version: 3,
+          },
+          configKeys: ["routes"],
+          serverFunctionName: "blob.func",
+        },
+      }),
+      writeProviderDeploymentOutputs({
+        clientOutDir: "dist/client",
+        cloudflare: {
+          bundleEntry: join(rootDir, "database.mjs"),
+          bundleOptions: {},
+          bundleOutfileName: "database.js",
+          wranglerConfig: {
+            d1_databases: [{ binding: "DB", database_id: "database-id", database_name: "database" }],
+            main: "database.js",
+          },
+          wranglerConfigKeys: ["d1_databases"],
+        },
+        rootDir,
+        vercel: {
+          bundleEntry: join(rootDir, "database.mjs"),
+          bundleOptions: {},
+          config: {
+            crons: [{ path: "/database", schedule: "0 0 * * *" }],
+            version: 3,
+          },
+          configKeys: ["crons"],
+          serverFunctionName: "database.func",
+        },
+      }),
+    ])
+
+    await expect(readFile(join(createDefaultCloudflareOutputRoot(rootDir), "wrangler.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
+      d1_databases: [{ binding: "DB", database_id: "database-id", database_name: "database" }],
+      r2_buckets: [{ binding: "BLOB", bucket_name: "assets" }],
+    })
+    await expect(readFile(join(createDefaultVercelOutputRoot(rootDir), "config.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
+      crons: [{ path: "/database", schedule: "0 0 * * *" }],
+      routes: [{ dest: "/blob", src: "/blob" }],
     })
   })
 

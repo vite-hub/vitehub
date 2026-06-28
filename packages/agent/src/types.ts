@@ -658,6 +658,7 @@ export interface AgentCapabilityRuntimeContext<
 export interface AgentCapabilityTypeContract {
   inputContext?: object
   invocationContext?: object
+  workspaceScopes?: string
   workspaceSources?: string
 }
 

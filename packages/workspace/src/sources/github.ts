@@ -4,7 +4,9 @@ import { github as createGitHubSource, type GitHubSourceOptions as SourcePackage
 import { resolveWorkspaceEnv } from "../env.ts"
 import type { MaybePromise, WorkspaceSource, WorkspaceSourceResolutionContext } from "../core/types.ts"
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "mount" | "sync" | "validate">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "mount" | "scopes" | "sync" | "validate">
+type SourceScopes<T> = T extends { scopes?: infer TScopes } ? { scopes?: TScopes } : {}
+type TypedWorkspaceSource<T> = WorkspaceSource & SourceScopes<T>
 type GitHubAuth = NonNullable<SourcePackageGitHubSourceOptions["auth"]>
 
 export interface GitHubSourceOptions extends Omit<SourcePackageGitHubSourceOptions, "auth">, SourceRuntimeOptions {
@@ -17,7 +19,7 @@ export type GitHubSourceResolver = (
 
 export type GitHubSourceInput = GitHubSourceOptions | GitHubSourceResolver
 
-export function github(options: GitHubSourceOptions): WorkspaceSource
+export function github<const TOptions extends GitHubSourceOptions>(options: TOptions): TypedWorkspaceSource<TOptions>
 export function github(resolve: GitHubSourceResolver): WorkspaceSource
 export function github(input: GitHubSourceInput): WorkspaceSource {
   if (typeof input === "function") return resolvableGitHubSource(input)
@@ -59,6 +61,7 @@ export function github(input: GitHubSourceInput): WorkspaceSource {
     instructions: resolvedOptions.instructions,
     materialize: resolvedOptions.materialize,
     mount: resolvedOptions.mount,
+    scopes: resolvedOptions.scopes,
     sync: resolvedOptions.sync,
     validate: resolvedOptions.validate,
     async prepare(ctx) {

@@ -36,6 +36,21 @@ function expectArchiveExtract(run: ReturnType<typeof vi.fn>, root = "/work/agent
   })
 }
 
+function expectWorkDirReset(run: ReturnType<typeof vi.fn>, writeBinaryFile: ReturnType<typeof vi.fn>, root = "/work/agent") {
+  const parent = root.replace(/\/[^/]+$/, "") || "/"
+  const name = root.split("/").filter(Boolean).at(-1) || root
+  expect(writeBinaryFile).toHaveBeenCalledWith({
+    abortSignal: undefined,
+    content: new Uint8Array(),
+    path: `${parent}/.vitehub-reset`,
+  })
+  expect(run).toHaveBeenCalledWith({
+    abortSignal: undefined,
+    command: `rm -rf -- '${name}' && mkdir -p -- '${name}' && rm -f -- '.vitehub-reset'`,
+    workingDirectory: parent,
+  })
+}
+
 describe("Harness Workspace Session", () => {
   it("resets and materializes selected Workspace files into the harness sandbox", async () => {
     const readme = bytes("# Docs\n")
@@ -56,10 +71,7 @@ describe("Harness Workspace Session", () => {
     })
 
     expect(list).toHaveBeenCalledWith("", { recursive: true })
-    expect(run).toHaveBeenCalledWith({
-      abortSignal: undefined,
-      command: "rm -rf '/work/agent' && mkdir -p '/work/agent'",
-    })
+    expectWorkDirReset(run, writeBinaryFile)
     expect(readFile).toHaveBeenCalledWith("README.md", { encoding: "binary" })
     expectArchiveWrite(writeBinaryFile)
     expectArchiveExtract(run)
@@ -141,6 +153,7 @@ describe("Harness Workspace Session", () => {
       writeFile: vi.fn(async () => {}),
     }))
     const writeBinaryFile = vi.fn(async () => {})
+    const run = sandboxRun()
 
     const session = await prepareHarnessWorkspaceSession({
       fs: {
@@ -154,7 +167,7 @@ describe("Harness Workspace Session", () => {
       paths: [],
       session: {
         readBinaryFile: vi.fn(async () => null),
-        run: sandboxRun(),
+        run,
         writeBinaryFile,
       },
       sessionWorkDir: "/work/agent",
@@ -162,7 +175,7 @@ describe("Harness Workspace Session", () => {
 
     expect(materializeSources).not.toHaveBeenCalled()
     expect(list).not.toHaveBeenCalled()
-    expect(writeBinaryFile).not.toHaveBeenCalled()
+    expectWorkDirReset(run, writeBinaryFile)
     expect(startSession).not.toHaveBeenCalled()
 
     await session.close()

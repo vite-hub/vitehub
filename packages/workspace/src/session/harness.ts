@@ -179,9 +179,18 @@ async function resetSandboxWorkDir(
   sessionWorkDir: string,
   abortSignal: AbortSignal | undefined,
 ) {
+  const workDir = posix.normalize(sessionWorkDir)
+  const parent = posix.dirname(workDir)
+  const name = posix.basename(workDir)
+  await sandbox.writeBinaryFile({
+    abortSignal,
+    content: new Uint8Array(),
+    path: sandboxPath(parent, ".vitehub-reset"),
+  })
   await runSandbox(sandbox, {
     abortSignal,
-    command: `rm -rf ${shellQuote(sessionWorkDir)} && mkdir -p ${shellQuote(sessionWorkDir)}`,
+    command: `rm -rf -- ${shellQuote(name)} && mkdir -p -- ${shellQuote(name)} && rm -f -- ${shellQuote(".vitehub-reset")}`,
+    workingDirectory: parent,
   })
 }
 

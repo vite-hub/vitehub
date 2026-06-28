@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-discovery"
-import { discoverServerSandboxDefinitions } from "../src/discovery.ts"
+import { discoverSandboxDefinitions, discoverServerSandboxDefinitions } from "../src/discovery.ts"
 
 const tempDirs: string[] = []
 
@@ -20,6 +20,39 @@ afterEach(async () => {
 })
 
 describe("discoverServerSandboxDefinitions", () => {
+  it("discovers sandbox names for Vite suffix and server entrypoints", async () => {
+    const rootDir = await createTempDir("vitehub-sandbox-vite-discovery-")
+    await mkdir(join(rootDir, "src", "content"), { recursive: true })
+    await mkdir(join(rootDir, "server", "sandboxes", "billing"), { recursive: true })
+    await writeFile(join(rootDir, "src", "release-notes.sandbox.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "src", "content", "summary.sandbox.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "server", "sandboxes", "billing", "index.ts"), "export default null\n", "utf8")
+
+    expect(discoverSandboxDefinitions({ rootDir }).map(definition => ({
+      name: definition.name,
+      source: definition.source,
+    }))).toEqual([
+      { name: "billing", source: "server-sandboxes" },
+      { name: "content/summary", source: "vite-suffix" },
+      { name: "release-notes", source: "vite-suffix" },
+    ])
+  })
+
+  it("does not discover server sandbox files through suffix scanning", async () => {
+    const rootDir = await createTempDir("vitehub-sandbox-vite-server-suffix-")
+    await mkdir(join(rootDir, "server", "sandboxes"), { recursive: true })
+    await mkdir(join(rootDir, "src", "server", "sandboxes"), { recursive: true })
+    await writeFile(join(rootDir, "server", "sandboxes", "release-notes.sandbox.ts"), "export default null\n", "utf8")
+    await writeFile(join(rootDir, "src", "server", "sandboxes", "ignored.sandbox.ts"), "export default null\n", "utf8")
+
+    expect(discoverSandboxDefinitions({ rootDir }).map(definition => ({
+      name: definition.name,
+      source: definition.source,
+    }))).toEqual([
+      { name: "release-notes", source: "server-sandboxes" },
+    ])
+  })
+
   it("discovers sandbox names from server/sandboxes directories", async () => {
     const scanDir = await createTempDir("vitehub-sandbox-server-discovery-")
     await mkdir(join(scanDir, "sandboxes", "content"), { recursive: true })

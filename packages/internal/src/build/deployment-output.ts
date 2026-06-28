@@ -2,9 +2,12 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
 import { copyClientOutput, hasStaticIndex } from "./client-output.ts"
+import { createDefaultCloudflareOutputRoot, writeCloudflareWranglerConfig } from "./cloudflare.ts"
 import { bundleEsmEntry } from "./esbuild.ts"
-import { toSafeAppName } from "./user-entry.ts"
 import { createNodeFunctionConfig, createVercelConfigJson } from "./vercel-config.ts"
+
+export { createDefaultCloudflareOutputRoot } from "./cloudflare.ts"
+export { shouldSkipViteProviderBuild } from "./vite.ts"
 
 type BundleOptions = NonNullable<Parameters<typeof bundleEsmEntry>[2]>
 
@@ -14,8 +17,8 @@ interface SharedDeploymentOptions {
 }
 
 interface CloudflareDeploymentOutputOptions extends SharedDeploymentOptions {
-  bundleEntry: string
-  bundleOptions: BundleOptions
+  bundleEntry?: string
+  bundleOptions?: BundleOptions
   bundleOutfileName?: string
   outputRoot?: string
   staticOutputDir?: string
@@ -79,6 +82,30 @@ interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
   }
   netlify?: NetlifyProviderDeploymentOutput
   vercel?: VercelProviderDeploymentOutput
+}
+
+const composedProviderOutputKey = Symbol.for("vitehub.composedProviderOutput")
+const providerDeploymentOutputWrites = new Map<string, Promise<void>>()
+
+export interface ComposedProviderOutput {
+  runtimeModuleFilesByProduct: Record<string, Record<string, string> | undefined>
+}
+
+export function useComposedProviderOutput(config: object): ComposedProviderOutput {
+  const owner = config as Record<symbol, ComposedProviderOutput | undefined>
+  return owner[composedProviderOutputKey] ??= { runtimeModuleFilesByProduct: {} }
+}
+
+export function resetComposedProviderOutput(composed: ComposedProviderOutput | undefined): void {
+  if (composed) composed.runtimeModuleFilesByProduct = {}
+}
+
+export function registerProviderRuntimeModules(composed: ComposedProviderOutput | undefined, product: string, runtimeModuleFiles: Record<string, string>): void {
+  if (composed) composed.runtimeModuleFilesByProduct[product] = runtimeModuleFiles
+}
+
+export function getProviderRuntimeModule(composed: ComposedProviderOutput | undefined, product: string, provider: string): string | undefined {
+  return composed?.runtimeModuleFilesByProduct[product]?.[provider]
 }
 
 interface ResolvedClientOutput {
@@ -150,14 +177,6 @@ async function deleteJsonObjectKeysFromFile(file: string, keys: string[] | undef
   await writeFile(file, `${JSON.stringify(next, null, 2)}\n`, "utf8")
 }
 
-export function shouldSkipViteProviderBuild(command: "build" | "serve" | undefined, mode?: string): boolean {
-  return command === "serve" || mode === "e2e"
-}
-
-export function createDefaultCloudflareOutputRoot(rootDir: string): string {
-  return resolve(rootDir, "dist", toSafeAppName(rootDir))
-}
-
 function createDefaultCloudflareStaticOutputDir(rootDir: string): string {
   return resolve(rootDir, "dist", "client")
 }
@@ -190,18 +209,28 @@ async function appendNetlifyFunctionConfig(outfile: string, config: object | und
 async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutputOptions): Promise<void> {
   const { clientDir, staticIndex } = resolveClientOutput(options.rootDir, options.clientOutDir)
   const outputRoot = options.outputRoot ?? createDefaultCloudflareOutputRoot(options.rootDir)
-  const workerOutfile = resolve(outputRoot, options.bundleOutfileName ?? "index.js")
 
   await mkdir(outputRoot, { recursive: true })
-  await rm(workerOutfile, { force: true, recursive: true })
 
-  await Promise.all([
-    bundleEsmEntry(options.bundleEntry, workerOutfile, options.bundleOptions),
-    writeMergedJsonObject(resolve(outputRoot, "wrangler.json"), options.wranglerConfig, options.wranglerConfigKeys),
-    staticIndex
+  const writes = [
+    writeCloudflareWranglerConfig({
+      outputRoot,
+      rootDir: options.rootDir,
+      wranglerConfig: options.wranglerConfig,
+      wranglerConfigKeys: options.wranglerConfigKeys,
+    }),
+    options.bundleEntry && staticIndex
       ? copyClientOutput(clientDir, options.staticOutputDir ?? createDefaultCloudflareStaticOutputDir(options.rootDir))
       : Promise.resolve(),
-  ])
+  ]
+
+  if (options.bundleEntry) {
+    const workerOutfile = resolve(outputRoot, options.bundleOutfileName ?? "index.js")
+    await rm(workerOutfile, { force: true, recursive: true })
+    writes.push(bundleEsmEntry(options.bundleEntry, workerOutfile, options.bundleOptions))
+  }
+
+  await Promise.all(writes)
 }
 
 async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOptions): Promise<void> {
@@ -251,7 +280,11 @@ async function cleanupCloudflareDeploymentOutput(rootDir: string, cleanup: Cloud
   if (cleanup.bundleOutfileName) {
     writes.push(rm(resolve(outputRoot, cleanup.bundleOutfileName), { force: true, recursive: true }))
   }
-  writes.push(deleteJsonObjectKeysFromFile(resolve(outputRoot, "wrangler.json"), cleanup.wranglerConfigKeys))
+  writes.push(writeCloudflareWranglerConfig({
+    outputRoot,
+    rootDir,
+    wranglerConfigKeys: cleanup.wranglerConfigKeys,
+  }))
   await Promise.all(writes)
 }
 
@@ -274,7 +307,7 @@ async function cleanupNetlifyDeploymentOutput(rootDir: string, cleanup: NetlifyP
   await Promise.all(writes)
 }
 
-export async function writeProviderDeploymentOutputs(options: ProviderDeploymentOutputOptions): Promise<void> {
+async function writeProviderDeploymentOutputsNow(options: ProviderDeploymentOutputOptions): Promise<void> {
   const writes: Array<Promise<void>> = []
   if (options.cloudflare) {
     writes.push(writeCloudflareDeploymentOutput({
@@ -304,4 +337,17 @@ export async function writeProviderDeploymentOutputs(options: ProviderDeployment
     writes.push(cleanupVercelDeploymentOutput(options.rootDir, options.cleanup.vercel))
   }
   await Promise.all(writes)
+}
+
+export async function writeProviderDeploymentOutputs(options: ProviderDeploymentOutputOptions): Promise<void> {
+  const key = resolve(options.rootDir)
+  const previous = providerDeploymentOutputWrites.get(key) ?? Promise.resolve()
+  const write = previous.catch(() => undefined).then(() => writeProviderDeploymentOutputsNow(options))
+  providerDeploymentOutputWrites.set(key, write)
+  try {
+    await write
+  }
+  finally {
+    if (providerDeploymentOutputWrites.get(key) === write) providerDeploymentOutputWrites.delete(key)
+  }
 }

@@ -3,8 +3,13 @@ import type { SandboxDefinitionBundle } from './module-types'
 
 const SHIM_NAMESPACE = 'vitehub-sandbox-runtime-shim'
 
-export async function bundleSandboxDefinition(source: string, file: string): Promise<SandboxDefinitionBundle> {
+export async function bundleSandboxDefinition(
+  source: string,
+  file: string,
+  options: { alias?: Record<string, string> } = {},
+): Promise<SandboxDefinitionBundle> {
   return await bundleDiscoveredDefinitionModuleGraph({
+    alias: options.alias,
     filename: file,
     source,
     plugins: [

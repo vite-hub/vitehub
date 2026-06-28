@@ -7,10 +7,11 @@ import { promisify } from "node:util"
 
 import { build as bundle } from "esbuild"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
+import { getProviderRuntimeModule, type ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import { toSafeAppName } from "@vite-hub/internal/build/user-entry"
 
 import { normalizeBlobOptions } from "../src/config.ts"
-import { generateProviderOutputs } from "../src/internal/vite-build.ts"
+import { generateProviderOutputs, prepareProviderOutputs } from "../src/internal/vite-build.ts"
 
 const execFileAsync = promisify(execFile)
 const playgroundDir = resolve(import.meta.dirname, "../../../playground/vite")
@@ -240,6 +241,20 @@ describe("Vite provider outputs", () => {
 
     await expect(readFile(join(rootDir, "dist", toSafeAppName(rootDir), "index.js"), "utf8")).resolves.toBe("existing cloudflare output\n")
     await expect(readFile(join(rootDir, ".vercel", "output", "functions", "__server.func", "index.mjs"), "utf8")).resolves.toBe("existing vercel output\n")
+  })
+
+  it("does not register local fs provider runtimes for composed sibling output", async () => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-local-fs-registry-")
+    const providerOutput = { runtimeModuleFilesByProduct: {} } satisfies ComposedProviderOutput
+    const blob = { driver: "fs" as const, base: ".data/blob" }
+
+    await prepareProviderOutputs({ blob, providerOutput, rootDir })
+    expect(getProviderRuntimeModule(providerOutput, "blob", "cloudflare")).toBeUndefined()
+    expect(getProviderRuntimeModule(providerOutput, "blob", "vercel")).toBeUndefined()
+
+    await generateProviderOutputs({ blob, clientOutDir: "dist", providerOutput, rootDir })
+    expect(getProviderRuntimeModule(providerOutput, "blob", "cloudflare")).toBeUndefined()
+    expect(getProviderRuntimeModule(providerOutput, "blob", "vercel")).toBeUndefined()
   })
 
   it("loads the fs driver from bundled SSR output", async () => {

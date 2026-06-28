@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineAgentInvoker, defineCapability, type AgentActor, type AgentCapabilityCliCommand, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentDeliveryArtifact, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, type AgentActor, type AgentCapabilityCliCommand, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentDeliveryArtifact, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
 import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceExec, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
@@ -9,7 +9,7 @@ import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../src/output.ts"
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentUsageRecord, StreamEvent } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
-import { file, github as githubSource } from "@vite-hub/workspace"
+import { fetch as fetchSource, file, github as githubSource } from "@vite-hub/workspace"
 import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatPlatformResolver, AgentChatRunContext, FetchCapabilityToolOptions, PullRequestContextValue, RepositoryHostClient, TranscriptionResult, UsageTelemetryOutputExtension, UsageTelemetrySummaryOptions } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
@@ -550,7 +550,7 @@ describe("agent public types", () => {
       },
     })
 
-    expectTypeOf(inventoryRuntime.cli?.commands).toEqualTypeOf<Record<string, AgentCapabilityCliCommand> | undefined>()
+    expectTypeOf(inventoryRuntime.cli?.commands).toMatchTypeOf<Record<string, AgentCapabilityCliCommand> | undefined>()
     defineCapability({
       id: "dynamic-inventory-runtime",
       // @ts-expect-error Capability CLI contributions are flat objects, not resolver functions
@@ -959,6 +959,263 @@ describe("agent public types", () => {
           docs: file("AGENTS.md"),
         },
       },
+    })
+
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["customer"] as const }),
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "customer",
+            scopes: {
+              customer: { source: "docs" },
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+    })
+
+    // @ts-expect-error source-local scopes are checked against access workspace scope keys
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["missing"] as const }),
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "customer",
+            scopes: {
+              customer: { source: "docs" },
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+    })
+
+    // @ts-expect-error unscoped sources do not disable Workspace Source scope checks
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["missing"] as const }),
+          readme: file("README.md"),
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "customer",
+            scopes: {
+              customer: { source: "docs" },
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+    })
+
+    const dynamicScopes: string[] = ["dynamic"]
+    // @ts-expect-error broad source scopes do not disable literal Workspace Source scope checks
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["missing"] as const }),
+          dynamic: githubSource({ repo: "acme/dynamic", scopes: dynamicScopes }),
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "customer",
+            scopes: {
+              customer: { source: "docs" },
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+    })
+
+    defineAgent({
+      workspace: {
+        sources: {
+          status: fetchSource({
+            scopes: ["customer"] as const,
+            transform(data: { status: string }) {
+              return data
+            },
+            url: "https://status.example.com/api/summary",
+            workspacePath: "status/summary.json",
+          }),
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "customer",
+            scopes: {
+              customer: { source: "status" },
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+    })
+
+    // @ts-expect-error typed fetch source scopes must be backed by Access Workspace Scopes
+    defineAgent({
+      workspace: {
+        sources: {
+          status: fetchSource({
+            scopes: ["missing"] as const,
+            transform(data: { status: string }) {
+              return data
+            },
+            url: "https://status.example.com/api/summary",
+            workspacePath: "status/summary.json",
+          }),
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "customer",
+            scopes: {
+              customer: { source: "status" },
+            },
+          },
+        }),
+      ],
+      model: {} as never,
+    })
+
+    // @ts-expect-error concrete custom capabilities do not satisfy Workspace Source scopes
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["customer"] as const }),
+        },
+      },
+      capabilities: [
+        defineCapability({ id: "audit" }),
+      ],
+      model: {} as never,
+    })
+
+    // @ts-expect-error Workspace Source scopes require access({ workspace })
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["customer"] as const }),
+        },
+      },
+      model: {} as never,
+    })
+
+    // @ts-expect-error non-Access capabilities do not satisfy Workspace Source scopes
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["customer"] as const }),
+        },
+      },
+      capabilities: [
+        workspaceShell(),
+      ],
+      model: {} as never,
+    })
+
+    const broadCapabilities: AgentCapabilityDefinition[] = [
+      access({
+        workspace: {
+          defaultScope: "customer",
+          scopes: {
+            customer: { source: "docs" },
+          },
+        },
+      }),
+    ]
+
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["customer"] as const }),
+        },
+      },
+      capabilities: broadCapabilities,
+      model: {} as never,
+    })
+
+    const widenedAccessCapability: AgentCapabilityDefinition = access({
+      workspace: {
+        defaultScope: "customer",
+        scopes: {
+          customer: { source: "docs" },
+        },
+      },
+    })
+
+    // @ts-expect-error individual widened capabilities cannot prove Access Workspace Scope names
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["customer"] as const }),
+        },
+      },
+      capabilities: [widenedAccessCapability],
+      model: {} as never,
+    })
+
+    // @ts-expect-error broad official capabilities do not satisfy missing Workspace Source scopes
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["missing"] as const }),
+        },
+      },
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "customer",
+            scopes: {
+              customer: { source: "docs" },
+            },
+          },
+        }),
+        blob(),
+      ],
+      model: {} as never,
+    })
+
+    const bundledAccessCapability = defineCapability({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "customer",
+            scopes: {
+              customer: { source: "docs" },
+            },
+          },
+        }),
+      ],
+      id: "workspace-access-bundle",
+    })
+
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["customer"] as const }),
+        },
+      },
+      capabilities: [bundledAccessCapability],
+      model: {} as never,
     })
   })
 

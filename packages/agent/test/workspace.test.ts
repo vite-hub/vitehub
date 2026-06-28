@@ -1086,6 +1086,53 @@ describe("defineAgent workspace option", () => {
     expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
   })
 
+  it("does not pass other scoped file sources into Harness Workspace Sessions", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const { file } = await import("@vite-hub/workspace")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    exists.mockImplementation(async path => path === "public.md" || path === ".vitehub/sources/publicDocs.json")
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "public",
+            scopes: {
+              admin: {},
+              public: {},
+            },
+          },
+        }),
+      ],
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+      workspace: {
+        sources: {
+          publicDocs: file({ path: "public.md", scopes: ["public"] }),
+          secretDocs: file({ path: "secret.md", scopes: ["admin"] }),
+        },
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      abortSignal: undefined,
+      paths: ["public.md", ".vitehub/sources/publicDocs.json"],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    }))
+  })
+
   it("keeps harness-native skill files visible when access() selects Workspace Scope", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { access, skills } = await import("../src/capabilities.ts")

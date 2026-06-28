@@ -6,9 +6,10 @@ import {
   createCapabilityCliTool,
   renderCapabilityCliInstructions,
 } from "./capability-cli.ts"
+import { getAccessCapabilityOptions } from "./capabilities/access-metadata.ts"
 import { createMessage } from "./messages.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
-import { normalizeAgentWorkspaceSource } from "./workspace-source-metadata.ts"
+import { normalizeAgentWorkspaceSource, workspaceSourceScopeNames, workspaceSourceScopePaths } from "./workspace-source-metadata.ts"
 import {
   createFallbackAgentInvoker,
   ensureAgentInvokerContext,
@@ -156,13 +157,20 @@ function assertTriggerName(name: unknown, capabilityId: string): asserts name is
   }
 }
 
+function capabilityUsesWorkspaceAccess(capability: AgentCapabilityDefinition): boolean {
+  return capability.id === "access"
+    && isPlainRecord(capability.metadata)
+    && capability.metadata.workspace === true
+}
+
 export function defineCapability<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
+  const TCapability extends AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract> = AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract>,
 >(
-  capability: AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract>,
-): AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract> {
+  capability: TCapability,
+): TCapability {
   if (!capability || typeof capability !== "object") {
     throw new TypeError("[vitehub] defineCapability() requires a capability definition.")
   }
@@ -329,14 +337,6 @@ function compactWorkspacePaths(paths: readonly string[]): string[] {
   return sorted.filter((path, index) => !sorted.some((candidate, candidateIndex) => candidateIndex < index && pathContains(candidate, path)))
 }
 
-function workspaceDefinitionBuildSourcePaths(definition: WorkspaceDefinition | undefined): string[] {
-  return Object.entries(definition?.sources || {}).flatMap(([key, source]) => {
-    const metadata = normalizeAgentWorkspaceSource(key, source)
-    if (metadata.materialize !== "build" || !metadata.probeKeys?.length) return []
-    return metadata.probeKeys.map(sourcePath => joinSourcePath(metadata.mountPath, sourcePath))
-  })
-}
-
 function pathsConflict(left: string, right: string): boolean {
   return pathContains(left, right) || pathContains(right, left)
 }
@@ -369,6 +369,7 @@ type WorkspaceContributionRuntime = Pick<
   typeof import("@vite-hub/workspace"),
   | "createWorkspaceSourceResolutionFacade"
   | "isWorkspaceSourceRequestOnly"
+  | "resolveWorkspaceSources"
   | "workspaceSourceRequestDescriptorPath"
 >
 
@@ -549,12 +550,41 @@ function selectedWorkspaceScopeFromContext(context: AgentInvocationContextStore)
   }
 }
 
+function setSelectedWorkspaceScopeContext(context: AgentInvocationContextStore, scope: WorkspaceSelectedScope | undefined) {
+  if (!scope || !hasTrustedWorkspaceAccessScope(context)) return
+  const access = context.get<{ workspaceScope?: { all?: boolean, paths?: readonly string[], role?: string, scope?: string } }>("access")
+  context.set("access", {
+    ...access,
+    workspaceScope: {
+      ...access?.workspaceScope,
+      all: scope.all,
+      paths: scope.paths,
+      role: scope.role,
+      scope: scope.name,
+    },
+  }, { overwrite: true })
+}
+
 function mergeSelectedWorkspaceScopePaths(scope: WorkspaceSelectedScope | undefined, paths: readonly string[]): WorkspaceSelectedScope | undefined {
   if (!scope || scope.all || !paths.length) return scope
   return {
     ...scope,
-    paths: [...new Set([...(scope.paths || []), ...paths])],
+    paths: compactWorkspacePaths([...(scope.paths || []), ...paths]),
   }
+}
+
+function mergeSelectedWorkspaceSourceScopePaths(
+  scope: WorkspaceSelectedScope | undefined,
+  definition: WorkspaceDefinition,
+  runtime: WorkspaceContributionRuntime,
+): WorkspaceSelectedScope | undefined {
+  if (!scope || scope.all || !scope.name) return scope
+  const paths = Object.entries(definition.sources || {}).flatMap(([key, source]) => {
+    const metadata = normalizeAgentWorkspaceSource(key, source)
+    if (!metadata.scopes?.includes(scope.name)) return []
+    return workspaceSourceScopePaths(key, source, runtime)
+  })
+  return mergeSelectedWorkspaceScopePaths(scope, paths)
 }
 
 function selectedScopeContainsMount(scope: WorkspaceSelectedScope | undefined, mountPath: string): boolean {
@@ -623,6 +653,28 @@ function withInvocationReadableSources(sources: Record<string, WorkspaceSourceIn
   return Object.fromEntries(Object.entries(sources).map(([key, source]) => [key, withInvocationReadableSource(source)]))
 }
 
+function assertWorkspaceSourceScopesRequireAccess(
+  workspaceDefinition: WorkspaceDefinition | undefined,
+  capabilities: AgentCapabilityDefinition[],
+) {
+  const sourceScopes = workspaceSourceScopeNames(workspaceDefinition?.sources)
+  if (!sourceScopes.length) return
+  if (!capabilities.some(capabilityUsesWorkspaceAccess)) {
+    throw new Error("[vitehub] Workspace Source scopes require access({ workspace }).")
+  }
+  const accessScopeNames = new Set(getAccessCapabilityOptions<AgentRuntimeConfig>(capabilities).flatMap(options =>
+    options.workspace?.scopes ? Object.keys(options.workspace.scopes) : [],
+  ))
+  if (!accessScopeNames.size) {
+    throw new Error("[vitehub] Workspace Source scopes require access({ workspace }).scopes.")
+  }
+  for (const scope of sourceScopes) {
+    if (!accessScopeNames.has(scope)) {
+      throw new Error(`[vitehub] Workspace Source scope "${scope}" is not defined in access({ workspace }).scopes.`)
+    }
+  }
+}
+
 async function applyCapabilityWorkspaceContributions<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -634,6 +686,7 @@ async function applyCapabilityWorkspaceContributions<
     workspaceDefinition: WorkspaceDefinition
   },
   workspaceMode: AgentCapabilityMode,
+  baseWorkspace: ReadonlyWorkspaceFacade<Name>,
 ): Promise<{ definition: WorkspaceDefinition, registries: AgentCapabilityRegistries["workspaceContributions"], workspace: ReadonlyWorkspaceFacade<Name> } | undefined> {
   let definition = context.workspaceDefinition
   const registries: AgentCapabilityRegistries["workspaceContributions"] = []
@@ -666,9 +719,19 @@ async function applyCapabilityWorkspaceContributions<
   }
 
   if (!registries.length) return
-  const selectedWorkspaceScope = mergeSelectedWorkspaceScopePaths(selectedWorkspaceScopeFromContext(context.context), context.harnessWorkspacePaths || [])
+  let selectedWorkspaceScope = mergeSelectedWorkspaceScopePaths(selectedWorkspaceScopeFromContext(context.context), context.harnessWorkspacePaths || [])
+  selectedWorkspaceScope = mergeSelectedWorkspaceSourceScopePaths(selectedWorkspaceScope, definition, workspaceRuntime)
   assertStaticWorkspaceContributionSourcesInScope(registries, definition, selectedWorkspaceScope, workspaceRuntime)
-  const sourceResolution = await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace, definition, {
+  const resolvedDefinition = await workspaceRuntime.resolveWorkspaceSources(definition, {
+    invocation: {
+      context: context.context,
+      run: context.run,
+    },
+    selectedWorkspaceScope,
+  })
+  selectedWorkspaceScope = mergeSelectedWorkspaceSourceScopePaths(selectedWorkspaceScope, resolvedDefinition, workspaceRuntime)
+  setSelectedWorkspaceScopeContext(context.context, selectedWorkspaceScope)
+  const sourceResolution = await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace, resolvedDefinition, {
     invocation: {
       context: context.context,
       run: context.run,
@@ -680,7 +743,7 @@ async function applyCapabilityWorkspaceContributions<
     registries,
     sourceResolution.definition,
     selectedWorkspaceScope,
-    context.workspace,
+    baseWorkspace,
     workspaceRuntime,
   )
   return {
@@ -723,12 +786,13 @@ export async function resolveAgentCapabilities<
   const driverKind = invocationOptions.driverKind || "model"
   ensureAgentInvokerContext(invocationContext, invoker)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
+  assertWorkspaceSourceScopesRequireAccess(invocationOptions.workspaceDefinition, capabilities)
   validateAccessCapabilityOrder(capabilities)
   const harnessWorkspacePaths = driverKind === "harness"
     ? compactWorkspacePaths(capabilities.flatMap(capability => [
         ...(capability.harnessWorkspacePaths || []),
         ...(capability.requires || []).flatMap(requirement => requirement.workspace?.paths || []),
-      ]).concat(workspaceDefinitionBuildSourcePaths(invocationOptions.workspaceDefinition)))
+      ]))
     : []
   let currentInput = normalizeRunInput(input)
   let currentWorkspace = workspace as ReadonlyWorkspaceFacade<Name> | undefined
@@ -821,6 +885,7 @@ export async function resolveAgentCapabilities<
       ? invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
       : undefined
     if (sourceResolvedDefinition) currentWorkspaceDefinition = sourceResolvedDefinition
+    assertWorkspaceSourceScopesRequireAccess(currentWorkspaceDefinition, capabilities)
     const workspaceContribution = await applyCapabilityWorkspaceContributions(capabilities, {
       ...runtimeContext,
       actor: invoker,
@@ -832,12 +897,13 @@ export async function resolveAgentCapabilities<
       runtimeContext: runtime,
       workspace: currentWorkspace,
       workspaceDefinition: currentWorkspaceDefinition,
-    }, workspaceMode)
+    }, workspaceMode, workspace || currentWorkspace)
     if (workspaceContribution) {
       currentWorkspace = workspaceContribution.workspace
       currentWorkspaceDefinition = workspaceContribution.definition
       registries.workspaceContributions = workspaceContribution.registries
     }
+    assertWorkspaceSourceScopesRequireAccess(currentWorkspaceDefinition, capabilities)
     for (const item of capabilityContexts) syncCapabilityWorkspaceContext(item.context)
   }
 
