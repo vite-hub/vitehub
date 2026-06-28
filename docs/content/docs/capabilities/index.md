@@ -8,7 +8,7 @@ icon: i-lucide-blocks
 ---
 
 Capabilities are user-shareable ViteHub abilities that an Agent attaches through `defineAgent({ capabilities })`.
-They can add requirements, model-facing tools, model-facing instructions, Provider Tool contributions, Agent Triggers, pre-invocation decisions, output renderers, metadata, and finish extensions.
+They can add requirements, model-facing tools, Provider Tool contributions, Agent Triggers, pre-invocation decisions, output renderers, metadata, and finish extensions.
 
 A Capability is not a server primitive.
 Server primitives give trusted app code authority.
@@ -45,7 +45,6 @@ export default defineAgent({
 | Contribution | What it changes |
 | --- | --- |
 | Requirements | Primitive, Workspace mode, Workspace path, or policy checks that must pass before the Capability applies. |
-| Instructions | Capability-owned instruction blocks that can render through `{{ capabilities }}` or a named slot. |
 | Tools | Model-facing operations exposed only to compatible Agent Drivers. |
 | Provider tools | Provider-native tool requests, such as model web search mode. |
 | Agent Triggers | Product events that start Agent Invocations through the Agent Package trigger surface. |
@@ -59,9 +58,11 @@ Agent Evals expose those values through `observation.extensions.get(capabilityId
 ## Driver boundary
 
 Capabilities attach above the Agent Driver.
-A model-backed Agent Driver can consume model-facing tools, instructions, and Provider Tool contributions.
+A model-backed Agent Driver can consume model-facing tools and Provider Tool contributions.
 A harness-backed Agent Driver receives explicit harness-compatible contributions and scoped Workspace behavior, but ViteHub does not silently pass model prompts or model-facing tools into the harness.
 A custom-run-backed Agent Driver receives prepared input and invocation context; the `driver.run` implementation decides which Capability outputs to read.
+
+Free-form guidance about when and why to use a Capability belongs in Agent Driver Instructions or deterministic imported instruction Markdown. Tool descriptions and schemas remain part of the model-facing tool contract.
 
 ## Read next
 

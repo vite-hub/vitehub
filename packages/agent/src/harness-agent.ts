@@ -3,9 +3,8 @@ import {
   defineAgentUsageMetadata,
 } from "./internal/agent-usage-metadata.ts"
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
-import { applyCapabilityInstructionSlots } from "./capability-runtime.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
-import { applyWorkspaceSourceInstructionSlot, colocatedAgentInstructionsSourceKey, resolveColocatedAgentInstructionDocument } from "./workspace-agent.ts"
+import { colocatedAgentInstructionsSourceKey, resolveColocatedAgentInstructionDocument } from "./workspace-agent.ts"
 import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
@@ -175,11 +174,7 @@ function selectedWorkspaceScopePaths(context: AgentAdapterRunContext): string[] 
 
 async function composeHarnessInstructions(content: string, context: AgentAdapterRunContext) {
   const compositionContext = { context: context.context.toJSON(), workspace: context.workspaceInstructionBindings }
-  const baseInstructions = await composeInstructionDocument(content, compositionContext)
-  return await composeInstructionDocument(applyWorkspaceSourceInstructionSlot(
-    applyCapabilityInstructionSlots(baseInstructions, context.capabilityInstructions),
-    context.sourceInstructions,
-  ), compositionContext)
+  return await composeInstructionDocument(content, compositionContext)
 }
 
 async function toHarnessCallInput(context: AgentAdapterRunContext) {

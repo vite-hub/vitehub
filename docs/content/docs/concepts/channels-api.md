@@ -1,19 +1,19 @@
 ---
 title: Channels API
-description: Understand message-shaped Agent Invocations, channel metadata, Chat Capability behavior, and host-owned commands.
+description: Understand message-shaped Agent Invocations, Channel metadata, chat state, and host-owned commands.
 navigation.order: 9
 icon: i-lucide-message-square
 ---
 
-The Channels API names message-shaped reachability without turning delivery metadata into trusted identity. It keeps channel facts, message input, Chat Capability behavior, and host-owned commands separate.
+The Channels API names message-shaped reachability without turning delivery metadata into trusted identity. It keeps Channel facts, message input, chat state, and host-owned commands separate.
 
 Message-shaped input is one way to start an Agent Invocation. ViteHub keeps it separate from the Agent itself: an Agent can receive plain prompts, structured input, or messages depending on the trigger and Capability behavior.
 
-The broader Channel language is still narrow in the current package surface. Today, `channelId` is Agent Run metadata supplied by a host or adapter, while the Chat Capability owns the `chat.message` trigger and Chat History behavior.
+Channel definitions own invocation reachability, route admission, and delivery facts. Chat state owns conversation history and session selection. The `chat.message` trigger is the shared message-shaped entry point that both generated Channel routes and app-owned trigger consumers can use.
 
-## Chat Capability
+## Message-shaped invocation
 
-The Chat Capability gives an Agent chat-oriented runtime behavior. It can contribute the `chat.message` Agent Trigger, Chat History handling, Chat Session selection, Chat Platform Adapter webhooks, and chat-derived Agent Invoker defaults.
+Generated routes should be configured on Channel definitions, such as `webChat({ route })` or `defineChannel(kind, { route })`. Application code should not import generated route handler factories.
 
 Application routes can consume the same trigger directly when the app owns the chat UI.
 
@@ -38,7 +38,7 @@ export default defineEventHandler(async (event) => {
 
 | Concept | Meaning |
 | --- | --- |
-| Channel | Host-provided origin and delivery context, such as an app chat, GitHub thread, or external platform conversation. |
+| Channel | Host or integration entry surface with origin, admission, and delivery facts, such as an app chat, GitHub thread, or external platform conversation. |
 | Agent Invocation | One runtime request to an Agent. It may or may not be message-shaped. |
 | Message | A normalized chat-style record with a role and parts such as text, tool calls, approvals, data, audio, sources, or errors. |
 | Chat History | Ordered conversational messages for one chat interaction. |
@@ -54,7 +54,7 @@ For example, a summary command can be an Input Command when it produces Agent ru
 
 ## Inspect it
 
-Inspect the trigger id, normalized messages, and Agent Run metadata. DevTools can show message-shaped runs for chat-capable Agents, while server routes can log the exact trigger input they pass to `runAgentTrigger()`.
+Inspect the trigger id, normalized messages, and Agent Run metadata. DevTools can show message-shaped runs for Agents with message-shaped Channels, while server routes can log the exact trigger input they pass to `runAgentTrigger()`.
 
 ## Next steps
 

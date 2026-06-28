@@ -72,12 +72,9 @@ export {
 export {
   workspaceShell,
 } from "./workspace-shell.ts"
-export {
-  workspaceExec,
-} from "./workspace-exec.ts"
 export type {
-  WorkspaceExecOptions,
-} from "./workspace-exec.ts"
+  WorkspaceShellOptions,
+} from "./workspace-shell.ts"
 export {
   kv,
 } from "./storage/kv.ts"
@@ -299,7 +296,6 @@ export type {
 } from "./storage/shared.ts"
 export type {
   MemoryAppendRequest,
-  MemoryCapabilityInstructionsOption,
   MemoryCapabilityOptions,
   MemoryDeleteRequest,
   MemoryExportRequest,

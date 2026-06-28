@@ -4,7 +4,6 @@ import type {
   WorkspaceMaterializeMode,
   WorkspaceSource,
   WorkspaceSourceInput,
-  WorkspaceSourceInstructions,
   WorkspaceSourceMount,
   WorkspaceSourceSyncConfig,
 } from "@vite-hub/workspace"
@@ -14,7 +13,6 @@ type WorkspaceSourceFamily = "fetch" | "file" | "github" | "glob" | "mcpResource
 interface WorkspaceSourceMetadataDescriptor {
   cache?: false | WorkspaceCacheOptions
   defaultMaterialize?: WorkspaceMaterializeMode
-  instructions?: WorkspaceSourceInstructions
   materialize?: WorkspaceMaterializeMode
   mount?: WorkspaceSourceMount
   probeKeys?: string[]
@@ -25,7 +23,6 @@ interface WorkspaceSourceMetadataDescriptor {
 
 export interface AgentWorkspaceSourceMetadata {
   cache: false | WorkspaceCacheOptions
-  instructions?: WorkspaceSourceInstructions
   key: string
   materialize: WorkspaceMaterializeMode
   mountPath: string
@@ -53,7 +50,6 @@ export function normalizeAgentWorkspaceSource(key: string, input: WorkspaceSourc
 
   return {
     cache,
-    ...(descriptor.instructions ? { instructions: descriptor.instructions } : {}),
     key,
     materialize: mount.materialize || descriptor.materialize || descriptor.defaultMaterialize || (cache ? "lazy" : sync ? "none" : "build"),
     mountPath: normalizeAgentWorkspacePath(mountPath, { allowEmpty: true }),
@@ -77,7 +73,7 @@ export function workspaceSourceScopeNames(sources: WorkspaceDefinition["sources"
 export function workspaceSourceScopePaths(
   key: string,
   input: WorkspaceSourceInput,
-  runtime: Pick<typeof import("@vite-hub/workspace"), "isWorkspaceSourceRequestOnly" | "workspaceSourceRequestDescriptorPath">,
+  runtime: Pick<typeof import("@vite-hub/workspace/runtime"), "isWorkspaceSourceRequestOnly" | "workspaceSourceRequestDescriptorPath">,
 ): string[] {
   const metadata = normalizeAgentWorkspaceSource(key, input)
   const descriptorPath = safeWorkspaceSourceRequestDescriptorPath(runtime, key)
@@ -96,7 +92,7 @@ export function workspaceSourceScopePaths(
 }
 
 function safeWorkspaceSourceRequestDescriptorPath(
-  runtime: Pick<typeof import("@vite-hub/workspace"), "workspaceSourceRequestDescriptorPath">,
+  runtime: Pick<typeof import("@vite-hub/workspace/runtime"), "workspaceSourceRequestDescriptorPath">,
   key: string,
 ): string | undefined {
   try {
@@ -207,7 +203,6 @@ function copySourceRuntimeOptions(
   return {
     ...defaults,
     cache: input.cache as WorkspaceSourceMetadataDescriptor["cache"] ?? defaults.cache,
-    instructions: input.instructions as WorkspaceSourceInstructions | undefined ?? defaults.instructions,
     materialize: input.materialize as WorkspaceMaterializeMode | undefined ?? defaults.materialize,
     mount: input.mount as WorkspaceSourceMount | undefined ?? defaults.mount,
     probeKeys: input.probeKeys as string[] | undefined ?? defaults.probeKeys,
@@ -223,7 +218,6 @@ function applyWorkspaceSourceBinding(
   return {
     ...descriptor,
     cache: hasOwn(input, "cache") ? input.cache as WorkspaceSourceMetadataDescriptor["cache"] : descriptor.cache,
-    instructions: hasOwn(input, "instructions") ? input.instructions as WorkspaceSourceInstructions | undefined : descriptor.instructions,
     materialize: hasOwn(input, "materialize") ? input.materialize as WorkspaceMaterializeMode | undefined : descriptor.materialize,
     mount: hasOwn(input, "mount") ? input.mount as WorkspaceSourceMount | undefined : descriptor.mount,
     probeKeys: hasOwn(input, "probeKeys") ? input.probeKeys as string[] | undefined : descriptor.probeKeys,

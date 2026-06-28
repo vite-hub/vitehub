@@ -29,7 +29,7 @@ The driver object accepts exactly one concrete variant: `model`, `harness`, or `
 
 ## Attach Capabilities
 
-Capabilities add named abilities. They are the public way to expose model-facing tools, instruction blocks, triggers, policy, and context values.
+Capabilities add named abilities. They are the public way to expose model-facing tools, triggers, policy, metadata, and context values. Put free-form guidance for those abilities in Agent Driver Instructions or deterministic imported instruction Markdown.
 
 ```ts [server/agents/support.ts]
 import { gateway } from '@ai-sdk/gateway'
@@ -41,7 +41,7 @@ export default defineAgent({
     model: gateway('openai/gpt-5.1-mini'),
     instructions: [
       'Answer from project context first.',
-      '{{ capabilities }}',
+      'Use web search only when the workspace does not contain the answer.',
     ],
   },
   capabilities: [
@@ -68,7 +68,7 @@ export default defineAgent({
     model: gateway('openai/gpt-5.1-mini'),
     instructions: [
       'Answer from the docs workspace.',
-      '{{ workspace.sources }}',
+      'Use the docs Source for public product behavior.',
     ],
   },
   workspace: {
@@ -76,7 +76,6 @@ export default defineAgent({
       docs: glob({
         cwd: '.',
         include: ['README.md', 'docs/**/*.md'],
-        instructions: 'Use these files for public product behavior.',
       }),
     },
   },

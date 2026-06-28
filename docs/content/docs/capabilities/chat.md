@@ -8,7 +8,7 @@ icon: i-lucide-messages-square
 ---
 
 `chat()` adds chat-oriented runtime behavior to an Agent Definition.
-It contributes a `chat.message` Agent Trigger, optional Chat Platform Adapter webhooks, Chat History state requirements, and a chat finish extension.
+It contributes a `chat.message` Agent Trigger, Chat History state requirements, and a chat finish extension.
 
 ## Installation
 
@@ -18,7 +18,7 @@ Use the configuration example below as the starting point, then tighten modes, p
 ## What it adds
 
 The Chat Capability turns message-shaped input into Agent Invocations and exposes the trigger to DevTools.
-When adapters are configured, the Agent Package can infer Chat Webhook Routes for supported platform events.
+Message-shaped Channels own route admission and delivery into that trigger.
 
 ## Configuration
 
@@ -76,7 +76,7 @@ When adapters are configured, inspect generated webhook registrations for the ex
 | `stream` | `boolean` | inherited | Whether the chat trigger should stream output. |
 | `concurrency` | `"drop" \| "parallel" \| "queue" \| "reject" \| string` | inherited | Message concurrency behavior. |
 | `lockScope` | `"agent" \| "channel" \| "thread" \| string` | inherited | Scope used for message locks. |
-| `fallbackStreamingPlaceholderText` | `string \| null \| function` | inherited | Placeholder text while streaming starts. |
+| `fallbackStreamingPlaceholderText` | `string \| string[] \| null \| function` | inherited | Placeholder text while streaming starts. Arrays pick one entry per Agent Invocation; empty arrays skip the placeholder. |
 | `errorFallbackText` | `string \| null \| function` | inherited | Fallback message when chat handling fails. |
 
 ## Reference

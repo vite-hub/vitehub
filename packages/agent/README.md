@@ -20,7 +20,7 @@ Keep the three pieces separate:
 pnpm add @vite-hub/agent @vite-hub/workspace ai
 ```
 
-`ai` is required for model-backed drivers and AI SDK-powered capabilities such as model-backed `chatTitle()`, `chatSummary()`, `llmGate()`, and `transcribe()`. Agents with a custom `run()` function can bundle without installing `ai`.
+`ai` is required for model-backed drivers and AI SDK-powered capabilities such as model-backed `chatTitle()`, `chatSummary()`, `llmGate()`, and `transcribe()`. Agents with `driver.run` can bundle without installing `ai`.
 
 Add the AI SDK model provider you pass to `model`.
 
@@ -44,7 +44,7 @@ export default defineAgent({
     model: gateway("openai/gpt-5.1-mini"),
     instructions: [
       "Answer support questions from the workspace.",
-      "{{ workspace.sources }}",
+      "Use the support Source for support policies and known answers.",
     ],
   },
   capabilities: [chat(), workspaceShell()],
@@ -52,7 +52,6 @@ export default defineAgent({
     sources: {
       support: file({
         path: "support.md",
-        instructions: "Use this source for support policies and known answers.",
       }),
     },
   },
@@ -92,7 +91,9 @@ export default defineAgent({
 })
 ```
 
-`driver.harness` is the AI SDK harness adapter instance. `driver.sandbox` can provide an AI SDK sandbox provider; when omitted, ViteHub uses the AI SDK Vercel Sandbox default for bridge-backed harnesses. `createLocalHarnessSandbox()` is a trusted-host sandbox for local development and Agent Evals, not a production isolation boundary. `driver.harness`, `driver.sandbox`, and `driver.sessionKey` can also be callbacks when one Agent Definition needs invocation-scoped harness setup. Workspace-backed harness drivers receive a Harness Workspace Session prepared from the selected Workspace. When `access()` narrows Workspace Scope, ViteHub materializes only that selected scope plus generated source descriptors. Read mode materializes files and discards sandbox changes; write mode syncs additions, updates, and deletions back through Workspace rules. V1 configures built-in harness permissions internally with the no-approval policy and does not expose a public permission option. Skills stay a Capability through `skills()` rather than becoming a root Agent Definition field. For harness drivers, `skills()` relies on mounted Workspace files and does not inject model instructions or Workspace Shell tools. Put harness guidance in Workspace files such as `AGENTS.md`; model-facing Source Instructions are not forwarded to harness-backed Agent Drivers yet. Unsupported model-facing Capability contributions are rejected before harness execution with the contributing Capability id in the error.
+`driver.harness` is the AI SDK harness adapter instance. `driver.sandbox` can provide an AI SDK sandbox provider; when omitted, ViteHub uses the AI SDK Vercel Sandbox default for bridge-backed harnesses. `createLocalHarnessSandbox()` is a trusted-host sandbox for local development and Agent Evals, not a production isolation boundary. `driver.harness`, `driver.sandbox`, and `driver.sessionKey` can also be callbacks when one Agent Definition needs invocation-scoped harness setup. Workspace-backed harness drivers receive a Harness Workspace Session prepared from the selected Workspace. When `access()` narrows Workspace Scope, ViteHub materializes only that selected scope plus generated source descriptors. Read mode materializes files and discards sandbox changes; write mode syncs additions, updates, and deletions back through Workspace rules. V1 configures built-in harness permissions internally with the no-approval policy and does not expose a public permission option. Skills stay a Capability through `skills()` rather than becoming a root Agent Definition field. For harness drivers, `skills()` relies on mounted Workspace files and does not inject model instructions or Workspace Shell tools. Put harness guidance in Workspace files such as `AGENTS.md`; Sources, Capabilities, and Skills do not inject extra model instructions by default.
+
+For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
 
 ```ts
 // vite.config.ts

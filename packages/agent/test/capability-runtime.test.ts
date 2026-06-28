@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createMessage, type AgentCapabilityContext, type AgentCapabilityRuntimeContext } from "@vite-hub/agent"
+import { createMessage, type AgentCapabilityContext } from "@vite-hub/agent"
 
 const runtime = () => ({
   memo: vi.fn(),
@@ -181,9 +181,8 @@ describe("agent capability runtime", () => {
     expect(order).toEqual(["resolve:first", "resolve:second", "close:second", "close:first"])
   })
 
-  it("applies instruction slots, tool transforms, renderers, and input mutation", async () => {
+  it("applies tool transforms, renderers, and input mutation", async () => {
     const {
-      applyCapabilityInstructionSlots,
       applyCapabilityToolTransforms,
       applyOutputRenderers,
       defineCapability,
@@ -197,7 +196,6 @@ describe("agent capability runtime", () => {
           input(context) {
             context.input.setMessages([createMessage({ role: "user", text: "rewritten" })])
           },
-          instructions: "Skill instructions.",
           output(context) {
             context.output.render(result => ({ text: `${(result as { text: string }).text}:rendered` }))
           },
@@ -212,9 +210,6 @@ describe("agent capability runtime", () => {
     expect(resolved.messages.map(message => message.parts[0])).toEqual([
       expect.objectContaining({ text: "rewritten" }),
     ])
-    expect(resolved.capabilityInstructions.map(block => block.id)).toEqual(["capabilities.skills"])
-    expect(applyCapabilityInstructionSlots("Base\n{{ capabilities.skills }}", resolved.capabilityInstructions)).toBe("Base\nSkill instructions.")
-    expect(applyCapabilityInstructionSlots("Base {{ user_name }}\n{{ capabilities.skills }}", resolved.capabilityInstructions)).toBe("Base {{ user_name }}\nSkill instructions.")
     await expect(applyCapabilityToolTransforms(resolved.tools, resolved.toolTransforms)).resolves.toEqual({
       added: { name: "added" },
       original: { name: "original" },
@@ -222,9 +217,8 @@ describe("agent capability runtime", () => {
     await expect(applyOutputRenderers({ text: "base" }, resolved.registries.outputRenderers)).resolves.toEqual({ text: "base:rendered" })
   })
 
-  it("projects Capability CLI metadata into generated guidance and a CLI-named tool", async () => {
+  it("projects Capability CLI metadata into a CLI-named tool", async () => {
     const {
-      applyCapabilityInstructionSlots,
       defineCapability,
       resolveAgentCapabilities,
     } = await import("../src/capability-runtime.ts")
@@ -268,10 +262,6 @@ describe("agent capability runtime", () => {
       ],
     }, runtime(), {})
 
-    expect(resolved.capabilityInstructions).toHaveLength(1)
-    expect(applyCapabilityInstructionSlots("{{ capabilities.inventory-runtime }}", resolved.capabilityInstructions)).toContain("## Capability CLI: inventory")
-    expect(resolved.capabilityInstructions[0]?.instructions).toContain("inventory items list --json")
-    expect(resolved.capabilityInstructions[0]?.instructions).toContain("instead of generic Bash")
     expect(Object.keys(resolved.tools || {})).toEqual(["inventory"])
     expect(resolved.tools?.inventory?.description).toContain("`items list --json`")
     expect(resolved.tools?.inventory?.description).not.toContain("`inventory items list --json`")
@@ -298,7 +288,6 @@ describe("agent capability runtime", () => {
 
   it("omits --json from generated text Capability CLI examples", async () => {
     const {
-      applyCapabilityInstructionSlots,
       defineCapability,
       resolveAgentCapabilities,
     } = await import("../src/capability-runtime.ts")
@@ -320,9 +309,6 @@ describe("agent capability runtime", () => {
       ],
     }, runtime(), {})
 
-    const instructions = applyCapabilityInstructionSlots("{{ capabilities.inventory-runtime }}", resolved.capabilityInstructions)
-    expect(instructions).toContain("inventory say")
-    expect(instructions).not.toContain("inventory say --json")
     expect(resolved.tools?.inventory?.description).toContain("`say`")
     expect(resolved.tools?.inventory?.description).not.toContain("`say --json`")
     const result = await resolved.tools?.inventory?.execute?.({ argv: ["say"] })
@@ -368,38 +354,6 @@ describe("agent capability runtime", () => {
     })
   })
 
-  it("merges generated Capability CLI guidance with imperative capability instructions", async () => {
-    const {
-      applyCapabilityInstructionSlots,
-      defineCapability,
-      resolveAgentCapabilities,
-    } = await import("../src/capability-runtime.ts")
-
-    const resolved = await resolveAgentCapabilities({
-      capabilities: [
-        defineCapability({
-          cli: {
-            commands: {
-              list: {
-                run: () => "ok",
-              },
-            },
-            name: "inventory",
-          },
-          id: "inventory-runtime",
-          resolve(context) {
-            context.instructions.add("Use inventory only for runtime data.")
-          },
-        }),
-      ],
-    }, runtime(), {})
-
-    expect(resolved.capabilityInstructions).toHaveLength(1)
-    const instructions = applyCapabilityInstructionSlots("{{ capabilities.inventory-runtime }}", resolved.capabilityInstructions)
-    expect(instructions).toContain("Use inventory only for runtime data.")
-    expect(instructions).toContain("## Capability CLI: inventory")
-  })
-
   it("rejects invalid Capability CLI output formats", async () => {
     const { defineCapability } = await import("../src/capability-runtime.ts")
 
@@ -442,27 +396,6 @@ describe("agent capability runtime", () => {
     }, runtime(), {})).rejects.toThrow('Capability tool "inventory" conflicts with an existing Capability CLI')
   })
 
-  it("rejects duplicate capability instruction composition keys", async () => {
-    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-
-    await expect(resolveAgentCapabilities({
-      capabilities: [
-        defineCapability({
-          id: "first",
-          resolve(context) {
-            context.instructions.add("First.", { id: "audience" })
-          },
-        }),
-        defineCapability({
-          id: "second",
-          resolve(context) {
-            context.instructions.add("Second.", { id: "audience" })
-          },
-        }),
-      ],
-    }, runtime(), {})).rejects.toThrow('Duplicate capability instruction block "capabilities.audience"')
-  })
-
   it("passes named invocation context values through capabilities and custom runs", async () => {
     const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
 
@@ -475,12 +408,12 @@ describe("agent capability runtime", () => {
           },
         }),
       ],
-      run(context) {
-        return {
-          chat: context.context.get("chat"),
-          mode: context.context.get("mode"),
-        }
-      },
+      driver: { run(context) {
+          return {
+            chat: context.context.get("chat"),
+            mode: context.context.get("mode"),
+          }
+        } },
     })
 
     await expect(runAgent(agent, runtime(), {
@@ -536,7 +469,6 @@ describe("agent capability runtime", () => {
               },
             },
           },
-          instructions: async (context: AgentCapabilityRuntimeContext) => await context.workspace!.fs.readFile("pull-request/summary.md"),
           tools: async (context: AgentCapabilityContext) => ({
             reviewContext: {
               name: await context.workspace!.fs.readFile("pull-request/summary.md"),
@@ -552,9 +484,6 @@ describe("agent capability runtime", () => {
     })
 
     await expect(resolved.workspace?.fs.readFile("pull-request/summary.md")).resolves.toBe("review context")
-    expect(resolved.capabilityInstructions).toEqual([
-      { id: "capabilities.review", instructions: "review context" },
-    ])
     expect(resolved.tools).toEqual({
       reviewContext: { name: "review context" },
     })
@@ -1417,7 +1346,7 @@ describe("agent capability runtime", () => {
           },
         }),
       ],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(runAgent(agent, runtime(), {
@@ -1477,10 +1406,10 @@ describe("agent capability runtime", () => {
 
     const stream = await streamAgent(defineAgent({
       capabilities: [capability],
-      run: () => (async function* () {
-        yield "hello"
-        order.push("stream:done")
-      })(),
+      driver: { run: () => (async function* () {
+          yield "hello"
+          order.push("stream:done")
+        })() },
     }), runtime(), {})
 
     for await (const _event of stream as AsyncIterable<unknown>) {}
@@ -1489,7 +1418,7 @@ describe("agent capability runtime", () => {
     order.length = 0
     const response = await runAgent(defineAgent({
       capabilities: [capability],
-      run: () => new Response("ok"),
+      driver: { run: () => new Response("ok") },
     }), runtime(), {})
     await expect((response as Response).text()).resolves.toBe("ok")
     expect(order).toEqual(["close"])
@@ -1582,7 +1511,7 @@ describe("agent capability runtime", () => {
           configure: () => { order.push("configure") },
           id: "tracked",
         }],
-        model: {} as never,
+        driver: { model: {} as never },
       })
 
       await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({ text: "ok" })
@@ -1614,7 +1543,7 @@ describe("agent capability runtime", () => {
           close,
           id: "tracked",
         }],
-        model: {} as never,
+        driver: { model: {} as never },
       })
 
       await expect(runAgent(agent, runtime(), {})).rejects.toThrow("cleanup failed")
@@ -1645,7 +1574,7 @@ describe("agent capability runtime", () => {
           input: () => { order.push("input") },
           resolve: () => { order.push("resolve") },
         }],
-        model: {} as never,
+        driver: { model: {} as never },
       })
 
       await resolveAgent(agent, runtime())

@@ -1,5 +1,7 @@
 # Agent Capabilities
 
+Superseded note: ADR 0075 retracts ambient Capability instruction blocks and `{{ capabilities.* }}` slots. Capability tools, triggers, policy, runtime metadata, and structured tool contracts remain current.
+
 ViteHub agents will use agent-scoped Capabilities created with `defineCapability` and attached through `defineAgent({ capabilities })`. Capabilities use a Better Auth-style factory object, phase-based lifecycle methods, typed mutable contexts, and optional hooks instead of raw config mutators, global `hubAgent` configuration, or tool-first extension surfaces.
 
 ## Considered Options

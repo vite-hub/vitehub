@@ -37,7 +37,7 @@ import type {
 import type { WorkspaceOverrideRuntime } from "../access-runtime.ts"
 
 type WorkspaceAccessRuntime = Pick<
-  typeof import("@vite-hub/workspace"),
+  typeof import("@vite-hub/workspace/runtime") & typeof import("@vite-hub/workspace"),
   | "attachWorkspaceSourceRequestExecution"
   | "createWorkspaceSourceResolutionFacade"
   | "createWorkspaceTools"
@@ -139,13 +139,10 @@ export interface AccessWorkspaceScopeGrant<TSourceName extends string = string> 
   sources?: readonly TSourceName[]
 }
 
-export type AccessWorkspaceScopeInstructions = string | readonly string[]
-type NormalizedWorkspaceScopeInstructions = string | string[]
-
 export interface AccessWorkspaceScopeDefinition<TSourceName extends string = string> {
   all?: boolean
   grants?: readonly AccessWorkspaceScopeGrant<TSourceName>[]
-  instructions?: AccessWorkspaceScopeInstructions
+  instructions?: never
   path?: string
   paths?: readonly string[]
   source?: TSourceName
@@ -242,7 +239,6 @@ export type AccessWorkspaceOptionsFor<
 interface ResolvedWorkspaceScope {
   all: boolean
   definition: AccessWorkspaceScopeDefinition
-  instructions?: NormalizedWorkspaceScopeInstructions
   materializeGrants: ResolvedWorkspaceMaterializeGrant[]
   paths: string[]
   role: AccessRoleName
@@ -256,7 +252,6 @@ interface ResolvedWorkspaceMaterializeGrant {
 
 interface NormalizedWorkspaceScopeSelection<TSourceName extends string = string> {
   definition?: AccessWorkspaceScopeDefinition<TSourceName>
-  instructions?: NormalizedWorkspaceScopeInstructions
   role?: AccessRoleName
   scope: string
 }
@@ -276,7 +271,10 @@ function setWorkspaceOverride<
 }
 
 async function loadWorkspaceAccessRuntime(): Promise<WorkspaceAccessRuntime> {
-  return await import("@vite-hub/workspace")
+  return {
+    ...(await import("@vite-hub/workspace")),
+    ...(await import("@vite-hub/workspace/runtime")),
+  }
 }
 
 export function access<
@@ -296,6 +294,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
   if (!options.chat && !options.workspace) {
     throw new TypeError("[vitehub] access() requires at least one access surface.")
   }
+  if (options.workspace) validateNoLegacyWorkspaceScopeInstructions(options.workspace)
   return defineCapability({
     id: "access",
     metadata: {
@@ -333,7 +332,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
         : false
       const finalScope = withHarnessWorkspacePaths(finalizeResolvedWorkspaceScope(scope, resolvedDefinition, workspaceRuntime), context.harnessWorkspacePaths)
       const sourceResolution = resolvedDefinition
-        ? await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace, resolvedDefinition, {
+        ? await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace as never, resolvedDefinition, {
             ...sourceResolutionOptions,
             selectedWorkspaceScope: toWorkspaceSelectedScope(finalScope),
           })
@@ -341,7 +340,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       const workspaceForScope = hasSourceResolvers ? sourceResolution.workspace : context.workspace
       const scopedWorkspace = finalScope.all
         ? workspaceForScope
-        : createScopedWorkspaceFacade(workspaceForScope, finalScope, workspaceRuntime)
+        : createScopedWorkspaceFacade(workspaceForScope as ReadonlyWorkspaceFacade<WorkspaceName>, finalScope, workspaceRuntime)
       context.context.set("access", {
         workspaceScope: {
           all: finalScope.all,
@@ -351,12 +350,11 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
         },
       })
       markTrustedWorkspaceAccessScope(context.context)
-      context.instructions.add(finalScope.instructions, { id: "access.workspace" })
       if (sourceResolution.definition && sourceResolution.definition !== context.workspaceDefinition) {
         context.context.set("workspace.sourceResolution.definition", sourceResolution.definition)
         markTrustedWorkspaceSourceResolutionDefinition(context.context)
       }
-      setWorkspaceOverride(context, scopedWorkspace)
+      setWorkspaceOverride(context, scopedWorkspace as ReadonlyWorkspaceFacade<WorkspaceName>)
     },
   })
 }
@@ -394,6 +392,7 @@ async function resolveWorkspaceScope<
   if (!definition) {
     throw new Error(`[vitehub] access({ workspace }) resolved unknown Workspace Scope "${selection.scope}". scopes.${selection.scope} or an inline scope definition must define it.`)
   }
+  assertNoLegacyWorkspaceScopeInstructions(definition, `Workspace Scope "${selection.scope}"`)
   const scopedDefinition = withWorkspaceSourceScopeGrants(definition, selection.scope, context.workspaceDefinition)
 
   const role = selection.role || "viewer"
@@ -405,7 +404,6 @@ async function resolveWorkspaceScope<
   return {
     all,
     definition: scopedDefinition,
-    instructions: selection.instructions ?? normalizeScopeInstructions(scopedDefinition.instructions, `Workspace Scope "${selection.scope}" instructions`),
     materializeGrants: all ? [{ path: "" }] : scopeMaterializeGrants(scopedDefinition, context.workspaceDefinition, workspaceRuntime),
     paths: all ? [""] : scopePaths(scopedDefinition, context.workspaceDefinition, workspaceRuntime),
     role,
@@ -427,6 +425,18 @@ function validateWorkspaceSourceScopeNames(
     if (!allowed.has(scope)) {
       throw new Error(`[vitehub] Workspace Source scope "${scope}" is not defined in access({ workspace }).scopes.`)
     }
+  }
+}
+
+function validateNoLegacyWorkspaceScopeInstructions(options: { scopes?: Record<string, unknown> }): void {
+  for (const [scope, definition] of Object.entries(options.scopes || {})) {
+    assertNoLegacyWorkspaceScopeInstructions(definition, `Workspace Scope "${scope}"`)
+  }
+}
+
+function assertNoLegacyWorkspaceScopeInstructions(value: unknown, label: string): void {
+  if (isRecord(value) && "instructions" in value) {
+    throw new TypeError(`[vitehub] ${label} instructions were removed. Put scope guidance in Agent Driver Instructions with ::capability{key="access"} coverage.`)
   }
 }
 
@@ -504,24 +514,16 @@ function hasInlineScopeDefinition(value: Record<string, unknown>): boolean {
     || hasNonEmptyScopeGrant(value)
 }
 
-function normalizeScopeInstructions(value: unknown, label: string): NormalizedWorkspaceScopeInstructions | undefined {
-  if (value === undefined) return undefined
-  if (typeof value === "string") return value
-  if (Array.isArray(value) && value.every(part => typeof part === "string")) return [...value]
-  throw new TypeError(`[vitehub] ${label} must be a string or an array of strings.`)
-}
-
 function normalizeSelection<TSourceName extends string>(value: unknown): NormalizedWorkspaceScopeSelection<TSourceName> | undefined {
   if (typeof value === "string" && value.trim()) return { scope: value }
   if (!value || typeof value !== "object") return undefined
+  assertNoLegacyWorkspaceScopeInstructions(value, "Inline Workspace Scope")
   const candidate = value as { role?: unknown, scope?: unknown }
   if (typeof candidate.scope !== "string" || !candidate.scope.trim()) return undefined
-  const instructions = normalizeScopeInstructions((value as { instructions?: unknown }).instructions, "Workspace Scope resolver instructions")
   return {
     ...(hasInlineScopeDefinition(value as Record<string, unknown>)
       ? { definition: value as AccessWorkspaceScopeDefinition<TSourceName> }
       : {}),
-    ...(instructions !== undefined ? { instructions } : {}),
     ...(typeof candidate.role === "string" && candidate.role.trim() ? { role: candidate.role } : {}),
     scope: candidate.scope,
   }

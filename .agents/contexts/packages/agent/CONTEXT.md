@@ -33,12 +33,16 @@ The Agent Package-owned boundary where model-backed Agent Drivers configure `exe
 _Avoid_: Adapter options, provider package, model package
 
 **Instruction Composition Renderer**:
-The Agent Package-owned implementation that turns Instruction Documents, Capability instruction blocks, explicit `context.*` bindings, and visible Source Instructions into final model-facing instructions.
+The Agent Package-owned implementation that turns Instruction Documents, explicit instruction coverage, explicit `context.*` bindings, and deterministic imports into final model-facing instructions.
 _Avoid_: Prompt framework, host markdown engine, access layer
 
 **Agent Driver Boundary**:
 The Agent Package-owned Agent Definition boundary for selecting and configuring how Agent Invocations are driven, including model-backed and harness-backed drivers.
 _Avoid_: Public adapter selector, top-level model selector, top-level harness selector, driver factory wrapper, root run callback
+
+**Agent Route Handler**:
+The Agent Package server helper used by generated routes to consume resolved Agent Triggers for chat and webhook traffic.
+_Avoid_: Channel authoring API, custom Channel definition API
 
 **Agent Harness Driver Contract**:
 The Agent Package-owned contract implemented by harness-backed Agent Drivers, including invocation input, workspace access, lifecycle events, streams, approvals, and telemetry.
@@ -130,9 +134,10 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - The concrete **Agent Driver Boundary** key holds the implementation value directly; driver-specific options are sibling fields on the same driver object.
 - **Agent Driver Boundary** variants are mutually exclusive; the Agent Package should reject a driver object that combines `model`, `harness`, or `run`.
 - The **Agent Package** owns filtering Capability Driver Contributions for the selected Agent Driver.
-- The **Agent Package** owns composing visible Workspace Source Instructions into final model instructions for model-backed Agent Drivers.
+- The **Agent Package** owns composing explicit instruction coverage for configured Sources, Capabilities, and Skills into final model instructions for model-backed Agent Drivers.
 - The **Agent Package** owns the **Instruction Composition Renderer** for model-backed Agent Drivers and generated Agent Package metadata.
 - The **Instruction Composition Renderer** accepts local Markdown imports and safe `context.*` expressions; it must not execute arbitrary JavaScript or widen runtime access.
+- The **Instruction Composition Renderer** should produce DevTools, build, or metadata diagnostics when configured Sources, Capabilities, or Skills lack explicit instruction coverage.
 - The **Agent Package** does not pass model-facing instructions to harness-backed Agent Drivers by default.
 - The **Agent Package** treats **Harness Workspace Path Contributions** as harness filesystem support, not as model-facing instructions or public Agent Definition fields.
 - The **Agent Package** owns the **Agent Trigger API** that resolves trigger contributions from Agent Capabilities and declared Channel delivery paths.
@@ -140,6 +145,8 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - An **Agent Trigger Consumer** uses the **Agent Trigger API** and does not create a parallel chat-specific behavior surface.
 - An **Agent Trigger Consumer** may pass a trusted Agent Actor through trigger input when it has already authenticated or resolved caller identity; trigger metadata should not become a parallel identity or command-admission boundary.
 - Message-shaped Agent Trigger input may pass Agent Run metadata for invocation provenance, but the Agent Package should not copy that metadata into public Chat context.
+- Generated Channel route handlers are internal Agent Package infrastructure; public code configures them through Channel definitions rather than importing handler factories.
+- Generated message-shaped Channel routes should reject client-supplied identity, Agent Run metadata, and Chat Session fields unless Channel route admission authenticates the request and explicitly trusts that field.
 - The Agent Invocation Stream Endpoint consumes **Agent Dev Loop Payload Loading** by passing payload files to the selected Agent Trigger before any Agent Invocation is streamed.
 - The Agent Package should not put development-only sample payloads on the public Agent Definition shape.
 - A **Channel** may be implemented by an **Agent Trigger Consumer**, but Channel is the framework term for Agent reachability.
@@ -230,5 +237,5 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - Public `chat({ identity })` and `AgentChatIdentityResolver` were considered for chat caller identity - resolved: remove them through **Chat Identity Removal** and keep **Agent Actor** as the single trusted caller identity policy.
 - Public `chat.identity` invocation context was considered for convenience - resolved: remove it because callers should use `context.actor`, with `context.invoker` as a compatibility alias, or Chat context values instead of a parallel identity string.
 - `AccessChatIdentity` was considered for chat admission - resolved: Access should consume the resolved Agent Actor plus chat/request facts rather than owning a separate chat identity shape.
-- Source Instruction prompt rendering was considered Workspace Package ownership - resolved: Agent Package composes visible Source Instructions into model-backed driver instructions while Workspace Package exposes Source Instruction metadata.
+- Source Instruction prompt rendering was considered Workspace Package ownership - resolved: Agent Package composes explicit Source instruction coverage into model-backed driver instructions while Workspace Package exposes Source Instruction metadata.
 - Result dependencies and Effect-style workflows were considered for Agent Invocation failure reporting - resolved: keep **Agent Error Normalization** inside the Agent Package and expose a message on lifecycle events without changing the programming model.

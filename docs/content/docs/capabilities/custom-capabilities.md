@@ -1,6 +1,6 @@
 ---
 title: Custom capabilities
-description: Build one product-specific Agent ability with requirements, instructions, tools, policy, and metadata.
+description: Build one product-specific Agent ability with requirements, tools, policy, and metadata.
 navigation.title: Custom capabilities
 navigation.order: 3
 navigation.group: Start here
@@ -11,7 +11,7 @@ Create a custom Capability when the official catalog does not describe the Agent
 Start from the product ability, not from the raw tool or primitive call.
 
 A useful custom Capability names what the Agent can do, declares the requirements that must exist, and keeps the model-facing surface constrained.
-It should be inspectable enough that a developer can see which tools, instructions, triggers, context values, and policy decisions came from that one Capability.
+It should be inspectable enough that a developer can see which tools, triggers, context values, metadata, and policy decisions came from that one Capability.
 
 ## Minimum shape
 
@@ -24,7 +24,6 @@ import { defineCapability } from '@vite-hub/agent'
 export function tickets() {
   return defineCapability({
     id: 'tickets',
-    instructions: 'Use ticket tools only for support ticket lookup and triage.',
     tools: {
       searchTickets: {
         name: 'searchTickets',
@@ -37,18 +36,20 @@ export function tickets() {
 ```
 
 Attach the custom Capability like any official Capability.
-Keep instructions explicit so the Agent can render the Capability block where it belongs.
+Keep instructions explicit in the Agent Driver so Capability config does not become a hidden prompt bag.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
 import { tickets } from './capabilities/tickets'
 
 export default defineAgent({
-  driver: { model },
-  instructions: [
-    'Triage support requests.',
-    '{{ capabilities.tickets }}',
-  ].join('\n\n'),
+  driver: {
+    model,
+    instructions: [
+      'Triage support requests.',
+      'Use ticket tools only for support ticket lookup and triage.',
+    ].join('\n\n'),
+  },
   capabilities: [
     tickets(),
   ],
@@ -157,10 +158,9 @@ export const inventoryRuntime = defineCapability({
 
 The `input` and `output.schema` values accept any Standard Schema-compatible validation library. Use Zod, Valibot, ArkType, or the validator your app already uses.
 
-ViteHub generates the command guidance from the command metadata and places it in the Capability instruction slot.
-Keep `instructions.md` focused on policy and include `{{ capabilities.inventory-runtime }}` or `{{ capabilities }}` where the generated guidance should appear.
+ViteHub exposes command metadata through the generated CLI-named tool. Keep `instructions.md` focused on policy and use `::capability{key="inventoryRuntime"}` when authored guidance should cover that Capability.
 
-First-party adapters can generate the same CLI shape from their own metadata. For example, `openapi({ cli: { name: 'billing' }, ... })` creates one subcommand per allowed OpenAPI operation and uses each operation summary or description in the generated guidance.
+First-party adapters can generate the same CLI shape from their own metadata. For example, `openapi({ cli: { name: 'billing' }, ... })` creates one subcommand per allowed OpenAPI operation and preserves each operation summary or description in the tool contract.
 Custom Capability authors still pass a flat `cli` object; dynamic command generation belongs behind adapter-owned options such as `openapi({ cli })`.
 
 During development, run the Capability CLI through the Agent Dev Loop.
@@ -173,14 +173,14 @@ pnpm vitehub agent dev --url http://localhost:3000 --agent support --cli invento
 
 | Agent Driver | Custom Capability behavior |
 | --- | --- |
-| Model-backed | Receives tools and instructions when the Capability contributes them. |
+| Model-backed | Receives model-facing tools when the Capability contributes them. |
 | Harness-backed | Receives only runtime effects and explicitly supported harness-compatible contributions. |
 | Custom-run-backed | Receives prepared input and invocation context; `driver.run` decides which custom Capability outputs to consume. |
 
 ## Inspect and verify
 
 Run one Agent Invocation and inspect the Agent in DevTools.
-Check that the custom Capability id appears once, its requirements pass, its tools are exposed only when expected, and its instruction blocks render through the intended slot.
+Check that the custom Capability id appears once, its requirements pass, and its tools are exposed only when expected.
 
 Add an Agent Eval when the Capability changes product behavior.
 Use a focused fixture that proves the Capability exposes the intended ability and does not expose adjacent authority.
@@ -196,7 +196,6 @@ import { defineCapability } from '@vite-hub/agent'
 export function tickets() {
   return defineCapability({
     id: 'tickets',
-    instructions: 'Use ticket tools only for support ticket lookup and triage.',
     finish(event) {
       return {
         resultKind: typeof event.result,

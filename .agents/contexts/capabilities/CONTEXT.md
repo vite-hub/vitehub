@@ -28,13 +28,29 @@ _Avoid_: Chat helper, DevTools bridge, raw server route, server-only bucket
 A Capability-owned contribution that may feed the active Agent Driver, such as model-facing instructions, model-facing tools, or an explicitly supported harness-compatible input.
 _Avoid_: Raw tool, root instructions, implicit harness prompt, dynamic Capability
 
+**Capability Instruction Coverage**:
+Explicit Instruction Coverage for a configured Capability, authored in Agent Driver Instructions or deterministic imported instruction Markdown.
+_Avoid_: Capability metadata, tool description, generated prompt hint
+
 **Capability CLI Contribution**:
 A Capability-owned real command tree declared on a Capability Definition and rendered into generated instruction guidance plus compatible Agent Driver or Agent Dev Loop execution surfaces.
 _Avoid_: CLI Primitive, command builder, Input Command, Host Command, shell command, capabilityCli wrapper
 
+**Workspace Shell Command Tool**:
+The optional `workspaceShell({ commands })` model-facing tool that runs allowlisted executables inside a trusted Workspace Session.
+_Avoid_: Separate public Workspace execution Capability, arbitrary shell, sandbox replacement
+
 **Harness Workspace Path Contribution**:
 A Capability-owned harness-compatible driver contribution that asks a harness-backed Agent Driver to materialize Capability support files from the Workspace.
 _Avoid_: Workspace Scope Grant, Source grant, model instruction, root skill config
+
+**Skill**:
+A Workspace skill file or directory made available to an Agent through the `skills()` Capability.
+_Avoid_: Root Agent Definition field, harness prompt, hidden tool bundle
+
+**Skill Instruction Coverage**:
+Explicit Instruction Coverage for a Skill made available by `skills()`, usually by binding the Skill path or a deterministic imported instruction file from Agent Driver Instructions.
+_Avoid_: Skill discovery, generated skill hint, mounted file presence
 
 **Capability Workspace Contribution**:
 An add-only, invocation-scoped Capability contribution that adds inspectable Workspace Source Bindings or Workspace Rules before driver-facing Workspace surfaces are built.
@@ -256,14 +272,16 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A **Capability Trigger Contribution** maps product event input into Agent Invocation input and run metadata; Agent execution remains owned by the Agent Package.
 - A **Capability Definition** may provide **Capability Driver Contributions** when the ability needs to feed the active Agent Driver.
 - **Capability Driver Contributions** are conditional on the selected **Agent Driver**.
-- A model-backed **Agent Driver** may receive model-facing tools and model-facing instructions from **Capability Driver Contributions**.
+- A model-backed **Agent Driver** may receive model-facing tools from **Capability Driver Contributions**.
+- Free-form Capability guidance for model-backed **Agent Drivers** should have **Capability Instruction Coverage** in Agent Driver Instructions or deterministic imported instruction Markdown.
+- Tool descriptions and schemas are structured tool contracts and remain model-facing when the tool is exposed; they are not arbitrary Capability instructions.
 - A model-backed **Agent Driver** may receive Instruction Composition context from **Capability Driver Contributions** by writing explicit **Agent Invocation Context Values** before instructions are rendered.
 - A **Capability Definition** may provide a **Capability CLI Contribution** when the ability needs a real nested CLI surface for agents or developers.
 - A **Capability CLI Contribution** is authored as a flat `cli` object on the **Capability Definition**, not through public command-builder helpers.
 - First-party adapters may generate a **Capability CLI Contribution** internally from adapter metadata, but custom Capability authors still provide the flat `cli` object.
-- A model-backed **Agent Driver** receives generated guidance and a controlled CLI-named tool for a **Capability CLI Contribution**.
+- A model-backed **Agent Driver** receives a controlled CLI-named tool with structured descriptions and schemas for a **Capability CLI Contribution**.
 - The **Agent Dev Loop** may invoke a **Capability CLI Contribution** for the selected Agent without making a generic public JavaScript runner API.
-- Duplicate Capability instruction block ids fail instead of merging, overriding, or silently ordering competing composition keys.
+- Legacy Capability instruction slots are unsupported; authored guidance belongs in Agent Driver Instructions with **Capability Instruction Coverage**.
 - A harness-backed **Agent Driver** receives only explicitly supported harness-compatible **Capability Driver Contributions**; model-facing prompt and tool assumptions must not be silently passed into the harness.
 - A **Harness Workspace Path Contribution** is an explicitly supported harness-compatible **Capability Driver Contribution**.
 - A **Harness Workspace Path Contribution** is runtime support for the Capability, not a **Workspace Scope Grant** and not model-facing prompt text.
@@ -272,9 +290,9 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - **Capability Workspace Contributions** are add-only and invocation-scoped; they fail on Source key, rule, Mount, and path conflicts instead of merging silently.
 - A **Capability** may contribute **Agent Invocation Context Values** or Channel Delivery Effect Intents, but it does not execute Channel Delivery Effects or call platform-specific Channel APIs directly.
 - Capabilities model reusable Agent abilities; app-owned product reachability belongs to **Channels** unless the product event has earned a reusable Capability name.
-- The **Access Capability** may contribute **Workspace Scope Instructions** from a static Workspace Scope or Workspace Scope Resolver result.
-- **Workspace Scope Instructions** are developer-authored Capability Driver Contributions; they do not grant access or make the Selected Workspace Scope model-facing by default.
-- `skills()` may contribute skill files through **Harness Workspace Path Contributions** while suppressing model-facing skill instructions and tools for harness-backed **Agent Drivers**.
+- The **Access Capability** may record selected Workspace Scope in invocation context, but it does not contribute free-form scope instructions.
+- `skills()` may contribute **Skills** through **Harness Workspace Path Contributions** while suppressing model-facing skill instructions and tools for harness-backed **Agent Drivers**.
+- Model-facing use guidance for a **Skill** should have **Skill Instruction Coverage**; the mounted Skill file can be read at runtime, but its presence alone should not clear instruction coverage warnings.
 - A **Prompt Template** belongs to the Capability that renders it and should expose only the **Prompt Template Variables** that are stable for that Capability.
 - An **MCP Prompt Template** is Capability behavior, not Workspace content by default.
 - An **MCP Prompt Template** can be exposed as an **Input Command** when the host should let users invoke a named prompt before the Agent runs.
@@ -362,10 +380,11 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - Chat History is not a standalone **Capability** in the current stack.
 - Agent Memory is separate from Chat History and Chat Sessions.
 - User-defined Capabilities use the same **Capability Definition** shape as official helpers.
-- A **Capability Definition** can contribute instructions, tools, policy, and metadata.
+- A **Capability Definition** can contribute tools, policy, metadata, Workspace inputs, and Agent Invocation Context Values.
 - A **Capability Definition** uses `id` as its only capability-level identity and display label.
-- Capability-specific instruction placement uses the `capabilities.<id>` namespace, such as `capabilities.mcp`.
-- Bare Capability ids are not instruction placement slots.
+- Legacy `{{ capabilities }}` and `{{ capabilities.<id> }}` placement slots are unsupported.
+- A configured **Capability** that is available to an Agent but lacks **Capability Instruction Coverage** should produce an Instruction Coverage Diagnostic.
+- A configured **Skill** that is available to an Agent but lacks **Skill Instruction Coverage** should produce an Instruction Coverage Diagnostic.
 - A **Capability** can declare **Capability Requirements**.
 - The **Capability Lifecycle** validates **Capability Requirements** as early as possible.
 - Tools are exposed through **Capability Definitions**, not through top-level Agent Definition fields.
@@ -433,8 +452,9 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A generic `entry()` Capability was considered for app-owned product events - resolved: use root-level **Custom Channels** so reachability stays on the Agent Definition rather than inside Capabilities.
 - Capability phases, contexts, hooks, and instruction slots were considered glossary terms - resolved: group that detail under **Capability Lifecycle** unless a feature needs a sharper term.
 - Capability tools and instructions were considered unconditional Agent inputs - resolved: use **Capability Driver Contribution** and filter driver-facing inputs by the selected Agent Driver.
+- Generated Skill hints were considered enough model guidance - resolved: keep **Skills** as Workspace files behind `skills()` and require **Skill Instruction Coverage** for model-facing use guidance.
 - Skill files for harness-backed Agent Drivers were considered part of the selected product **Workspace Scope** - resolved: use **Harness Workspace Path Contributions** so Capability support files can be materialized without broadening access-selected Workspace data.
-- Bare Capability id instruction slots such as `mcp` were considered - resolved: use `capabilities.<id>` without backwards compatibility aliases.
+- Bare Capability id instruction slots such as `mcp` were considered - resolved: do not support Capability instruction slots; use **Capability Instruction Coverage** instead.
 - Chat History was considered as a standalone Capability - resolved: keep Chat History as message-shaped **Channel** conversation behavior for this stack and revisit during a future Agent Memory pass.
 - Shared message defaults were considered as a Capability or Channel helper concern - resolved: use Agent Definition Message Channel Settings, while Capabilities consume the resulting invocation context.
 - Agent Memory was considered dependent on chat behavior - resolved: stack Agent Memory directly on the capability runtime because memory and chat are separate concerns.

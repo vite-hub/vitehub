@@ -2,21 +2,22 @@ import { glob as createGlobSource, type GlobSourceOptions as SourcePackageGlobSo
 
 import type { WorkspaceSource } from "../core/types.ts"
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "mount" | "scopes" | "sync" | "validate">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "scopes" | "sync" | "validate">
 type SourceScopes<T> = T extends { scopes?: infer TScopes } ? { scopes?: TScopes } : {}
 type TypedWorkspaceSource<T> = WorkspaceSource & SourceScopes<T>
+type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
 
 export type GlobSourceOptions = SourcePackageGlobSourceOptions & SourceRuntimeOptions
 
-export function glob<const TOptions extends GlobSourceOptions>(options: TOptions): TypedWorkspaceSource<TOptions> {
+export function glob<const TOptions extends GlobSourceOptions>(options: ExactOptions<TOptions, GlobSourceOptions>): TypedWorkspaceSource<TOptions> {
   const source = createGlobSource({
     ...options,
     keyCache: options.keyCache ?? !isLazySource(options),
   })
+  delete (source as typeof source & { instructions?: unknown }).instructions
   return {
     ...source,
     cache: options.cache,
-    instructions: options.instructions,
     materialize: options.materialize,
     mount: options.mount,
     scopes: options.scopes,

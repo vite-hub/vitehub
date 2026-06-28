@@ -38,7 +38,6 @@ export interface ResolvedWorkspaceSource {
   cache: false | WorkspaceCacheOptions
   sync: false | WorkspaceSourceSyncPolicy
   validate: WorkspaceValidateMode
-  instructions?: WorkspaceSource["instructions"]
   livePaths?: Record<string, string>
   readonly: true
   requestDescriptor?: WorkspaceSourceRequestDescriptor
@@ -112,6 +111,9 @@ export function normalizeWorkspaceSources(sources: WorkspaceDefinition["sources"
 
 export function normalizeWorkspaceSource(key: string, input: WorkspaceSourceInput): ResolvedWorkspaceSource {
   const source = toWorkspaceSource(input)
+  if (source && typeof source === "object" && "instructions" in source) {
+    throw new TypeError(`[vitehub] Workspace source "${key}" instructions were removed. Put model-facing guidance in Agent Driver Instructions with ::source coverage.`)
+  }
   const mount = normalizeSourceMount(source)
   const cache = mount.cache ?? normalizeSourceCache(source) ?? false
   const sync = normalizeSourceSync(source.sync)
@@ -127,7 +129,6 @@ export function normalizeWorkspaceSource(key: string, input: WorkspaceSourceInpu
     cache,
     sync,
     validate: mount.validate ?? source.validate ?? false,
-    instructions: source.instructions,
     livePaths: getLiveWorkspaceSourcePaths(source),
     readonly: true,
     requestDescriptor,
@@ -324,7 +325,6 @@ function copySourceRuntimeOptions(input: Record<string, unknown>, defaults: Part
   return {
     ...defaults,
     cache: input.cache as WorkspaceSource["cache"] ?? defaults.cache,
-    instructions: input.instructions as WorkspaceSource["instructions"] ?? defaults.instructions,
     materialize: input.materialize as WorkspaceSource["materialize"] ?? defaults.materialize,
     mount: input.mount as WorkspaceSource["mount"] ?? defaults.mount,
     scopes: input.scopes as WorkspaceSource["scopes"] ?? defaults.scopes,
@@ -385,7 +385,6 @@ function applyWorkspaceBinding(source: WorkspaceSource, input: WorkspaceSourceIn
   const next: WorkspaceSource = { ...source }
   copyWorkspaceSourceMetadata(source, next)
   copyDefinedWorkspaceBindingOption(next, input, "cache")
-  copyDefinedWorkspaceBindingOption(next, input, "instructions")
   copyDefinedWorkspaceBindingOption(next, input, "materialize")
   copyDefinedWorkspaceBindingOption(next, input, "mount")
   copyDefinedWorkspaceBindingOption(next, input, "scopes")
@@ -394,7 +393,7 @@ function applyWorkspaceBinding(source: WorkspaceSource, input: WorkspaceSourceIn
   return next
 }
 
-function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "instructions" | "materialize" | "mount" | "scopes" | "sync" | "validate">(
+function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" | "mount" | "scopes" | "sync" | "validate">(
   target: WorkspaceSource,
   input: Record<string, unknown>,
   key: TKey,

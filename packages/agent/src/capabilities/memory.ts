@@ -10,10 +10,6 @@ import type {
 } from "../types.ts"
 import type { WritableWorkspaceFacade } from "@vite-hub/workspace"
 
-export interface MemoryCapabilityInstructionsOption {
-  instructions?: string | false
-}
-
 export type MemoryKind = "episodic" | "procedural" | "profile" | "semantic" | (string & {})
 
 export interface MemoryScope {
@@ -129,12 +125,6 @@ export interface MemoryStoreOptions {
   adapter: MemoryStoreAdapter | MemoryStoreFactory
   allowKinds?: MemoryKind[]
   read?: {
-    preload?: Array<{
-      inject?: "instructions" | false
-      kind?: MemoryKind | MemoryKind[]
-      maxItems?: number
-      pinned?: boolean
-    }>
     tools?: {
       read?: boolean
       search?: boolean
@@ -151,7 +141,7 @@ export interface MemoryStoreOptions {
   }
 }
 
-export interface MemoryCapabilityOptions extends MemoryCapabilityInstructionsOption {
+export interface MemoryCapabilityOptions {
   stores: Record<string, MemoryStoreOptions>
 }
 
@@ -272,10 +262,6 @@ function normalizeMemoryScope(scope: MemoryScope | undefined): MemoryScope {
 
 function memoryScopeMatches(record: MemoryRecord | MemorySupersedeEvent | MemoryDeleteEvent, scope: MemoryScope) {
   return Object.entries(scope).every(([key, value]) => (record.scope as Record<string, unknown>)[key] === value)
-}
-
-function normalizeMemoryKinds(kind: MemoryKind | MemoryKind[] | undefined): MemoryKind[] | undefined {
-  return kind ? Array.isArray(kind) ? kind : [kind] : undefined
 }
 
 function createMemorySnippet(record: MemoryRecord, query: string) {
@@ -493,39 +479,9 @@ function assertMemoryKind(options: MemoryStoreOptions, kind: MemoryKind) {
   }
 }
 
-function renderMemoryPreload(items: MemoryRecord[]) {
-  if (!items.length) return false
-  return [
-    "Durable memory is available as scoped records. Treat memory as advisory context that can be stale or superseded by the current request.",
-    ...items.map(item => `- [${item.kind}] ${item.title ? `${item.title}: ` : ""}${item.content}`),
-  ].join("\n")
-}
-
-function sortMemoryPreloadRecords(left: MemoryRecord, right: MemoryRecord) {
-  const pinned = Number(Boolean(right.pinned)) - Number(Boolean(left.pinned))
-  return pinned || right.updatedAt.localeCompare(left.updatedAt)
-}
-
 export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinition {
   return defineCapability({
     id: "memory",
-    async input(context) {
-      for (const [storeName, storeOptions] of Object.entries(options.stores)) {
-        const adapter = await resolveMemoryStore(storeOptions.adapter, context)
-        const scope = resolveMemoryScope(storeOptions, context)
-        for (const preload of storeOptions.read?.preload || []) {
-          if (preload.inject === false) continue
-          const exported = await adapter.export({ scope, store: storeName })
-          const kinds = normalizeMemoryKinds(preload.kind)
-          const items = exported.items
-            .filter(item => !kinds || kinds.includes(item.kind))
-            .filter(item => preload.pinned === undefined || item.pinned === preload.pinned)
-            .sort(sortMemoryPreloadRecords)
-            .slice(0, preload.maxItems || 5)
-          context.instructions.add(renderMemoryPreload(items), { id: `memory.${storeName}` })
-        }
-      }
-    },
     async resolve(context) {
       const resolved = new Map<string, { adapter: MemoryStoreAdapter, options: MemoryStoreOptions, scope: MemoryScope }>()
       for (const [storeName, storeOptions] of Object.entries(options.stores)) {
@@ -632,9 +588,6 @@ export function memory(options: MemoryCapabilityOptions): AgentCapabilityDefinit
         })
       }
       context.tools.add(tools)
-      if (options.instructions !== false) {
-        context.instructions.add(options.instructions || "Use memory for durable facts that may matter later. Current requests win when memory conflicts.", { id: "memory" })
-      }
     },
   })
 }

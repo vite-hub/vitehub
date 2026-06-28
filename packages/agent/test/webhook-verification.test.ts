@@ -35,7 +35,7 @@ describe("agent webhook verification", () => {
           telegram: { secretToken: "secret-token" },
         },
       })],
-      run: invoked,
+      driver: { run: invoked, },
     })
 
     await expect(runAgentTrigger(agent, runtime(new Request("https://example.com", {
@@ -52,7 +52,7 @@ describe("agent webhook verification", () => {
           telegram: { secretToken: "secret-token" },
         },
       })],
-      run: invoked,
+      driver: { run: invoked, },
     })
 
     await expect(runAgentTrigger(agent, runtime(new Request("https://example.com", {
@@ -71,7 +71,7 @@ describe("agent webhook verification", () => {
           telegram: { secretToken: "secret-token" },
         },
       })],
-      run: invoked,
+      driver: { run: invoked, },
     })
 
     await expect(runAgentTrigger(agent, runtime(new Request("https://example.com")), "chat.message", chatInput()))
@@ -92,7 +92,7 @@ describe("agent webhook verification", () => {
           telegram: { secretToken },
         },
       })],
-      run: invoked,
+      driver: { run: invoked, },
     })
 
     const request = new Request("https://example.com", {
@@ -125,7 +125,7 @@ describe("agent webhook verification", () => {
           telegram: { path: "/webhooks/telegram" },
         },
       })],
-      run: invoked,
+      driver: { run: invoked, },
     })
 
     await expect(runAgentTrigger(agent, runtime(new Request("https://example.com", {
@@ -160,7 +160,7 @@ describe("agent webhook verification", () => {
           telegram: { secretToken: false },
         },
       })],
-      run: invoked,
+      driver: { run: invoked, },
     })
 
     await expect(runAgentTrigger(agent, runtime(new Request("https://example.com", {
@@ -177,7 +177,7 @@ describe("agent webhook verification", () => {
           telegram: { path: "/webhooks/telegram" },
         },
       })],
-      run: invoked,
+      driver: { run: invoked, },
     })
 
     await expect(runAgentTrigger(agent, runtime(new Request("https://example.com")), "chat.message", chatInput()))
@@ -194,7 +194,7 @@ describe("agent webhook verification", () => {
           telegram: { path: "/webhooks/telegram" },
         },
       })],
-      run: invoked,
+      driver: { run: invoked, },
     })
 
     await expect(runAgentTrigger(agent, runtime(), "chat.message", chatInput())).resolves.toBe("ok")
@@ -215,7 +215,7 @@ describe("agent webhook verification", () => {
           webhooks: { secretToken: "secret-token" },
         }),
       },
-      run: invoked,
+      driver: { run: invoked, },
     })
     const body = JSON.stringify({ action: "opened" })
 
@@ -241,7 +241,7 @@ describe("agent webhook verification", () => {
           webhooks: { secretToken: "secret-token" },
         }),
       },
-      run: invoked,
+      driver: { run: invoked, },
     })
 
     await expect(runAgentTrigger(agent, runtime(new Request("https://example.com", {

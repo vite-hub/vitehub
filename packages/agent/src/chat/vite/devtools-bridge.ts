@@ -525,6 +525,7 @@ async function serializeState(
     tools: metadata?.tools || [],
     uiMessages: selectedSession ? [...selectedSession.uiMessages] : [],
     ...(metadata?.version ? { version: metadata.version } : {}),
+    warnings: metadata?.warnings || [],
   }
 }
 

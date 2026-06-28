@@ -4,7 +4,7 @@ import { normalizeSafeWorkspacePath } from "../core/path.ts"
 
 import type { WorkspaceSource } from "../core/types.ts"
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "mount" | "probeKeys" | "scopes" | "sync" | "validate">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "probeKeys" | "scopes" | "sync" | "validate">
 type SourceScopes<T> = T extends { scopes?: infer TScopes } ? { scopes?: TScopes } : {}
 type TypedWorkspaceSource<T> = WorkspaceSource & SourceScopes<T>
 
@@ -18,10 +18,10 @@ export function file<const TKey extends string = string, const TInput extends Fi
     ? { ...options.mount, path: "" }
     : options.mount ?? ""
   const source = createFileSource(options)
+  delete (source as typeof source & { instructions?: unknown }).instructions
   return {
     ...source,
     cache: options.cache,
-    instructions: options.instructions,
     materialize: options.materialize,
     mount,
     probeKeys: options.probeKeys || [key],

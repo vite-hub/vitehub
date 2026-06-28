@@ -569,12 +569,7 @@ export type AgentCapabilityWorkspaceContributionResolver<
 export type AgentCapabilityPhase = "configure" | "prepare" | "bind" | "input" | "resolve" | "output" | "close"
 export type AgentCapabilityHookName = `capability:${AgentCapabilityPhase}` | `capability:${AgentCapabilityPhase}:after`
 
-export interface AgentInstructionBlock {
-  id: string
-  instructions: string
-}
-
-export type AgentDriverContributionKind = "Capability instructions" | "Capability tools" | "provider tools"
+export type AgentDriverContributionKind = "Capability tools" | "provider tools"
 
 export interface AgentDriverContribution {
   capabilityId: string
@@ -615,9 +610,6 @@ export interface AgentCapabilityRuntimeContext<
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentCapabilityContext<TRuntimeConfig, Name> {
   capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
-  instructions: {
-    add: (instructions: AgentAdapterInstructionsValue | false | undefined, options?: { id?: string }) => void
-  }
   input: {
     get: () => AgentRunInput
     messages: () => Message[]
@@ -677,10 +669,6 @@ export interface AgentCapabilityDefinition<
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
   id: string
   input?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<Response | void>
-  instructions?:
-    | AgentAdapterInstructions<TRuntimeConfig, Name>
-    | false
-    | ((context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<AgentAdapterInstructionsValue | false | undefined>)
   harnessWorkspacePaths?: readonly string[]
   metadata?: Record<string, unknown>
   mode?: AgentCapabilityMode
@@ -891,29 +879,9 @@ export type AgentSettings<
   TInvokerProfile extends AgentInvokerProfile = AgentInvokerProfile,
   TContextValues extends object = AgentInvocationContextValues,
   TCapabilities extends readonly AgentCapabilityDefinition<TRuntimeConfig>[] | undefined = AgentCapabilitiesList<TRuntimeConfig> | undefined,
-> = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities> & (
-  | {
-    driver: AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
-    instructions?: never
-    model?: never
-    modelExecution?: never
-    run?: never
-  }
-  | {
-    driver?: never
-    instructions?: AgentAdapterInstructions<TRuntimeConfig>
-    model?: never
-    modelExecution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
-    run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
-  }
-  | {
-    driver?: never
-    instructions?: AgentAdapterInstructions<TRuntimeConfig>
-    model: AgentModelResolver<TRuntimeConfig>
-    modelExecution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
-    run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS, TContextValues>
-  }
-)
+> = AgentSharedSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues, TCapabilities> & {
+  driver: AgentDriver<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+}
 
 export interface AgentDefinition<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -1142,7 +1110,7 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   concurrency?: AgentMessageConcurrency
   dedupeTtlMs?: number
   errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
-  fallbackStreamingPlaceholderText?: string | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
+  fallbackStreamingPlaceholderText?: string | readonly string[] | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   history?: AgentChatAgentBindingOptions["history"]
   identity?: IdentityResolver
   lockScope?: AgentMessageLockScope
@@ -1288,6 +1256,15 @@ export interface AgentDevtoolsMetadata {
   name?: string
   tools?: AgentDevtoolsToolDefinition[]
   version?: string
+  warnings?: AgentDevtoolsWarning[]
+}
+
+export interface AgentDevtoolsWarning {
+  id: string
+  kind: "instruction-coverage"
+  message: string
+  primitive: "capability" | "skill" | "source"
+  severity: "warning"
 }
 
 export interface AgentAdapterResult {
@@ -1364,7 +1341,6 @@ export interface AgentAdapterRunContext<
   Name extends WorkspaceName = WorkspaceName,
 > {
   actor: AgentActor
-  capabilityInstructions?: AgentInstructionBlock[]
   close?: () => Promise<void>
   context: AgentInvocationContextStore
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
@@ -1380,7 +1356,6 @@ export interface AgentAdapterRunContext<
   prompt?: string
   providerTools?: AgentProviderToolContribution[]
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
-  sourceInstructions?: string
   tools?: AgentToolSet
   workspace?: ReadonlyWorkspaceFacade<Name>
   workspaceDefinition?: WorkspaceDefinition

@@ -43,7 +43,7 @@ describe("pullRequestContext", () => {
           },
         }),
       ],
-      run: () => "ok",
+      driver: { run: () => "ok", },
     })).toThrow("pull-request-context() requires an explicit workspace")
   })
 
@@ -60,7 +60,7 @@ describe("pullRequestContext", () => {
           },
         }),
       ],
-      run: ({ context }) => context.get("pullRequest"),
+      driver: { run: ({ context }) => context.get("pullRequest"), },
     })
 
     await expect(runAgent(agent, runtime(), {})).resolves.toEqual({

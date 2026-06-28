@@ -111,6 +111,10 @@ async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeCo
     if (resolved === null) return null
     return typeof resolved === "string" ? resolved : undefined
   }
+  if (Array.isArray(fallback)) {
+    if (fallback.length === 0) return null
+    return fallback[Math.floor(Math.random() * fallback.length)]
+  }
   if (typeof fallback === "string") return fallback
   return undefined
 }

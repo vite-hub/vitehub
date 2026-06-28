@@ -109,13 +109,22 @@ vi.mock("@vite-hub/workspace", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@vite-hub/workspace")>()
   return {
     ...actual,
-    createWorkspaceSourceResolutionFacade,
     createWorkspaceTools,
-    getWorkspaceSourceRequestDescriptor,
-    isWorkspaceSourceRequestOnly,
     prepareHarnessWorkspaceSession,
     resolveRegisteredWorkspaceDefinition,
     resolveWorkspaceAutoCommit,
+    useWorkspace,
+  }
+})
+
+vi.mock("@vite-hub/workspace/runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@vite-hub/workspace/runtime")>()
+  return {
+    ...actual,
+    createWorkspaceSourceResolutionFacade,
+    getWorkspaceSourceRequestDescriptor,
+    isWorkspaceSourceRequestOnly,
+    resolveRegisteredWorkspaceDefinition,
     workspaceSourceRequestDescriptorPath,
     useWorkspace,
   }
@@ -215,7 +224,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = defineAgent({
       capabilities: [skills({ path: "agent-skills/support" })],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: {},
     })
 
@@ -231,7 +240,7 @@ describe("defineAgent workspace option", () => {
         id: "docs",
         requires: [{ primitive: "workspace", workspace: { paths: ["CONTEXT.md"], required: true } }],
       }],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: {},
     })
 
@@ -246,14 +255,14 @@ describe("defineAgent workspace option", () => {
 
     const agent = defineAgent({
       capabilities: [skills({ path: "agent-skills/support" })],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: {},
     })
 
     await expect(agent.run!(context())).resolves.toBe("ok")
   })
 
-  it("adds generic model instructions for mounted skills", async () => {
+  it("does not add generated model instructions for mounted skills", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { skills } = await import("../src/capabilities.ts")
     useWorkspace.mockReturnValueOnce({
@@ -268,27 +277,17 @@ describe("defineAgent workspace option", () => {
       }),
     } as unknown as WritableWorkspaceFacade)
     exists.mockResolvedValue(true)
-    readFile.mockResolvedValueOnce([
-      "---",
-      "name: agent-browser",
-      "description: Browser automation CLI for AI agents.",
-      "---",
-      "# Agent Browser",
-    ].join("\n"))
 
     const agent = defineAgent({
       capabilities: [skills({ path: "skills/agent-browser", shellExecution: "write" })],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: { mode: "write" },
     })
 
     await agent.run!(context())
 
-    expect(readFile).toHaveBeenCalledWith("skills/agent-browser/SKILL.md")
-    expect(agentSettings.at(-1)?.instructions).toContain("Skill \"agent-browser\" is mounted at `skills/agent-browser`.")
-    expect(agentSettings.at(-1)?.instructions).toContain("Description: Browser automation CLI for AI agents.")
-    expect(agentSettings.at(-1)?.instructions).toContain("Read `skills/agent-browser/SKILL.md` before using this skill.")
-    expect(agentSettings.at(-1)?.instructions).toContain("Use the Workspace Shell tools")
+    expect(readFile).not.toHaveBeenCalledWith("skills/agent-browser/SKILL.md")
+    expect(agentSettings.at(-1)?.instructions).toBe("")
   })
 
   it("keeps skills() workspace-native for harness Agent Drivers", async () => {
@@ -365,7 +364,7 @@ describe("defineAgent workspace option", () => {
           } as never,
         }),
       ],
-      model: {} as never,
+      driver: { model: {} as never, },
       workspace: {},
     })
 
@@ -391,7 +390,7 @@ describe("defineAgent workspace option", () => {
           source: { path: "skills/agent-browser/SKILL.md" },
         }),
       ],
-      model: {} as never,
+      driver: { model: {} as never, },
       workspace: {},
     })
 
@@ -419,7 +418,7 @@ describe("defineAgent workspace option", () => {
           } as never,
         }),
       ],
-      model: {} as never,
+      driver: { model: {} as never, },
       workspace: {},
     })
 
@@ -449,7 +448,7 @@ describe("defineAgent workspace option", () => {
           } as never,
         }),
       ],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: { name: "review", mode: "write" },
     })
     const reviewerAgent = defineAgent({
@@ -463,7 +462,7 @@ describe("defineAgent workspace option", () => {
           },
         }),
       ],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: { mode: "write" },
     })
     const options = (reviewerAgent as unknown as { __vitehubWorkspaceAgentOptions: Parameters<typeof workspaceDefinitionFromOptions>[0] }).__vitehubWorkspaceAgentOptions
@@ -512,7 +511,7 @@ describe("defineAgent workspace option", () => {
           } as never,
         }),
       ],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: { name: workspaceName, mode: "write" },
     })
 
@@ -575,7 +574,7 @@ describe("defineAgent workspace option", () => {
           source: skillSource as never,
         }),
       ],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: { name: workspaceName },
     })
 
@@ -606,7 +605,7 @@ describe("defineAgent workspace option", () => {
           sourceKey: "instructions",
         }),
       ],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: { name: workspaceName, mode: "write" },
     })
 
@@ -626,7 +625,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = defineAgent({
       capabilities: [skills({ path: "skills/agent-browser", shellExecution: "read" })],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: {},
     })
 
@@ -659,7 +658,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = defineAgent({
       capabilities: [skills({ path: "skills/agent-browser", shellExecution: "write" })],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: { mode: "write" },
     })
 
@@ -675,7 +674,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = defineAgent({
       capabilities: [skills({ path: "skills/agent-browser", shellExecution: "read" })],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: {},
     })
 
@@ -694,7 +693,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = defineAgent({
       capabilities: [skills({ path: "agent-skills/support", shellExecution: "write" })],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: { mode: "read" },
     })
 
@@ -707,11 +706,22 @@ describe("defineAgent workspace option", () => {
 
     const agent = defineAgent({
       capabilities: [git()],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: { mode: "read" },
     })
 
     await expect(agent.run!(context())).rejects.toThrow("git() requires workspace.mode: \"write\"")
+  })
+
+  it("requires writable workspace for configured workspace shell commands", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { workspaceShell } = await import("../src/capabilities.ts")
+
+    expect(() => defineAgent({
+      capabilities: [workspaceShell({ commands: ["agent-browser"] })],
+      driver: { model: {} as never, },
+      workspace: { mode: "read" },
+    })).toThrow("workspaceShell({ commands }) requires workspace.mode: \"write\"")
   })
 
   it("uses write mode for named workspace references", async () => {
@@ -720,7 +730,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = defineAgent({
       capabilities: [workspaceShell({ mode: "write" })],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: { name: "docs", mode: "write" },
     })
 
@@ -733,7 +743,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent } = await import("../src/index.ts")
 
     expect(() => defineAgent({
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: {
         name: "docs",
         sources: {},
@@ -750,7 +760,7 @@ describe("defineAgent workspace option", () => {
         sources: {},
       },
       description: "Answer from workspace context",
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     expect(agent.description).toBe("Answer from workspace context")
@@ -762,7 +772,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent } = await import("../src/index.ts")
 
     expect(() => defineAgent({
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: {
         stroe: { provider: "memory" },
       } as never,
@@ -785,7 +795,6 @@ describe("defineAgent workspace option", () => {
       workspace: {
         sources: {
           guide: {
-            instructions: "Use this guide for operating rules.",
             path: "AGENTS.md",
           },
         },
@@ -811,7 +820,6 @@ describe("defineAgent workspace option", () => {
       sandbox: { provider: "sandbox" },
     })
     expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
-      instructions: "## Workspace Sources\n\n### guide\n\nUse this guide for operating rules.",
       prompt: "hello",
       session: harnessSession,
     }))
@@ -823,7 +831,7 @@ describe("defineAgent workspace option", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
     tempRoots.push(sourceRootDir)
-    const document = "# Support\n\n@./policy.md\n\n{{ workspace.sources }}\n"
+    const document = "# Support\n\n@./policy.md\n\n::source{key=\"docs\"}\nUse docs for source-backed answers.\n::\n"
     await writeLocalFile(join(sourceRootDir, "instructions.md"), document)
     await writeLocalFile(join(sourceRootDir, "policy.md"), "Use imported policy.\n")
     const harnessWorkspaceSession = { close: vi.fn() }
@@ -839,10 +847,7 @@ describe("defineAgent workspace option", () => {
       workspace: {
         sourceRootDir,
         sources: {
-          docs: {
-            instructions: "Use docs for source-backed answers.",
-            name: "docs",
-          } as never,
+          docs: { name: "docs" } as never,
         },
       },
     }), { workspace: "docs" })
@@ -861,7 +866,7 @@ describe("defineAgent workspace option", () => {
       expect.objectContaining({ path: "/workspace/codex-session/AGENTS.md" }),
       expect.objectContaining({ path: "/workspace/codex-session/CLAUDE.md" }),
     ]))
-    expect(new TextDecoder().decode(writes[0]!.content)).toBe("# Support\n\nUse imported policy.\n\n## Workspace Sources\n\n### docs\n\nUse docs for source-backed answers.\n")
+    expect(new TextDecoder().decode(writes[0]!.content)).toBe("# Support\n\nUse imported policy.\n\nUse docs for source-backed answers.\n")
     expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
   })
 
@@ -1012,7 +1017,7 @@ describe("defineAgent workspace option", () => {
     })
   })
 
-  it("passes source instructions and scopes workspace instruction files into harness Agent calls", async () => {
+  it("scopes workspace instruction files into harness Agent calls without passing them as prompt instructions", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
     tempRoots.push(sourceRootDir)
@@ -1028,9 +1033,7 @@ describe("defineAgent workspace option", () => {
       },
       workspace: {
         sourceRootDir,
-        sources: {
-          docs: { instructions: "Use docs for product behavior.", name: "docs" } as never,
-        },
+        sources: { docs: { name: "docs" } as never },
       },
     }), { workspace: "docs" })
 
@@ -1047,8 +1050,10 @@ describe("defineAgent workspace option", () => {
       sessionWorkDir: "/workspace/codex-session",
     })
     expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
-      instructions: "## Workspace Sources\n\n### docs\n\nUse docs for product behavior.",
       prompt: "hello",
+    }))
+    expect(harnessGenerate).toHaveBeenCalledWith(expect.not.objectContaining({
+      instructions: "Use colocated workspace instructions.",
     }))
   })
 
@@ -1115,7 +1120,7 @@ describe("defineAgent workspace option", () => {
       },
       workspace: {
         sources: {
-          private: { instructions: "Use private source.", mount: "private", name: "private" } as never,
+          private: { mount: "private", name: "private" } as never,
           public: { mount: "public", name: "public" } as never,
         },
       },
@@ -1257,10 +1262,10 @@ describe("defineAgent workspace option", () => {
           "inbox/**": { commit: "chore: archive audio", write: true },
         },
       },
-      run: async ({ workspace }) => {
-        await (workspace as WritableWorkspaceFacade).fs.writeFile("inbox/audio.md", "transcript")
-        return "ok"
-      },
+      driver: { run: async ({ workspace }) => {
+          await (workspace as WritableWorkspaceFacade).fs.writeFile("inbox/audio.md", "transcript")
+          return "ok"
+        } },
     }), { workspace: "docs" })
 
     await expect(runAgent(agent, context(), { messages: [] })).resolves.toBe("ok")
@@ -1294,12 +1299,12 @@ describe("defineAgent workspace option", () => {
           "inbox/**": { commit: "chore: archive stream", write: true },
         },
       },
-      run: async ({ workspace }) => {
-        await (workspace as WritableWorkspaceFacade).fs.writeFile("inbox/stream.md", "transcript")
-        return (async function* () {
-          yield { text: "ok", type: "text-delta" }
-        })()
-      },
+      driver: { run: async ({ workspace }) => {
+          await (workspace as WritableWorkspaceFacade).fs.writeFile("inbox/stream.md", "transcript")
+          return (async function* () {
+            yield { text: "ok", type: "text-delta" }
+          })()
+        } },
     }), { workspace: "docs" })
 
     const stream = await streamAgent(agent, context(), { messages: [] }) as AsyncIterable<unknown>
@@ -1327,10 +1332,10 @@ describe("defineAgent workspace option", () => {
           "inbox/**": { commit: "chore: archive response", write: true },
         },
       },
-      run: async ({ workspace }) => {
-        await (workspace as WritableWorkspaceFacade).fs.writeFile("inbox/response.md", "transcript")
-        return new Response("ok")
-      },
+      driver: { run: async ({ workspace }) => {
+          await (workspace as WritableWorkspaceFacade).fs.writeFile("inbox/response.md", "transcript")
+          return new Response("ok")
+        } },
     }), { workspace: "docs" })
 
     const response = await runAgent(agent, context(), { messages: [] }) as Response
@@ -1345,8 +1350,10 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      instructions: "Use workspace sources.",
-      model: {} as never,
+      driver: {
+        instructions: "Use workspace sources.",
+        model: {} as never
+      },
     }), { workspace: "docs" })
 
     await agent.run!(context())
@@ -1363,7 +1370,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: { sourceRootDir },
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     expect((agent as { sources?: unknown }).sources).toMatchObject({
@@ -1389,7 +1396,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = workspaceAgentWithSourceRoot(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
     }), sourceRootDir)
 
     expect((agent as { sourceRootDir?: string }).sourceRootDir).toBe(sourceRootDir)
@@ -1404,7 +1411,7 @@ describe("defineAgent workspace option", () => {
       .toBe(sourceRootDir)
   })
 
-  it("keeps source instructions with colocated default model instructions", async () => {
+  it("keeps colocated default model instructions without source config prose", async () => {
     const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
     tempRoots.push(sourceRootDir)
     await writeLocalFile(join(sourceRootDir, "instructions.md"), "Use colocated workspace instructions.\n")
@@ -1414,20 +1421,14 @@ describe("defineAgent workspace option", () => {
     const agent = withAgentDefaults(defineAgent({
       workspace: {
         sourceRootDir,
-        sources: {
-          docs: { instructions: "Use docs for product behavior.", name: "docs" } as never,
-        },
+        sources: { docs: { name: "docs" } as never },
       },
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     await agent.run!(context())
 
-    expect(agentSettings.at(-1)?.instructions).toBe([
-      "Use colocated workspace instructions.",
-      "## Workspace Sources",
-      "### docs\n\nUse docs for product behavior.",
-    ].join("\n\n"))
+    expect(agentSettings.at(-1)?.instructions).toBe("Use colocated workspace instructions.")
   })
 
   it("composes colocated instruction documents from invocation context", async () => {
@@ -1445,7 +1446,13 @@ describe("defineAgent workspace option", () => {
       "",
       "{{{ context.supportPolicy }}}",
       "",
-      "{{ workspace.sources }}",
+      "::source{key=\"docs\"}",
+      "Use docs for {{ context.customerName }}.",
+      "::",
+      "",
+      "::capability{key=\"support-context\"}",
+      "Use runtime support context for {{ context.customerName }}.",
+      "::",
     ].join("\n")
     await writeLocalFile(join(sourceRootDir, "instructions.md"), document)
     await writeLocalFile(join(sourceRootDir, "policy.md"), "Imported policy.\n")
@@ -1460,17 +1467,14 @@ describe("defineAgent workspace option", () => {
             context.context.set("audience", "technical")
             context.context.set("customerName", "Acme")
             context.context.set("supportPolicy", "## Runtime policy\nUse trusted runtime context.")
-            context.instructions.add("Capability note for {{ context.customerName }}.", { id: "support-note" })
           },
         }),
       ],
       workspace: {
         sourceRootDir,
-        sources: {
-          docs: { instructions: "Use docs for {{ context.customerName }}.", name: "docs" } as never,
-        },
+        sources: { docs: { name: "docs" } as never },
       },
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     await agent.run!(context())
@@ -1478,10 +1482,9 @@ describe("defineAgent workspace option", () => {
     expect(agentSettings.at(-1)?.instructions).toBe([
       "# Support\n\nImported policy.",
       "Use technical detail for Acme.",
-      "## Runtime policy\n\nUse trusted runtime context.",
-      "## Workspace Sources",
-      "### docs\n\nUse docs for Acme.",
-      "Capability note for Acme.",
+      "## Runtime policy\nUse trusted runtime context.",
+      "Use docs for Acme.",
+      "Use runtime support context for Acme.",
     ].join("\n\n"))
   })
 
@@ -1507,7 +1510,7 @@ describe("defineAgent workspace option", () => {
             },
           },
         },
-        model: {} as never,
+        driver: { model: {} as never },
       }), { workspace: "docs" })
 
       await agent.run!(context())
@@ -1528,8 +1531,10 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: { sourceRootDir },
-      instructions: "Use explicit instructions.",
-      model: {} as never,
+      driver: {
+        instructions: "Use explicit instructions.",
+        model: {} as never
+      },
     }), { workspace: "docs" })
 
     await agent.run!(context())
@@ -1568,7 +1573,7 @@ describe("defineAgent workspace option", () => {
           guide: { path: "AGENTS.md" },
         },
       },
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     await agent.run!(context())
@@ -1595,12 +1600,14 @@ describe("defineAgent workspace option", () => {
           unused: { path: "unused.md" },
         },
       },
-      instructions: [
-        "Use {{ workspace.tone }} tone.",
-        "Inline {{ workspace.policy }}",
-        "@workspace.policy",
-      ],
-      model: {} as never,
+      driver: {
+        instructions: [
+          "Use {{ workspace.tone }} tone.",
+          "Inline {{ workspace.policy }}",
+          "@workspace.policy",
+        ],
+        model: {} as never
+      },
     }), { workspace: "docs" })
 
     await agent.run!(context())
@@ -1619,7 +1626,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     await agent.run!(context())
@@ -1632,7 +1639,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     expect(agent.run && Symbol.for("vitehub.syntheticWorkspaceRun") in agent.run).toBe(true)
@@ -1643,8 +1650,10 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      instructions: [" First ", "", "Second"],
-      model: {} as never,
+      driver: {
+        instructions: [" First ", "", "Second"],
+        model: {} as never
+      },
     }), { workspace: "docs" })
 
     await agent.run!(context())
@@ -1658,11 +1667,13 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      instructions: [
-        "Use workspace sources.",
-        async ({ fs }) => await fs.readFile("AGENTS.md"),
-      ],
-      model: {} as never,
+      driver: {
+        instructions: [
+          "Use workspace sources.",
+          async ({ fs }) => await fs.readFile("AGENTS.md"),
+        ],
+        model: {} as never
+      },
     }), { workspace: "docs" })
 
     await agent.run!(context())
@@ -1677,8 +1688,10 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      instructions: async ({ fs }) => await fs.readFile("AGENTS.md"),
-      model: {} as never,
+      driver: {
+        instructions: async ({ fs }) => await fs.readFile("AGENTS.md"),
+        model: {} as never
+      },
     }), { workspace: "docs" })
 
     await agent.run!(context())
@@ -1694,7 +1707,7 @@ describe("defineAgent workspace option", () => {
     const workspaceName = `shared-reference-${Math.random().toString(36).slice(2)}`
     const workspaceDefinition = {
       sources: {
-        summaryInstructions: { instructions: "Use the summary instructions.", name: "summary" } as never,
+        summaryInstructions: { name: "summary" } as never,
       },
       store: { provider: "memory" as const },
     }
@@ -1703,18 +1716,16 @@ describe("defineAgent workspace option", () => {
 
     const agent = defineAgent({
       workspace: { name: workspaceName, mode: "write" },
-      instructions: async ({ fs }) => await fs.readFile(".agents/summary/AGENTS.md"),
-      model: {} as never,
+      driver: {
+        instructions: async ({ fs }) => await fs.readFile(".agents/summary/AGENTS.md"),
+        model: {} as never
+      },
     })
 
     await agent.run!(context())
 
     expect(readFile).toHaveBeenCalledWith(".agents/summary/AGENTS.md")
-    expect(agentSettings.at(-1)?.instructions).toBe([
-      "Summary instructions",
-      "## Workspace Sources",
-      "### summaryInstructions\n\nUse the summary instructions.",
-    ].join("\n\n"))
+    expect(agentSettings.at(-1)?.instructions).toBe("Summary instructions")
   })
 
   it("does not create placeholder definitions for unregistered named references", async () => {
@@ -1723,7 +1734,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = defineAgent({
       workspace: { name: workspaceName, mode: "write" },
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     await agent.run!(context())
@@ -1731,27 +1742,25 @@ describe("defineAgent workspace option", () => {
     expect(useWorkspace).toHaveBeenCalledWith(workspaceName, { mode: "write" })
   })
 
-  it("appends visible source instructions by default", async () => {
-    const { defineAgent } = await import("../src/index.ts")
+  it("rejects source or capability config prose", async () => {
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    expect(() => defineCapability({
+      id: "support",
+      instructions: "Use support capability guidance." as never,
+    } as never)).toThrow("Capability instructions were removed")
+
+    expect(() => withAgentDefaults(defineAgent({
       workspace: {
         sources: {
           docs: { instructions: "Use docs for product behavior.", name: "docs" } as never,
-          raw: { name: "raw" } as never,
         },
       },
-      instructions: "Answer from the workspace.",
-      model: {} as never,
-    }), { workspace: "docs" })
-
-    await agent.run!(context())
-
-    expect(agentSettings.at(-1)?.instructions).toBe([
-      "Answer from the workspace.",
-      "## Workspace Sources",
-      "### docs\n\nUse docs for product behavior.",
-    ].join("\n\n"))
+      driver: {
+        instructions: "Answer from the workspace.",
+        model: {} as never,
+      },
+    }), { workspace: "docs" })).toThrow('Workspace source "docs" instructions were removed')
   })
 
   it("applies model Agent Driver instructions and execution settings", async () => {
@@ -1771,7 +1780,7 @@ describe("defineAgent workspace option", () => {
       },
       workspace: {
         sources: {
-          docs: { instructions: "Use docs for product behavior.", name: "docs" } as never,
+          docs: { name: "docs" } as never,
         },
       },
     }), { workspace: "docs" })
@@ -1779,267 +1788,35 @@ describe("defineAgent workspace option", () => {
     await agent.run!(context())
 
     expect(agentSettings.at(-1)).toMatchObject({
-      instructions: [
-        "Answer from the driver.",
-        "## Workspace Sources",
-        "### docs\n\nUse docs for product behavior.",
-      ].join("\n\n"),
+      instructions: "Answer from the driver.",
       model,
       stopWhen: { count: 4 },
       temperature: 0.3,
     })
   })
 
-  it("places source instructions in the workspace sources slot", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-
-    const agent = withAgentDefaults(defineAgent({
-      workspace: {
-        sources: {
-          docs: {
-            instructions: [
-              "Use docs first.",
-              "Say when docs do not contain the answer.",
-            ],
-            name: "docs",
-          } as never,
-        },
-      },
-      instructions: [
-        "Answer from the workspace.",
-        "{{ workspace.sources }}",
-        "Keep replies short.",
-      ],
-      model: {} as never,
-    }), { workspace: "docs" })
-
-    await agent.run!(context())
-
-    expect(agentSettings.at(-1)?.instructions).toBe([
-      "Answer from the workspace.",
-      "## Workspace Sources",
-      "### docs\n\nUse docs first.\n\nSay when docs do not contain the answer.",
-      "Keep replies short.",
-    ].join("\n\n"))
-  })
-
-  it("replaces the workspace sources slot with empty instructions when no source instructions are visible", async () => {
-    const { defineAgent } = await import("../src/index.ts")
-
-    const agent = withAgentDefaults(defineAgent({
-      workspace: {
-        sources: {
-          docs: { name: "docs" } as never,
-        },
-      },
-      instructions: [
-        "Answer from the workspace.",
-        "{{ workspace.sources }}",
-        "Keep replies short.",
-      ],
-      model: {} as never,
-    }), { workspace: "docs" })
-
-    await agent.run!(context())
-
-    expect(agentSettings.at(-1)?.instructions).toBe("Answer from the workspace.\n\nKeep replies short.")
-  })
-
-  it("places Workspace Shell request descriptor hints through the camel-case capability slot", async () => {
-    list.mockImplementation(async path => path === ".vitehub/sources"
-      ? [{ path: ".vitehub/sources/inventoryHealthSummary.json", type: "file" }]
-      : [])
+  it("rejects legacy source and capability instruction slots", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { workspaceShell } = await import("../src/capabilities.ts")
 
-    const agent = withAgentDefaults(defineAgent({
+    const sourceSlotAgent = withAgentDefaults(defineAgent({
+      workspace: { sources: { docs: { name: "docs" } as never } },
+      driver: {
+        instructions: "Answer from the workspace.\n\n{{ workspace.sources }}",
+        model: {} as never,
+      },
+    }), { workspace: "docs" })
+    await expect(sourceSlotAgent.run!(context())).rejects.toThrow("{{ workspace.sources }}\" is no longer supported")
+
+    const capabilitySlotAgent = withAgentDefaults(defineAgent({
       workspace: {},
       capabilities: [workspaceShell()],
-      instructions: [
-        "Answer from the workspace.",
-        "{{ capabilities.workspaceShell }}",
-        "Keep replies short.",
-      ],
-      model: {} as never,
+      driver: {
+        instructions: "Answer from the workspace.\n\n{{ capabilities.workspaceShell }}",
+        model: {} as never,
+      },
     }), { workspace: "docs" })
-
-    await agent.run!(context())
-
-    expect(agentSettings.at(-1)?.instructions).toBe([
-      "Answer from the workspace.",
-      [
-        "API-backed Sources you can inspect with curl:",
-        "",
-        "- inventoryHealthSummary: read `.vitehub/sources/inventoryHealthSummary.json` before using curl.",
-        "Use normal curl syntax that matches the descriptor.",
-      ].join("\n"),
-      "Keep replies short.",
-    ].join("\n\n"))
-  })
-
-  it("filters source instructions through Access-scoped workspace visibility", async () => {
-    exists.mockResolvedValue(true)
-    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
-    const { defineAgent } = await import("../src/index.ts")
-    const { access } = await import("../src/capabilities.ts")
-
-    const agent = withAgentDefaults(defineAgent({
-      workspace: {
-        sources: {
-          private: { instructions: "Use private source.", name: "private" } as never,
-          public: { instructions: "Use public source.", name: "public" } as never,
-        },
-      },
-      capabilities: [
-        access({
-          workspace: {
-            defaultScope: "public",
-            scopes: {
-              public: { source: "public" },
-            },
-          },
-        }),
-      ],
-      instructions: "Answer from the workspace.",
-      model: {} as never,
-    }), { workspace: "docs" })
-
-    await agent.run!(context())
-
-    expect(agentSettings.at(-1)?.instructions).toBe([
-      "Answer from the workspace.",
-      "## Workspace Sources",
-      "### public\n\nUse public source.",
-    ].join("\n\n"))
-  })
-
-  it("omits root-mounted source instructions when only another scoped source is visible", async () => {
-    exists.mockImplementation(async path => path === "public")
-    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
-    const { defineAgent } = await import("../src/index.ts")
-    const { access } = await import("../src/capabilities.ts")
-
-    const agent = withAgentDefaults(defineAgent({
-      workspace: {
-        sources: {
-          guide: {
-            getKeys: vi.fn(async () => ["AGENTS.md"]),
-            instructions: "Use private guide.",
-            mount: "",
-            name: "file",
-          } as never,
-          public: { instructions: "Use public source.", mount: "public", name: "public" } as never,
-        },
-      },
-      capabilities: [
-        access({
-          workspace: {
-            defaultScope: "public",
-            scopes: {
-              public: { source: "public" },
-            },
-          },
-        }),
-      ],
-      instructions: "Answer from the workspace.",
-      model: {} as never,
-    }), { workspace: "docs" })
-
-    await agent.run!(context())
-
-    expect(agentSettings.at(-1)?.instructions).toBe([
-      "Answer from the workspace.",
-      "## Workspace Sources",
-      "### public\n\nUse public source.",
-    ].join("\n\n"))
-  })
-
-  it("does not expose request-only source instructions through a visible workspace root", async () => {
-    const privateSource = {
-      async getKeys() {
-        return []
-      },
-      async getItem(key: string) {
-        return { key, path: key, content: "" }
-      },
-      instructions: "Use private API.",
-      mount: "",
-    }
-    getWorkspaceSourceRequestDescriptor.mockImplementation(source => source === privateSource ? { method: "GET", url: "https://private.example.com/api" } : undefined)
-    isWorkspaceSourceRequestOnly.mockImplementation(source => source === privateSource)
-    exists.mockImplementation(async path => path === "" || path === "public")
-    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
-    const { defineAgent } = await import("../src/index.ts")
-    const { access } = await import("../src/capabilities.ts")
-
-    const agent = withAgentDefaults(defineAgent({
-      workspace: {
-        sources: {
-          private: privateSource as never,
-          public: { instructions: "Use public source.", mount: "public", name: "public" } as never,
-        },
-      },
-      capabilities: [
-        access({
-          workspace: {
-            defaultScope: "public",
-            scopes: {
-              public: { source: "public" },
-            },
-          },
-        }),
-      ],
-      instructions: "Answer from the workspace.",
-      model: {} as never,
-    }), { workspace: "docs" })
-
-    await agent.run!(context())
-
-    expect(agentSettings.at(-1)?.instructions).toBe([
-      "Answer from the workspace.",
-      "## Workspace Sources",
-      "### public\n\nUse public source.",
-    ].join("\n\n"))
-  })
-
-  it("includes root-mounted source instructions when a source path is visible", async () => {
-    exists.mockImplementation(async path => path === "AGENTS.md")
-    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
-    const { defineAgent } = await import("../src/index.ts")
-    const { access } = await import("../src/capabilities.ts")
-
-    const agent = withAgentDefaults(defineAgent({
-      workspace: {
-        sources: {
-          guide: {
-            getKeys: vi.fn(async () => ["AGENTS.md"]),
-            instructions: "Use support guide.",
-            mount: "",
-            name: "file",
-          } as never,
-        },
-      },
-      capabilities: [
-        access({
-          workspace: {
-            defaultScope: "support",
-            scopes: {
-              support: { path: "AGENTS.md" },
-            },
-          },
-        }),
-      ],
-      instructions: "Answer from the workspace.",
-      model: {} as never,
-    }), { workspace: "docs" })
-
-    await agent.run!(context())
-
-    expect(agentSettings.at(-1)?.instructions).toBe([
-      "Answer from the workspace.",
-      "## Workspace Sources",
-      "### guide\n\nUse support guide.",
-    ].join("\n\n"))
+    await expect(capabilitySlotAgent.run!(context())).rejects.toThrow("{{ capabilities.workspaceShell }}\" is no longer supported")
   })
 
   it("synthesizes an answer when tool loop stops without text after tool results", async () => {
@@ -2058,7 +1835,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     await expect(agent.run!(context())).resolves.toBe("fallback answer")
@@ -2081,7 +1858,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     const stream = await streamAgent(agent, context(), { messages: [] })
@@ -2112,7 +1889,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     const stream = await streamAgent(agent, context(), { messages: [] })
@@ -2143,7 +1920,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     const stream = await streamAgent(agent, context(), { messages: [] })
@@ -2179,7 +1956,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     const stream = await streamAgent(agent, context(), { messages: [] })
@@ -2218,7 +1995,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     const stream = await streamAgent(agent, context(), { messages: [] })
@@ -2257,7 +2034,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     const stream = await streamAgent(agent, context(), { messages: [] })
@@ -2287,7 +2064,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
       capabilities: [{
         id: "subagents",
         tools: {
@@ -2324,7 +2101,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     const stream = await streamAgent(agent, context(), { messages: [] })
@@ -2355,7 +2132,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     const stream = await streamAgent(agent, context(), { messages: [] })
@@ -2386,7 +2163,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     const stream = await streamAgent(agent, context(), { messages: [] })
@@ -2415,7 +2192,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     const stream = await streamAgent(agent, context(), { messages: [] })
@@ -2460,7 +2237,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     const stream = await streamAgent(agent, context(), { messages: [] }, { output: "ui-message-stream" }) as ReadableStream<unknown>
@@ -2483,17 +2260,19 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      modelExecution: {
-        callSettings: {
-          maxOutputTokens: 100,
-          onStepEnd,
-          stopWhen: stopWhen as never,
-          temperature: 0.2,
-          telemetry: telemetry as never,
-          toolChoice: "auto",
+      driver: {
+        execution: {
+          callSettings: {
+            maxOutputTokens: 100,
+            onStepEnd,
+            stopWhen: stopWhen as never,
+            temperature: 0.2,
+            telemetry: telemetry as never,
+            toolChoice: "auto",
+          },
         },
+        model: {} as never
       },
-      model: {} as never,
     }), { workspace: "docs" })
 
     await agent.run!(context())
@@ -2515,7 +2294,7 @@ describe("defineAgent workspace option", () => {
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
       capabilities: [webSearch({ mode: "model" })],
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     await agent.run!(context())
@@ -2537,7 +2316,9 @@ describe("defineAgent workspace option", () => {
     })()
     const run = vi.fn(async () => stream)
     const agent = withAgentDefaults(defineAgent({
-      run,
+      driver: {
+        run
+      },
       workspace: {},
     }), { workspace: "docs" })
 
@@ -2553,15 +2334,17 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      modelExecution: {
-        callSettings: {
-          onStepEnd: vi.fn(),
+      driver: {
+        execution: {
+          callSettings: {
+            onStepEnd: vi.fn(),
+          },
+          instrumentation: {
+            model: instrumentModel,
+          },
         },
-        instrumentation: {
-          model: instrumentModel,
-        },
+        model: baseModel as never
       },
-      model: baseModel as never,
     }), { workspace: "docs" })
 
     await agent.run!({
@@ -2618,16 +2401,18 @@ describe("defineAgent workspace option", () => {
           },
         }),
       ],
-      modelExecution: {
-        callSettings: {
-          temperature: 0.2,
+      driver: {
+        execution: {
+          callSettings: {
+            temperature: 0.2,
+          },
+          instrumentation: {
+            callSettings: driverInstrumentCallSettings,
+            model: driverInstrumentModel,
+          },
         },
-        instrumentation: {
-          callSettings: driverInstrumentCallSettings,
-          model: driverInstrumentModel,
-        },
+        model: baseModel as never
       },
-      model: baseModel as never,
     }), { workspace: "docs" })
 
     await agent.run!(context())
@@ -2664,16 +2449,18 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      modelExecution: {
-        callSettings: {
-          temperature: 0.2,
+      driver: {
+        execution: {
+          callSettings: {
+            temperature: 0.2,
+          },
+          instrumentation: {
+            callSettings: instrumentCallSettings,
+          },
+          stepLimit: 7,
         },
-        instrumentation: {
-          callSettings: instrumentCallSettings,
-        },
-        stepLimit: 7,
+        model: model as never
       },
-      model: model as never,
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
 
@@ -2714,15 +2501,17 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      modelExecution: {
-        callSettings: {
-          temperature: 0.2,
+      driver: {
+        execution: {
+          callSettings: {
+            temperature: 0.2,
+          },
+          instrumentation: {
+            callSettings: instrumentCallSettings,
+          },
         },
-        instrumentation: {
-          callSettings: instrumentCallSettings,
-        },
+        model: {} as never
       },
-      model: {} as never,
     }), { workspace: "docs" })
 
     await agent.run!(context())
@@ -2746,17 +2535,19 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      modelExecution: {
-        callSettings: {
-          onStepEnd,
-          onRunStepFinish: onRunStepFinish as never,
-          onRunToolCallFinish: onRunToolCallFinish as never,
-          onRunToolCallStart: onRunToolCallStart as never,
-          onToolExecutionEnd,
-          onToolExecutionStart,
+      driver: {
+        execution: {
+          callSettings: {
+            onStepEnd,
+            onRunStepFinish: onRunStepFinish as never,
+            onRunToolCallFinish: onRunToolCallFinish as never,
+            onRunToolCallStart: onRunToolCallStart as never,
+            onToolExecutionEnd,
+            onToolExecutionStart,
+          },
         },
+        model: {} as never
       },
-      model: {} as never,
     }), { workspace: "docs" })
 
     await agent.run!({
@@ -2793,11 +2584,13 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      instructions: ({ fs, workspace }) => {
-        expect(fs).toBe(workspace.fs)
-        return "workspace instructions"
+      driver: {
+        instructions: ({ fs, workspace }) => {
+          expect(fs).toBe(workspace.fs)
+          return "workspace instructions"
+        },
+        model: {} as never
       },
-      model: {} as never,
     }), { workspace: "docs" })
 
     await agent.run!(context({ vertex: { model: "gemini" } }))
@@ -2811,7 +2604,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     await agent.run!(context())
@@ -2826,8 +2619,10 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      instructions: ({ fs }) => fs.readFile("MISSING.md"),
-      model: {} as never,
+      driver: {
+        instructions: ({ fs }) => fs.readFile("MISSING.md"),
+        model: {} as never
+      },
     }), { workspace: "docs" })
 
     await expect(agent.run!(context())).rejects.toThrow("missing")
@@ -2838,7 +2633,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
     }), { workspace: "docs" })
 
     await agent.run!(context())
@@ -2858,7 +2653,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
       capabilities: [{ id: "workspace-tools", tools: toolResolver as never }],
     }), { workspace: "docs" })
 
@@ -2877,7 +2672,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
       capabilities: [{ id: "workspace-tools", tools: () => ({ search }) }],
     }), { workspace: "docs" })
 
@@ -2911,7 +2706,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
 
@@ -2947,7 +2742,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
-      model: {} as never,
+      driver: { model: {} as never },
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
 
@@ -2983,7 +2778,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
-      model: {} as never,
+      driver: { model: {} as never },
       capabilities: [{ id: "bash", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
 
@@ -3004,7 +2799,7 @@ describe("defineAgent workspace option", () => {
 
     const agent = withAgentDefaults(defineAgent({
       workspace: { sources: { docs: { cache: { maxAge: 60 }, source: {} } as never } },
-      model: {} as never,
+      driver: { model: {} as never },
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "docs" })
 
@@ -3031,8 +2826,10 @@ describe("defineAgent workspace option", () => {
           docs: { name: "docs" } as never,
         },
       },
-      instructions: "Answer from the workspace.",
-      model: model as never,
+      driver: {
+        instructions: "Answer from the workspace.",
+        model: model as never
+      },
       version: "1.2.3",
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
@@ -3073,15 +2870,17 @@ describe("defineAgent workspace option", () => {
     const { createAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      instructions: [
-        "::if{context.enabled}",
-        "Hidden.",
-        "::else",
-        "Answer from the workspace.",
-        "::",
-        "{{ context.missing }}",
-      ].join("\n"),
-      model: {} as never,
+      driver: {
+        instructions: [
+          "::if{context.enabled}",
+          "Hidden.",
+          "::else",
+          "Answer from the workspace.",
+          "::",
+          "{{ context.missing }}",
+        ].join("\n"),
+        model: {} as never
+      },
     }), { workspace: "support" })
 
     expect(createAgentDevtoolsMetadata(agent).instructions).toEqual(["Answer from the workspace."])
@@ -3092,7 +2891,7 @@ describe("defineAgent workspace option", () => {
     const { skills } = await import("../src/capabilities.ts")
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
       capabilities: [
         skills({
           path: "skills/agent-browser",
@@ -3146,7 +2945,7 @@ describe("defineAgent workspace option", () => {
     const { workspaceShell } = await import("../src/capabilities.ts")
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: {} as never,
+      driver: { model: {} as never },
       capabilities: [workspaceShell()],
     }), { workspace: "support" })
 
@@ -3168,7 +2967,7 @@ describe("defineAgent workspace option", () => {
     }))
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      model: resolveModel as never,
+      driver: { model: resolveModel as never },
     }), { workspace: "support" })
 
     expect(await resolveAgentDevtoolsMetadata(agent, {
@@ -3200,8 +2999,10 @@ describe("defineAgent workspace option", () => {
     const readInstructions = vi.fn(async () => "Workspace instructions")
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      instructions: readInstructions,
-      model: {} as never,
+      driver: {
+        instructions: readInstructions,
+        model: {} as never
+      },
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 
@@ -3213,11 +3014,14 @@ describe("defineAgent workspace option", () => {
     const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const readInstructions = vi.fn(async ({ fs }) => await fs.readFile("AGENTS.md"))
     readFile.mockResolvedValue("# Workspace instructions\n")
+    exists.mockResolvedValue(true)
     list.mockResolvedValue([{ path: "AGENTS.md", type: "file" }])
     const agent = withAgentDefaults(defineAgent({
       workspace: {},
-      instructions: readInstructions,
-      model: {} as never,
+      driver: {
+        instructions: readInstructions,
+        model: {} as never
+      },
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 
@@ -3232,35 +3036,96 @@ describe("defineAgent workspace option", () => {
     expect(readInstructions).toHaveBeenCalledOnce()
   })
 
-  it("renders static capability instruction slots in resolved DevTools metadata", async () => {
+  it("warns when configured primitives lack explicit instruction coverage", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
-    const readInstructions = vi.fn(async ({ fs }) => await fs.readFile("AGENTS.md"))
-    readFile.mockResolvedValue("# Workspace instructions\n\n{{ capabilities.audience }}\n")
+    const { skills, workspaceShell } = await import("../src/capabilities.ts")
+    exists.mockResolvedValue(true)
     list.mockResolvedValue([{ path: "AGENTS.md", type: "file" }])
     const agent = withAgentDefaults(defineAgent({
-      workspace: {},
-      instructions: readInstructions,
-      model: {} as never,
-      capabilities: [{
-        id: "audience",
-        instructions: "Static audience instructions.",
-      }],
+      workspace: {
+        sources: {
+          docs: { name: "docs" } as never,
+        },
+      },
+      driver: {
+        instructions: "Answer from the workspace.",
+        model: {} as never,
+      },
+      capabilities: [workspaceShell(), skills({ path: "skills/review-browser-evidence" })],
     }), { workspace: "support" })
 
-    expect(await resolveAgentDevtoolsMetadata(agent)).toMatchObject({
-      instructions: ["# Workspace instructions\n\nStatic audience instructions."],
-    })
+    const metadata = await resolveAgentDevtoolsMetadata(agent)
+    expect(metadata.instructions).toEqual(["Answer from the workspace."])
+    expect(metadata.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "instruction-coverage:source:docs", primitive: "source" }),
+      expect.objectContaining({ id: "instruction-coverage:capability:workspace-shell", primitive: "capability" }),
+      expect.objectContaining({ id: "instruction-coverage:skill:skills/review-browser-evidence", primitive: "skill" }),
+    ]))
+  })
+
+  it("clears instruction coverage warnings with explicit coverage blocks", async () => {
+    const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
+    const { skills, workspaceShell } = await import("../src/capabilities.ts")
+    const readInstructions = vi.fn(async ({ fs }) => await fs.readFile("AGENTS.md"))
+    readFile.mockResolvedValue([
+      "# Workspace instructions",
+      "",
+      "::source{key=\"docs\"}",
+      "Use docs for support evidence.",
+      "::",
+      "",
+      "::capability{key=\"workspaceShell\"}",
+      "Use workspace shell for explicit file inspection.",
+      "::",
+      "",
+      "::skill{path=\"skills/review-browser-evidence\"}",
+      "Use browser evidence for bounded review claims.",
+      "::",
+    ].join("\n"))
+    exists.mockResolvedValue(true)
+    list.mockResolvedValue([{ path: "AGENTS.md", type: "file" }])
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {
+        sources: {
+          docs: { name: "docs" } as never,
+        },
+      },
+      driver: {
+        instructions: readInstructions,
+        model: {} as never,
+      },
+      capabilities: [workspaceShell(), skills({ path: "skills/review-browser-evidence" })],
+    }), { workspace: "support" })
+
+    const metadata = await resolveAgentDevtoolsMetadata(agent)
+    expect(metadata.instructions).toEqual([[
+      "# Workspace instructions",
+      "Use docs for support evidence.",
+      "Use workspace shell for explicit file inspection.",
+      "Use browser evidence for bounded review claims.",
+    ].join("\n\n")])
+    expect(metadata.warnings).toBeUndefined()
     expect(readInstructions).toHaveBeenCalledOnce()
   })
 
-  it("resolves prepare-scoped capability instructions while resolving DevTools metadata", async () => {
+  it("resolves prepare-scoped capability metadata while resolving DevTools metadata", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const phase = vi.fn()
     const toolResolver = vi.fn(() => ({}))
     const invokerResolve = vi.fn(() => ({ id: "resolved" }))
     exists.mockResolvedValue(true)
     list.mockResolvedValue([{ path: "docs/guide.md", type: "file" }])
-    readFile.mockResolvedValue("# Workspace instructions\n\n{{ capabilities.tracked }}")
+    readFile.mockResolvedValue([
+      "# Workspace instructions",
+      "",
+      "::source{key=\"docs\"}",
+      "Use docs for support evidence.",
+      "::",
+      "",
+      "::capability{key=\"tracked\"}",
+      "Use tracked capability metadata.",
+      "::",
+    ].join("\n"))
     const agent = withAgentDefaults(defineAgent({
       invoker: {
         profiles: [{ id: "support", kind: "support", label: "Support" }],
@@ -3268,24 +3133,22 @@ describe("defineAgent workspace option", () => {
       },
       workspace: {
         sources: {
-          docs: { instructions: "Use docs for support evidence.", name: "docs" } as never,
+          docs: { name: "docs" } as never,
         },
       },
-      instructions: async ({ fs }) => await fs.readFile("AGENTS.md"),
+      driver: {
+        instructions: async ({ fs }) => await fs.readFile("AGENTS.md"),
+        model: {} as never
+      },
       hooks: {
         "capability:prepare": () => phase("hook:prepare"),
       },
-      model: {} as never,
       capabilities: [{
         bind: () => phase("bind"),
         close: () => phase("close"),
         configure: () => phase("configure"),
         id: "tracked",
         input: () => phase("input"),
-        instructions: () => {
-          phase("instructions")
-          return "Dynamic capability instructions."
-        },
         output: () => phase("output"),
         prepare: () => phase("prepare"),
         resolve: () => phase("resolve"),
@@ -3299,13 +3162,12 @@ describe("defineAgent workspace option", () => {
       files: [expect.objectContaining({ path: "docs" })],
       instructions: [[
         "# Workspace instructions",
-        "Dynamic capability instructions.",
-        "## Workspace Sources",
-        "### docs\n\nUse docs for support evidence.",
+        "Use docs for support evidence.",
+        "Use tracked capability metadata.",
       ].join("\n\n")],
       tools: [expect.objectContaining({ name: "tracked" })],
     })
-    expect(phase.mock.calls.map(call => call[0])).toEqual(["hook:prepare", "prepare", "instructions"])
+    expect(phase.mock.calls.map(call => call[0])).toEqual(["hook:prepare", "prepare"])
     expect(toolResolver).not.toHaveBeenCalled()
     expect(invokerResolve).toHaveBeenCalledOnce()
   })
@@ -3322,8 +3184,10 @@ describe("defineAgent workspace option", () => {
           docs: { cache: { maxAge: 60 }, mount: "docs", name: "docs" } as never,
         },
       },
-      instructions: "Answer from the workspace.",
-      model: {} as never,
+      driver: {
+        instructions: "Answer from the workspace.",
+        model: {} as never
+      },
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 
@@ -3393,8 +3257,10 @@ describe("defineAgent workspace option", () => {
           },
         }),
       ],
-      instructions: "Answer from the workspace.",
-      model: {} as never,
+      driver: {
+        instructions: "Answer from the workspace.",
+        model: {} as never
+      },
     }), { workspace: "support" })
 
     const metadata = await resolveAgentDevtoolsMetadata(agent, {
@@ -3409,7 +3275,7 @@ describe("defineAgent workspace option", () => {
     expect(createWorkspaceSourceResolutionFacade).toHaveBeenCalledOnce()
   })
 
-  it("renders static Source Instructions after Access source resolution for DevTools metadata", async () => {
+  it("clears Source coverage warnings after Access source resolution for DevTools metadata", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const { access } = await import("../src/capabilities.ts")
     useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
@@ -3418,7 +3284,6 @@ describe("defineAgent workspace option", () => {
       workspace: {
         sources: {
           ingestion: {
-            instructions: "Use this source for ingestion models.",
             mount: "ingestion/acme",
             name: "ingestion",
           } as never,
@@ -3434,21 +3299,33 @@ describe("defineAgent workspace option", () => {
           },
         }),
       ],
-      instructions: "Answer from the workspace.",
-      model: {} as never,
+      driver: {
+        instructions: [
+          "Answer from the workspace.",
+          "",
+          "::source{key=\"ingestion\"}",
+          "Use this source for ingestion models.",
+          "::",
+          "",
+          "::capability{key=\"access\"}",
+          "Use Access for scoped workspace visibility.",
+          "::",
+        ].join("\n"),
+        model: {} as never,
+      },
     }), { workspace: "support" })
 
-    await expect(resolveAgentDevtoolsMetadata(agent)).resolves.toMatchObject({
-      instructions: [[
-        "Answer from the workspace.",
-        "## Workspace Sources",
-        "### ingestion\n\nUse this source for ingestion models.",
-      ].join("\n\n")],
-    })
+    const metadata = await resolveAgentDevtoolsMetadata(agent)
+    expect(metadata.instructions).toEqual([[
+      "Answer from the workspace.",
+      "Use this source for ingestion models.",
+      "Use Access for scoped workspace visibility.",
+    ].join("\n\n")])
+    expect(metadata.warnings).toBeUndefined()
     expect(createWorkspaceSourceResolutionFacade).toHaveBeenCalledOnce()
   })
 
-  it("renders Capability Workspace Contribution source instructions in resolved DevTools metadata", async () => {
+  it("clears Capability Workspace Contribution source coverage in resolved DevTools metadata", async () => {
     const { resolveAgentDevtoolsMetadata, defineAgent } = await import("../src/index.ts")
     const { access, pullRequestContext } = await import("../src/capabilities.ts")
     exists.mockResolvedValue(false)
@@ -3478,7 +3355,6 @@ describe("defineAgent workspace option", () => {
         pullRequestContext({
           sources: {
             pullRequest: {
-              instructions: "Use this source for pull-request review material.",
               mount: "pull-request",
               async getKeys() {
                 return []
@@ -3490,17 +3366,36 @@ describe("defineAgent workspace option", () => {
           },
         }),
       ],
-      instructions: "Answer from the workspace.\n\n{{ workspace.sources }}",
-      model: {} as never,
+      driver: {
+        instructions: [
+          "Answer from the workspace.",
+          "",
+          "::capability{key=\"access\"}",
+          "Use Access for review scope.",
+          "::",
+          "",
+          "::capability{key=\"pullRequestContext\"}",
+          "Use pull request context for review metadata.",
+          "::",
+          "",
+          "::source{key=\"pullRequestContext\"}",
+          "::source{key=\"pullRequest\"}",
+          "Use this source for pull-request review material.",
+          "::",
+          "::",
+        ].join("\n"),
+        model: {} as never,
+      },
     }), { workspace: "support" })
 
-    await expect(resolveAgentDevtoolsMetadata(agent)).resolves.toMatchObject({
-      instructions: [[
-        "Answer from the workspace.",
-        "## Workspace Sources",
-        "### pullRequest\n\nUse this source for pull-request review material.",
-      ].join("\n\n")],
-    })
+    const metadata = await resolveAgentDevtoolsMetadata(agent)
+    expect(metadata.instructions).toEqual([[
+      "Answer from the workspace.",
+      "Use Access for review scope.",
+      "Use pull request context for review metadata.",
+      "Use this source for pull-request review material.",
+    ].join("\n\n")])
+    expect(metadata.warnings).toBeUndefined()
   })
 
   it("flattens virtual workspace AGENTS.md while keeping sibling instruction files", async () => {
@@ -3519,8 +3414,10 @@ describe("defineAgent workspace option", () => {
           ingestion: { name: "ingestion" } as never,
         },
       },
-      instructions: "Answer from the workspace.",
-      model: {} as never,
+      driver: {
+        instructions: "Answer from the workspace.",
+        model: {} as never
+      },
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 
@@ -3552,8 +3449,10 @@ describe("defineAgent workspace option", () => {
           docs: { cache: { maxAge: 60 }, mount: "docs", name: "docs" } as never,
         },
       },
-      instructions: "Answer from the workspace.",
-      model: {} as never,
+      driver: {
+        instructions: "Answer from the workspace.",
+        model: {} as never
+      },
       capabilities: [{ id: "workspace-shell", tools: ({ workspace }) => workspace.tools.inspect() }],
     }), { workspace: "support" })
 

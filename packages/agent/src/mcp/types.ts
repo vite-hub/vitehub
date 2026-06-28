@@ -1,5 +1,4 @@
 import type {
-  AgentAdapterInstructionsValue,
   AgentCapabilityRuntimeContext,
   AgentRuntimeConfig,
   MaybePromise,
@@ -28,6 +27,5 @@ export interface McpCapabilityOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
-  instructions?: AgentAdapterInstructionsValue | false
   servers: Record<string, McpServerConfig<TRuntimeConfig, Name>>
 }

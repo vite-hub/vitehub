@@ -53,7 +53,6 @@ import {
   isWorkspaceAgentOptions,
   resolveWorkspaceAgentDefaultInstructions,
   resolveWorkspaceInstructionBindings,
-  resolveWorkspaceSourceInstructionBlock,
   workspaceAgentOwnsWorkspaceDefinition,
   workspaceDefinitionFromOptions,
   workspaceModeFromOptions,
@@ -91,7 +90,6 @@ import type {
   AgentHandlerOptions,
   AgentInput,
   AgentInputHook,
-  AgentInstructionBlock,
   AgentInvocationContextStore,
   AgentInvocationContextValues,
   AgentHookObserverHooks,
@@ -222,7 +220,6 @@ export type {
   AgentHarnessSessionKey,
   AgentInput,
   AgentInputHook,
-  AgentInstructionBlock,
   AgentIntegrationOption,
   AgentHookObserver,
   AgentHookObserverEvent,
@@ -758,8 +755,15 @@ function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: Work
     throw new Error("[vitehub] Workspace Source scopes require access({ workspace }).")
   }
   for (const capability of capabilities) {
-    if (capability.id === "workspace-shell" && normalizeMode(capability.mode, "Workspace Shell") === "write" && workspaceMode !== "write") {
-      throw new Error("[vitehub] workspaceShell({ mode: \"write\" }) requires workspace.mode: \"write\".")
+    if (capability.id === "workspace-shell") {
+      const metadata = capability.metadata as { commands?: unknown } | undefined
+      const requiresWritableSession = Array.isArray(metadata?.commands)
+      if (requiresWritableSession && workspaceMode !== "write") {
+        throw new Error("[vitehub] workspaceShell({ commands }) requires workspace.mode: \"write\".")
+      }
+      if (!requiresWritableSession && normalizeMode(capability.mode, "Workspace Shell") === "write" && workspaceMode !== "write") {
+        throw new Error("[vitehub] workspaceShell({ mode: \"write\" }) requires workspace.mode: \"write\".")
+      }
     }
     if (capability.id === "sandbox") {
       validateSandboxCommands((capability.metadata as { commands?: unknown } | undefined)?.commands)
@@ -801,7 +805,7 @@ function defineBaseAgent<
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const driver = normalizeAgentDriver(options)
   const { capabilities, channels, description, hooks, messages, runtime, version, workspace } = options
-  const run = driver.kind === "run" ? driver.run : (options as { run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS> }).run
+  const run = driver.kind === "run" ? driver.run : undefined
   const baseCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
   const channelChat = resolveAgentChannelChatOptions<TRuntimeConfig>(channels, messages)
@@ -825,7 +829,7 @@ function defineBaseAgent<
         ? (await import("./harness-agent.ts")).createHarnessAgentAdapter<CALL_OPTIONS>(driver as never)
         : undefined
     if (!resolvedAdapter) {
-      throw new Error("[vitehub] Agent Driver is required unless the agent defines a custom run() handler.")
+      throw new Error("[vitehub] Agent Driver is required unless the agent uses driver.run.")
     }
     const resolvedContext = createResolvedRuntimeContext(context)
     return typeof resolvedAdapter === "function"
@@ -998,7 +1002,6 @@ function createWorkspaceAgentDefinition<
     ...options,
     description: options.description,
     hooks: options.hooks,
-    run: options.run,
     runtime: withAgentWorkflowRuntimeName(options.runtime, defaults.name),
     version: options.version,
     workspace: workspaceDefinition,
@@ -1142,7 +1145,6 @@ type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
-  capabilityInstructions: AgentInstructionBlock[]
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
@@ -1159,7 +1161,6 @@ type AgentInvocationContext<
   outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
   outputRenderers: AgentCapabilityRegistries["outputRenderers"]
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
-  sourceInstructions?: string
   instructions?: string
   startedAt: number
   actor: AgentInvoker
@@ -1342,13 +1343,6 @@ async function createAgentInvocationContext<
     const activeWorkspace = capabilities.workspace || workspace
     const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
     const activeWorkspaceDefinition = capabilities.workspaceDefinition || sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
-    const workspaceScope = invocationContext.get("access")?.workspaceScope
-    const sourceInstructions = activeWorkspaceDefinition && activeWorkspace
-      ? await resolveWorkspaceSourceInstructionBlock(
-          activeWorkspaceDefinition,
-          workspaceScope && !workspaceScope.all ? activeWorkspace as ReadonlyWorkspaceFacade : undefined,
-        )
-      : undefined
     const instructions = workspaceOptions && activeWorkspace
       ? await resolveWorkspaceAgentDefaultInstructions(workspaceOptions, activeWorkspace as ReadonlyWorkspaceFacade)
       : undefined
@@ -1359,7 +1353,6 @@ async function createAgentInvocationContext<
     const invocation = {
       ...callbackContext,
       actor: invoker,
-      capabilityInstructions: capabilities.capabilityInstructions,
       channels: definition?.channels,
       close: capabilities.close,
       context: invocationContext,
@@ -1385,7 +1378,6 @@ async function createAgentInvocationContext<
       providerTools: capabilities.registries.providerTools,
       run: context.run,
       runtimeContext,
-      sourceInstructions,
       startedAt,
       tools,
       workspace: activeWorkspace,

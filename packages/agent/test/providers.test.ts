@@ -17,6 +17,8 @@ vi.mock("@vite-hub/internal/build/deployment-output", () => ({
   writeProviderDeploymentOutputs: vi.fn(async () => undefined),
 }))
 
+vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+
 function githubSignature(secret: string, body: string) {
   return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
 }
@@ -178,7 +180,7 @@ describe("agent Vite plugin", () => {
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(wrapper).toContain("export default async function viteHubAgentNetlifyFunction(request, context)")
-      expect(wrapper).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from \"@vite-hub/agent/server\"")
+      expect(wrapper).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from \"@vite-hub/agent/server/internal\"")
       expect(wrapper).toContain("import { setWorkspaceRuntimeRegistry } from \"@vite-hub/agent/server/workspace\"")
       expect(wrapper).not.toContain("@vite-hub/workspace/internal/runtime/state")
       expect(wrapper).toContain("process.env.VITEHUB_HOSTING = 'netlify'")
@@ -510,7 +512,7 @@ describe("agent Vite plugin", () => {
 
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
 
-      expect(denoServer).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from \"@vite-hub/agent/server\"")
+      expect(denoServer).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from \"@vite-hub/agent/server/internal\"")
       expect(denoServer).not.toContain("import { setWorkspaceRuntimeRegistry } from \"@vite-hub/workspace/runtime\"")
       expect(denoServer).toContain("await import('../schedule/deno-cron.mjs').catch")
       expect(denoServer).toContain("const chatRoutePattern = new RegExp(\"^/api/_vitehub/agents/(?<agent>[^/]+)/chat$\")")
@@ -540,7 +542,6 @@ describe("agent Vite plugin", () => {
         "import { skills } from '@vite-hub/agent/capabilities'",
         "export default defineAgent({",
         "  capabilities: [skills({",
-        "    instructions: false,",
         "    path: 'skills/agent-browser',",
         "    source: { content: '# Browser\\n', workspacePath: 'SKILL.md' },",
         "    sourceKey: 'agentBrowserSkill',",
@@ -613,6 +614,17 @@ describe("agent Vite plugin", () => {
     })
   })
 
+  it("publishes the internal generated Agent route handler subpath", async () => {
+    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
+      exports?: Record<string, unknown>
+    }
+
+    expect(pkg.exports?.["./server/internal"]).toEqual({
+      types: "./dist/server/internal.d.ts",
+      import: "./dist/server/internal.js",
+    })
+  })
+
   it("keeps esbuild external in the Agent Vite plugin package build", async () => {
     const config = await readFile(new URL("../vite.config.ts", import.meta.url), "utf8")
     const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
@@ -675,9 +687,9 @@ describe("server helpers", () => {
       const { registerWorkspaceAgent } = await import("../src/server/workspace.ts")
       const { defineWorkspace, file, useWorkspace } = await import("@vite-hub/workspace")
       const agent = defineAgent({
-        async run() {
-          return "ok"
-        },
+        driver: { async run() {
+            return "ok"
+          } },
         workspace: defineWorkspace({
           store: { provider: "memory" },
           sources: {
@@ -722,9 +734,9 @@ describe("server helpers", () => {
         },
       }))
       const agent = defineAgent({
-        async run() {
-          return "ok"
-        },
+        driver: { async run() {
+            return "ok"
+          } },
         workspace: workspaceName,
       })
 
@@ -761,9 +773,9 @@ describe("server helpers", () => {
         },
       }))
       const agent = defineAgent({
-        async run() {
-          return "ok"
-        },
+        driver: { async run() {
+            return "ok"
+          } },
         workspace: { mode: "write", name: workspaceName },
       })
 
@@ -782,7 +794,7 @@ describe("server helpers", () => {
 
   it("serves hosted Chat DevTools state for an explicit agent handler", async () => {
     const { defineAgent, defineAgentInvoker } = await import("../src/index.ts")
-    const { createChannelDevtoolsRouteHandler } = await import("../src/server.ts")
+    const { createChannelDevtoolsRouteHandler } = await import("../src/server/internal.ts")
     const { custom, defineWorkspace } = await import("@vite-hub/workspace")
     const profiles: Array<{ id: string, kind?: string, meta?: Record<string, unknown> }> = [{
       id: "customer:demo:support",
@@ -793,7 +805,7 @@ describe("server helpers", () => {
       invoker: defineAgentInvoker({
         profiles,
       }),
-      run: () => "unused",
+      driver: { run: () => "unused" },
       version: "test-agent",
       workspace: defineWorkspace({
         store: { provider: "memory" },
@@ -872,7 +884,7 @@ describe("server helpers", () => {
   it("serves AI SDK UI message chat requests through the chat trigger", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { createChannelChatRouteHandler } = await import("../src/server.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const resolveInvoker = vi.fn(({ defaultInvoker, request }) => ({
       id: `customer:${request.headers.get("x-customer")}`,
       kind: "customer",
@@ -888,7 +900,9 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [chat()],
       invoker: { resolve: resolveInvoker },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelChatRouteHandler(agent as never)
 
@@ -929,7 +943,7 @@ describe("server helpers", () => {
   it("serves stream Channel chat routes with channel-owned trusted input mapping", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { stream } = await import("../src/channels.ts")
-    const { createChannelChatRouteHandler } = await import("../src/server.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const run = vi.fn(({ context, invoker, run }) => {
       const chatContext = context.get("chat") as { meta?: { audience?: string }, user?: { email?: string } } | undefined
       return `portal ${run.channelId} ${run.origin} ${run.threadId} ${invoker.id} ${chatContext?.user?.email} ${chatContext?.meta?.audience}`
@@ -959,7 +973,9 @@ describe("server helpers", () => {
           meta: { scope: "acme" },
         }],
       },
-      run,
+      driver: {
+        run
+      },
     }) as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -989,7 +1005,7 @@ describe("server helpers", () => {
   it("serves webChat routes with admission callbacks", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
-    const { createChannelChatRouteHandler } = await import("../src/server.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     type PortalBody = {
       id?: string
       messages: unknown[]
@@ -1041,7 +1057,9 @@ describe("server helpers", () => {
           meta: { scope: "acme" },
         }],
       },
-      run,
+      driver: {
+        run
+      },
     }) as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -1114,10 +1132,10 @@ describe("server helpers", () => {
   it("returns a validation error for malformed AI SDK chat requests", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { createChannelChatRouteHandler } = await import("../src/server.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const handler = createChannelChatRouteHandler(defineAgent({
       capabilities: [chat()],
-      run: () => "unused",
+      driver: { run: () => "unused" },
     }) as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -1134,10 +1152,106 @@ describe("server helpers", () => {
   it("rejects client-provided identity on generated AI SDK chat routes", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { createChannelChatRouteHandler } = await import("../src/server.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const handler = createChannelChatRouteHandler(defineAgent({
       capabilities: [chat()],
-      run: () => "unused",
+      driver: { run: () => "unused" },
+    }) as never)
+
+    const protectedFields = {
+      invoker: { id: "spoofed" },
+      invokerProfileId: "customer:acme",
+      meta: { customer: "acme" },
+      run: { origin: "portal" },
+      session: { id: "portal-session" },
+      user: { id: "spoofed" },
+    }
+
+    for (const [field, value] of Object.entries(protectedFields)) {
+      const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+        body: JSON.stringify({
+          messages: [{
+            id: "user-1",
+            parts: [{ text: "hello", type: "text" }],
+            role: "user",
+          }],
+          [field]: value,
+        }),
+        method: "POST",
+      }))
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toMatchObject({
+        error: "Agent chat route identity must be derived server-side with defineAgent({ invoker }).",
+      })
+    }
+  })
+
+  it("copies trusted webChat route input after admission", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const authenticate = vi.fn(({ request }) => request.headers.get("x-quiver-chat-token") === "trusted" ? true : false)
+    const run = vi.fn(({ context, invoker, run }) => {
+      const chatContext = context.get("chat") as { meta?: { audience?: string }, session?: { id?: string }, user?: { email?: string } } | undefined
+      return `trusted ${run.channelId} ${run.origin} ${run.threadId} ${invoker.id} ${chatContext?.user?.email} ${chatContext?.meta?.audience} ${chatContext?.session?.id}`
+    })
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: {
+        portal: webChat({
+          route: {
+            admission: { authenticate },
+            input: { trust: ["meta", "user", "session"] },
+          },
+        }),
+      },
+      driver: { run },
+    }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        id: "portal-thread",
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+        meta: { audience: "technical", customer: "acme" },
+        run: { origin: "spoofed" },
+        session: { id: "portal-session" },
+        user: { email: "user@example.com" },
+      }),
+      headers: {
+        "content-type": "application/json",
+        "x-quiver-chat-token": "trusted",
+      },
+      method: "POST",
+    }), { agentName: "support" })
+
+    expect(response.status).toBe(200)
+    await expect(response.text()).resolves.toContain("trusted portal web-chat portal:portal-thread web-chat:user@example.com user@example.com technical portal-session")
+    expect(authenticate).toHaveBeenCalled()
+    expect(run).toHaveBeenCalled()
+  })
+
+  it("does not copy untrusted session input after admission", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const run = vi.fn(({ context }) => {
+      const chatContext = context.get("chat") as { meta?: { audience?: string }, session?: { id?: string }, user?: { email?: string } } | undefined
+      return `trusted ${chatContext?.user?.email} ${chatContext?.meta?.audience} ${chatContext?.session?.id ?? "no-session"}`
+    })
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: {
+        portal: webChat({
+          route: {
+            admission: { authenticate: () => true },
+            input: { trust: ["meta", "user"] },
+          },
+        }),
+      },
+      driver: { run },
     }) as never)
 
     const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -1147,10 +1261,89 @@ describe("server helpers", () => {
           parts: [{ text: "hello", type: "text" }],
           role: "user",
         }],
-        user: { id: "spoofed" },
+        meta: { audience: "technical" },
+        session: { id: "portal-session" },
+        user: { email: "user@example.com" },
       }),
       method: "POST",
-    }))
+    }), { agentName: "support" })
+
+    expect(response.status).toBe(200)
+    await expect(response.text()).resolves.toContain("trusted user@example.com technical no-session")
+  })
+
+  it("keeps admission context authoritative over trusted route input", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const run = vi.fn(({ context }) => {
+      const chatContext = context.get("chat") as { meta?: { audience?: string, customer?: string } } | undefined
+      return `trusted ${chatContext?.meta?.customer} ${chatContext?.meta?.audience}`
+    })
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: {
+        portal: webChat({
+          route: {
+            admission: {
+              authenticate: () => ({ customer: "server-customer" }),
+              context({ auth, input }) {
+                return {
+                  meta: {
+                    ...input.meta,
+                    customer: auth.customer,
+                  },
+                }
+              },
+            },
+            input: { trust: ["meta"] },
+          },
+        }),
+      },
+      driver: { run },
+    }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+        meta: { audience: "technical", customer: "body-customer" },
+      }),
+      method: "POST",
+    }), { agentName: "support" })
+
+    expect(response.status).toBe(200)
+    await expect(response.text()).resolves.toContain("trusted server-customer technical")
+  })
+
+  it("does not trust route input without admission authentication", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: {
+        portal: webChat({
+          route: {
+            input: { trust: ["meta"] },
+          },
+        }),
+      },
+      driver: { run: () => "unused" },
+    }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+        meta: { customer: "acme" },
+      }),
+      method: "POST",
+    }), { agentName: "support" })
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toMatchObject({
@@ -1161,7 +1354,7 @@ describe("server helpers", () => {
   it("maps trusted AI SDK chat route input before invoking the chat trigger", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { createChannelChatRouteHandler } = await import("../src/server.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const run = vi.fn(({ context, invoker, run }) => {
       const chatContext = context.get("chat") as { meta?: { audience?: string }, user?: { email?: string } } | undefined
       return `portal ${run.origin} ${invoker.id} ${invoker.meta.scope} ${chatContext?.user?.email} ${chatContext?.meta?.audience}`
@@ -1175,7 +1368,9 @@ describe("server helpers", () => {
           meta: { scope: "acme" },
         }],
       },
-      run,
+      driver: {
+        run
+      },
     }) as never, {
       mapInput({ body, request }) {
         if (request.headers.get("x-quiver-chat-token") !== "trusted") {
@@ -1217,7 +1412,7 @@ describe("server helpers", () => {
   it("handles Chat SDK webhooks through the chat capability", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { access, chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const admitChat = vi.fn(({ invoker }) => invoker?.id === "customer:acme")
     const invokerResolve = vi.fn(({ defaultInvoker }) => {
@@ -1273,7 +1468,9 @@ describe("server helpers", () => {
       invoker: {
         resolve: invokerResolve,
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1359,7 +1556,7 @@ describe("server helpers", () => {
   it("routes channel webhook custom ids through the channel adapter", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { http } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(({ messages }) => {
       const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
@@ -1372,7 +1569,9 @@ describe("server helpers", () => {
           webhooks: { id: "custom-support" },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1404,7 +1603,7 @@ describe("server helpers", () => {
   it("rejects unsigned chat channel webhooks before adapter dispatch", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { http } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(() => "unexpected")
     const agent = defineAgent({
@@ -1414,7 +1613,9 @@ describe("server helpers", () => {
           webhooks: { id: "custom-support", secretHeader: "x-test-secret", secretToken: "secret-token" },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1432,7 +1633,7 @@ describe("server helpers", () => {
   it("fails closed when generated chat webhook secrets resolve empty", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { http } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(() => "unexpected")
     const agent = defineAgent({
@@ -1442,7 +1643,9 @@ describe("server helpers", () => {
           webhooks: { id: "custom-support", secretHeader: "x-test-secret", secretToken: () => "" },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1460,7 +1663,7 @@ describe("server helpers", () => {
   it("uses Telegram secret header defaults for generated chat webhooks", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(() => "unexpected")
     const agent = defineAgent({
@@ -1470,7 +1673,9 @@ describe("server helpers", () => {
           webhooks: { secretToken: "secret-token" },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1488,7 +1693,7 @@ describe("server helpers", () => {
   it("rejects generated GitHub webhooks without configured secrets", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const run = vi.fn(() => "unexpected")
     const agent = defineAgent({
       channels: {
@@ -1496,7 +1701,9 @@ describe("server helpers", () => {
           triggers: { webhook: { invoke: () => ({ input: { prompt: "github delivery" } }) } },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1513,7 +1720,7 @@ describe("server helpers", () => {
   it("handles signed GitHub channel webhooks without a chat adapter", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const triggerInputs: unknown[] = []
     const run = vi.fn(({ input, run }) => ({
       raw: { context: input.context, run },
@@ -1544,7 +1751,9 @@ describe("server helpers", () => {
           webhooks: { path: "/api/github/webhook", secretToken: "secret-token" },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
     const payload = {
@@ -1622,7 +1831,7 @@ describe("server helpers", () => {
   it("handles direct single-agent GitHub channel webhook routes", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const run = vi.fn(() => "accepted")
     const agent = defineAgent({
       channels: {
@@ -1635,7 +1844,9 @@ describe("server helpers", () => {
           webhooks: { secretToken: "secret-token" },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
     const body = JSON.stringify({ action: "opened" })
@@ -1658,7 +1869,7 @@ describe("server helpers", () => {
   it("lets signed GitHub channel webhooks return a handled response without running the agent", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const triggerInputs: unknown[] = []
     const run = vi.fn(() => "unexpected")
     const agent = defineAgent({
@@ -1675,7 +1886,9 @@ describe("server helpers", () => {
           webhooks: { path: "/api/github/webhook", secretToken: "secret-token" },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
     const body = JSON.stringify({
@@ -1718,7 +1931,7 @@ describe("server helpers", () => {
   it("does not route channel webhook arrays by unsuffixed channel id", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { http } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const agent = defineAgent({
       channels: {
         support: http({
@@ -1729,7 +1942,7 @@ describe("server helpers", () => {
           ],
         }),
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1745,14 +1958,16 @@ describe("server helpers", () => {
   it("does not route ambiguous provider webhook selectors", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { http } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
       channels: {
         sales: http({ adapter: () => createTestChatAdapter() as never, webhooks: { id: "sales-hook" } }),
         support: http({ adapter: () => createTestChatAdapter() as never, webhooks: { id: "support-hook" } }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1769,7 +1984,7 @@ describe("server helpers", () => {
   it("does not route ambiguous webhook paths", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const run = vi.fn(() => "unexpected")
     const agent = defineAgent({
       channels: {
@@ -1782,7 +1997,9 @@ describe("server helpers", () => {
           webhooks: { id: "fallback", path: "/api/github/webhook", secretToken: false },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1799,7 +2016,7 @@ describe("server helpers", () => {
   it("uses channel ids for same-kind channel webhook state", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { http } = await import("../src/channels.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const prefixes: string[] = []
     const agent = defineAgent({
       channels: {
@@ -1812,7 +2029,7 @@ describe("server helpers", () => {
           return undefined as never
         },
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
     const request = (webhook: string) => new Request(`https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`, {
@@ -1835,7 +2052,7 @@ describe("server helpers", () => {
   it("does not block chat webhook handling on typing status", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     adapter.startTyping.mockImplementation(() => new Promise(() => {}))
     const agent = defineAgent({
@@ -1849,7 +2066,7 @@ describe("server helpers", () => {
           },
         }),
       ],
-      run: () => ({ text: "ok" }),
+      driver: { run: () => ({ text: "ok" }) },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1881,7 +2098,7 @@ describe("server helpers", () => {
     vi.useFakeTimers()
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     let runStarted!: () => void
     let finishRun: () => void = () => {}
@@ -1903,11 +2120,11 @@ describe("server helpers", () => {
           },
         }),
       ],
-      run: async () => {
-        runStarted()
-        await finishRunPromise
-        return "ok"
-      },
+      driver: { run: async () => {
+          runStarted()
+          await finishRunPromise
+          return "ok"
+        } },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -1950,7 +2167,7 @@ describe("server helpers", () => {
     vi.useFakeTimers()
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     let runStarted!: () => void
     let finishRun: () => void = () => {}
@@ -1989,11 +2206,11 @@ describe("server helpers", () => {
           },
         }),
       ],
-      run: async () => {
-        runStarted()
-        await finishRunPromise
-        return "ok"
-      },
+      driver: { run: async () => {
+          runStarted()
+          await finishRunPromise
+          return "ok"
+        } },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2051,7 +2268,7 @@ describe("server helpers", () => {
   it("posts configured chat fallback while streamed webhook work is still running", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     let runStarted!: () => void
     let finishRun!: () => void
@@ -2073,11 +2290,11 @@ describe("server helpers", () => {
           },
         }),
       ],
-      run: async () => {
-        runStarted()
-        await finishRunPromise
-        return "done"
-      },
+      driver: { run: async () => {
+          runStarted()
+          await finishRunPromise
+          return "done"
+        } },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2112,11 +2329,79 @@ describe("server helpers", () => {
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "done" })
   })
 
+  it("posts a random chat fallback option while streamed webhook work is still running", async () => {
+    const random = vi.spyOn(Math, "random").mockReturnValue(0.75)
+    try {
+      const { defineAgent } = await import("../src/index.ts")
+      const { chat } = await import("../src/capabilities.ts")
+      const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+      const adapter = createTestChatAdapter()
+      let runStarted!: () => void
+      let finishRun!: () => void
+      const runStartedPromise = new Promise<void>(resolve => {
+        runStarted = resolve
+      })
+      const finishRunPromise = new Promise<void>(resolve => {
+        finishRun = resolve
+      })
+      const agent = defineAgent({
+        capabilities: [
+          chat({
+            platforms: {
+              telegram: () => adapter as never,
+            },
+            fallbackStreamingPlaceholderText: ["Working on it...", "Checking context..."],
+            webhooks: {
+              telegram: {},
+            },
+          }),
+        ],
+        driver: {
+          run: async () => {
+            runStarted()
+            await finishRunPromise
+            return "done"
+          },
+        },
+      })
+      const handler = createChannelWebhookRouteHandler(agent as never)
+
+      const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 1048,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 1048,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      }), "telegram")
+
+      await runStartedPromise
+      await Promise.resolve()
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Checking context...")
+      expect(adapter.editMessage).not.toHaveBeenCalled()
+
+      finishRun()
+      const response = await responsePromise
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "done" })
+    }
+    finally {
+      random.mockRestore()
+    }
+  })
+
   it("activates Cloudflare env while webhook work runs", async () => {
     const { getActiveCloudflareEnv } = await import("@vite-hub/internal/runtime/cloudflare-env")
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const agent = defineAgent({
       capabilities: [
@@ -2129,7 +2414,7 @@ describe("server helpers", () => {
           },
         }),
       ],
-      run: () => String(getActiveCloudflareEnv()?.OPENAI_API_KEY),
+      driver: { run: () => String(getActiveCloudflareEnv()?.OPENAI_API_KEY) },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2163,7 +2448,7 @@ describe("server helpers", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter({ deferMessageProcessing: true })
     const waitUntilTasks: Promise<unknown>[] = []
     const agent = defineAgent({
@@ -2178,9 +2463,9 @@ describe("server helpers", () => {
           },
         }),
       ],
-      run: () => {
-        throw new Error("transcription failed")
-      },
+      driver: { run: () => {
+          throw new Error("transcription failed")
+        } },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2218,7 +2503,7 @@ describe("server helpers", () => {
 
   it("lets chat webhooks opt out of streaming model execution", async () => {
     const { chat } = await import("../src/capabilities.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const model = {
       generate: vi.fn(async () => ({ finishReason: "stop", text: "generated ok" })),
@@ -2268,7 +2553,7 @@ describe("server helpers", () => {
   it("runs non-streaming chat webhooks inline for workflow-backed agents", async () => {
     const { workflow } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
     const adapter = createTestChatAdapter()
     const model = {
@@ -2322,7 +2607,7 @@ describe("server helpers", () => {
 
   it("lets agent finish hooks post usage telemetry for non-streaming model chat webhooks", async () => {
     const { chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const finish = vi.fn(async (event) => {
       const chat = event.extensions.get("chat") as { provider?: string, sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
@@ -2426,7 +2711,7 @@ describe("server helpers", () => {
   it("exposes chat sendMessage to agent finish hooks for chat webhooks", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const finish = vi.fn(async (event) => {
       const chat = event.extensions.get("chat") as { provider?: string, sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
@@ -2447,7 +2732,7 @@ describe("server helpers", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({ text: "agent answer" }),
+      driver: { run: () => ({ text: "agent answer" }) },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2475,7 +2760,7 @@ describe("server helpers", () => {
   it("commits native streamed chat responses before flushing finish hook messages", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const order: string[] = []
     let streamConsumed!: () => void
@@ -2524,7 +2809,7 @@ describe("server helpers", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({ text: "agent answer" }),
+      driver: { run: () => ({ text: "agent answer" }) },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2579,7 +2864,7 @@ describe("server helpers", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
       let text = ""
@@ -2610,7 +2895,7 @@ describe("server helpers", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({ text: "agent `answer`" }),
+      driver: { run: () => ({ text: "agent `answer`" }) },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2645,7 +2930,7 @@ describe("server helpers", () => {
   it("flushes deferred non-streaming chat webhook work before returning", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat, usageTelemetry } = await import("../src/capabilities.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter({ deferMessageProcessing: true })
     adapter.startTyping.mockImplementation(() => new Promise(() => {}))
     let runStarted!: () => void
@@ -2690,7 +2975,9 @@ describe("server helpers", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2729,7 +3016,7 @@ describe("server helpers", () => {
   it("lets agent finish hooks compose usage telemetry and chat follow-up messages", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { access, chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const finish = vi.fn(async (event) => {
       const chat = event.extensions.get("chat") as { provider?: string, sendMessage?: (message: { markdown: string }) => Promise<void> } | undefined
@@ -2767,16 +3054,16 @@ describe("server helpers", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({
-        response: {
-          modelId: "openai/gpt-test",
-        },
-        text: "ok",
-        usage: {
-          inputTokens: 10,
-          outputTokens: 5,
-        },
-      }),
+      driver: { run: () => ({
+          response: {
+            modelId: "openai/gpt-test",
+          },
+          text: "ok",
+          usage: {
+            inputTokens: 10,
+            outputTokens: 5,
+          },
+        }) },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2816,7 +3103,7 @@ describe("server helpers", () => {
   it("lets access() reject app-specific chat invokers", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { access, chat } = await import("../src/capabilities.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(() => "unused")
     const agent = defineAgent({
@@ -2833,7 +3120,9 @@ describe("server helpers", () => {
           },
         }),
       ],
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 
@@ -2859,7 +3148,7 @@ describe("server helpers", () => {
   it("returns Chat SDK adapter webhook responses", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
-    const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter({ secret: "secret" })
     const run = vi.fn(() => "unused")
     const agent = defineAgent({
@@ -2870,7 +3159,9 @@ describe("server helpers", () => {
           },
         }),
       ],
-      run,
+      driver: {
+        run
+      },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
 

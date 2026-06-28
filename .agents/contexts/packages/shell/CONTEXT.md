@@ -89,8 +89,8 @@ _Avoid_: Cloudflare runtime lifecycle, Shell Runtime
 - Controlled network requests are validated by the executing network command against **Shell Network Grants**, not by reconstructing request semantics from **Command Analysis**.
 - Controlled network commands use normal command syntax while the provider validates the resulting request against **Shell Network Grants**.
 - Controlled network commands may accept normal request body flags when the resulting request validates against **Shell Network Grants**.
-- Model-facing guidance for controlled network commands belongs to the Agent/Capability composition surface and should reuse Capability instruction slot templating.
-- The **Shell Package** may expose the command/tool surface facts needed for that guidance, but it does not own a separate prompt template system.
+- Model-facing guidance for controlled network commands belongs in Agent Driver Instructions or structured tool contracts, with **Capability Instruction Coverage** marking any `workspaceShell()`-specific prose.
+- The **Shell Package** may expose the command/tool surface facts needed for that guidance, but it does not own a separate prompt template system or instruction slot.
 - An **Execution Provider** backs a Shell Runtime without defining the Shell Package's public concept.
 - The **Just Bash Provider** is the first built-in Execution Provider.
 - The **Cloudflare Provider** is a thin built-in Execution Provider.
@@ -125,5 +125,5 @@ _Avoid_: Cloudflare runtime lifecycle, Shell Runtime
 - Workspace-level `curl` interception was considered - resolved: implement controlled network command behavior in **Execution Providers**, using Workspace only to supply grants and metadata.
 - Parser-enforced `curl` policy was considered - resolved: **Command Analysis** may route or flag commands, but network request enforcement belongs to the executing provider command.
 - Custom `curl`-like syntax was considered - resolved: controlled network commands use normal command syntax, with provider-owned validation of the resulting HTTP request.
-- A Shell-owned prompt template for controlled network commands was considered - resolved: reuse Agent Capability instruction slots so `workspaceShell()` guidance can be placed with existing templating.
+- A Shell-owned prompt template for controlled network commands was considered - resolved: use Agent Driver Instructions plus **Capability Instruction Coverage** for `workspaceShell()` guidance, while Shell exposes structured tool/runtime facts.
 - Disallowing normal `curl` body flags was considered - resolved: allow normal body flags when the resulting request validates against **Shell Network Grants**.

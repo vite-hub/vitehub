@@ -111,7 +111,7 @@ describe("chatSummary", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: ({ messages }) => ({ text: getMessageText(messages.at(-1)!) }),
+      driver: { run: ({ messages }) => ({ text: getMessageText(messages.at(-1)!) }), },
     })
 
     await expect(runAgent(agent, runtime(), {
@@ -145,7 +145,7 @@ describe("chatSummary", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: ({ messages }) => ({ text: getMessageText(messages.at(-1)!) }),
+      driver: { run: ({ messages }) => ({ text: getMessageText(messages.at(-1)!) }), },
     })
 
     await runAgent(agent, runtime(), {
@@ -169,7 +169,7 @@ describe("chatSummary", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({ text: "ok" }),
+      driver: { run: () => ({ text: "ok" }), },
     })
 
     await runAgent(agent, runtime(), {
@@ -189,7 +189,7 @@ describe("chatSummary", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({ text: "ok" }),
+      driver: { run: () => ({ text: "ok" }), },
     })
 
     await runAgent(agent, runtime(), {
@@ -209,7 +209,7 @@ describe("chatSummary", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({ text: "ok" }),
+      driver: { run: () => ({ text: "ok" }), },
     })
 
     await runAgent(agent, runtime(), {

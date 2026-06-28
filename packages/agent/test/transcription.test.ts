@@ -160,15 +160,15 @@ describe("agent transcription", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run(context) {
-        const latest = context.messages.at(-1)
-        return {
-          text: latest?.parts
-            .filter(part => part.type === "text")
-            .map(part => part.text)
-            .join(""),
-        }
-      },
+      driver: { run(context) {
+          const latest = context.messages.at(-1)
+          return {
+            text: latest?.parts
+              .filter(part => part.type === "text")
+              .map(part => part.text)
+              .join(""),
+          }
+        } },
     })
 
     await expect(runAgent(agent, runtime(), {
@@ -198,15 +198,15 @@ describe("agent transcription", () => {
       capabilities: [
         transcribe(createOptions),
       ],
-      run(context) {
-        const latest = context.messages.at(-1)
-        return {
-          text: latest?.parts
-            .filter(part => part.type === "text")
-            .map(part => part.text)
-            .join(""),
-        }
-      },
+      driver: { run(context) {
+          const latest = context.messages.at(-1)
+          return {
+            text: latest?.parts
+              .filter(part => part.type === "text")
+              .map(part => part.text)
+              .join(""),
+          }
+        } },
     })
 
     await expect(runAgent(agent, runtime(), {
@@ -229,9 +229,9 @@ describe("agent transcription", () => {
       capabilities: [
         transcribe(() => ({ artifacts: { transcript: {} }, execute })),
       ],
-      run() {
-        return { text: "done" }
-      },
+      driver: { run() {
+          return { text: "done" }
+        } },
     })
 
     await expect(runAgent(agent, runtime(), {
@@ -250,15 +250,15 @@ describe("agent transcription", () => {
       capabilities: [
         transcribe({ execute: vi.fn(async () => "review this") }),
       ],
-      run(context) {
-        const latest = context.messages.at(-1)
-        return {
-          text: latest?.parts
-            .filter(part => part.type === "text")
-            .map(part => part.text)
-            .join(""),
-        }
-      },
+      driver: { run(context) {
+          const latest = context.messages.at(-1)
+          return {
+            text: latest?.parts
+              .filter(part => part.type === "text")
+              .map(part => part.text)
+              .join(""),
+          }
+        } },
     })
 
     await expect(runAgent(agent, runtime(), {
