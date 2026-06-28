@@ -80,8 +80,11 @@ export function workspaceSourceScopePaths(
   runtime: Pick<typeof import("@vite-hub/workspace"), "isWorkspaceSourceRequestOnly" | "workspaceSourceRequestDescriptorPath">,
 ): string[] {
   const metadata = normalizeAgentWorkspaceSource(key, input)
-  const descriptorPath = runtime.workspaceSourceRequestDescriptorPath(key)
+  const descriptorPath = safeWorkspaceSourceRequestDescriptorPath(runtime, key)
   if (metadata.source && runtime.isWorkspaceSourceRequestOnly(metadata.source)) {
+    if (!descriptorPath) {
+      throw new Error(`[vitehub] Workspace Scope source grant "${key}" is request-only without a Source Request descriptor.`)
+    }
     return [descriptorPath]
   }
   const probePaths = metadata.probeKeys?.map(sourcePath => joinSourcePath(metadata.mountPath, sourcePath)).filter(Boolean) || []
@@ -89,7 +92,19 @@ export function workspaceSourceScopePaths(
   if (!paths.length) {
     throw new Error(`[vitehub] Workspace Scope source grant "${key}" is root-mounted; grant explicit paths instead.`)
   }
-  return [...paths, descriptorPath]
+  return descriptorPath ? [...paths, descriptorPath] : paths
+}
+
+function safeWorkspaceSourceRequestDescriptorPath(
+  runtime: Pick<typeof import("@vite-hub/workspace"), "workspaceSourceRequestDescriptorPath">,
+  key: string,
+): string | undefined {
+  try {
+    return runtime.workspaceSourceRequestDescriptorPath(key)
+  }
+  catch {
+    return undefined
+  }
 }
 
 function describeWorkspaceSourceInput(input: WorkspaceSourceInput): WorkspaceSourceMetadataDescriptor {

@@ -349,7 +349,7 @@ type WorkspaceSourceNames<TWorkspace> =
 type WorkspaceSourceScopeOptionNames<TSource> =
   TSource extends { __vitehubWorkspaceSourceScopeNames?: infer TScopes }
     ? NonNullable<TScopes> extends readonly (infer TScope)[]
-      ? Extract<TScope, string>
+      ? string extends TScope ? never : Extract<TScope, string>
       : never
     : "scopes" extends keyof TSource
     ? TSource extends { scopes?: infer TScopes }
@@ -405,7 +405,9 @@ type CapabilityWorkspaceScopeNames<TCapability> =
     ? (TTypeContract extends { workspaceScopes: infer TScopeName }
           ? Extract<TScopeName, string>
           : AgentCapabilityTypeContract extends TTypeContract
-            ? string
+            ? TCapability extends { id: infer TCapabilityId }
+              ? string extends TCapabilityId ? string : never
+              : never
             : never)
         | (TCapability extends { capabilities: infer TNestedCapabilities }
             ? AgentCapabilitiesWorkspaceScopeNames<TNestedCapabilities>

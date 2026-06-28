@@ -906,6 +906,42 @@ describe("access capability", () => {
     })
     await sourceScoped.workspace!.fs.materializeSources?.()
     expect(calls).toEqual([{ path: "ingestion/acme", sources: ["acme"] }])
+
+    calls.length = 0
+    const multiProbeScoped = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: {
+              grants: [{ source: "reports" }],
+              scope: "support",
+            },
+          },
+        }),
+      ],
+    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, workspace, "read", {
+      workspaceDefinition: {
+        name: "support",
+        sources: {
+          reports: custom({
+            materialize: "lazy",
+            mount: "",
+            probeKeys: ["a.md", "b.md"],
+            async getKeys() {
+              return []
+            },
+            async getItem(key) {
+              return { key, content: "" }
+            },
+          }),
+        },
+      },
+    })
+    await multiProbeScoped.workspace!.fs.materializeSources?.()
+    expect(calls).toEqual([
+      { path: "a.md", sources: ["reports"] },
+      { path: "b.md", sources: ["reports"] },
+    ])
   })
 
   it("omits resolved Source Instructions when the resolved source is outside access scope", async () => {
@@ -1145,6 +1181,15 @@ describe("access capability", () => {
     expect(workspaceSourceScopePaths("docs", file({ path: "README.md", mount: "docs", scopes: ["support"] }), workspaceRuntime)).toEqual([
       "docs/README.md",
       ".vitehub/sources/docs.json",
+    ])
+  })
+
+  it("does not derive descriptor paths for non-request path-keyed sources", async () => {
+    const { workspaceSourceScopePaths } = await import("../src/workspace-source-metadata.ts")
+    const workspaceRuntime = await import("@vite-hub/workspace")
+
+    expect(workspaceSourceScopePaths("customers/acme", { scopes: ["support"] } as never, workspaceRuntime)).toEqual([
+      "customers/acme",
     ])
   })
 

@@ -557,8 +557,7 @@ function scopeMaterializeGrants(
     })
   }
   const addSource = (source: string) => {
-    const path = sourceMaterializePath(source, workspaceDefinition, workspaceRuntime)
-    if (path !== undefined) add(path, [source])
+    for (const path of sourceMaterializePaths(source, workspaceDefinition, workspaceRuntime)) add(path, [source])
   }
   for (const path of normalizeStringList(definition.path, definition.paths)) add(path)
   for (const source of normalizeStringList(definition.source, definition.sources)) addSource(source)
@@ -596,13 +595,12 @@ function sourcePaths(
   return sources.flatMap(source => sourceScopePaths(source, workspaceDefinition, workspaceRuntime))
 }
 
-function sourceMaterializePath(
+function sourceMaterializePaths(
   source: string,
   workspaceDefinition: WorkspaceDefinition | undefined,
   workspaceRuntime: WorkspaceAccessRuntime,
-): string | undefined {
-  const paths = sourceScopePaths(source, workspaceDefinition, workspaceRuntime).filter(path => !path.startsWith(".vitehub/sources/"))
-  return paths[0]
+): string[] {
+  return sourceScopePaths(source, workspaceDefinition, workspaceRuntime).filter(path => !path.startsWith(".vitehub/sources/"))
 }
 
 function sourceScopePaths(

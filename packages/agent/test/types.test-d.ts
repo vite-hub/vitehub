@@ -979,12 +979,11 @@ describe("agent public types", () => {
       model: {} as never,
     })
 
-    // @ts-expect-error typed fetch response generics do not disable Workspace Source scope checks
     defineAgent({
       workspace: {
         sources: {
           status: fetchSource<{ status: string }>({
-            scopes: ["missing"] as const,
+            scopes: ["customer"] as const,
             url: "https://status.example.com/api/summary",
             workspacePath: "status/summary.json",
           }),
@@ -999,6 +998,19 @@ describe("agent public types", () => {
             },
           },
         }),
+      ],
+      model: {} as never,
+    })
+
+    // @ts-expect-error concrete custom capabilities do not satisfy Workspace Source scopes
+    defineAgent({
+      workspace: {
+        sources: {
+          docs: githubSource({ repo: "acme/docs", scopes: ["customer"] as const }),
+        },
+      },
+      capabilities: [
+        defineCapability({ id: "audit" }),
       ],
       model: {} as never,
     })
