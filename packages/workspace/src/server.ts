@@ -48,12 +48,21 @@ export interface WorkspaceDevCommandInput<Name extends WorkspaceName = Workspace
   workspace: Name | WritableWorkspaceFacade<Name> | (ReadonlyWorkspaceFacade<Name> & { fs: ReadonlyWorkspaceFacade<Name>["fs"] & Partial<WorkspaceSessionStarter> })
 }
 
-const workspaceDevTokenFile = ".vitehub/dev-token"
 const workspaceDevTokens = new Map<string, string>()
 
-async function workspaceDevTokenPath(rootDir: string): Promise<string> {
-  const { join } = await import("node:path")
-  return join(rootDir, workspaceDevTokenFile)
+async function workspaceDevTokenRoot(rootDir: string): Promise<{ file: string, key: string, legacyFile: string }> {
+  const [{ createHash }, { tmpdir }, { join, resolve }] = await Promise.all([
+    import("node:crypto"),
+    import("node:os"),
+    import("node:path"),
+  ])
+  const resolvedRoot = resolve(rootDir)
+  const key = createHash("sha256").update(resolvedRoot).digest("hex")
+  return {
+    file: join(tmpdir(), "vitehub-workspace-dev", key, "dev-token"),
+    key,
+    legacyFile: join(resolvedRoot, ".vitehub", "dev-token"),
+  }
 }
 
 function headerValue(headers: Headers | Record<string, string | string[] | undefined>, name: string): string | undefined {
@@ -70,26 +79,28 @@ function randomToken(): string {
 
 export async function refreshWorkspaceDevToken(rootDir: string): Promise<string> {
   const token = randomToken()
-  workspaceDevTokens.set(rootDir, token)
-  const [{ mkdir, writeFile }, { dirname }] = await Promise.all([
+  const tokenRoot = await workspaceDevTokenRoot(rootDir)
+  workspaceDevTokens.set(tokenRoot.key, token)
+  const [{ mkdir, rm, writeFile }, { dirname }] = await Promise.all([
     import("node:fs/promises"),
     import("node:path"),
   ])
-  const file = await workspaceDevTokenPath(rootDir)
-  await mkdir(dirname(file), { recursive: true })
+  const file = tokenRoot.file
+  await mkdir(dirname(file), { mode: 0o700, recursive: true })
+  await rm(tokenRoot.legacyFile, { force: true })
   await writeFile(file, `${token}\n`, { mode: 0o600 })
   return token
 }
 
 export async function ensureWorkspaceDevToken(rootDir: string): Promise<string> {
-  const existing = workspaceDevTokens.get(rootDir)
+  const existing = workspaceDevTokens.get((await workspaceDevTokenRoot(rootDir)).key)
   return existing || await refreshWorkspaceDevToken(rootDir)
 }
 
 export async function readWorkspaceDevToken(rootDir: string): Promise<string | undefined> {
   try {
     const { readFile } = await import("node:fs/promises")
-    const token = (await readFile(await workspaceDevTokenPath(rootDir), "utf8")).trim()
+    const token = (await readFile((await workspaceDevTokenRoot(rootDir)).file, "utf8")).trim()
     return token || undefined
   }
   catch (error) {
