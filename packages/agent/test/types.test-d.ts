@@ -748,6 +748,9 @@ describe("agent public types", () => {
                 }
               },
             },
+            input: {
+              trust: ["meta", "user", "session"],
+            },
           },
         }),
       },
@@ -785,6 +788,17 @@ describe("agent public types", () => {
     type _PublicStream = ChannelExports["stream"]
     type _PublicTelegram = ChannelExports["telegram"]
     type _PublicTeams = ChannelExports["teams"]
+
+    type ServerExports = typeof import("../src/server.ts")
+    // @ts-expect-error generated route handler factories are internal Provider Output plumbing.
+    type _PublicChannelChatRouteHandler = ServerExports["createChannelChatRouteHandler"]
+    // @ts-expect-error generated route handler factories are internal Provider Output plumbing.
+    type _PublicChannelWebhookRouteHandler = ServerExports["createChannelWebhookRouteHandler"]
+    // @ts-expect-error generated route handler factories are internal Provider Output plumbing.
+    type _PublicChannelDevtoolsRouteHandler = ServerExports["createChannelDevtoolsRouteHandler"]
+
+    type InternalServerExports = typeof import("../src/server/internal.ts")
+    type _InternalChannelChatRouteHandler = InternalServerExports["createChannelChatRouteHandler"]
   })
 
   it("types access workspace source grants and chat run context", () => {

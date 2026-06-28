@@ -109,6 +109,11 @@ type AgentChannelChatRouteInputPatch = Omit<Partial<AgentChatMessageTriggerInput
   run?: Partial<AgentRunMetadata>
 }
 
+export type AgentChannelChatRouteTrustedInputField =
+  | "meta"
+  | "session"
+  | "user"
+
 export interface AgentChannelChatRouteContext<TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown>
   extends AgentChannelChatRouteAdmissionContext<TBody> {
   auth: Exclude<TAuth, false>
@@ -124,9 +129,14 @@ export interface AgentChannelChatRouteAdmissionOptions<TBody extends AgentChanne
   context?: (context: AgentChannelChatRouteContext<TBody, TAuth>) => MaybePromise<AgentChannelChatRouteInputPatch | undefined | void>
 }
 
+export interface AgentChannelChatRouteInputOptions {
+  trust?: readonly AgentChannelChatRouteTrustedInputField[]
+}
+
 export interface AgentChannelChatRouteHandlerOptions<TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown> {
   admission?: AgentChannelChatRouteAdmissionOptions<TBody, TAuth>
   channelId?: string
+  input?: AgentChannelChatRouteInputOptions
   mapInput?: (context: AgentChannelChatRouteMapInputContext<TBody, TAuth>) => MaybePromise<AgentChannelChatRouteInputPatch | undefined | void>
   origin?: string
 }
@@ -1561,16 +1571,14 @@ function agentChannelChatRouteInput(
   if (!Array.isArray(body.messages)) {
     throw createRouteBodyError("Agent chat payload requires a messages array.")
   }
-  if (!allowTrustedInput && ("invoker" in body || "invokerProfileId" in body || "meta" in body || "run" in body || "user" in body)) {
+  if (!allowTrustedInput && ("invoker" in body || "invokerProfileId" in body || "meta" in body || "run" in body || "session" in body || "user" in body)) {
     throw createRouteBodyError("Agent chat route identity must be derived server-side with defineAgent({ invoker }).")
   }
   const messages = body.messages as UIMessage[]
-  const session = optionalBodyRecord(body.session, "session") as AgentChatMessageTriggerInput["session"] | undefined
   return {
     ...(body.history !== undefined ? { history: body.history } : {}),
     messages,
     run: createHttpChatRunMetadata(agentName, body, messages, options),
-    ...(session ? { session } : {}),
   }
 }
 
@@ -1612,8 +1620,23 @@ function resolveAgentChannelChatRouteHandlerOptions(
     ...channelOptions,
     ...options,
     admission: options.admission ?? channelOptions?.admission,
+    input: options.input ?? channelOptions?.input,
     mapInput: options.mapInput ?? channelOptions?.mapInput,
   }
+}
+
+function trustAgentChannelChatRouteInput(
+  body: AgentChannelChatRouteBody,
+  options: AgentChannelChatRouteInputOptions | undefined,
+): AgentChannelChatRouteInputPatch | undefined {
+  if (!options?.trust?.length) return undefined
+  const patch: AgentChannelChatRouteInputPatch = {}
+  for (const field of options.trust) {
+    if (field === "meta" && body.meta !== undefined) patch.meta = optionalBodyRecord(body.meta, "meta")
+    else if (field === "session" && body.session !== undefined) patch.session = optionalBodyRecord(body.session, "session") as AgentChatMessageTriggerInput["session"]
+    else if (field === "user" && body.user !== undefined) patch.user = optionalBodyRecord(body.user, "user")
+  }
+  return Object.keys(patch).length ? patch : undefined
 }
 
 function mergeAgentChannelChatRouteInput(
@@ -2025,10 +2048,15 @@ export function createChannelChatRouteHandler(
         await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
         handlerOptions.cloudflare,
       )
-      const baseInput = agentChannelChatRouteInput(body, agentName, Boolean(routeOptions.admission?.context || routeOptions.mapInput), routeOptions)
-      const inputContext = { agentName, auth: auth as never, body, input: baseInput, rawBody: parsed.rawBody, request }
-      const admittedInput = mergeAgentChannelChatRouteInput(
+      const trustInput = Boolean(routeOptions.admission?.authenticate && routeOptions.input?.trust?.length)
+      const baseInput = agentChannelChatRouteInput(body, agentName, Boolean(trustInput || routeOptions.admission?.context || routeOptions.mapInput), routeOptions)
+      const trustedInput = mergeAgentChannelChatRouteInput(
         baseInput,
+        trustInput ? trustAgentChannelChatRouteInput(body, routeOptions.input) : undefined,
+      )
+      const inputContext = { agentName, auth: auth as never, body, input: trustedInput, rawBody: parsed.rawBody, request }
+      const admittedInput = mergeAgentChannelChatRouteInput(
+        trustedInput,
         await routeOptions.admission?.context?.(inputContext),
       )
       const triggerInput = mergeAgentChannelChatRouteInput(

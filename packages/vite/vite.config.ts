@@ -22,6 +22,7 @@ export default defineConfig({
       "src/agent/mcp/stdio.ts",
       "src/agent/runtime/workflow.ts",
       "src/agent/server.ts",
+      "src/agent/server/internal.ts",
       "src/agent/server/workspace.ts",
       "src/agent/state/sqlite.ts",
       "src/blob.ts",
