@@ -507,6 +507,10 @@ export function createHarnessAgentAdapter<
       ...(typeof context.input.timeout === "number" ? { timeout: context.input.timeout } : {}),
     }
     const session = await agent.createSession(Object.keys(sessionOptions).length ? sessionOptions : undefined)
+    if (context.input.abortSignal?.aborted) {
+      await destroySession(session)
+      throw context.input.abortSignal.reason || new Error("[vitehub] Harness Agent Driver session aborted.")
+    }
     const cleanup = async (error?: unknown) => {
       let closeError = error
       try {
