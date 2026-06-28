@@ -368,11 +368,12 @@ function createOpenAPICli<
     if (commands[name]) {
       throw new Error(`[vitehub] OpenAPI operationId "${operation.operationId}" generates duplicate ${cli.name} command "${name}".`)
     }
+    const outputFormat = options.responseType === "text" ? "text" : "json"
     commands[name] = {
       description: operation.description,
       effects: [`http:${operation.method.toLowerCase()}`],
-      examples: [`${cli.name} ${name} --json`],
-      output: { format: options.responseType === "text" ? "text" : "json" },
+      examples: [`${cli.name} ${name}${outputFormat === "json" ? " --json" : ""}`],
+      output: { format: outputFormat },
       run: ({ input }) => executeOpenAPIOperation(operation, baseUrl, options, context, input),
     }
   }

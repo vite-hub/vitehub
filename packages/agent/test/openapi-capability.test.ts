@@ -348,7 +348,7 @@ describe("openapi capability", () => {
       headers: { "content-type": "text/plain" },
       status: 200,
     }))
-    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { applyCapabilityInstructionSlots, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { openapi } = await import("../src/capabilities.ts")
 
     const resolved = await resolveAgentCapabilities({
@@ -361,6 +361,10 @@ describe("openapi capability", () => {
         }),
       ],
     }, runtime(), { prompt: "list" })
+    const instructions = applyCapabilityInstructionSlots("{{ capabilities.openapi }}", resolved.capabilityInstructions)
+
+    expect(instructions).toContain("portal list-customers")
+    expect(instructions).not.toContain("portal list-customers --json")
 
     await expect(resolved.tools?.portal?.execute?.({
       argv: ["list-customers"],

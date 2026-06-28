@@ -1292,12 +1292,13 @@ async function createAgentInvocationContext<
         : undefined
     const agentModel = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
     const driverKind = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentDriverKind]
+    const resolveCapabilityCli = (definition as Record<PropertyKey, unknown> | undefined)?.[capabilityCliRunSurface] === true
     const capabilities = await resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
       context: invocationContext,
       driverKind,
       invoker,
       model: agentModel as never,
-      resolveCapabilityCli: (definition as Record<PropertyKey, unknown> | undefined)?.[capabilityCliRunSurface] === true,
+      resolveCapabilityCli,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
     const inputHook = definition?.hooks?.["agent:input"]
@@ -1326,7 +1327,7 @@ async function createAgentInvocationContext<
         throw error
       }
     }
-    const transformedTools = await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
+    const transformedTools = resolveCapabilityCli ? capabilities.tools : await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
     const tools = Object.keys(transformedTools || {}).length
       ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {}), context.devtools?.reportToolStep)
       : undefined
