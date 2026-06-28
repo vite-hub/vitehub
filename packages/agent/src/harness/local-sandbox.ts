@@ -1,7 +1,7 @@
 import { spawn as spawnChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, isAbsolute, join } from "node:path"
+import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { Readable } from "node:stream"
 import { randomUUID } from "node:crypto"
 
@@ -34,8 +34,34 @@ async function defaultRootDir(sessionId: string | undefined) {
   return await mkdtemp(join(tmpdir(), "vitehub-harness-"))
 }
 
-function resolvePath(session: LocalHarnessSandboxSession, path: string) {
-  return isAbsolute(path) ? path : join(session.defaultWorkingDirectory, path)
+function isInside(root: string, path: string) {
+  const next = relative(root, path)
+  return !next || (!next.startsWith("..") && !isAbsolute(next))
+}
+
+function isRootedPath(path: string) {
+  return isAbsolute(path) || /^[A-Za-z]:/.test(path) || /^[\\/]{2}/.test(path)
+}
+
+function rootRelativeFragment(path: string) {
+  return path
+    .replace(/^[A-Za-z]:[\\/]*/, "")
+    .replace(/^[\\/]+/, "")
+    .replace(/\\/g, "/")
+}
+
+function resolvePath(session: LocalHarnessSandboxSession, path = "") {
+  const root = resolve(session.rootDir)
+  const candidate = isRootedPath(path)
+    ? isAbsolute(path) && isInside(root, resolve(path))
+      ? resolve(path)
+      : resolve(root, rootRelativeFragment(path))
+    : resolve(session.defaultWorkingDirectory, path)
+
+  if (!isInside(root, candidate)) {
+    throw new Error(`[vitehub] Local harness sandbox path escapes the session root: ${path}`)
+  }
+  return candidate
 }
 
 function readableStreamFromBytes(bytes: Uint8Array) {
@@ -71,9 +97,10 @@ function spawnProcess(session: LocalHarnessSandboxSession, options: {
   env?: Record<string, string>
   workingDirectory?: string
 }) {
+  const cwd = resolvePath(session, options.workingDirectory)
   const child = spawnChildProcess(options.command, {
-    cwd: options.workingDirectory || session.defaultWorkingDirectory,
-    env: { ...session.env, ...options.env },
+    cwd,
+    env: { ...session.env, ...options.env, INIT_CWD: cwd, OLDPWD: cwd, PWD: cwd },
     shell: true,
   })
   session.processes.add(child)
@@ -117,7 +144,7 @@ async function collect(stream: ReadableStream<Uint8Array>) {
 async function createSession(options: LocalHarnessSandboxOptions, sessionId: string | undefined): Promise<LocalHarnessSandboxSession> {
   const rootDir = options.rootDir || await defaultRootDir(sessionId)
   await mkdir(rootDir, { recursive: true })
-  const env = stringEnv(options.env || process.env)
+  const env = { ...stringEnv(options.env || process.env), INIT_CWD: rootDir, OLDPWD: rootDir, PWD: rootDir }
   const session = {
     cleanup: options.cleanup ?? !options.rootDir,
     defaultWorkingDirectory: rootDir,
