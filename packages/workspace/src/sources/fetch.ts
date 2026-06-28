@@ -46,7 +46,11 @@ export interface FetchSourceStandardJsonSchemaV1<T = unknown> extends FetchSourc
   }
 }
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "sync">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "probeKeys" | "scopes" | "sync">
+type SourceScopes<T> = T extends { scopes?: infer TScopes } ? { scopes?: TScopes } : {}
+type SourceScopeNames<T> = T extends { scopes: infer TScopes } ? { readonly __vitehubWorkspaceSourceScopeNames?: TScopes } : {}
+type TypedWorkspaceSource<T> = WorkspaceSource & SourceScopes<T> & SourceScopeNames<T>
+type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
 
 export interface FetchSourceCredentialOptions {
   cookies?: Record<string, string>
@@ -102,12 +106,18 @@ export type FetchSourceInput<TResponse = unknown, TOutput = TResponse> =
   | FetchSourceOptions<TResponse, TOutput>
   | FetchSourceResolver<TResponse, TOutput>
 
-export function fetch<TResponse = unknown, TOutput = TResponse>(options: FetchSourceOptions<TResponse, TOutput>): WorkspaceSource
+type FetchSourceOptionsWithoutScopes<TResponse, TOutput> =
+  Omit<FetchSourceOptions<TResponse, TOutput>, "scopes"> & { scopes?: undefined }
+
+export function fetch<TResponse = unknown, TOutput = TResponse>(options: ExactOptions<FetchSourceOptionsWithoutScopes<TResponse, TOutput>, FetchSourceOptions<TResponse, TOutput>>): TypedWorkspaceSource<FetchSourceOptionsWithoutScopes<TResponse, TOutput>>
+export function fetch<const TOptions extends FetchSourceOptions<any, any>>(options: ExactOptions<TOptions, FetchSourceOptions<any, any>>): TypedWorkspaceSource<TOptions>
 export function fetch<TResponse = unknown, TOutput = TResponse>(resolve: FetchSourceResolver<TResponse, TOutput>): WorkspaceSource
 export function fetch<TResponse = unknown, TOutput = TResponse>(input: FetchSourceInput<TResponse, TOutput>): WorkspaceSource {
   if (typeof input === "function") return resolvableFetchSource(input)
+  return createFetchSource(input)
+}
 
-  const options = input
+function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: FetchSourceOptions<TResponse, TOutput>): WorkspaceSource {
   const responseType = normalizePublicResponseType(options.responseType || "json")
   const method = normalizeMethod(options.method)
   assertRequestShape(options, method)
@@ -132,6 +142,8 @@ export function fetch<TResponse = unknown, TOutput = TResponse>(input: FetchSour
     instructions: options.instructions,
     materialize: options.materialize || (options.sync ? "none" : "lazy"),
     mount: mountPath,
+    probeKeys: options.probeKeys || (key ? [key] : undefined),
+    scopes: options.scopes,
     sync: options.sync,
     async getKeys() {
       if (!workspacePath) return []
@@ -203,7 +215,7 @@ function resolvableFetchSource<TResponse, TOutput>(resolve: FetchSourceResolver<
     },
     async resolve(ctx) {
       const options = await resolve(ctx)
-      return options ? fetch(options) : false
+      return options ? createFetchSource(options) : false
     },
   }
 }

@@ -549,18 +549,24 @@ async function resolveWorkspaceSource(
 }
 
 function applyResolvedWorkspaceSourceBinding(input: WorkspaceSourceInput, source: WorkspaceSource): WorkspaceSource {
-  if (!isPlainRecord(input) || !("source" in input)) return source
+  if (!isPlainRecord(input)) return source
   const next: WorkspaceSource = { ...source }
+  copyWorkspaceSourceMetadata(source, next)
+  if (!("source" in input)) {
+    copyDefinedWorkspaceBindingOption(next, input, "scopes")
+    return next
+  }
   copyDefinedWorkspaceBindingOption(next, input, "cache")
   copyDefinedWorkspaceBindingOption(next, input, "instructions")
   copyDefinedWorkspaceBindingOption(next, input, "materialize")
   copyDefinedWorkspaceBindingOption(next, input, "mount")
+  copyDefinedWorkspaceBindingOption(next, input, "scopes")
   copyDefinedWorkspaceBindingOption(next, input, "sync")
   copyDefinedWorkspaceBindingOption(next, input, "validate")
   return next
 }
 
-function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "instructions" | "materialize" | "mount" | "sync" | "validate">(
+function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "instructions" | "materialize" | "mount" | "scopes" | "sync" | "validate">(
   target: WorkspaceSource,
   input: Record<string, unknown>,
   key: TKey,
@@ -773,6 +779,7 @@ function selectedScopeIntersectsSource(
   source: ReturnType<typeof normalizeWorkspaceSources>[number],
 ): boolean {
   if (!scope || scope.all) return true
+  if (scope.name && source.scopes?.includes(scope.name)) return true
   return Boolean(scope.paths?.some((path) => {
     if (source.requestDescriptor && pathIntersects(path, workspaceSourceRequestDescriptorPath(source.key))) return true
     return !source.requestOnly && pathIntersects(path, source.mountPath)

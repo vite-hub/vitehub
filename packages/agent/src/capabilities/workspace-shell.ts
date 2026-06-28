@@ -7,8 +7,14 @@ import type {
   AgentCapabilityContext,
   AgentCapabilityDefinition,
   AgentCapabilityMode,
+  AgentRuntimeConfig,
   AgentToolSet,
 } from "../types.ts"
+import type { WorkspaceName } from "@vite-hub/workspace"
+
+type WorkspaceShellCapabilityTypeContract = {
+  workspaceScopes: never
+}
 
 async function sourceRequestHint(context: AgentCapabilityContext): Promise<string | false> {
   if (!context.workspace) return false
@@ -35,7 +41,7 @@ async function sourceRequestHint(context: AgentCapabilityContext): Promise<strin
   ].join("\n")
 }
 
-export function workspaceShell(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition {
+export function workspaceShell(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition<AgentRuntimeConfig, WorkspaceName, WorkspaceShellCapabilityTypeContract> {
   const mode = normalizeMode(options.mode, "Workspace Shell")
   return defineCapability({
     id: "workspace-shell",

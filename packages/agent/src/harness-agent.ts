@@ -133,8 +133,12 @@ function workspaceRuleHarnessPaths(context: AgentAdapterRunContext): string[] {
 function workspaceSourceHarnessPaths(context: AgentAdapterRunContext): string[] {
   const sources = context.workspaceDefinition?.sources
   if (!sources) return []
+  const scope = hasTrustedWorkspaceAccessScope(context.context)
+    ? context.context.get("access")?.workspaceScope
+    : undefined
   return normalizeAgentWorkspaceSources(sources).flatMap((source) => {
     if (source.materialize !== "build" || !source.probeKeys?.length) return []
+    if (source.scopes?.length && scope && !scope.all && !source.scopes.includes(scope.scope)) return []
     return source.probeKeys.map(key => [source.mountPath, key].filter(Boolean).join("/"))
   })
 }

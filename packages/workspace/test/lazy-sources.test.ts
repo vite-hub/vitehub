@@ -62,6 +62,7 @@ describe("lazy sources", () => {
       docs: custom({
         materialize: "lazy",
         cache: { maxAge: 3600 },
+        scopes: ["support", "technical"],
         async getKeys() {
           return []
         },
@@ -90,6 +91,30 @@ describe("lazy sources", () => {
         mountPath: "docs",
         materialize: "lazy",
         cache: { maxAge: 3600 },
+        scopes: ["support", "technical"],
+      }),
+    ])
+  })
+
+  it("normalizes source binding scopes", () => {
+    const resolved = normalizeWorkspaceSources({
+      docs: {
+        source: custom({
+          async getKeys() {
+            return []
+          },
+          async getItem(key) {
+            return { key, path: key, content: "" }
+          },
+        }),
+        scopes: ["support"],
+      },
+    })
+
+    expect(resolved).toEqual([
+      expect.objectContaining({
+        key: "docs",
+        scopes: ["support"],
       }),
     ])
   })
