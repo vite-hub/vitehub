@@ -1,5 +1,7 @@
 # Access Capability Applies Workspace Scope at Invocation Time
 
+Superseded note: ADR 0075 retracts free-form Workspace Scope Instructions from `access()` configuration. Access scope enforcement remains current; model-facing scope guidance now belongs in Agent Driver Instructions or deterministic imports with Capability Instruction Coverage.
+
 ViteHub will add a read-only `access()` Capability. In the first version, `access()` resolves a **Selected Workspace Scope** from an explicit resolver or developer-declared default and applies it to already-declared Workspace reads, Source-Backed Paths, and Workspace Tools before the model sees the Workspace. The Capability owns access selection and application for this surface, but it does not mutate Workspace Definitions, add Sources, change Workspace Rules, generate model-facing scope text, or dynamically grant Capabilities. A static Workspace Scope or Workspace Scope Resolver result may include explicit **Workspace Scope Instructions** when developers want selected scope guidance in prompt text.
 
 ## Considered Options

@@ -40,7 +40,6 @@ export interface SubagentDefinition<
 > {
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>
   description: string
-  instructions?: string
   toolName?: string
 }
 
@@ -50,7 +49,6 @@ export interface SubagentsOptions<
 > {
   agents: TAgents
   id?: string
-  instructions?: string | false
 }
 
 function assertSubagentName(name: string): void {
@@ -98,18 +96,6 @@ function normalizeAgents<TRuntimeConfig extends AgentRuntimeConfig>(
     toolNames.add(toolName)
     return { definition, name, toolName }
   })
-}
-
-function renderInstructions(agents: ReturnType<typeof normalizeAgents>, fallback?: string | false): string | false {
-  if (fallback === false) return false
-  return fallback || [
-    "Use subagents for bounded delegated work. Call the matching subagent tool with a clear message and structured context.",
-    "",
-    ...agents.map(({ definition, name, toolName }) => [
-      `- ${name}: ${definition.description} Tool: ${toolName}.`,
-      definition.instructions ? `  Instructions: ${definition.instructions}` : "",
-    ].filter(Boolean).join("\n")),
-  ].join("\n")
 }
 
 function subagentWorkspaceSources(
@@ -172,12 +158,10 @@ export function subagents<
 ): AgentCapabilityDefinition<TRuntimeConfig, Name> {
   const id = options.id || "subagents"
   const agents = normalizeAgents(options)
-  const instructions = renderInstructions(agents, options.instructions)
   const workspaceSources = subagentWorkspaceSources(agents)
 
   return defineCapability({
     id,
-    instructions,
     ...(workspaceSources ? { workspaceSources } : {}),
     tools(context) {
       const tools: AgentToolSet = {}

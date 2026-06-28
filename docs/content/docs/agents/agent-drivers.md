@@ -91,7 +91,7 @@ export default defineAgent({
 
 Harness-backed drivers do not receive `driver.instructions` as a model prompt. Use explicit harness configuration or Workspace instruction surfaces when the harness needs guidance.
 
-Harness-backed drivers also do not receive model-facing Capability tools, provider tools, or Capability instructions.
+Harness-backed drivers also do not receive model-facing Capability tools, provider tools, or ambient Capability, Source, or Skill prose.
 When a Capability should support harness execution, give the harness files it can inspect through Workspace Sources, `harnessWorkspacePaths`, or a harness-native configuration surface.
 
 For a fresh TypeScript app, use ESM and NodeNext resolution so the ESM-only ViteHub and harness subpath imports load correctly.

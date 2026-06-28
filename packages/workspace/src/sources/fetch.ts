@@ -46,7 +46,7 @@ export interface FetchSourceStandardJsonSchemaV1<T = unknown> extends FetchSourc
   }
 }
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "probeKeys" | "scopes" | "sync">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "probeKeys" | "scopes" | "sync">
 type SourceScopes<T> = T extends { scopes?: infer TScopes } ? { scopes?: TScopes } : {}
 type SourceScopeNames<T> = T extends { scopes: infer TScopes } ? { readonly __vitehubWorkspaceSourceScopeNames?: TScopes } : {}
 type TypedWorkspaceSource<T> = WorkspaceSource & SourceScopes<T> & SourceScopeNames<T>
@@ -139,7 +139,6 @@ function createFetchSource<TResponse = unknown, TOutput = TResponse>(options: Fe
       responseType,
       url: String(options.url),
     },
-    instructions: options.instructions,
     materialize: options.materialize || (options.sync ? "none" : "lazy"),
     mount: mountPath,
     probeKeys: options.probeKeys || (key ? [key] : undefined),

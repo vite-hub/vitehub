@@ -1,8 +1,10 @@
 # Controlled Curl Uses Source Network Grants
 
+Superseded note: ADR 0075 retracts Capability instruction slots and `workspace.sources` placement. Source Network Grants remain current, but model-facing guidance must come from tool contracts or explicit Agent Driver Instructions.
+
 When `workspaceShell()` is enabled, visible API-backed Sources may contribute **Source Network Grants** that let the Shell Runtime run controlled `curl` commands against the Source's declared request boundary. The model uses normal `curl` syntax, while the Execution Provider validates the resulting HTTP request against the Source Request Shape, injected Source Request Credentials, and Selected Workspace Scope. The generated **Source Request Descriptor** gives the model compact request guidance, but authority comes from the grant, not from Source Instructions.
 
-Model-facing descriptor guidance should be emitted through the existing Capability instruction templating machinery. `workspaceShell()` may contribute a generated **Shell Source Request Hint** when visible Source Request Descriptors exist; developers can place that block through `{{ capabilities.workspaceShell }}` or the catch-all `{{ capabilities }}`. ViteHub should not add a new Source-specific template slot for controlled `curl`, and the hint must not render through `workspace.sources`.
+Model-facing descriptor guidance should not be emitted through ambient instruction templating. `workspaceShell()` can expose structured tool contracts and DevTools metadata when visible Source Request Descriptors exist.
 
 Source Request Shapes use Standard Schema-compatible validators for enforcement. When a Source Request Shape is exposed through a Source Request Descriptor, its model-authored query and body inputs also need a Standard JSON Schema-compatible projection so the model can inspect the shape without ViteHub inventing a parallel schema language.
 
@@ -22,10 +24,10 @@ The v1 method set is `GET`, `HEAD`, and `POST`. `GET` and `HEAD` may use query b
 - A separate `defaultBody` or `defaultQuery` beside schema-backed request parts was rejected because schema validation is already the defaulting boundary.
 - Supporting write-semantics methods such as `PUT`, `PATCH`, and `DELETE` was rejected for v1 because request-shaped Sources are read boundaries; those methods belong to Capabilities or a future effect boundary.
 - Automatic Workspace materialization of curl output was rejected because request output should remain an ephemeral Shell Observation unless an explicit Workspace policy chooses to persist it.
-- A new Workspace template slot for controlled `curl` descriptors was rejected because Capability instruction slots already provide explicit placement for capability-owned model guidance.
+- A new Workspace template slot for controlled `curl` descriptors was rejected because generated request descriptors should not create another instruction surface.
 
 ## Consequences
 
 The Just Bash and Cloudflare providers own controlled network command behavior. They may support pipes and normal curl body flags, but the final HTTP request must match the Source Network Grant and Source Request Shape. API-backed Sources without a default Source-Backed Path can still be useful as Request-Only Sources when they have a Source Request Descriptor.
 
-The first model-facing implementation should reuse Capability instruction block composition. A shell tool description may still carry a short derived pointer, but it must be generated from the same visible descriptor set and not become a second template or schema surface.
+A shell tool description may still carry a short derived pointer, but it must be generated from the same visible descriptor set and not become a second template or schema surface.

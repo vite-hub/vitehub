@@ -70,7 +70,7 @@ export default defineAgent({
 
 ViteHub validates the Workspace read requirement before the Agent Driver runs.
 The Capability metadata includes the directory path and the resolved `SKILL.md` path.
-Current model-backed drivers may receive generated skill-read instructions, but new docs should prefer explicit Skill coverage in Agent Driver Instructions.
+Model-facing Skill guidance belongs in Agent Driver Instructions or deterministic imported instruction Markdown with an explicit `::skill{path="..."}` coverage block.
 For harness-backed drivers, `skills()` contributes the skill directory to the Harness Workspace Session instead of adding model-facing instructions or tools.
 With `shellExecution: 'write'`, model-backed Workspace Shell writes commit Workspace Session changes back into the Workspace.
 With `source`, ViteHub still uses normal Workspace Source materialization, visibility, and DevTools metadata. `skills()` does not fetch source files at invocation time.

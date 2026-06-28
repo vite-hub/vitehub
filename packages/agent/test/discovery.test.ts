@@ -397,14 +397,24 @@ describe("agent chat capability discovery", () => {
                 : { role: "viewer", scope: "customer" }
             },
             scopes: {
-              customer: { instructions: "Audience resolved for customer.", paths: ["customers/acme"] },
-              support: { all: true, instructions: "Audience resolved for technical." },
+              customer: { paths: ["customers/acme"] },
+              support: { all: true },
             },
           },
         }),
         chat(),
       ],
-      instructions: "# Support\n\n{{ capabilities.access.workspace }}",
+      instructions: [
+        "# Support",
+        "",
+        "::capability{key=\"access\"}",
+        "Use Access for workspace visibility.",
+        "::",
+        "",
+        "::capability{key=\"chat\"}",
+        "Use Chat for conversation transport.",
+        "::",
+      ].join("\n"),
       workspace: {},
       run: (context: { invoker: { kind?: string, meta?: Record<string, unknown> }, workspace?: unknown }) => {
         const email = typeof context.invoker.meta?.email === "string" ? `:${context.invoker.meta.email}` : ""
@@ -420,7 +430,7 @@ describe("agent chat capability discovery", () => {
     const state = await waitForMetadataState(handlers[0]!, { action: "get-state", invokerProfileId: "support-technical" })
     expect(state).toMatchObject({
       chats: [{ name: "support", uiMessages: [] }],
-      instructions: ["# Support\n\nAudience resolved for technical."],
+      instructions: ["# Support\n\nUse Access for workspace visibility.\n\nUse Chat for conversation transport."],
       metadataStatus: "ready",
       invokerProfileId: "support-technical",
       invokerProfiles: [
@@ -457,7 +467,7 @@ describe("agent chat capability discovery", () => {
     })
     const clearedTechnicalState = JSON.parse(clearedTechnicalResponse.body)
     expect(clearedTechnicalState).toMatchObject({
-      instructions: ["# Support\n\nAudience resolved for technical."],
+      instructions: ["# Support\n\nUse Access for workspace visibility.\n\nUse Chat for conversation transport."],
       invokerProfileId: "support-technical",
       selected: "support",
       uiMessages: [],
@@ -484,7 +494,7 @@ describe("agent chat capability discovery", () => {
       meta: devtoolsMeta,
     })
     expect(resolvedFallbackState).toMatchObject({
-      instructions: ["# Support\n\nAudience resolved for technical."],
+      instructions: ["# Support\n\nUse Access for workspace visibility.\n\nUse Chat for conversation transport."],
       invokerFallback: true,
       metadataStatus: "ready",
       selected: "support",

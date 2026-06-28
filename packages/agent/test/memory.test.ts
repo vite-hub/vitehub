@@ -31,7 +31,7 @@ function memoryRecord(record: Partial<MemoryRecord> & Pick<MemoryRecord, "conten
 }
 
 describe("agent memory capability", () => {
-  it("adds record-oriented memory tools and preloads pinned procedural memory", async () => {
+  it("adds record-oriented memory tools", async () => {
     const records = [memoryRecord({
       content: "Use gh CLI for GitHub operations.",
       id: "mem_1",
@@ -60,7 +60,6 @@ describe("agent memory capability", () => {
             agent: {
               adapter,
               allowKinds: ["procedural", "semantic"],
-              read: { preload: [{ kind: "procedural", pinned: true }] },
               scope: { agent: "support" },
               write: { mode: "tool", policy: "allow" },
             },
@@ -72,47 +71,11 @@ describe("agent memory capability", () => {
     await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
       text: "memory_delete,memory_read,memory_remember,memory_search",
     })
-    expect(adapter.export).toHaveBeenCalled()
     await expect(capturedTools.memory_search!.execute({ query: "github" })).resolves.toMatchObject({ items: [{ id: "mem_1" }] })
     await expect(capturedTools.memory_read!.execute({ id: "mem_1" })).resolves.toMatchObject({ item: { id: "mem_1" } })
     await expect(capturedTools.memory_remember!.execute({ content: "Prefer workspace JSONL.", kind: "semantic" })).resolves.toMatchObject({ item: { id: "mem_2" } })
     await expect(capturedTools.memory_delete!.execute({ id: "mem_1", reason: "obsolete" })).resolves.toMatchObject({ ok: true })
     expect(await (capturedTools.memory_remember!.policy as (context: { input?: unknown }) => unknown)({ input: {} })).toBe("allow")
-  })
-
-  it("preloads newest matching memory records first", async () => {
-    const adapter: MemoryStoreAdapter = {
-      append: vi.fn(),
-      delete: vi.fn(),
-      export: vi.fn(async () => ({
-        items: [
-          memoryRecord({ content: "Old workflow.", id: "mem_old", kind: "procedural", pinned: true, updatedAt: "2026-05-17T00:00:00.000Z" }),
-          memoryRecord({ content: "New workflow.", id: "mem_new", kind: "procedural", pinned: true, updatedAt: "2026-05-18T00:00:00.000Z" }),
-        ],
-      })),
-      read: vi.fn(),
-      search: vi.fn(),
-    }
-    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { memory } = await import("../src/capabilities.ts")
-
-    const capabilities = await resolveAgentCapabilities({
-      capabilities: [
-        memory({
-          stores: {
-            agent: {
-              adapter,
-              read: { preload: [{ kind: "procedural", maxItems: 1, pinned: true }] },
-              scope: { agent: "support" },
-            },
-          },
-        }),
-      ],
-    }, { ...runtime(), runtimeConfig: {} }, {})
-
-    const preload = capabilities.capabilityInstructions.find(block => block.id === "capabilities.memory.agent")
-    expect(preload?.instructions).toContain("New workflow.")
-    expect(preload?.instructions).not.toContain("Old workflow.")
   })
 
   it("enforces memory write mode and policy for the selected store", async () => {

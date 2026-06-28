@@ -1564,34 +1564,15 @@ describe("agent message protocol", () => {
     expect(harnessGenerate).not.toHaveBeenCalled()
   })
 
-  it("passes model-facing Capability instructions into harness execution", async () => {
+  it("rejects capability config prose before harness execution", async () => {
     const { defineCapability } = await import("../src/capability-runtime.ts")
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const session = { destroy: vi.fn() }
-    harnessCreateSession.mockResolvedValueOnce(session)
-    harnessGenerate.mockResolvedValueOnce({ text: "ok" })
 
-    const agent = defineAgent({
-      capabilities: [
-        defineCapability({
-          id: "model-instructions",
-          instructions: "Use model-only context.",
-        }),
-      ],
-      driver: {
-        harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
-      },
-    })
-
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" }))
-      .resolves.toMatchObject({ text: "ok" })
-    expect(harnessAgentSettings).toHaveLength(1)
-    expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
-      instructions: "Use model-only context.",
-      prompt: "hello",
-      session,
-    }))
+    expect(() => defineCapability({
+      id: "model-instructions",
+      instructions: "Use model-only context." as never,
+    } as never)).toThrow("Capability instructions were removed")
+    expect(harnessCreateSession).not.toHaveBeenCalled()
+    expect(harnessGenerate).not.toHaveBeenCalled()
   })
 
   it("resumes harness Agent Drivers with an explicit session key", async () => {

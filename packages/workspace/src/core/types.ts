@@ -375,8 +375,6 @@ export interface WorkspaceSourceItem {
   metadata?: Record<string, unknown>
 }
 
-export type WorkspaceSourceInstructions = string | readonly string[]
-
 export type WorkspaceInstructionBindingValue = string | number | boolean | null
 
 export type WorkspaceInstructionBinding =
@@ -432,7 +430,6 @@ export interface WorkspaceSource {
   scopes?: readonly string[]
   probeKeys?: string[]
   fingerprint?: unknown
-  instructions?: WorkspaceSourceInstructions
   resolve?: WorkspaceSourceResolver
   prepare?(ctx: SourceContext): Promise<void>
   getKeys(ctx: SourceContext): Promise<string[]>
@@ -454,7 +451,7 @@ export type WorkspaceSourceDefinition = WorkspaceSource | SourcePackageSource
 
 type WorkspaceSourceBindingOptions = Pick<
   WorkspaceSource,
-  "cache" | "instructions" | "materialize" | "mount" | "probeKeys" | "scopes" | "sync" | "validate"
+  "cache" | "materialize" | "mount" | "probeKeys" | "scopes" | "sync" | "validate"
 >
 
 export interface WorkspaceSourceBindingInput extends WorkspaceSourceBindingOptions {

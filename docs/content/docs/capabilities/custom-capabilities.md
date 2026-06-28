@@ -158,10 +158,9 @@ export const inventoryRuntime = defineCapability({
 
 The `input` and `output.schema` values accept any Standard Schema-compatible validation library. Use Zod, Valibot, ArkType, or the validator your app already uses.
 
-ViteHub generates the command guidance from the command metadata and places it in the Capability instruction slot.
-Keep `instructions.md` focused on policy and include `{{ capabilities.inventory-runtime }}` or `{{ capabilities }}` where the generated guidance should appear.
+ViteHub exposes command metadata through the generated CLI-named tool. Keep `instructions.md` focused on policy and use `::capability{key="inventoryRuntime"}` when authored guidance should cover that Capability.
 
-First-party adapters can generate the same CLI shape from their own metadata. For example, `openapi({ cli: { name: 'billing' }, ... })` creates one subcommand per allowed OpenAPI operation and uses each operation summary or description in the generated guidance.
+First-party adapters can generate the same CLI shape from their own metadata. For example, `openapi({ cli: { name: 'billing' }, ... })` creates one subcommand per allowed OpenAPI operation and preserves each operation summary or description in the tool contract.
 Custom Capability authors still pass a flat `cli` object; dynamic command generation belongs behind adapter-owned options such as `openapi({ cli })`.
 
 During development, run the Capability CLI through the Agent Dev Loop.

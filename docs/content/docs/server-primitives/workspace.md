@@ -148,7 +148,6 @@ Workspace Source Bindings can wrap Source Package loaders and add Workspace beha
 | `cache` | `false or WorkspaceCacheOptions` | Source cache policy. Use `false` to disable caching or `{ maxAge }` to set a TTL. |
 | `validate` | `WorkspaceValidateMode` | Request validation mode for API-backed Sources. Use `false` or `request`. |
 | `sync` | `WorkspaceSourceSyncConfig` | Enables explicit Workspace Source Sync. Accepts `true`, `false`, or a sync policy. |
-| `instructions` | `WorkspaceSourceInstructions` | Current low-level Source Instructions metadata. New model-facing guidance should prefer explicit instruction coverage in Agent Driver Instructions or deterministic imports. |
 | `resolve` | `WorkspaceSourceResolver` | Invocation-aware source resolution. |
 
 ## Use it at runtime
@@ -196,7 +195,7 @@ export default defineEventHandler(async (event) => {
 
 Custom Sources can read existing materialized Workspace files through `ctx.workspaceFiles`. Use this when a Source needs previous generated output, such as a sync report or cached asset metadata, while producing the next materialized files. The view is read-only and does not expose Workspace Stores, provider adapters, snapshots, diffs, or Source materialization.
 
-Sources can resolve their concrete origin, Mount, and Source Instructions for one invocation from trusted runtime context. Use this when the same Source key should point at a narrowed origin after Access has selected a Workspace Scope.
+Sources can resolve their concrete origin and Mount for one invocation from trusted runtime context. Use this when the same Source key should point at a narrowed origin after Access has selected a Workspace Scope.
 
 ```ts
 github(({ invocation }) => {

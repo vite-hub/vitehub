@@ -50,7 +50,6 @@ function customerSource() {
       if (!customer) return false
       return custom({
         fingerprint: { customer },
-        instructions: `Use this source for ${customer} ingestion models only.`,
         materialize: "lazy",
         mount: `ingestion/${customer}`,
         async getKeys() {
@@ -157,7 +156,7 @@ afterEach(() => {
 })
 
 describe("Workspace Source Resolution", () => {
-  it("resolves source origin, mount, instructions, and scope-aware fingerprint", async () => {
+  it("resolves source origin, mount, and scope-aware fingerprint", async () => {
     const definition: WorkspaceDefinition = {
       name: "support",
       sources: {
@@ -169,7 +168,6 @@ describe("Workspace Source Resolution", () => {
     const [ingestion] = normalizeWorkspaceSources(resolved.sources)
 
     expect(ingestion).toMatchObject({
-      instructions: "Use this source for acme ingestion models only.",
       key: "ingestion",
       mountPath: "ingestion/acme",
     })
@@ -291,7 +289,6 @@ describe("Workspace Source Resolution", () => {
           repo: "acme/ingestion",
           root: "dbt/acme",
           mount: "ingestion/acme",
-          instructions: "Use this source for acme ingestion models only.",
         })),
       },
     }
@@ -300,7 +297,6 @@ describe("Workspace Source Resolution", () => {
     const [ingestion] = normalizeWorkspaceSources(resolved.sources)
 
     expect(ingestion).toMatchObject({
-      instructions: "Use this source for acme ingestion models only.",
       materialize: "lazy",
       mountPath: "ingestion/acme",
     })
@@ -385,7 +381,6 @@ describe("Workspace Source Resolution", () => {
               return { key, path: key, content: "" }
             },
           }),
-          instructions: "Use this source for synced ingestion models only.",
           mount: "ingestion/acme",
           sync: { stale: "remove" },
         },
@@ -396,7 +391,6 @@ describe("Workspace Source Resolution", () => {
     const [ingestion] = normalizeWorkspaceSources(resolved.sources)
 
     expect(ingestion).toMatchObject({
-      instructions: "Use this source for synced ingestion models only.",
       materialize: "none",
       mountPath: "ingestion/acme",
       sync: { stale: "remove" },

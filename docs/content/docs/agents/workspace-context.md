@@ -87,15 +87,19 @@ export default defineAgent({
 
 ## Cover Source usage
 
-Current ViteHub can render visible Source Instructions into a `## Workspace Sources` block for model-backed drivers. Put `{{ workspace.sources }}` where that block belongs when you are using existing Source Instructions.
+Put model-facing Source guidance in Agent Driver Instructions or deterministic imported instruction Markdown. Use an explicit coverage wrapper around the authored prose:
 
-Only visible Sources render. If Access selects a Workspace Scope, ViteHub omits hidden Source Instructions along with hidden files.
+```md [server/agents/docs/instructions.md]
+::source{key="docs"}
+Use the docs Source for published product behavior. Say when the docs do not answer.
+::
+```
 
-Direction: ViteHub should warn when a visible Source is configured but lacks explicit instruction coverage in Agent Driver Instructions or a deterministic imported instruction file. Do not rely on a file merely existing in the Workspace to clear that warning.
+ViteHub warns in DevTools metadata when a configured Source lacks explicit instruction coverage. The warning clears only when Agent Driver Instructions, or a deterministic imported instruction file, contains a `::source{key="..."}` block for that Source.
 
 Explicit `driver.instructions` still wins when the Agent needs custom prompt composition. Ordinary Workspace files named `AGENTS.md` are just files; only colocated `instructions.md` is the default Agent instructions convention.
 
-Use `workspace.bindings` when an instruction document needs an explicit Workspace-owned value or Markdown fragment. `{{ workspace.foo }}` renders scalar text, and `@workspace.foo` inserts the declared Markdown binding before Instruction Composition continues. `{{ workspace.sources }}` remains reserved for current Source Instructions and does not come from `workspace.bindings`.
+Use `workspace.bindings` when an instruction document needs an explicit Workspace-owned value or Markdown fragment. `{{ workspace.foo }}` renders scalar text, and `@workspace.foo` inserts the declared Markdown binding before Instruction Composition continues. The legacy `{{ workspace.sources }}` binding is unsupported.
 
 ## Start with read access
 
@@ -135,7 +139,7 @@ export default defineAgent({
 })
 ```
 
-Read mode materializes the selected Workspace into the harness sandbox and discards sandbox changes. Write mode syncs additions, updates, and deletions back through Workspace rules. Capabilities can also contribute harness-only Workspace paths, such as skill directories, without broadening the product-data Workspace Scope. Keep Skills behind the `skills()` Capability; ViteHub does not add root `skills`, `tools`, or `sandbox` Agent Definition fields for harness-backed Agents. Put harness guidance in colocated `instructions.md`; model-facing Source Instructions are not forwarded to harness-backed Agent Drivers yet.
+Read mode materializes the selected Workspace into the harness sandbox and discards sandbox changes. Write mode syncs additions, updates, and deletions back through Workspace rules. Capabilities can also contribute harness-only Workspace paths, such as skill directories, without broadening the product-data Workspace Scope. Keep Skills behind the `skills()` Capability; ViteHub does not add root `skills`, `tools`, or `sandbox` Agent Definition fields for harness-backed Agents. Put harness guidance in colocated `instructions.md`; Sources, Capabilities, and Skills do not inject additional harness instructions.
 
 ## Scope by Agent Invoker
 
@@ -158,9 +162,6 @@ export const supportCapabilities = [
             { path: 'AGENTS.md' },
             { path: `customers/${customer}` },
           ],
-          instructions: customer
-            ? `Answer for the ${customer} customer workspace.`
-            : 'Answer from the public support workspace.',
           scope: customer || 'public',
         }
       },
@@ -170,7 +171,8 @@ export const supportCapabilities = [
 ]
 ```
 
-Workspace Scope Instructions are explicit prompt text for the selected scope. ViteHub does not generate prompt text from scope names, grants, roles, Source metadata, or invoker metadata.
+ViteHub does not generate prompt text from scope names, grants, roles, Source metadata, or invoker metadata.
+When the Agent needs scope-specific model guidance, write it in Agent Driver Instructions or an imported instruction file and mark the Access coverage with `::capability{key="access"}`.
 
 ## Resolve Sources per invocation
 

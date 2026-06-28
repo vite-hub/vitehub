@@ -41,7 +41,7 @@ _Avoid_: MCP tool bridge, Agent Capability, MCP server implementation
 - Workspace can consume source retrieval concepts, but Workspace owns file-tree placement and persistence.
 - Workspace Source Bindings can reference **Source Definitions** without moving Workspace placement or sync policy into the Source Package.
 - Workspace Source Bindings can give Source Definition retrieval methods Source Sync Inventory meaning without moving Source Sync ownership into the Source Package.
-- Source Package does not own v1 Source Instructions; Workspace Package owns Source helper metadata for Workspace-backed Agent prompt composition.
+- Source Package does not own model-facing Source Instructions; Agent Package records Source Instruction Coverage from Agent Driver Instructions.
 
 ## Example Dialogue
 
@@ -56,4 +56,4 @@ _Avoid_: MCP tool bridge, Agent Capability, MCP server implementation
 - Requiring custom Workspace Sources to use Workspace-specific source helpers was considered - resolved: custom retrieval behavior can be declared as Source Package **Source Definitions** or inline Workspace Source Binding Inputs.
 - Treating `getKeys` completeness as a Source Package invariant was considered - resolved: completeness is a Workspace Source Sync concern only when a Workspace Source Binding enables stale removal.
 - MCP resources and MCP tools were considered one ViteHub integration surface - resolved: read-only MCP resources belong to Source retrieval, while executable MCP tools belong to the MCP Capability.
-- Adding Source Instructions to Source Definitions was considered - resolved: keep v1 Source Instructions on Workspace Source helpers because prompt composition is Workspace-backed Agent behavior.
+- Adding Source Instructions to Source Definitions was considered - resolved: do not put model-facing prose on Source Definitions; use Source Instruction Coverage in Agent Driver Instructions instead.

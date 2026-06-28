@@ -591,6 +591,11 @@ describe("agent public types", () => {
 
     expectTypeOf(inventoryRuntime.cli?.commands).toMatchTypeOf<Record<string, AgentCapabilityCliCommand> | undefined>()
     defineCapability({
+      id: "legacy-instructions",
+      // @ts-expect-error Capability instructions were removed from Capability definitions.
+      instructions: "Use inventory only for runtime data.",
+    })
+    defineCapability({
       id: "dynamic-inventory-runtime",
       // @ts-expect-error Capability CLI contributions are flat objects, not resolver functions
       cli: () => ({
@@ -814,22 +819,32 @@ describe("agent public types", () => {
         expectTypeOf(run?.origin).toEqualTypeOf<string | undefined>()
         expectTypeOf(chat?.user?.email).toEqualTypeOf<string | undefined>()
         return chat?.user?.email?.endsWith("@quiver.dk")
-          ? { instructions: "Use the internal support tone.", role: "admin", scope: "quiver" }
+          ? { role: "admin", scope: "quiver" }
           : "customer"
       },
       scopes: {
         customer: {
-          instructions: ["Use the customer support tone."],
           grants: [
             { path: "AGENTS.md" },
             { source: "forecastingEngine" },
             { sources: ["docs"] },
           ],
         },
-        quiver: { all: true, instructions: "Use the internal support tone." },
+        quiver: { all: true },
       },
     }
     access({ workspace: workspaceAccess })
+    // @ts-expect-error Workspace Scope instructions were removed.
+    access({
+      workspace: {
+        scopes: {
+          acme: {
+            instructions: "Use customer tone.",
+            paths: ["AGENTS.md"],
+          },
+        },
+      },
+    })
 
     const inlineWorkspaceAccess: AccessWorkspaceOptionsFor<typeof workspace, ChatContext> = {
       resolve({ input }) {
@@ -1311,10 +1326,9 @@ describe("agent public types", () => {
         }),
         {
           id: "support-audience",
-          prepare({ actor, instructions, invoker }) {
+          prepare({ actor, invoker }) {
             expectTypeOf(actor.id).toEqualTypeOf<string>()
             expectTypeOf(invoker.id).toEqualTypeOf<string>()
-            instructions.add(actor.kind === "quiverTechnical" ? "technical" : "customer")
           },
         },
       ],

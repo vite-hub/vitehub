@@ -10,7 +10,7 @@ An instruction document is Markdown parsed through Comark that ViteHub composes 
 Model Driver Instructions are the model-backed Agent Driver field that receives the composed document. ViteHub keeps that model-facing surface separate from harness and custom-run execution.
 
 :::warning
-Direction: free-form model-facing guidance should live in Agent Driver Instructions or deterministic imported instruction Markdown. Configured Sources, Capabilities, and Skills stay available as runtime primitives, but ViteHub should warn in DevTools, build output, or generated metadata when they lack explicit instruction coverage.
+Free-form model-facing guidance lives in Agent Driver Instructions or deterministic imported instruction Markdown. Configured Sources, Capabilities, and Skills stay available as runtime primitives, but ViteHub warns in DevTools metadata when they lack explicit instruction coverage.
 :::
 
 ## Add an instruction document
@@ -117,9 +117,7 @@ export default defineAgent({
 
 `@workspace.<name>` inserts a Markdown binding and then runs the same Instruction Composition pass on that inserted Markdown. Use it for explicit instruction fragments that live in the Workspace. ViteHub reads only bindings declared under `workspace.bindings`; it does not scan or auto-load every Markdown file in the Workspace.
 
-Missing `workspace.*` bindings fail during Instruction Composition instead of rendering empty output.
-
-`workspace.sources` is reserved for Source Instructions during the current migration. Prefer explicit coverage in the instruction document when adding new Source guidance.
+Missing `workspace.*` bindings fail during Instruction Composition instead of rendering empty output. The legacy `{{ workspace.sources }}` binding is unsupported; cover Sources with explicit `::source` blocks instead.
 
 ## Branch with conditions
 
@@ -143,8 +141,6 @@ Use Comark attribute syntax such as `::if{condition="context.audience === 'techn
 
 Explicit instruction coverage means the instruction document names how a configured Source, Capability, or Skill should be used. A merely discoverable Workspace file should not clear coverage warnings; the file must be imported or bound from the Agent Driver instructions.
 
-The binding syntax below is proposed direction, not a shipped runtime API yet.
-
 ```md [server/agents/support/instructions.md]
 # Support
 
@@ -161,34 +157,15 @@ Use this Skill only when the task needs browser evidence.
 ::
 ```
 
+ViteHub records the coverage metadata and strips the wrapper directives before sending the composed instructions to the model. The authored prose inside each block remains model-facing.
+
 Tool descriptions and schemas are different. They remain structured tool contracts and should stay with the tool definition; they are not arbitrary system-instruction injection and they do not clear broader instruction coverage by themselves.
 
-## Place Capability slots
+`{{ capabilities }}`, `{{ capabilities.<id> }}`, and `{{ workspace.sources }}` no longer render model-facing prose. They fail during Instruction Composition so missing migration work is visible.
 
-Current Capability instruction blocks can be placed with `{{ capabilities.<id> }}`, or every remaining Capability block with `{{ capabilities }}`. ViteHub fails when two Capability contributions use the same instruction block id.
+## Use Capability context
 
-```ts [server/agents/support.ts]
-import { gateway } from '@ai-sdk/gateway'
-import { defineAgent } from '@vite-hub/agent'
-import { workspaceShell } from '@vite-hub/agent/capabilities'
-
-export default defineAgent({
-  driver: {
-    model: gateway('openai/gpt-5.1-mini'),
-    instructions: [
-      'Answer from source files first.',
-      '{{ capabilities }}',
-    ],
-  },
-  capabilities: [
-    workspaceShell({ mode: 'read' }),
-  ],
-})
-```
-
-Use slots only for explicit placement while migrating existing Capability guidance. New free-form Capability use guidance should be authored as instruction coverage in the Agent Driver instructions or a deterministic imported instruction file.
-
-Capabilities can also add invocation context values for instruction composition.
+Capabilities can add invocation context values for instruction composition. This is structured runtime data, not hidden prompt text.
 
 ```ts [server/agents/support.ts]
 import { defineCapability } from '@vite-hub/agent'
@@ -202,37 +179,7 @@ const supportAudience = defineCapability({
 })
 ```
 
-## Place Source Instructions
-
-Sources can still carry low-level Source Instructions through the `WorkspaceSource.instructions` field. Put `{{ workspace.sources }}` where existing Source Instructions belong in the final model instructions while migrating to explicit coverage.
-
-```ts [server/agents/docs.ts]
-import { gateway } from '@ai-sdk/gateway'
-import { defineAgent } from '@vite-hub/agent'
-import { file } from '@vite-hub/workspace'
-
-export default defineAgent({
-  driver: {
-    model: gateway('openai/gpt-5.1-mini'),
-    instructions: [
-      'Answer from public docs.',
-      '{{ workspace.sources }}',
-    ],
-  },
-  workspace: {
-    sources: {
-      docs: file({
-        path: 'docs.md',
-        instructions: 'Use this source for published product behavior.',
-      }),
-    },
-  },
-})
-```
-
-Only visible Sources render Source Instructions. When Access selects a Workspace Scope, ViteHub omits hidden Source Instructions with the hidden files. Markdown never grants access; Access and Workspace Scope remain the runtime enforcement boundary.
-
-Direction: configured-but-uncovered Sources should warn in DevTools, build output, or generated metadata. The warning should clear only when Agent Driver Instructions, or a deterministic imported instruction file, explicitly covers that Source.
+Coverage warnings clear only when Agent Driver Instructions, or a deterministic imported instruction file, explicitly covers the configured primitive. A Workspace file that merely exists does not clear the warning.
 
 ## Harness and run drivers
 

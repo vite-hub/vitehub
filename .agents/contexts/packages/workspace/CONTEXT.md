@@ -94,8 +94,8 @@ _Avoid_: CLI execution mode, Agent Dev Loop option, hosted runtime
 - Workspace assets were considered a separate public read API - resolved: keep one public Workspace tree and treat the **Workspace Asset Surface** as an internal backing layer unless a concrete advanced workflow needs direct access.
 - Workspace loaders and publishers were considered part of the root package API - resolved: keep them public only through the **Workspace Extension Surface**.
 - Provider store constructors were considered public subpath exports - resolved: keep **Workspace Provider Adapters** behind configuration and generated runtime wiring, not user-facing imports.
-- Source Instruction prompt rendering was considered Workspace Package ownership - resolved: Workspace exposes metadata, while Agent Package composes model instructions.
-- Adding Source Instructions to the lower-level Source Package was considered - resolved: keep v1 Source Instructions on Workspace Source helpers because the behavior serves Workspace-backed Agent prompt composition.
+- Source Instruction prompt rendering was considered Workspace Package ownership - resolved: Workspace exposes Source metadata, while Agent Package composes model instructions from explicit Agent Driver Instructions.
+- Adding Source Instructions to Workspace Source helpers or the lower-level Source Package was considered - resolved: do not put model-facing prose on Source helpers; use Source Instruction Coverage in Agent Driver Instructions instead.
 - Source Sync was considered Source Package ownership - resolved: Source Package may own retrieval primitives, while Workspace Package owns Source-backed file-tree reconciliation into Workspace Stores.
 - Source Sync eligibility was considered lower-level Source Package retrieval configuration - resolved: Workspace Package owns Source Sync Policy because it governs Workspace Store reconciliation.
 - Source Sync eligibility was considered mutually exclusive with lazy materialization - resolved: keep Source Sync Policy orthogonal, while documenting the common case as a Source with Source Sync Policy and no build-time or read-triggered materialization.

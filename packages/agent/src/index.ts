@@ -53,7 +53,6 @@ import {
   isWorkspaceAgentOptions,
   resolveWorkspaceAgentDefaultInstructions,
   resolveWorkspaceInstructionBindings,
-  resolveWorkspaceSourceInstructionBlock,
   workspaceAgentOwnsWorkspaceDefinition,
   workspaceDefinitionFromOptions,
   workspaceModeFromOptions,
@@ -91,7 +90,6 @@ import type {
   AgentHandlerOptions,
   AgentInput,
   AgentInputHook,
-  AgentInstructionBlock,
   AgentInvocationContextStore,
   AgentInvocationContextValues,
   AgentHookObserverHooks,
@@ -222,7 +220,6 @@ export type {
   AgentHarnessSessionKey,
   AgentInput,
   AgentInputHook,
-  AgentInstructionBlock,
   AgentIntegrationOption,
   AgentHookObserver,
   AgentHookObserverEvent,
@@ -1142,7 +1139,6 @@ type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 > = AgentRunContext<TRuntimeConfig, CALL_OPTIONS> & {
-  capabilityInstructions: AgentInstructionBlock[]
   channels?: AgentChannels<TRuntimeConfig>
   close: () => Promise<void>
   deliveryEffectIntents: AgentChannelDeliveryEffectIntent[]
@@ -1159,7 +1155,6 @@ type AgentInvocationContext<
   outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
   outputRenderers: AgentCapabilityRegistries["outputRenderers"]
   runtimeContext: ResolvedAgentRuntimeContext<TRuntimeConfig>
-  sourceInstructions?: string
   instructions?: string
   startedAt: number
   actor: AgentInvoker
@@ -1342,13 +1337,6 @@ async function createAgentInvocationContext<
     const activeWorkspace = capabilities.workspace || workspace
     const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
     const activeWorkspaceDefinition = capabilities.workspaceDefinition || sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
-    const workspaceScope = invocationContext.get("access")?.workspaceScope
-    const sourceInstructions = activeWorkspaceDefinition && activeWorkspace
-      ? await resolveWorkspaceSourceInstructionBlock(
-          activeWorkspaceDefinition,
-          workspaceScope && !workspaceScope.all ? activeWorkspace as ReadonlyWorkspaceFacade : undefined,
-        )
-      : undefined
     const instructions = workspaceOptions && activeWorkspace
       ? await resolveWorkspaceAgentDefaultInstructions(workspaceOptions, activeWorkspace as ReadonlyWorkspaceFacade)
       : undefined
@@ -1359,7 +1347,6 @@ async function createAgentInvocationContext<
     const invocation = {
       ...callbackContext,
       actor: invoker,
-      capabilityInstructions: capabilities.capabilityInstructions,
       channels: definition?.channels,
       close: capabilities.close,
       context: invocationContext,
@@ -1385,7 +1372,6 @@ async function createAgentInvocationContext<
       providerTools: capabilities.registries.providerTools,
       run: context.run,
       runtimeContext,
-      sourceInstructions,
       startedAt,
       tools,
       workspace: activeWorkspace,

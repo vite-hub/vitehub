@@ -25,7 +25,7 @@ Markdown authored for an Agent and rendered through ViteHub Instruction Composit
 _Avoid_: Prompt config, raw system prompt, model adapter prompt
 
 **Instruction Composition**:
-The ViteHub-owned render pass that expands local Markdown imports, evaluates safe `context.*` conditions, resolves `context.*` bindings, inserts Capability instruction slots, and inserts visible Source Instructions.
+The ViteHub-owned render pass that expands deterministic Markdown imports, evaluates safe `context.*` conditions, resolves explicit `context.*` and `workspace.*` bindings, records Source/Capability/Skill coverage wrappers, and strips those wrappers before model execution.
 _Avoid_: Prompt templating engine, arbitrary JavaScript, access policy
 
 **Explicit Instruction Coverage**:

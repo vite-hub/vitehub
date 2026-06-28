@@ -2,12 +2,11 @@ import { dirname, resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { applyCapabilityInstructionSlots } from "../src/capability-runtime.ts"
 import {
   composeInstructionDocument,
+  createInstructionCoverage,
   resolveInstructionImports,
 } from "../src/instruction-composition.ts"
-import { applyWorkspaceSourceInstructionSlot } from "../src/workspace-agent.ts"
 
 function importReader(files: Map<string, string>) {
   return (specifier: string, importer: string) => {
@@ -222,24 +221,39 @@ describe("instruction composition", () => {
     ].join("\n"))
   })
 
-  it("renders conditionals before consuming capability and source instruction slots", async () => {
+  it("strips explicit instruction coverage wrappers and records covered primitives", async () => {
+    const coverage = createInstructionCoverage()
     const document = [
-      "::if{context.showCapability}",
-      "{{ capabilities.docs }}",
-      "{{ workspace.sources }}",
-      "::else",
-      "No capability instructions.",
+      "::source{key=\"ingestion\"}",
+      "Use uploaded files for ingestion behavior.",
+      "::",
+      "::capability{key=\"openapi\"}",
+      "Use OpenAPI tools for live API shape.",
+      "::",
+      "::skill{path=\"skills/review-browser-evidence\"}",
+      "Use browser evidence for bounded review claims.",
       "::",
     ].join("\n")
-    const baseInstructions = await composeInstructionDocument(document, {
-      context: { showCapability: false },
-    })
 
-    expect(applyCapabilityInstructionSlots(baseInstructions, [
-      { id: "capabilities.docs", instructions: "Use docs capability." },
-    ])).toBe("No capability instructions.\n\nUse docs capability.")
-    expect(applyWorkspaceSourceInstructionSlot(baseInstructions, "Use docs source."))
-      .toBe("No capability instructions.\n\nUse docs source.")
+    expect(await composeInstructionDocument(document, { coverage })).toBe([
+      "Use uploaded files for ingestion behavior.",
+      "",
+      "Use OpenAPI tools for live API shape.",
+      "",
+      "Use browser evidence for bounded review claims.",
+    ].join("\n"))
+    expect([...coverage.sources]).toEqual(["ingestion"])
+    expect([...coverage.capabilities]).toEqual(["openapi"])
+    expect([...coverage.skills]).toEqual(["skills/review-browser-evidence"])
+  })
+
+  it("rejects legacy ambient instruction slots", async () => {
+    await expect(composeInstructionDocument("{{ workspace.sources }}"))
+      .rejects.toThrow("{{ workspace.sources }}\" is no longer supported")
+    await expect(composeInstructionDocument("{{ capabilities }}"))
+      .rejects.toThrow("{{ capabilities }}\" is no longer supported")
+    await expect(composeInstructionDocument("{{ capabilities.openapi }}"))
+      .rejects.toThrow("{{ capabilities.openapi }}\" is no longer supported")
   })
 
   it("rejects unsafe expressions and non-scalar double bindings", async () => {

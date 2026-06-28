@@ -33,6 +33,7 @@ import type {
   ChatDevtoolsTool,
   ChatDevtoolsToolDefinition,
   ChatDevtoolsToolStatus,
+  ChatDevtoolsWarning,
 } from "./devtools-shared.js"
 
 export {
@@ -65,6 +66,7 @@ export type {
   ChatDevtoolsTool,
   ChatDevtoolsToolDefinition,
   ChatDevtoolsToolStatus,
+  ChatDevtoolsWarning,
 } from "./devtools-shared.js"
 
 export const chatDevtoolsRpcClear: string = chatDevtoolsClearRpc
@@ -480,6 +482,7 @@ function normalizeDevtoolsMetadata(metadata: ChatDevtoolsMetadata | undefined): 
     name: metadata?.name,
     tools: metadata?.tools ? [...metadata.tools] : [],
     version: metadata?.version,
+    warnings: metadata?.warnings ? [...metadata.warnings] : [],
     ...(metadata?.config ? { config: metadata.config } : {}),
   }
 }
@@ -674,6 +677,7 @@ export function createDevtoolsAdapter(options: ChatDevtoolsAdapterOptions = {}):
         ...(metadata.name ? { title: metadata.name } : {}),
         tools: metadata.tools,
         ...(metadata.version ? { version: metadata.version } : {}),
+        warnings: metadata.warnings,
       }
     },
     handleWebhook: async () => new Response(null, { status: 204 }),

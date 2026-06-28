@@ -18,7 +18,8 @@ Use the configuration example below as the starting point, then tighten modes, p
 ## What it adds
 
 `access()` can resolve chat access and apply read-only Workspace Scope before other Capabilities run.
-Workspace scopes can grant paths or Sources, set a role, and add explicit Workspace Scope Instructions for the Agent.
+Workspace scopes can grant paths or Sources and set a role.
+Model-facing scope guidance belongs in Agent Driver Instructions or deterministic instruction imports.
 
 ## Configuration
 
@@ -49,7 +50,7 @@ export default defineAgent({
 ## Runtime behavior
 
 The Capability records the selected Workspace Scope in invocation context and replaces the active Workspace facade with a scoped facade.
-If the scope includes instructions, ViteHub adds them as the `capabilities.access.workspace` instruction block.
+Put model-facing guidance for each Access scope in Agent Driver Instructions or an imported instruction file, and cover the Access Capability with an explicit `::capability{key="access"}` block when that guidance depends on Access.
 
 ## Requirements
 
@@ -63,7 +64,7 @@ Use trusted Agent Invoker or platform identity metadata; do not treat model text
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Receives the scoped Workspace and any Workspace Scope Instructions rendered by the Agent instructions. |
+| Model-backed | Receives the scoped Workspace and any explicitly authored Agent instructions. |
 | Harness-backed | Receives the scoped Workspace behavior; model-facing instructions are not passed unless a harness-compatible surface supports them. |
 | Custom-run-backed | Receives the prepared context value and scoped Workspace; `driver.run` decides how to use them. |
 
@@ -87,7 +88,6 @@ Unknown scopes, root-mounted Source grants, missing Workspace definitions, and i
 | `scope.path` / `scope.paths` | `string \| string[]` | none | Grant Workspace paths. |
 | `scope.source` / `scope.sources` | `string \| string[]` | none | Grant Workspace Sources. |
 | `scope.grants` | `AccessWorkspaceScopeGrant[]` | none | Combine path and Source grants. |
-| `scope.instructions` | `string \| string[]` | none | Add scope-specific instructions. |
 
 ## Reference
 

@@ -557,7 +557,6 @@ function applyResolvedWorkspaceSourceBinding(input: WorkspaceSourceInput, source
     return next
   }
   copyDefinedWorkspaceBindingOption(next, input, "cache")
-  copyDefinedWorkspaceBindingOption(next, input, "instructions")
   copyDefinedWorkspaceBindingOption(next, input, "materialize")
   copyDefinedWorkspaceBindingOption(next, input, "mount")
   copyDefinedWorkspaceBindingOption(next, input, "scopes")
@@ -566,7 +565,7 @@ function applyResolvedWorkspaceSourceBinding(input: WorkspaceSourceInput, source
   return next
 }
 
-function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "instructions" | "materialize" | "mount" | "scopes" | "sync" | "validate">(
+function copyDefinedWorkspaceBindingOption<TKey extends "cache" | "materialize" | "mount" | "scopes" | "sync" | "validate">(
   target: WorkspaceSource,
   input: Record<string, unknown>,
   key: TKey,
