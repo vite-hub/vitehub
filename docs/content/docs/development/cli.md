@@ -19,12 +19,13 @@ pnpm vitehub --help
 ```
 
 Expected help lists available namespaces.
-The Agent Package contributes the `agent` namespace when `hubAgent()` is active, and the CLI includes the built-in `provision` namespace.
+The Agent Package contributes the `agent` namespace when `hubAgent()` is active, the Workspace Package contributes the `workspace` namespace when `hubWorkspace()` is active, and the CLI includes the built-in `provision` namespace.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
 Available namespaces:
   agent       Agent development workflows.
+  workspace   Workspace development workflows.
   provision   Idempotently create missing provider resources.
 ```
 
@@ -34,6 +35,7 @@ Available namespaces:
 | --- | --- | --- | --- |
 | `vitehub agent eval` | Available | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent dev` | Available | Agent Package | Talk to a discovered Agent through a running Vite Development Server. |
+| `vitehub workspace dev` | Available | Workspace Package | Run commands through a Workspace Session exposed by a Compatible Vite Development Server. |
 | `vitehub provision run` | Available | ViteHub CLI plus package Provision Steps | Create missing provider resources idempotently. |
 | Package-specific namespaces | Planned per package | Owning package | Add workflows only when the package has a durable development task. |
 
@@ -100,13 +102,49 @@ Everything after `--` is parsed as the nested Capability CLI command.
 pnpm vitehub agent dev --url http://localhost:3000 --agent support --cli inventory -- items list --json
 ```
 
-Expected output includes the resolved payload file path before the Agent Invocation starts.
+When you use `--payload`, expected output includes the resolved payload file path before the Agent Invocation starts.
 In interactive mode, type a message or command such as `/summary` at the prompt.
 
 ```txt [Output]
 Loaded payload: /Users/acme/app/server/agents/support/dev.payload.json
 Connected to support at http://localhost:5173
 > /summary
+```
+
+Prefix input with `!` when you need to run a direct Workspace command through the selected Agent Dev Loop Target.
+The selected Agent must declare a writable Workspace.
+ViteHub runs the command through that Workspace Session and commits successful changes back to the Workspace Store.
+
+```bash [Terminal]
+pnpm vitehub agent dev --agent support "!pnpm test"
+pnpm vitehub agent dev support "!pnpm test" --url http://localhost:5173 --timeout 180000
+```
+
+In interactive mode, `!` input bypasses the Agent Driver for that turn.
+Use normal messages for Agent reasoning, `!` commands for direct Workspace shell work, and `--cli` for Capability CLI Contributions.
+
+```txt [Output]
+Connected to support at http://localhost:5173
+> !pnpm test
+```
+
+## Run Workspace commands during development
+
+Use `vitehub workspace dev` when you want a direct command against a Workspace without routing through an Agent.
+Start the app's Vite dev server first, then run the command from another terminal.
+
+```bash [Terminal]
+pnpm vitehub workspace dev docs pnpm test --url http://localhost:5173
+pnpm vitehub workspace dev docs "npm run lint" --timeout 180000
+```
+
+The command runs through the Workspace dev endpoint exposed by `hubWorkspace()` on the Compatible Vite Development Server.
+ViteHub materializes a Workspace Session, executes the command, prints stdout and stderr, and commits the session when the command exits successfully.
+If you omit the command in an interactive terminal, the CLI opens a prompt for repeated Workspace commands.
+
+```txt [Output]
+Connected to docs at http://localhost:5173
+> pnpm test
 ```
 
 ## Preview provisioning
@@ -130,11 +168,14 @@ pnpm vitehub provision run --provider vercel --dry-run
 | Agent eval times out | The eval case, model call, or harness run exceeds `agent.eval.testTimeout`. | Increase `agent.eval.testTimeout` in `vite.config.ts` or narrow the eval case. |
 | Vite config fails while loading a ViteHub plugin import | A fresh npm project is loading `vite.config.ts` as CommonJS, but ViteHub packages are ESM-only. | Set `"type": "module"` in `package.json` or rename the config to `vite.config.mts`. |
 | `No Compatible Vite Development Server found` | The app dev server is not running or `--url` points at the wrong port. | Start Vite separately, then pass the dev server URL. |
+| `Unknown Workspace Dev target` | The named Workspace is not discovered by the running Vite dev server. | Check the Workspace Definition name and make sure `hubWorkspace()` is active. |
+| `Agent Dev Loop command requires workspace.mode: "write"` | A `!` command targeted an Agent without writable Workspace access. | Configure the selected Agent with `workspace: { mode: 'write' }`, or send a normal Agent message instead. |
 | Agent Dev Loop request times out | The invocation exceeded the CLI request timeout. | Pass `--timeout <ms>` for the dev-loop command or shorten the Agent work. |
 | `Agent Dev Loop payload file must contain a JSON object` | The `--payload` file is not a JSON object. | Replace the file contents with one object shaped for the selected Agent Trigger. |
 
 ## Next steps
 
 - Use [Agent Evals](/docs/development/agent-evals) for behavior checks.
+- Use [Workspace](/docs/server-primitives/workspace) for Workspace Sessions and write access.
 - Use [Provisioning](/docs/development/provisioning) for provider resource ids.
 - Use [Config options](/docs/reference/config-options) for package integration switches.
