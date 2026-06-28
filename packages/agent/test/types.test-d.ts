@@ -616,7 +616,36 @@ describe("agent public types", () => {
             },
           },
         }),
-        web: webChat(),
+        web: webChat({
+          route: {
+            admission: {
+              body: {
+                "~standard": {
+                  validate: (input: unknown) => ({
+                    value: input as { messages: unknown[], meta: { customer: string }, user: { email: string } },
+                  }),
+                },
+              },
+              authenticate({ body, rawBody, request }) {
+                expectTypeOf(body.messages).toEqualTypeOf<unknown>()
+                expectTypeOf(rawBody).toEqualTypeOf<string>()
+                expectTypeOf(request).toEqualTypeOf<Request>()
+                return { invokerProfileId: "customer:acme" }
+              },
+              context({ auth, body, rawBody }) {
+                expectTypeOf(auth.invokerProfileId).toEqualTypeOf<string>()
+                expectTypeOf(body.meta.customer).toEqualTypeOf<string>()
+                expectTypeOf(body.user.email).toEqualTypeOf<string>()
+                expectTypeOf(rawBody).toEqualTypeOf<string>()
+                return {
+                  invokerProfileId: auth.invokerProfileId,
+                  meta: body.meta,
+                  user: body.user,
+                }
+              },
+            },
+          },
+        }),
       },
       hooks: {
         "hook:observe"(event) {

@@ -6,6 +6,7 @@ import { join } from "node:path"
 import { Message } from "chat"
 import { describe, expect, it, vi } from "vitest"
 
+import type { AgentChannelChatRouteStandardSchemaV1 } from "../src/server.ts"
 import type { Adapter, ChatInstance, StreamChunk, WebhookOptions } from "chat"
 
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
@@ -983,6 +984,131 @@ describe("server helpers", () => {
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
     await expect(response.text()).resolves.toContain("portal portal portal portal:portal-thread customer:acme user@example.com technical")
     expect(run).toHaveBeenCalled()
+  })
+
+  it("serves webChat routes with admission callbacks", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server.ts")
+    type PortalBody = {
+      id?: string
+      messages: unknown[]
+      meta: Record<string, unknown>
+      user: Record<string, unknown>
+    }
+    const bodySchema: AgentChannelChatRouteStandardSchemaV1<PortalBody> = {
+      "~standard": {
+        validate(input: unknown) {
+          const body = input as PortalBody
+          if (!Array.isArray(body.messages)) return { issues: ["messages must be an array"] }
+          return { value: body }
+        },
+      },
+    }
+    const authenticate = vi.fn(({ rawBody, request }) => {
+      expect(rawBody.length).toBeGreaterThan(0)
+      return request.headers.get("x-quiver-chat-token") === "trusted"
+        ? { invokerProfileId: "customer:acme" }
+        : false
+    })
+    const run = vi.fn(({ context, invoker, run }) => {
+      const chatContext = context.get("chat") as { meta?: { audience?: string, customer?: string }, user?: { email?: string } } | undefined
+      return `web ${run.channelId} ${run.origin} ${run.threadId} ${invoker.id} ${chatContext?.user?.email} ${chatContext?.meta?.customer} ${chatContext?.meta?.audience}`
+    })
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: {
+        portal: webChat({
+          route: {
+            admission: {
+              body: bodySchema,
+              authenticate,
+              context({ auth, body }) {
+                return {
+                  invokerProfileId: auth.invokerProfileId,
+                  meta: body.meta,
+                  run: { origin: "portal" },
+                  user: body.user,
+                }
+              },
+            },
+          },
+        }),
+      },
+      invoker: {
+        profiles: [{
+          id: "customer:acme",
+          kind: "customerPortal",
+          meta: { scope: "acme" },
+        }],
+      },
+      run,
+    }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        id: "portal-thread",
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+        meta: { audience: "technical", customer: "acme", source: "portal" },
+        user: { email: "user@example.com" },
+      }),
+      headers: {
+        "content-type": "application/json",
+        "x-quiver-chat-token": "trusted",
+      },
+      method: "POST",
+    }), { agentName: "support" })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
+    await expect(response.text()).resolves.toContain("web portal portal portal:portal-thread customer:acme user@example.com acme technical")
+    expect(run).toHaveBeenCalled()
+    authenticate.mockClear()
+
+    const malformedResponse = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        id: "portal-thread",
+        messages: "bad",
+        meta: {},
+        user: {},
+      }),
+      headers: {
+        "content-type": "application/json",
+        "x-quiver-chat-token": "trusted",
+      },
+      method: "POST",
+    }), { agentName: "support" })
+
+    expect(malformedResponse.status).toBe(400)
+    expect(authenticate).toHaveBeenCalledWith(expect.objectContaining({
+      rawBody: expect.stringContaining("portal-thread"),
+    }))
+    authenticate.mockClear()
+
+    const rejectedResponse = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+        meta: {},
+        user: {},
+      }),
+      headers: { "x-quiver-chat-token": "nope" },
+      method: "POST",
+    }), { agentName: "support" })
+
+    expect(rejectedResponse.status).toBe(401)
+    await expect(rejectedResponse.json()).resolves.toMatchObject({
+      error: "Agent chat route request was not admitted.",
+    })
+    expect(authenticate).toHaveBeenCalledWith(expect.objectContaining({
+      rawBody: expect.stringContaining("hello"),
+    }))
   })
 
   it("returns a validation error for malformed AI SDK chat requests", async () => {
