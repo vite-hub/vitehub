@@ -2149,12 +2149,12 @@ describe("server helpers", () => {
 
       const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
         body: JSON.stringify({
-          update_id: 1046,
+          update_id: 1048,
           message: {
             chat: { id: 456, type: "private" },
             date: 1781092800,
             from: { first_name: "Maxi", id: 123, username: "maxi" },
-            message_id: 1046,
+            message_id: 1048,
             text: "hello",
           },
         }),
