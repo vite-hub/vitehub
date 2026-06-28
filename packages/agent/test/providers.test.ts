@@ -1084,7 +1084,9 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
-    await expect(response.text()).resolves.toContain("web portal portal portal:portal-thread customer:acme user@example.com acme technical runtime-body:")
+    const responseText = await response.text()
+    expect(responseText).toContain("web portal portal portal:portal-thread customer:acme user@example.com acme technical runtime-body:")
+    expect(responseText).toContain("\\\"messages\\\"")
     expect(run).toHaveBeenCalled()
     authenticate.mockClear()
 
