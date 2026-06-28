@@ -86,7 +86,7 @@ export default defineAgent({
   driver: {
     instructions: [
       'Answer from project context first.',
-      '{{ capabilities }}',
+      'Inspect Workspace files before using outside knowledge.',
     ].join('\n\n'),
     model: gateway('openai/gpt-5.1-mini'),
   },

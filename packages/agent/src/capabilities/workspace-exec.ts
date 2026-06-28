@@ -160,12 +160,6 @@ export function workspaceExec(options: WorkspaceExecOptions): AgentCapabilityDef
   const timeout = normalizeTimeout(options?.timeout, "workspaceExec({ timeout })")
   return defineCapability({
     id: "workspace-exec",
-    instructions: [
-      `workspace_exec runs only configured commands in a trusted Workspace Session at the workspace root: ${commands.join(", ")}.`,
-      mode === "write"
-        ? "Successful commands are committed back to the Workspace Store. This is trusted workspace/session execution, not the read-only Workspace Shell."
-        : "Read mode requires a writable Workspace Session for trusted execution, but does not commit command changes. This is not the read-only Workspace Shell.",
-    ],
     metadata: { commands, mode, ...(timeout ? { timeout } : {}) },
     mode,
     requires: [{ primitive: "workspace", workspace: { mode: "write", required: true } }],

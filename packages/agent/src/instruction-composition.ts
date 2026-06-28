@@ -15,7 +15,14 @@ export interface ResolveInstructionImportsOptions {
 
 export interface ComposeInstructionDocumentOptions {
   context?: Record<string, unknown>
+  coverage?: InstructionCoverage
   workspace?: Record<string, unknown>
+}
+
+export interface InstructionCoverage {
+  capabilities: Set<string>
+  skills: Set<string>
+  sources: Set<string>
 }
 
 type ConditionOperator = "!" | "!=" | "!==" | "&&" | "(" | ")" | "==" | "===" | "||"
@@ -29,6 +36,7 @@ type ComarkComment = [null, ComarkElementAttributes, string]
 type ComarkNode = ComarkComment | ComarkElement | string
 interface ComposeInstructionState {
   context: Record<string, unknown>
+  coverage?: InstructionCoverage
   workspace: Record<string, unknown>
   tripleBindings: string[]
 }
@@ -39,6 +47,7 @@ const compositionPathPattern = /^(?:context|workspace)(?:\.[A-Za-z_$][\w$-]*)+$/
 const tripleBindingPattern = /\{\{\{\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}\}/g
 const tripleBindingPlaceholderPattern = /%%VITEHUB_TRIPLE_BINDING_(\d+)%%/g
 const scalarBindingPattern = /\{\{(?!\{)\s*(context(?:\.[A-Za-z_$][\w$-]*)+)\s*\}\}/g
+const legacyCapabilityBindingPattern = /\{\{\s*capabilities(?:\.[A-Za-z_$][\w$-]*)?\s*\}\}/
 const comarkComponents = { Binding }
 const noLinkify = {
   markdownItPlugins: [(md: { disable: (rule: string) => unknown, set: (options: Record<string, unknown>) => unknown }) => {
@@ -64,7 +73,7 @@ export async function composeInstructionDocument(content: string, options: Compo
   validateConditionalDirectives(imported)
   const normalized = await normalizeTripleBindings(imported)
   const tree = await parseInstructionMarkdown(normalized.content, true)
-  const nodes = await composeNodes(tree.nodes, { ...state, tripleBindings: normalized.tripleBindings })
+  const nodes = await composeNodes(tree.nodes, { ...state, coverage: options.coverage, tripleBindings: normalized.tripleBindings })
   return cleanMarkdown(await renderMarkdown({ ...tree, nodes }, { components: comarkComponents }))
 }
 
@@ -72,7 +81,15 @@ export function composeStaticInstructionDocument(content: string, options: Compo
   const context = options.context || {}
   const normalized = normalizeConditionShorthand(content)
   validateConditionalDirectives(normalized)
-  return renderStaticContextBindings(renderStaticConditionals(normalized, context), context).trim().replace(/\n{3,}/g, "\n\n")
+  return stripInstructionCoverageDirectives(renderStaticContextBindings(renderStaticConditionals(normalized, context), context)).trim().replace(/\n{3,}/g, "\n\n")
+}
+
+export function createInstructionCoverage(): InstructionCoverage {
+  return {
+    capabilities: new Set(),
+    skills: new Set(),
+    sources: new Set(),
+  }
 }
 
 async function parseInstructionMarkdown(content: string, bindings = false) {
@@ -324,6 +341,10 @@ async function composeNode(
     throw new Error(`[vitehub] Instruction ${tag} block must follow an if block.`)
   }
   if (tag === "binding") return [renderBinding(attrs, state)]
+  if (isInstructionCoverageTag(tag)) {
+    recordInstructionCoverage(tag, attrs, state.coverage)
+    return await composeNodes(children, state, parent)
+  }
   if (tag === "vitehubTriple" || tag === "vitehub-triple") {
     return await renderTripleBinding(attrs, state.context, parent)
   }
@@ -336,6 +357,7 @@ async function composeTextNode(
   state: ComposeInstructionState,
   parent?: string,
 ): Promise<ComarkNode[]> {
+  rejectLegacyCapabilityBinding(value)
   const nodes: ComarkNode[] = []
   let index = 0
   for (const match of value.matchAll(tripleBindingPlaceholderPattern)) {
@@ -353,14 +375,67 @@ function renderBinding(
   scopes: { context: Record<string, unknown>, workspace: Record<string, unknown> },
 ): ComarkNode {
   const path = attrs[":value"]
+  if (typeof path === "string" && (path === "capabilities" || path.startsWith("capabilities."))) {
+    throw new Error(`[vitehub] Instruction binding "{{ ${path} }}" is no longer supported. Cover Capabilities with ::capability blocks in Agent Driver Instructions.`)
+  }
   if (typeof path !== "string" || !compositionPathPattern.test(path)) return ["binding", attrs]
-  if (path === "workspace.sources" && namespacePathValue(scopes.workspace, path) === undefined) return ["binding", attrs]
+  if (path === "workspace.sources") {
+    throw new Error("[vitehub] Instruction binding \"{{ workspace.sources }}\" is no longer supported. Cover Sources with ::source blocks in Agent Driver Instructions.")
+  }
   const value = namespacePathValue(path.startsWith("workspace.") ? scopes.workspace : scopes.context, path)
   if (value === null || value === undefined) {
     throw new Error(`[vitehub] Instruction binding "{{ ${path} }}" is not defined.`)
   }
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value)
   throw new TypeError(`[vitehub] Instruction binding "{{ ${path} }}" must resolve to a scalar value.`)
+}
+
+function rejectLegacyCapabilityBinding(value: string): void {
+  const match = value.match(legacyCapabilityBindingPattern)
+  if (!match) return
+  throw new Error(`[vitehub] Instruction binding "${match[0]}" is no longer supported. Cover Capabilities with ::capability blocks in Agent Driver Instructions.`)
+}
+
+function isInstructionCoverageTag(tag: string): tag is "capability" | "skill" | "source" {
+  return tag === "capability" || tag === "skill" || tag === "source"
+}
+
+function coverageAttribute(attrs: Record<string, unknown>, tag: "capability" | "skill" | "source"): string {
+  const value = tag === "skill" ? attrs.path : attrs.key
+  const name = tag === "skill" ? "path" : "key"
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`[vitehub] Instruction ${tag} block requires a non-empty ${name}.`)
+  }
+  return value.trim()
+}
+
+function recordInstructionCoverage(
+  tag: "capability" | "skill" | "source",
+  attrs: Record<string, unknown>,
+  coverage: InstructionCoverage | undefined,
+) {
+  const value = coverageAttribute(attrs, tag)
+  if (!coverage) return
+  if (tag === "capability") coverage.capabilities.add(value)
+  if (tag === "skill") coverage.skills.add(value)
+  if (tag === "source") coverage.sources.add(value)
+}
+
+function stripInstructionCoverageDirectives(content: string): string {
+  let depth = 0
+  const lines: string[] = []
+  for (const line of content.split(/\r?\n/)) {
+    if (/^\s*::(?:capability|skill|source)\{/.test(line)) {
+      depth += 1
+      continue
+    }
+    if (depth > 0 && /^\s*::\s*$/.test(line)) {
+      depth -= 1
+      continue
+    }
+    lines.push(line)
+  }
+  return lines.join("\n")
 }
 
 async function renderTripleBinding(

@@ -25,8 +25,20 @@ Markdown authored for an Agent and rendered through ViteHub Instruction Composit
 _Avoid_: Prompt config, raw system prompt, model adapter prompt
 
 **Instruction Composition**:
-The ViteHub-owned render pass that expands local Markdown imports, evaluates safe `context.*` conditions, resolves `context.*` bindings, inserts Capability instruction slots, and inserts visible Source Instructions.
+The ViteHub-owned render pass that expands deterministic Markdown imports, evaluates safe `context.*` conditions, resolves explicit `context.*` and `workspace.*` bindings, records Source/Capability/Skill coverage wrappers, and strips those wrappers before model execution.
 _Avoid_: Prompt templating engine, arbitrary JavaScript, access policy
+
+**Explicit Instruction Coverage**:
+A declared relationship in Agent Driver Instructions or deterministic imported instruction Markdown that says a configured Source, Capability, or Skill is intentionally covered by model-facing guidance.
+_Avoid_: Ambient system instructions, discoverable file, implicit prompt append
+
+**Instruction Binding**:
+The authored marker or placement in an Instruction Document that binds a configured Source, Capability, or Skill to explicit instruction prose or a deterministic imported instruction file.
+_Avoid_: Source metadata, Capability metadata, tool description, Workspace file discovery
+
+**Instruction Coverage Diagnostic**:
+A DevTools, build, or metadata warning that a configured Source, Capability, or Skill is available to an Agent but lacks Explicit Instruction Coverage.
+_Avoid_: Model-facing warning, access error, tool schema validation
 
 **Agent Model Execution**:
 The model-backed Agent Driver boundary for `execution` settings such as model call settings, step limits, workspace fallback behavior, and model execution instrumentation.
@@ -235,9 +247,13 @@ _Avoid_: Fake agent, dummy model, test bot
 - A model-backed **Agent Driver** uses the AI SDK model execution path when it uses a model.
 - A model-backed **Agent Driver** may configure **Model Driver Instructions**.
 - **Model Driver Instructions** may be authored as an **Instruction Document**.
+- **Model Driver Instructions** own **Explicit Instruction Coverage** for configured Sources, Capabilities, and Skills.
+- **Instruction Bindings** must live in Agent Driver Instructions or deterministic imported instruction Markdown; merely discoverable Workspace files do not establish **Explicit Instruction Coverage**.
 - **Instruction Composition** reads only explicit **Agent Invocation Context Values** through `context.*` paths.
 - **Instruction Composition** does not execute arbitrary JavaScript and does not grant **Capabilities**, **Workspace Scope**, Source visibility, or runtime access.
-- **Instruction Composition** can insert visible **Source Instructions** through the `{{ workspace.sources }}` slot while keeping `WorkspaceSource.instructions` as the low-level Source guidance field.
+- **Instruction Composition** may render bound Source, Capability, and Skill guidance, but it should not append free-form primitive prose merely because the primitive is configured.
+- **Instruction Coverage Diagnostics** warn in DevTools, build, or generated metadata when a configured Source, Capability, or Skill is available without **Explicit Instruction Coverage**.
+- Tool descriptions and schemas are structured tool contracts; they do not become arbitrary system instruction injection and they do not clear **Instruction Coverage Diagnostics** by themselves.
 - An **Agent Trigger Payload** belongs to the trigger consumer for one run; it is not authored on an **Agent Definition**.
 - An **Agent Trigger** owns mapping an **Agent Trigger Payload** into trusted **Agent Invocation Context Values**, **Agent Run** metadata, and delivery behavior.
 - **Agent Definitions** should not carry development-only payload examples such as `dev.samples` or `devtools.meta`.
@@ -335,6 +351,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - An **Agent** can attach zero or more Capabilities.
 - Tools are contributed by Capabilities, not by top-level Agent Definition fields.
 - Model-facing tools and instructions are **Capability Driver Contributions** consumed only by compatible Agent Drivers.
+- Free-form model-facing guidance from Sources, Capabilities, and Skills should be covered through **Instruction Bindings** instead of ambient contribution from primitive configuration.
 - Workspace Tools are derived from an Agent's Colocated Workspace Definition.
 - An **Agent Invocation** can create or update **Agent Run State**.
 - An **Agent Run Origin** is observability metadata for an **Agent Invocation**; it is not the **Agent Trigger** that prepared the invocation and is not mirrored into Chat context.
@@ -407,6 +424,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - Combining model-backed execution with custom `run` was considered for fallback or post-processing - resolved: **Agent Driver** variants are mutually exclusive; custom code that wants to call a model belongs in `driver: { run }`.
 - Root `modelExecution` was considered for preservation inside model-backed drivers - resolved: the model-backed Agent Driver uses `execution` because `model` is already implied by the driver variant.
 - Root Agent Definition `instructions` were considered shared by model-backed and harness-backed execution - resolved: use **Model Driver Instructions** for model-backed drivers, and do not pass them to harness-backed drivers by default.
+- Ambient Source, Capability, and Skill prose was considered convenient default model guidance - resolved: use **Explicit Instruction Coverage** and **Instruction Coverage Diagnostics** so model-facing guidance has an authored owner.
 - AI SDK `HarnessAgent` was considered as the public harness boundary - resolved: use the ViteHub-owned **Agent Harness Driver Contract** and adapt AI SDK harnesses behind it.
 - Adapter-level harness approvals were considered for V1 - resolved: use **Harness Permission Policy** to bypass adapter approvals and rely on ViteHub-owned Workspace and runtime boundaries, avoiding two active permission layers.
 - A public permission option was considered for V1 - resolved: avoid it because bypass is the only supported **Harness Permission Policy** for now.

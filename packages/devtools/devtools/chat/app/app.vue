@@ -17,6 +17,7 @@ import {
   type ChatDevtoolsStreamEvent,
   type ChatDevtoolsTool,
   type ChatDevtoolsToolDefinition,
+  type ChatDevtoolsWarning,
 } from "../../../src/chat-shared.js"
 import { resolveChatBridgeRoute } from "./bridge-route"
 import { flattenFiles, sourceRootStates, syncExpandedFilePaths, type FileRow, type SourceRootState } from "./file-tree"
@@ -25,7 +26,7 @@ type ChatStatus = "ready" | "submitted" | "streaming" | "error"
 type ChatMessage = UIMessage & { chat?: string }
 type ConfirmationResult = "cancelled" | "done" | "timeout" | "undelivered"
 type SendInput = { chat?: string, invokerFallback?: boolean, invokerProfileId?: string, meta?: Record<string, unknown>, text: string }
-type IntegrationSectionId = "config" | "files" | "tools" | "instructions" | "meta"
+type IntegrationSectionId = "config" | "files" | "tools" | "instructions" | "warnings" | "meta"
 const sendConnectTimeout = 15_000
 const sendConfirmationTimeout = 60_000
 const sendDeliveryTimeout = 3_000
@@ -51,6 +52,7 @@ const state = ref<ChatDevtoolsStateResult>({
   invokerProfiles: [],
   selected: "",
   tools: [],
+  warnings: [],
 })
 const messages = ref<ChatMessage[]>([])
 const defaultChatTitle = "ViteHub Chat"
@@ -149,11 +151,13 @@ const visibleTools = computed<ChatDevtoolsToolDefinition[]>(() => {
   }))
 })
 const configRows = computed<ConfigRow[]>(() => agentConfigRows(state.value.config))
+const visibleWarnings = computed<ChatDevtoolsWarning[]>(() => state.value.warnings || [])
 const integrationSections = computed<Array<{ count: number, icon: string, id: IntegrationSectionId, label: string }>>(() => [
   { count: configRows.value.length, icon: "i-lucide-settings-2", id: "config", label: "Config" },
   { count: fileRows.value.length, icon: "i-lucide-files", id: "files", label: "Files" },
   { count: visibleTools.value.length, icon: "i-lucide-wrench", id: "tools", label: "Tools" },
   { count: state.value.instructions?.length || 0, icon: "i-lucide-scroll-text", id: "instructions", label: "Instructions" },
+  { count: visibleWarnings.value.length, icon: "i-lucide-triangle-alert", id: "warnings", label: "Warnings" },
   { count: invokerMeta.value ? Object.keys(invokerMeta.value).length : 0, icon: "i-lucide-braces", id: "meta", label: "Meta" },
 ])
 const metadataStatus = computed(() => state.value.metadataStatus || "ready")
@@ -288,6 +292,7 @@ function applyState(next: ChatDevtoolsStateResult) {
     instructions: next.instructions || [],
     invokerProfiles: next.invokerProfiles || [],
     tools: next.tools || [],
+    warnings: next.warnings || [],
     ...next,
   }
   syncInvokerSelection(next)
@@ -1111,6 +1116,7 @@ async function clear() {
       invokerProfiles: state.value.invokerProfiles || [],
       selected: state.value.selected || "dev",
       tools: state.value.tools || [],
+      warnings: state.value.warnings || [],
     }
     pendingUserMessage.value = undefined
     messages.value = []
@@ -1140,6 +1146,7 @@ watch(selectedInvokerProfileId, async (next, previous) => {
     metadataError: undefined,
     metadataStatus: "loading",
     tools: [],
+    warnings: [],
   }
   await refreshFromBridge(state.value.selected)
 })
@@ -1406,7 +1413,7 @@ onBeforeUnmount(() => {
               <div
                 role="radiogroup"
                 aria-label="Integration section"
-                class="grid shrink-0 grid-cols-5 gap-1 border-b border-default pb-2 md:grid-cols-1"
+                class="grid shrink-0 grid-cols-6 gap-1 border-b border-default pb-2 md:grid-cols-1"
               >
                 <UButton
                   v-for="section in integrationSections"
@@ -1423,7 +1430,7 @@ onBeforeUnmount(() => {
                   class="min-h-8 justify-start border-l-2"
                   :class="activeIntegrationSection === section.id ? 'border-warning text-highlighted' : 'border-transparent text-muted'"
                   :ui="{
-                    leadingIcon: section.id === 'files' ? 'text-warning' : section.id === 'config' ? 'text-primary' : 'text-muted',
+                    leadingIcon: section.id === 'files' || section.id === 'warnings' ? 'text-warning' : section.id === 'config' ? 'text-primary' : 'text-muted',
                     label: 'min-w-0 truncate text-left text-sm',
                   }"
                   @click="activeIntegrationSection = section.id"
@@ -1716,6 +1723,28 @@ onBeforeUnmount(() => {
                   size="xs"
                   :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
                 />
+                </template>
+                <template v-else-if="activeIntegrationSection === 'warnings'">
+                  <div v-if="visibleWarnings.length" class="space-y-1.5 px-1">
+                    <UAlert
+                      v-for="warning in visibleWarnings"
+                      :key="warning.id"
+                      color="warning"
+                      variant="soft"
+                      icon="i-lucide-triangle-alert"
+                      :title="warning.message"
+                      :description="warning.primitive"
+                      :ui="{ root: 'rounded-md bg-transparent !py-1.5 !pl-8 !pr-2 gap-0', icon: 'absolute left-3 top-2 size-3.5 opacity-80', wrapper: 'min-w-0', title: 'text-xs font-normal leading-5', description: 'mt-0 text-[11px] uppercase tracking-wide text-muted' }"
+                    />
+                  </div>
+                  <UEmpty
+                    v-else
+                    icon="i-lucide-circle-check"
+                    title="No warnings."
+                    description="Configured primitives have explicit instruction coverage."
+                    size="xs"
+                    :ui="{ root: 'border-0 ring-0 shadow-none bg-transparent px-2 py-6' }"
+                  />
                 </template>
                 <template v-else>
                   <div class="space-y-2 px-1">

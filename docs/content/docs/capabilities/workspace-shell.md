@@ -18,7 +18,7 @@ Use the configuration example below as the starting point, then tighten modes, p
 ## What it adds
 
 The Capability contributes Workspace inspection tools in read mode and structured Workspace mutation tools in write mode.
-When Workspace Sources expose request descriptors, it also contributes instructions that tell the Agent how to inspect controlled curl access.
+When Workspace Sources expose request descriptors, tool descriptions and generated metadata can describe controlled request access; broader usage guidance belongs in Agent Driver Instructions.
 
 ## Configuration
 
@@ -56,7 +56,7 @@ It exposes Workspace file operations, while `sandbox()` runs allowlisted executa
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Receives Workspace tools and optional Source request instructions. |
+| Model-backed | Receives Workspace tools and structured tool contracts. |
 | Harness-backed | Uses the scoped Workspace Session path; model-facing Workspace tools are not passed by default. |
 | Custom-run-backed | Receives the prepared Workspace facade; `driver.run` decides whether to call Workspace APIs directly. |
 

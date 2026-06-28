@@ -75,7 +75,6 @@ When artifacts are enabled, inspect the Workspace for transcript files and the f
 | --- | --- | --- | --- |
 | `model` | AI SDK transcription model | required unless `execute` is set | Model used by AI SDK transcription. |
 | `execute` | `(input) => string \| result` | none | Custom transcription function; mutually exclusive with `model`. |
-| `instructions` | `string \| instruction blocks` | none | Instructions for transcription behavior. |
 | `maxBytes` | `number` | `26214400` | Maximum accepted audio bytes. |
 | `artifacts.transcript` | `false \| object` | disabled | Persist transcript artifacts to Workspace. |
 | `artifacts.transcript.path` | `string \| function` | generated | Transcript artifact path. |

@@ -47,7 +47,7 @@ export default defineAgent({
 
 ## Runtime behavior
 
-During input, `memory()` can preload records from configured stores into Capability instruction blocks.
+During input, `memory()` can preload records from configured stores for model-backed behavior.
 During resolve, it creates read tools for stores that allow reading and write tools for stores that opt into tool writes.
 
 Write tools add provenance from the current Agent Invocation and require approval by default unless the store policy changes it.
@@ -64,13 +64,13 @@ It requires writable Workspace access when the Agent creates, supersedes, or del
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Receives preload instructions and model-facing memory tools. |
+| Model-backed | Receives model-facing memory tools and current preload guidance when configured. |
 | Harness-backed | Runtime preload can run; model-facing memory tools are not passed by default. |
 | Custom-run-backed | Receives prepared context and can call store adapters from custom code when the application exposes them. |
 
 ## Inspect and verify
 
-Inspect instruction blocks for `memory.<store>` preload entries.
+Inspect DevTools metadata for the configured memory stores and preload behavior.
 Inspect the tool list and confirm write tools appear only for stores with `write.mode: 'tool'`.
 
 For the workspace JSONL store, inspect the configured Workspace file and verify records include scope and provenance.
@@ -80,7 +80,6 @@ For the workspace JSONL store, inspect the configured Workspace file and verify 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `stores` | `Record<string, MemoryStoreOptions>` | required | Named Memory Stores available to the Agent. |
-| `instructions` | `string \| false` | generated | Override or disable generated memory instructions. |
 | `stores.*.adapter` | `MemoryStoreAdapter \| MemoryStoreFactory` | required | Store implementation. |
 | `stores.*.scope` | `MemoryScope \| function` | required | Scope attached to all operations for that store. |
 | `stores.*.allowKinds` | `MemoryKind[]` | all kinds | Allowed memory kinds for the store. |
@@ -91,6 +90,8 @@ For the workspace JSONL store, inspect the configured Workspace file and verify 
 | `stores.*.write.policy` | `AgentToolPolicyDecision` | `"require-approval"` | Policy for write tools. |
 | `stores.*.retention.export` | `boolean` | `false` | Allow export operations. |
 | `stores.*.retention.hardDelete` | `boolean` | `false` | Allow hard delete behavior when supported. |
+
+Cover Memory usage guidance in Agent Driver Instructions with explicit Capability coverage blocks. Keep memory tool descriptions with the tool definitions because they are structured tool contracts.
 
 ## Reference
 

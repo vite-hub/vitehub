@@ -1,5 +1,7 @@
 # Review Context Capability Workspace Contributions
 
+Superseded note: ADR 0075 retracts Source Instructions as a driver-facing build surface. Capability Workspace Contributions remain current for adding invocation-scoped Sources and rules before Workspace runtime surfaces are prepared.
+
 ViteHub will model pull-request and review automation as a **Pull Request Context Capability**, not as `prSummary()` and not as a larger `repositoryHost()` surface. The capability owns reusable intake: Agent Trigger behavior for trusted pull-request product events, typed Agent Invocation Context Values for trusted pull-request metadata, and invocation-scoped Workspace inputs for review material. A broader review-context helper name remains open.
 
 The Workspace input primitive is a **Capability Workspace Contribution**. It is add-only, invocation-scoped, inspectable, and resolved after Agent Triggers and pre-invocation context exist but before driver-facing Workspace Tools, Source Instructions, and Workspace Sessions are built. It may contribute Sources such as `pullRequest`, `pullRequestFiles`, `pullRequestReviews`, and `pullRequestChecks`, and it may contribute explicit Workspace Rules for artifact paths such as `artifacts/review/**`. It does not mutate the Colocated Workspace Definition, grant new Capabilities, broaden an Access-selected Workspace Scope, or bypass Workspace Rules. Source key, rule, Mount, and path conflicts fail loudly.

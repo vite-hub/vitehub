@@ -1461,6 +1461,7 @@ function serializeAgentChatDevtoolsState(
     tools: state.metadata.tools || [],
     uiMessages: [...state.session.uiMessages],
     ...(state.metadata.version ? { version: state.metadata.version } : {}),
+    warnings: state.metadata.warnings || [],
   }
 }
 

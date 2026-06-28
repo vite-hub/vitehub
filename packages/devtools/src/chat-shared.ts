@@ -93,6 +93,14 @@ export interface ChatDevtoolsInvokerProfile {
   meta?: Record<string, unknown>
 }
 
+export interface ChatDevtoolsWarning {
+  id: string
+  kind: "instruction-coverage"
+  message: string
+  primitive: "capability" | "skill" | "source"
+  severity: "warning"
+}
+
 export interface ChatDevtoolsMetadata {
   config?: ChatDevtoolsConfigMetadata
   files?: ChatDevtoolsFileTreeItem[]
@@ -101,6 +109,7 @@ export interface ChatDevtoolsMetadata {
   name?: string
   tools?: ChatDevtoolsToolDefinition[]
   version?: string
+  warnings?: ChatDevtoolsWarning[]
 }
 
 export type ChatDevtoolsMetadataStatus = "error" | "loading" | "ready"
@@ -140,6 +149,7 @@ export interface ChatDevtoolsStateResult {
   tools?: ChatDevtoolsToolDefinition[]
   uiMessages?: UIMessage[]
   version?: string
+  warnings?: ChatDevtoolsWarning[]
 }
 
 export interface ChatDevtoolsSendInput {

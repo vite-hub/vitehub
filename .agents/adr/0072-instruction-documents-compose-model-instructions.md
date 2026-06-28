@@ -1,12 +1,14 @@
 # Instruction Documents Compose Model Instructions
 
+Superseded note: ADR 0075 retracts Capability instruction slots and Source Instruction rendering. This ADR remains current for Markdown imports, conditionals, and explicit `context.*` bindings.
+
 ViteHub treats an Agent instruction document as Comark-parsed Markdown plus ViteHub Instruction Composition. The document is authored for humans and agents, then rendered by the Agent Package into model-facing instructions for model-backed Agent Drivers.
 
-Instruction Composition supports local Markdown imports, safe conditional blocks, explicit `context.*` bindings, Capability instruction slots, and visible Source Instructions through a Comark-backed Markdown render pass. It must not become a general prompt configuration language or an arbitrary JavaScript runtime. Runtime data enters composition only through explicit Agent Invocation Context Values exposed at `context.*`.
+Instruction Composition supports local Markdown imports, safe conditional blocks, explicit `context.*` bindings, explicit `workspace.*` bindings, and coverage wrappers through a Comark-backed Markdown render pass. It must not become a general prompt configuration language or an arbitrary JavaScript runtime. Runtime data enters composition only through explicit Agent Invocation Context Values exposed at `context.*`.
 
-Capabilities may contribute model-facing instruction blocks and may write Agent Invocation Context Values that instruction documents read later. Duplicate Capability instruction block ids fail loudly because silent merge or last-write-wins behavior would make composed instructions hard to inspect.
+Capabilities may write Agent Invocation Context Values that instruction documents read later.
 
-`WorkspaceSource.instructions` remains the low-level Source Instruction field. The Agent Package may render those Source Instructions through Instruction Composition when it builds final model instructions, but Source Instructions still guide Source use only. Markdown never grants access; Access, Workspace Scope, Workspace Rules, and Capability requirements remain the runtime enforcement boundaries.
+Sources do not carry free-form model-facing instruction prose. Markdown never grants access; Access, Workspace Scope, Workspace Rules, and Capability requirements remain the runtime enforcement boundaries.
 
 ## Considered Options
 
@@ -20,6 +22,6 @@ Capabilities may contribute model-facing instruction blocks and may write Agent 
 
 Instruction documents stay readable Markdown. Comark owns Markdown-aware parsing and rendering, while Access, Workspace Scope, Workspace Rules, Capability registration, Source visibility, workspace sessions, and write-back remain TypeScript-owned runtime boundaries. Advanced behavior must earn its place as a small composition rule rather than growing a new template framework.
 
-Capabilities that need reusable composition should write named Agent Invocation Context Values or instruction blocks through `defineCapability`. They should not hide runtime data behind ambient globals or mutate Agent Definition instructions.
+Capabilities that need reusable composition should write named Agent Invocation Context Values. They should not hide runtime data behind ambient globals or mutate Agent Definition instructions.
 
-Generated Agent Package metadata may include composed instruction text for inspection, but the source of truth remains the authored instruction document plus visible Capability and Source contributions.
+Generated Agent Package metadata may include composed instruction text and instruction coverage warnings for inspection, but the source of truth remains the authored instruction document plus deterministic imports.

@@ -1,6 +1,8 @@
 # Capability CLI Contributions
 
-ViteHub will let a Capability Definition declare a Capability-owned real CLI as a flat `cli` object. The Agent Package renders command metadata into generated Capability instruction guidance, exposes a controlled CLI-named tool to compatible model-backed Agent Drivers, and lets the Agent Dev Loop run the same command tree with `vitehub agent dev --cli <name> -- <command...>`.
+Superseded note: ADR 0075 retracts generated Capability instruction guidance. Capability CLI Contributions remain current as structured CLI-named tools.
+
+ViteHub will let a Capability Definition declare a Capability-owned real CLI as a flat `cli` object. The Agent Package exposes a controlled CLI-named tool to compatible model-backed Agent Drivers, and lets the Agent Dev Loop run the same command tree with `vitehub agent dev --cli <name> -- <command...>`.
 
 ## Considered Options
 
@@ -10,8 +12,8 @@ ViteHub will let a Capability Definition declare a Capability-owned real CLI as 
 
 ## Consequences
 
-Capability CLI Contributions are model-facing Capability Driver Contributions for model-backed Agent Drivers. Harness executable/session exposure is deferred until ViteHub has a broader harness design for generated commands, workspace sessions, durability, and authority.
+Capability CLI Contributions are structured tool contributions for model-backed Agent Drivers. Harness executable/session exposure is deferred until ViteHub has a broader harness design for generated commands, workspace sessions, durability, and authority.
 
-Instruction documents stay policy-oriented. Developers include the relevant Capability instruction slot, such as `{{ capabilities.inventory-runtime }}` or the catch-all `{{ capabilities }}`, and command examples come from generated Capability CLI guidance.
+Instruction documents stay policy-oriented. Developers write any free-form CLI-use guidance directly in Agent Driver Instructions and cover the Capability with `::capability`.
 
 Custom Capability authors pass a flat `cli` object. First-party adapters may resolve generated command trees internally from their own metadata, but that resolver is not part of the public `defineCapability({ cli })` contract.

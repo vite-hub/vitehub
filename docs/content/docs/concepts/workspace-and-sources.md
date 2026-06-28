@@ -1,6 +1,6 @@
 ---
 title: Workspace and Sources
-description: Understand persistent file-tree state, read-only origins, source instructions, and scoped visibility.
+description: Understand persistent file-tree state, read-only origins, instruction coverage, and scoped visibility.
 navigation.order: 7
 icon: i-lucide-folder-git-2
 ---
@@ -39,16 +39,13 @@ export default defineWorkspace({
   sources: {
     readme: file({
       path: 'README.md',
-      instructions: 'Use this file for the project overview.',
     }),
     docs: glob({
       cwd: '.',
       include: ['docs/**/*.md'],
-      instructions: 'Use these docs for public product behavior.',
     }),
     supportPolicy: markdown({
       path: 'docs/support-policy.md',
-      instructions: 'Use this source for support policy answers.',
     }),
   },
   rules: {
@@ -58,7 +55,9 @@ export default defineWorkspace({
 })
 ```
 
-`instructions` is Source Instruction text for model-backed Agent Drivers. It does not grant access, change Workspace Scope, or make hidden Sources visible.
+Source use guidance for model-backed Agents belongs in Agent Driver Instructions or deterministic imported instruction Markdown. Current Source Instruction metadata does not grant access, change Workspace Scope, or make hidden Sources visible.
+
+Agent DevTools metadata warns when configured Sources are visible to an Agent but lack explicit instruction coverage.
 
 ## Agent access
 

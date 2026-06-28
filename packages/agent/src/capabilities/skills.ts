@@ -1,17 +1,13 @@
 import { defineCapability } from "../capability-runtime.ts"
 
 import type {
-  AgentAdapterInstructionsValue,
   AgentCapabilityDefinition,
   AgentCapabilityMode,
-  AgentCapabilityRuntimeContext,
-  AgentRuntimeConfig,
   AgentToolSet,
 } from "../types.ts"
 import type { WorkspaceName, WorkspaceSourceInput } from "@vite-hub/workspace"
 
 export interface SkillsCapabilityOptions {
-  instructions?: string | false
   path?: string
   shellExecution?: AgentCapabilityMode
   source?: WorkspaceSourceInput
@@ -80,52 +76,6 @@ function sourceBinding(source: WorkspaceSourceInput, mountPath: string): Workspa
   }
 }
 
-function readFrontmatterValue(frontmatter: string, key: string): string | undefined {
-  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const match = new RegExp(`^${escaped}:\\s*(.+?)\\s*$`, "m").exec(frontmatter)
-  const value = match?.[1]?.trim()
-  if (!value) return
-  return value.replace(/^['"]|['"]$/g, "").trim() || undefined
-}
-
-function parseSkillMetadata(content: string): { description?: string, name?: string } {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content)
-  if (!match) return {}
-  return {
-    description: readFrontmatterValue(match[1] || "", "description"),
-    name: readFrontmatterValue(match[1] || "", "name"),
-  }
-}
-
-async function readSkillMetadata(
-  context: AgentCapabilityRuntimeContext<AgentRuntimeConfig, WorkspaceName>,
-  skillPath: string,
-): Promise<{ description?: string, name?: string }> {
-  try {
-    const content = await context.fs?.readFile(skillPath as never)
-    return typeof content === "string" ? parseSkillMetadata(content) : {}
-  }
-  catch {
-    return {}
-  }
-}
-
-function renderSkillInstructions(options: {
-  directoryPath: string
-  metadata: { description?: string, name?: string }
-  shellExecution?: AgentCapabilityMode
-  skillPath: string
-}): AgentAdapterInstructionsValue {
-  return [
-    `Skill${options.metadata.name ? ` "${options.metadata.name}"` : ""} is mounted at \`${options.directoryPath || "."}\`.`,
-    options.metadata.description ? `Description: ${options.metadata.description}` : "",
-    `Read \`${options.skillPath}\` before using this skill.`,
-    options.shellExecution
-      ? `Use the Workspace Shell tools for shell commands described by this skill. They can inspect the workspace${options.shellExecution === "write" ? " and write changes back to it" : ""}.`
-      : "",
-  ].filter(Boolean).join("\n")
-}
-
 function workspaceShellTools(
   mode: AgentCapabilityMode,
   workspace: { tools: { inspect: () => AgentToolSet, write?: () => AgentToolSet } } | undefined,
@@ -155,16 +105,6 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
   return defineCapability({
     harnessWorkspacePaths: [harnessWorkspacePath],
     id: "skills",
-    instructions: options.instructions === undefined
-      ? async (context: AgentCapabilityRuntimeContext<AgentRuntimeConfig, WorkspaceName>) => context.driver?.kind === "harness"
-          ? false
-          : renderSkillInstructions({
-              directoryPath,
-              metadata: await readSkillMetadata(context, skillPath),
-              shellExecution,
-              skillPath,
-            })
-      : options.instructions,
     metadata: {
       path: normalizedPath,
       skillPath,

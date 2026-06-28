@@ -1,5 +1,7 @@
 # Invocation-Scoped Source Resolution
 
+Superseded note: ADR 0075 retracts Source Instructions as Source-owned model-facing prose. Invocation-Scoped Source Resolution remains current for origin and Mount shaping; Source guidance now needs Source Instruction Coverage in Agent Driver Instructions or deterministic imports.
+
 ViteHub will allow Workspace Sources to resolve their concrete origin, Mount, and Source Instructions for one Agent Invocation from trusted invocation context, especially the Selected Workspace Scope. The Access Capability remains the authorization boundary; Invocation-Scoped Source Resolution is the source-shaping layer that keeps the Workspace File Tree, Source-Backed Paths, and Source Instructions aligned with the already-selected scope.
 
 ## Considered Options

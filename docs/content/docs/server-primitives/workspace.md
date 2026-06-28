@@ -102,7 +102,6 @@ export default defineWorkspace({
     docs: glob({
       cwd: '.',
       include: ['README.md', 'docs/**/*.md'],
-      instructions: 'Use these docs for public product behavior.',
     }),
     handbook: github({
       repo: 'acme/handbook',
@@ -110,7 +109,6 @@ export default defineWorkspace({
       root: 'support',
       mount: 'handbook',
       materialize: 'lazy',
-      instructions: 'Use this handbook for support policy.',
     }),
   },
   rules: {
@@ -150,7 +148,6 @@ Workspace Source Bindings can wrap Source Package loaders and add Workspace beha
 | `cache` | `false or WorkspaceCacheOptions` | Source cache policy. Use `false` to disable caching or `{ maxAge }` to set a TTL. |
 | `validate` | `WorkspaceValidateMode` | Request validation mode for API-backed Sources. Use `false` or `request`. |
 | `sync` | `WorkspaceSourceSyncConfig` | Enables explicit Workspace Source Sync. Accepts `true`, `false`, or a sync policy. |
-| `instructions` | `WorkspaceSourceInstructions` | Workspace-owned Source Instructions metadata. Accepts a string or a string array. |
 | `resolve` | `WorkspaceSourceResolver` | Invocation-aware source resolution. |
 
 ## Use it at runtime
@@ -198,7 +195,7 @@ export default defineEventHandler(async (event) => {
 
 Custom Sources can read existing materialized Workspace files through `ctx.workspaceFiles`. Use this when a Source needs previous generated output, such as a sync report or cached asset metadata, while producing the next materialized files. The view is read-only and does not expose Workspace Stores, provider adapters, snapshots, diffs, or Source materialization.
 
-Sources can resolve their concrete origin, Mount, and Source Instructions for one invocation from trusted runtime context. Use this when the same Source key should point at a narrowed origin after Access has selected a Workspace Scope.
+Sources can resolve their concrete origin and Mount for one invocation from trusted runtime context. Use this when the same Source key should point at a narrowed origin after Access has selected a Workspace Scope.
 
 ```ts
 github(({ invocation }) => {
@@ -211,14 +208,13 @@ github(({ invocation }) => {
     repo: 'quiverdk/ingestion',
     root: `dbt/${customer}`,
     mount: `ingestion/${customer}`,
-    instructions: `Use this source only for ${customer} ingestion models.`,
   }
 })
 ```
 
 The resolver reads Agent Invocation Context Values and the Selected Workspace Scope, not model output. Access still enforces visibility, and scope-affecting resolved options are fingerprinted so source caches do not reuse data across scopes.
 
-Resolved Sources are evaluated at invocation time and default to lazy materialization. A resolver can return a narrowed GitHub `repo`, `root`, `mount`, and `instructions` without also declaring build-time materialization or cache options; the resolved fingerprint includes the Selected Workspace Scope so one scope cannot reuse another scope's source data.
+Resolved Sources are evaluated at invocation time and default to lazy materialization. A resolver can return a narrowed GitHub `repo`, `root`, and `mount` without also declaring build-time materialization or cache options; the resolved fingerprint includes the Selected Workspace Scope so one scope cannot reuse another scope's source data.
 
 ## Sync Sources
 

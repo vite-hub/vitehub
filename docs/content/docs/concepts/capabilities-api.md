@@ -5,13 +5,13 @@ navigation.order: 8
 icon: i-lucide-blocks
 ---
 
-A Capability is a shareable ViteHub bundle that adds a named Agent ability. Capabilities attach through `defineAgent({ capabilities })` and can contribute tools, instructions, requirements, trigger behavior, policy, metadata, and invocation context values.
+A Capability is a shareable ViteHub bundle that adds a named Agent ability. Capabilities attach through `defineAgent({ capabilities })` and can contribute tools, requirements, trigger behavior, policy, metadata, and invocation context values.
 
 Tools belong to Capability Definitions. They are not top-level Agent Definition fields.
 
 ## Why it exists
 
-Raw tools make validation, policy, DevTools metadata, and driver support hard to inspect. A Capability keeps the ability, requirements, model-facing instructions, and runtime behavior together.
+Raw tools make validation, policy, DevTools metadata, and driver support hard to inspect. A Capability keeps the ability, requirements, tool contracts, and runtime behavior together.
 
 Capabilities also keep primitive access explicit. Installing KV does not let every Agent read KV; attaching `kv()` decides whether a model receives KV read or edit tools.
 
@@ -28,7 +28,7 @@ export default defineAgent({
   driver: {
     instructions: [
       'Answer from the workspace before using storage.',
-      '{{ capabilities }}',
+      'Use KV only for configured support records.',
     ].join('\n\n'),
     model: gateway('openai/gpt-5.1-mini'),
   },
@@ -49,7 +49,6 @@ The Agent Package root stays focused on Agent Definition, invocation, message, a
 | Contribution | Purpose |
 | --- | --- |
 | Requirements | Primitive, Workspace mode, path, store, or policy requirements checked early. |
-| Instructions | Capability-owned model-facing guidance, usually placed through instruction slots. |
 | Tools | Model-facing operations such as read, edit, query, execute, search, or transcribe. |
 | Trigger behavior | Product events that start Agent Invocations. |
 | Policy | Approval and safety decisions for model-facing actions. |
@@ -61,6 +60,8 @@ The Agent Package root stays focused on Agent Definition, invocation, message, a
 Capabilities are attached before the Agent Invocation runs. Pre-Invocation Decisions can record context values, reject, or influence conditional contributions, but they do not dynamically attach new Capabilities.
 
 Capabilities run in array order. A Capability can include nested default Capabilities, but an explicitly listed Capability keeps its top-level position.
+
+Free-form Capability guidance belongs in Agent Driver Instructions or deterministic imported instruction Markdown. Tool descriptions and schemas stay with the tool because they are structured tool contracts, not arbitrary system instructions.
 
 ## Next steps
 

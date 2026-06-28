@@ -540,7 +540,6 @@ describe("agent Vite plugin", () => {
         "import { skills } from '@vite-hub/agent/capabilities'",
         "export default defineAgent({",
         "  capabilities: [skills({",
-        "    instructions: false,",
         "    path: 'skills/agent-browser',",
         "    source: { content: '# Browser\\n', workspacePath: 'SKILL.md' },",
         "    sourceKey: 'agentBrowserSkill',",
