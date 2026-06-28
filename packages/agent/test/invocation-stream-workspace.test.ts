@@ -660,7 +660,8 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
   it("closes harness workspace sessions after UI message streams finish", async () => {
     harnessStreamResult.mockReturnValueOnce({
       fullStream: (async function* () {
-        yield { text: "pong", type: "text-delta" }
+        yield "po"
+        yield { textDelta: "ng", type: "text-delta" }
         yield { type: "finish" }
       })(),
     })

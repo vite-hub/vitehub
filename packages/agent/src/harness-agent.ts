@@ -482,11 +482,7 @@ async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) =>
   }
   Object.defineProperty(clone, Symbol.asyncIterator, {
     configurable: true,
-    value: () => {
-      const iterable = (clone.stream || clone.fullStream) as AsyncIterable<unknown> | undefined
-      if (!iterable) return streamAgentOutputToEvents(clone)[Symbol.asyncIterator]()
-      return iterable[Symbol.asyncIterator]()
-    },
+    value: () => streamAgentOutputToEvents(clone)[Symbol.asyncIterator](),
   })
   return clone
 }
