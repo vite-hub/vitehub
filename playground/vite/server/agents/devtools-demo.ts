@@ -110,7 +110,7 @@ export default defineAgent({
   capabilities: [
     chat({
       concurrency: "queue",
-      fallbackStreamingPlaceholderText: "Thinking...",
+      fallbackStreamingPlaceholderText: ["Thinking...", "Reading the workspace...", "Checking the run context..."],
       history: { maxMessages: 8, source: "thread" },
     }),
     transcribe({
