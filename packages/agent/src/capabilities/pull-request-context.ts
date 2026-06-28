@@ -162,12 +162,10 @@ function pullRequestContextSource(
   contextKey: string,
   mount: string,
 ): WorkspaceSource {
-  const scopeName = selectedWorkspaceScopeName(context)
   return {
     materialize: "lazy",
     mount,
     probeKeys: [defaultSourcePath],
-    ...(scopeName ? { scopes: [scopeName] } : {}),
     async getKeys() {
       return [defaultSourcePath]
     },
@@ -184,11 +182,20 @@ function pullRequestContextSource(
   }
 }
 
-function selectedWorkspaceScopeName(context: AgentInvocationContextStore): string | undefined {
+function grantSelectedWorkspaceScopePath(context: AgentInvocationContextStore, path: string): void {
   if (!hasTrustedWorkspaceAccessScope(context)) return
-  const access = context.get<{ workspaceScope?: { all?: boolean, scope?: string } }>("access")
-  if (access?.workspaceScope?.all) return
-  return access?.workspaceScope?.scope
+  const access = context.get<{ workspaceScope?: { all?: boolean, paths?: readonly string[], role?: string, scope?: string } }>("access")
+  const scope = access?.workspaceScope
+  if (!scope || scope.all) return
+  const paths = scope.paths || []
+  if (paths.includes(path)) return
+  context.set("access", {
+    ...access,
+    workspaceScope: {
+      ...scope,
+      paths: [...paths, path],
+    },
+  }, { overwrite: true })
 }
 
 function defaultSourceIdentity(capabilityId: string) {
@@ -233,6 +240,10 @@ export function pullRequestContext<
       await recordContext(context)
       const sources = await resolveMaybeFunction(options.sources, context)
       const rules = await resolveMaybeFunction(options.rules, context)
+      if (sources && Object.hasOwn(sources, source.key)) {
+        throw new Error(`[vitehub] ${capabilityId}() sources cannot use reserved Workspace Source key "${source.key}".`)
+      }
+      grantSelectedWorkspaceScopePath(context.context, [source.mount, defaultSourcePath].join("/"))
       return {
         ...(rules ? { rules } : {}),
         sources: {

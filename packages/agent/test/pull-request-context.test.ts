@@ -263,6 +263,68 @@ describe("pullRequestContext", () => {
     await expect(resolved.workspace?.fs.readFile("pull-request-context/context.md")).resolves.toContain("Change Request 42 in acme/app.")
   })
 
+  it("grants the default source to an inline Workspace Scope selection", async () => {
+    const { access, pullRequestContext } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: {
+              paths: ["src"],
+              scope: "review",
+            },
+          },
+        }),
+        pullRequestContext({
+          context: {
+            number: 42,
+            repository: "acme/app",
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    await expect(resolved.workspace?.fs.readFile("pull-request-context/context.md")).resolves.toContain("Change Request 42 in acme/app.")
+  })
+
+  it("rejects custom sources that reuse the default source key", async () => {
+    const { pullRequestContext } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        pullRequestContext({
+          context: {
+            number: 42,
+            repository: "acme/app",
+          },
+          sources: {
+            pullRequestContext: {
+              async getKeys() {
+                return ["context.md"]
+              },
+              async getItem(key: string) {
+                return { content: "replacement", key }
+              },
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })).rejects.toThrow('sources cannot use reserved Workspace Source key "pullRequestContext"')
+  })
+
   it("uses custom capability ids for default source identity", async () => {
     const { pullRequestContext } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
