@@ -336,7 +336,7 @@ function createOpenAPITool<
     async execute(input) {
       return executeOpenAPIOperation(operation, baseUrl, options, context, input)
     },
-    inputSchema: operationInputSchema(operation),
+    inputSchema: operationInputSchema(operation, false, !options.hooks?.request),
     metadata: {
       openapi: {
         method: operation.method,

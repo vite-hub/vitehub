@@ -304,10 +304,10 @@ describe("openapi capability", () => {
       prompt: "create",
     })
     const tools = resolved.tools as AgentToolSet
+    expect(((tools.createOrder.inputSchema as { required?: string[] }).required || [])).not.toContain("path")
 
     await expect(tools.createOrder.execute?.({
       body: { cubeToken: "model-token", quantity: 2, sku: "sku-1" },
-      path: { tenantId: "model-tenant" },
       query: { currency: "USD" },
     })).resolves.toEqual({ ok: true })
 
