@@ -21,7 +21,7 @@ import type {
   MaybeResolvable,
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
-import type { AgentChannelChatRouteHandlerOptions } from "./server.ts"
+import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
 
 export type {
   AgentChannelDeliveryEffectContext,
@@ -50,10 +50,21 @@ export interface AgentChannelOptions<TRuntimeConfig extends AgentRuntimeConfig =
 type AgentChannelDefinitionOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Omit<AgentChannelDefinition<TRuntimeConfig>, "kind">
 
-export interface AgentStreamChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+export interface AgentStreamChannelOptions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody,
+  TAuth = unknown,
+>
   extends AgentChannelOptions<TRuntimeConfig> {
-  route?: true | AgentChannelChatRouteHandlerOptions
+  route?: true | AgentChannelChatRouteHandlerOptions<TBody, TAuth>
 }
+
+export interface AgentWebChatChannelOptions<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody,
+  TAuth = unknown,
+>
+  extends AgentStreamChannelOptions<TRuntimeConfig, TBody, TAuth> {}
 
 export interface AgentDeliveryArtifactPublishInput {
   artifact: AgentDeliveryArtifact
@@ -1073,8 +1084,12 @@ export function teams<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
   return defineChannel("teams", options)
 }
 
-export function stream<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  options: AgentStreamChannelOptions<TRuntimeConfig> = {},
+export function stream<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody,
+  TAuth = unknown,
+>(
+  options: AgentStreamChannelOptions<TRuntimeConfig, TBody, TAuth> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
   return defineChannel("stream", {
     ...options,
@@ -1091,8 +1106,12 @@ export function telegram<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
   })
 }
 
-export function webChat<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  options: AgentChannelOptions<TRuntimeConfig> = {},
+export function webChat<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody,
+  TAuth = unknown,
+>(
+  options: AgentWebChatChannelOptions<TRuntimeConfig, TBody, TAuth> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
   return defineChannel("web-chat", options)
 }
