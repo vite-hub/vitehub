@@ -128,12 +128,17 @@ openapi({
   },
   operations: ["billingListCustomers", "billingGetInvoice", "billingCreateTicket"],
   hooks: {
-    request({ context, request }) {
-      request.body = {
-        ...(request.body as Record<string, unknown> | undefined),
-        tenantId: context.get<{ tenantId: string }>("billing")?.tenantId,
-      }
-      request.headers.set("authorization", `Bearer ${context.get<{ token: string }>("billing")?.token}`)
+    request: {
+      provides: {
+        body: ["tenantId"],
+      },
+      handler({ context, request }) {
+        request.body = {
+          ...(request.body as Record<string, unknown> | undefined),
+          tenantId: context.get<{ tenantId: string }>("billing")?.tenantId,
+        }
+        request.headers.set("authorization", `Bearer ${context.get<{ token: string }>("billing")?.token}`)
+      },
     },
   },
   transformResponse: (response, { operation }) => ({

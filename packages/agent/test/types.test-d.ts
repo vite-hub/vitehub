@@ -84,6 +84,21 @@ describe("agent public types", () => {
             return response
           },
         }),
+        openapi({
+          operations: ["listCustomers"],
+          hooks: {
+            request: {
+              provides: {
+                query: ["region"],
+              },
+              handler({ request }) {
+                request.query.region = "eu"
+                return { headers: { authorization: "Bearer token" } }
+              },
+            },
+          },
+          spec: openAPISpec,
+        }),
         git(),
         git({ mode: "read" }),
         git({ mode: "write", policy: "require-approval" }),

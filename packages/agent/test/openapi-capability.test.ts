@@ -42,6 +42,7 @@ function portalSpec() {
           operationId: "getReport",
           parameters: [
             { in: "query", name: "period", required: true, schema: { type: "string" } },
+            { in: "query", name: "tenantId", required: true, schema: { type: "string" } },
           ],
           summary: "Get report.",
         },
@@ -385,6 +386,43 @@ describe("openapi capability", () => {
     expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/tenants/acme/orders/order-1")
   })
 
+  it("keeps caller-owned required query fields when hooks provide other query fields", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        openapi({
+          operations: ["getReport"],
+          hooks: {
+            request: {
+              provides: { query: ["tenantId"] },
+              handler({ request }) {
+                request.query.tenantId = "acme"
+              },
+            },
+          },
+          spec: portalSpec(),
+        }),
+      ],
+    }, runtime(), { prompt: "report" })
+    const tools = resolved.tools as AgentToolSet
+    const schema = tools.getReport.inputSchema as {
+      properties: { query?: { properties?: Record<string, unknown>, required?: string[] } }
+      required?: string[]
+    }
+    expect(schema.properties.query?.required).toEqual(["period"])
+    expect(schema.properties.query?.properties?.tenantId).toBeUndefined()
+    expect(schema.required).toEqual(["query"])
+
+    await expect(tools.getReport.execute?.({
+      query: { period: "2026-Q2", tenantId: "evil" },
+    })).resolves.toEqual({ ok: true })
+
+    expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/reports?period=2026-Q2&tenantId=acme")
+  })
+
   it("keeps caller-owned required path query and body fields in tool schemas", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { openapi } = await import("../src/capabilities.ts")
@@ -411,7 +449,7 @@ describe("openapi capability", () => {
     expect(createOrder.properties.path?.required).toEqual(["tenantId"])
     expect(createOrder.properties.body?.required).toEqual(["cubeToken", "sku"])
     expect(getReport.required).toEqual(["query"])
-    expect(getReport.properties.query?.required).toEqual(["period"])
+    expect(getReport.properties.query?.required).toEqual(["period", "tenantId"])
   })
 
   it("prepares generated OpenAPI CLI requests with runtime hook values", async () => {
@@ -452,7 +490,7 @@ describe("openapi capability", () => {
     await expect(resolved.tools?.portal?.execute?.({
       argv: ["create-order", "--json"],
       input: {
-        body: { quantity: 2, sku: "sku-1" },
+        body: { cubeToken: "model-token", quantity: 2, sku: "sku-1" },
         query: { currency: "USD" },
       },
     })).resolves.toMatchObject({
@@ -464,6 +502,11 @@ describe("openapi capability", () => {
     const init = request.mock.calls[0]?.[1] as RequestInit
     expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/tenants/acme/orders?currency=EUR")
     expect(JSON.parse(init.body as string)).toEqual({ cubeToken: "cube-token", quantity: 2, sku: "sku-1" })
+
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["create-order", "--json"],
+      input: { body: { quantity: 2 } },
+    })).rejects.toThrow("input.body.sku is required")
   })
 
   it("allows generated OpenAPI CLI requests to pass partial path input before hooks", async () => {
@@ -499,6 +542,55 @@ describe("openapi capability", () => {
     })
 
     expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/tenants/acme/orders/order-1")
+
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["get-order", "--json"],
+      input: {},
+    })).rejects.toThrow("input.path is required")
+  })
+
+  it("keeps generated OpenAPI CLI caller-owned query fields required when hooks provide other query fields", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        openapi({
+          cli: { name: "portal" },
+          operations: ["getReport"],
+          hooks: {
+            request: {
+              provides: { query: ["tenantId"] },
+              handler({ request }) {
+                request.query.tenantId = "acme"
+              },
+            },
+          },
+          spec: portalSpec(),
+        }),
+      ],
+    }, runtime(), { prompt: "report" })
+
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["get-report", "--json"],
+      input: { query: { period: "2026-Q2", tenantId: "evil" } },
+    })).resolves.toMatchObject({
+      cli: "portal",
+      exitCode: 0,
+      json: { ok: true },
+    })
+
+    expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/reports?period=2026-Q2&tenantId=acme")
+
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["get-report", "--json"],
+      input: {},
+    })).rejects.toThrow("input.query is required")
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["get-report", "--json"],
+      input: { query: {} },
+    })).rejects.toThrow("input.query is required")
   })
 
   it("validates generated OpenAPI CLI inputs before requests", async () => {
@@ -654,9 +746,15 @@ describe("openapi capability", () => {
         openapi({
           operations: ["createOrder"],
           hooks: {
-            request({ request }) {
-              request.body = { ...(request.body as Record<string, unknown> | undefined), cubeToken: "cube-token" }
-              request.path.tenantId = "acme"
+            request: {
+              provides: {
+                body: ["cubeToken"],
+                path: ["tenantId"],
+              },
+              handler({ request }) {
+                request.body = { ...(request.body as Record<string, unknown> | undefined), cubeToken: "cube-token" }
+                request.path.tenantId = "acme"
+              },
             },
           },
           spec: portalSpec(),
@@ -686,9 +784,15 @@ describe("openapi capability", () => {
         openapi({
           operations: ["createOrder"],
           hooks: {
-            request({ request }) {
-              request.body = { ...(request.body as Record<string, unknown> | undefined), cubeToken: "cube-token" }
-              request.path.tenantId = "acme"
+            request: {
+              provides: {
+                body: ["cubeToken"],
+                path: ["tenantId"],
+              },
+              handler({ request }) {
+                request.body = { ...(request.body as Record<string, unknown> | undefined), cubeToken: "cube-token" }
+                request.path.tenantId = "acme"
+              },
             },
           },
           spec: portalSpec(),

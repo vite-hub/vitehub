@@ -221,10 +221,12 @@ export type {
 export type {
   OpenAPICapabilityOptions,
   OpenAPICliOptions,
+  OpenAPIHookProvidedInput,
   OpenAPIHooks,
   OpenAPIRequestContext,
   OpenAPIRequestDraft,
   OpenAPIRequestHook,
+  OpenAPIRequestHookOptions,
   OpenAPIRequestPatch,
   OpenAPIResponseContext,
 } from "./openapi.ts"
