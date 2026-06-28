@@ -171,6 +171,6 @@ export default defineAgent({
 
 ## Next steps
 
-- Read [Triggers](/docs/agents/triggers) for Capability-owned entry points.
+- Read [Triggers](/docs/agents/triggers) for Channel and Capability trigger paths.
 - Read [Invokers](/docs/agents/invokers) for trusted caller identity.
 - Read [DevTools](/docs/agents/devtools) to inspect Agent Invocation state.

@@ -1969,26 +1969,10 @@ describe("agent message protocol", () => {
     }))
   })
 
-  it("creates custom trigger capabilities with entry()", async () => {
-    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
-    const { entry } = await import("../src/capabilities.ts")
-    const agent = defineAgent({
-      capabilities: [entry({
-        id: "portal",
-        triggers: {
-          message: {
-            invoke: (_context, input: { text: string }) => ({
-              input: { messages: [createMessage({ role: "user", text: input.text })] },
-              run: { origin: "portal", runId: "portal-run" },
-            }),
-          },
-        },
-      })],
-      driver: { run: context => `received ${getMessageText(context.messages[0]!)}` },
-    })
-    const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
+  it("does not export entry() from capabilities", async () => {
+    const capabilities = await import("../src/capabilities.ts")
 
-    await expect(runAgentTrigger(agent, runtime, "portal.message", { text: "hello" })).resolves.toBe("received hello")
+    expect("entry" in capabilities).toBe(false)
   })
 
   it("creates custom trigger channels with defineChannel()", async () => {
@@ -2314,26 +2298,53 @@ describe("agent message protocol", () => {
   })
 
   it("exposes Agent Trigger metadata", async () => {
-    const { entry } = await import("../src/capabilities.ts")
+    const { defineChannel } = await import("../src/channels.ts")
     const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
     const agent = {
-      capabilities: [entry({
-        id: "github",
-        triggers: {
-          webhook: {
-            invoke: (_context, input: { body: string, deliveryId: string }) => ({
-              input: { prompt: input.body },
-              run: { origin: "github", runId: input.deliveryId },
-            }),
+      channels: {
+        github: defineChannel("github", {
+          messages: false,
+          triggers: {
+            webhook: {
+              invoke: (_context, input: { body: string, deliveryId: string }) => ({
+                input: { prompt: input.body },
+                run: { origin: "github", runId: input.deliveryId },
+              }),
+            },
           },
-        },
-      })],
+        }),
+      },
       resolve: vi.fn(),
     }
 
     await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
       "github.webhook": {
-        capabilityId: "github",
+        channelId: "github",
+        source: "channel",
+      },
+    })
+  })
+
+  it("exposes Capability Trigger metadata", async () => {
+    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
+    const agent = {
+      capabilities: [{
+        id: "custom",
+        triggers: {
+          ping: {
+            invoke: (_context: unknown, input: { body: string, deliveryId: string }) => ({
+              input: { prompt: input.body },
+              run: { origin: "custom", runId: input.deliveryId },
+            }),
+          },
+        },
+      }],
+      resolve: vi.fn(),
+    }
+
+    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
+      "custom.ping": {
+        capabilityId: "custom",
         source: "capability",
       },
     })
@@ -2682,7 +2693,7 @@ describe("agent message protocol", () => {
             },
             hooks: {
               async "agent:input"(context) {
-                await context.message.react("eyes")
+                await context.message.react("eyes", { transient: true })
                 await context.message.reply("Review queued.")
               },
             },

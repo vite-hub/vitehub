@@ -86,31 +86,32 @@ export default defineEventHandler(async (event) => {
 
 The route is an Agent Trigger Consumer. It does not declare Chat Capability behavior itself. The `run` field is invocation provenance; Chat context stays focused on message, session, user, and chat-scoped metadata.
 
-## Add app-owned event triggers
+## Add app-owned Channel triggers
 
-Use the Entry Capability for app-owned product events that need a named trigger but have not earned a more specific Capability.
+Use a custom Channel for app-owned product events that need a named trigger but have not earned a more specific Channel Kind.
 
 ```ts [server/agents/tickets.ts]
 import { gateway } from '@ai-sdk/gateway'
 import { defineAgent } from '@vite-hub/agent'
-import { entry } from '@vite-hub/agent/capabilities'
+import { defineChannel } from '@vite-hub/agent/channels'
 
 export default defineAgent({
   driver: {
     model: gateway('openai/gpt-5.1-mini'),
     instructions: 'Triage incoming tickets.',
   },
-  capabilities: [
-    entry({
-      id: 'tickets',
+  channels: {
+    tickets: defineChannel('tickets', {
+      messages: false,
       triggers: {
         created: {
-          invoke(_context, ticket: { id: string, title: string }) {
+          invoke(context, ticket: { id: string, title: string }) {
             return {
               input: {
                 prompt: `Triage ticket ${ticket.id}: ${ticket.title}`,
               },
               run: {
+                channelId: context.trigger.channelId,
                 origin: 'tickets',
                 runId: ticket.id,
               },
@@ -119,14 +120,14 @@ export default defineAgent({
         },
       },
     }),
-  ],
+  },
 })
 ```
 
-Create a custom Capability when the event has reusable product behavior, requirements, tools, or policy. Keep one-off app route logic in the app.
+Create a custom Capability when the event has reusable product behavior, requirements, tools, or policy. Keep one-off app route logic in the app, and keep app-owned reachability on Channels.
 
 ## Next steps
 
 - Read [Channels](/docs/agents/channels) to keep delivery separate from identity.
 - Read [Invocations](/docs/agents/invocations) for trigger runtime helpers.
-- Read [Capabilities](/docs/capabilities) for `chat()`, `entry()`, and `schedule()`.
+- Read [Capabilities](/docs/capabilities) for `chat()`, `inputCommands()`, and `schedule()`.

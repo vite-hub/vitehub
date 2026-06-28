@@ -18,7 +18,6 @@ import {
   chatSummary,
   chatTitle,
   db,
-  entry,
   fetch,
   git,
   inputCommands,
@@ -49,7 +48,6 @@ import {
 | --- | --- | --- |
 | Invocation access | [`access()`](/docs/capabilities/access) | Trusted invocation identity should narrow chat admission or Workspace Scope before later Capabilities run. |
 | Chat behavior | [`chat()`](/docs/capabilities/chat) | A chat surface should start Agent Invocations and manage Chat History behavior. |
-| App-owned entry | [`entry()`](/docs/capabilities/entry) | A product event needs a named Agent Trigger without a full product-specific Capability. |
 | Input commands | [`inputCommands()`](/docs/capabilities/input-commands) | Explicit user commands should transform or enrich input before the Agent runs. |
 | Subagents | [`subagents()`](/docs/capabilities/subagents) | A model-backed Agent should delegate bounded work to named Agent Definitions through model-facing tools. |
 | Workspace files | [`workspaceShell()`](/docs/capabilities/workspace-shell) | The Agent should inspect or edit Workspace files, or run allowlisted Workspace-session commands, through constrained Workspace tools. |

@@ -11,7 +11,6 @@ export {
   chatSummary,
   chatTitle,
   db,
-  entry,
   fetch,
   getAgentChatContext,
   getTranscriptionResults,
