@@ -294,7 +294,7 @@ describe("Harness Workspace Session", () => {
       close: vi.fn(async () => {}),
       commit: vi.fn(async () => {}),
       diff: vi.fn(async () => ({
-        entries: [{ path: "docs/README.md", type: "removed" }],
+        entries: [],
         to: "next",
       })),
       mkdir: vi.fn(async () => {}),
@@ -315,8 +315,8 @@ describe("Harness Workspace Session", () => {
     } as never, {
       paths: ["docs/README.md"],
       session: {
-        readBinaryFile: vi.fn(async () => null),
-        run: sandboxRun(),
+        readBinaryFile: vi.fn(async () => bytes("scoped")),
+        run: sandboxRun(["docs/README.md"], ["docs"]),
         writeBinaryFile: vi.fn(async () => {}),
       },
       sessionWorkDir: "/work/agent",
@@ -324,9 +324,10 @@ describe("Harness Workspace Session", () => {
 
     await session.close()
 
-    expect(workspaceSession.rm).toHaveBeenCalledWith("docs/README.md", { force: true })
+    expect(workspaceSession.rm).not.toHaveBeenCalledWith("docs/README.md", { force: true })
     expect(workspaceSession.rm).not.toHaveBeenCalledWith("docs", { force: true, recursive: true })
-    expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
+    expect(workspaceSession.mkdir).not.toHaveBeenCalledWith("docs", { recursive: true })
+    expect(workspaceSession.commit).not.toHaveBeenCalled()
   })
 
   it("commits harness sandbox additions and updates through write-mode Workspace rules", async () => {

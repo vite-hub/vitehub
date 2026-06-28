@@ -3,6 +3,7 @@ import {
   defineAgentUsageMetadata,
 } from "./internal/agent-usage-metadata.ts"
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
+import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
 import { colocatedAgentInstructionsSourceKey, resolveColocatedAgentInstructionDocument } from "./workspace-agent.ts"
 import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
@@ -468,7 +469,8 @@ async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) =>
   Object.defineProperty(clone, Symbol.asyncIterator, {
     configurable: true,
     value: () => {
-      const iterable = (clone.stream || clone.fullStream || clone.textStream) as AsyncIterable<unknown>
+      const iterable = (clone.stream || clone.fullStream) as AsyncIterable<unknown> | undefined
+      if (!iterable) return streamAgentOutputToEvents(clone)[Symbol.asyncIterator]()
       return iterable[Symbol.asyncIterator]()
     },
   })

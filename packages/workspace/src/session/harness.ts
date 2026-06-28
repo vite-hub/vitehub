@@ -312,6 +312,7 @@ async function copyWorkspaceToSandbox(
   }
   const files = workspaceFiles(entries)
   for (const entry of files) addParentDirectories(directoriesToCreate, entry.path)
+  for (const directory of directoriesToCreate) initialTree.directories.add(directory)
   await forEachConcurrent(files, workspaceReadConcurrency, async (entry) => {
     const content = await workspace.fs.readFile(entry.path, { encoding: "binary" })
     initialTree.files.set(entry.path, { content: contentToBytes(content), mediaType: entry.mediaType })

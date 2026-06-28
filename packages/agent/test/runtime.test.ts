@@ -1498,6 +1498,41 @@ describe("agent message protocol", () => {
     expect(session.destroy).toHaveBeenCalledOnce()
   })
 
+  it("converts harness text streams with native UI streams after session cleanup wrapping", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessStream.mockResolvedValueOnce({
+      textStream: (async function* () {
+        yield "hel"
+        yield "lo"
+      })(),
+      toUIMessageStream() {
+        throw new Error("native UI stream should not be used for event iteration")
+      },
+    })
+
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })
+    const events = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "hel", type: "text-delta" },
+      { text: "lo", type: "text-delta" },
+      { type: "finish" },
+    ])
+    expect(session.destroy).toHaveBeenCalledOnce()
+  })
+
   it("passes model-facing Capability tools into harness Agent Drivers", async () => {
     const { defineCapability } = await import("../src/capability-runtime.ts")
     const { defineAgent, runAgent } = await import("../src/index.ts")

@@ -865,12 +865,11 @@ describe("usage telemetry", () => {
     ])
   })
 
-  it("records streamed usage when ui-message-stream consumes result.stream", async () => {
+  it("records streamed usage when ui-message-stream consumes result.stream without native UI output", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const { usageTelemetry } = await import("../src/capabilities.ts")
     const finish = vi.fn()
     const onUsage = vi.fn()
-    const toUIMessageStreamMock = vi.fn()
 
     class StreamResult {
       fullStream = (async function* () {
@@ -897,10 +896,6 @@ describe("usage telemetry", () => {
         }
       })()
 
-      toUIMessageStream() {
-        toUIMessageStreamMock()
-        throw new Error("toUIMessageStream should not be called")
-      }
     }
 
     const agent = defineAgent({
@@ -924,7 +919,6 @@ describe("usage telemetry", () => {
 
     expect(chunks).toContainEqual({ delta: "ok", id: expect.any(String), type: "text-delta" })
     expect(chunks).toContainEqual({ finishReason: "stop", type: "finish" })
-    expect(toUIMessageStreamMock).not.toHaveBeenCalled()
     expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
       usage: {
         inputTokens: 4,
@@ -945,6 +939,74 @@ describe("usage telemetry", () => {
         totalTokens: 10,
       },
     }))
+  })
+
+  it("preserves native UI message streams while recording streamed usage", async () => {
+    const { createUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const onUsage = vi.fn()
+
+    class StreamResult {
+      fullStream = (async function* () {
+        yield {
+          finishReason: "stop",
+          totalUsage: {
+            inputTokens: 1,
+            outputTokens: 2,
+          },
+          type: "finish",
+        }
+      })()
+
+      toUIMessageStream() {
+        return createUIMessageStream({
+          execute({ writer }) {
+            writer.write({ type: "start", messageId: "assistant-1" })
+            writer.write({ type: "text-start", id: "text-1" })
+            writer.write({ type: "text-delta", id: "text-1", delta: "native" })
+            writer.write({ type: "text-end", id: "text-1" })
+            writer.write({
+              finishReason: "stop",
+              totalUsage: {
+                inputTokens: 4,
+                outputTokens: 6,
+              },
+              type: "finish",
+            } as never)
+          },
+        })
+      }
+    }
+
+    const agent = defineAgent({
+      capabilities: [usageTelemetry({ onUsage })],
+      driver: { run: () => new StreamResult() },
+    })
+
+    const stream = await streamAgent(agent, runtime(), {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const chunks: unknown[] = []
+    const reader = stream.getReader()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value)
+    }
+
+    expect(chunks).toContainEqual({ delta: "native", id: "text-1", type: "text-delta" })
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
+      usage: {
+        inputTokens: 4,
+        outputTokens: 6,
+        totalTokens: 10,
+      },
+    }), {
+      run: {
+        messageId: "message-1",
+        runId: "run-1",
+        threadId: "thread-1",
+      },
+    })
   })
 
   it("attaches streamed usage telemetry to results with getter-only usage properties", async () => {
