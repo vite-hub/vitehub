@@ -120,22 +120,15 @@ The public API is a flat object on the Capability Definition.
 
 ```ts [server/agents/capabilities/inventory-runtime.ts]
 import { defineCapability } from '@vite-hub/agent'
+import { z } from 'zod'
 
-const inventoryItemsInput = {
-  '~standard': {
-    validate(input: unknown) {
-      return { value: input as { limit?: number } }
-    },
-  },
-}
+const inventoryItemsInput = z.object({
+  limit: z.number().int().positive().optional(),
+})
 
-const inventoryItemsOutput = {
-  '~standard': {
-    validate(input: unknown) {
-      return { value: input as { items: Array<{ id: string }> } }
-    },
-  },
-}
+const inventoryItemsOutput = z.object({
+  items: z.array(z.object({ id: z.string() })),
+})
 
 export const inventoryRuntime = defineCapability({
   id: 'inventory-runtime',
@@ -161,6 +154,8 @@ export const inventoryRuntime = defineCapability({
   },
 })
 ```
+
+The `input` and `output.schema` values accept any Standard Schema-compatible validation library. Use Zod, Valibot, ArkType, or the validator your app already uses.
 
 ViteHub generates the command guidance from the command metadata and places it in the Capability instruction slot.
 Keep `instructions.md` focused on policy and include `{{ capabilities.inventory-runtime }}` or `{{ capabilities }}` where the generated guidance should appear.
