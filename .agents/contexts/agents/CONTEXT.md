@@ -305,6 +305,8 @@ _Avoid_: Fake agent, dummy model, test bot
 - Channel webhook delivery can use generated Agent Package **Agent Webhook Routes** without making non-chat Channels message-shaped or Chat Platform Adapters.
 - A **Channel** can resolve an **Agent Actor**, but it does not own identity; Auth, trusted app routing, subagents, schedules, or fallback runtime behavior may also seed the Agent Actor.
 - **Channel Delivery Admission** belongs to the **Channel** because protocol-level delivery acceptance, rejection, and retry semantics are owned by the external surface that triggered the Agent Invocation.
+- A generated message-shaped **Channel** route may copy request body `meta`, `user`, or `session` into `chat.message` input only when **Channel Delivery Admission** authenticates the request and explicitly trusts those fields.
+- Server-derived **Channel Delivery Admission** context runs after trusted request input so it can enrich or override client-provided message context before the **Agent Trigger** starts.
 - **Channel Delivery Effects** belong to the **Channel** because they communicate delivery progress or state back on the same external surface that triggered the Agent Invocation.
 - **Channel Delivery Effects** may use generic effect kinds such as reactions, replies, or statuses; platform-prefixed names belong to Channel implementation details or examples, not the shared effect vocabulary.
 - A Capability may contribute a **Channel Delivery Effect Intent** for the current delivery, but the active **Channel** owns whether and how that intent becomes a **Channel Delivery Effect**.
