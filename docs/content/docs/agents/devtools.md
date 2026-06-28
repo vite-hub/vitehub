@@ -34,7 +34,7 @@ Use the Agent DevTools Feature to answer the basic discovery questions before de
 | Agent Driver | The active driver is `model`, `harness`, or `run`, with expected model or harness metadata. |
 | Capabilities | The Agent attached the expected Capability Definitions and requirements. |
 | Agent Invoker Profiles | DevTools can select configured profiles before a new Chat Session starts. |
-| Workspace | Visible Sources, instruction coverage diagnostics, and Workspace Scope match the selected invocation. |
+| Workspace | Visible Sources and Workspace Scope match the selected invocation. |
 
 If discovery is wrong, fix the Agent Definition before inspecting model output.
 
@@ -60,8 +60,7 @@ When Capability behavior is confusing, inspect it in Capability Lifecycle order.
 2. Tool exposure.
 3. Policy and approval decisions.
 4. Agent Invocation Context Values.
-5. Instruction coverage diagnostics.
-6. Finish extension output.
+5. Finish extension output.
 
 This order keeps debugging anchored to ViteHub's public model instead of package internals.
 
