@@ -9,6 +9,7 @@ import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatch
 import { createWorkspaceRegistryContents, discoverViteWorkspaceDefinitions } from "../../build/discovery.ts"
 import { initializeWorkspaceAssetRegistry, refreshWorkspaceBuildState, syncWorkspaceBuildAssets } from "../../build/integration.ts"
 import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
+import { createWorkspaceCliContributor } from "../../cli.ts"
 import { normalizeWorkspaceOptions } from "../../config.ts"
 import { runWorkspaceDevCommand, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute } from "../../server.ts"
 import { setWorkspaceRuntimeRegistry } from "../../runtime.ts"
@@ -412,7 +413,6 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     },
     vitehub: {
       cli: async () => {
-        const { createWorkspaceCliContributor } = await import(/* @vite-ignore */ "../../cli.js")
         return createWorkspaceCliContributor()
       },
     },
