@@ -118,6 +118,27 @@ function withDeliveryPreviewChannels(
   return { ...agent, channels } as AgentInput<ViteAgentDevRuntimeContext>
 }
 
+function formatCliDeliveryPreview(event: Extract<AgentInvocationStreamEvent, { type: "delivery-preview" }>): string {
+  const details = {
+    ...(event.effect.intent !== undefined ? { intent: event.effect.intent } : {}),
+    ...(event.effect.payload !== undefined ? { payload: event.effect.payload } : {}),
+    ...(event.effect.metadata !== undefined ? { metadata: event.effect.metadata } : {}),
+  }
+  const extra = Object.keys(details).length ? `\n${JSON.stringify(details, null, 2)}` : ""
+  return `\n[delivery preview] would ${event.effect.kind}${event.channelId ? ` on ${event.channelId}` : ""}${extra}\n`
+}
+
+function withCliDeliveryPreviews(
+  result: AgentCapabilityCliExecutionResult,
+  previews: Array<Extract<AgentInvocationStreamEvent, { type: "delivery-preview" }>>,
+): AgentCapabilityCliExecutionResult {
+  if (!previews.length) return result
+  return {
+    ...result,
+    stderr: `${result.stderr || ""}${previews.map(formatCliDeliveryPreview).join("")}`,
+  }
+}
+
 function headersFromNode(headers: IncomingHttpHeaders): Headers {
   const result = new Headers()
   for (const [name, value] of Object.entries(headers)) {
@@ -443,7 +464,8 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
     if (typeof body.cli.name !== "string" || !body.cli.name.trim()) {
       return new Response("Missing Agent Capability CLI name.", { status: 400 })
     }
-    const previewAgent = withDeliveryPreviewChannels(entry.agent, () => {})
+    const previews: Array<Extract<AgentInvocationStreamEvent, { type: "delivery-preview" }>> = []
+    const previewAgent = withDeliveryPreviewChannels(entry.agent, event => previews.push(event))
     const result = await runCapabilityCliWithTimeout(previewAgent as never, body.cli.name, {
       argv: Array.isArray(body.cli.argv) ? body.cli.argv : [],
       ...(body.cli.input !== undefined ? { input: body.cli.input } : {}),
@@ -455,7 +477,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
       }),
     }, timeout)
     if (result instanceof Response) return result
-    return Response.json(result)
+    return Response.json(withCliDeliveryPreviews(result, previews))
   }
 
   return createAgentInvocationStreamResponse(async (emit, signal) => {

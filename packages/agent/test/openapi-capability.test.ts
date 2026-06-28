@@ -343,6 +343,35 @@ describe("openapi capability", () => {
     expect(init.body).toBe(JSON.stringify({ cubeToken: "cube-token", quantity: 2, sku: "sku-1" }))
   })
 
+  it("validates generated OpenAPI CLI inputs before requests", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        openapi({
+          cli: { name: "portal" },
+          operations: { allow: ["createOrder"] },
+          spec: portalSpec(),
+        }),
+      ],
+    }, runtime(), { prompt: "create" })
+
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["create-order", "--json"],
+      input: { body: {} },
+    })).rejects.toThrow("Invalid portal create-order input")
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["create-order", "--json"],
+      input: {
+        body: { cubeToken: "cube-token", sku: "sku-1" },
+        path: { tenantId: 123 },
+      },
+    })).rejects.toThrow("input.path.tenantId must be string")
+    expect(request).not.toHaveBeenCalled()
+  })
+
   it("uses text output format for generated OpenAPI CLI text responses", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("plain text", {
       headers: { "content-type": "text/plain" },

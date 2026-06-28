@@ -782,11 +782,14 @@ describe("agent chat capability discovery", () => {
     })
 
     expect(response.statusCode).toBe(200)
-    expect(JSON.parse(response.body)).toMatchObject({
+    const result = JSON.parse(response.body)
+    expect(result).toMatchObject({
       cli: "inventory",
       exitCode: 0,
       json: [{ id: "item_1" }],
     })
+    expect(result.stderr).toContain("[delivery preview] would reaction on github")
+    expect(result.stderr).toContain("\"payload\": \"queued\"")
     expect(reactionEffect).not.toHaveBeenCalled()
   })
 

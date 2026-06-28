@@ -5,6 +5,7 @@ import { defineInternalTool } from "./internal.ts"
 import type {
   AgentCapabilityContext,
   AgentCapabilityCliContribution,
+  AgentCapabilityCliStandardSchemaV1,
   AgentCapabilityDefinition,
   AgentCapabilityRuntimeContext,
   AgentRuntimeConfig,
@@ -373,6 +374,7 @@ function createOpenAPICli<
       description: operation.description,
       effects: [`http:${operation.method.toLowerCase()}`],
       examples: [`${cli.name} ${name}${outputFormat === "json" ? " --json" : ""}`],
+      input: openAPICliInputSchema(operation, options.input),
       output: { format: outputFormat },
       run: ({ input }) => executeOpenAPIOperation(operation, baseUrl, options, context, input),
     }
@@ -381,6 +383,32 @@ function createOpenAPICli<
     commands,
     description: cli.description || options.description || "Call allowed OpenAPI operations.",
     name: cli.name,
+  }
+}
+
+function openAPICliInputSchema(operation: OpenAPIOperationTool, input?: OpenAPIInputOptions): AgentCapabilityCliStandardSchemaV1<OpenAPIToolInput> {
+  const schema = operationInputSchema(operation, input)
+  return {
+    "~standard": {
+      validate(value) {
+        try {
+          const normalized = compactOpenAPIInput(applyOpenAPIInputOmissions(normalizeRawToolInput(operation, value), input))
+          const issues = validateJsonSchema(schema, normalized, "input")
+          return issues.length ? { issues } : { value: normalized }
+        }
+        catch (error) {
+          return { issues: [error instanceof Error ? error.message : String(error)] }
+        }
+      },
+    },
+  }
+}
+
+function compactOpenAPIInput(input: OpenAPIToolInput): OpenAPIToolInput {
+  return {
+    ...(input.body !== undefined ? { body: input.body } : {}),
+    ...(input.path !== undefined ? { path: input.path } : {}),
+    ...(input.query !== undefined ? { query: input.query } : {}),
   }
 }
 
@@ -671,6 +699,71 @@ function visibleObjectSchema(schema: JsonSchema | undefined, omit: readonly stri
 
 function hasRequiredProperties(schema: JsonSchema): boolean {
   return Array.isArray(schema.required) && schema.required.some(value => typeof value === "string")
+}
+
+function validateJsonSchema(schema: JsonSchema, value: unknown, label: string): string[] {
+  const types = jsonSchemaTypes(schema)
+  if (types.length && !types.some(type => jsonSchemaTypeMatches(type, value))) {
+    return [`${label} must be ${types.join(" or ")}`]
+  }
+  const issues: string[] = []
+  if (isJsonSchemaObject(schema)) {
+    if (!isPlainRecord(value)) return [`${label} must be object`]
+    const properties = isPlainRecord(schema.properties) ? schema.properties as Record<string, JsonSchema> : {}
+    const required = Array.isArray(schema.required) ? schema.required.filter((item): item is string => typeof item === "string") : []
+    for (const key of required) {
+      if (value[key] === undefined) issues.push(`${label}.${key} is required`)
+    }
+    if (schema.additionalProperties === false) {
+      for (const key of Object.keys(value)) {
+        if (!Object.hasOwn(properties, key)) issues.push(`${label}.${key} is not supported`)
+      }
+    }
+    for (const [key, property] of Object.entries(properties)) {
+      if (value[key] !== undefined && isPlainRecord(property)) {
+        issues.push(...validateJsonSchema(property, value[key], `${label}.${key}`))
+      }
+    }
+  }
+  if (Array.isArray(value) && isPlainRecord(schema.items)) {
+    value.forEach((item, index) => {
+      issues.push(...validateJsonSchema(schema.items as JsonSchema, item, `${label}[${index}]`))
+    })
+  }
+  return issues
+}
+
+function isJsonSchemaObject(schema: JsonSchema): boolean {
+  return jsonSchemaTypes(schema).includes("object")
+    || isPlainRecord(schema.properties)
+    || Array.isArray(schema.required)
+    || schema.additionalProperties === false
+}
+
+function jsonSchemaTypes(schema: JsonSchema): string[] {
+  if (typeof schema.type === "string") return [schema.type]
+  return Array.isArray(schema.type) ? schema.type.filter((type): type is string => typeof type === "string") : []
+}
+
+function jsonSchemaTypeMatches(type: string, value: unknown): boolean {
+  switch (type) {
+    case "array":
+      return Array.isArray(value)
+    case "boolean":
+      return typeof value === "boolean"
+    case "integer":
+      return typeof value === "number" && Number.isInteger(value)
+    case "null":
+      return value === null
+    case "number":
+      return typeof value === "number" && Number.isFinite(value)
+    case "object":
+      return isPlainRecord(value)
+    case "string":
+      return typeof value === "string"
+    default:
+      return true
+  }
 }
 
 function parameterObjectSchema(parameters: OpenAPIParameter[]): JsonSchema {
