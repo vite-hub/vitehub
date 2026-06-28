@@ -1,15 +1,78 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { Readable } from "node:stream"
 import { pathToFileURL } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
+
+import type { IncomingMessage, ServerResponse } from "node:http"
+import type { Connect } from "vite"
+
+const runWorkspaceDevCommand = vi.hoisted(() => vi.fn(async () => ({
+  exitCode: 0,
+  stderr: "",
+  stdout: "ok\n",
+})))
 
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
   copyVercelFunctionRuntimePackages: vi.fn(async () => undefined),
 }))
 
+vi.mock("../src/server.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/server.ts")>()
+  return {
+    ...actual,
+    runWorkspaceDevCommand,
+  }
+})
+
 const tempDirs: string[] = []
+
+function responseChunkText(chunk: unknown) {
+  if (typeof chunk === "string") return chunk
+  if (Buffer.isBuffer(chunk)) return chunk.toString("utf8")
+  if (chunk instanceof Uint8Array) return Buffer.from(chunk).toString("utf8")
+  return String(chunk)
+}
+
+async function configurePluginServer(plugin: { configureServer?: unknown }, server: unknown) {
+  const hook = plugin.configureServer
+  if (typeof hook === "function") {
+    await hook(server)
+  }
+  else if (hook && typeof hook === "object" && "handler" in hook && typeof hook.handler === "function") {
+    await hook.handler(server)
+  }
+}
+
+async function invokeMiddleware(
+  handler: Connect.NextHandleFunction,
+  body: Record<string, unknown>,
+  url: string,
+  headers: IncomingMessage["headers"],
+) {
+  let output = ""
+  const req = Readable.from([JSON.stringify(body)]) as IncomingMessage
+  req.headers = headers
+  req.method = "POST"
+  req.url = url
+  await new Promise<void>((resolve, reject) => {
+    const res = {
+      statusCode: 200,
+      end: (chunk?: unknown) => {
+        if (chunk !== undefined) output += responseChunkText(chunk)
+        resolve()
+      },
+      setHeader: vi.fn(),
+      write: (chunk: unknown) => {
+        output += responseChunkText(chunk)
+      },
+    } as unknown as ServerResponse
+    handler(req, res, reject)
+  })
+  return output
+}
 
 async function createViteRoot() {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-"))
@@ -65,6 +128,7 @@ async function createViteAssetRoot() {
 }
 
 afterEach(async () => {
+  runWorkspaceDevCommand.mockClear()
   vi.unstubAllEnvs()
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
@@ -128,6 +192,53 @@ describe("hubWorkspace", () => {
     const registryId = resolveId("#vitehub-workspace-registry")!
     expect(load(registryId)).toContain('"docs": async () => {')
     expect(load(registryId)).toContain("sourceRootDir")
+  })
+
+  it("normalizes Workspace Dev command definitions loaded from the Vite registry", async () => {
+    const root = await createViteRoot()
+    const handlers: Connect.NextHandleFunction[] = []
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const { readWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenHeader } = await import("../src/server.ts")
+    const plugin = hubWorkspace()
+    const configResolved = plugin.configResolved as (config: { command: "serve", root: string }) => Promise<void>
+
+    await configResolved({ command: "serve", root })
+    await configurePluginServer(plugin, {
+      config: { root, server: { port: 3000 } },
+      middlewares: {
+        use: vi.fn((handler: Connect.NextHandleFunction) => handlers.push(handler)),
+      },
+      resolvedUrls: { local: ["http://localhost:3000/"] },
+      ssrLoadModule: vi.fn(async () => ({
+        default: {
+          docs: async () => ({ default: { store: { provider: "memory" } } }),
+        },
+      })),
+      watcher: { on: vi.fn() },
+    })
+    const token = await readWorkspaceDevToken(root)
+
+    await invokeMiddleware(handlers[0]!, {
+      workspaceCommand: {
+        args: ["test"],
+        command: "pnpm",
+        workspace: "docs",
+      },
+    }, workspaceDevRoute, {
+      "content-type": "application/json",
+      [workspaceDevHeader]: workspaceDevHeaderValue,
+      [workspaceDevTokenHeader]: token,
+    })
+
+    expect(runWorkspaceDevCommand).toHaveBeenCalledWith(expect.objectContaining({
+      args: ["test"],
+      command: "pnpm",
+      definition: expect.objectContaining({
+        name: "docs",
+        store: { provider: "memory" },
+      }),
+      workspace: "docs",
+    }))
   })
 
   it("keeps ambient workspace types in generated ViteHub state without src", async () => {

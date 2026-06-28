@@ -11,6 +11,7 @@ import { initializeWorkspaceAssetRegistry, refreshWorkspaceBuildState, syncWorks
 import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
 import { createWorkspaceCliContributor } from "../../cli.ts"
 import { normalizeWorkspaceOptions } from "../../config.ts"
+import { normalizeWorkspaceDefinition } from "../../core/registry.ts"
 import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute } from "../../server.ts"
 
 import type { HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
@@ -184,7 +185,7 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
   return Response.json(await runWorkspaceDevCommand({
     ...(args ? { args } : {}),
     command: command.command,
-    ...(isRecord(definition) ? { definition: definition as never } : {}),
+    ...(isRecord(definition) ? { definition: normalizeWorkspaceDefinition(command.workspace, definition as never) } : {}),
     ...(timeout ? { timeout } : {}),
     workspace: command.workspace,
   }))
