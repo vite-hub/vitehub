@@ -12,13 +12,14 @@ import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
 import { createWorkspaceCliContributor } from "../../cli.ts"
 import { normalizeWorkspaceOptions } from "../../config.ts"
 import { normalizeWorkspaceDefinition } from "../../core/registry.ts"
-import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute } from "../../server.ts"
+import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenServerId } from "../../server.ts"
 
 import type { HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
 import type { ResolvedWorkspaceModuleOptions, WorkspaceModuleOptions } from "../../core/types.ts"
+import type { WorkspaceDevTokenOptions } from "../../server.ts"
 
 const WORKSPACE_PACKAGE_NAME = "@vite-hub/workspace"
 const WORKSPACES_ID = "#vitehub/workspaces"
@@ -156,13 +157,14 @@ function isWorkspaceDevRoute(req: IncomingMessage): boolean {
   return new URL(req.url || "/", "http://localhost").pathname === workspaceDevRoute
 }
 
-async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMessage, workspaces: Array<{ name: string }>, abortSignal?: AbortSignal): Promise<Response> {
+async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMessage, workspaces: Array<{ name: string }>, tokenOptions: WorkspaceDevTokenOptions, abortSignal?: AbortSignal): Promise<Response> {
   const validation = validateWorkspaceDevRequest(server, req)
   if (validation) return validation
   if (req.method === "GET") {
-    await ensureWorkspaceDevToken(server.config.root)
+    await ensureWorkspaceDevToken(server.config.root, tokenOptions)
     return Response.json({
       root: server.config.root,
+      workspaceDevTokenServerId: tokenOptions.serverId,
       workspaces,
     })
   }
@@ -179,7 +181,7 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
   if (!command || typeof command.workspace !== "string" || typeof command.command !== "string") {
     return new Response("Missing Workspace Dev command.", { status: 400 })
   }
-  if (!await validateWorkspaceDevToken(server.config.root, req.headers)) {
+  if (!await validateWorkspaceDevToken(server.config.root, req.headers, tokenOptions)) {
     return new Response("Forbidden Workspace Dev token.", { status: 403 })
   }
   const mod = await server.ssrLoadModule(WORKSPACE_REGISTRY_ID) as { default?: unknown }
@@ -425,7 +427,8 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     },
     async configureServer(devServer) {
       server = devServer
-      await refreshWorkspaceDevToken(devServer.config.root)
+      const tokenOptions = { serverId: workspaceDevTokenServerId(devServer.config.server.port) }
+      await refreshWorkspaceDevToken(devServer.config.root, tokenOptions)
       const roots = {
         projectRoot: projectRoot || resolveViteHubProjectRoot(devServer.config.root),
         viteRoot: viteRoot || resolve(devServer.config.root),
@@ -436,7 +439,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       devServer.middlewares.use((req, res, next) => {
         if (!isWorkspaceDevRoute(req)) return next()
         const abort = createAbortSignalFromClose(res, "[vitehub] Workspace Dev response closed.")
-        void handleWorkspaceDevRequest(devServer, req, manifest.workspaces, abort.signal)
+        void handleWorkspaceDevRequest(devServer, req, manifest.workspaces, tokenOptions, abort.signal)
           .then(response => writeResponse(res, response))
           .catch((error: unknown) => writeResponse(res, new Response(error instanceof Error ? error.message : "Workspace Dev request failed.", { status: 500 })))
           .finally(abort.dispose)

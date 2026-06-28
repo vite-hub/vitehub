@@ -3,7 +3,7 @@ import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
-import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken } from "@vite-hub/workspace/server"
+import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
 
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
 import { streamAgentOutputToEvents } from "../agent-output.ts"
@@ -29,6 +29,7 @@ import type {
   DiscoveredAgentDefinition,
   ResolvedAgentTriggerDefinition,
 } from "../index.ts"
+import type { WorkspaceDevTokenOptions } from "@vite-hub/workspace/server"
 
 const capabilityCliRunSurface = Symbol.for("vitehub.capabilityCliRunSurface")
 const workspaceRegistryId = "#vitehub-workspace-registry"
@@ -540,10 +541,10 @@ async function runCapabilityCliWithTimeout(
   }
 }
 
-async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: IncomingMessage, abortSignal?: AbortSignal): Promise<Response> {
+async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: IncomingMessage, tokenOptions: WorkspaceDevTokenOptions, abortSignal?: AbortSignal): Promise<Response> {
   const entries = await discoverStreamAgents(server)
   if (req.method === "GET") {
-    await ensureWorkspaceDevToken(server.config.root)
+    await ensureWorkspaceDevToken(server.config.root, tokenOptions)
     return Response.json({
       agents: entries.map(entry => ({
         ...(entry.aliases?.length ? { aliases: entry.aliases } : {}),
@@ -551,6 +552,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
         triggers: Object.keys(entry.triggers),
       })),
       root: server.config.root,
+      workspaceDevTokenServerId: tokenOptions.serverId,
     })
   }
 
@@ -587,7 +589,7 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
     if (agentWorkspaceMode(entry) !== "write") {
       return new Response("Agent Dev Loop command requires workspace.mode: \"write\".", { status: 403 })
     }
-    if (!await validateWorkspaceDevToken(server.config.root, req.headers)) {
+    if (!await validateWorkspaceDevToken(server.config.root, req.headers, tokenOptions)) {
       return new Response("Forbidden Agent Dev Loop command token.", { status: 403 })
     }
     if (typeof body.workspaceCommand.command !== "string") {
@@ -712,7 +714,8 @@ function errorResponse(error: unknown): Response {
 }
 
 export async function registerAgentInvocationStreamEndpoint(server: ViteDevServer): Promise<void> {
-  await refreshWorkspaceDevToken(server.config.root)
+  const tokenOptions = { serverId: workspaceDevTokenServerId(server.config.server.port) }
+  await refreshWorkspaceDevToken(server.config.root, tokenOptions)
   server.middlewares.use((req, res, next) => {
     if (!routeMatches(req)) {
       next()
@@ -729,7 +732,7 @@ export async function registerAgentInvocationStreamEndpoint(server: ViteDevServe
     }
 
     const abort = createAbortSignalFromClose(res, "[vitehub] Agent Invocation Stream response closed.")
-    void handleAgentInvocationStreamRequest(server, req, abort.signal)
+    void handleAgentInvocationStreamRequest(server, req, tokenOptions, abort.signal)
       .catch(errorResponse)
       .then(response => writeResponse(res, response))
       .finally(abort.dispose)

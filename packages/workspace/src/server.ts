@@ -49,19 +49,28 @@ export interface WorkspaceDevCommandInput<Name extends WorkspaceName = Workspace
   workspace: Name | WritableWorkspaceFacade<Name> | (ReadonlyWorkspaceFacade<Name> & { fs: ReadonlyWorkspaceFacade<Name>["fs"] & Partial<WorkspaceSessionStarter> })
 }
 
+export interface WorkspaceDevTokenOptions {
+  serverId?: string
+}
+
 const workspaceDevTokens = new Map<string, string>()
 
-async function workspaceDevTokenRoot(rootDir: string): Promise<{ file: string, key: string, legacyFile: string }> {
+export function workspaceDevTokenServerId(port?: number | string | null): string {
+  return `${process.pid}:${port ?? "unknown"}`
+}
+
+async function workspaceDevTokenRoot(rootDir: string, options: WorkspaceDevTokenOptions = {}): Promise<{ file: string, key: string, legacyFile: string }> {
   const [{ createHash }, { tmpdir }, { join, resolve }] = await Promise.all([
     import("node:crypto"),
     import("node:os"),
     import("node:path"),
   ])
   const resolvedRoot = resolve(rootDir)
-  const key = createHash("sha256").update(resolvedRoot).digest("hex")
+  const rootKey = createHash("sha256").update(resolvedRoot).digest("hex")
+  const serverKey = createHash("sha256").update(options.serverId || "default").digest("hex")
   return {
-    file: join(tmpdir(), "vitehub-workspace-dev", key, "dev-token"),
-    key,
+    file: join(tmpdir(), "vitehub-workspace-dev", rootKey, serverKey, "dev-token"),
+    key: `${rootKey}:${serverKey}`,
     legacyFile: join(resolvedRoot, ".vitehub", "dev-token"),
   }
 }
@@ -78,9 +87,9 @@ function randomToken(): string {
     .join("")
 }
 
-export async function refreshWorkspaceDevToken(rootDir: string): Promise<string> {
+export async function refreshWorkspaceDevToken(rootDir: string, options: WorkspaceDevTokenOptions = {}): Promise<string> {
   const token = randomToken()
-  const tokenRoot = await workspaceDevTokenRoot(rootDir)
+  const tokenRoot = await workspaceDevTokenRoot(rootDir, options)
   workspaceDevTokens.set(tokenRoot.key, token)
   const [{ mkdir, rm, writeFile }, { dirname }] = await Promise.all([
     import("node:fs/promises"),
@@ -93,15 +102,15 @@ export async function refreshWorkspaceDevToken(rootDir: string): Promise<string>
   return token
 }
 
-export async function ensureWorkspaceDevToken(rootDir: string): Promise<string> {
-  const existing = workspaceDevTokens.get((await workspaceDevTokenRoot(rootDir)).key)
-  return existing || await refreshWorkspaceDevToken(rootDir)
+export async function ensureWorkspaceDevToken(rootDir: string, options: WorkspaceDevTokenOptions = {}): Promise<string> {
+  const existing = workspaceDevTokens.get((await workspaceDevTokenRoot(rootDir, options)).key)
+  return existing || await refreshWorkspaceDevToken(rootDir, options)
 }
 
-export async function readWorkspaceDevToken(rootDir: string): Promise<string | undefined> {
+export async function readWorkspaceDevToken(rootDir: string, options: WorkspaceDevTokenOptions = {}): Promise<string | undefined> {
   try {
     const { readFile } = await import("node:fs/promises")
-    const token = (await readFile((await workspaceDevTokenRoot(rootDir)).file, "utf8")).trim()
+    const token = (await readFile((await workspaceDevTokenRoot(rootDir, options)).file, "utf8")).trim()
     return token || undefined
   }
   catch (error) {
@@ -110,9 +119,9 @@ export async function readWorkspaceDevToken(rootDir: string): Promise<string | u
   }
 }
 
-export async function validateWorkspaceDevToken(rootDir: string, headers: Headers | Record<string, string | string[] | undefined>): Promise<boolean> {
+export async function validateWorkspaceDevToken(rootDir: string, headers: Headers | Record<string, string | string[] | undefined>, options: WorkspaceDevTokenOptions = {}): Promise<boolean> {
   const token = headerValue(headers, workspaceDevTokenHeader)
-  return typeof token === "string" && token === await ensureWorkspaceDevToken(rootDir)
+  return typeof token === "string" && token === await ensureWorkspaceDevToken(rootDir, options)
 }
 
 async function resolveWorkspace<Name extends WorkspaceName>(
@@ -218,7 +227,7 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
   try {
     const result = input.args
       ? await session.exec(command, input.args, execOptions)
-      : await session.exec("bash", ["-lc", command], execOptions)
+      : await session.exec("sh", ["-lc", command], execOptions)
     if (result.exitCode === 0) await session.commit({ message: "workspace dev command" })
     return result
   }

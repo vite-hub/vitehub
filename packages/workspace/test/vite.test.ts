@@ -216,7 +216,7 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     const handlers: Connect.NextHandleFunction[] = []
     const { hubWorkspace } = await import("../src/vite.ts")
-    const { readWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenHeader } = await import("../src/server.ts")
+    const { readWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenHeader, workspaceDevTokenServerId } = await import("../src/server.ts")
     const plugin = hubWorkspace()
     const configResolved = plugin.configResolved as (config: { command: "serve", root: string }) => Promise<void>
 
@@ -234,7 +234,7 @@ describe("hubWorkspace", () => {
       })),
       watcher: { on: vi.fn() },
     })
-    const token = await readWorkspaceDevToken(root)
+    const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
 
     await invokeMiddleware(handlers[0]!, {
       workspaceCommand: {
@@ -264,7 +264,7 @@ describe("hubWorkspace", () => {
     const root = await createViteRoot()
     const handlers: Connect.NextHandleFunction[] = []
     const { hubWorkspace } = await import("../src/vite.ts")
-    const { readWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenHeader } = await import("../src/server.ts")
+    const { readWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenHeader, workspaceDevTokenServerId } = await import("../src/server.ts")
     const plugin = hubWorkspace()
     const configResolved = plugin.configResolved as (config: { command: "serve", root: string }) => Promise<void>
     let closeResponse: (() => void) | undefined
@@ -300,7 +300,7 @@ describe("hubWorkspace", () => {
       })),
       watcher: { on: vi.fn() },
     })
-    const token = await readWorkspaceDevToken(root)
+    const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
 
     const output = await invokeMiddleware(handlers[0]!, {
       workspaceCommand: {

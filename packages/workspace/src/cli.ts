@@ -6,6 +6,8 @@ import {
   workspaceDevTokenHeader,
 } from "./server.ts"
 
+import type { WorkspaceDevTokenOptions } from "./server.ts"
+
 interface WorkspaceCliContext {
   cwd: string
   env: NodeJS.ProcessEnv
@@ -42,7 +44,13 @@ interface WorkspaceDevCliOptions {
 
 interface WorkspaceDevDiscovery {
   root?: unknown
+  workspaceDevTokenServerId?: unknown
   workspaces?: Array<{ name?: unknown }>
+}
+
+interface WorkspaceDevTarget {
+  tokenOptions: WorkspaceDevTokenOptions
+  url: string
 }
 
 function writeWorkspaceDevUsage(context: WorkspaceCliContext): void {
@@ -118,7 +126,7 @@ function endpointUrl(baseUrl: string): string {
   return new URL(workspaceDevRoute, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).href
 }
 
-async function readWorkspaceDiscovery(parsed: ParsedWorkspaceDevArgs, context: WorkspaceCliContext, fetchImpl: typeof fetch): Promise<string | undefined> {
+async function readWorkspaceDiscovery(parsed: ParsedWorkspaceDevArgs, context: WorkspaceCliContext, fetchImpl: typeof fetch): Promise<WorkspaceDevTarget | undefined> {
   if (!parsed.workspace) {
     context.stderr.write("Missing Workspace Dev target.\n")
     return
@@ -158,11 +166,14 @@ async function readWorkspaceDiscovery(parsed: ParsedWorkspaceDevArgs, context: W
     context.stderr.write(`Unknown Workspace Dev target: ${parsed.workspace}\n`)
     return
   }
-  return url
+  return {
+    tokenOptions: typeof discovery.workspaceDevTokenServerId === "string" ? { serverId: discovery.workspaceDevTokenServerId } : {},
+    url,
+  }
 }
 
 async function sendWorkspaceCommand(
-  url: string,
+  target: WorkspaceDevTarget,
   parsed: ParsedWorkspaceDevArgs,
   context: WorkspaceCliContext,
   fetchImpl: typeof fetch,
@@ -171,12 +182,12 @@ async function sendWorkspaceCommand(
     context.stderr.write("Pass a command or run in an interactive terminal.\n")
     return 1
   }
-  const token = await readWorkspaceDevToken(context.rootDir)
+  const token = await readWorkspaceDevToken(context.rootDir, target.tokenOptions)
   if (!token) {
     context.stderr.write("No private Workspace Dev token found. Start the Compatible Vite Development Server first.\n")
     return 1
   }
-  const response = await fetchImpl(url, {
+  const response = await fetchImpl(target.url, {
     body: JSON.stringify({
       workspaceCommand: {
         ...(parsed.args ? { args: parsed.args } : {}),
@@ -206,7 +217,7 @@ async function runInteractiveWorkspaceDev(
   parsed: ParsedWorkspaceDevArgs,
   context: WorkspaceCliContext,
   fetchImpl: typeof fetch,
-  url: string,
+  target: WorkspaceDevTarget,
 ): Promise<number> {
   const { createInterface } = await import("node:readline/promises")
   const readline = createInterface({ input: process.stdin, output: process.stdout })
@@ -216,7 +227,7 @@ async function runInteractiveWorkspaceDev(
       const command = (await readline.question("> ")).trim()
       if (!command) continue
       if (command === ".exit" || command === "exit") return 0
-      const exitCode = await sendWorkspaceCommand(url, { ...parsed, command }, context, fetchImpl)
+      const exitCode = await sendWorkspaceCommand(target, { ...parsed, command }, context, fetchImpl)
       if (exitCode !== 0) return exitCode
     }
   }
@@ -244,14 +255,14 @@ export async function runWorkspaceDevCli(
     return 0
   }
   const fetchImpl = options.fetch || globalThis.fetch
-  const url = await readWorkspaceDiscovery(parsed, context, fetchImpl)
-  if (!url) return 1
-  if (parsed.command) return await sendWorkspaceCommand(url, parsed, context, fetchImpl)
+  const target = await readWorkspaceDiscovery(parsed, context, fetchImpl)
+  if (!target) return 1
+  if (parsed.command) return await sendWorkspaceCommand(target, parsed, context, fetchImpl)
   if (!process.stdin.isTTY) {
     context.stderr.write("Pass a command or run in an interactive terminal.\n")
     return 1
   }
-  return await runInteractiveWorkspaceDev(parsed, context, fetchImpl, url)
+  return await runInteractiveWorkspaceDev(parsed, context, fetchImpl, target)
 }
 
 export function createWorkspaceCliContributor(): WorkspaceCliContributor {

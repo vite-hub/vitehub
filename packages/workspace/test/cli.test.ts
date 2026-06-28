@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
 
 import { runWorkspaceDevCli } from "../src/cli.ts"
-import { ensureWorkspaceDevToken, readWorkspaceDevToken, refreshWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevTokenHeader } from "../src/server.ts"
+import { readWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevTokenHeader } from "../src/server.ts"
 import { hubWorkspace } from "../src/vite.ts"
 
 function stream() {
@@ -37,6 +37,21 @@ describe("workspace CLI", () => {
     }
   })
 
+  it("keeps private Workspace Dev tokens server-specific for one project root", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-token-server-"))
+    try {
+      const first = await refreshWorkspaceDevToken(rootDir, { serverId: "pid-1:5173" })
+      const second = await refreshWorkspaceDevToken(rootDir, { serverId: "pid-2:5174" })
+
+      expect(first).not.toBe(second)
+      await expect(readWorkspaceDevToken(rootDir, { serverId: "pid-1:5173" })).resolves.toBe(first)
+      await expect(readWorkspaceDevToken(rootDir, { serverId: "pid-2:5174" })).resolves.toBe(second)
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("contributes the Workspace CLI namespace from plain hubWorkspace", async () => {
     await expect(hubWorkspace().vitehub?.cli?.()).resolves.toEqual({
       namespaces: [{
@@ -50,7 +65,8 @@ describe("workspace CLI", () => {
   it("runs Workspace Dev commands through the Workspace dev endpoint", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-cli-"))
     const stdout = stream()
-    const token = await ensureWorkspaceDevToken(rootDir)
+    const tokenServerId = "pid-1:4321"
+    const token = await refreshWorkspaceDevToken(rootDir, { serverId: tokenServerId })
     try {
       const fetchWorkspaceDev = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
         if (init?.method === "POST") {
@@ -64,6 +80,7 @@ describe("workspace CLI", () => {
         }
         return Response.json({
           root: rootDir,
+          workspaceDevTokenServerId: tokenServerId,
           workspaces: [{ name: "docs" }],
         })
       })
@@ -112,5 +129,33 @@ describe("workspace CLI", () => {
     finally {
       await rm(rootDir, { force: true, recursive: true })
     }
+  })
+
+  it("uses the portable Workspace shell for string Workspace Dev commands", async () => {
+    const exec = vi.fn(async () => ({
+      exitCode: 0,
+      stderr: "",
+      stdout: "ok\n",
+    }))
+    const commit = vi.fn(async () => {})
+    const close = vi.fn(async () => {})
+    const workspace = {
+      startSession: vi.fn(async () => ({ close, commit, exec })),
+    }
+
+    await expect(runWorkspaceDevCommand({
+      command: "echo ok",
+      workspace: workspace as never,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "ok\n",
+    })
+
+    expect(exec).toHaveBeenCalledWith("sh", ["-lc", "echo ok"], {
+      abortSignal: undefined,
+      timeout: undefined,
+    })
+    expect(commit).toHaveBeenCalledWith({ message: "workspace dev command" })
+    expect(close).toHaveBeenCalledOnce()
   })
 })

@@ -336,7 +336,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
 
-    const { ensureWorkspaceDevToken, workspaceDevTokenHeader } = await import("@vite-hub/workspace/server")
+    const { readWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } = await import("@vite-hub/workspace/server")
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
@@ -347,7 +347,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
 
     await configurePluginServer(plugin, server)
-    const token = await ensureWorkspaceDevToken(root)
+    const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
 
     const response = await invokeMiddleware(handlers[0]!, {
       agent: "support",
@@ -368,7 +368,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
 
-    const { ensureWorkspaceDevToken, workspaceDevTokenHeader } = await import("@vite-hub/workspace/server")
+    const { readWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } = await import("@vite-hub/workspace/server")
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
@@ -385,7 +385,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
 
     await configurePluginServer(plugin, server)
-    const token = await ensureWorkspaceDevToken(root)
+    const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
 
     const response = await invokeMiddleware(handlers[0]!, {
       agent: "support",
@@ -429,7 +429,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
 
-    const { ensureWorkspaceDevToken, workspaceDevTokenHeader } = await import("@vite-hub/workspace/server")
+    const { readWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } = await import("@vite-hub/workspace/server")
     const { defineAgent } = await import("../src/index.ts")
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
@@ -459,7 +459,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     })
 
     await configurePluginServer(plugin, server)
-    const token = await ensureWorkspaceDevToken(root)
+    const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
 
     const response = await invokeMiddleware(handlers[0]!, {
       agent: "support",

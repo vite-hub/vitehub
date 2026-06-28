@@ -9,6 +9,7 @@ import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInv
 
 import type { AgentEvalOptions, AgentUsageRecord } from "./types.ts"
 import type { UIMessageLike } from "./chat-message-input.ts"
+import type { WorkspaceDevTokenOptions } from "@vite-hub/workspace/server"
 
 interface AgentEvaliteRunnerOptions extends ResolvedAgentEvalOptions {
   cacheEnabled?: boolean
@@ -84,6 +85,13 @@ interface AgentDevCliOptions {
 interface AgentDevDiscovery {
   agents?: Array<{ aliases?: unknown, name?: unknown, triggers?: unknown }>
   root?: unknown
+  workspaceDevTokenServerId?: unknown
+}
+
+interface AgentDevTarget {
+  agent: string
+  tokenOptions: WorkspaceDevTokenOptions
+  url: string
 }
 
 const devPayloadMaxLength = 1200
@@ -607,7 +615,7 @@ async function readDiscovery(
   parsed: ParsedDevArgs,
   context: AgentCliContext,
   fetchImpl: typeof fetch,
-): Promise<{ agent: string, url: string } | undefined> {
+): Promise<AgentDevTarget | undefined> {
   let url: string
   try {
     url = endpointUrl(parsed.url)
@@ -639,6 +647,7 @@ async function readDiscovery(
     context.stderr.write(`Compatible Vite Development Server root mismatch: ${discovery.root}\n`)
     return
   }
+  const tokenOptions = typeof discovery.workspaceDevTokenServerId === "string" ? { serverId: discovery.workspaceDevTokenServerId } : {}
   const agents = (discovery.agents || []).flatMap(agent => typeof agent.name === "string" ? [agent.name] : [])
   const agentTargets = new Map<string, string>()
   for (const agent of discovery.agents || []) {
@@ -656,10 +665,10 @@ async function readDiscovery(
       context.stderr.write(`Unknown Agent Dev Loop Target: ${parsed.agent}\n`)
       return
     }
-    return { agent: target, url }
+    return { agent: target, tokenOptions, url }
   }
   if (agents.length === 1) {
-    return { agent: agents[0]!, url }
+    return { agent: agents[0]!, tokenOptions, url }
   }
   if (!agents.length) {
     context.stderr.write("No Agents discovered.\n")
@@ -917,9 +926,10 @@ async function sendDevWorkspaceCommand(
   parsed: ParsedDevArgs,
   context: AgentCliContext,
   fetchImpl: typeof fetch,
+  tokenOptions: WorkspaceDevTokenOptions,
   signal?: AbortSignal,
 ): Promise<number> {
-  const token = await readWorkspaceDevToken(context.rootDir)
+  const token = await readWorkspaceDevToken(context.rootDir, tokenOptions)
   if (!token) {
     context.stderr.write("No private Agent Dev Loop command token found. Start the Compatible Vite Development Server first.\n")
     return 1
@@ -984,7 +994,7 @@ async function runInteractiveDevLoop(
   parsed: ParsedDevArgs,
   context: AgentCliContext,
   fetchImpl: typeof fetch,
-  target: { agent: string, url: string },
+  target: AgentDevTarget,
 ): Promise<number> {
   const { createInterface } = await import("node:readline/promises")
   const readline = createInterface({ input: process.stdin, output: process.stdout })
@@ -1017,7 +1027,7 @@ async function runInteractiveDevLoop(
       if (command) {
         activeRequest = new AbortController()
         try {
-          const exitCode = await sendDevWorkspaceCommand(target.url, target.agent, { command }, parsed, context, fetchImpl, activeRequest.signal)
+          const exitCode = await sendDevWorkspaceCommand(target.url, target.agent, { command }, parsed, context, fetchImpl, target.tokenOptions, activeRequest.signal)
           if (exitCode !== 0) return exitCode
           continue
         }
@@ -1083,7 +1093,7 @@ export async function runAgentDevCli(
     return await sendDevCliCommand(target.url, target.agent, parsed, context, fetchImpl)
   }
   if (workspaceCommand) {
-    return await sendDevWorkspaceCommand(target.url, target.agent, workspaceCommand, parsed, context, fetchImpl)
+    return await sendDevWorkspaceCommand(target.url, target.agent, workspaceCommand, parsed, context, fetchImpl, target.tokenOptions)
   }
 
   const payloadStartsInvocation = parsed.payload && (

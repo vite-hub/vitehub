@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { ensureWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
+import { refreshWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 import { describe, expect, it, vi } from "vitest"
 
 import { createAgentCliContributor, runAgentDevCli, runAgentEvalCli } from "../src/cli.ts"
@@ -180,7 +180,8 @@ describe("agent CLI", () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-cli-"))
     const stdout = stream()
     const stderr = stream()
-    const token = await ensureWorkspaceDevToken(rootDir)
+    const tokenServerId = "pid-1:5173"
+    const token = await refreshWorkspaceDevToken(rootDir, { serverId: tokenServerId })
     try {
       const payloadPath = join(rootDir, "payload.json")
       await writeFile(payloadPath, JSON.stringify({ tenant: "api" }), "utf8")
@@ -197,6 +198,7 @@ describe("agent CLI", () => {
         return Response.json({
           agents: [{ name: "chat", triggers: ["chat.message"] }],
           root: rootDir,
+          workspaceDevTokenServerId: tokenServerId,
         })
       })
 
@@ -233,7 +235,8 @@ describe("agent CLI", () => {
   it("runs positional Agent Dev Loop ! commands through the selected Agent Workspace", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-cli-"))
     const stdout = stream()
-    const token = await ensureWorkspaceDevToken(rootDir)
+    const tokenServerId = "pid-1:5173"
+    const token = await refreshWorkspaceDevToken(rootDir, { serverId: tokenServerId })
     try {
       const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
         if (init?.method === "POST") {
@@ -248,6 +251,7 @@ describe("agent CLI", () => {
         return Response.json({
           agents: [{ name: "proof-agent", triggers: [] }],
           root: rootDir,
+          workspaceDevTokenServerId: tokenServerId,
         })
       })
 
