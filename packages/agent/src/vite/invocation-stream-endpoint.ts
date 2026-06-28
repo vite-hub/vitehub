@@ -29,6 +29,8 @@ import type {
   ResolvedAgentTriggerDefinition,
 } from "../index.ts"
 
+const capabilityCliRunSurface = Symbol.for("vitehub.capabilityCliRunSurface")
+
 interface ViteAgentDevRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
 }
@@ -374,6 +376,7 @@ function devRun(agent: string): AgentRunMetadata {
 function withCapabilityCliRun(agent: AgentInput, cli: string, execution: AgentCapabilityCliExecutionInput): AgentInput {
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
+  Object.defineProperty(clone, capabilityCliRunSurface, { value: true })
   clone.run = async (context) => {
     const tool = context.tools?.[cli]
     if (!tool || tool.metadata?.vitehubCapabilityCli !== true || typeof tool.execute !== "function") {

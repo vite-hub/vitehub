@@ -293,6 +293,56 @@ describe("openapi capability", () => {
     expect((init.headers as Headers).get("x-cube-token")).toBe("cube-token")
   })
 
+  it("omits host-supplied fields from generated OpenAPI CLI inputs", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        openapi({
+          cli: { name: "portal" },
+          defaults: ({ context }) => ({
+            body: { cubeToken: context.get<{ cubeToken: string }>("portal")?.cubeToken },
+            path: { tenantId: "acme" },
+            query: { currency: "EUR" },
+          }),
+          input: {
+            omit: {
+              body: ["cubeToken"],
+              path: ["tenantId"],
+              query: ["currency"],
+            },
+          },
+          operations: { allow: ["createOrder"] },
+          spec: portalSpec(),
+        }),
+      ],
+    }, runtime(), {
+      context: { portal: { cubeToken: "cube-token" } },
+      prompt: "create",
+    })
+
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["create-order", "--json"],
+      input: {
+        cubeToken: "override-token",
+        path: { tenantId: "evil" },
+        quantity: 2,
+        query: { currency: "USD" },
+        sku: "sku-1",
+      },
+    })).resolves.toMatchObject({
+      cli: "portal",
+      exitCode: 0,
+      json: { ok: true },
+    })
+
+    const init = request.mock.calls[0]?.[1] as RequestInit
+    expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/tenants/acme/orders?currency=EUR")
+    expect(init.body).toBe(JSON.stringify({ cubeToken: "cube-token", quantity: 2, sku: "sku-1" }))
+  })
+
   it("accepts visible request body fields at the top level", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

@@ -393,7 +393,7 @@ async function executeOpenAPIOperation<
   context: AgentCapabilityContext<TRuntimeConfig, Name>,
   input: unknown,
 ): Promise<unknown> {
-  const rawInput = normalizeRawToolInput(operation, input)
+  const rawInput = applyOpenAPIInputOmissions(normalizeRawToolInput(operation, input), options.input)
   const rawUrl = operationTemplateUrl(baseUrl, operation.path)
   const requestInput = normalizeToolInput(operation, mergeToolInput(
     await resolveDefaults(options, context, operation, rawInput, rawUrl),
@@ -412,6 +412,24 @@ async function executeOpenAPIOperation<
     responseType: options.responseType || "json",
   })
   return transformOpenAPIResponse(options, context, operation, requestInput, url, result)
+}
+
+function applyOpenAPIInputOmissions(input: OpenAPIToolInput, options: OpenAPIInputOptions | undefined): OpenAPIToolInput {
+  if (!options?.omit) return input
+  return {
+    ...input,
+    body: omitInputFields(input.body, options.omit.body),
+    path: omitInputFields(input.path, options.omit.path),
+    query: omitInputFields(input.query, options.omit.query),
+  }
+}
+
+function omitInputFields<T>(input: T, omitted: readonly string[] | undefined): T | undefined {
+  if (!omitted?.length || input === undefined) return input
+  if (!isPlainRecord(input)) return input
+  const hidden = new Set(omitted)
+  const visible = Object.fromEntries(Object.entries(input).filter(([key]) => !hidden.has(key)))
+  return Object.keys(visible).length ? visible as T : undefined
 }
 
 function operationCommandName(cliName: string, operationId: string): string {

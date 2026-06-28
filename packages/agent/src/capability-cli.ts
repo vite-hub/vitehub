@@ -333,7 +333,7 @@ export async function runCapabilityCliCommand<
     return result(capabilityId, cli.name, [...(execution.argv || [])], startedAt, { stdout: `${resolved.help.trimEnd()}\n` })
   }
   const input = resolved.command.input
-    ? await parseStandardSchema(resolved.command.input, resolved.input ?? {}, `${cli.name} ${resolved.path.join(" ")} input`)
+    ? await parseStandardSchema(resolved.command.input, resolved.input, `${cli.name} ${resolved.path.join(" ")} input`)
     : resolved.input
   const rawOutput = await resolved.command.run({
     argv: resolved.argv,

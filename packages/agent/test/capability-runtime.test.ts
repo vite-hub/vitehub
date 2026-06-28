@@ -254,6 +254,41 @@ describe("agent capability runtime", () => {
     })
   })
 
+  it("preserves omitted Capability CLI input as undefined", async () => {
+    const {
+      defineCapability,
+      resolveAgentCapabilities,
+    } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              list: {
+                input: schema((value) => {
+                  if (value !== undefined) throw new Error("expected undefined")
+                  return undefined
+                }),
+                run: ({ input }) => ({ input }),
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+        }),
+      ],
+    }, runtime(), {})
+
+    await expect(resolved.tools?.inventory?.execute?.({
+      argv: ["list", "--json"],
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      json: {},
+      stdout: "{}\n",
+    })
+  })
+
   it("merges generated Capability CLI guidance with imperative capability instructions", async () => {
     const {
       applyCapabilityInstructionSlots,
