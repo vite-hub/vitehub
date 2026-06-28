@@ -665,6 +665,67 @@ describe("agent chat capability discovery", () => {
     })
   })
 
+  it("previews Channel Delivery Effects for Capability CLI dev runs", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-cli-effects-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineChannel } = await import("../src/channels.ts")
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const reactionEffect = vi.fn()
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              list: {
+                output: { format: "json" },
+                run: () => [{ id: "item_1" }],
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+          prepare(context) {
+            context.delivery.effect({ kind: "reaction", payload: "queued" })
+          },
+        }),
+      ],
+      channels: {
+        github: defineChannel("github", {
+          effects: { reaction: reactionEffect },
+          messages: false,
+        }),
+      },
+      run: () => "chat fallback",
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      cli: {
+        argv: ["list", "--json"],
+        name: "inventory",
+      },
+      run: { channelId: "github", origin: "dev", runId: "dev-run" },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({
+      cli: "inventory",
+      exitCode: 0,
+      json: [{ id: "item_1" }],
+    })
+    expect(reactionEffect).not.toHaveBeenCalled()
+  })
+
   it("bypasses output renderers for Capability CLI endpoint envelopes", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-cli-renderer-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

@@ -252,6 +252,12 @@ describe("agent capability runtime", () => {
       json: { count: 3, json: true },
       stdout: "{\n  \"count\": 3,\n  \"json\": true\n}\n",
     })
+    await expect(resolved.tools?.inventory?.execute?.({
+      argv: ["items", "list", "--help"],
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.stringContaining("Usage: inventory items list"),
+    })
   })
 
   it("preserves omitted Capability CLI input as undefined", async () => {

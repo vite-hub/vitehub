@@ -443,7 +443,8 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
     if (typeof body.cli.name !== "string" || !body.cli.name.trim()) {
       return new Response("Missing Agent Capability CLI name.", { status: 400 })
     }
-    const result = await runCapabilityCliWithTimeout(entry.agent as never, body.cli.name, {
+    const previewAgent = withDeliveryPreviewChannels(entry.agent, () => {})
+    const result = await runCapabilityCliWithTimeout(previewAgent as never, body.cli.name, {
       argv: Array.isArray(body.cli.argv) ? body.cli.argv : [],
       ...(body.cli.input !== undefined ? { input: body.cli.input } : {}),
       ...(body.cli.json !== undefined ? { json: body.cli.json } : {}),

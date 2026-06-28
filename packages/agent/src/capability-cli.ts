@@ -242,6 +242,10 @@ function parseFlags(argv: string[], explicitInput: unknown, explicitJson: boolea
   return { ...(input !== undefined ? { input } : {}), json }
 }
 
+function isHelpFlag(value: string | undefined): boolean {
+  return value === "-h" || value === "--help"
+}
+
 function resolveCommand<TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(
   cli: AgentCapabilityCliContribution<TRuntimeConfig, Name>,
   execution: AgentCapabilityCliExecutionInput,
@@ -252,7 +256,7 @@ function resolveCommand<TRuntimeConfig extends AgentRuntimeConfig, Name extends 
   let index = 0
   for (; index < argv.length; index += 1) {
     const arg = argv[index]!
-    if (arg === "-h" || arg === "--help") {
+    if (isHelpFlag(arg)) {
       return { help: nodeHelp(cli, path), json: execution.json === true, path }
     }
     if (arg.startsWith("-")) break
@@ -267,6 +271,9 @@ function resolveCommand<TRuntimeConfig extends AgentRuntimeConfig, Name extends 
   }
   if (!isLeaf(node as AgentCapabilityCliCommand<TRuntimeConfig, Name>)) {
     throw new Error(`Missing ${cli.name} subcommand. Run \`${cli.name}${path.length ? ` ${path.join(" ")}` : ""} --help\`.`)
+  }
+  if (argv.slice(index).some(isHelpFlag)) {
+    return { help: nodeHelp(cli, path), json: execution.json === true, path }
   }
   return {
     argv,
