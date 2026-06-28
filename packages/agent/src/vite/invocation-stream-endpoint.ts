@@ -11,9 +11,10 @@ import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent, withAgentDefaults } from "../index.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
-import { workspaceAgentOwnsWorkspaceDefinition, workspaceAgentWithSourceRoot, workspaceNameFromOptions } from "../workspace-agent.ts"
+import { workspaceAgentOwnsWorkspaceDefinition, workspaceAgentWithSourceRoot, workspaceDefinitionFromOptions, workspaceModeFromOptions, workspaceNameFromOptions } from "../workspace-agent.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
+import type { WorkspaceDefinition } from "@vite-hub/workspace"
 import type { ViteDevServer } from "vite"
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
 import type { AgentInvocationStreamEvent } from "../invocation-stream.ts"
@@ -287,6 +288,86 @@ function agentWorkspaceName(entry: AgentInvocationStreamEntry): string | undefin
     : undefined
 }
 
+function agentWorkspaceOptions(entry: AgentInvocationStreamEntry) {
+  const agent = entry.agent as Partial<{
+    __vitehubWorkspaceAgentDefaults: Parameters<typeof workspaceNameFromOptions>[1]
+    __vitehubWorkspaceAgentOptions: Parameters<typeof workspaceNameFromOptions>[0]
+  }>
+  return agent.__vitehubWorkspaceAgentOptions
+    ? { defaults: agent.__vitehubWorkspaceAgentDefaults, options: agent.__vitehubWorkspaceAgentOptions }
+    : undefined
+}
+
+function agentWorkspaceMode(entry: AgentInvocationStreamEntry): "read" | "write" {
+  const workspace = agentWorkspaceOptions(entry)
+  return workspace ? workspaceModeFromOptions(workspace.options as never) : "read"
+}
+
+function configuredAgentWorkspaceDefinition(entry: AgentInvocationStreamEntry): WorkspaceDefinition | undefined {
+  const workspace = agentWorkspaceOptions(entry)
+  if (!workspace) return
+  const name = workspaceNameFromOptions(workspace.options, workspace.defaults)
+  const { mode: _mode, ...definition } = workspaceDefinitionFromOptions(workspace.options as never) as unknown as WorkspaceDefinition & { mode?: unknown }
+  return { ...definition, name }
+}
+
+function mergeWorkspaceSources(
+  registered: WorkspaceDefinition["sources"] | undefined,
+  configured: WorkspaceDefinition["sources"] | undefined,
+): WorkspaceDefinition["sources"] | undefined {
+  if (!registered && !configured) return undefined
+  const sources = { ...registered }
+  for (const [key, source] of Object.entries(configured || {})) {
+    if (key in sources) throw new Error(`[vitehub] Workspace source "${key}" is already defined.`)
+    sources[key] = source
+  }
+  return sources
+}
+
+function hasWorkspaceDefinitionOverlay(definition: WorkspaceDefinition | undefined): boolean {
+  if (!definition) return false
+  const { name: _name, sources, mode: _mode, ...fields } = definition as WorkspaceDefinition & { mode?: unknown }
+  return Object.keys(fields).length > 0 || Object.keys(sources || {}).length > 0
+}
+
+function mergeAgentWorkspaceDefinition(
+  name: string,
+  registered: WorkspaceDefinition | undefined,
+  configured: WorkspaceDefinition | undefined,
+): WorkspaceDefinition | undefined {
+  if (!registered && !configured) return undefined
+  if (!registered) return configured ? { ...configured, name } : undefined
+  if (!configured) return { ...registered, name: registered.name || name }
+  const { name: _configuredName, sources: configuredSources, ...configuredFields } = configured as WorkspaceDefinition & { mode?: unknown }
+  const { mode: _mode, ...configuredDefinitionFields } = configuredFields
+  if (!Object.keys(configuredDefinitionFields).length && !Object.keys(configuredSources || {}).length) return registered
+  return {
+    ...registered,
+    ...configuredDefinitionFields,
+    name: registered.name || name,
+    sources: mergeWorkspaceSources(registered.sources, configuredSources),
+  }
+}
+
+async function registeredAgentWorkspaceDefinition(name: string): Promise<WorkspaceDefinition | undefined> {
+  try {
+    return await (await import("@vite-hub/workspace")).resolveRegisteredWorkspaceDefinition(name)
+  }
+  catch (error) {
+    if (error instanceof Error && error.name === "WorkspaceNotFoundError") return
+    throw error
+  }
+}
+
+async function agentWorkspaceCommandDefinition(entry: AgentInvocationStreamEntry, workspace: string): Promise<WorkspaceDefinition | undefined> {
+  const configured = configuredAgentWorkspaceDefinition(entry)
+  const registered = await registeredAgentWorkspaceDefinition(workspace)
+  const ownsWorkspaceDefinition = workspaceAgentOwnsWorkspaceDefinition(entry.agent)
+  const configuredForMerge = ownsWorkspaceDefinition && registered ? undefined : configured
+  const merged = mergeAgentWorkspaceDefinition(workspace, registered, configuredForMerge)
+  return hasWorkspaceDefinitionOverlay(configuredForMerge) || ownsWorkspaceDefinition ? merged : undefined
+}
+
 function selectedEntry(entries: AgentInvocationStreamEntry[], name: string | undefined): AgentInvocationStreamEntry {
   if (name) {
     const entry = entries.find(item => item.name === name)
@@ -494,14 +575,19 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
   if (body.workspaceCommand) {
     const workspace = agentWorkspaceName(entry)
     if (!workspace) return new Response("Agent Dev Loop command requires an Agent with a Workspace.", { status: 400 })
+    if (agentWorkspaceMode(entry) !== "write") {
+      return new Response("Agent Dev Loop command requires workspace.mode: \"write\".", { status: 403 })
+    }
     if (typeof body.workspaceCommand.command !== "string") {
       return new Response("Missing Agent Dev Loop command.", { status: 400 })
     }
     const commandTimeout = typeof body.workspaceCommand.timeout === "number" && Number.isFinite(body.workspaceCommand.timeout)
       ? body.workspaceCommand.timeout
       : timeout
+    const definition = await agentWorkspaceCommandDefinition(entry, workspace)
     return Response.json(await runWorkspaceDevCommand({
       command: body.workspaceCommand.command,
+      ...(definition ? { definition } : {}),
       timeout: commandTimeout,
       workspace,
     }))

@@ -274,7 +274,7 @@ export interface WorkspaceVitePluginAPI {
 }
 
 interface WorkspaceCliContributingPlugin {
-  vitehub?: { cli?: unknown }
+  vitehub?: { cli?: () => unknown | Promise<unknown> }
 }
 
 export type WorkspaceVitePlugin = Plugin & WorkspaceCliContributingPlugin & { api: WorkspaceVitePluginAPI }

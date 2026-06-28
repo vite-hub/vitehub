@@ -546,6 +546,10 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
     if (arg.startsWith("-")) {
       throw new Error(`Unknown option: ${arg}.`)
     }
+    if (!parsed.agent && !parsed.message && message.length === 0 && args[index + 1]?.startsWith("!")) {
+      parsed.agent = arg
+      continue
+    }
     message.push(arg)
   }
 
@@ -900,22 +904,34 @@ async function sendDevWorkspaceCommand(
   parsed: ParsedDevArgs,
   context: AgentCliContext,
   fetchImpl: typeof fetch,
+  signal?: AbortSignal,
 ): Promise<number> {
-  const response = await fetchImpl(url, {
-    body: JSON.stringify({
-      agent,
-      ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
-      workspaceCommand: {
-        command,
+  let response: Response
+  try {
+    response = await fetchImpl(url, {
+      body: JSON.stringify({
+        agent,
         ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
+        workspaceCommand: {
+          command,
+          ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
+        },
+      }),
+      headers: {
+        "content-type": "application/json",
+        [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
       },
-    }),
-    headers: {
-      "content-type": "application/json",
-      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
-    },
-    method: "POST",
-  })
+      method: "POST",
+      signal,
+    })
+  }
+  catch (error) {
+    if (signal?.aborted || error instanceof DOMException && error.name === "AbortError") {
+      context.stderr.write("\n[aborted]\n")
+      return 0
+    }
+    throw error
+  }
   if (!response.ok) {
     context.stderr.write(`${await response.text()}\n`)
     return 1
@@ -967,9 +983,15 @@ async function runInteractiveDevLoop(
       if (text === ".exit" || text === "exit") return 0
       const command = directWorkspaceCommand(text)
       if (command) {
-        const exitCode = await sendDevWorkspaceCommand(target.url, target.agent, command, parsed, context, fetchImpl)
-        if (exitCode !== 0) return exitCode
-        continue
+        activeRequest = new AbortController()
+        try {
+          const exitCode = await sendDevWorkspaceCommand(target.url, target.agent, command, parsed, context, fetchImpl, activeRequest.signal)
+          if (exitCode !== 0) return exitCode
+          continue
+        }
+        finally {
+          activeRequest = undefined
+        }
       }
       activeRequest = new AbortController()
       try {

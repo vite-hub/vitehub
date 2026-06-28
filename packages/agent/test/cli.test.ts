@@ -213,6 +213,47 @@ describe("agent CLI", () => {
     })
   })
 
+  it("runs positional Agent Dev Loop ! commands through the selected Agent Workspace", async () => {
+    const stdout = stream()
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return Response.json({
+          args: ["-lc", "printf ok"],
+          command: "bash",
+          exitCode: 0,
+          stderr: "",
+          stdout: "ok\n",
+        })
+      }
+      return Response.json({
+        agents: [{ name: "proof-agent", triggers: [] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["proof-agent", "!printf ok", "--url", "http://127.0.0.1:5173", "--timeout", "10000"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr: stream(),
+      stdout,
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).toBe("ok\n")
+    const [get, post] = fetchAgentStream.mock.calls
+    expect(String(get?.[0])).toBe("http://127.0.0.1:5173/__vitehub/agent/invocation-stream")
+    expect(JSON.parse(String(post?.[1]?.body))).toEqual({
+      agent: "proof-agent",
+      timeout: 10000,
+      workspaceCommand: {
+        command: "printf ok",
+        timeout: 10000,
+      },
+    })
+  })
+
   it("keeps payload diagnostics off stdout for Capability CLI commands", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-cli-payload-"))
     try {
