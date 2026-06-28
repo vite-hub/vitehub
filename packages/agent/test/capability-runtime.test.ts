@@ -107,6 +107,21 @@ const writableWorkspace = () => {
   }
 }
 
+function schema<T>(validate: (value: unknown) => T) {
+  return {
+    "~standard": {
+      validate(value: unknown) {
+        try {
+          return { value: validate(value) }
+        }
+        catch (error) {
+          return { issues: [error instanceof Error ? error.message : String(error)] }
+        }
+      },
+    },
+  }
+}
+
 describe("agent capability runtime", () => {
   it("runs lifecycle phases in capability order and closes in reverse order", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
@@ -205,6 +220,226 @@ describe("agent capability runtime", () => {
       original: { name: "original" },
     })
     await expect(applyOutputRenderers({ text: "base" }, resolved.registries.outputRenderers)).resolves.toEqual({ text: "base:rendered" })
+  })
+
+  it("projects Capability CLI metadata into generated guidance and a CLI-named tool", async () => {
+    const {
+      applyCapabilityInstructionSlots,
+      defineCapability,
+      resolveAgentCapabilities,
+    } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              items: {
+                commands: {
+                  list: {
+                    description: "List inventory items for the current application context.",
+                    effects: ["read", "network:inventory"],
+                    examples: ["inventory items list --json"],
+                    input: schema((value) => {
+                      const record = value as { limit?: unknown }
+                      return { limit: typeof record.limit === "number" ? record.limit : 10 }
+                    }),
+                    output: {
+                      format: "json",
+                      schema: schema((value) => value as { count: number }),
+                    },
+                    run: ({ input, json }) => {
+                      const parsedInput = input as { limit: number }
+                      return {
+                        count: parsedInput.limit,
+                        json,
+                      }
+                    },
+                  },
+                },
+                description: "Inventory item data.",
+              },
+            },
+            description: "Inspect live inventory data.",
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+        }),
+      ],
+    }, runtime(), {})
+
+    expect(resolved.capabilityInstructions).toHaveLength(1)
+    expect(applyCapabilityInstructionSlots("{{ capabilities.inventory-runtime }}", resolved.capabilityInstructions)).toContain("## Capability CLI: inventory")
+    expect(resolved.capabilityInstructions[0]?.instructions).toContain("inventory items list --json")
+    expect(resolved.capabilityInstructions[0]?.instructions).toContain("instead of generic Bash")
+    expect(Object.keys(resolved.tools || {})).toEqual(["inventory"])
+    expect(resolved.tools?.inventory?.description).toContain("`items list --json`")
+    expect(resolved.tools?.inventory?.description).not.toContain("`inventory items list --json`")
+    expect((resolved.tools?.inventory?.inputSchema as { properties: { input: unknown } }).properties.input).toEqual({})
+
+    await expect(resolved.tools?.inventory?.execute?.({
+      argv: ["items", "list", "--json"],
+      input: { limit: 3 },
+    })).resolves.toMatchObject({
+      argv: ["items", "list", "--json"],
+      capability: "inventory-runtime",
+      cli: "inventory",
+      exitCode: 0,
+      json: { count: 3, json: true },
+      stdout: "{\n  \"count\": 3,\n  \"json\": true\n}\n",
+    })
+    await expect(resolved.tools?.inventory?.execute?.({
+      argv: ["items", "list", "--help"],
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.stringContaining("Usage: inventory items list"),
+    })
+  })
+
+  it("omits --json from generated text Capability CLI examples", async () => {
+    const {
+      applyCapabilityInstructionSlots,
+      defineCapability,
+      resolveAgentCapabilities,
+    } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              say: {
+                output: { format: "text" },
+                run: () => "plain text",
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+        }),
+      ],
+    }, runtime(), {})
+
+    const instructions = applyCapabilityInstructionSlots("{{ capabilities.inventory-runtime }}", resolved.capabilityInstructions)
+    expect(instructions).toContain("inventory say")
+    expect(instructions).not.toContain("inventory say --json")
+    expect(resolved.tools?.inventory?.description).toContain("`say`")
+    expect(resolved.tools?.inventory?.description).not.toContain("`say --json`")
+    const result = await resolved.tools?.inventory?.execute?.({ argv: ["say"] })
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stdout: "plain text\n",
+    })
+    expect(result).not.toHaveProperty("json")
+  })
+
+  it("preserves omitted Capability CLI input as undefined", async () => {
+    const {
+      defineCapability,
+      resolveAgentCapabilities,
+    } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              list: {
+                input: schema((value) => {
+                  if (value !== undefined) throw new Error("expected undefined")
+                  return undefined
+                }),
+                run: ({ input }) => ({ input }),
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+        }),
+      ],
+    }, runtime(), {})
+
+    await expect(resolved.tools?.inventory?.execute?.({
+      argv: ["list", "--json"],
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      json: {},
+      stdout: "{}\n",
+    })
+  })
+
+  it("merges generated Capability CLI guidance with imperative capability instructions", async () => {
+    const {
+      applyCapabilityInstructionSlots,
+      defineCapability,
+      resolveAgentCapabilities,
+    } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              list: {
+                run: () => "ok",
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+          resolve(context) {
+            context.instructions.add("Use inventory only for runtime data.")
+          },
+        }),
+      ],
+    }, runtime(), {})
+
+    expect(resolved.capabilityInstructions).toHaveLength(1)
+    const instructions = applyCapabilityInstructionSlots("{{ capabilities.inventory-runtime }}", resolved.capabilityInstructions)
+    expect(instructions).toContain("Use inventory only for runtime data.")
+    expect(instructions).toContain("## Capability CLI: inventory")
+  })
+
+  it("rejects invalid Capability CLI output formats", async () => {
+    const { defineCapability } = await import("../src/capability-runtime.ts")
+
+    expect(() => defineCapability({
+      cli: {
+        commands: {
+          list: {
+            output: { format: "xml" as never },
+            run: () => "ok",
+          },
+        },
+        name: "inventory",
+      },
+      id: "inventory-runtime",
+    })).toThrow('output format must be "json" or "text"')
+  })
+
+  it("rejects Capability tools that overwrite a Capability CLI", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              list: {
+                run: () => "ok",
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+          tools: {
+            inventory: {
+              name: "inventory",
+            },
+          },
+        }),
+      ],
+    }, runtime(), {})).rejects.toThrow('Capability tool "inventory" conflicts with an existing Capability CLI')
   })
 
   it("rejects duplicate capability instruction composition keys", async () => {

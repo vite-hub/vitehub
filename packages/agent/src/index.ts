@@ -159,6 +159,16 @@ export type {
   AgentCapabilityDefinition,
   AgentCapabilityHookName,
   AgentCapabilityHooks,
+  AgentCapabilityCliCommand,
+  AgentCapabilityCliContribution,
+  AgentCapabilityCliExecutionInput,
+  AgentCapabilityCliExecutionResult,
+  AgentCapabilityCliOutputDefinition,
+  AgentCapabilityCliOutputFormat,
+  AgentCapabilityCliRunContext,
+  AgentCapabilityCliStandardSchemaResultFailure,
+  AgentCapabilityCliStandardSchemaResultSuccess,
+  AgentCapabilityCliStandardSchemaV1,
   AgentCapabilityInput,
   AgentCapabilityMode,
   AgentCapabilityPhase,
@@ -337,6 +347,7 @@ export type {
 } from "./chat-trigger.ts"
 
 const syntheticWorkspaceRun = Symbol.for("vitehub.syntheticWorkspaceRun")
+const capabilityCliRunSurface = Symbol.for("vitehub.capabilityCliRunSurface")
 const baseAgentResolve = Symbol("vitehub.baseAgentResolve")
 const baseAgentModel = Symbol("vitehub.baseAgentModel")
 const baseAgentDriverKind = Symbol("vitehub.baseAgentDriverKind")
@@ -1123,6 +1134,10 @@ function hasCustomRun<TRuntimeConfig extends AgentRuntimeConfig, CALL_OPTIONS>(
     && !(syntheticWorkspaceRun in agent.run)
 }
 
+interface RunAgentInlineOptions {
+  output?: "raw" | "rendered"
+}
+
 type AgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -1284,11 +1299,14 @@ async function createAgentInvocationContext<
         ? { capabilities: workspaceOptions.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: workspaceOptions.hooks as never }
         : undefined
     const agentModel = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
+    const driverKind = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentDriverKind]
+    const resolveCapabilityCli = (definition as Record<PropertyKey, unknown> | undefined)?.[capabilityCliRunSurface] === true
     const capabilities = await resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
       context: invocationContext,
-      driverKind: (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentDriverKind],
+      driverKind,
       invoker,
       model: agentModel as never,
+      resolveCapabilityCli,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
     const inputHook = definition?.hooks?.["agent:input"]
@@ -1317,7 +1335,7 @@ async function createAgentInvocationContext<
         throw error
       }
     }
-    const transformedTools = await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
+    const transformedTools = resolveCapabilityCli ? capabilities.tools : await applyCapabilityToolTransforms(capabilities.tools, capabilities.toolTransforms)
     const tools = Object.keys(transformedTools || {}).length
       ? withAgentToolStepReporting(withJsonCompatibleToolOutputs(applyAgentToolPolicies(transformedTools) || {}), context.devtools?.reportToolStep)
       : undefined
@@ -1807,7 +1825,9 @@ export async function runAgentInline<
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
   context: AgentRuntimeContext<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS>,
+  options: RunAgentInlineOptions = {},
 ): Promise<Response | AgentRunResult | unknown> {
+  const renderOutput = options.output !== "raw"
   if (hasCustomRun<TRuntimeConfig, CALL_OPTIONS>(agent)) {
     const runContext = await createAgentInvocationContext(agent, context, input)
     runContext.close = once(runContext.close)
@@ -1824,7 +1844,7 @@ export async function runAgentInline<
     const outputExtensions = new Map<string, unknown>()
     let renderedResult = false
     try {
-      if (isAsyncIterable(result)) {
+      if (renderOutput && isAsyncIterable(result)) {
         result = await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
         renderedResult = true
       }
@@ -1833,8 +1853,10 @@ export async function runAgentInline<
       return await finishFailedAgentInvocation(runContext, error, "[vitehub] Agent run failed and finish lifecycle also failed.")
     }
     return await finalizeAgentInvocationResult(runContext, result, async (result) => {
-      const rendered = renderedResult ? result : await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
-      const final = await applyFinalOutputRenderers(rendered, runContext, outputExtensions)
+      const rendered = renderOutput
+        ? renderedResult ? result : await applyOutputRenderers(result, runContext.outputRenderers, runContext.outputExtensionProviders, outputExtensions)
+        : result
+      const final = renderOutput ? await applyFinalOutputRenderers(rendered, runContext, outputExtensions) : rendered
       return { finishResult: final, value: final }
     }, "[vitehub] Agent run failed and finish lifecycle also failed.", {
       outputExtensions,
@@ -1858,9 +1880,9 @@ export async function runAgentInline<
   }
   return await finalizeAgentInvocationResult(adapterContext, result, async (result) => {
     const outputExtensions = new Map<string, unknown>()
-    const rendered = await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions)
-    const final = await applyFinalOutputRenderers(rendered, adapterContext, outputExtensions)
-    const runResult = toAgentRunResult(final)
+    const rendered = renderOutput ? await applyOutputRenderers(result, adapterContext.outputRenderers, adapterContext.outputExtensionProviders, outputExtensions) : result
+    const final = renderOutput ? await applyFinalOutputRenderers(rendered, adapterContext, outputExtensions) : rendered
+    const runResult = renderOutput ? toAgentRunResult(final) : final
     return { finishResult: final, value: runResult }
   }, "[vitehub] Agent run failed and finish lifecycle also failed.")
 }

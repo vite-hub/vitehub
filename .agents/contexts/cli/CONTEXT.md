@@ -33,6 +33,10 @@ _Avoid_: Server-side Chat Session, Agent Memory, persisted transcript
 The discovered Agent selected for one Agent Dev Loop terminal session.
 _Avoid_: Eval target, DevTools selected chat, default bot
 
+**Capability CLI Dev Invocation**:
+An Agent Dev Loop one-shot that runs one Capability CLI Contribution attached to the selected Agent Dev Loop Target.
+_Avoid_: Standalone product CLI, shell wrapper, CLI Primitive, public command runner
+
 **Agent Dev Loop Payload File**:
 A JSON object loaded by the Agent Dev Loop and sent as the selected Agent Trigger's payload for local development.
 _Avoid_: Context file, input JSON flag, preset, dev sample, Agent Definition dev config
@@ -125,6 +129,8 @@ _Avoid_: Secrets file, env file, GitHub output
 - `vitehub agent dev --payload <path>` loads an **Agent Dev Loop Payload File** and sends it as an **Agent Trigger Payload**.
 - The **Agent Dev Loop Payload File** is run input, not Agent Definition configuration.
 - The **Agent Dev Loop** does not expose `--context`, `--input`, `dev.samples`, `devtools.meta`, or preset files for local fixture selection.
+- `vitehub agent dev --cli <name> -- <command...>` runs a **Capability CLI Dev Invocation** through the selected **Agent Dev Loop Target**.
+- A **Capability CLI Dev Invocation** uses the Agent Package invocation endpoint; it is not a public **CLI Primitive** registration surface.
 - **Agent Dev Loop Controls** are host behavior and do not consume the Input Command namespace.
 - `Ctrl+C` is the V1 **Agent Dev Loop Control** for aborting an active request or exiting when idle.
 - The **Agent Dev Loop** consumes an **Agent Invocation Stream Endpoint** exposed through the **Vite Development Server** instead of invoking Agents inside the CLI process.

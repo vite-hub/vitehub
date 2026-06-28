@@ -32,6 +32,10 @@ _Avoid_: Raw tool, root instructions, implicit harness prompt, dynamic Capabilit
 Explicit Instruction Coverage for a configured Capability, authored in Agent Driver Instructions or deterministic imported instruction Markdown.
 _Avoid_: Capability metadata, tool description, generated prompt hint
 
+**Capability CLI Contribution**:
+A Capability-owned real command tree declared on a Capability Definition and rendered into generated instruction guidance plus compatible Agent Driver or Agent Dev Loop execution surfaces.
+_Avoid_: CLI Primitive, command builder, Input Command, Host Command, shell command, capabilityCli wrapper
+
 **Harness Workspace Path Contribution**:
 A Capability-owned harness-compatible driver contribution that asks a harness-backed Agent Driver to materialize Capability support files from the Workspace.
 _Avoid_: Workspace Scope Grant, Source grant, model instruction, root skill config
@@ -268,6 +272,11 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - Free-form Capability guidance for model-backed **Agent Drivers** should have **Capability Instruction Coverage** in Agent Driver Instructions or deterministic imported instruction Markdown.
 - Tool descriptions and schemas are structured tool contracts and remain model-facing when the tool is exposed; they are not arbitrary Capability instructions.
 - A model-backed **Agent Driver** may receive Instruction Composition context from **Capability Driver Contributions** by writing explicit **Agent Invocation Context Values** before instructions are rendered.
+- A **Capability Definition** may provide a **Capability CLI Contribution** when the ability needs a real nested CLI surface for agents or developers.
+- A **Capability CLI Contribution** is authored as a flat `cli` object on the **Capability Definition**, not through public command-builder helpers.
+- First-party adapters may generate a **Capability CLI Contribution** internally from adapter metadata, but custom Capability authors still provide the flat `cli` object.
+- A model-backed **Agent Driver** receives generated guidance and a controlled CLI-named tool for a **Capability CLI Contribution**.
+- The **Agent Dev Loop** may invoke a **Capability CLI Contribution** for the selected Agent without making a generic public JavaScript runner API.
 - Duplicate Capability instruction block ids fail instead of merging, overriding, or silently ordering competing composition keys.
 - A harness-backed **Agent Driver** receives only explicitly supported harness-compatible **Capability Driver Contributions**; model-facing prompt and tool assumptions must not be silently passed into the harness.
 - A **Harness Workspace Path Contribution** is an explicitly supported harness-compatible **Capability Driver Contribution**.

@@ -58,6 +58,8 @@ interface ParsedEvalArgs {
 
 interface ParsedDevArgs {
   agent?: string
+  cli?: string
+  cliArgv?: string[]
   help: boolean
   message?: string
   payload?: Record<string, unknown>
@@ -107,6 +109,7 @@ function writeEvalUsage(context: AgentCliContext): void {
 function writeDevUsage(context: AgentCliContext): void {
   context.stdout.write([
     "Usage: vitehub agent dev [message...] [--agent <name>] [--prompt <text>] [--trigger <id>] [--payload <path>] [--url <url>] [--timeout <ms>]",
+    "       vitehub agent dev --agent <name> --cli <name> -- <command...>",
     "",
     "Talk to a discovered Agent through a running Vite Development Server.",
     "",
@@ -114,6 +117,7 @@ function writeDevUsage(context: AgentCliContext): void {
     "  --agent <name>    Agent Dev Loop Target. Required when multiple Agents are compatible.",
     "  -p, --prompt <text>  Prompt text for a one-shot invocation.",
     "  --trigger <id>    Agent Trigger to invoke. Defaults to chat.message when available.",
+    "  --cli <name>      Run a Capability CLI command attached to the Agent.",
     "  --payload <path>  Agent Trigger payload JSON file.",
     "  --url <url>       Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
     "  --timeout <ms>    Agent Invocation timeout. Defaults to 90000.",
@@ -494,6 +498,20 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
       parsed.trigger = arg.slice("--trigger=".length)
       continue
     }
+    if (arg === "--cli") {
+      parsed.cli = readOptionValue(args, index, arg)
+      index++
+      continue
+    }
+    if (arg.startsWith("--cli=")) {
+      parsed.cli = arg.slice("--cli=".length)
+      continue
+    }
+    if (arg === "--") {
+      if (!parsed.cli) throw new Error("-- separates Capability CLI arguments and requires --cli.")
+      parsed.cliArgv = args.slice(index + 1)
+      break
+    }
     if (arg === "--payload") {
       parsed.payloadPath = readOptionValue(args, index, arg)
       index++
@@ -533,6 +551,9 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
 
   const text = message.join(" ").trim()
   if (text && parsed.message) throw new Error("Pass either --prompt or message text, not both.")
+  if (parsed.cli && (text || parsed.message || parsed.trigger)) {
+    throw new Error("Pass either --cli or Agent message/trigger input, not both.")
+  }
   if (text) parsed.message = text
   return parsed
 }
@@ -839,6 +860,39 @@ async function sendDevMessage(
   return messages.length || output ? [...messages, assistantMessage(output, messages.length)] : []
 }
 
+async function sendDevCliCommand(
+  url: string,
+  agent: string,
+  parsed: ParsedDevArgs,
+  context: AgentCliContext,
+  fetchImpl: typeof fetch,
+): Promise<number> {
+  const response = await fetchImpl(url, {
+    body: JSON.stringify({
+      agent,
+      ...(parsed.payload ? { payload: parsed.payload } : {}),
+      ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
+      cli: {
+        argv: parsed.cliArgv || [],
+        name: parsed.cli,
+      },
+    }),
+    headers: {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    },
+    method: "POST",
+  })
+  if (!response.ok) {
+    context.stderr.write(`${await response.text()}\n`)
+    return 1
+  }
+  const result = await response.json().catch(() => ({})) as { exitCode?: unknown, stderr?: unknown, stdout?: unknown }
+  if (typeof result.stdout === "string") context.stdout.write(result.stdout)
+  if (typeof result.stderr === "string" && result.stderr) context.stderr.write(result.stderr)
+  return typeof result.exitCode === "number" ? result.exitCode : 0
+}
+
 async function runInteractiveDevLoop(
   parsed: ParsedDevArgs,
   context: AgentCliContext,
@@ -911,7 +965,8 @@ export async function runAgentDevCli(
     try {
       const loaded = await loadDevPayload(parsed.payloadPath, context.rootDir, context.cwd)
       parsed.payload = loaded.value
-      context.stdout.write(`Loaded payload: ${loaded.path}\n`)
+      const output = parsed.cli ? context.stderr : context.stdout
+      output.write(`Loaded payload: ${loaded.path}\n`)
     }
     catch (error) {
       context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
@@ -922,6 +977,10 @@ export async function runAgentDevCli(
   const fetchImpl = options.fetch || globalThis.fetch
   const target = await readDiscovery(parsed, context, fetchImpl)
   if (!target) return 1
+
+  if (parsed.cli) {
+    return await sendDevCliCommand(target.url, target.agent, parsed, context, fetchImpl)
+  }
 
   const payloadStartsInvocation = parsed.payload && (
     parsed.trigger && parsed.trigger !== "chat.message"
