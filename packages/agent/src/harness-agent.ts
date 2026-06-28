@@ -461,11 +461,25 @@ async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) =>
       value: wrapCleanupIterable(iterable, cleanupOnce, abortSignal),
     })
   }
-  Object.defineProperty(clone, "toUIMessageStream", {
-    configurable: true,
-    enumerable: false,
-    value: undefined,
-  })
+  const toUIMessageStream = (result as { toUIMessageStream?: unknown }).toUIMessageStream
+  if (typeof toUIMessageStream === "function") {
+    Object.defineProperty(clone, "toUIMessageStream", {
+      configurable: true,
+      enumerable: false,
+      value: (...args: unknown[]) => {
+        try {
+          const stream = toUIMessageStream.apply(clone, args) as unknown
+          return typeof stream === "object" && stream !== null && typeof (stream as ReadableStream<unknown>).getReader === "function"
+            ? withCleanupStream(stream as ReadableStream<unknown>, cleanupOnce)
+            : stream
+        }
+        catch (error) {
+          void cleanupOnce(error)
+          throw error
+        }
+      },
+    })
+  }
   Object.defineProperty(clone, Symbol.asyncIterator, {
     configurable: true,
     value: () => {

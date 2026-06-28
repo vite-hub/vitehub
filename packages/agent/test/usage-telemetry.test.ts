@@ -1009,6 +1009,95 @@ describe("usage telemetry", () => {
     })
   })
 
+  it("does not double-record usage when native UI streams consume result streams", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const onUsage = vi.fn()
+
+    class StreamResult {
+      stream = (async function* () {
+        yield { id: "text-1", type: "text-start" }
+        yield { delta: "native", id: "text-1", type: "text-delta" }
+        yield { id: "text-1", type: "text-end" }
+        yield {
+          finishReason: "stop",
+          totalUsage: {
+            inputTokens: 4,
+            outputTokens: 6,
+          },
+          type: "finish",
+        }
+      })()
+
+      toUIMessageStream(this: { stream: AsyncIterable<unknown> }) {
+        const stream = this.stream
+        return new ReadableStream({
+          async start(controller) {
+            for await (const chunk of stream) controller.enqueue(chunk)
+            controller.close()
+          },
+        })
+      }
+    }
+
+    const agent = defineAgent({
+      capabilities: [usageTelemetry({ onUsage })],
+      driver: { run: () => new StreamResult() },
+    })
+
+    const stream = await streamAgent(agent, runtime(), {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const chunks: unknown[] = []
+    for await (const chunk of stream) chunks.push(chunk)
+
+    expect(chunks).toContainEqual({ delta: "native", id: "text-1", type: "text-delta" })
+    expect(onUsage).toHaveBeenCalledTimes(1)
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
+      usage: {
+        inputTokens: 4,
+        outputTokens: 6,
+        totalTokens: 10,
+      },
+    }), expect.anything())
+  })
+
+  it("converts telemetry streams before ui-message-stream fallback iteration", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const onUsage = vi.fn()
+
+    const agent = defineAgent({
+      capabilities: [usageTelemetry({ onUsage })],
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield "ok"
+            yield {
+              finishReason: "stop",
+              totalUsage: {
+                inputTokens: 2,
+                outputTokens: 3,
+              },
+              type: "finish",
+            }
+          })(),
+        }),
+      },
+    })
+
+    const stream = await streamAgent(agent, runtime(), {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const chunks: unknown[] = []
+    for await (const chunk of stream) chunks.push(chunk)
+
+    expect(chunks).toContainEqual({ delta: "ok", id: expect.any(String), type: "text-delta" })
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
+      usage: {
+        inputTokens: 2,
+        outputTokens: 3,
+        totalTokens: 5,
+      },
+    }), expect.anything())
+  })
+
   it("attaches streamed usage telemetry to results with getter-only usage properties", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const { streamAgentOutputToEvents } = await import("../src/agent-output.ts")

@@ -1,4 +1,5 @@
 import { readAgentUsageMetadata } from "../internal/agent-usage-metadata.ts"
+import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import {
   cloneWithPropertyDescriptors,
@@ -500,7 +501,7 @@ function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
             configurable: true,
             enumerable: false,
             value: (...args: unknown[]) => withUsageTelemetryUiMessageStream(
-              (result.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>).apply(clone, args),
+              (result.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>).apply(result, args),
               options,
               run,
               usageRecord => defineUsageTelemetryOutput(clone as UnknownRecord, usageRecord),
@@ -519,10 +520,7 @@ function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
   clone = cloneWithPropertyDescriptors(result, descriptors)
   Object.defineProperty(clone, Symbol.asyncIterator, {
     configurable: true,
-    value: () => {
-      const iterable = (clone.stream || clone.fullStream) as AsyncIterable<unknown>
-      return iterable[Symbol.asyncIterator]()
-    },
+    value: () => streamAgentOutputToEvents(clone)[Symbol.asyncIterator](),
   })
   Object.defineProperty(clone, usageTelemetryWrapped, {
     value: true,
