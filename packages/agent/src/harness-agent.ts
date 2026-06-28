@@ -154,10 +154,16 @@ function compactWorkspacePaths(paths: readonly string[]): string[] {
   return sorted.filter((path, index) => !sorted.some((candidate, candidateIndex) => candidateIndex < index && pathContains(candidate, path)))
 }
 
-function explicitHarnessWorkspacePaths(context: AgentAdapterRunContext): string[] {
+function harnessSupportWorkspacePaths(context: AgentAdapterRunContext): string[] {
   return compactWorkspacePaths([
     ...(context.harnessWorkspacePaths || []),
     ...workspaceRuleHarnessPaths(context),
+  ])
+}
+
+function explicitHarnessWorkspacePaths(context: AgentAdapterRunContext): string[] {
+  return compactWorkspacePaths([
+    ...harnessSupportWorkspacePaths(context),
     ...workspaceSourceHarnessPaths(context),
   ])
 }
@@ -168,7 +174,7 @@ function selectedWorkspaceScopePaths(context: AgentAdapterRunContext): string[] 
   const scope = context.context.get("access")?.workspaceScope
   if (!scope) return harnessPaths.length ? harnessPaths : undefined
   if (scope.all) return [""]
-  const paths = [...new Set([...scope.paths, ...harnessPaths])]
+  const paths = [...new Set([...(scope.paths || []), ...harnessSupportWorkspacePaths(context)])]
   return paths.length ? paths : []
 }
 

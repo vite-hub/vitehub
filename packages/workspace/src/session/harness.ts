@@ -343,6 +343,7 @@ async function copySandboxChangesToWorkspace(
     if (!sandboxDirectories.has(path)) await session.rm(path, { force: true, recursive: true })
   }
   for (const path of sandboxDirectories) {
+    if (initialTree.directories.has(path)) continue
     await session.mkdir(path, { recursive: true } satisfies MkdirOptions)
   }
   for (const path of sandboxFiles) {

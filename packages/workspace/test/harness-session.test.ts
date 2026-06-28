@@ -378,6 +378,49 @@ describe("Harness Workspace Session", () => {
     expect(workspaceSession.close).toHaveBeenCalledOnce()
   })
 
+  it("does not recreate unchanged initial directories during write-back", async () => {
+    const initial = bytes("unchanged")
+    const summary = bytes("summary")
+    const workspaceSession = {
+      close: vi.fn(async () => {}),
+      commit: vi.fn(async () => {}),
+      diff: vi.fn(async () => ({
+        entries: [{ path: "summary.md", type: "added" }],
+        to: "next",
+      })),
+      mkdir: vi.fn(async () => {}),
+      rm: vi.fn(async () => {}),
+      writeFile: vi.fn(async () => {}),
+    }
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: {
+        list: vi.fn(async () => [
+          { path: "airtable-tasks", type: "directory" },
+          { mediaType: "text/markdown", path: "airtable-tasks/task.md", type: "file" },
+        ]),
+        readFile: vi.fn(async () => initial),
+      },
+      startSession: vi.fn(async () => workspaceSession),
+      tools: {},
+    } as never, {
+      session: {
+        readBinaryFile: vi.fn(async ({ path }: { path: string }) =>
+          path.endsWith("airtable-tasks/task.md") ? initial : summary),
+        run: sandboxRun(["airtable-tasks/task.md", "summary.md"], ["airtable-tasks"]),
+        writeBinaryFile: vi.fn(async () => {}),
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    await session.close()
+
+    expect(workspaceSession.mkdir).not.toHaveBeenCalledWith("airtable-tasks", expect.anything())
+    expect(workspaceSession.writeFile).not.toHaveBeenCalledWith("airtable-tasks/task.md", expect.anything(), expect.anything())
+    expect(workspaceSession.writeFile).toHaveBeenCalledWith("summary.md", summary, { mediaType: "text/markdown" })
+    expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
+  })
+
   it("does not write ignored harness instruction files back to Workspace", async () => {
     const workspaceSession = {
       close: vi.fn(async () => {}),
@@ -553,7 +596,7 @@ describe("Harness Workspace Session", () => {
     await session.close()
 
     expect(workspaceSession.rm).toHaveBeenCalledWith("node", { force: true })
-    expect(workspaceSession.mkdir).toHaveBeenCalledWith("empty", { recursive: true })
+    expect(workspaceSession.mkdir).not.toHaveBeenCalledWith("empty", expect.anything())
     expect(workspaceSession.mkdir).toHaveBeenCalledWith("node", { recursive: true })
     expect(workspaceSession.writeFile).toHaveBeenCalledWith("node/result.txt", bytes("/work/agent/node/result.txt"), { mediaType: "text/plain" })
     expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
