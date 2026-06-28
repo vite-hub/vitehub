@@ -43,6 +43,24 @@ describe("local harness sandbox", () => {
     }
   })
 
+  it("keeps Windows absolute file paths inside the local sandbox root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-local-sandbox-"))
+    const provider = createLocalHarnessSandbox({ env: { PATH: process.env.PATH }, rootDir: root })
+    const session = await provider.createSession()
+
+    try {
+      await session.writeTextFile({ content: "sandbox", path: "C:\\repo\\package.json" })
+      await session.writeTextFile({ content: "drive-relative", path: "D:repo\\nested.txt" })
+
+      await expect(readFile(join(root, "repo", "package.json"), "utf8")).resolves.toBe("sandbox")
+      await expect(readFile(join(root, "repo", "nested.txt"), "utf8")).resolves.toBe("drive-relative")
+    }
+    finally {
+      await session.destroy?.()
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("rejects relative file paths outside the local sandbox root", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-local-sandbox-"))
     const host = await mkdtemp(join(tmpdir(), "vitehub-host-"))
@@ -67,6 +85,28 @@ describe("local harness sandbox", () => {
       await session.destroy?.()
       await rm(root, { force: true, recursive: true })
       await rm(host, { force: true, recursive: true })
+    }
+  })
+
+  it("runs Windows absolute working directories inside the local sandbox root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-local-sandbox-"))
+    const provider = createLocalHarnessSandbox({ env: { PATH: process.env.PATH }, rootDir: root })
+    const session = await provider.createSession()
+
+    try {
+      await session.writeTextFile({ content: "ok", path: "C:\\repo\\input.txt" })
+      const result = await session.run({
+        command: "node -e \"console.log(process.cwd())\" && cat input.txt",
+        workingDirectory: "C:\\repo",
+      })
+
+      expect(result.exitCode).toBe(0)
+      const expectedCwd = join(root, "repo")
+      expect(result.stdout.trim().split("\n")).toEqual([await realpath(expectedCwd), "ok"])
+    }
+    finally {
+      await session.destroy?.()
+      await rm(root, { force: true, recursive: true })
     }
   })
 

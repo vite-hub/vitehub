@@ -39,12 +39,23 @@ function isInside(root: string, path: string) {
   return !next || (!next.startsWith("..") && !isAbsolute(next))
 }
 
+function isRootedPath(path: string) {
+  return isAbsolute(path) || /^[A-Za-z]:/.test(path) || /^[\\/]{2}/.test(path)
+}
+
+function rootRelativeFragment(path: string) {
+  return path
+    .replace(/^[A-Za-z]:[\\/]*/, "")
+    .replace(/^[\\/]+/, "")
+    .replace(/\\/g, "/")
+}
+
 function resolvePath(session: LocalHarnessSandboxSession, path = "") {
   const root = resolve(session.rootDir)
-  const candidate = isAbsolute(path)
-    ? isInside(root, resolve(path))
+  const candidate = isRootedPath(path)
+    ? isAbsolute(path) && isInside(root, resolve(path))
       ? resolve(path)
-      : resolve(root, path.replace(/^[/\\]+/, ""))
+      : resolve(root, rootRelativeFragment(path))
     : resolve(session.defaultWorkingDirectory, path)
 
   if (!isInside(root, candidate)) {

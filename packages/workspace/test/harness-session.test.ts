@@ -37,15 +37,17 @@ function expectArchiveExtract(run: ReturnType<typeof vi.fn>, root = "/work/agent
 }
 
 function expectWorkDirReset(run: ReturnType<typeof vi.fn>, writeBinaryFile: ReturnType<typeof vi.fn>, root = "/work/agent") {
+  const parent = root.replace(/\/[^/]+$/, "") || "/"
+  const name = root.split("/").filter(Boolean).at(-1) || root
   expect(writeBinaryFile).toHaveBeenCalledWith({
     abortSignal: undefined,
     content: new Uint8Array(),
-    path: `${root}/.vitehub-reset`,
+    path: `${parent}/.vitehub-reset`,
   })
   expect(run).toHaveBeenCalledWith({
     abortSignal: undefined,
-    command: "find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +",
-    workingDirectory: root,
+    command: `rm -rf -- '${name}' && mkdir -p -- '${name}' && rm -f -- '.vitehub-reset'`,
+    workingDirectory: parent,
   })
 }
 
