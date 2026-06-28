@@ -2112,6 +2112,72 @@ describe("server helpers", () => {
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "done" })
   })
 
+  it("posts a random chat fallback option while streamed webhook work is still running", async () => {
+    const random = vi.spyOn(Math, "random").mockReturnValue(0.75)
+    try {
+      const { defineAgent } = await import("../src/index.ts")
+      const { chat } = await import("../src/capabilities.ts")
+      const { createChannelWebhookRouteHandler } = await import("../src/server.ts")
+      const adapter = createTestChatAdapter()
+      let runStarted!: () => void
+      let finishRun!: () => void
+      const runStartedPromise = new Promise<void>(resolve => {
+        runStarted = resolve
+      })
+      const finishRunPromise = new Promise<void>(resolve => {
+        finishRun = resolve
+      })
+      const agent = defineAgent({
+        capabilities: [
+          chat({
+            platforms: {
+              telegram: () => adapter as never,
+            },
+            fallbackStreamingPlaceholderText: ["Working on it...", "Checking context..."],
+            webhooks: {
+              telegram: {},
+            },
+          }),
+        ],
+        run: async () => {
+          runStarted()
+          await finishRunPromise
+          return "done"
+        },
+      })
+      const handler = createChannelWebhookRouteHandler(agent as never)
+
+      const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 1048,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 1048,
+            text: "hello",
+          },
+        }),
+        method: "POST",
+      }), "telegram")
+
+      await runStartedPromise
+      await Promise.resolve()
+      expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Checking context...")
+      expect(adapter.editMessage).not.toHaveBeenCalled()
+
+      finishRun()
+      const response = await responsePromise
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ ok: true })
+      expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "done" })
+    }
+    finally {
+      random.mockRestore()
+    }
+  })
+
   it("activates Cloudflare env while webhook work runs", async () => {
     const { getActiveCloudflareEnv } = await import("@vite-hub/internal/runtime/cloudflare-env")
     const { defineAgent } = await import("../src/index.ts")

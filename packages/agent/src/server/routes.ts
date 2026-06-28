@@ -557,6 +557,28 @@ function chatStreamPostable(thread: Thread, response: ChatTextStream): ChatTextS
     : response
 }
 
+async function postChatStream(
+  thread: Thread,
+  response: ChatTextStream,
+  fallback: string | null | undefined,
+): Promise<void> {
+  if (fallback === undefined) {
+    await thread.post(chatStreamPostable(thread, response) as never)
+    return
+  }
+
+  // ponytail: Chat SDK has no per-stream fallback option; replace this when it exposes one.
+  const chatThread = thread as Thread & { _fallbackStreamingPlaceholderText?: string | null }
+  const previous = chatThread._fallbackStreamingPlaceholderText
+  chatThread._fallbackStreamingPlaceholderText = fallback
+  try {
+    await thread.post(chatStreamPostable(thread, response) as never)
+  }
+  finally {
+    chatThread._fallbackStreamingPlaceholderText = previous
+  }
+}
+
 function randomToken(): string {
   return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
@@ -1088,8 +1110,13 @@ async function handleChatSdkMessage(
         output: "events",
       })
       const response = streamAgentOutputToChatText(result)
+      const thinkingFallback = invocation.metadata?.thinkingFallback
       try {
-        await thread.post(chatStreamPostable(thread, response) as never)
+        await postChatStream(
+          thread,
+          response,
+          typeof thinkingFallback === "string" || thinkingFallback === null ? thinkingFallback : undefined,
+        )
       }
       finally {
         typing?.stop()
