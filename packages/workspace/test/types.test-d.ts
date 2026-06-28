@@ -10,7 +10,7 @@ import { createWorkspaceTools, type WorkspaceMaterializeSourcesResult, type Work
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
 import * as loader from "../src/loader.ts"
 import * as publish from "../src/publish.ts"
-import { fetch, file, github, glob, markdown, mcpResources, type FetchSourceOptions, type GitHubSourceOptions, type GlobSourceOptions, type McpResourcesSourceOptions } from "../src/index.ts"
+import { fetch, file, github, glob, markdown, mcpResources, source, type FetchSourceOptions, type GitHubSourceOptions, type GlobSourceOptions, type McpResourcesSourceOptions } from "../src/index.ts"
 import { hubWorkspace } from "../src/vite.ts"
 import type { Workspace, WorkspaceModuleOptions, WorkspacePlugin, WorkspaceSourceSyncResult, WorkspaceWriteInput } from "../src/core/types.ts"
 
@@ -41,6 +41,7 @@ describe("workspace types", () => {
     expectTypeOf(githubOptions).toMatchTypeOf<GitHubSourceOptions>()
     expectTypeOf(globOptions).toMatchTypeOf<GlobSourceOptions>()
     expectTypeOf(mcpResourcesOptions).toMatchTypeOf<McpResourcesSourceOptions>()
+    expectTypeOf(source.github(githubOptions)).toMatchTypeOf(github(githubOptions))
   })
 
   it("types the facade helpers", async () => {
