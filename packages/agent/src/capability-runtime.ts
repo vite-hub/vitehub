@@ -59,6 +59,7 @@ const defaultCapabilityRuntimePhases = ["configure", "prepare", "bind", "input",
 export const channelDeliveryEffectsContextKey = "channel.delivery.effects"
 export const channelDeliveryFinishEffectsContextKey = "channel.delivery.finishEffects"
 type AgentCapabilityRuntimePhase = typeof defaultCapabilityRuntimePhases[number]
+export const optionalWorkspaceCapabilitySymbol = Symbol("vitehub.agent.optionalWorkspaceCapability")
 
 export interface ResolvedAgentFinishExtensionProvider {
   id: string

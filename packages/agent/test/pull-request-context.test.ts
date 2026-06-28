@@ -166,6 +166,147 @@ describe("pullRequestContext", () => {
       "",
       "# Pull Request Context",
     ].join("\n"))
+    await expect(resolved.workspace?.fs.readFile("pull-request-context/diff.md")).rejects.toThrow("Workspace file does not exist")
+  })
+
+  it("renders built-in GitHub pull request context values", async () => {
+    const { pullRequestContext } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [pullRequestContext()],
+    }, runtime(), {
+      context: {
+        pullRequest: {
+          pullRequest: {
+            apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
+            number: 42,
+            source: {
+              mount: "vitehub",
+              ref: "refs/pull/42/head",
+              repo: "acme/app",
+            },
+          },
+          repository: {
+            fullName: "acme/app",
+            name: "app",
+            owner: "acme",
+          },
+          run: {
+            messageId: "100",
+            origin: "github-pull-request-comment",
+            runId: "delivery-1",
+            threadId: "thread",
+          },
+          trigger: {
+            action: "created",
+            actor: { login: "mona" },
+            args: "",
+            command: "/review",
+            comment: { id: 100 },
+            deliveryId: "delivery-1",
+            event: "issue_comment",
+          },
+        },
+      },
+    }, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    await expect(resolved.workspace?.fs.readFile("pull-request-context/context.md")).resolves.toContain([
+      "---",
+      'repository: "acme/app"',
+      "number: 42",
+      'provider: "github"',
+      'headRef: "refs/pull/42/head"',
+      'actor: "mona"',
+      'deliveryId: "delivery-1"',
+      "---",
+      "",
+      "# Pull Request Context",
+      "",
+      "Change Request 42 in acme/app.",
+    ].join("\n"))
+  })
+
+  it("grants the default source to the selected Workspace Scope", async () => {
+    const { access, pullRequestContext } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "review",
+            scopes: {
+              review: { paths: ["src"] },
+            },
+          },
+        }),
+        pullRequestContext({
+          context: {
+            number: 42,
+            repository: "acme/app",
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    await expect(resolved.workspace?.fs.readFile("pull-request-context/context.md")).resolves.toContain("Change Request 42 in acme/app.")
+  })
+
+  it("uses custom capability ids for default source identity", async () => {
+    const { pullRequestContext } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        pullRequestContext({
+          context: {
+            number: 1,
+            repository: "acme/first",
+          },
+          contextKey: "firstPullRequest",
+          id: "first-pull-request",
+        }),
+        pullRequestContext({
+          context: {
+            number: 2,
+            repository: "acme/second",
+          },
+          contextKey: "secondPullRequest",
+          id: "second-pull-request",
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    await expect(resolved.workspace?.fs.readFile("first-pull-request/context.md")).resolves.toContain("Change Request 1 in acme/first.")
+    await expect(resolved.workspace?.fs.readFile("second-pull-request/context.md")).resolves.toContain("Change Request 2 in acme/second.")
+    expect(resolved.registries.workspaceContributions).toEqual([
+      {
+        capabilityId: "first-pull-request",
+        rules: [],
+        sources: ["first-pull-request-context"],
+      },
+      {
+        capabilityId: "second-pull-request",
+        rules: [],
+        sources: ["second-pull-request-context"],
+      },
+    ])
   })
 
   it("rejects duplicate pull request context values before resolving trusted context", async () => {

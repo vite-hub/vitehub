@@ -1,4 +1,5 @@
-import { defineCapability } from "../capability-runtime.ts"
+import { hasTrustedWorkspaceAccessScope } from "../access-runtime.ts"
+import { defineCapability, optionalWorkspaceCapabilitySymbol } from "../capability-runtime.ts"
 
 import type {
   AgentInvocationContextStore,
@@ -66,7 +67,9 @@ type PullRequestContextCapabilityTypeContract<
 }
 
 const defaultSourceKey = "pullRequestContext"
+const defaultSourceMount = "pull-request-context"
 const defaultSourcePath = "context.md"
+const defaultCapabilityId = "pull-request-context"
 
 async function resolveMaybeFunction<TValue, TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(
   value: TValue | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<TValue | false | null | undefined>) | undefined,
@@ -82,7 +85,60 @@ function frontmatterValue(value: number | string): string {
   return typeof value === "number" ? String(value) : JSON.stringify(value)
 }
 
-function renderPullRequestContextMarkdown(value: PullRequestContextValue | undefined): string {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+function maybeString(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined
+}
+
+function maybeContextValue(value: unknown): number | string | undefined {
+  return typeof value === "number" || typeof value === "string" ? value : undefined
+}
+
+function normalizePullRequestContext(value: unknown): PullRequestContextValue | undefined {
+  if (!isRecord(value)) return
+
+  const flatNumber = maybeContextValue(value.number)
+  const flatRepository = maybeString(value.repository)
+  if (flatNumber !== undefined && flatRepository) {
+    return {
+      ...(maybeString(value.actor) ? { actor: maybeString(value.actor) } : {}),
+      ...(maybeString(value.baseRef) ? { baseRef: maybeString(value.baseRef) } : {}),
+      ...(maybeString(value.deliveryId) ? { deliveryId: maybeString(value.deliveryId) } : {}),
+      ...(maybeString(value.headRef) ? { headRef: maybeString(value.headRef) } : {}),
+      ...(maybeContextValue(value.id) !== undefined ? { id: maybeContextValue(value.id) } : {}),
+      number: flatNumber,
+      ...(maybeString(value.provider) ? { provider: maybeString(value.provider) } : {}),
+      repository: flatRepository,
+    }
+  }
+
+  const pullRequest = isRecord(value.pullRequest) ? value.pullRequest : undefined
+  const repository = isRecord(value.repository) ? value.repository : undefined
+  const trigger = isRecord(value.trigger) ? value.trigger : undefined
+  const actor = isRecord(trigger?.actor) ? trigger.actor : undefined
+  const source = isRecord(pullRequest?.source) ? pullRequest.source : undefined
+  const number = maybeContextValue(pullRequest?.number)
+  const repositoryName = maybeString(repository?.fullName)
+  if (number === undefined || !repositoryName) return
+  const actorLogin = actor ? maybeString(actor.login) : undefined
+  const deliveryId = trigger ? maybeString(trigger.deliveryId) : undefined
+  const headRef = source ? maybeString(source.ref) : undefined
+
+  return {
+    ...(actorLogin ? { actor: actorLogin } : {}),
+    ...(deliveryId ? { deliveryId } : {}),
+    ...(headRef ? { headRef } : {}),
+    number,
+    provider: "github",
+    repository: repositoryName,
+  }
+}
+
+function renderPullRequestContextMarkdown(input: unknown): string {
+  const value = normalizePullRequestContext(input)
   const frontmatter = ([
     ["repository", value?.repository],
     ["number", value?.number],
@@ -104,22 +160,41 @@ function renderPullRequestContextMarkdown(value: PullRequestContextValue | undef
 function pullRequestContextSource(
   context: AgentInvocationContextStore,
   contextKey: string,
+  mount: string,
 ): WorkspaceSource {
+  const scopeName = selectedWorkspaceScopeName(context)
   return {
     materialize: "lazy",
-    mount: "pull-request-context",
+    mount,
     probeKeys: [defaultSourcePath],
+    ...(scopeName ? { scopes: [scopeName] } : {}),
     async getKeys() {
       return [defaultSourcePath]
     },
     async getItem(key) {
+      if (key !== defaultSourcePath) {
+        throw new Error(`[vitehub] Workspace file does not exist: ${mount}/${key}.`)
+      }
       return {
-        content: renderPullRequestContextMarkdown(context.get<PullRequestContextValue>(contextKey)),
+        content: renderPullRequestContextMarkdown(context.get(contextKey)),
         key,
         mediaType: "text/markdown",
       }
     },
   }
+}
+
+function selectedWorkspaceScopeName(context: AgentInvocationContextStore): string | undefined {
+  if (!hasTrustedWorkspaceAccessScope(context)) return
+  const access = context.get<{ workspaceScope?: { all?: boolean, scope?: string } }>("access")
+  if (access?.workspaceScope?.all) return
+  return access?.workspaceScope?.scope
+}
+
+function defaultSourceIdentity(capabilityId: string) {
+  return capabilityId === defaultCapabilityId
+    ? { key: defaultSourceKey, mount: defaultSourceMount }
+    : { key: `${capabilityId}-context`, mount: capabilityId }
 }
 
 export function pullRequestContext<
@@ -130,7 +205,9 @@ export function pullRequestContext<
 >(
   options: PullRequestContextOptions<TRuntimeConfig, Name> & { contextKey?: TContextKey, sources?: TSourceMap | PullRequestContextSources<TRuntimeConfig, Name> } = {},
 ): AgentCapabilityDefinition<TRuntimeConfig, Name, PullRequestContextCapabilityTypeContract<TContextKey>> {
+  const capabilityId = options.id || defaultCapabilityId
   const contextKey = options.contextKey || "pullRequest"
+  const source = defaultSourceIdentity(capabilityId)
   const hasCustomWorkspaceContribution = options.sources !== undefined || options.rules !== undefined
   const recordedContexts = new WeakSet<AgentCapabilityContext<TRuntimeConfig, Name>["context"]>()
 
@@ -144,11 +221,11 @@ export function pullRequestContext<
   }
 
   return defineCapability({
-    id: options.id || "pull-request-context",
+    id: capabilityId,
     metadata: {
       contextKey,
       kind: "pull-request-context",
-      workspaceOptional: !hasCustomWorkspaceContribution,
+      [optionalWorkspaceCapabilitySymbol]: !hasCustomWorkspaceContribution,
     },
     prepare: recordContext,
     triggers: options.triggers,
@@ -159,7 +236,7 @@ export function pullRequestContext<
       return {
         ...(rules ? { rules } : {}),
         sources: {
-          [defaultSourceKey]: pullRequestContextSource(context.context, contextKey),
+          [source.key]: pullRequestContextSource(context.context, contextKey, source.mount),
           ...(sources || {}),
         },
       }

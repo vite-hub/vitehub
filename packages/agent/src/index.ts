@@ -20,6 +20,7 @@ import {
   defineCapability,
   normalizeCapabilities,
   normalizeMode,
+  optionalWorkspaceCapabilitySymbol,
   resolveAgentCapabilities,
   resolveStaticCapabilityTools,
   withCapabilityCleanup,
@@ -767,7 +768,7 @@ function capabilityWorkspaceIsOptional(capability: NormalizedCapability): boolea
   const metadata = capability.metadata
   return typeof metadata === "object"
     && metadata !== null
-    && (metadata as { workspaceOptional?: unknown }).workspaceOptional === true
+    && (metadata as { [optionalWorkspaceCapabilitySymbol]?: unknown })[optionalWorkspaceCapabilitySymbol] === true
 }
 
 function validateNonWorkspaceCapabilities(capabilities: NormalizedCapability[], hasWorkspace: boolean): void {
