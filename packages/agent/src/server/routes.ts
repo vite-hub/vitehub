@@ -2022,18 +2022,18 @@ export function createChannelChatRouteHandler(
       )
       const trustInput = Boolean(routeOptions.admission?.authenticate && routeOptions.input?.trust?.length)
       const baseInput = agentChannelChatRouteInput(body, agentName, Boolean(trustInput || routeOptions.admission?.context || routeOptions.mapInput), routeOptions)
-      const inputContext = { agentName, auth: auth as never, body, input: baseInput, rawBody: parsed.rawBody, request }
-      const admittedInput = mergeAgentChannelChatRouteInput(
-        baseInput,
-        await routeOptions.admission?.context?.(inputContext),
-      )
       const trustedInput = mergeAgentChannelChatRouteInput(
-        admittedInput,
+        baseInput,
         trustInput ? trustAgentChannelChatRouteInput(body, routeOptions.input) : undefined,
       )
-      const triggerInput = mergeAgentChannelChatRouteInput(
+      const inputContext = { agentName, auth: auth as never, body, input: trustedInput, rawBody: parsed.rawBody, request }
+      const admittedInput = mergeAgentChannelChatRouteInput(
         trustedInput,
-        await routeOptions.mapInput?.({ ...inputContext, input: trustedInput }),
+        await routeOptions.admission?.context?.(inputContext),
+      )
+      const triggerInput = mergeAgentChannelChatRouteInput(
+        admittedInput,
+        await routeOptions.mapInput?.({ ...inputContext, input: admittedInput }),
       )
       const result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
         output: "ui-message-stream",

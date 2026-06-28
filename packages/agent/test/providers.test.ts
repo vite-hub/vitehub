@@ -1256,6 +1256,52 @@ describe("server helpers", () => {
     await expect(response.text()).resolves.toContain("trusted user@example.com technical no-session")
   })
 
+  it("keeps admission context authoritative over trusted route input", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server.ts")
+    const run = vi.fn(({ context }) => {
+      const chatContext = context.get("chat") as { meta?: { audience?: string, customer?: string } } | undefined
+      return `trusted ${chatContext?.meta?.customer} ${chatContext?.meta?.audience}`
+    })
+    const handler = createChannelChatRouteHandler(defineAgent({
+      channels: {
+        portal: webChat({
+          route: {
+            admission: {
+              authenticate: () => ({ customer: "server-customer" }),
+              context({ auth, input }) {
+                return {
+                  meta: {
+                    ...input.meta,
+                    customer: auth.customer,
+                  },
+                }
+              },
+            },
+            input: { trust: ["meta"] },
+          },
+        }),
+      },
+      run,
+    }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+        meta: { audience: "technical", customer: "body-customer" },
+      }),
+      method: "POST",
+    }), { agentName: "support" })
+
+    expect(response.status).toBe(200)
+    await expect(response.text()).resolves.toContain("trusted server-customer technical")
+  })
+
   it("does not trust route input without admission authentication", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { webChat } = await import("../src/channels.ts")
