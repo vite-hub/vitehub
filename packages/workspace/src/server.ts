@@ -40,6 +40,7 @@ export interface WorkspaceFileHandlerOptions<Name extends WorkspaceName = Worksp
 }
 
 export interface WorkspaceDevCommandInput<Name extends WorkspaceName = WorkspaceName> {
+  abortSignal?: AbortSignal
   args?: string[]
   command: string
   definition?: WorkspaceDefinition
@@ -213,10 +214,11 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
   const startSession = starter?.startSession.bind(starter)
   if (!startSession) throw new Error("Workspace Dev command requires a Workspace Session.")
   const session = await startSession(input.paths ? { paths: input.paths } : undefined)
+  const execOptions = { abortSignal: input.abortSignal, timeout: input.timeout }
   try {
     const result = input.args
-      ? await session.exec(command, input.args, { timeout: input.timeout })
-      : await session.exec("bash", ["-lc", command], { timeout: input.timeout })
+      ? await session.exec(command, input.args, execOptions)
+      : await session.exec("bash", ["-lc", command], execOptions)
     if (result.exitCode === 0) await session.commit({ message: "workspace dev command" })
     return result
   }

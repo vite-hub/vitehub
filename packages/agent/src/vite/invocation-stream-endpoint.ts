@@ -105,6 +105,32 @@ function withPayloadDefaults(payload: Record<string, unknown>, defaults: Record<
   return input
 }
 
+function createAbortSignalFromClose(target: Pick<IncomingMessage | ServerResponse, "off" | "once">, message: string): { dispose: () => void, signal: AbortSignal } {
+  const controller = new AbortController()
+  const abort = () => controller.abort(new Error(message))
+  target.once("close", abort)
+  return {
+    dispose: () => target.off("close", abort),
+    signal: controller.signal,
+  }
+}
+
+function createWorkspaceCommandAbortSignal(req: IncomingMessage, parent?: AbortSignal): { dispose: () => void, signal: AbortSignal } {
+  const controller = new AbortController()
+  const close = () => controller.abort(new Error("[vitehub] Agent Dev Loop command request closed."))
+  const abort = () => controller.abort(parent?.reason)
+  req.once("close", close)
+  parent?.addEventListener("abort", abort, { once: true })
+  if (parent?.aborted) abort()
+  return {
+    dispose() {
+      req.off("close", close)
+      parent?.removeEventListener("abort", abort)
+    },
+    signal: controller.signal,
+  }
+}
+
 function withDeliveryPreviewChannels(
   agent: AgentInput<ViteAgentDevRuntimeContext>,
   preview: (event: Extract<AgentInvocationStreamEvent, { type: "delivery-preview" }>) => void,
@@ -436,12 +462,13 @@ function withCapabilityCliRun(agent: AgentInput, cli: string, execution: AgentCa
   return clone
 }
 
-function withWorkspaceCommandRun(agent: AgentInput, command: { args?: string[], command: string, timeout?: number }): AgentInput {
+function withWorkspaceCommandRun(agent: AgentInput, command: { abortSignal?: AbortSignal, args?: string[], command: string, timeout?: number }): AgentInput {
   const clone = Object.create(Object.getPrototypeOf(agent)) as AgentInput
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(agent))
   clone.run = async (context) => {
     if (!context.workspace) throw new Error("[vitehub] Agent Dev Loop command requires an Agent with a Workspace.")
     return await runWorkspaceDevCommand({
+      abortSignal: command.abortSignal,
       ...(command.args ? { args: command.args } : {}),
       command: command.command,
       timeout: command.timeout,
@@ -483,7 +510,7 @@ async function runCapabilityCliWithTimeout(
   }
 }
 
-async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: IncomingMessage): Promise<Response> {
+async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: IncomingMessage, abortSignal?: AbortSignal): Promise<Response> {
   const entries = await discoverStreamAgents(server)
   if (req.method === "GET") {
     await ensureWorkspaceDevToken(server.config.root)
@@ -542,18 +569,26 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
     const commandTimeout = typeof body.workspaceCommand.timeout === "number" && Number.isFinite(body.workspaceCommand.timeout)
       ? body.workspaceCommand.timeout
       : timeout
-    const result = await runAgentInline(withWorkspaceCommandRun(entry.agent, {
-      ...(args ? { args } : {}),
-      command: body.workspaceCommand.command,
-      timeout: commandTimeout,
-    }) as never, context as never, {
-      context: withPayloadDefaults(payload || {}, {
-        ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}),
-        ...(isRecord(body.meta) ? { meta: body.meta } : {}),
-      }),
-    }, { output: "raw" })
-    if (result instanceof Response) return result
-    return Response.json(result)
+    const commandAbort = createWorkspaceCommandAbortSignal(req, abortSignal)
+    try {
+      const result = await runAgentInline(withWorkspaceCommandRun(entry.agent, {
+        abortSignal: commandAbort.signal,
+        ...(args ? { args } : {}),
+        command: body.workspaceCommand.command,
+        timeout: commandTimeout,
+      }) as never, context as never, {
+        abortSignal: commandAbort.signal,
+        context: withPayloadDefaults(payload || {}, {
+          ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}),
+          ...(isRecord(body.meta) ? { meta: body.meta } : {}),
+        }),
+      }, { output: "raw" })
+      if (result instanceof Response) return result
+      return Response.json(result)
+    }
+    finally {
+      commandAbort.dispose()
+    }
   }
 
   return createAgentInvocationStreamResponse(async (emit, signal) => {
@@ -662,8 +697,10 @@ export async function registerAgentInvocationStreamEndpoint(server: ViteDevServe
       return
     }
 
-    void handleAgentInvocationStreamRequest(server, req)
+    const abort = createAbortSignalFromClose(res, "[vitehub] Agent Invocation Stream response closed.")
+    void handleAgentInvocationStreamRequest(server, req, abort.signal)
       .catch(errorResponse)
       .then(response => writeResponse(res, response))
+      .finally(abort.dispose)
   })
 }

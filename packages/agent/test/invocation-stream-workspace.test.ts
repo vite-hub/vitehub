@@ -152,12 +152,14 @@ async function invokeMiddleware(
   body: Record<string, unknown>,
   url: string,
   headers: IncomingMessage["headers"],
+  options: { onRequest?: (req: IncomingMessage) => void } = {},
 ) {
   let output = ""
   const req = Readable.from([JSON.stringify(body)]) as IncomingMessage
   req.headers = headers
   req.method = "POST"
   req.url = url
+  options.onRequest?.(req)
 
   return await new Promise<{ body: string, statusCode: number }>((resolve, reject) => {
     let statusCode = 200
@@ -400,7 +402,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       args: ["test", "--filter", "api"],
       command: "pnpm",
       exitCode: 0,
-      options: { timeout: 1234 },
+      options: { abortSignal: {}, timeout: 1234 },
       stderr: "",
       stdout: "ok\n",
     })
@@ -414,8 +416,77 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       mode: "write",
     })
     expect(workspaceStartSession).toHaveBeenCalledWith(undefined)
-    expect(workspaceSessionExec).toHaveBeenCalledWith("pnpm", ["test", "--filter", "api"], { timeout: 1234 })
+    expect(workspaceSessionExec).toHaveBeenCalledWith("pnpm", ["test", "--filter", "api"], {
+      abortSignal: expect.any(AbortSignal),
+      timeout: 1234,
+    })
     expect(workspaceSessionCommit).toHaveBeenCalledWith({ message: "workspace dev command" })
+    expect(workspaceSessionClose).toHaveBeenCalled()
+  })
+
+  it("aborts Agent Workspace commands when the request closes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workspace-command-abort-"))
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { ensureWorkspaceDevToken, workspaceDevTokenHeader } = await import("@vite-hub/workspace/server")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      run: () => "unused",
+      workspace: { mode: "write", name: "shared" },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    let closeRequest: (() => void) | undefined
+
+    workspaceSessionExec.mockImplementationOnce(async (command: string, args: string[] = [], options?: Record<string, unknown>) => {
+      const signal = options?.abortSignal
+      expect(signal).toBeInstanceOf(AbortSignal)
+      closeRequest?.()
+      await new Promise<void>((resolve) => {
+        if ((signal as AbortSignal).aborted) resolve()
+        else (signal as AbortSignal).addEventListener("abort", () => resolve(), { once: true })
+      })
+      return {
+        args,
+        command,
+        exitCode: 130,
+        options,
+        stderr: "Command aborted",
+        stdout: "",
+      }
+    })
+
+    await configurePluginServer(plugin, server)
+    const token = await ensureWorkspaceDevToken(root)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "support",
+      workspaceCommand: { args: ["dev"], command: "pnpm" },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      [workspaceDevTokenHeader]: token,
+    }, {
+      onRequest(req) {
+        closeRequest = () => req.emit("close")
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(workspaceSessionExec).toHaveBeenCalledWith("pnpm", ["dev"], {
+      abortSignal: expect.any(AbortSignal),
+      timeout: 90_000,
+    })
+    expect(JSON.parse(response.body)).toMatchObject({
+      args: ["dev"],
+      command: "pnpm",
+      exitCode: 130,
+      stderr: "Command aborted",
+      stdout: "",
+    })
+    expect(workspaceSessionCommit).not.toHaveBeenCalled()
     expect(workspaceSessionClose).toHaveBeenCalled()
   })
 
