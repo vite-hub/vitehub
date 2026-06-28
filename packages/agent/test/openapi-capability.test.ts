@@ -37,6 +37,15 @@ function portalSpec() {
           summary: "Delete customer.",
         },
       },
+      "/reports": {
+        get: {
+          operationId: "getReport",
+          parameters: [
+            { in: "query", name: "period", required: true, schema: { type: "string" } },
+          ],
+          summary: "Get report.",
+        },
+      },
       "/tenants/{tenantId}/orders": {
         post: {
           operationId: "createOrder",
@@ -293,14 +302,21 @@ describe("openapi capability", () => {
         openapi({
           operations: ["createOrder"],
           hooks: {
-            request({ context, request }) {
-              const cubeToken = context.get<{ cubeToken: string }>("portal")?.cubeToken
-              const previewCookie = context.get<{ previewCookie: string }>("portal")?.previewCookie
-              request.body = { ...(request.body as Record<string, unknown> | undefined), cubeToken }
-              request.path.tenantId = "acme"
-              request.query.currency = "EUR"
-              if (cubeToken) request.headers.set("x-cube-token", cubeToken)
-              if (previewCookie) request.cookies.preview = previewCookie
+            request: {
+              provides: {
+                body: ["cubeToken"],
+                path: ["tenantId"],
+                query: ["currency"],
+              },
+              handler({ context, request }) {
+                const cubeToken = context.get<{ cubeToken: string }>("portal")?.cubeToken
+                const previewCookie = context.get<{ previewCookie: string }>("portal")?.previewCookie
+                request.body = { ...(request.body as Record<string, unknown> | undefined), cubeToken }
+                request.path.tenantId = "acme"
+                request.query.currency = "EUR"
+                if (cubeToken) request.headers.set("x-cube-token", cubeToken)
+                if (previewCookie) request.cookies.preview = previewCookie
+              },
             },
           },
           spec: portalSpec(),
@@ -314,7 +330,15 @@ describe("openapi capability", () => {
       prompt: "create",
     })
     const tools = resolved.tools as AgentToolSet
-    expect(((tools.createOrder.inputSchema as { required?: string[] }).required || [])).not.toContain("path")
+    const schema = tools.createOrder.inputSchema as {
+      properties: Record<string, { properties?: Record<string, unknown>, required?: string[] } | undefined>
+      required?: string[]
+    }
+    expect(schema.properties.path).toBeUndefined()
+    expect(schema.properties.query).toBeUndefined()
+    expect(schema.properties.body?.required).toEqual(["sku"])
+    expect(schema.properties.body?.properties?.cubeToken).toBeUndefined()
+    expect(schema.required).toEqual(["body"])
 
     await expect(tools.createOrder.execute?.({
       body: { cubeToken: "model-token", quantity: 2, sku: "sku-1" },
@@ -338,8 +362,11 @@ describe("openapi capability", () => {
         openapi({
           operations: ["getOrder"],
           hooks: {
-            request({ request }) {
-              request.path.tenantId = "acme"
+            request: {
+              provides: { path: ["tenantId"] },
+              handler({ request }) {
+                request.path.tenantId = "acme"
+              },
             },
           },
           spec: portalSpec(),
@@ -347,14 +374,44 @@ describe("openapi capability", () => {
       ],
     }, runtime(), { prompt: "get" })
     const tools = resolved.tools as AgentToolSet
-    const schema = tools.getOrder.inputSchema as { properties: { path?: { required?: string[] } } }
-    expect(schema.properties.path?.required || []).toEqual([])
+    const schema = tools.getOrder.inputSchema as { properties: { path?: { required?: string[] } }, required?: string[] }
+    expect(schema.properties.path?.required).toEqual(["orderId"])
+    expect(schema.required).toEqual(["path"])
 
     await expect(tools.getOrder.execute?.({
       path: { orderId: "order-1" },
     })).resolves.toEqual({ ok: true })
 
     expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/tenants/acme/orders/order-1")
+  })
+
+  it("keeps caller-owned required path query and body fields in tool schemas", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        openapi({
+          operations: ["createOrder", "getReport"],
+          spec: portalSpec(),
+        }),
+      ],
+    }, runtime(), { prompt: "inspect" })
+    const tools = resolved.tools as AgentToolSet
+    const createOrder = tools.createOrder.inputSchema as {
+      properties: { body?: { required?: string[] }, path?: { required?: string[] } }
+      required?: string[]
+    }
+    const getReport = tools.getReport.inputSchema as {
+      properties: { query?: { required?: string[] } }
+      required?: string[]
+    }
+
+    expect(createOrder.required).toEqual(["path", "body"])
+    expect(createOrder.properties.path?.required).toEqual(["tenantId"])
+    expect(createOrder.properties.body?.required).toEqual(["cubeToken", "sku"])
+    expect(getReport.required).toEqual(["query"])
+    expect(getReport.properties.query?.required).toEqual(["period"])
   })
 
   it("prepares generated OpenAPI CLI requests with runtime hook values", async () => {
@@ -368,13 +425,20 @@ describe("openapi capability", () => {
           cli: { name: "portal" },
           operations: ["createOrder"],
           hooks: {
-            request({ context, request }) {
-              request.body = {
-                ...(request.body as Record<string, unknown> | undefined),
-                cubeToken: context.get<{ cubeToken: string }>("portal")?.cubeToken,
-              }
-              request.path.tenantId = "acme"
-              request.query.currency = "EUR"
+            request: {
+              provides: {
+                body: ["cubeToken"],
+                path: ["tenantId"],
+                query: ["currency"],
+              },
+              handler({ context, request }) {
+                request.body = {
+                  ...(request.body as Record<string, unknown> | undefined),
+                  cubeToken: context.get<{ cubeToken: string }>("portal")?.cubeToken,
+                }
+                request.path.tenantId = "acme"
+                request.query.currency = "EUR"
+              },
             },
           },
           spec: portalSpec(),
@@ -413,8 +477,11 @@ describe("openapi capability", () => {
           cli: { name: "portal" },
           operations: ["getOrder"],
           hooks: {
-            request({ request }) {
-              request.path.tenantId = "acme"
+            request: {
+              provides: { path: ["tenantId"] },
+              handler({ request }) {
+                request.path.tenantId = "acme"
+              },
             },
           },
           spec: portalSpec(),
@@ -452,7 +519,11 @@ describe("openapi capability", () => {
     await expect(resolved.tools?.portal?.execute?.({
       argv: ["create-order", "--json"],
       input: { body: {}, path: { tenantId: "acme" } },
-    })).rejects.toThrow("createOrder request is invalid")
+    })).rejects.toThrow("input.body.cubeToken is required")
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["create-order", "--json"],
+      input: { body: { cubeToken: "cube-token", sku: "sku-1" } },
+    })).rejects.toThrow("input.path is required")
     await expect(resolved.tools?.portal?.execute?.({
       argv: ["create-order", "--json"],
       input: {
