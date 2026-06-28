@@ -726,6 +726,59 @@ describe("agent chat capability discovery", () => {
     expect(reactionEffect).not.toHaveBeenCalled()
   })
 
+  it("passes invoker profile selection into Capability CLI dev runs", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-cli-invoker-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              whoami: {
+                output: { format: "json" },
+                run: ({ context }) => ({ invoker: context.invoker.id }),
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+        }),
+      ],
+      invoker: {
+        profiles: [
+          { id: "support-customer", kind: "customer", label: "Customer" },
+          { id: "support-technical", kind: "technical", label: "Technical" },
+        ],
+      },
+      run: () => "chat fallback",
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      cli: {
+        argv: ["whoami", "--json"],
+        name: "inventory",
+      },
+      invokerProfileId: "support-technical",
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toMatchObject({
+      json: { invoker: "support-technical" },
+    })
+  })
+
   it("bypasses output renderers for Capability CLI endpoint envelopes", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-cli-renderer-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

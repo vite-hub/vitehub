@@ -343,6 +343,34 @@ describe("openapi capability", () => {
     expect(init.body).toBe(JSON.stringify({ cubeToken: "cube-token", quantity: 2, sku: "sku-1" }))
   })
 
+  it("uses text output format for generated OpenAPI CLI text responses", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("plain text", {
+      headers: { "content-type": "text/plain" },
+      status: 200,
+    }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        openapi({
+          cli: { name: "portal" },
+          operations: { allow: ["listCustomers"] },
+          responseType: "text",
+          spec: portalSpec(),
+        }),
+      ],
+    }, runtime(), { prompt: "list" })
+
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["list-customers"],
+    })).resolves.toMatchObject({
+      cli: "portal",
+      exitCode: 0,
+      stdout: "plain text\n",
+    })
+  })
+
   it("accepts visible request body fields at the top level", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

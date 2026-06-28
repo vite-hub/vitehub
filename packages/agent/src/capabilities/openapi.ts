@@ -372,7 +372,7 @@ function createOpenAPICli<
       description: operation.description,
       effects: [`http:${operation.method.toLowerCase()}`],
       examples: [`${cli.name} ${name} --json`],
-      output: { format: "json" },
+      output: { format: options.responseType === "text" ? "text" : "json" },
       run: ({ input }) => executeOpenAPIOperation(operation, baseUrl, options, context, input),
     }
   }

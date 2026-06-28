@@ -449,7 +449,10 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
       ...(body.cli.input !== undefined ? { input: body.cli.input } : {}),
       ...(body.cli.json !== undefined ? { json: body.cli.json } : {}),
     }, context, {
-      ...(payload ? { context: payload } : {}),
+      context: withPayloadDefaults(payload || {}, {
+        ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}),
+        ...(isRecord(body.meta) ? { meta: body.meta } : {}),
+      }),
     }, timeout)
     if (result instanceof Response) return result
     return Response.json(result)
