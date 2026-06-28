@@ -27,8 +27,10 @@ Add the AI SDK model provider you pass to `model`.
 For AI SDK harness drivers, add the harness packages:
 
 ```sh
-pnpm add @ai-sdk/harness @ai-sdk/harness-codex @ai-sdk/sandbox-vercel
+pnpm add @ai-sdk/harness @ai-sdk/harness-codex
 ```
+
+For non-local omitted sandbox fallback, also add `@ai-sdk/sandbox-vercel`.
 
 ## Minimal API
 
@@ -67,7 +69,6 @@ Harness-backed agents use AI SDK `HarnessAgent` behind the ViteHub Agent Driver 
 import { createCodex } from "@ai-sdk/harness-codex"
 import { defineAgent } from "@vite-hub/agent"
 import { skills } from "@vite-hub/agent/capabilities"
-import { createLocalHarnessSandbox } from "@vite-hub/agent/harness/local-sandbox"
 import { file } from "@vite-hub/workspace"
 
 export default defineAgent({
@@ -76,8 +77,6 @@ export default defineAgent({
       model: "gpt-5.5",
       reasoningEffort: "low",
     }),
-    sandbox: createLocalHarnessSandbox(),
-    credentials: { label: "local Codex", source: "ambient" },
   },
   workspace: {
     mode: "write",
@@ -91,7 +90,7 @@ export default defineAgent({
 })
 ```
 
-`driver.harness` is the AI SDK harness adapter instance. `driver.sandbox` can provide an AI SDK sandbox provider; when omitted, ViteHub uses the AI SDK Vercel Sandbox default for bridge-backed harnesses. `createLocalHarnessSandbox()` is a trusted-host sandbox for local development and Agent Evals, not a production isolation boundary. `driver.harness`, `driver.sandbox`, and `driver.sessionKey` can also be callbacks when one Agent Definition needs invocation-scoped harness setup. Workspace-backed harness drivers receive a Harness Workspace Session prepared from the selected Workspace. When `access()` narrows Workspace Scope, ViteHub materializes only that selected scope plus generated source descriptors. Read mode materializes files and discards sandbox changes; write mode syncs additions, updates, and deletions back through Workspace rules. V1 configures built-in harness permissions internally with the no-approval policy and does not expose a public permission option. Skills stay a Capability through `skills()` rather than becoming a root Agent Definition field. For harness drivers, `skills()` relies on mounted Workspace files and does not inject model instructions or Workspace Shell tools. Put harness guidance in Workspace files such as `AGENTS.md`; Sources, Capabilities, and Skills do not inject extra model instructions by default.
+`driver.harness` is the AI SDK harness adapter instance. Workspace-backed harness drivers in Vite dev use ViteHub's local harness sandbox by default and receive a Harness Workspace Session prepared from the selected Workspace. `driver.sandbox` can provide an AI SDK sandbox provider as an advanced escape hatch; outside the local workspace path, omitted sandboxes use the AI SDK Vercel Sandbox default when `@ai-sdk/sandbox-vercel` is installed. `driver.harness`, `driver.sandbox`, and `driver.sessionKey` can also be callbacks when one Agent Definition needs invocation-scoped harness setup. When `access()` narrows Workspace Scope, ViteHub materializes only that selected scope plus generated source descriptors. Read mode materializes files and discards sandbox changes; write mode syncs additions, updates, and deletions back through Workspace rules. V1 configures built-in harness permissions internally with the no-approval policy and does not expose a public permission option. Skills stay a Capability through `skills()` rather than becoming a root Agent Definition field. For harness drivers, `skills()` relies on mounted Workspace files and does not inject model instructions or Workspace Shell tools. Put harness guidance in Workspace files such as `AGENTS.md`; Sources, Capabilities, and Skills do not inject extra model instructions by default.
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
 

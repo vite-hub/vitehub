@@ -790,7 +790,6 @@ describe("defineAgent workspace option", () => {
     const agent = withAgentDefaults(defineAgent({
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
       workspace: {
         sources: {
@@ -817,7 +816,10 @@ describe("defineAgent workspace option", () => {
     expect(harnessAgentSettings.at(-1)).toMatchObject({
       harness: { provider: "codex" },
       permissionMode: "allow-all",
-      sandbox: { provider: "sandbox" },
+      sandbox: {
+        providerId: "local",
+        specificationVersion: "harness-sandbox-v1",
+      },
     })
     expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
       prompt: "hello",
