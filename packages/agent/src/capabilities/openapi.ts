@@ -116,23 +116,16 @@ export interface OpenAPIRequestPatch {
   timeout?: number
 }
 
-export interface OpenAPIHiddenRequestInput {
-  body?: readonly string[]
-  path?: readonly string[]
-  query?: readonly string[]
-}
-
 export type OpenAPIRequestHook<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > = (context: OpenAPIRequestContext<TRuntimeConfig, Name>) => MaybePromise<OpenAPIRequestPatch | void>
 
-export interface OpenAPIRequestOptions<
+export interface OpenAPIHooks<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > {
-  hidden?: OpenAPIHiddenRequestInput
-  onRequest: OpenAPIRequestHook<TRuntimeConfig, Name>
+  request?: OpenAPIRequestHook<TRuntimeConfig, Name>
 }
 
 export interface OpenAPICliOptions {
@@ -153,8 +146,8 @@ export interface OpenAPICapabilityOptions<
 > {
   cli?: false | OpenAPICliOptions
   description?: string
+  hooks?: OpenAPIHooks<TRuntimeConfig, Name>
   operations: readonly string[]
-  request?: OpenAPIRequestHook<TRuntimeConfig, Name> | OpenAPIRequestOptions<TRuntimeConfig, Name>
   responseType?: "json" | "text"
   server?: OpenAPIContextValue<string | URL, TRuntimeConfig, Name>
   spec: OpenAPIContextValue<string | URL | OpenAPIDocument, TRuntimeConfig, Name>
@@ -343,7 +336,7 @@ function createOpenAPITool<
     async execute(input) {
       return executeOpenAPIOperation(operation, baseUrl, options, context, input)
     },
-    inputSchema: operationInputSchema(operation, openAPIRequestHiddenInput(options)),
+    inputSchema: operationInputSchema(operation),
     metadata: {
       openapi: {
         method: operation.method,
@@ -376,7 +369,7 @@ function createOpenAPICli<
       description: operation.description,
       effects: [`http:${operation.method.toLowerCase()}`],
       examples: [`${cli.name} ${name}${outputFormat === "json" ? " --json" : ""}`],
-      input: openAPICliInputSchema(operation, openAPIRequestHiddenInput(options)),
+      input: openAPICliInputSchema(operation),
       output: { format: outputFormat },
       run: ({ input }) => executeOpenAPIOperation(operation, baseUrl, options, context, input),
     }
@@ -388,13 +381,13 @@ function createOpenAPICli<
   }
 }
 
-function openAPICliInputSchema(operation: OpenAPIOperationTool, hidden?: OpenAPIHiddenRequestInput): AgentCapabilityCliStandardSchemaV1<OpenAPIToolInput> {
-  const schema = operationInputSchema(operation, hidden)
+function openAPICliInputSchema(operation: OpenAPIOperationTool): AgentCapabilityCliStandardSchemaV1<OpenAPIToolInput> {
+  const schema = operationInputSchema(operation)
   return {
     "~standard": {
       validate(value) {
         try {
-          const normalized = compactOpenAPIInput(applyOpenAPIHiddenInput(normalizeRawToolInput(operation, value), hidden))
+          const normalized = compactOpenAPIInput(normalizeRawToolInput(operation, value))
           const issues = validateJsonSchema(schema, normalized, "input")
           return issues.length ? { issues } : { value: normalized }
         }
@@ -409,8 +402,8 @@ function openAPICliInputSchema(operation: OpenAPIOperationTool, hidden?: OpenAPI
 function compactOpenAPIInput(input: OpenAPIToolInput): OpenAPIToolInput {
   return {
     ...(input.body !== undefined ? { body: input.body } : {}),
-    ...(input.path !== undefined ? { path: input.path } : {}),
-    ...(input.query !== undefined ? { query: input.query } : {}),
+    ...(input.path !== undefined && Object.keys(input.path).length ? { path: input.path } : {}),
+    ...(input.query !== undefined && Object.keys(input.query).length ? { query: input.query } : {}),
   }
 }
 
@@ -424,7 +417,7 @@ async function executeOpenAPIOperation<
   context: AgentCapabilityContext<TRuntimeConfig, Name>,
   input: unknown,
 ): Promise<unknown> {
-  const rawInput = applyOpenAPIHiddenInput(normalizeRawToolInput(operation, input), openAPIRequestHiddenInput(options))
+  const rawInput = normalizeRawToolInput(operation, input)
   const rawUrl = operationTemplateUrl(baseUrl, operation.path)
   const draft = createOpenAPIRequestDraft(rawInput, options.timeout)
   await applyOpenAPIRequestHook(options, {
@@ -438,6 +431,7 @@ async function executeOpenAPIOperation<
     request: draft,
     runtimeRequest: context.request,
   })
+  assertValidOpenAPIRequest(operation, draft)
   const requestInput = normalizeToolInput(operation, draft)
   const url = operationUrl(baseUrl, operation, requestInput.path)
   const result = await executeHttpRequest({
@@ -452,25 +446,6 @@ async function executeOpenAPIOperation<
     responseType: options.responseType || "json",
   })
   return transformOpenAPIResponse(options, context, operation, requestInput, draft, url, result)
-}
-
-function openAPIRequestOptions<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(
-  options: OpenAPICapabilityOptions<TRuntimeConfig, Name>,
-): OpenAPIRequestOptions<TRuntimeConfig, Name> | undefined {
-  if (!options.request) return undefined
-  return typeof options.request === "function" ? { onRequest: options.request } : options.request
-}
-
-function openAPIRequestHiddenInput<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(
-  options: OpenAPICapabilityOptions<TRuntimeConfig, Name>,
-): OpenAPIHiddenRequestInput | undefined {
-  return openAPIRequestOptions(options)?.hidden
 }
 
 function createOpenAPIRequestDraft(input: OpenAPIToolInput, timeout: number | undefined): OpenAPIRequestDraft {
@@ -491,7 +466,7 @@ async function applyOpenAPIRequestHook<
   options: OpenAPICapabilityOptions<TRuntimeConfig, Name>,
   context: OpenAPIRequestContext<TRuntimeConfig, Name>,
 ): Promise<void> {
-  const hook = openAPIRequestOptions(options)?.onRequest
+  const hook = options.hooks?.request
   if (!hook) return
   const patch = await hook(context)
   if (patch) applyOpenAPIRequestPatch(context.request, patch)
@@ -515,24 +490,6 @@ function headersToRecord(headers: Headers): OpenAPIHeaders | undefined {
     result[key] = value
   })
   return Object.keys(result).length ? result : undefined
-}
-
-function applyOpenAPIHiddenInput(input: OpenAPIToolInput, hidden: OpenAPIHiddenRequestInput | undefined): OpenAPIToolInput {
-  if (!hidden) return input
-  return {
-    ...input,
-    body: omitInputFields(input.body, hidden.body),
-    path: omitInputFields(input.path, hidden.path),
-    query: omitInputFields(input.query, hidden.query),
-  }
-}
-
-function omitInputFields<T>(input: T, omitted: readonly string[] | undefined): T | undefined {
-  if (!omitted?.length || input === undefined) return input
-  if (!isPlainRecord(input)) return input
-  const hidden = new Set(omitted)
-  const visible = Object.fromEntries(Object.entries(input).filter(([key]) => !hidden.has(key)))
-  return Object.keys(visible).length ? visible as T : undefined
 }
 
 function operationCommandName(cliName: string, operationId: string): string {
@@ -570,6 +527,11 @@ async function transformOpenAPIResponse<
       status: result.status,
     },
   })
+}
+
+function assertValidOpenAPIRequest(operation: OpenAPIOperationTool, input: OpenAPIToolInput): void {
+  const issues = validateJsonSchema(operationInputSchema(operation, true), compactOpenAPIInput(input), "request")
+  if (issues.length) throw new Error(`[vitehub] ${operation.operationId} request is invalid: ${issues.join(", ")}`)
 }
 
 function normalizeRawToolInput(operation: OpenAPIOperationTool, input: unknown): OpenAPIToolInput {
@@ -667,22 +629,20 @@ function operationTemplateUrl(baseUrl: URL, path: string): URL {
   return url
 }
 
-function operationInputSchema(operation: OpenAPIOperationTool, hidden?: OpenAPIHiddenRequestInput): JsonSchema {
+function operationInputSchema(operation: OpenAPIOperationTool, prepared = false): JsonSchema {
   const properties: Record<string, JsonSchema> = {}
   const required: string[] = []
-  const pathParameters = visibleParameters(operation.pathParameters, hidden?.path)
-  const queryParameters = visibleParameters(operation.queryParameters, hidden?.query)
-  const bodySchema = visibleObjectSchema(operation.bodySchema, hidden?.body)
-  if (pathParameters.length) {
-    properties.path = parameterObjectSchema(pathParameters)
-    if (pathParameters.some(parameter => parameter.required || parameter.in === "path")) required.push("path")
+  if (operation.pathParameters.length) {
+    properties.path = parameterObjectSchema(operation.pathParameters)
+    if (operation.pathParameters.some(parameter => parameter.required || parameter.in === "path")) required.push("path")
   }
-  if (queryParameters.length) {
-    properties.query = parameterObjectSchema(queryParameters)
+  if (operation.queryParameters.length) {
+    properties.query = parameterObjectSchema(operation.queryParameters, prepared)
   }
+  const bodySchema = prepared ? operation.bodySchema : openAPIInputBodySchema(operation.bodySchema)
   if (bodySchema) {
     properties.body = bodySchema
-    if (hasRequiredProperties(bodySchema)) required.push("body")
+    if (prepared && hasRequiredProperties(bodySchema)) required.push("body")
   }
   return {
     additionalProperties: false,
@@ -692,26 +652,11 @@ function operationInputSchema(operation: OpenAPIOperationTool, hidden?: OpenAPIH
   }
 }
 
-function visibleParameters(parameters: OpenAPIParameter[], omit: readonly string[] | undefined): OpenAPIParameter[] {
-  if (!omit?.length) return parameters
-  const omitted = new Set(omit)
-  return parameters.filter(parameter => !parameter.name || !omitted.has(parameter.name))
-}
-
-function visibleObjectSchema(schema: JsonSchema | undefined, omit: readonly string[] | undefined): JsonSchema | undefined {
-  if (!schema || !omit?.length) return schema
-  if (!isPlainRecord(schema.properties)) return schema
-  const omitted = new Set(omit)
-  const properties = Object.fromEntries(Object.entries(schema.properties).filter(([key]) => !omitted.has(key)))
-  const required = Array.isArray(schema.required)
-    ? schema.required.filter(value => typeof value === "string" && !omitted.has(value))
-    : []
+function openAPIInputBodySchema(schema: JsonSchema | undefined): JsonSchema | undefined {
+  if (!schema) return undefined
+  if (!isPlainRecord(schema.properties) && !Array.isArray(schema.required)) return schema
   const { required: _required, ...rest } = schema
-  return {
-    ...rest,
-    properties,
-    ...(required.length ? { required } : {}),
-  }
+  return rest
 }
 
 function hasRequiredProperties(schema: JsonSchema): boolean {
@@ -786,14 +731,14 @@ function jsonSchemaTypeMatches(type: string, value: unknown): boolean {
   }
 }
 
-function parameterObjectSchema(parameters: OpenAPIParameter[]): JsonSchema {
+function parameterObjectSchema(parameters: OpenAPIParameter[], includeRequired = true): JsonSchema {
   return {
     additionalProperties: false,
     properties: Object.fromEntries(parameters.map(parameter => [parameter.name, {
       ...(parameter.schema as JsonSchema),
       ...(parameter.description ? { description: parameter.description } : {}),
     }])),
-    required: parameters.filter(parameter => parameter.in === "path" || parameter.required).map(parameter => parameter.name),
+    required: parameters.filter(parameter => parameter.in === "path" || includeRequired && parameter.required).map(parameter => parameter.name),
     type: "object",
   }
 }

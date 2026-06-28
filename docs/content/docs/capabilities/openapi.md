@@ -69,19 +69,15 @@ ViteHub derives the request server from the OpenAPI document by default:
 1. `servers[0].url`
 2. the OpenAPI spec URL origin
 
-Use `request.onRequest` for runtime auth, cookies, tenant values, body additions, query additions, and timeout changes.
+Use `hooks.request` for runtime auth, cookies, tenant values, body additions, query additions, and timeout changes.
 The hook receives the selected operation, Agent Capability context, visible model input, and a mutable draft request.
 
 ```ts [server/agents/support.ts]
 openapi({
   spec: 'https://portal.example.com/_openapi.json',
   operations: ['portalProductSearch', 'portalPurchaseOrders'],
-  request: {
-    hidden: {
-      body: ['cubeToken'],
-      path: ['tenantId'],
-    },
-    async onRequest({ context, operation, request }) {
+  hooks: {
+    async request({ context, operation, request }) {
       const session = context.get<{
         cubeToken: string
         tenantId: string
@@ -94,8 +90,8 @@ openapi({
 
       if (operation.id === 'portalPurchaseOrders') {
         request.body = {
-          cubeToken: session.cubeToken,
           ...(request.body as Record<string, unknown> | undefined),
+          cubeToken: session.cubeToken,
         }
       }
     },
@@ -103,8 +99,7 @@ openapi({
 })
 ```
 
-`request.hidden` removes host-supplied fields from the model-facing tool schema and generated Capability CLI input schema.
-Use it only for fields the host supplies inside `onRequest`.
+ViteHub validates the final prepared request after `hooks.request` runs, so the hook can fill spec-required runtime values before HTTP execution.
 
 For a broken, missing, or environment-neutral `servers` entry, use `server` as an override escape hatch.
 `server` can also be a callback when the override comes from the current Agent Invocation context.
@@ -163,9 +158,9 @@ openapi({
 | `enabled` | Attach `openapi()` only to Agents that should have the ability. Use `access()`, Agent Trigger routing, or separate Agent Definitions for channel or customer gating. |
 | `operations: { allow: [...] }` | `operations: [...]` |
 | `baseUrl` | Use the OpenAPI `servers` entry. Use `server` only when the spec has no usable server. |
-| `headers` | Set headers in `request.onRequest`. |
-| `defaults` | Mutate `request.body`, `request.path`, or `request.query` in `request.onRequest`. |
-| `input.omit` | Use `request.hidden` for host-supplied fields that `request.onRequest` fills. |
+| `headers` | Set headers in `hooks.request`. |
+| `defaults` | Mutate `request.body`, `request.path`, or `request.query` in `hooks.request`. |
+| `input.omit` | Remove it. Fill runtime-owned fields in `hooks.request` before the final prepared request is validated. |
 
 ## Driver support
 
@@ -181,8 +176,7 @@ openapi({
 | --- | --- | --- | --- |
 | `spec` | `string \| URL \| object \| function` | required | OpenAPI document URL, inline document, or invocation-scoped document resolver. |
 | `operations` | `readonly string[]` | required | Selected OpenAPI `operationId`s exposed by this Capability. |
-| `request` | `function \| { hidden, onRequest }` | none | Fetch-style request preparation hook for runtime headers, cookies, path, query, body, and timeout values. |
-| `request.hidden` | `{ body?, path?, query? }` | none | Fields removed from model and generated CLI input because the host supplies them in `onRequest`. |
+| `hooks.request` | `(context) => patch \| void` | none | Fetch-style request preparation hook for runtime headers, cookies, path, query, body, and timeout values. |
 | `server` | `string \| URL \| function` | OpenAPI server | Override escape hatch for specs without a usable `servers[0].url` or spec URL origin. |
 | `cli` | `false \| { name, description? }` | `false` | Generates a Capability CLI instead of one model-facing tool per operation. |
 | `responseType` | `"json" \| "text"` | `"json"` | Response parser for operation results. |

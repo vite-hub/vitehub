@@ -68,12 +68,14 @@ describe("agent public types", () => {
         }),
         openapi({
           operations: ["listCustomers"],
-          request({ context, operation, request }) {
-            expectTypeOf(context.get<{ token: string }>("billing")?.token).toEqualTypeOf<string | undefined>()
-            expectTypeOf(operation.id).toEqualTypeOf<string>()
-            expectTypeOf(request.headers).toEqualTypeOf<Headers>()
-            request.headers.set("authorization", "Bearer token")
-            return { query: { region: "eu" } }
+          hooks: {
+            request({ context, operation, request }) {
+              expectTypeOf(context.get<{ token: string }>("billing")?.token).toEqualTypeOf<string | undefined>()
+              expectTypeOf(operation.id).toEqualTypeOf<string>()
+              expectTypeOf(request.headers).toEqualTypeOf<Headers>()
+              request.headers.set("authorization", "Bearer token")
+              return { query: { region: "eu" } }
+            },
           },
           spec: openAPISpec,
           transformResponse(response, { request }) {
@@ -238,8 +240,11 @@ describe("agent public types", () => {
     // @ts-expect-error use operations as the direct operationId allowlist
     openapi({ operations: { allow: ["listCustomers"] }, spec: openAPISpec })
 
-    // @ts-expect-error use request.onRequest for host-supplied request values
+    // @ts-expect-error use hooks.request for host-supplied request values
     openapi({ defaults: { body: { token: "secret" } }, operations: ["listCustomers"], spec: openAPISpec })
+
+    // @ts-expect-error OpenAPI request preparation uses hooks.request
+    openapi({ operations: ["listCustomers"], request: () => undefined, spec: openAPISpec })
 
     // @ts-expect-error use server only as the explicit server override
     openapi({ baseUrl: "https://api.example.com", operations: ["listCustomers"], spec: openAPISpec })

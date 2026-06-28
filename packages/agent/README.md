@@ -127,12 +127,11 @@ openapi({
     description: "Inspect live billing API data.",
   },
   operations: ["billingListCustomers", "billingGetInvoice", "billingCreateTicket"],
-  request: {
-    hidden: { body: ["tenantId"] },
-    onRequest({ context, request }) {
+  hooks: {
+    request({ context, request }) {
       request.body = {
-        tenantId: context.get<{ tenantId: string }>("billing")?.tenantId,
         ...(request.body as Record<string, unknown> | undefined),
+        tenantId: context.get<{ tenantId: string }>("billing")?.tenantId,
       }
       request.headers.set("authorization", `Bearer ${context.get<{ token: string }>("billing")?.token}`)
     },

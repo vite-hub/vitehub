@@ -273,7 +273,7 @@ describe("openapi capability", () => {
     expect(request.mock.calls[0]?.[0]).toBe("https://cli.example.com/runtime/customers?region=eu")
   })
 
-  it("prepares requests while hiding host-supplied fields from tool schema", async () => {
+  it("prepares requests with runtime hook values before HTTP execution", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { openapi } = await import("../src/capabilities.ts")
@@ -282,16 +282,11 @@ describe("openapi capability", () => {
       capabilities: [
         openapi({
           operations: ["createOrder"],
-          request: {
-            hidden: {
-              body: ["cubeToken"],
-              path: ["tenantId"],
-              query: ["currency"],
-            },
-            onRequest({ context, request }) {
+          hooks: {
+            request({ context, request }) {
               const cubeToken = context.get<{ cubeToken: string }>("portal")?.cubeToken
               const previewCookie = context.get<{ previewCookie: string }>("portal")?.previewCookie
-              request.body = { cubeToken, ...(request.body as Record<string, unknown> | undefined) }
+              request.body = { ...(request.body as Record<string, unknown> | undefined), cubeToken }
               request.path.tenantId = "acme"
               request.query.currency = "EUR"
               if (cubeToken) request.headers.set("x-cube-token", cubeToken)
@@ -309,28 +304,21 @@ describe("openapi capability", () => {
       prompt: "create",
     })
     const tools = resolved.tools as AgentToolSet
-    const schema = tools.createOrder.inputSchema as {
-      properties: Record<string, { properties?: Record<string, unknown>, required?: string[] } | undefined>
-    }
-
-    expect(schema.properties.path).toBeUndefined()
-    expect(schema.properties.query).toBeUndefined()
-    const bodySchema = schema.properties.body!
-    expect(bodySchema.required).toEqual(["sku"])
-    expect(bodySchema.properties?.cubeToken).toBeUndefined()
 
     await expect(tools.createOrder.execute?.({
-      body: { quantity: 2, sku: "sku-1" },
+      body: { cubeToken: "model-token", quantity: 2, sku: "sku-1" },
+      path: { tenantId: "model-tenant" },
+      query: { currency: "USD" },
     })).resolves.toEqual({ ok: true })
 
     const init = request.mock.calls[0]?.[1] as RequestInit
     expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/tenants/acme/orders?currency=EUR")
-    expect(init.body).toBe(JSON.stringify({ cubeToken: "cube-token", quantity: 2, sku: "sku-1" }))
+    expect(JSON.parse(init.body as string)).toEqual({ cubeToken: "cube-token", quantity: 2, sku: "sku-1" })
     expect((init.headers as Headers).get("cookie")).toBe("preview=preview-cookie")
     expect((init.headers as Headers).get("x-cube-token")).toBe("cube-token")
   })
 
-  it("hides host-supplied fields from generated OpenAPI CLI inputs", async () => {
+  it("prepares generated OpenAPI CLI requests with runtime hook values", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { openapi } = await import("../src/capabilities.ts")
@@ -340,16 +328,11 @@ describe("openapi capability", () => {
         openapi({
           cli: { name: "portal" },
           operations: ["createOrder"],
-          request: {
-            hidden: {
-              body: ["cubeToken"],
-              path: ["tenantId"],
-              query: ["currency"],
-            },
-            onRequest({ context, request }) {
+          hooks: {
+            request({ context, request }) {
               request.body = {
-                cubeToken: context.get<{ cubeToken: string }>("portal")?.cubeToken,
                 ...(request.body as Record<string, unknown> | undefined),
+                cubeToken: context.get<{ cubeToken: string }>("portal")?.cubeToken,
               }
               request.path.tenantId = "acme"
               request.query.currency = "EUR"
@@ -366,11 +349,9 @@ describe("openapi capability", () => {
     await expect(resolved.tools?.portal?.execute?.({
       argv: ["create-order", "--json"],
       input: {
-        cubeToken: "override-token",
+        body: { quantity: 2, sku: "sku-1" },
         path: { tenantId: "evil" },
-        quantity: 2,
         query: { currency: "USD" },
-        sku: "sku-1",
       },
     })).resolves.toMatchObject({
       cli: "portal",
@@ -380,7 +361,7 @@ describe("openapi capability", () => {
 
     const init = request.mock.calls[0]?.[1] as RequestInit
     expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/tenants/acme/orders?currency=EUR")
-    expect(init.body).toBe(JSON.stringify({ cubeToken: "cube-token", quantity: 2, sku: "sku-1" }))
+    expect(JSON.parse(init.body as string)).toEqual({ cubeToken: "cube-token", quantity: 2, sku: "sku-1" })
   })
 
   it("validates generated OpenAPI CLI inputs before requests", async () => {
@@ -400,8 +381,8 @@ describe("openapi capability", () => {
 
     await expect(resolved.tools?.portal?.execute?.({
       argv: ["create-order", "--json"],
-      input: { body: {} },
-    })).rejects.toThrow("Invalid portal create-order input")
+      input: { body: {}, path: { tenantId: "acme" } },
+    })).rejects.toThrow("createOrder request is invalid")
     await expect(resolved.tools?.portal?.execute?.({
       argv: ["create-order", "--json"],
       input: {
@@ -531,13 +512,9 @@ describe("openapi capability", () => {
       capabilities: [
         openapi({
           operations: ["createOrder"],
-          request: {
-            hidden: {
-              body: ["cubeToken"],
-              path: ["tenantId"],
-            },
-            onRequest({ request }) {
-              request.body = { cubeToken: "cube-token", ...(request.body as Record<string, unknown> | undefined) }
+          hooks: {
+            request({ request }) {
+              request.body = { ...(request.body as Record<string, unknown> | undefined), cubeToken: "cube-token" }
               request.path.tenantId = "acme"
             },
           },
@@ -553,7 +530,7 @@ describe("openapi capability", () => {
     })).resolves.toEqual({ ok: true })
 
     const init = request.mock.calls[0]?.[1] as RequestInit
-    expect(init.body).toBe(JSON.stringify({ cubeToken: "cube-token", quantity: 2, sku: "sku-1" }))
+    expect(JSON.parse(init.body as string)).toEqual({ cubeToken: "cube-token", quantity: 2, sku: "sku-1" })
   })
 
   it("can transform raw operation responses with request context", async () => {
@@ -567,10 +544,9 @@ describe("openapi capability", () => {
       capabilities: [
         openapi({
           operations: ["createOrder"],
-          request: {
-            hidden: { body: ["cubeToken"], path: ["tenantId"] },
-            onRequest({ request }) {
-              request.body = { cubeToken: "cube-token", ...(request.body as Record<string, unknown> | undefined) }
+          hooks: {
+            request({ request }) {
+              request.body = { ...(request.body as Record<string, unknown> | undefined), cubeToken: "cube-token" }
               request.path.tenantId = "acme"
             },
           },
