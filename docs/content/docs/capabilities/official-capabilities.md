@@ -29,6 +29,7 @@ import {
   memory,
   observability,
   openapi,
+  pullRequestContext,
   rateLimit,
   repositoryHost,
   sandbox,
@@ -53,6 +54,7 @@ import {
 | Subagents | [`subagents()`](/docs/capabilities/subagents) | A model-backed Agent should delegate bounded work to named Agent Definitions through model-facing tools. |
 | Workspace files | [`workspaceShell()`](/docs/capabilities/workspace-shell) | The Agent should inspect or edit Workspace files through constrained Workspace tools. |
 | Git source history | [`git()`](/docs/capabilities/git) | The Agent needs bounded Git source-history inspection or local Workspace Session git state selection. |
+| Pull Request context | [`pullRequestContext()`](/docs/capabilities/pull-request-context) | A trigger or host already knows the current Change Request and the Agent should inspect that normalized context in the Workspace. |
 | Repository host | [`repositoryHost()`](/docs/capabilities/repository-host) | The Agent needs provider-hosted repository, Change Request, issue, comment, check, or status data through a configured Repository Host client. |
 | Skills file | [`skills()`](/docs/capabilities/skills) | The Agent requires a Workspace skill file at invocation time. |
 | KV storage | [`kv()`](/docs/capabilities/kv) | The Agent needs scoped key-value read or edit tools. |

@@ -179,6 +179,32 @@ describe("agent config", () => {
     }
   })
 
+  it("does not let custom capabilities bypass explicit workspace with public metadata", async () => {
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+
+    expect(() => defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "custom",
+          metadata: { workspaceOptional: true },
+          workspace: {
+            sources: {
+              notes: {
+                async getKeys() {
+                  return []
+                },
+                async getItem(key: string) {
+                  return { content: "", key }
+                },
+              },
+            },
+          },
+        }),
+      ],
+      run: () => "ok",
+    })).toThrow("custom() requires an explicit workspace")
+  })
+
   it("uses the default routes when routes are true", () => {
     expect(normalizeAgentOptions({ routes: { chat: true, webhooks: true } })).toMatchObject({
       routes: {

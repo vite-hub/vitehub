@@ -84,7 +84,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-The route is an Agent Trigger Consumer. It does not declare Chat Capability behavior itself.
+The route is an Agent Trigger Consumer. It does not declare Chat Capability behavior itself. The `run` field is invocation provenance; Chat context stays focused on message, session, user, and chat-scoped metadata.
 
 ## Add app-owned event triggers
 

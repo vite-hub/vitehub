@@ -298,7 +298,6 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
         ...(triggerInput?.invokerProfileId ? { invokerProfileId: triggerInput.invokerProfileId } : {}),
         chat: {
           message: hookArgs.message,
-          run: triggerInput?.run,
           session: triggerInput?.session,
           meta: triggerInput?.meta,
           user: triggerInput?.user,

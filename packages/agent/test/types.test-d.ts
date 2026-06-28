@@ -715,7 +715,36 @@ describe("agent public types", () => {
             },
           },
         }),
-        web: webChat(),
+        web: webChat({
+          route: {
+            admission: {
+              body: {
+                "~standard": {
+                  validate: (input: unknown) => ({
+                    value: input as { messages: unknown[], meta: { customer: string }, user: { email: string } },
+                  }),
+                },
+              },
+              authenticate({ body, rawBody, request }) {
+                expectTypeOf(body.messages).toEqualTypeOf<unknown>()
+                expectTypeOf(rawBody).toEqualTypeOf<string>()
+                expectTypeOf(request).toEqualTypeOf<Request>()
+                return { invokerProfileId: "customer:acme" }
+              },
+              context({ auth, body, rawBody }) {
+                expectTypeOf(auth.invokerProfileId).toEqualTypeOf<string>()
+                expectTypeOf(body.meta.customer).toEqualTypeOf<string>()
+                expectTypeOf(body.user.email).toEqualTypeOf<string>()
+                expectTypeOf(rawBody).toEqualTypeOf<string>()
+                return {
+                  invokerProfileId: auth.invokerProfileId,
+                  meta: body.meta,
+                  user: body.user,
+                }
+              },
+            },
+          },
+        }),
       },
       hooks: {
         "hook:observe"(event) {
@@ -773,17 +802,16 @@ describe("agent public types", () => {
     type ChatContext = AgentChatRunContext<
       { quiver?: { customer?: string } },
       { email?: string },
-      "portal" | "teams",
       { customer?: string, email?: string }
     >
     const workspaceAccess: AccessWorkspaceOptionsFor<typeof workspace, ChatContext> = {
       defaultScope: "customer",
-      resolve({ input }) {
+      resolve({ input, run }) {
         const chat = input.get().context?.chat
         expectTypeOf(chat?.message?.metadata?.quiver?.customer).toEqualTypeOf<string | undefined>()
         expectTypeOf(chat?.meta?.customer).toEqualTypeOf<string | undefined>()
         expectTypeOf(chat?.meta?.email).toEqualTypeOf<string | undefined>()
-        expectTypeOf(chat?.run?.origin).toEqualTypeOf<"portal" | "teams" | undefined>()
+        expectTypeOf(run?.origin).toEqualTypeOf<string | undefined>()
         expectTypeOf(chat?.user?.email).toEqualTypeOf<string | undefined>()
         return chat?.user?.email?.endsWith("@quiver.dk")
           ? { instructions: "Use the internal support tone.", role: "admin", scope: "quiver" }
@@ -871,7 +899,7 @@ describe("agent public types", () => {
       },
     }
     type SupportInvoker = AgentInvoker<{ audience?: "support" | "technical", customer?: "acme" }>
-    type SupportInputContext = AgentChatRunContext<SupportMessageMetadata, SupportChatUser, "teams"> & {
+    type SupportInputContext = AgentChatRunContext<SupportMessageMetadata, SupportChatUser> & {
       invoker?: SupportInvoker
     }
     const supportProfiles: readonly AgentInvokerProfile<{ audience?: "technical", customer?: "acme" }>[] = [
@@ -904,10 +932,10 @@ describe("agent public types", () => {
       },
     })
     const supportAccess: AccessWorkspaceOptionsFor<typeof workspace, SupportInputContext> = {
-      resolve({ actor, input, invoker }) {
+      resolve({ actor, input, invoker, run }) {
         const chat = input.get().context?.chat
         expectTypeOf(chat?.message?.metadata?.quiver?.customer).toEqualTypeOf<string | undefined>()
-        expectTypeOf(chat?.run?.origin).toEqualTypeOf<"teams" | undefined>()
+        expectTypeOf(run?.origin).toEqualTypeOf<string | undefined>()
         expectTypeOf(chat?.user?.email).toEqualTypeOf<string | undefined>()
         expectTypeOf(actor.id).toEqualTypeOf<string>()
         expectTypeOf(invoker.id).toEqualTypeOf<string>()
