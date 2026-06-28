@@ -893,6 +893,45 @@ async function sendDevCliCommand(
   return typeof result.exitCode === "number" ? result.exitCode : 0
 }
 
+async function sendDevWorkspaceCommand(
+  url: string,
+  agent: string,
+  command: string,
+  parsed: ParsedDevArgs,
+  context: AgentCliContext,
+  fetchImpl: typeof fetch,
+): Promise<number> {
+  const response = await fetchImpl(url, {
+    body: JSON.stringify({
+      agent,
+      ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
+      workspaceCommand: {
+        command,
+        ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
+      },
+    }),
+    headers: {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    },
+    method: "POST",
+  })
+  if (!response.ok) {
+    context.stderr.write(`${await response.text()}\n`)
+    return 1
+  }
+  const result = await response.json().catch(() => ({})) as { exitCode?: unknown, stderr?: unknown, stdout?: unknown }
+  if (typeof result.stdout === "string") context.stdout.write(result.stdout)
+  if (typeof result.stderr === "string" && result.stderr) context.stderr.write(result.stderr)
+  return typeof result.exitCode === "number" ? result.exitCode : 0
+}
+
+function directWorkspaceCommand(text: string): string | undefined {
+  if (!text.startsWith("!")) return
+  const command = text.slice(1).trim()
+  return command || undefined
+}
+
 async function runInteractiveDevLoop(
   parsed: ParsedDevArgs,
   context: AgentCliContext,
@@ -926,6 +965,12 @@ async function runInteractiveDevLoop(
       }
       if (!text) continue
       if (text === ".exit" || text === "exit") return 0
+      const command = directWorkspaceCommand(text)
+      if (command) {
+        const exitCode = await sendDevWorkspaceCommand(target.url, target.agent, command, parsed, context, fetchImpl)
+        if (exitCode !== 0) return exitCode
+        continue
+      }
       activeRequest = new AbortController()
       try {
         const nextHistory = await sendDevMessage(target.url, target.agent, text, history, parsed, context, fetchImpl, activeRequest.signal)
@@ -980,6 +1025,10 @@ export async function runAgentDevCli(
 
   if (parsed.cli) {
     return await sendDevCliCommand(target.url, target.agent, parsed, context, fetchImpl)
+  }
+  const command = parsed.message ? directWorkspaceCommand(parsed.message) : undefined
+  if (command) {
+    return await sendDevWorkspaceCommand(target.url, target.agent, command, parsed, context, fetchImpl)
   }
 
   const payloadStartsInvocation = parsed.payload && (

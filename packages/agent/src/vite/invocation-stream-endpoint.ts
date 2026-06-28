@@ -3,6 +3,7 @@ import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
+import { runWorkspaceDevCommand } from "@vite-hub/workspace/server"
 
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
 import { streamAgentOutputToEvents } from "../agent-output.ts"
@@ -10,7 +11,7 @@ import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { discoverAgentDefinitions } from "../discovery.ts"
 import { isResolvedAgentTriggerHandledInvocation, resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, streamAgent, withAgentDefaults } from "../index.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
-import { workspaceAgentOwnsWorkspaceDefinition, workspaceAgentWithSourceRoot } from "../workspace-agent.ts"
+import { workspaceAgentOwnsWorkspaceDefinition, workspaceAgentWithSourceRoot, workspaceNameFromOptions } from "../workspace-agent.ts"
 
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http"
 import type { ViteDevServer } from "vite"
@@ -30,6 +31,7 @@ import type {
 } from "../index.ts"
 
 const capabilityCliRunSurface = Symbol.for("vitehub.capabilityCliRunSurface")
+const workspaceRegistryId = "#vitehub-workspace-registry"
 
 interface ViteAgentDevRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
@@ -57,6 +59,10 @@ interface AgentInvocationStreamBody {
   text?: string
   timeout?: number
   trigger?: string
+  workspaceCommand?: {
+    command?: unknown
+    timeout?: unknown
+  }
 }
 
 interface AgentInvocationStreamEntry {
@@ -205,11 +211,25 @@ function agentAliases(definition: DiscoveredAgentDefinition, agent: AgentInput<V
   return declaredName && declaredName !== definition.name ? [declaredName] : undefined
 }
 
-function installServerAgentWorkspaceRegistry(
+type WorkspaceRegistry = Parameters<typeof setWorkspaceRuntimeRegistry>[0]
+
+function isWorkspaceRegistry(value: unknown): value is WorkspaceRegistry {
+  return isRecord(value) && Object.values(value).every(item => typeof item === "function")
+}
+
+async function loadViteWorkspaceRegistry(server: ViteDevServer): Promise<WorkspaceRegistry> {
+  if (!server.config.plugins.some(plugin => plugin.name === "@vite-hub/workspace/vite")) return {}
+  const mod = await server.ssrLoadModule(workspaceRegistryId) as { default?: unknown }
+  return isWorkspaceRegistry(mod.default) ? mod.default : {}
+}
+
+async function installServerAgentWorkspaceRegistry(
   server: ViteDevServer,
   entries: Array<{ agent: AgentInput<ViteAgentDevRuntimeContext>, aliases?: string[], definition: DiscoveredAgentDefinition }>,
-): void {
-  setWorkspaceRuntimeRegistry(Object.fromEntries(entries
+): Promise<WorkspaceRegistry> {
+  const registry = {
+    ...await loadViteWorkspaceRegistry(server),
+    ...Object.fromEntries(entries
     .filter(entry => entry.definition.workspace && workspaceAgentOwnsWorkspaceDefinition(entry.agent))
     .flatMap(({ aliases, definition }) => [definition.workspace!, ...(aliases || [])].map(name => [
       name,
@@ -221,7 +241,10 @@ function installServerAgentWorkspaceRegistry(
           default: workspaceAgentWithSourceRoot(mod.default, sourceRootDir),
         }
       },
-    ]))))
+    ]))),
+  } satisfies WorkspaceRegistry
+  setWorkspaceRuntimeRegistry(registry)
+  return registry
 }
 
 async function loadDiscoveredAgent(
@@ -244,7 +267,7 @@ async function discoverStreamAgents(server: ViteDevServer): Promise<AgentInvocat
     if (!agent) continue
     loaded.push({ agent, aliases: agentAliases(definition, agent), definition })
   }
-  installServerAgentWorkspaceRegistry(server, loaded)
+  await installServerAgentWorkspaceRegistry(server, loaded)
   const context = createDiscoveryContext()
   const entries: AgentInvocationStreamEntry[] = []
   for (const { agent, aliases, definition } of loaded) {
@@ -252,6 +275,16 @@ async function discoverStreamAgents(server: ViteDevServer): Promise<AgentInvocat
     entries.push({ agent, ...(aliases ? { aliases } : {}), name: definition.name, triggers })
   }
   return entries
+}
+
+function agentWorkspaceName(entry: AgentInvocationStreamEntry): string | undefined {
+  const agent = entry.agent as Partial<{
+    __vitehubWorkspaceAgentDefaults: Parameters<typeof workspaceNameFromOptions>[1]
+    __vitehubWorkspaceAgentOptions: Parameters<typeof workspaceNameFromOptions>[0]
+  }>
+  return agent.__vitehubWorkspaceAgentOptions
+    ? workspaceNameFromOptions(agent.__vitehubWorkspaceAgentOptions, agent.__vitehubWorkspaceAgentDefaults)
+    : undefined
 }
 
 function selectedEntry(entries: AgentInvocationStreamEntry[], name: string | undefined): AgentInvocationStreamEntry {
@@ -456,6 +489,22 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
     }, timeout)
     if (result instanceof Response) return result
     return Response.json(result)
+  }
+
+  if (body.workspaceCommand) {
+    const workspace = agentWorkspaceName(entry)
+    if (!workspace) return new Response("Agent Dev Loop command requires an Agent with a Workspace.", { status: 400 })
+    if (typeof body.workspaceCommand.command !== "string") {
+      return new Response("Missing Agent Dev Loop command.", { status: 400 })
+    }
+    const commandTimeout = typeof body.workspaceCommand.timeout === "number" && Number.isFinite(body.workspaceCommand.timeout)
+      ? body.workspaceCommand.timeout
+      : timeout
+    return Response.json(await runWorkspaceDevCommand({
+      command: body.workspaceCommand.command,
+      timeout: commandTimeout,
+      workspace,
+    }))
   }
 
   return createAgentInvocationStreamResponse(async (emit, signal) => {

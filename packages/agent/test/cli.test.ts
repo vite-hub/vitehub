@@ -175,6 +175,44 @@ describe("agent CLI", () => {
     })
   })
 
+  it("runs ! commands through the selected Agent Workspace command surface", async () => {
+    const stdout = stream()
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return Response.json({
+          args: ["-lc", "pnpm test"],
+          command: "bash",
+          exitCode: 0,
+          stderr: "",
+          stdout: "ok\n",
+        })
+      }
+      return Response.json({
+        agents: [{ name: "chat", triggers: ["chat.message"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["--agent", "chat", "!pnpm", "test"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr: stream(),
+      stdout,
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(0)
+    expect(stdout.output()).toBe("ok\n")
+    const post = fetchAgentStream.mock.calls[1]
+    expect(JSON.parse(String(post?.[1]?.body))).toEqual({
+      agent: "chat",
+      workspaceCommand: {
+        command: "pnpm test",
+      },
+    })
+  })
+
   it("keeps payload diagnostics off stdout for Capability CLI commands", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-cli-payload-"))
     try {

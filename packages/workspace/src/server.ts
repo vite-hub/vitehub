@@ -7,7 +7,11 @@ import { useWorkspace } from "./core/use.ts"
 
 import type { H3Event } from "h3"
 import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade } from "./core/use.ts"
-import type { WorkspaceName } from "./core/types.ts"
+import type { ExecResult, WorkspaceName } from "./core/types.ts"
+
+export const workspaceDevRoute = "/__vitehub/workspace/dev"
+export const workspaceDevHeader = "x-vitehub-workspace-dev"
+export const workspaceDevHeaderValue = "1"
 
 type WorkspaceInput<Name extends WorkspaceName> =
   | Name
@@ -29,6 +33,12 @@ export interface WorkspaceFileResponseOptions<Name extends WorkspaceName = Works
 
 export interface WorkspaceFileHandlerOptions<Name extends WorkspaceName = WorkspaceName> extends Omit<WorkspaceFileResponseOptions<Name>, "path"> {
   param?: string
+}
+
+export interface WorkspaceDevCommandInput<Name extends WorkspaceName = WorkspaceName> {
+  command: string
+  timeout?: number
+  workspace: Name
 }
 
 async function resolveWorkspace<Name extends WorkspaceName>(
@@ -110,4 +120,21 @@ export function defineWorkspaceFileHandler<Name extends WorkspaceName>(
     const path = getRouterParam(event, options.param || "path") || ""
     return readWorkspaceFileResponse({ ...options, path })
   })
+}
+
+export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
+  input: WorkspaceDevCommandInput<Name>,
+): Promise<ExecResult> {
+  const command = input.command.trim()
+  if (!command) throw new Error("Workspace Dev command cannot be empty.")
+  const workspace = await useWorkspace(input.workspace, { mode: "write" })
+  const session = await workspace.startSession()
+  try {
+    const result = await session.exec("bash", ["-lc", command], { timeout: input.timeout })
+    if (result.exitCode === 0) await session.commit({ message: "workspace dev command" })
+    return result
+  }
+  finally {
+    await session.close()
+  }
 }

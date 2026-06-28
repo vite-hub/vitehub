@@ -10,9 +10,12 @@ import { createWorkspaceRegistryContents, discoverViteWorkspaceDefinitions } fro
 import { initializeWorkspaceAssetRegistry, refreshWorkspaceBuildState, syncWorkspaceBuildAssets } from "../../build/integration.ts"
 import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
 import { normalizeWorkspaceOptions } from "../../config.ts"
+import { runWorkspaceDevCommand, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute } from "../../server.ts"
+import { setWorkspaceRuntimeRegistry } from "../../runtime.ts"
 
 import type { HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
+import type { IncomingMessage, ServerResponse } from "node:http"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
 import type { ResolvedWorkspaceModuleOptions, WorkspaceModuleOptions } from "../../core/types.ts"
 
@@ -78,6 +81,96 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]): boolean {
   return store.provider === "cloudflare-artifacts" || store.provider === "github"
+}
+
+function requestOrigin(server: ViteDevServer, req: IncomingMessage): string {
+  const host = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host
+  if (host) {
+    const fallback = server.resolvedUrls?.local?.[0] || "http://localhost/"
+    return new URL(`${new URL(fallback).protocol}//${host}`).origin
+  }
+  const base = server.resolvedUrls?.local?.[0] || `http://localhost:${server.config.server.port || 5173}/`
+  return new URL(base).origin
+}
+
+function validateWorkspaceDevRequest(server: ViteDevServer, req: IncomingMessage): Response | undefined {
+  const header = req.headers[workspaceDevHeader]
+  if ((Array.isArray(header) ? header[0] : header) !== workspaceDevHeaderValue) {
+    return new Response("Forbidden Workspace Dev request.", { status: 403 })
+  }
+  const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin
+  if (origin && origin !== requestOrigin(server, req)) {
+    return new Response("Forbidden Workspace Dev origin.", { status: 403 })
+  }
+  if (req.method !== "POST") return
+  const contentType = Array.isArray(req.headers["content-type"]) ? req.headers["content-type"][0] : req.headers["content-type"]
+  if (!contentType?.toLowerCase().startsWith("application/json")) {
+    return new Response("Workspace Dev requests must use application/json.", { status: 415 })
+  }
+}
+
+async function readRequestBody(req: IncomingMessage): Promise<string> {
+  let body = ""
+  req.setEncoding("utf8")
+  for await (const chunk of req) body += chunk
+  return body
+}
+
+async function writeResponse(res: ServerResponse, response: Response): Promise<void> {
+  res.statusCode = response.status
+  for (const [name, value] of response.headers) res.setHeader(name, value)
+  if (!response.body) {
+    res.end()
+    return
+  }
+  const reader = response.body.getReader()
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      res.write(Buffer.from(value))
+    }
+    res.end()
+  }
+  finally {
+    reader.releaseLock()
+  }
+}
+
+function isWorkspaceDevRoute(req: IncomingMessage): boolean {
+  return new URL(req.url || "/", "http://localhost").pathname === workspaceDevRoute
+}
+
+async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMessage, workspaces: Array<{ name: string }>): Promise<Response> {
+  const validation = validateWorkspaceDevRequest(server, req)
+  if (validation) return validation
+  if (req.method === "GET") {
+    return Response.json({
+      root: server.config.root,
+      workspaces,
+    })
+  }
+  if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 })
+
+  const mod = await server.ssrLoadModule(WORKSPACE_REGISTRY_ID) as { default?: unknown }
+  setWorkspaceRuntimeRegistry(isRecord(mod.default) ? mod.default as never : {})
+  let body: { workspaceCommand?: { command?: unknown, timeout?: unknown, workspace?: unknown } }
+  try {
+    body = JSON.parse(await readRequestBody(req)) as typeof body
+  }
+  catch {
+    return new Response("Malformed Workspace Dev payload.", { status: 400 })
+  }
+  const command = body.workspaceCommand
+  if (!command || typeof command.workspace !== "string" || typeof command.command !== "string") {
+    return new Response("Missing Workspace Dev command.", { status: 400 })
+  }
+  const timeout = typeof command.timeout === "number" && Number.isFinite(command.timeout) ? command.timeout : undefined
+  return Response.json(await runWorkspaceDevCommand({
+    command: command.command,
+    ...(timeout ? { timeout } : {}),
+    workspace: command.workspace,
+  }))
 }
 
 function hasNitroPlugin(value: unknown): boolean {
@@ -179,7 +272,11 @@ export interface WorkspaceVitePluginAPI {
   getWorkspaces: () => Array<{ name: string }>
 }
 
-export type WorkspaceVitePlugin = Plugin & { api: WorkspaceVitePluginAPI }
+interface WorkspaceCliContributingPlugin {
+  vitehub?: { cli?: unknown }
+}
+
+export type WorkspaceVitePlugin = Plugin & WorkspaceCliContributingPlugin & { api: WorkspaceVitePluginAPI }
 
 export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlugin {
   let resolved: ResolvedConfig | undefined
@@ -306,6 +403,18 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       const refresh = async (file: string) => await maybeRefreshTypesForFile(roots, file)
       devServer.watcher.on("add", refresh)
       devServer.watcher.on("unlink", refresh)
+      devServer.middlewares.use((req, res, next) => {
+        if (!isWorkspaceDevRoute(req)) return next()
+        void handleWorkspaceDevRequest(devServer, req, manifest.workspaces)
+          .then(response => writeResponse(res, response))
+          .catch((error: unknown) => writeResponse(res, new Response(error instanceof Error ? error.message : "Workspace Dev request failed.", { status: 500 })))
+      })
+    },
+    vitehub: {
+      cli: async () => {
+        const { createWorkspaceCliContributor } = await import(/* @vite-ignore */ "../../cli.js")
+        return createWorkspaceCliContributor()
+      },
     },
     async handleHotUpdate(ctx: HmrContext) {
       if (!resolved) return
