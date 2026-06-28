@@ -760,12 +760,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         }
       },
     },
-    configureServer(server) {
+    async configureServer(server) {
       if (agentDevtoolsEnabled(agent)) {
         registerChatDevtoolsBridge(server)
       }
       if (agent !== false) {
-        registerAgentInvocationStreamEndpoint(server)
+        await registerAgentInvocationStreamEndpoint(server)
       }
     },
     vitehub: {

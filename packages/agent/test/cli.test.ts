@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { refreshWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 import { describe, expect, it, vi } from "vitest"
 
 import { createAgentCliContributor, runAgentDevCli, runAgentEvalCli } from "../src/cli.ts"
@@ -173,6 +174,116 @@ describe("agent CLI", () => {
         name: "inventory",
       },
     })
+  })
+
+  it("runs ! commands through the selected Agent Workspace command surface", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-cli-"))
+    const stdout = stream()
+    const stderr = stream()
+    const tokenServerId = "pid-1:5173"
+    const token = await refreshWorkspaceDevToken(rootDir, { serverId: tokenServerId })
+    try {
+      const payloadPath = join(rootDir, "payload.json")
+      await writeFile(payloadPath, JSON.stringify({ tenant: "api" }), "utf8")
+      const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return Response.json({
+            args: ["test", "--filter", "api"],
+            command: "pnpm",
+            exitCode: 0,
+            stderr: "",
+            stdout: "ok\n",
+          })
+        }
+        return Response.json({
+          agents: [{ name: "chat", triggers: ["chat.message"] }],
+          root: rootDir,
+          workspaceDevTokenServerId: tokenServerId,
+        })
+      })
+
+      const exitCode = await runAgentDevCli(["--agent", "chat", "--payload", "payload.json", "!pnpm", "test", "--filter", "api"], {
+        cwd: rootDir,
+        env: {},
+        rootDir,
+        spawn: vi.fn(),
+        stderr,
+        stdout,
+      }, { fetch: fetchAgentStream as never })
+
+      expect(exitCode).toBe(0)
+      expect(stdout.output()).toBe("ok\n")
+      expect(stderr.output()).toBe(`Loaded payload: ${payloadPath}\n`)
+      const post = fetchAgentStream.mock.calls[1]
+      expect(post?.[1]?.headers).toMatchObject({
+        [workspaceDevTokenHeader]: token,
+      })
+      expect(JSON.parse(String(post?.[1]?.body))).toEqual({
+        agent: "chat",
+        payload: { tenant: "api" },
+        workspaceCommand: {
+          args: ["test", "--filter", "api"],
+          command: "pnpm",
+        },
+      })
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
+  it("runs positional Agent Dev Loop ! commands through the selected Agent Workspace", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-cli-"))
+    const stdout = stream()
+    const tokenServerId = "pid-1:5173"
+    const token = await refreshWorkspaceDevToken(rootDir, { serverId: tokenServerId })
+    try {
+      const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return Response.json({
+            args: ["ok", "--flag"],
+            command: "printf",
+            exitCode: 0,
+            stderr: "",
+            stdout: "ok\n",
+          })
+        }
+        return Response.json({
+          agents: [{ name: "proof-agent", triggers: [] }],
+          root: rootDir,
+          workspaceDevTokenServerId: tokenServerId,
+        })
+      })
+
+      const exitCode = await runAgentDevCli(["--url", "http://127.0.0.1:5173", "--timeout", "10000", "proof-agent", "!printf", "ok", "--flag"], {
+        cwd: rootDir,
+        env: {},
+        rootDir,
+        spawn: vi.fn(),
+        stderr: stream(),
+        stdout,
+      }, { fetch: fetchAgentStream as never })
+
+      expect(exitCode).toBe(0)
+      expect(stdout.output()).toBe("ok\n")
+      const [get, post] = fetchAgentStream.mock.calls
+      expect(String(get?.[0])).toBe("http://127.0.0.1:5173/__vitehub/agent/invocation-stream")
+      expect(post?.[1]?.headers).toMatchObject({
+        [workspaceDevTokenHeader]: token,
+      })
+      expect(JSON.parse(String(post?.[1]?.body))).toEqual({
+        agent: "proof-agent",
+        timeout: 10000,
+        workspaceCommand: {
+          args: ["ok", "--flag"],
+          command: "printf",
+          timeout: 10000,
+        },
+      })
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
   })
 
   it("keeps payload diagnostics off stdout for Capability CLI commands", async () => {

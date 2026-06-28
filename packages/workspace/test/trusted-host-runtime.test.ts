@@ -144,6 +144,30 @@ describe("trusted host workspace runtime", () => {
     await session.close()
   })
 
+  it("hard-stops commands that ignore SIGTERM when aborted", async () => {
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "trusted-host",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+
+    const session = await workspace.startSession()
+    const controller = new AbortController()
+    const startedAt = Date.now()
+    setTimeout(() => controller.abort(), 20)
+    const result = await session.exec(process.execPath, [
+      "-e",
+      "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)",
+    ], { abortSignal: controller.signal })
+
+    expect(result.exitCode).toBe(130)
+    expect(result.stderr).toContain("Command aborted")
+    expect(Date.now() - startedAt).toBeLessThan(2000)
+    await session.close()
+  })
+
   it("materializes generated source descriptors for shell inspection", async () => {
     const workspace = createWorkspace({
       ...defineWorkspace({

@@ -76,7 +76,7 @@ When adapters are configured, inspect generated webhook registrations for the ex
 | `stream` | `boolean` | inherited | Whether the chat trigger should stream output. |
 | `concurrency` | `"drop" \| "parallel" \| "queue" \| "reject" \| string` | inherited | Message concurrency behavior. |
 | `lockScope` | `"agent" \| "channel" \| "thread" \| string` | inherited | Scope used for message locks. |
-| `fallbackStreamingPlaceholderText` | `string \| null \| function` | inherited | Placeholder text while streaming starts. |
+| `fallbackStreamingPlaceholderText` | `string \| string[] \| null \| function` | inherited | Placeholder text while streaming starts. Arrays pick one entry per Agent Invocation; empty arrays skip the placeholder. |
 | `errorFallbackText` | `string \| null \| function` | inherited | Fallback message when chat handling fails. |
 
 ## Reference

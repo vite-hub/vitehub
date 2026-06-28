@@ -69,6 +69,7 @@ async function invokeMiddleware(
   url = "/__vitehub/agent/chat/devtools",
   headers: IncomingMessage["headers"] = { "content-type": "text/plain" },
   method = "POST",
+  options: { onResponse?: (res: ServerResponse) => void } = {},
 ) {
   let output = ""
   const req = Readable.from([JSON.stringify(body)]) as IncomingMessage
@@ -78,6 +79,7 @@ async function invokeMiddleware(
 
   const result = await new Promise<{ body: string, statusCode: number }>((resolve, reject) => {
     let statusCode = 200
+    const closeListeners = new Set<(...args: unknown[]) => void>()
     const res = {
       destroy(error?: Error) {
         reject(error || new Error("response destroyed"))
@@ -89,8 +91,21 @@ async function invokeMiddleware(
       get statusCode() {
         return statusCode
       },
-      off: vi.fn(),
-      once: vi.fn(),
+      emit(event: string, ...args: unknown[]) {
+        if (event !== "close") return false
+        const listeners = [...closeListeners]
+        closeListeners.clear()
+        for (const listener of listeners) listener(...args)
+        return listeners.length > 0
+      },
+      off(event: string, listener: (...args: unknown[]) => void) {
+        if (event === "close") closeListeners.delete(listener)
+        return res
+      },
+      once(event: string, listener: (...args: unknown[]) => void) {
+        if (event === "close") closeListeners.add(listener)
+        return res
+      },
       set statusCode(value: number) {
         statusCode = value
       },
@@ -101,6 +116,7 @@ async function invokeMiddleware(
       },
     } as unknown as ServerResponse
 
+    options.onResponse?.(res)
     handler(req, res, () => reject(new Error("middleware passed through")))
   })
 
@@ -614,6 +630,67 @@ describe("agent chat capability discovery", () => {
         json: true,
       },
     })
+  })
+
+  it("propagates client aborts to Capability CLI runs", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-cli-abort-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    let closeResponse: (() => void) | undefined
+    let commandSignal: AbortSignal | undefined
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              wait: {
+                run: async ({ context }) => {
+                  commandSignal = context.input.get().abortSignal
+                  if (!commandSignal) throw new Error("Missing Capability CLI abort signal.")
+                  const aborted = new Promise<void>((resolve) => {
+                    if (commandSignal?.aborted) resolve()
+                    else commandSignal?.addEventListener("abort", () => resolve(), { once: true })
+                  })
+                  closeResponse?.()
+                  await aborted
+                  return "aborted"
+                },
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+        }),
+      ],
+      run: () => "chat fallback",
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      cli: {
+        argv: ["wait"],
+        name: "inventory",
+      },
+      timeout: 90_000,
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    }, "POST", {
+      onResponse(res) {
+        closeResponse = () => (res as ServerResponse & { emit: (event: string) => boolean }).emit("close")
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(commandSignal).toBeInstanceOf(AbortSignal)
+    expect(commandSignal?.aborted).toBe(true)
   })
 
   it("runs Capability CLI commands on harness-backed agents through the Vite endpoint", async () => {

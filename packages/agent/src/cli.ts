@@ -1,12 +1,15 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
+import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
+
 import { vercelAiGatewayPricing, type AgentUsagePricing } from "./capabilities/usage-telemetry.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, readAgentInvocationStream } from "./invocation-stream.ts"
 
 import type { AgentEvalOptions, AgentUsageRecord } from "./types.ts"
 import type { UIMessageLike } from "./chat-message-input.ts"
+import type { WorkspaceDevTokenOptions } from "@vite-hub/workspace/server"
 
 interface AgentEvaliteRunnerOptions extends ResolvedAgentEvalOptions {
   cacheEnabled?: boolean
@@ -67,6 +70,12 @@ interface ParsedDevArgs {
   timeout?: number
   trigger?: string
   url: string
+  workspaceCommand?: WorkspaceCommandInput
+}
+
+interface WorkspaceCommandInput {
+  args?: string[]
+  command: string
 }
 
 interface AgentDevCliOptions {
@@ -76,6 +85,13 @@ interface AgentDevCliOptions {
 interface AgentDevDiscovery {
   agents?: Array<{ aliases?: unknown, name?: unknown, triggers?: unknown }>
   root?: unknown
+  workspaceDevTokenServerId?: unknown
+}
+
+interface AgentDevTarget {
+  agent: string
+  tokenOptions: WorkspaceDevTokenOptions
+  url: string
 }
 
 const devPayloadMaxLength = 1200
@@ -546,6 +562,15 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
     if (arg.startsWith("-")) {
       throw new Error(`Unknown option: ${arg}.`)
     }
+    if (!parsed.agent && !parsed.message && message.length === 0 && args[index + 1]?.startsWith("!")) {
+      parsed.agent = arg
+      continue
+    }
+    if (arg.startsWith("!")) {
+      message.push(...args.slice(index))
+      parsed.workspaceCommand = directWorkspaceCommandArgv(args.slice(index))
+      break
+    }
     message.push(arg)
   }
 
@@ -590,7 +615,7 @@ async function readDiscovery(
   parsed: ParsedDevArgs,
   context: AgentCliContext,
   fetchImpl: typeof fetch,
-): Promise<{ agent: string, url: string } | undefined> {
+): Promise<AgentDevTarget | undefined> {
   let url: string
   try {
     url = endpointUrl(parsed.url)
@@ -622,6 +647,7 @@ async function readDiscovery(
     context.stderr.write(`Compatible Vite Development Server root mismatch: ${discovery.root}\n`)
     return
   }
+  const tokenOptions = typeof discovery.workspaceDevTokenServerId === "string" ? { serverId: discovery.workspaceDevTokenServerId } : {}
   const agents = (discovery.agents || []).flatMap(agent => typeof agent.name === "string" ? [agent.name] : [])
   const agentTargets = new Map<string, string>()
   for (const agent of discovery.agents || []) {
@@ -639,10 +665,10 @@ async function readDiscovery(
       context.stderr.write(`Unknown Agent Dev Loop Target: ${parsed.agent}\n`)
       return
     }
-    return { agent: target, url }
+    return { agent: target, tokenOptions, url }
   }
   if (agents.length === 1) {
-    return { agent: agents[0]!, url }
+    return { agent: agents[0]!, tokenOptions, url }
   }
   if (!agents.length) {
     context.stderr.write("No Agents discovered.\n")
@@ -893,11 +919,82 @@ async function sendDevCliCommand(
   return typeof result.exitCode === "number" ? result.exitCode : 0
 }
 
+async function sendDevWorkspaceCommand(
+  url: string,
+  agent: string,
+  command: WorkspaceCommandInput,
+  parsed: ParsedDevArgs,
+  context: AgentCliContext,
+  fetchImpl: typeof fetch,
+  tokenOptions: WorkspaceDevTokenOptions,
+  signal?: AbortSignal,
+): Promise<number> {
+  const token = await readWorkspaceDevToken(context.rootDir, tokenOptions)
+  if (!token) {
+    context.stderr.write("No private Agent Dev Loop command token found. Start the Compatible Vite Development Server first.\n")
+    return 1
+  }
+  let response: Response
+  try {
+    response = await fetchImpl(url, {
+      body: JSON.stringify({
+        agent,
+        ...(parsed.payload ? { payload: parsed.payload } : {}),
+        ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
+        workspaceCommand: {
+          ...(command.args ? { args: command.args } : {}),
+          command: command.command,
+          ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
+        },
+      }),
+      headers: {
+        "content-type": "application/json",
+        [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+        [workspaceDevTokenHeader]: token,
+      },
+      method: "POST",
+      signal,
+    })
+  }
+  catch (error) {
+    if (signal?.aborted || error instanceof DOMException && error.name === "AbortError") {
+      context.stderr.write("\n[aborted]\n")
+      return 0
+    }
+    throw error
+  }
+  if (!response.ok) {
+    context.stderr.write(`${await response.text()}\n`)
+    return 1
+  }
+  const result = await response.json().catch(() => ({})) as { exitCode?: unknown, stderr?: unknown, stdout?: unknown }
+  if (typeof result.stdout === "string") context.stdout.write(result.stdout)
+  if (typeof result.stderr === "string" && result.stderr) context.stderr.write(result.stderr)
+  return typeof result.exitCode === "number" ? result.exitCode : 0
+}
+
+function directWorkspaceCommand(text: string): string | undefined {
+  if (!text.startsWith("!")) return
+  const command = text.slice(1).trim()
+  return command || undefined
+}
+
+function directWorkspaceCommandArgv(args: string[]): WorkspaceCommandInput | undefined {
+  const [rawCommand, ...rest] = args
+  if (!rawCommand?.startsWith("!")) return
+  const command = rawCommand.slice(1).trim()
+  if (!command) return
+  return {
+    ...(rest.length ? { args: rest } : {}),
+    command,
+  }
+}
+
 async function runInteractiveDevLoop(
   parsed: ParsedDevArgs,
   context: AgentCliContext,
   fetchImpl: typeof fetch,
-  target: { agent: string, url: string },
+  target: AgentDevTarget,
 ): Promise<number> {
   const { createInterface } = await import("node:readline/promises")
   const readline = createInterface({ input: process.stdin, output: process.stdout })
@@ -926,6 +1023,18 @@ async function runInteractiveDevLoop(
       }
       if (!text) continue
       if (text === ".exit" || text === "exit") return 0
+      const command = directWorkspaceCommand(text)
+      if (command) {
+        activeRequest = new AbortController()
+        try {
+          const exitCode = await sendDevWorkspaceCommand(target.url, target.agent, { command }, parsed, context, fetchImpl, target.tokenOptions, activeRequest.signal)
+          if (exitCode !== 0) return exitCode
+          continue
+        }
+        finally {
+          activeRequest = undefined
+        }
+      }
       activeRequest = new AbortController()
       try {
         const nextHistory = await sendDevMessage(target.url, target.agent, text, history, parsed, context, fetchImpl, activeRequest.signal)
@@ -961,11 +1070,13 @@ export async function runAgentDevCli(
     writeDevUsage(context)
     return 0
   }
+  const textWorkspaceCommand = parsed.message ? directWorkspaceCommand(parsed.message) : undefined
+  const workspaceCommand = parsed.workspaceCommand ?? (textWorkspaceCommand ? { command: textWorkspaceCommand } : undefined)
   if (parsed.payloadPath) {
     try {
       const loaded = await loadDevPayload(parsed.payloadPath, context.rootDir, context.cwd)
       parsed.payload = loaded.value
-      const output = parsed.cli ? context.stderr : context.stdout
+      const output = parsed.cli || workspaceCommand ? context.stderr : context.stdout
       output.write(`Loaded payload: ${loaded.path}\n`)
     }
     catch (error) {
@@ -980,6 +1091,9 @@ export async function runAgentDevCli(
 
   if (parsed.cli) {
     return await sendDevCliCommand(target.url, target.agent, parsed, context, fetchImpl)
+  }
+  if (workspaceCommand) {
+    return await sendDevWorkspaceCommand(target.url, target.agent, workspaceCommand, parsed, context, fetchImpl, target.tokenOptions)
   }
 
   const payloadStartsInvocation = parsed.payload && (
