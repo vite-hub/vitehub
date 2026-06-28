@@ -150,13 +150,13 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({
-        text: "ok",
-        totalUsage: {
-          inputTokens: 4,
-          outputTokens: 6,
-        },
-      }),
+      driver: { run: () => ({
+          text: "ok",
+          totalUsage: {
+            inputTokens: 4,
+            outputTokens: 6,
+          },
+        }) },
     })
 
     const result = await runAgent(agent, {
@@ -197,10 +197,10 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({
-        text: "ok",
-        usageRecord,
-      }),
+      driver: { run: () => ({
+          text: "ok",
+          usageRecord,
+        }) },
     })
 
     const result = await runAgent(agent, {
@@ -230,13 +230,13 @@ describe("agent message protocol", () => {
         hooks: {
           "agent:finish": finish,
         },
-        run: () => ({
-          text: "ok",
-          totalUsage: {
-            inputTokens: 4,
-            outputTokens: 6,
-          },
-        }),
+        driver: { run: () => ({
+            text: "ok",
+            totalUsage: {
+              inputTokens: 4,
+              outputTokens: 6,
+            },
+          }) },
       })
 
       const result = await runAgent(agent, {
@@ -269,13 +269,13 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({
-        text: "ok",
-        totalUsage: {
-          inputTokens: 8,
-          outputTokens: 2,
-        },
-      }),
+      driver: { run: () => ({
+          text: "ok",
+          totalUsage: {
+            inputTokens: 8,
+            outputTokens: 2,
+          },
+        }) },
     })
 
     await runAgent(agent, {
@@ -310,7 +310,7 @@ describe("agent message protocol", () => {
         }),
         usageTelemetry(),
       ],
-      run: () => ({ text: "ok" }),
+      driver: { run: () => ({ text: "ok" }) },
     })
 
     await expect(runAgent(agent, {
@@ -395,13 +395,11 @@ describe("agent message protocol", () => {
           },
         },
       })],
-      driver: {
-        run(context) {
+      driver: { run(context) {
           events.push(`run:${context.prompt}`)
           if (context.prompt === "review:fail") throw new Error("boom")
           return `ok:${context.prompt}`
-        },
-      },
+        }, },
       hooks: {
         "agent:input"(context) {
           events.push(`agent-input:${context.input.prompt}`)
@@ -459,11 +457,9 @@ describe("agent message protocol", () => {
           messages: false,
         }),
       },
-      driver: {
-        run() {
+      driver: { run() {
           throw new Error("failed")
-        },
-      },
+        }, },
     })
 
     await expect(runAgent(agent, {
@@ -555,11 +551,9 @@ describe("agent message protocol", () => {
     for (const { error, message } of cases) {
       const finish = vi.fn()
       const agent = defineAgent({
-        driver: {
-          run: () => {
+        driver: { run: () => {
             throw error
-          },
-        },
+          }, },
         hooks: { "agent:finish": finish },
       })
 
@@ -581,11 +575,9 @@ describe("agent message protocol", () => {
     const finish = vi.fn()
     const agent = defineAgent({
       capabilities: [observability({ onEvent })],
-      driver: {
-        run: () => {
+      driver: { run: () => {
           throw undefined
-        },
-      },
+        }, },
       hooks: { "agent:finish": finish },
     })
 
@@ -622,11 +614,9 @@ describe("agent message protocol", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
-      driver: {
-        run: () => {
+      driver: { run: () => {
           throw new Error("run failed")
-        },
-      },
+        }, },
       hooks: {
         "agent:finish": () => {
           throw new Error("finish failed")
@@ -654,16 +644,14 @@ describe("agent message protocol", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
-      driver: {
-        run: async context => {
+      driver: { run: async context => {
           await emitTraceEvent(context, {
             attributes: { "step.id": "custom-step" },
             name: "agent.custom.step",
             type: "run",
           })
           return "ok"
-        },
-      },
+        }, },
     })
 
     await expect(runAgent(agent, {
@@ -762,16 +750,16 @@ describe("agent message protocol", () => {
       invoker: {
         resolve: () => ({ id: "tenant-1", kind: "tenant", meta: { tier: "pro" } }),
       },
-      run: ({ actor, context, invoker }) => ({
-        raw: {
-          actor,
-          actorIsInvoker: actor === invoker,
-          contextActorIsActor: context.get("actor") === actor,
-          contextInvokerIsInvoker: context.get("invoker") === invoker,
-          invoker,
-        },
-        text: actor.id,
-      }),
+      driver: { run: ({ actor, context, invoker }) => ({
+          raw: {
+            actor,
+            actorIsInvoker: actor === invoker,
+            contextActorIsActor: context.get("actor") === actor,
+            contextInvokerIsInvoker: context.get("invoker") === invoker,
+            invoker,
+          },
+          text: actor.id,
+        }) },
     })
 
     await expect(runAgent(agent, {
@@ -804,13 +792,13 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
-      run: () => (async function* () {
-        yield { text: "secret text", type: "text-delta" }
-        yield { id: "tool-1", input: { query: "secret" }, name: "search", type: "tool-call" }
-        yield { id: "tool-1", name: "search", output: { result: "secret" }, type: "tool-result" }
-        yield { type: "usage", usageRecord: { usage: { totalTokens: 3 } } }
-        yield { type: "finish" }
-      })(),
+      driver: { run: () => (async function* () {
+          yield { text: "secret text", type: "text-delta" }
+          yield { id: "tool-1", input: { query: "secret" }, name: "search", type: "tool-call" }
+          yield { id: "tool-1", name: "search", output: { result: "secret" }, type: "tool-result" }
+          yield { type: "usage", usageRecord: { usage: { totalTokens: 3 } } }
+          yield { type: "finish" }
+        })() },
     })
 
     const stream = await streamAgent(agent, {
@@ -842,10 +830,10 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
-      run: () => (async function* () {
-        yield { error: "stream failed", type: "error" }
-        yield { type: "finish" }
-      })(),
+      driver: { run: () => (async function* () {
+          yield { error: "stream failed", type: "error" }
+          yield { type: "finish" }
+        })() },
     })
 
     const stream = await streamAgent(agent, {
@@ -913,7 +901,10 @@ describe("agent message protocol", () => {
     try {
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const traceLog = createTraceEventLog()
-      const agent = defineAgent({ model: {} as never })
+      const agent = defineAgent({       driver: {
+        model: {} as never
+      },
+})
 
       await expect(runAgent(agent, {
         memo: vi.fn(),
@@ -956,7 +947,10 @@ describe("agent message protocol", () => {
       },
       text: "browser report",
     }))
-    const agent = defineAgent({ run })
+    const agent = defineAgent({     driver: {
+      run
+    },
+})
 
     await expect(runAgent(agent, {
       memo: vi.fn(),
@@ -979,15 +973,15 @@ describe("agent message protocol", () => {
   it("registers subagent tools", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const browserAgent = defineAgent({
-      run: ({ input, invoker, messages, run }) => ({
-        raw: {
-          context: input.context,
-          invokerId: invoker.id,
-          message: getMessageText(messages[0]!),
-          runId: run?.runId,
-        },
-        text: "browser report",
-      }),
+      driver: { run: ({ input, invoker, messages, run }) => ({
+          raw: {
+            context: input.context,
+            invokerId: invoker.id,
+            message: getMessageText(messages[0]!),
+            runId: run?.runId,
+          },
+          text: "browser report",
+        }) },
     })
     const reviewerAgent = defineAgent({
       capabilities: [
@@ -1000,14 +994,14 @@ describe("agent message protocol", () => {
           },
         }),
       ],
-      async run({ tools }) {
-        const tool = tools?.run_browser
-        if (!tool?.execute) throw new Error("Missing browser subagent tool.")
-        return await tool.execute({
-          context: { previewUrl: "https://preview.local" },
-          message: "Check the product card.",
-        })
-      },
+      driver: { async run({ tools }) {
+          const tool = tools?.run_browser
+          if (!tool?.execute) throw new Error("Missing browser subagent tool.")
+          return await tool.execute({
+            context: { previewUrl: "https://preview.local" },
+            message: "Check the product card.",
+          })
+        } },
     })
 
     await expect(runAgent(reviewerAgent, {
@@ -1037,22 +1031,22 @@ describe("agent message protocol", () => {
     const workspaceName = `shared-agent-workspace-${Math.random().toString(36).slice(2)}`
     const summaryAgent = defineAgent({
       workspace: { name: workspaceName, mode: "write" },
-      async run({ workspace }) {
-        await (workspace as WritableWorkspaceFacade).fs.writeFile("summary.md", "summary")
-        return "summary written"
-      },
+      driver: { async run({ workspace }) {
+          await (workspace as WritableWorkspaceFacade).fs.writeFile("summary.md", "summary")
+          return "summary written"
+        } },
     })
     const reviewerAgent = registerWorkspaceAgent(defineAgent({
       workspace: {
         mode: "write",
         store: { provider: "memory" },
       },
-      async run(context) {
-        const workspace = context.workspace as WritableWorkspaceFacade
-        await workspace.fs.writeFile("review.md", "review")
-        await runAgent(summaryAgent, context as never, { message: "write summary" })
-        return await workspace.fs.readFile("summary.md")
-      },
+      driver: { async run(context) {
+          const workspace = context.workspace as WritableWorkspaceFacade
+          await workspace.fs.writeFile("review.md", "review")
+          await runAgent(summaryAgent, context as never, { message: "write summary" })
+          return await workspace.fs.readFile("summary.md")
+        } },
     }), { workspace: workspaceName })
 
     await expect(runAgent(reviewerAgent, {
@@ -1068,11 +1062,17 @@ describe("agent message protocol", () => {
     expect(() => subagents({
       agents: {
         "code-review": {
-          agent: defineAgent({ run: () => "ok" }),
+          agent: defineAgent({           driver: {
+            run: () => "ok"
+          },
+}),
           description: "Review code.",
         },
         code_review: {
-          agent: defineAgent({ run: () => "ok" }),
+          agent: defineAgent({           driver: {
+            run: () => "ok"
+          },
+}),
           description: "Review code again.",
         },
       },
@@ -1109,11 +1109,11 @@ describe("agent message protocol", () => {
           },
         }),
       ],
-      async run({ tools }) {
-        const tool = tools?.run_browser
-        if (!tool?.execute) throw new Error("Missing browser subagent tool.")
-        return await tool.execute({ message: "Check the product card." })
-      },
+      driver: { async run({ tools }) {
+          const tool = tools?.run_browser
+          if (!tool?.execute) throw new Error("Missing browser subagent tool.")
+          return await tool.execute({ message: "Check the product card." })
+        } },
     })
 
     await expect(runAgent(reviewerAgent, {
@@ -1651,7 +1651,7 @@ describe("agent message protocol", () => {
 
     const agent = defineAgent({
       capabilities: [schedule({ schedules: ["0   9 * * *", { cron: "15 10 * * 1-5", id: "weekday-digest" }] })],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     expect(agent.capabilities).toEqual([
@@ -1673,10 +1673,10 @@ describe("agent message protocol", () => {
     const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
     const seen: unknown[] = []
     const agent = defineAgent({
-      run: context => {
-        seen.push({ input: context.input, messages: context.messages })
-        return "ok"
-      },
+      driver: { run: context => {
+          seen.push({ input: context.input, messages: context.messages })
+          return "ok"
+        } },
     })
 
     await expect(runScheduledAgent(agent, {
@@ -1709,10 +1709,10 @@ describe("agent message protocol", () => {
     const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
     const seen: unknown[] = []
     const agent = defineAgent({
-      run: context => {
-        seen.push(context.input)
-        return "ok"
-      },
+      driver: { run: context => {
+          seen.push(context.input)
+          return "ok"
+        } },
     })
 
     await expect(runScheduledAgent(agent, {
@@ -1735,10 +1735,10 @@ describe("agent message protocol", () => {
     const { defineAgent, runScheduledAgent } = await import("../src/index.ts")
     const create = vi.fn(() => ({ ok: true }))
     const agent = defineAgent({
-      run: context => [
-        context.memo("resource", create),
-        context.memo("resource", create),
-      ],
+      driver: { run: context => [
+          context.memo("resource", create),
+          context.memo("resource", create),
+        ] },
     })
 
     const result = await runScheduledAgent(agent, {
@@ -1760,14 +1760,14 @@ describe("agent message protocol", () => {
     const waitUntil = vi.fn()
     const seen: unknown[] = []
     const agent = defineAgent({
-      run: context => {
-        seen.push({
-          run: context.run,
-          runtime: context.runtime,
-          waitUntil: context.waitUntil,
-        })
-        return "ok"
-      },
+      driver: { run: context => {
+          seen.push({
+            run: context.run,
+            runtime: context.runtime,
+            waitUntil: context.waitUntil,
+          })
+          return "ok"
+        } },
     })
 
     await expect(runScheduledAgent(agent, {
@@ -1941,7 +1941,7 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: context => `received ${context.prompt}`,
+      driver: { run: context => `received ${context.prompt}` },
     })
     const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
 
@@ -1975,7 +1975,7 @@ describe("agent message protocol", () => {
           },
         },
       })],
-      run: context => `received ${getMessageText(context.messages[0]!)}`,
+      driver: { run: context => `received ${getMessageText(context.messages[0]!)}` },
     })
     const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
 
@@ -2002,10 +2002,10 @@ describe("agent message protocol", () => {
           },
         }),
       },
-      run: (context) => {
-        const trigger = context.context.get<{ source?: string }>("agent.trigger")
-        return `${trigger?.source}:${context.context.get("channelKind")}:${getMessageText(context.messages[0]!)}`
-      },
+      driver: { run: (context) => {
+          const trigger = context.context.get<{ source?: string }>("agent.trigger")
+          return `${trigger?.source}:${context.context.get("channelKind")}:${getMessageText(context.messages[0]!)}`
+        } },
     })
     const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
 
@@ -2052,10 +2052,10 @@ describe("agent message protocol", () => {
           },
         }),
       },
-      run: () => {
-        order.push("run")
-        return "ok"
-      },
+      driver: { run: () => {
+          order.push("run")
+          return "ok"
+        } },
     })
     const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
 
@@ -2102,10 +2102,10 @@ describe("agent message protocol", () => {
           },
         }),
       },
-      run: () => {
-        order.push("run")
-        return "ok"
-      },
+      driver: { run: () => {
+          order.push("run")
+          return "ok"
+        } },
     })
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
@@ -2157,10 +2157,10 @@ describe("agent message protocol", () => {
           },
         }),
       },
-      run: async ({ workspace }) => {
-        await (workspace as WritableWorkspaceFacade).fs.writeFile("screenshots/result.png", content, { mediaType: "image/png" })
-        return "ok"
-      },
+      driver: { run: async ({ workspace }) => {
+          await (workspace as WritableWorkspaceFacade).fs.writeFile("screenshots/result.png", content, { mediaType: "image/png" })
+          return "ok"
+        } },
       workspace: { mode: "write", store: { provider: "memory" } },
     })
 
@@ -2203,7 +2203,7 @@ describe("agent message protocol", () => {
           },
         }),
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "portal.message", {})).resolves.toBe("ok")
@@ -2239,7 +2239,7 @@ describe("agent message protocol", () => {
       hooks: {
         "hook:observe": observe,
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
     const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
 
@@ -2291,7 +2291,7 @@ describe("agent message protocol", () => {
           throw new Error("observer failed")
         },
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
     const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
 
@@ -2422,7 +2422,7 @@ describe("agent message protocol", () => {
         history: { maxMessages: 20, source: "thread" },
         sessions: true,
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     expect(agent.chat).toMatchObject({
@@ -2466,7 +2466,7 @@ describe("agent message protocol", () => {
           },
         }),
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     expect(agent.chat?.platforms).toEqual({ telegram: adapter })
@@ -2500,7 +2500,7 @@ describe("agent message protocol", () => {
           webhooks: { path: "/api/github/webhook" },
         }),
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
@@ -2533,7 +2533,7 @@ describe("agent message protocol", () => {
           webhooks: { path: "/api/github/webhook" },
         }),
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
@@ -2566,7 +2566,7 @@ describe("agent message protocol", () => {
           },
         }),
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
@@ -2697,13 +2697,13 @@ describe("agent message protocol", () => {
           },
         }),
       },
-      run: (context) => {
-        expect(context.prompt).toBe("")
-        return {
-          text: "Review completed.",
-          totalUsage: { inputTokens: 10, outputTokens: 5 },
-        }
-      },
+      driver: { run: (context) => {
+          expect(context.prompt).toBe("")
+          return {
+            text: "Review completed.",
+            totalUsage: { inputTokens: 10, outputTokens: 5 },
+          }
+        } },
     })
 
     await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", input)).resolves.toMatchObject({
@@ -2786,7 +2786,9 @@ describe("agent message protocol", () => {
           events: { pullRequestComments: true },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
     const input = {
       github: { deliveryId: "delivery-unauthorized", event: "issue_comment", installationId: 123 },
@@ -2840,7 +2842,9 @@ describe("agent message protocol", () => {
           events: { pullRequestComments: true },
         }),
       },
-      run,
+      driver: {
+        run
+      },
     })
 
     const response = await runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {
@@ -2905,7 +2909,7 @@ describe("agent message protocol", () => {
           events: { pullRequestComments: true },
         }),
       },
-      run: context => `ran:${context.prompt}`,
+      driver: { run: context => `ran:${context.prompt}` },
     })
     const delivery = (body: string, id: number) => ({
       github: { deliveryId: `delivery-${id}`, event: "issue_comment" },
@@ -2945,7 +2949,7 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       capabilities: [{ id: "custom" }],
       channels: { web: webChat() },
-      run: () => "ok",
+      driver: { run: () => "ok" },
       workspace: {},
     })
     const registered = withAgentDefaults(agent as never, { workspace: "docs" })
@@ -2971,7 +2975,7 @@ describe("agent message protocol", () => {
           ],
         }),
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
@@ -3000,7 +3004,7 @@ describe("agent message protocol", () => {
           webhooks: false,
         }),
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
@@ -3026,7 +3030,7 @@ describe("agent message protocol", () => {
           webhooks: { path: "/api/support/chat" },
         }),
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })).toThrow("[vitehub] Channel webhooks require an adapter-backed Channel.")
   })
 
@@ -3039,7 +3043,7 @@ describe("agent message protocol", () => {
         sales: teams({ adapter: () => ({}) as never }),
         support: teams({ adapter: () => ({}) as never }),
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
@@ -3065,7 +3069,7 @@ describe("agent message protocol", () => {
           },
         }),
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     expect(agent.chat).toMatchObject({
@@ -3083,7 +3087,7 @@ describe("agent message protocol", () => {
         teams: teams({ adapter: () => ({}) as never }),
         web: webChat({ messages: { history: false } }),
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })).toThrow("Channel-local messages options are only supported when an Agent defines one message-shaped Channel")
   })
 
@@ -3099,7 +3103,7 @@ describe("agent message protocol", () => {
         }),
         web: webChat(),
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })).toThrow("Channel-local identity resolvers are only supported when an Agent defines one message-shaped Channel")
   })
 
@@ -3111,7 +3115,7 @@ describe("agent message protocol", () => {
     expect(() => defineAgent({
       capabilities: [chat()],
       channels: { web: webChat() },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })).toThrow("defineAgent({ channels }) cannot be combined with the chat() capability")
   })
 
@@ -3136,7 +3140,7 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({ text: "ok" }),
+      driver: { run: () => ({ text: "ok" }) },
     })
     const input = { prompt: "hello" }
 
@@ -3176,7 +3180,7 @@ describe("agent message protocol", () => {
           context.finish.provide(extension)
         },
       }],
-      run: () => ({ text: "ok" }),
+      driver: { run: () => ({ text: "ok" }) },
     })
 
     await expect(runAgent(agent, {
@@ -3204,7 +3208,7 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({ text: "ok" }),
+      driver: { run: () => ({ text: "ok" }) },
     })
 
     await expect(runAgent(agent, {
@@ -3244,7 +3248,7 @@ describe("agent message protocol", () => {
         hooks: {
           "agent:finish": finish,
         },
-        model: {} as never,
+        driver: { model: {} as never },
       })
 
       await expect(runAgent(agent, {
@@ -3292,7 +3296,7 @@ describe("agent message protocol", () => {
           },
         }),
       ],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok:12 tokens:12 tokens:undefined")
@@ -3319,7 +3323,7 @@ describe("agent message protocol", () => {
           },
         }),
       ],
-      run: () => ({ text: "ok" }),
+      driver: { run: () => ({ text: "ok" }) },
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("plain:12 tokens")
@@ -3336,7 +3340,7 @@ describe("agent message protocol", () => {
           },
         }),
       ],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("ok:rendered")
@@ -3369,7 +3373,7 @@ describe("agent message protocol", () => {
         hooks: {
           "agent:finish": finish,
         },
-        model: {} as never,
+        driver: { model: {} as never },
       })
 
       const stream = await streamAgent(agent, {
@@ -3416,7 +3420,7 @@ describe("agent message protocol", () => {
         hooks: {
           "agent:finish": finish,
         },
-        model: {} as never,
+        driver: { model: {} as never },
       })
 
       const stream = await streamAgent(agent, {
@@ -3476,7 +3480,7 @@ describe("agent message protocol", () => {
         hooks: {
           "agent:finish": finish,
         },
-        model: {} as never,
+        driver: { model: {} as never },
       })
 
       await expect(runAgent(agent, {
@@ -3538,19 +3542,19 @@ describe("agent message protocol", () => {
           messages: false,
         }),
       },
-      run: () => ({
-        fullStream: (async function* () {
-          yield { text: "raw ", type: "text-delta" }
-          yield { text: "review", type: "text-delta" }
-          yield {
-            totalUsage: {
-              inputTokens: 10,
-              outputTokens: 5,
-            },
-            type: "finish",
-          }
-        })(),
-      }),
+      driver: { run: () => ({
+          fullStream: (async function* () {
+            yield { text: "raw ", type: "text-delta" }
+            yield { text: "review", type: "text-delta" }
+            yield {
+              totalUsage: {
+                inputTokens: 10,
+                outputTokens: 5,
+              },
+              type: "finish",
+            }
+          })(),
+        }) },
     })
 
     const stream = await streamAgent(agent, {
@@ -3617,11 +3621,11 @@ describe("agent message protocol", () => {
           messages: false,
         }),
       },
-      run: () => (async function* () {
-        yield { text: "bare ", type: "text-delta" }
-        yield { text: "stream", type: "text-delta" }
-        yield { type: "finish" }
-      })(),
+      driver: { run: () => (async function* () {
+          yield { text: "bare ", type: "text-delta" }
+          yield { text: "stream", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
     })
 
     const stream = await streamAgent(agent, {
@@ -3683,21 +3687,21 @@ describe("agent message protocol", () => {
           messages: false,
         }),
       },
-      run: () => (async function* () {
-        yield { text: "bare ", type: "text-delta" }
-        yield { text: "review", type: "text-delta" }
-        yield {
-          type: "usage",
-          usageRecord: {
-            usage: {
-              inputTokens: 3,
-              outputTokens: 4,
-              totalTokens: 7,
+      driver: { run: () => (async function* () {
+          yield { text: "bare ", type: "text-delta" }
+          yield { text: "review", type: "text-delta" }
+          yield {
+            type: "usage",
+            usageRecord: {
+              usage: {
+                inputTokens: 3,
+                outputTokens: 4,
+                totalTokens: 7,
+              },
             },
-          },
-        }
-        yield { type: "finish" }
-      })(),
+          }
+          yield { type: "finish" }
+        })() },
     })
 
     const stream = await streamAgent(agent, {
@@ -3733,11 +3737,11 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => (async function* () {
-        yield { text: "run ", type: "text-delta" }
-        yield { text: "stream", type: "text-delta" }
-        yield { type: "finish" }
-      })(),
+      driver: { run: () => (async function* () {
+          yield { text: "run ", type: "text-delta" }
+          yield { text: "stream", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
     })
 
     const stream = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
@@ -3788,23 +3792,23 @@ describe("agent message protocol", () => {
           messages: false,
         }),
       },
-      run: () => ({
-        fullStream: (async function* () {
-          yield { text: "raw ", type: "text-delta" }
-          yield { text: "review", type: "text-delta" }
-          yield {
-            type: "usage",
-            usageRecord: {
-              usage: {
-                inputTokens: 10,
-                outputTokens: 5,
-                totalTokens: 15,
+      driver: { run: () => ({
+          fullStream: (async function* () {
+            yield { text: "raw ", type: "text-delta" }
+            yield { text: "review", type: "text-delta" }
+            yield {
+              type: "usage",
+              usageRecord: {
+                usage: {
+                  inputTokens: 10,
+                  outputTokens: 5,
+                  totalTokens: 15,
+                },
               },
-            },
-          }
-          yield { type: "finish" }
-        })(),
-      }),
+            }
+            yield { type: "finish" }
+          })(),
+        }) },
     })
 
     const stream = await streamAgent(agent, {
@@ -3867,12 +3871,12 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({
-        fullStream: (async function* () {
-          yield { text: "ok", type: "text-delta" }
-          yield { type: "finish" }
-        })(),
-      }),
+      driver: { run: () => ({
+          fullStream: (async function* () {
+            yield { text: "ok", type: "text-delta" }
+            yield { type: "finish" }
+          })(),
+        }) },
     })
 
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
@@ -3921,22 +3925,22 @@ describe("agent message protocol", () => {
           messages: false,
         }),
       },
-      run: () => ({
-        toUIMessageStream() {
-          return new ReadableStream({
-            start(controller) {
-              controller.enqueue({ delta: "ui ", type: "text-delta" })
-              controller.enqueue({ delta: "review", type: "text-delta" })
-              controller.enqueue({ type: "finish" })
-              controller.close()
-            },
-          })
-        },
-        usage: {
-          inputTokens: 1,
-          outputTokens: 2,
-        },
-      }),
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return new ReadableStream({
+              start(controller) {
+                controller.enqueue({ delta: "ui ", type: "text-delta" })
+                controller.enqueue({ delta: "review", type: "text-delta" })
+                controller.enqueue({ type: "finish" })
+                controller.close()
+              },
+            })
+          },
+          usage: {
+            inputTokens: 1,
+            outputTokens: 2,
+          },
+        }) },
     })
 
     const stream = await streamAgent(agent, {
@@ -3964,10 +3968,10 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": () => { order.push("finish") },
       },
-      run: () => (async function* () {
-        yield "hello"
-        order.push("stream:done")
-      })(),
+      driver: { run: () => (async function* () {
+          yield "hello"
+          order.push("stream:done")
+        })() },
     })
 
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
@@ -3980,12 +3984,12 @@ describe("agent message protocol", () => {
   it("streams custom run fullStream results", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      run: () => ({
-        fullStream: (async function* () {
-          yield { text: "ok", type: "text-delta" }
-          yield { type: "finish" }
-        })(),
-      }),
+      driver: { run: () => ({
+          fullStream: (async function* () {
+            yield { text: "ok", type: "text-delta" }
+            yield { type: "finish" }
+          })(),
+        }) },
     })
 
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})
@@ -4016,9 +4020,9 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => (async function* () {
-        yield "hello"
-      })(),
+      driver: { run: () => (async function* () {
+          yield "hello"
+        })() },
     })
 
     await expect(streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toThrow("render failed")
@@ -4032,10 +4036,10 @@ describe("agent message protocol", () => {
     const execute = vi.fn(({ text }) => `Title: ${text}`)
     const agent = defineAgent({
       capabilities: [chatTitle({ execute })],
-      run: () => (async function* () {
-        yield { text: "hello", type: "text-delta" }
-        yield { type: "finish" }
-      })(),
+      driver: { run: () => (async function* () {
+          yield { text: "hello", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
     })
 
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -4070,10 +4074,10 @@ describe("agent message protocol", () => {
     })
     const agent = defineAgent({
       capabilities: [chatTitle({ execute: () => delayedTitle })],
-      run: () => (async function* () {
-        yield { text: "hello", type: "text-delta" }
-        yield { type: "finish" }
-      })(),
+      driver: { run: () => (async function* () {
+          yield { text: "hello", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
     })
 
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -4103,10 +4107,10 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [chatTitle({ execute: () => { throw new Error("title failed") } })],
-      run: () => (async function* () {
-        yield { text: "hello", type: "text-delta" }
-        yield { type: "finish" }
-      })(),
+      driver: { run: () => (async function* () {
+          yield { text: "hello", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
     })
 
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -4125,7 +4129,16 @@ describe("agent message protocol", () => {
 
   it("generates chat titles with the default template and agent model", async () => {
     const generateText = vi.fn(async () => ({ text: '"Generated invoice title"' }))
-    vi.doMock("ai", () => ({ generateText, jsonSchema: vi.fn(schema => schema) }))
+    vi.doMock("ai", () => ({
+      generateText,
+      isStepCount: vi.fn(count => ({ count })),
+      jsonSchema: vi.fn(schema => schema),
+      ToolLoopAgent: class {
+        async generate() {
+          return { finishReason: "stop", text: "ok" }
+        }
+      },
+    }))
 
     try {
       const { defineAgent, runAgent } = await import("../src/index.ts")
@@ -4135,8 +4148,7 @@ describe("agent message protocol", () => {
         hooks: {
           "agent:finish": finish,
         },
-        model: "agent-title-model" as never,
-        run: () => ({ text: "ok" }),
+        driver: { model: "agent-title-model" as never, },
       })
 
       await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -4203,7 +4215,7 @@ describe("agent message protocol", () => {
         hooks: {
           "agent:finish": finish,
         },
-        run: () => ({ text: "ok" }),
+        driver: { run: () => ({ text: "ok" }) },
       })
       const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }
 
@@ -4246,7 +4258,7 @@ describe("agent message protocol", () => {
       const { defineAgent, streamAgent } = await import("../src/index.ts")
       const agent = defineAgent({
         capabilities: [chatTitle({ execute: () => "Adapter title" })],
-        model: {} as never,
+        driver: { model: {} as never },
       })
 
       const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -4283,7 +4295,7 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => new StreamResult(),
+      driver: { run: () => new StreamResult() },
     })
 
     const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -4321,7 +4333,7 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => new TextStreamResult(),
+      driver: { run: () => new TextStreamResult() },
     })
 
     const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -4347,19 +4359,19 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [chatTitle({ execute: () => "Sidebar title" })],
-      run: () => ({
-        toUIMessageStream() {
-          return createUIMessageStream({
-            execute({ writer }) {
-              writer.write({ type: "start", messageId: "assistant-1" })
-              writer.write({ type: "text-start", id: "text-1" })
-              writer.write({ type: "text-delta", id: "text-1", delta: "answer" })
-              writer.write({ type: "text-end", id: "text-1" })
-              writer.write({ type: "finish", finishReason: "stop" })
-            },
-          })
-        },
-      }),
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return createUIMessageStream({
+              execute({ writer }) {
+                writer.write({ type: "start", messageId: "assistant-1" })
+                writer.write({ type: "text-start", id: "text-1" })
+                writer.write({ type: "text-delta", id: "text-1", delta: "answer" })
+                writer.write({ type: "text-end", id: "text-1" })
+                writer.write({ type: "finish", finishReason: "stop" })
+              },
+            })
+          },
+        }) },
     })
 
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -4380,22 +4392,22 @@ describe("agent message protocol", () => {
     const { createUIMessageStream, readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      run: () => ({
-        get text() {
-          throw new Error("text getter should not be read")
-        },
-        toUIMessageStream() {
-          return createUIMessageStream({
-            execute({ writer }) {
-              writer.write({ type: "start", messageId: "assistant-1" })
-              writer.write({ type: "text-start", id: "text-1" })
-              writer.write({ type: "text-delta", id: "text-1", delta: "answer" })
-              writer.write({ type: "text-end", id: "text-1" })
-              writer.write({ type: "finish", finishReason: "stop" })
-            },
-          })
-        },
-      }),
+      driver: { run: () => ({
+          get text() {
+            throw new Error("text getter should not be read")
+          },
+          toUIMessageStream() {
+            return createUIMessageStream({
+              execute({ writer }) {
+                writer.write({ type: "start", messageId: "assistant-1" })
+                writer.write({ type: "text-start", id: "text-1" })
+                writer.write({ type: "text-delta", id: "text-1", delta: "answer" })
+                writer.write({ type: "text-end", id: "text-1" })
+                writer.write({ type: "finish", finishReason: "stop" })
+              },
+            })
+          },
+        }) },
     })
 
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -4416,26 +4428,26 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
     const agent = defineAgent({
-      run: () => ({
-        fullStream: (async function* () {
-          yield { input: { query: "users" }, toolCallId: "tool-1", toolName: "search", type: "tool-call" }
-          yield { output: "42", toolCallId: "tool-1", toolName: "search", type: "tool-result" }
-          yield { finishReason: "stop", type: "finish" }
-        })(),
-        toUIMessageStream() {
-          return createUIMessageStream({
-            execute({ writer }) {
-              writer.write({ type: "start", messageId: "assistant-1" })
-              writer.write({ type: "text-start", id: "text-1" })
-              writer.write({ type: "text-delta", id: "text-1", delta: "native answer" })
-              writer.write({ type: "text-end", id: "text-1" })
-              writer.write({ input: { query: "users" }, toolCallId: "tool-1", toolName: "search", type: "tool-input-available" })
-              writer.write({ output: "42", toolCallId: "tool-1", type: "tool-output-available" })
-              writer.write({ type: "finish", finishReason: "stop" })
-            },
-          })
-        },
-      }),
+      driver: { run: () => ({
+          fullStream: (async function* () {
+            yield { input: { query: "users" }, toolCallId: "tool-1", toolName: "search", type: "tool-call" }
+            yield { output: "42", toolCallId: "tool-1", toolName: "search", type: "tool-result" }
+            yield { finishReason: "stop", type: "finish" }
+          })(),
+          toUIMessageStream() {
+            return createUIMessageStream({
+              execute({ writer }) {
+                writer.write({ type: "start", messageId: "assistant-1" })
+                writer.write({ type: "text-start", id: "text-1" })
+                writer.write({ type: "text-delta", id: "text-1", delta: "native answer" })
+                writer.write({ type: "text-end", id: "text-1" })
+                writer.write({ input: { query: "users" }, toolCallId: "tool-1", toolName: "search", type: "tool-input-available" })
+                writer.write({ output: "42", toolCallId: "tool-1", type: "tool-output-available" })
+                writer.write({ type: "finish", finishReason: "stop" })
+              },
+            })
+          },
+        }) },
     })
 
     const stream = await streamAgent(agent, {
@@ -4474,29 +4486,29 @@ describe("agent message protocol", () => {
     let cancelReason: unknown
     let releaseBlockedPull: (() => void) | undefined
     const agent = defineAgent({
-      run: () => ({
-        fullStream: (async function* () {
-          yield { type: "finish" }
-        })(),
-        toUIMessageStream() {
-          return new ReadableStream({
-            pull(controller) {
-              pulls += 1
-              if (pulls === 1) {
-                controller.enqueue({ type: "start", messageId: "assistant-1" })
-                return
-              }
-              return new Promise<void>((resolve) => {
-                releaseBlockedPull = resolve
-              })
-            },
-            cancel(reason) {
-              cancelReason = reason
-              releaseBlockedPull?.()
-            },
-          })
-        },
-      }),
+      driver: { run: () => ({
+          fullStream: (async function* () {
+            yield { type: "finish" }
+          })(),
+          toUIMessageStream() {
+            return new ReadableStream({
+              pull(controller) {
+                pulls += 1
+                if (pulls === 1) {
+                  controller.enqueue({ type: "start", messageId: "assistant-1" })
+                  return
+                }
+                return new Promise<void>((resolve) => {
+                  releaseBlockedPull = resolve
+                })
+              },
+              cancel(reason) {
+                cancelReason = reason
+                releaseBlockedPull?.()
+              },
+            })
+          },
+        }) },
     })
 
     const stream = await streamAgent(agent, {
@@ -4528,10 +4540,10 @@ describe("agent message protocol", () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [chatTitle({ execute: () => "Async title" })],
-      run: () => (async function* () {
-        yield { text: "answer", type: "text-delta" }
-        yield { type: "finish" }
-      })(),
+      driver: { run: () => (async function* () {
+          yield { text: "answer", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
     })
 
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -4552,10 +4564,10 @@ describe("agent message protocol", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [chatTitle({ execute: () => "Run title" })],
-      run: () => (async function* () {
-        yield { text: "answer", type: "text-delta" }
-        yield { type: "finish" }
-      })(),
+      driver: { run: () => (async function* () {
+          yield { text: "answer", type: "text-delta" }
+          yield { type: "finish" }
+        })() },
     })
 
     const result = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -4578,7 +4590,7 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({ text: "ok" }),
+      driver: { run: () => ({ text: "ok" }) },
     })
 
     await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -4597,7 +4609,7 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => new Response("ok"),
+      driver: { run: () => new Response("ok") },
     })
 
     const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as Response
@@ -4614,11 +4626,11 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => new Response(new ReadableStream({
-        pull() {
-          throw error
-        },
-      })),
+      driver: { run: () => new Response(new ReadableStream({
+          pull() {
+            throw error
+          },
+        })) },
     })
 
     const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as Response
@@ -4636,11 +4648,11 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => new Response(new ReadableStream({
-        start(controller) {
-          controller.enqueue(new TextEncoder().encode("partial"))
-        },
-      })),
+      driver: { run: () => new Response(new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode("partial"))
+          },
+        })) },
     })
 
     const response = await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}) as Response
@@ -4657,7 +4669,7 @@ describe("agent message protocol", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => new Response(body),
+      driver: { run: () => new Response(body) },
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {})).rejects.toThrow()
@@ -4974,7 +4986,7 @@ describe("agent message protocol", () => {
         history: { maxMessages: 10, source: "thread" },
         sessions: { idleTimeoutMs: 30 * 60 * 1000, strategy: "idle-timeout" },
       })],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     const invocation = await resolveAgentTriggerInvocation(agent, {
@@ -5000,7 +5012,7 @@ describe("agent message protocol", () => {
     const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [chat()],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     const invocation = await resolveAgentTriggerInvocation(agent, {
@@ -5032,7 +5044,7 @@ describe("agent message protocol", () => {
     const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [chat()],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     const invocation = await resolveAgentTriggerInvocation(agent, {
@@ -5051,7 +5063,7 @@ describe("agent message protocol", () => {
     const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [chat({ fallbackStreamingPlaceholderText: null })],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     const invocation = await resolveAgentTriggerInvocation(agent, {
@@ -5070,7 +5082,7 @@ describe("agent message protocol", () => {
     const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [chat({ fallbackStreamingPlaceholderText: [] })],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     const invocation = await resolveAgentTriggerInvocation(agent, {
@@ -5089,13 +5101,13 @@ describe("agent message protocol", () => {
     const { readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const agent = defineAgent({
-      run: () => (async function* () {
-        yield { data: { title: "Async title", type: "chat-title" }, type: "data" }
-        yield { text: "hello", type: "text-delta" }
-        yield { id: "tool-1", input: { query: "users" }, name: "search", type: "tool-call" }
-        yield { id: "tool-1", name: "search", output: "42", type: "tool-result" }
-        yield { type: "finish" }
-      })(),
+      driver: { run: () => (async function* () {
+          yield { data: { title: "Async title", type: "chat-title" }, type: "data" }
+          yield { text: "hello", type: "text-delta" }
+          yield { id: "tool-1", input: { query: "users" }, name: "search", type: "tool-call" }
+          yield { id: "tool-1", name: "search", output: "42", type: "tool-result" }
+          yield { type: "finish" }
+        })() },
     })
 
     const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -5120,7 +5132,7 @@ describe("agent message protocol", () => {
         history: { maxMessages: 10, source: "thread" },
         sessions: true,
       })],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     const invocation = await resolveAgentTriggerInvocation(agent, {
@@ -5252,7 +5264,7 @@ describe("agent message protocol", () => {
     const { defineAgent } = await import("../src/index.ts")
 
     const agent = defineAgent({
-      model: {} as never,
+      driver: { model: {} as never },
       capabilities: [{
         id: "inspect",
         tools: context => ({
@@ -5278,7 +5290,7 @@ describe("agent message protocol", () => {
     const { defineAgent } = await import("../src/index.ts")
 
     const agent = defineAgent({
-      model: {} as never,
+      driver: { model: {} as never },
       capabilities: [{
         id: "lookup-tools",
         tools: {
@@ -5300,7 +5312,7 @@ describe("agent message protocol", () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
 
     const agent = defineAgent({
-      model: {} as never,
+      driver: { model: {} as never, },
       capabilities: [
         defineCapability({
           cli: {
@@ -5357,7 +5369,7 @@ describe("agent message protocol", () => {
           },
         }),
       ],
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     const resolved = await reviewerAgent.resolve({
@@ -5383,7 +5395,7 @@ describe("agent message protocol", () => {
     const execute = vi.fn()
 
     const agent = defineAgent({
-      model: {} as never,
+      driver: { model: {} as never },
       capabilities: [{
         id: "refund-tools",
         tools: {
@@ -5406,7 +5418,7 @@ describe("agent message protocol", () => {
     const execute = vi.fn()
 
     const agent = defineAgent({
-      model: {} as never,
+      driver: { model: {} as never },
       capabilities: [{
         id: "refund-tools",
         tools: {
@@ -5436,28 +5448,28 @@ describe("agent message protocol", () => {
 
     expect(() => defineAgent({
       capabilities: [{ id: "custom" }, { id: "custom" }],
-      model: {} as never,
+      driver: { model: {} as never },
     })).toThrow("Duplicate capability id")
 
     expect(() => defineAgent({
       capabilities: [{} as never],
-      model: {} as never,
+      driver: { model: {} as never },
     })).toThrow("require a non-empty string id")
 
     expect(() => defineAgent({
       capabilities: [sandbox({ commands: ["pnpm test"] })],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: {},
     })).toThrow("executable names only")
 
     expect(() => defineAgent({
       capabilities: [workspaceShell()],
-      model: {} as never,
+      driver: { model: {} as never },
     })).toThrow("requires an explicit workspace")
 
     expect(() => defineAgent({
       capabilities: [workspaceShell({ mode: "write" })],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: { mode: "read" },
     })).toThrow("requires workspace.mode")
   })
@@ -5467,7 +5479,7 @@ describe("agent message protocol", () => {
     const { kv } = await import("../src/capabilities.ts")
     const agent = defineAgent({
       capabilities: [kv()],
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     await expect(agent.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() })).rejects.toThrow("requires the kv primitive")
@@ -5486,19 +5498,19 @@ describe("agent message protocol", () => {
       const agent = defineAgent({
         capabilities: [chat()],
         runtime: workflow("support-agent"),
-        run: () => ({
-          toUIMessageStream() {
-            return createUIMessageStream({
-              execute({ writer }) {
-                writer.write({ type: "start", messageId: "assistant-1" })
-                writer.write({ type: "text-start", id: "text-1" })
-                writer.write({ type: "text-delta", id: "text-1", delta: "pong" })
-                writer.write({ type: "text-end", id: "text-1" })
-                writer.write({ type: "finish", finishReason: "stop" })
-              },
-            })
-          },
-        }),
+        driver: { run: () => ({
+            toUIMessageStream() {
+              return createUIMessageStream({
+                execute({ writer }) {
+                  writer.write({ type: "start", messageId: "assistant-1" })
+                  writer.write({ type: "text-start", id: "text-1" })
+                  writer.write({ type: "text-delta", id: "text-1", delta: "pong" })
+                  writer.write({ type: "text-end", id: "text-1" })
+                  writer.write({ type: "finish", finishReason: "stop" })
+                },
+              })
+            },
+          }) },
       })
 
       const stream = await streamAgentTrigger(agent, {
@@ -5527,7 +5539,7 @@ describe("agent message protocol", () => {
 
       const agent = defineAgent({
         runtime: workflow("support-agent"),
-        run: context => `received ${context.prompt}`,
+        driver: { run: context => `received ${context.prompt}` },
       })
       const run = await runAgent(agent, {
         memo: vi.fn(),
@@ -5555,7 +5567,7 @@ describe("agent message protocol", () => {
 
       const agent = withAgentDefaults(defineAgent({
         runtime: workflow(),
-        run: context => `received ${context.prompt}`,
+        driver: { run: context => `received ${context.prompt}` },
       }), { inferredName: "browser" })
       const run = await runAgent(agent!, {
         memo: vi.fn(),
@@ -5573,7 +5585,7 @@ describe("agent message protocol", () => {
     it("preserves Agent Definition metadata when applying discovered defaults", async () => {
       const { createAgentDevtoolsMetadata, defineAgent, withAgentDefaults, workflow } = await import("../src/index.ts")
       const agent = withAgentDefaults(defineAgent({
-        model: { id: "test-model" } as never,
+        driver: { model: { id: "test-model" } as never },
         runtime: workflow(),
       }), { inferredName: "browser" })
 
@@ -5591,7 +5603,7 @@ describe("agent message protocol", () => {
       const { defineAgent } = await import("../src/index.ts")
       const defaults = (agent: unknown) => (agent as { __vitehubWorkspaceAgentDefaults?: { name?: string, workspace?: string } }).__vitehubWorkspaceAgentDefaults
       const agent = defineAgent({
-        run: () => "ok",
+        driver: { run: () => "ok" },
         workspace: {},
       })
 
@@ -5610,7 +5622,7 @@ describe("agent message protocol", () => {
       const { defineAgent } = await import("../src/index.ts")
       const defaults = (agent: unknown) => (agent as { __vitehubWorkspaceAgentDefaults?: { name?: string, workspace?: string } }).__vitehubWorkspaceAgentDefaults
       const agent = defineAgent({
-        run: () => "ok",
+        driver: { run: () => "ok" },
         workspace: {},
       })
 
@@ -5630,7 +5642,7 @@ describe("agent message protocol", () => {
 
       const agent = withAgentDefaults(defineAgent({
         runtime: workflow(),
-        run: context => `received ${context.prompt}`,
+        driver: { run: context => `received ${context.prompt}` },
         workspace: {},
       }), { inferredName: "reviewer", workspace: "reviewer" })
       const run = await runAgent(agent, {
@@ -5653,7 +5665,7 @@ describe("agent message protocol", () => {
 
       const agent = defineAgent({
         runtime: workflow(),
-        run: () => "ok",
+        driver: { run: () => "ok" },
       })
 
       await expect(runAgent(agent, {
@@ -5717,11 +5729,15 @@ describe("agent message protocol", () => {
       const run = (context: { prompt?: string }) => `received ${context.prompt}`
       const firstAgent = defineAgent({
         runtime: workflow("support-agent"),
-        run,
+        driver: {
+          run
+        },
       })
       const secondAgent = defineAgent({
         runtime: workflow("support-agent"),
-        run,
+        driver: {
+          run
+        },
       })
 
       const first = await runAgent(firstAgent, {
@@ -5766,7 +5782,7 @@ describe("agent message protocol", () => {
           },
         }],
         runtime: workflow("portal-agent"),
-        run: context => `received ${context.prompt}`,
+        driver: { run: context => `received ${context.prompt}` },
       })
       const run = await runAgentTrigger(agent, {
         memo: vi.fn(),
@@ -5795,7 +5811,7 @@ describe("agent message protocol", () => {
 
       const agent = defineAgent({
         runtime: workflow("cloudflare-agent"),
-        run: context => context.cloudflare?.env?.NUXT_SITE,
+        driver: { run: context => context.cloudflare?.env?.NUXT_SITE },
       })
       const run = await runAgent(agent, {
         cloudflare: { env: { NUXT_SITE: "nuxt.com" } },

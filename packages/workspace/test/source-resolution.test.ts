@@ -5,20 +5,22 @@ import { delimiter, join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
-  createWorkspaceSourceResolutionFacade,
   custom,
   fetch,
-  getWorkspaceSourceRequestExecution,
   github,
   mcpResources,
-  resolveWorkspaceSources,
   type WorkspaceShellResult,
-  workspaceSourceRequestDescriptorPath,
   type ReadonlyWorkspaceFacade,
   type WritableWorkspaceFacade,
   type WorkspaceDefinition,
-  type WorkspaceSourceResolutionOptions,
 } from "../src/index.ts"
+import {
+  createWorkspaceSourceResolutionFacade,
+  getWorkspaceSourceRequestExecution,
+  resolveWorkspaceSources,
+  workspaceSourceRequestDescriptorPath,
+  type WorkspaceSourceResolutionOptions,
+} from "../src/runtime.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
 import { getWorkspaceSourceRequestDescriptor, isWorkspaceSourceRequestOnly, normalizeWorkspaceSources } from "../src/sources/config.ts"
 

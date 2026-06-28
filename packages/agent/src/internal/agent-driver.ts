@@ -32,6 +32,7 @@ type NormalizedAgentDriver<
     sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
   }
   | {
+    instructions?: AgentAdapterInstructions<TRuntimeConfig>
     kind: "run"
     run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
@@ -83,7 +84,7 @@ function normalizeHarnessCredentialSource(value: unknown): AgentHarnessCredentia
 
 const modelDriverKeys = new Set(["execution", "instructions", "model"])
 const harnessDriverKeys = new Set(["credentials", "harness", "sandbox", "sessionKey"])
-const runDriverKeys = new Set(["run"])
+const runDriverKeys = new Set(["instructions", "run"])
 
 function normalizeExplicitAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig,
@@ -132,6 +133,7 @@ function normalizeExplicitAgentDriver<
     throw new TypeError("[vitehub] defineAgent({ driver.run }) must be a function.")
   }
   return {
+    instructions: driver.instructions as AgentAdapterInstructions<TRuntimeConfig> | undefined,
     kind: "run",
     run: driver.run as AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>,
   }
@@ -146,26 +148,7 @@ export function normalizeAgentDriver<
 ): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
   const record = options as Record<string, unknown>
   if (hasOwnDefined(record, "driver")) {
-    if (hasOwnDefined(record, "model") || hasOwnDefined(record, "modelExecution") || hasOwnDefined(record, "instructions") || hasOwnDefined(record, "run")) {
-      throw new Error("[vitehub] defineAgent({ driver }) cannot be combined with root model, modelExecution, instructions, or run options.")
-    }
     return normalizeExplicitAgentDriver<TRuntimeConfig, CALL_OPTIONS>(record.driver)
-  }
-
-  if (hasOwnDefined(record, "model")) {
-    return {
-      execution: record.modelExecution as AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS> | undefined,
-      instructions: record.instructions as AgentAdapterInstructions<TRuntimeConfig> | undefined,
-      kind: "model",
-      model: record.model as AgentModelResolver<TRuntimeConfig>,
-    }
-  }
-
-  if (hasOwnDefined(record, "run")) {
-    return {
-      kind: "run",
-      run: record.run as AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>,
-    }
   }
 
   throw new Error("[vitehub] Agent Driver is required. Expected defineAgent({ driver: { model } }) or defineAgent({ driver: { run } }).")

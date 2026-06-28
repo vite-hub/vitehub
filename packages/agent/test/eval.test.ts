@@ -227,7 +227,7 @@ describe("agent eval", () => {
     defineEval({
       agent: defineAgent({
         capabilities: [observability()],
-        run: () => "ok",
+        driver: { run: () => "ok", },
       }),
       name: "support",
       scorers: [hasCapabilityExtension("observability", "status")],
@@ -371,8 +371,10 @@ describe("agent eval", () => {
 
     defineEval({
       agent: defineAgent({
-        instructions: "Base instructions.",
-        model: baseModel as never,
+        driver: {
+          instructions: "Base instructions.",
+          model: baseModel as never,
+        },
         workspace: {},
       }),
       name: "support",
@@ -422,8 +424,10 @@ describe("agent eval", () => {
 
     defineEval({
       agent: defineAgent({
-        instructions: "Base instructions.",
-        model: baseModel as never,
+        driver: {
+          instructions: "Base instructions.",
+          model: baseModel as never,
+        },
       }),
       name: "support",
       scenarios: [{ input: { prompt: "hello" }, name: "hello" }],
@@ -446,8 +450,10 @@ describe("agent eval", () => {
 
     defineEval({
       agent: defineAgent({
-        instructions: "Base instructions.",
-        model: baseModel as never,
+        driver: {
+          instructions: "Base instructions.",
+          model: baseModel as never,
+        },
       }),
       name: "support",
       scenarios: [{ input: { prompt: "hello" }, name: "hello" }],

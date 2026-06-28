@@ -52,11 +52,12 @@ export default defineWorkspace({
 | `useWorkspace` from `@vite-hub/workspace` or `@vite-hub/workspace/runtime` | Read, write, diff, snapshot, sync, or start sessions for a Workspace. |
 | `file`, `glob`, `github`, `markdown`, `mcpResources`, `fetch`, `custom` from `@vite-hub/workspace` | Declare Workspace Source Bindings. |
 | `createWorkspaceTools` from `@vite-hub/workspace` or `@vite-hub/workspace/ai` | Build AI SDK tool surfaces from Workspace access. |
+| Source resolution and request helpers from `@vite-hub/workspace/runtime` | Integrate resolved Workspace Sources into runtime facades. |
 | `defineWorkspaceFileHandler`, `readWorkspaceFileResponse` from `@vite-hub/workspace/server` | Serve Workspace files from H3 routes. |
 | `hubWorkspace` from `@vite-hub/workspace/vite` | Register Workspace discovery, generated types, assets, and runtime wiring. |
 | `@vite-hub/workspace/loader`, `@vite-hub/workspace/publish`, `@vite-hub/workspace/test` | Use extension surfaces for loaders, publishers, and tests. |
 
-Workspace runtime, definition, Source Binding, rule, hook, store, sync, facade, and session types are exported from `@vite-hub/workspace`.
+Workspace definition, Source Binding, rule, hook, store, sync, facade, and session types are exported from `@vite-hub/workspace`. Source resolution runtime types are exported from `@vite-hub/workspace/runtime`.
 
 ## Configure the Vite Integration
 

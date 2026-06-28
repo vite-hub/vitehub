@@ -475,12 +475,12 @@ describe("agent capability runtime", () => {
           },
         }),
       ],
-      run(context) {
-        return {
-          chat: context.context.get("chat"),
-          mode: context.context.get("mode"),
-        }
-      },
+      driver: { run(context) {
+          return {
+            chat: context.context.get("chat"),
+            mode: context.context.get("mode"),
+          }
+        } },
     })
 
     await expect(runAgent(agent, runtime(), {
@@ -1417,7 +1417,7 @@ describe("agent capability runtime", () => {
           },
         }),
       ],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     await expect(runAgent(agent, runtime(), {
@@ -1477,10 +1477,10 @@ describe("agent capability runtime", () => {
 
     const stream = await streamAgent(defineAgent({
       capabilities: [capability],
-      run: () => (async function* () {
-        yield "hello"
-        order.push("stream:done")
-      })(),
+      driver: { run: () => (async function* () {
+          yield "hello"
+          order.push("stream:done")
+        })() },
     }), runtime(), {})
 
     for await (const _event of stream as AsyncIterable<unknown>) {}
@@ -1489,7 +1489,7 @@ describe("agent capability runtime", () => {
     order.length = 0
     const response = await runAgent(defineAgent({
       capabilities: [capability],
-      run: () => new Response("ok"),
+      driver: { run: () => new Response("ok") },
     }), runtime(), {})
     await expect((response as Response).text()).resolves.toBe("ok")
     expect(order).toEqual(["close"])
@@ -1582,7 +1582,7 @@ describe("agent capability runtime", () => {
           configure: () => { order.push("configure") },
           id: "tracked",
         }],
-        model: {} as never,
+        driver: { model: {} as never },
       })
 
       await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({ text: "ok" })
@@ -1614,7 +1614,7 @@ describe("agent capability runtime", () => {
           close,
           id: "tracked",
         }],
-        model: {} as never,
+        driver: { model: {} as never },
       })
 
       await expect(runAgent(agent, runtime(), {})).rejects.toThrow("cleanup failed")
@@ -1645,7 +1645,7 @@ describe("agent capability runtime", () => {
           input: () => { order.push("input") },
           resolve: () => { order.push("resolve") },
         }],
-        model: {} as never,
+        driver: { model: {} as never },
       })
 
       await resolveAgent(agent, runtime())

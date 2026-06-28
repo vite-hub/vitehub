@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, defineAgentInvoker, defineCapability, type AgentActor, type AgentCapabilityCliCommand, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentDeliveryArtifact, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
-import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, openapi, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceExec, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
+import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, openapi, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -85,9 +85,9 @@ describe("agent public types", () => {
         git(),
         git({ mode: "read" }),
         git({ mode: "write", policy: "require-approval" }),
-        workspaceExec({ commands: ["agent-browser", "/Users/maxi/quiver/agents/node_modules/.bin/agent-browser"] }),
-        workspaceExec({ commands: ["agent-browser"], mode: "read", timeout: 1_000 }),
-        workspaceExec({ commands: ["agent-browser"], mode: "write" }),
+        workspaceShell({ commands: ["agent-browser", "/Users/maxi/quiver/agents/node_modules/.bin/agent-browser"] }),
+        workspaceShell({ commands: ["agent-browser"], mode: "read", timeout: 1_000 }),
+        workspaceShell({ commands: ["agent-browser"], mode: "write" }),
         inputCommands({
           commands: {
             review: {
@@ -211,7 +211,7 @@ describe("agent public types", () => {
           },
         },
       ],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: { mode: "read" },
     })
 
@@ -247,17 +247,11 @@ describe("agent public types", () => {
     // @ts-expect-error git mode must be read or write
     git({ mode: "remote-write" })
 
-    // @ts-expect-error workspaceExec requires configured commands
-    workspaceExec()
+    // @ts-expect-error workspaceShell mode must be read or write
+    workspaceShell({ commands: ["agent-browser"], mode: "execute" })
 
-    // @ts-expect-error workspaceExec requires configured commands
-    workspaceExec({})
-
-    // @ts-expect-error workspaceExec mode must be read or write
-    workspaceExec({ commands: ["agent-browser"], mode: "execute" })
-
-    // @ts-expect-error workspaceExec timeout must be a number
-    workspaceExec({ commands: ["agent-browser"], timeout: "1000" })
+    // @ts-expect-error workspaceShell timeout must be a number
+    workspaceShell({ commands: ["agent-browser"], timeout: "1000" })
 
     const invocationContext: AgentInvocationContextStore = {
       entries: () => new Map<string, unknown>().entries(),
@@ -299,7 +293,7 @@ describe("agent public types", () => {
           },
         }),
       ],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: { mode: "write" },
     })
 
@@ -341,7 +335,7 @@ describe("agent public types", () => {
     })
 
     defineAgent({
-      model: {} as never,
+      driver: { model: {} as never },
       hooks: {
         "agent:finish"(event) {
           expectTypeOf(event.extensions.get<AgentChatFinishExtension>("chat")).toEqualTypeOf<AgentChatFinishExtension | undefined>()
@@ -366,7 +360,7 @@ describe("agent public types", () => {
           context.extensions.provide("agent:finish", "ok")
         },
       }],
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     defineAgent({
@@ -391,82 +385,84 @@ describe("agent public types", () => {
           })
         },
       }],
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     defineAgent({
-      model: {} as never,
+      driver: { model: {} as never },
       // @ts-expect-error root-level tools are not public API
       tools: {},
     })
 
     defineAgent({
-      model: {} as never,
+      driver: { model: {} as never },
       // @ts-expect-error workspace mode must be read or write
       workspace: { mode: "mutable" },
     })
 
     defineAgent({
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: "review",
     })
 
     defineAgent({
       capabilities: [workspaceShell({ mode: "write" })],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: { name: "review", mode: "write" },
     })
 
     // @ts-expect-error workspace reference mode must be read or write
     defineAgent({
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: { name: "review", mode: "mutable" },
     })
 
     // @ts-expect-error named workspace references cannot include colocated Workspace Definition options
     defineAgent({
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: { name: "review", sources: {} },
     })
 
     defineAgent({
-      model: {} as never,
-      // @ts-expect-error model call settings belong under modelExecution.callSettings
+      driver: { model: {} as never },
+      // @ts-expect-error model call settings belong under driver.execution.callSettings
       temperature: 0.2,
     })
 
     defineAgent({
-      model: {} as never,
-      // @ts-expect-error adapterOptions was removed; use modelExecution
+      driver: { model: {} as never },
+      // @ts-expect-error adapterOptions was removed; use driver.execution
       adapterOptions: {
         temperature: 0.2,
       },
     })
 
     defineAgent({
-      model: {} as never,
-      modelExecution: {
-        callSettings: {
-          temperature: 0.2,
-        },
-        instrumentation: {
-          callSettings({ callSettings, input }) {
-            expectTypeOf(callSettings).toEqualTypeOf<Readonly<Record<string, unknown>>>()
-            expectTypeOf(input.messages).toEqualTypeOf<AgentRunInput["messages"]>()
-            return {
-              temperature: callSettings.temperature,
-            }
+      driver: {
+        model: {} as never,
+        execution: {
+          callSettings: {
+            temperature: 0.2,
           },
-          model({ model }) {
-            expectTypeOf(model).toEqualTypeOf<unknown>()
-            return model
+          instrumentation: {
+            callSettings({ callSettings, input }) {
+              expectTypeOf(callSettings).toEqualTypeOf<Readonly<Record<string, unknown>>>()
+              expectTypeOf(input.messages).toEqualTypeOf<AgentRunInput["messages"]>()
+              return {
+                temperature: callSettings.temperature,
+              }
+            },
+            model({ model }) {
+              expectTypeOf(model).toEqualTypeOf<unknown>()
+              return model
+            },
           },
-        },
-        stepLimit: 3,
-        workspaceFallback: {
-          enabled: true,
-          maxToolResults: 2,
-        },
+          stepLimit: 3,
+          workspaceFallback: {
+            enabled: true,
+            maxToolResults: 2,
+          },
+        }
       },
     })
 
@@ -520,9 +516,6 @@ describe("agent public types", () => {
 
     // @ts-expect-error Agent Driver is not parameterized by Workspace Name
     type _agentDriverNoWorkspaceNameGeneric = AgentDriver<AgentRuntimeConfig, unknown, "docs">
-
-    // @ts-expect-error root model options cannot be combined with driver
-    defineAgent({ driver: { model: "model" }, model: "model" })
 
     inputCommands({
       commands: {
@@ -752,7 +745,7 @@ describe("agent public types", () => {
         },
       },
       messages,
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     defineAgent({
@@ -761,7 +754,7 @@ describe("agent public types", () => {
           messages: { history: false },
         }),
       },
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })
 
     type RootAgentExports = typeof import("../src/index.ts")
@@ -926,7 +919,10 @@ describe("agent public types", () => {
     subagents({
       agents: {
         browser: {
-          agent: defineAgent({ run: () => "ok" }),
+          agent: defineAgent({           driver: {
+            run: () => "ok"
+          },
+}),
           description: "Collect browser evidence.",
         },
       },
@@ -954,8 +950,11 @@ describe("agent public types", () => {
 
     defineAgent({
       workspace,
-      run() {
-        return "ok"
+      driver: {
+        run() {
+          return "ok"
+        },
+        model: {} as never
       },
       invoker: defineAgentInvoker({
         profiles: supportProfiles,
@@ -975,7 +974,6 @@ describe("agent public types", () => {
         }),
         supportChat,
       ],
-      model: {} as never,
     })
 
     defineAgent({
@@ -998,15 +996,15 @@ describe("agent public types", () => {
           expectTypeOf(accessContext?.workspaceScope?.scope).toEqualTypeOf<"demo" | "quiver" | undefined>()
         },
       },
-      run({ actor, context }) {
-        const accessContext = context.get("access")
-        expectTypeOf(actor.id).toEqualTypeOf<string>()
-        expectTypeOf(context.get("actor")).toEqualTypeOf<AgentActor | undefined>()
-        expectTypeOf(accessContext).toMatchTypeOf<AccessInvocationContextValue<"demo" | "quiver"> | undefined>()
-        expectTypeOf(accessContext?.workspaceScope?.scope).toEqualTypeOf<"demo" | "quiver" | undefined>()
-        expectTypeOf(accessContext?.workspaceScope?.paths).toEqualTypeOf<string[] | undefined>()
-        return "ok"
-      },
+      driver: { run({ actor, context }) {
+          const accessContext = context.get("access")
+          expectTypeOf(actor.id).toEqualTypeOf<string>()
+          expectTypeOf(context.get("actor")).toEqualTypeOf<AgentActor | undefined>()
+          expectTypeOf(accessContext).toMatchTypeOf<AccessInvocationContextValue<"demo" | "quiver"> | undefined>()
+          expectTypeOf(accessContext?.workspaceScope?.scope).toEqualTypeOf<"demo" | "quiver" | undefined>()
+          expectTypeOf(accessContext?.workspaceScope?.paths).toEqualTypeOf<string[] | undefined>()
+          return "ok"
+        } },
     })
 
     // @ts-expect-error access source grants are checked against defineAgent({ workspace.sources })
@@ -1020,7 +1018,7 @@ describe("agent public types", () => {
           },
         }),
       ],
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: {
         sources: {
           docs: file("AGENTS.md"),
@@ -1044,7 +1042,7 @@ describe("agent public types", () => {
           },
         }),
       ],
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     // @ts-expect-error source-local scopes are checked against access workspace scope keys
@@ -1064,7 +1062,7 @@ describe("agent public types", () => {
           },
         }),
       ],
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     // @ts-expect-error unscoped sources do not disable Workspace Source scope checks
@@ -1085,7 +1083,7 @@ describe("agent public types", () => {
           },
         }),
       ],
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     const dynamicScopes: string[] = ["dynamic"]
@@ -1107,7 +1105,7 @@ describe("agent public types", () => {
           },
         }),
       ],
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     defineAgent({
@@ -1133,7 +1131,7 @@ describe("agent public types", () => {
           },
         }),
       ],
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     // @ts-expect-error typed fetch source scopes must be backed by Access Workspace Scopes
@@ -1160,7 +1158,7 @@ describe("agent public types", () => {
           },
         }),
       ],
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     // @ts-expect-error concrete custom capabilities do not satisfy Workspace Source scopes
@@ -1173,7 +1171,7 @@ describe("agent public types", () => {
       capabilities: [
         defineCapability({ id: "audit" }),
       ],
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     // @ts-expect-error Workspace Source scopes require access({ workspace })
@@ -1183,7 +1181,7 @@ describe("agent public types", () => {
           docs: githubSource({ repo: "acme/docs", scopes: ["customer"] as const }),
         },
       },
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     // @ts-expect-error non-Access capabilities do not satisfy Workspace Source scopes
@@ -1196,7 +1194,7 @@ describe("agent public types", () => {
       capabilities: [
         workspaceShell(),
       ],
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     const broadCapabilities: AgentCapabilityDefinition[] = [
@@ -1217,7 +1215,7 @@ describe("agent public types", () => {
         },
       },
       capabilities: broadCapabilities,
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     const widenedAccessCapability: AgentCapabilityDefinition = access({
@@ -1237,7 +1235,7 @@ describe("agent public types", () => {
         },
       },
       capabilities: [widenedAccessCapability],
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     // @ts-expect-error broad official capabilities do not satisfy missing Workspace Source scopes
@@ -1258,7 +1256,7 @@ describe("agent public types", () => {
         }),
         blob(),
       ],
-      model: {} as never,
+      driver: { model: {} as never },
     })
 
     const bundledAccessCapability = defineCapability({
@@ -1282,7 +1280,7 @@ describe("agent public types", () => {
         },
       },
       capabilities: [bundledAccessCapability],
-      model: {} as never,
+      driver: { model: {} as never },
     })
   })
 
@@ -1324,7 +1322,7 @@ describe("agent public types", () => {
           expectTypeOf(invoker.meta).toEqualTypeOf<Record<string, unknown> | undefined>()
         },
       },
-      model: {} as never,
+      driver: { model: {} as never },
       workspace: {
         sources: {
           docs: file("AGENTS.md"),
@@ -1338,7 +1336,7 @@ describe("agent public types", () => {
     const capabilityScorer: AgentScorer = hasCapabilityExtension("observability")
     const definition: AgentEvalDefinition = {
       agent: defineAgent({
-        model: {} as never,
+        driver: { model: {} as never },
       }),
       scenarios: [{
         input: { prompt: "hello" },
@@ -1354,7 +1352,7 @@ describe("agent public types", () => {
 
     defineEval({
       agent: defineAgent({
-        model: {} as never,
+        driver: { model: {} as never },
       }),
       async test(t) {
         const observation = await t.send("hello")
@@ -1391,10 +1389,10 @@ describe("agent public types", () => {
     }
 
     const agent = defineAgent<TestRuntimeConfig>({
-      model: ({ runtimeConfig }: AgentRuntimeContext<TestRuntimeConfig> & { runtimeConfig: TestRuntimeConfig }) => {
-        runtimeConfig.service.token.toUpperCase()
-        return {} as never
-      },
+      driver: { model: ({ runtimeConfig }: AgentRuntimeContext<TestRuntimeConfig> & { runtimeConfig: TestRuntimeConfig }) => {
+          runtimeConfig.service.token.toUpperCase()
+          return {} as never
+        } },
       workspace: { mode: "read" },
     })
 
@@ -1414,7 +1412,7 @@ describe("agent public types", () => {
     defineEval<TestRuntimeConfig>({
       // @ts-expect-error eval agent runtime config must match the eval runtime config
       agent: defineAgent<{ other: string }>({
-        model: {} as never,
+        driver: { model: {} as never },
         workspace: { mode: "read" },
       }),
       runtimeConfig: {

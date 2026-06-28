@@ -34,7 +34,8 @@ They may resolve to Runtime Registries, generated files, virtual modules, or pac
 | `@vite-hub/schedule/runtime` | Schedule Package | Runtime schedule helpers. |
 | `#vitehub/schedule/registry` | Schedule Package | Generated static schedule registry for host bridges. |
 | `@vite-hub/workflow` | Workflow Package | Workflow Definition and run helpers. |
-| `@vite-hub/workspace` | Workspace Package | Workspace Definition, Source helpers, and Workspace Runtime Surface. |
+| `@vite-hub/workspace` | Workspace Package | Workspace Definition, Source helpers, Workspace facade access, and authoring types. |
+| `@vite-hub/workspace/runtime` | Workspace Package | Workspace runtime registry, `useWorkspace()`, and source resolution/request helpers for integrations. |
 
 ## Integration imports
 

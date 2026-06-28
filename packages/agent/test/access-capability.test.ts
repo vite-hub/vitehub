@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 
 import type { AgentRuntimeContext, AgentToolSet } from "../src/types.ts"
-import { attachWorkspaceSourceRequestExecution, custom, file, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceStat } from "@vite-hub/workspace"
+import { custom, file, type ReadonlyWorkspaceFacade, type WorkspaceDefinition, type WorkspaceEntry, type WorkspaceSearchHit, type WorkspaceStat } from "@vite-hub/workspace"
+import { attachWorkspaceSourceRequestExecution } from "@vite-hub/workspace/runtime"
 
 function runtime(): AgentRuntimeContext {
   return {
@@ -1176,7 +1177,7 @@ describe("access capability", () => {
 
   it("derives probed source grant paths before broad mounts", async () => {
     const { workspaceSourceScopePaths } = await import("../src/workspace-source-metadata.ts")
-    const workspaceRuntime = await import("@vite-hub/workspace")
+    const workspaceRuntime = await import("@vite-hub/workspace/runtime")
 
     expect(workspaceSourceScopePaths("docs", file({ path: "README.md", mount: "docs", scopes: ["support"] }), workspaceRuntime)).toEqual([
       "docs/README.md",
@@ -1194,7 +1195,7 @@ describe("access capability", () => {
 
   it("does not derive descriptor paths for non-request path-keyed sources", async () => {
     const { workspaceSourceScopePaths } = await import("../src/workspace-source-metadata.ts")
-    const workspaceRuntime = await import("@vite-hub/workspace")
+    const workspaceRuntime = await import("@vite-hub/workspace/runtime")
 
     expect(workspaceSourceScopePaths("customers/acme", { scopes: ["support"] } as never, workspaceRuntime)).toEqual([
       "customers/acme",

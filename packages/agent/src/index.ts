@@ -758,8 +758,15 @@ function validateWorkspaceCapabilities<Name extends WorkspaceName>(options: Work
     throw new Error("[vitehub] Workspace Source scopes require access({ workspace }).")
   }
   for (const capability of capabilities) {
-    if (capability.id === "workspace-shell" && normalizeMode(capability.mode, "Workspace Shell") === "write" && workspaceMode !== "write") {
-      throw new Error("[vitehub] workspaceShell({ mode: \"write\" }) requires workspace.mode: \"write\".")
+    if (capability.id === "workspace-shell") {
+      const metadata = capability.metadata as { commands?: unknown } | undefined
+      const requiresWritableSession = Array.isArray(metadata?.commands)
+      if (requiresWritableSession && workspaceMode !== "write") {
+        throw new Error("[vitehub] workspaceShell({ commands }) requires workspace.mode: \"write\".")
+      }
+      if (!requiresWritableSession && normalizeMode(capability.mode, "Workspace Shell") === "write" && workspaceMode !== "write") {
+        throw new Error("[vitehub] workspaceShell({ mode: \"write\" }) requires workspace.mode: \"write\".")
+      }
     }
     if (capability.id === "sandbox") {
       validateSandboxCommands((capability.metadata as { commands?: unknown } | undefined)?.commands)
@@ -801,7 +808,7 @@ function defineBaseAgent<
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const driver = normalizeAgentDriver(options)
   const { capabilities, channels, description, hooks, messages, runtime, version, workspace } = options
-  const run = driver.kind === "run" ? driver.run : (options as { run?: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS> }).run
+  const run = driver.kind === "run" ? driver.run : undefined
   const baseCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
   const channelChat = resolveAgentChannelChatOptions<TRuntimeConfig>(channels, messages)
@@ -825,7 +832,7 @@ function defineBaseAgent<
         ? (await import("./harness-agent.ts")).createHarnessAgentAdapter<CALL_OPTIONS>(driver as never)
         : undefined
     if (!resolvedAdapter) {
-      throw new Error("[vitehub] Agent Driver is required unless the agent defines a custom run() handler.")
+      throw new Error("[vitehub] Agent Driver is required unless the agent uses driver.run.")
     }
     const resolvedContext = createResolvedRuntimeContext(context)
     return typeof resolvedAdapter === "function"
@@ -998,7 +1005,6 @@ function createWorkspaceAgentDefinition<
     ...options,
     description: options.description,
     hooks: options.hooks,
-    run: options.run,
     runtime: withAgentWorkflowRuntimeName(options.runtime, defaults.name),
     version: options.version,
     workspace: workspaceDefinition,

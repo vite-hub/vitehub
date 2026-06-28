@@ -32,7 +32,7 @@ describe("usage telemetry", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({
+      driver: { run: () => ({
         finishReason: "stop",
         response: {
           id: "response-1",
@@ -44,7 +44,7 @@ describe("usage telemetry", () => {
           inputTokens: 10,
           outputTokens: 5,
         },
-      }),
+      }), },
     })
 
     const result = await runAgent(agent, runtime(), {})
@@ -89,7 +89,7 @@ describe("usage telemetry", () => {
     expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(usageRecord)
   })
 
-  it("uses root model metadata when response only has an id", async () => {
+  it("uses run result model metadata when response only has an id", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
 
@@ -104,7 +104,7 @@ describe("usage telemetry", () => {
           }),
         }),
       ],
-      run: () => ({
+      driver: { run: () => ({
         modelId: "openai/gpt-test",
         response: { id: "response-1" },
         text: "ok",
@@ -112,7 +112,7 @@ describe("usage telemetry", () => {
           inputTokens: 10,
           outputTokens: 5,
         },
-      }),
+      }), },
     })
 
     await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
@@ -143,7 +143,7 @@ describe("usage telemetry", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({
+      driver: { run: () => ({
         response: {
           modelId: "openai/gpt-test",
         },
@@ -152,7 +152,7 @@ describe("usage telemetry", () => {
           inputTokens: 1000,
           outputTokens: 250,
         },
-      }),
+      }), },
     })
 
     await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
@@ -209,7 +209,7 @@ describe("usage telemetry", () => {
           },
         }),
       ],
-      run: () => ({
+      driver: { run: () => ({
         response: {
           modelId: "openai/gpt-test",
         },
@@ -218,7 +218,7 @@ describe("usage telemetry", () => {
           inputTokens: 1000,
           outputTokens: 250,
         },
-      }),
+      }), },
     })
 
     await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
@@ -263,14 +263,14 @@ describe("usage telemetry", () => {
           },
         }),
       ],
-      run: () => ({
+      driver: { run: () => ({
         text: "ok",
         totalUsage: {
           inputTokens: 8,
           outputTokens: 2,
           totalTokens: 10,
         },
-      }),
+      }), },
     })
 
     await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
@@ -307,13 +307,13 @@ describe("usage telemetry", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({
+      driver: { run: () => ({
         text: "ok",
         totalUsage: {
           outputTokens: 20,
         },
         durationMs: 2000,
-      }),
+      }), },
     })
 
     await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({ text: "ok" })
@@ -338,14 +338,14 @@ describe("usage telemetry", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({
+      driver: { run: () => ({
         text: "ok",
         durationMs: 2000,
         totalUsage: {
           inputTokens: 1000,
           totalTokens: 1250,
         },
-      }),
+      }), },
     })
 
     await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
@@ -383,7 +383,7 @@ describe("usage telemetry", () => {
           }),
         }),
       ],
-      run: () => defineAgentUsageMetadata({
+      driver: { run: () => defineAgentUsageMetadata({
         fullStream: (async function* () {
           yield { text: "ok", type: "text-delta" }
           yield {
@@ -400,7 +400,7 @@ describe("usage telemetry", () => {
             type: "finish",
           }
         })(),
-      }, { credentialSource: { label: "local Codex", source: "ambient" } }),
+      }, { credentialSource: { label: "local Codex", source: "ambient" } }), },
     })
 
     const output = await streamAgent(agent, runtime(), {})
@@ -477,7 +477,7 @@ describe("usage telemetry", () => {
           }),
         }),
       ],
-      run: () => ({
+      driver: { run: () => ({
         fullStream: (async function* () {
           yield { text: "ok", type: "text-delta" }
           yield { finishReason: "stop", type: "finish" }
@@ -490,7 +490,7 @@ describe("usage telemetry", () => {
         })(),
         modelId: "openai/gpt-test",
         usage,
-      }),
+      }), },
     })
 
     const output = await streamAgent(agent, runtime(), {})
@@ -567,7 +567,7 @@ describe("usage telemetry", () => {
       const { defineAgent, streamAgent } = await import("../src/index.ts")
 
       const agent = defineAgent({
-        model: {} as never,
+        driver: { model: {} as never, },
       })
       const output = await streamAgent(agent, runtime(), {})
       const events: unknown[] = []
@@ -624,7 +624,7 @@ describe("usage telemetry", () => {
       const { defineAgent, streamAgent } = await import("../src/index.ts")
 
       const agent = defineAgent({
-        model: {} as never,
+        driver: { model: {} as never, },
       })
       const output = await streamAgent(agent, runtime(), {})
       const events: unknown[] = []
@@ -681,7 +681,7 @@ describe("usage telemetry", () => {
       const { defineAgent, streamAgent } = await import("../src/index.ts")
 
       const agent = defineAgent({
-        model: {} as never,
+        driver: { model: {} as never, },
       })
       const output = await streamAgent(agent, runtime(), {})
       const events: unknown[] = []
@@ -739,7 +739,7 @@ describe("usage telemetry", () => {
       const { defineAgent, streamAgent } = await import("../src/index.ts")
 
       const agent = defineAgent({
-        model: {} as never,
+        driver: { model: {} as never, },
       })
       const output = await streamAgent(agent, runtime(), {})
       const events: unknown[] = []
@@ -777,7 +777,7 @@ describe("usage telemetry", () => {
       capabilities: [
         usageTelemetry(),
       ],
-      run: () => ({
+      driver: { run: () => ({
         fullStream: (async function* () {
           yield { text: "ok", type: "text-delta" }
         })(),
@@ -787,7 +787,7 @@ describe("usage telemetry", () => {
           outputTokens: 7,
           totalTokens: 17,
         }),
-      }),
+      }), },
     })
 
     const output = await streamAgent(agent, runtime(), {})
@@ -839,7 +839,7 @@ describe("usage telemetry", () => {
       capabilities: [
         usageTelemetry(),
       ],
-      run: () => new StreamResult(),
+      driver: { run: () => new StreamResult(), },
     })
 
     const output = await streamAgent(agent, runtime(), {})
@@ -916,7 +916,7 @@ describe("usage telemetry", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => new StreamResult(),
+      driver: { run: () => new StreamResult(), },
     })
 
     const stream = await streamAgent(agent, runtime(), {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
@@ -998,7 +998,7 @@ describe("usage telemetry", () => {
       capabilities: [
         usageTelemetry(),
       ],
-      run: () => new GetterOnlyUsageResult(),
+      driver: { run: () => new GetterOnlyUsageResult(), },
     })
 
     const output = await streamAgent(agent, runtime(), {})
@@ -1053,13 +1053,13 @@ describe("usage telemetry", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({
+      driver: { run: () => ({
         text: "ok",
         usage: {
           input_tokens: 1,
           output_tokens: 2,
         },
-      }),
+      }), },
     })
 
     await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
@@ -1098,9 +1098,9 @@ describe("usage telemetry", () => {
       hooks: {
         "agent:finish": finish,
       },
-      run: () => ({
+      driver: { run: () => ({
         text: "ok",
-      }),
+      }), },
     })
 
     await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
@@ -1125,7 +1125,7 @@ describe("usage telemetry", () => {
           }),
         }),
       ],
-      run: () => ({
+      driver: { run: () => ({
         response: {
           modelId: "openai/gpt-test",
         },
@@ -1135,7 +1135,7 @@ describe("usage telemetry", () => {
           sessions: 1,
           wallTimeMs: 800,
         },
-      }),
+      }), },
     })
 
     const result = await runAgent(agent, runtime(), {})
@@ -1183,13 +1183,13 @@ describe("usage telemetry", () => {
           },
         }),
       ],
-      run: () => ({
+      driver: { run: () => ({
         text: "ok",
         usage: {
           actions: 2,
           sessions: 1,
         },
-      }),
+      }), },
     })
 
     await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({

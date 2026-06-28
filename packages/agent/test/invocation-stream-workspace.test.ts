@@ -237,11 +237,13 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
         }),
       },
       hooks: { "agent:finish": finishHook },
-      run: () => (async function* () {
+      driver: {
+        run: () => (async function* () {
         yield { text: "Review completed.", type: "text-delta" }
         order.push("run-stream-consumed")
         yield { type: "finish" }
       })(),
+      },
       workspace: { mode: "write" },
     })
 

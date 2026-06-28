@@ -69,7 +69,9 @@ describe("agent config", () => {
     try {
       const agent = await import("../src/index.ts")
       expect(agent.defineAgent).toBeTypeOf("function")
-      expect(agent.withAgentDefaults(agent.defineAgent({ run: async () => "ok" }))?.run).toBeTypeOf("function")
+      expect(agent.withAgentDefaults(agent.defineAgent({
+        driver: { run: async () => "ok", },
+      }))?.run).toBeTypeOf("function")
     }
     finally {
       vi.doUnmock("@vite-hub/workspace")
@@ -87,8 +89,8 @@ describe("agent config", () => {
     })
     try {
       const server = await import("../src/server.ts")
-      expect(server.createChannelChatRouteHandler).toBeTypeOf("function")
-      expect(server.createChannelWebhookRouteHandler).toBeTypeOf("function")
+      expect(server.createAgentChatRouteHandler).toBeTypeOf("function")
+      expect(server.createAgentWebhookRouteHandler).toBeTypeOf("function")
     }
     finally {
       vi.doUnmock("@vite-hub/workspace")
@@ -126,13 +128,13 @@ describe("agent config", () => {
     try {
       const { defineAgent } = await import("../src/index.ts")
       const { chat } = await import("../src/capabilities.ts")
-      const { createChannelChatRouteHandler } = await import("../src/server.ts")
-      const handler = createChannelChatRouteHandler(defineAgent({
+      const { createAgentChatRouteHandler } = await import("../src/server.ts")
+      const handler = createAgentChatRouteHandler(defineAgent({
         capabilities: [chat()],
-        run({ messages }) {
-          const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
-          return `deno ${text?.text}`
-        },
+        driver: { run({ messages }) {
+            const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
+            return `deno ${text?.text}`
+          } },
       }) as never)
 
       const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
@@ -201,7 +203,7 @@ describe("agent config", () => {
           },
         }),
       ],
-      run: () => "ok",
+      driver: { run: () => "ok" },
     })).toThrow("custom() requires an explicit workspace")
   })
 

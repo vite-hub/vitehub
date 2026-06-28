@@ -83,12 +83,10 @@ function withTestModelInstrumentation<TRuntimeConfig extends AgentRuntimeConfig>
   const modelDriver = typeof driver === "object" && driver !== null && "model" in driver
     ? driver as { execution?: AgentModelExecutionOptions<TRuntimeConfig> }
     : undefined
-  const modelExecution = modelDriver
-    ? modelDriver.execution
-    : workspaceAgent.__vitehubWorkspaceAgentOptions.modelExecution
-  if (driver && !modelDriver) {
+  if (!modelDriver) {
     return agent
   }
+  const modelExecution = modelDriver.execution
   const originalInstrumentation = modelExecution?.instrumentation?.model as AgentModelInstrumentation<TRuntimeConfig> | undefined
   const instrumentedExecution = {
     ...modelExecution,
@@ -105,18 +103,11 @@ function withTestModelInstrumentation<TRuntimeConfig extends AgentRuntimeConfig>
       },
     },
   }
-  const nextOptions = modelDriver
-    ? {
-        ...workspaceAgent.__vitehubWorkspaceAgentOptions,
-        driver: {
-          ...(driver as Record<string, unknown>),
-          execution: instrumentedExecution,
-        },
-      }
-    : {
-        ...workspaceAgent.__vitehubWorkspaceAgentOptions,
-        modelExecution: instrumentedExecution,
-      }
+  const nextOptions = {
+    ...workspaceAgent.__vitehubWorkspaceAgentOptions,
+    driver: { ...(driver as Record<string, unknown>),
+      execution: instrumentedExecution, },
+  }
   return defineAgent({
     ...nextOptions,
   } as never) as AgentInput<AgentRuntimeContext<TRuntimeConfig>>

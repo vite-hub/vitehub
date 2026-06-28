@@ -1603,7 +1603,7 @@ function resolveAgentChannelChatRouteHandlerOptions(
     .filter((entry): entry is readonly [string, AgentChannelChatRouteHandlerOptions] => entry[1] !== undefined)
 
   if (routeEntries.length > 1) {
-    throw new TypeError("[vitehub] createChannelChatRouteHandler() found multiple route-enabled Channels. Keep one route-enabled Channel per generated chat route.")
+    throw new TypeError("[vitehub] createAgentChatRouteHandler() found multiple route-enabled Channels. Keep one route-enabled Channel per generated chat route.")
   }
 
   const channelOptions = routeEntries[0]?.[1]
@@ -2002,7 +2002,7 @@ function agentChatFetchErrorResponse(error: unknown): Response {
   return createJsonErrorResponse(500, error instanceof Error ? error.message : "Agent chat request failed.")
 }
 
-export function createChannelChatRouteHandler(
+export function createAgentChatRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   options: AgentChannelChatRouteHandlerOptions = {},
 ): (request: Request, options?: AgentChannelChatRouteRequestOptions) => Promise<Response> {
@@ -2045,7 +2045,7 @@ export function createChannelChatRouteHandler(
   }
 }
 
-export function createChannelWebhookRouteHandler(
+export function createAgentWebhookRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
 ): (request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions) => Promise<Response> {
   return async (request, webhook, handlerOptions = {}) => {

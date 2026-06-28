@@ -2,6 +2,11 @@ import {
   defineCapability,
   normalizeMode,
 } from "../capability-runtime.ts"
+import {
+  normalizeWorkspaceCommandTimeout,
+  validateWorkspaceCommands,
+  workspaceCommandTools,
+} from "./workspace-command.ts"
 
 import type {
   AgentCapabilityContext,
@@ -14,6 +19,12 @@ import type { WorkspaceName } from "@vite-hub/workspace"
 
 type WorkspaceShellCapabilityTypeContract = {
   workspaceScopes: never
+}
+
+export interface WorkspaceShellOptions {
+  commands?: string[]
+  mode?: AgentCapabilityMode
+  timeout?: number
 }
 
 async function sourceRequestHint(context: AgentCapabilityContext): Promise<string | false> {
@@ -41,15 +52,33 @@ async function sourceRequestHint(context: AgentCapabilityContext): Promise<strin
   ].join("\n")
 }
 
-export function workspaceShell(options: { mode?: AgentCapabilityMode } = {}): AgentCapabilityDefinition<AgentRuntimeConfig, WorkspaceName, WorkspaceShellCapabilityTypeContract> {
+export function workspaceShell(options: WorkspaceShellOptions = {}): AgentCapabilityDefinition<AgentRuntimeConfig, WorkspaceName, WorkspaceShellCapabilityTypeContract> {
   const mode = normalizeMode(options.mode, "Workspace Shell")
+  const commands = options.commands === undefined
+    ? undefined
+    : validateWorkspaceCommands(options.commands)
+  const timeout = normalizeWorkspaceCommandTimeout(options.timeout, "workspaceShell({ timeout })")
+  const commandInstructions = commands
+    ? async (context: AgentCapabilityContext) => [
+        await sourceRequestHint(context),
+        `workspace_exec runs only configured commands in a trusted Workspace Session at the workspace root: ${commands.join(", ")}.`,
+        mode === "write"
+          ? "Successful workspace_exec commands are committed back to the Workspace Store."
+          : "workspace_exec read mode can inspect through a trusted Workspace Session, but does not commit command changes.",
+      ].filter(Boolean).join("\n\n")
+    : undefined
+
   return defineCapability({
     id: "workspace-shell",
-    instructions: sourceRequestHint,
+    instructions: commandInstructions ?? sourceRequestHint,
+    metadata: commands ? { commands, mode, ...(timeout ? { timeout } : {}) } : undefined,
     mode,
-    requires: [{ primitive: "workspace", workspace: { mode, required: true } }],
-    tools: ({ workspace }) => (mode === "write" && "write" in workspace.tools
-      ? (workspace.tools as unknown as { write: () => AgentToolSet }).write()
-      : workspace.tools.inspect()) as AgentToolSet,
+    requires: [{ primitive: "workspace", workspace: { mode: commands ? "write" : mode, required: true } }],
+    tools: ({ workspace }) => ({
+      ...(mode === "write" && "write" in workspace.tools
+        ? (workspace.tools as unknown as { write: () => AgentToolSet }).write()
+        : workspace.tools.inspect()) as AgentToolSet,
+      ...(commands ? workspaceCommandTools(commands, mode, timeout, workspace) : {}),
+    }),
   })
 }

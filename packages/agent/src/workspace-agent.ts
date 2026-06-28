@@ -331,7 +331,7 @@ function modelDriverInstructions<
 ): AgentAdapterInstructions<TRuntimeConfig, Name> | undefined {
   const driver = (options as unknown as { driver?: unknown }).driver
   if (typeof driver === "object" && driver !== null) {
-    return "model" in driver
+    return "model" in driver || "run" in driver
       ? (driver as { instructions?: AgentAdapterInstructions<TRuntimeConfig, Name> }).instructions
       : undefined
   }
@@ -1100,7 +1100,7 @@ async function sourceVisibilityProbePaths(
       getWorkspaceSourceRequestDescriptor,
       isWorkspaceSourceRequestOnly,
       workspaceSourceRequestDescriptorPath,
-    } = await import("@vite-hub/workspace")
+    } = await import("@vite-hub/workspace/runtime")
     descriptorPath = getWorkspaceSourceRequestDescriptor(descriptorSource)
       ? workspaceSourceRequestDescriptorPath(source.key)
       : undefined
@@ -1252,7 +1252,7 @@ async function createDevtoolsMetadataWorkspace<
   const workspaceName = defaults.workspace || defaults.name
   if (!workspaceName || !definition.__vitehubWorkspaceAgentOptions) return
 
-  const { createWorkspaceSourceResolutionFacade, hasWorkspaceSourceResolvers, useWorkspace } = await import("@vite-hub/workspace")
+  const { createWorkspaceSourceResolutionFacade, hasWorkspaceSourceResolvers, useWorkspace } = await import("@vite-hub/workspace/runtime")
   const workspace = useWorkspace(workspaceName)
   const options = definition.__vitehubWorkspaceAgentOptions as unknown as WorkspaceAgentOptions<TRuntimeConfig, Name>
   const workspaceDefinition = workspaceDefinitionWithNameFromOptions(options, defaults)

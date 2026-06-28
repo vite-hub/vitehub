@@ -32,6 +32,10 @@ _Avoid_: Raw tool, root instructions, implicit harness prompt, dynamic Capabilit
 A Capability-owned real command tree declared on a Capability Definition and rendered into generated instruction guidance plus compatible Agent Driver or Agent Dev Loop execution surfaces.
 _Avoid_: CLI Primitive, command builder, Input Command, Host Command, shell command, capabilityCli wrapper
 
+**Workspace Shell Command Tool**:
+The optional `workspaceShell({ commands })` model-facing tool that runs allowlisted executables inside a trusted Workspace Session.
+_Avoid_: Separate public Workspace execution Capability, arbitrary shell, sandbox replacement
+
 **Harness Workspace Path Contribution**:
 A Capability-owned harness-compatible driver contribution that asks a harness-backed Agent Driver to materialize Capability support files from the Workspace.
 _Avoid_: Workspace Scope Grant, Source grant, model instruction, root skill config
