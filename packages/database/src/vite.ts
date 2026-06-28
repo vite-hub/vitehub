@@ -1,15 +1,16 @@
 import { getViteMode } from "@vite-hub/internal/build/mode"
-import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
+import { resetComposedProviderOutput, shouldSkipViteProviderBuild, useComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalMerger, isServerEnvironment } from "@vite-hub/internal/build/vite"
 import { normalize } from "pathe"
 
 import { createDbCliContributor } from "./cli.ts"
 import { resolveDBViteConfig } from "./config.ts"
 import { writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
-import { dbPackageName, generateProviderOutputs } from "./internal/vite-build.ts"
+import { dbPackageName, generateProviderOutputs, prepareProviderOutputs } from "./internal/vite-build.ts"
 import { createDatabaseProvisionStep } from "./provision.ts"
 
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
+import type { ComposedProviderOutput } from "@vite-hub/internal/build/deployment-output"
 import type { Plugin, ResolvedConfig } from "vite"
 import type { DBModulePublicOptions, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "./types.ts"
 
@@ -119,6 +120,8 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
 }
 
 export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
+  let providerArtifacts: Awaited<ReturnType<typeof prepareProviderOutputs>> | undefined
+  let providerOutput: ComposedProviderOutput | undefined
   let resolved: ResolvedConfig | undefined
   let runtimeConfig: ResolvedDBViteConfig | undefined
 
@@ -152,6 +155,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     },
     async configResolved(config) {
       resolved = config
+      providerOutput = useComposedProviderOutput(config)
       await refreshRuntimeConfig()
     },
     configEnvironment(name, config) {
@@ -162,6 +166,9 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       return {
         resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) },
       }
+    },
+    buildStart() {
+      resetComposedProviderOutput(providerOutput)
     },
     async handleHotUpdate(context) {
       if (!runtimeConfig) return
@@ -176,6 +183,18 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       const databasesModule = context.server.moduleGraph.getModuleById(RESOLVED_DB_VIRTUAL_DATABASES_ID)
       if (schemaModule) context.server.moduleGraph.invalidateModule(schemaModule)
       if (databasesModule) context.server.moduleGraph.invalidateModule(databasesModule)
+    },
+    async buildEnd() {
+      if (!resolved || !runtimeConfig || shouldSkipViteProviderBuild(resolved.command, getViteMode())) {
+        return
+      }
+
+      await writeGeneratedDatabaseArtifacts(runtimeConfig)
+      providerArtifacts = await prepareProviderOutputs({
+        providerOutput,
+        rootDir: resolved.root,
+        runtimeConfig,
+      })
     },
     resolveId(id) {
       return resolveDatabaseVirtualId(id)
@@ -194,7 +213,9 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
 
       await writeGeneratedDatabaseArtifacts(runtimeConfig)
       await generateProviderOutputs({
+        artifacts: providerArtifacts,
         clientOutDir: resolved.build.outDir,
+        providerOutput,
         rootDir: resolved.root,
         runtimeConfig,
       })

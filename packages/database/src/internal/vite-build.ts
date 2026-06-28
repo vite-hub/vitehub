@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises"
 
-import { writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
+import { getProviderRuntimeModule, registerProviderRuntimeModules, writeProviderDeploymentOutputs } from "@vite-hub/internal/build/deployment-output"
 import { defaultCloudflareCompatibilityDate } from "@vite-hub/internal/build/cloudflare"
 import { computePackageDir, createImportPath, ensureGeneratedDir, resolveRuntimeModule as resolveRuntimeFromPkg } from "@vite-hub/internal/build/paths"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
@@ -12,7 +12,7 @@ import { resolveCloudflareD1Bindings } from "./cloudflare.ts"
 
 import type { ProvisionState } from "@vite-hub/internal/provision"
 import type { ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
-import type { CloudflareProviderDeploymentOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
+import type { CloudflareProviderDeploymentOutput, ComposedProviderOutput, VercelProviderDeploymentOutput } from "@vite-hub/internal/build/deployment-output"
 
 export const dbPackageName = "@vite-hub/database"
 const productName = "database"
@@ -34,7 +34,9 @@ const providerEntrySpecs: ProviderEntrySpec[] = [
 ]
 
 interface GenerateProviderOutputsOptions {
+  artifacts?: GeneratedDBArtifacts
   clientOutDir: string
+  providerOutput?: ComposedProviderOutput
   rootDir: string
   runtimeConfig: ResolvedDBViteConfig
 }
@@ -199,12 +201,13 @@ function getVercelUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
 interface ProviderWriteOptions {
   artifacts: GeneratedDBArtifacts
   clientOutDir: string
+  providerOutput?: ComposedProviderOutput
   provisionState: ProvisionState
   rootDir: string
   runtimeConfig: ResolvedDBViteConfig
 }
 
-function createCloudflareOutput({ artifacts, provisionState, runtimeConfig }: ProviderWriteOptions): CloudflareProviderDeploymentOutput {
+function createCloudflareOutput({ artifacts, providerOutput, provisionState, runtimeConfig }: ProviderWriteOptions): CloudflareProviderDeploymentOutput {
   const databasesMissingNames = getCloudflareDatabasesMissingNames(runtimeConfig, provisionState)
   if (databasesMissingNames.length) {
     throw new Error(`[vitehub] Cloudflare output requires \`db.cloudflare.databaseName\` when \`db.cloudflare.databaseId\` is set for databases: ${databasesMissingNames.join(", ")}.`)
@@ -216,6 +219,7 @@ function createCloudflareOutput({ artifacts, provisionState, runtimeConfig }: Pr
   }
 
   const d1Databases = resolveCloudflareD1Bindings(runtimeConfig, { provisionState }).d1Databases
+  const blobRuntime = getProviderRuntimeModule(providerOutput, "blob", "cloudflare")
 
   const wranglerConfig: CloudflareDBConfig = {
     compatibility_date: defaultCloudflareCompatibilityDate,
@@ -228,7 +232,10 @@ function createCloudflareOutput({ artifacts, provisionState, runtimeConfig }: Pr
   return {
     bundleEntry: artifacts.cloudflareWorkerFile,
     bundleOptions: {
-      alias: { "@vite-hub/database/drizzle": artifacts.runtimeModuleFiles.cloudflare },
+      alias: {
+        "@vite-hub/database/drizzle": artifacts.runtimeModuleFiles.cloudflare,
+        ...(blobRuntime ? { "@vite-hub/blob": blobRuntime } : {}),
+      },
       conditions: ["workerd", "worker", "browser", "default"],
       external: ["node:async_hooks"],
       format: "esm",
@@ -239,16 +246,20 @@ function createCloudflareOutput({ artifacts, provisionState, runtimeConfig }: Pr
   }
 }
 
-function createVercelOutput({ artifacts, runtimeConfig }: ProviderWriteOptions): VercelProviderDeploymentOutput {
+function createVercelOutput({ artifacts, providerOutput, runtimeConfig }: ProviderWriteOptions): VercelProviderDeploymentOutput {
   const unsupportedDatabases = getVercelUnsupportedDatabases(runtimeConfig)
   if (unsupportedDatabases.length) {
     throw new Error(`[vitehub] Vercel output requires a remote libSQL \`db.connection.url\` for databases: ${unsupportedDatabases.join(", ")}.`)
   }
+  const blobRuntime = getProviderRuntimeModule(providerOutput, "blob", "vercel")
 
   return {
     bundleEntry: artifacts.vercelServerFile,
     bundleOptions: {
-      alias: { "@vite-hub/database/drizzle": artifacts.runtimeModuleFiles.vercel },
+      alias: {
+        "@vite-hub/database/drizzle": artifacts.runtimeModuleFiles.vercel,
+        ...(blobRuntime ? { "@vite-hub/blob": blobRuntime } : {}),
+      },
       format: "esm",
       platform: "node",
     },
@@ -263,9 +274,30 @@ function shouldCreateCloudflareOutput(runtimeConfig: ResolvedDBViteConfig, provi
   return getCloudflareUnsupportedDatabases(runtimeConfig, provisionState).length === 0
 }
 
+function getSupportedProviderRuntimeModules(
+  artifacts: GeneratedDBArtifacts,
+  runtimeConfig: ResolvedDBViteConfig,
+  provisionState: ProvisionState,
+): Record<string, string> {
+  return {
+    ...(shouldCreateCloudflareOutput(runtimeConfig, provisionState) ? { cloudflare: artifacts.runtimeModuleFiles.cloudflare } : {}),
+    ...(shouldCreateVercelOutput(runtimeConfig) ? { vercel: artifacts.runtimeModuleFiles.vercel } : {}),
+  }
+}
+
+function registerSupportedProviderRuntimeModules(
+  providerOutput: ComposedProviderOutput | undefined,
+  artifacts: GeneratedDBArtifacts,
+  runtimeConfig: ResolvedDBViteConfig,
+  provisionState: ProvisionState,
+): void {
+  registerProviderRuntimeModules(providerOutput, productName, getSupportedProviderRuntimeModules(artifacts, runtimeConfig, provisionState))
+}
+
 export async function generateProviderOutputs(options: GenerateProviderOutputsOptions): Promise<GeneratedDBArtifacts> {
-  const artifacts = await writeProviderEntries(options.rootDir, options.runtimeConfig)
+  const artifacts = options.artifacts ?? await prepareProviderOutputs(options)
   const provisionState = readProvisionStateSync(options.rootDir)
+  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.runtimeConfig, provisionState)
   const writeOptions: ProviderWriteOptions = { artifacts, provisionState, ...options }
   await writeProviderDeploymentOutputs({
     clientOutDir: options.clientOutDir,
@@ -276,5 +308,11 @@ export async function generateProviderOutputs(options: GenerateProviderOutputsOp
     rootDir: options.rootDir,
     vercel: shouldCreateVercelOutput(options.runtimeConfig) ? createVercelOutput(writeOptions) : undefined,
   })
+  return artifacts
+}
+
+export async function prepareProviderOutputs(options: Pick<GenerateProviderOutputsOptions, "providerOutput" | "rootDir" | "runtimeConfig">): Promise<GeneratedDBArtifacts> {
+  const artifacts = await writeProviderEntries(options.rootDir, options.runtimeConfig)
+  registerSupportedProviderRuntimeModules(options.providerOutput, artifacts, options.runtimeConfig, readProvisionStateSync(options.rootDir))
   return artifacts
 }

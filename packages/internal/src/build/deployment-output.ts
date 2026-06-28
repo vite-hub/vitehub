@@ -81,6 +81,30 @@ interface ProviderDeploymentOutputOptions extends SharedDeploymentOptions {
   vercel?: VercelProviderDeploymentOutput
 }
 
+const composedProviderOutputKey = Symbol.for("vitehub.composedProviderOutput")
+const providerDeploymentOutputWrites = new Map<string, Promise<void>>()
+
+export interface ComposedProviderOutput {
+  runtimeModuleFilesByProduct: Record<string, Record<string, string> | undefined>
+}
+
+export function useComposedProviderOutput(config: object): ComposedProviderOutput {
+  const owner = config as Record<symbol, ComposedProviderOutput | undefined>
+  return owner[composedProviderOutputKey] ??= { runtimeModuleFilesByProduct: {} }
+}
+
+export function resetComposedProviderOutput(composed: ComposedProviderOutput | undefined): void {
+  if (composed) composed.runtimeModuleFilesByProduct = {}
+}
+
+export function registerProviderRuntimeModules(composed: ComposedProviderOutput | undefined, product: string, runtimeModuleFiles: Record<string, string>): void {
+  if (composed) composed.runtimeModuleFilesByProduct[product] = runtimeModuleFiles
+}
+
+export function getProviderRuntimeModule(composed: ComposedProviderOutput | undefined, product: string, provider: string): string | undefined {
+  return composed?.runtimeModuleFilesByProduct[product]?.[provider]
+}
+
 interface ResolvedClientOutput {
   clientDir: string
   staticIndex: boolean
@@ -274,7 +298,7 @@ async function cleanupNetlifyDeploymentOutput(rootDir: string, cleanup: NetlifyP
   await Promise.all(writes)
 }
 
-export async function writeProviderDeploymentOutputs(options: ProviderDeploymentOutputOptions): Promise<void> {
+async function writeProviderDeploymentOutputsNow(options: ProviderDeploymentOutputOptions): Promise<void> {
   const writes: Array<Promise<void>> = []
   if (options.cloudflare) {
     writes.push(writeCloudflareDeploymentOutput({
@@ -304,4 +328,17 @@ export async function writeProviderDeploymentOutputs(options: ProviderDeployment
     writes.push(cleanupVercelDeploymentOutput(options.rootDir, options.cleanup.vercel))
   }
   await Promise.all(writes)
+}
+
+export async function writeProviderDeploymentOutputs(options: ProviderDeploymentOutputOptions): Promise<void> {
+  const key = resolve(options.rootDir)
+  const previous = providerDeploymentOutputWrites.get(key) ?? Promise.resolve()
+  const write = previous.catch(() => undefined).then(() => writeProviderDeploymentOutputsNow(options))
+  providerDeploymentOutputWrites.set(key, write)
+  try {
+    await write
+  }
+  finally {
+    if (providerDeploymentOutputWrites.get(key) === write) providerDeploymentOutputWrites.delete(key)
+  }
 }
