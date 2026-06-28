@@ -31,6 +31,17 @@ const harnessSessionDestroy = vi.hoisted(() => vi.fn(async () => {
   order.push("harness-session-destroy")
 }))
 const harnessStreamInputs = vi.hoisted(() => [] as Record<string, unknown>[])
+const harnessStreamResult = vi.hoisted(() => vi.fn<() => unknown>(() => ({
+  fullStream: {
+    [Symbol.asyncIterator]: () => ({
+      next: () => new Promise<IteratorResult<unknown>>(() => {}),
+      return: async () => {
+        order.push("harness-stream-return")
+        return { done: true, value: undefined }
+      },
+    }),
+  },
+})))
 const workspaceSessionExec = vi.hoisted(() => vi.fn(async (command: string, args: string[] = [], options?: Record<string, unknown>) => ({
   args,
   command,
@@ -95,17 +106,7 @@ vi.mock("@ai-sdk/harness/agent", () => ({
 
     async stream(input: Record<string, unknown>) {
       harnessStreamInputs.push(input)
-      return {
-        fullStream: {
-          [Symbol.asyncIterator]: () => ({
-            next: () => new Promise<IteratorResult<unknown>>(() => {}),
-            return: async () => {
-              order.push("harness-stream-return")
-              return { done: true, value: undefined }
-            },
-          }),
-        },
-      }
+      return harnessStreamResult()
     }
   },
 }))
@@ -218,6 +219,18 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     harnessCreateSessionOptions.length = 0
     harnessSessionDestroy.mockClear()
     harnessStreamInputs.length = 0
+    harnessStreamResult.mockReset()
+    harnessStreamResult.mockReturnValue({
+      fullStream: {
+        [Symbol.asyncIterator]: () => ({
+          next: () => new Promise<IteratorResult<unknown>>(() => {}),
+          return: async () => {
+            order.push("harness-stream-return")
+            return { done: true, value: undefined }
+          },
+        }),
+      },
+    })
     workspaceSessionExec.mockClear()
     workspaceSessionCommit.mockClear()
     workspaceSessionClose.mockClear()
@@ -573,5 +586,114 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       "harness-session-destroy",
       "agent-finish",
     ]))
+  })
+
+  it("closes harness workspace sessions when streams finish normally", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-stream-harness-finish-"))
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "review.ts"), "export default {}", "utf8")
+
+    harnessStreamResult.mockReturnValueOnce({
+      fullStream: (async function* () {
+        yield { text: "Review completed.", type: "text-delta" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const { defineChannel } = await import("../src/channels.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      channels: {
+        github: defineChannel("github", {
+          effects: {},
+          messages: false,
+          triggers: {
+            webhook: {
+              invoke: (context, input) => ({
+                input,
+                run: { channelId: context.trigger.channelId, origin: "github-pull-request-comment", runId: "github-run" },
+              }),
+            },
+          },
+        }),
+      },
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: {},
+      },
+      workspace: { mode: "write" },
+    })
+
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "review",
+      payload: { prompt: "review" },
+      trigger: "github.webhook",
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+    const events = response.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+
+    expect(events).toEqual([
+      expect.objectContaining({ agent: "review", trigger: "github.webhook", type: "start" }),
+      { text: "Review completed.", type: "text-delta" },
+      { type: "finish" },
+      { type: "done" },
+    ])
+    expect(workspaceClose).toHaveBeenCalledOnce()
+    expect(harnessSessionDestroy).toHaveBeenCalledOnce()
+    expect(order).toEqual(expect.arrayContaining([
+      "prepare-harness-workspace",
+      "workspace-session-close",
+      "harness-session-destroy",
+    ]))
+  })
+
+  it("closes harness workspace sessions after UI message streams finish", async () => {
+    harnessStreamResult.mockReturnValueOnce({
+      fullStream: (async function* () {
+        yield { text: "pong", type: "text-delta" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const { readUIMessageStream } = await import("ai")
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgent, streamAgentTrigger } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [chat()],
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: {},
+      },
+      workspace: { mode: "write" },
+    })
+
+    const stream = await streamAgentTrigger(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    }, "chat.message", {
+      messages: [{ id: "user-1", parts: [{ text: "Say pong only.", type: "text" }], role: "user" }],
+    }, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(messages.at(-1)?.parts).toContainEqual(expect.objectContaining({
+      text: "pong",
+      type: "text",
+    }))
+    expect(workspaceClose).toHaveBeenCalledOnce()
+    expect(harnessSessionDestroy).toHaveBeenCalledOnce()
   })
 })
