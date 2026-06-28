@@ -68,6 +68,44 @@ function portalSpec() {
   }
 }
 
+function nonObjectBodySpec() {
+  return {
+    openapi: "3.1.0",
+    servers: [{ url: "https://portal.example.com/runtime" }],
+    paths: {
+      "/notes": {
+        post: {
+          operationId: "setNote",
+          requestBody: {
+            content: {
+              "application/json": {
+                schema: { nullable: true, type: "string" },
+              },
+            },
+          },
+          summary: "Set note.",
+        },
+      },
+      "/tags": {
+        post: {
+          operationId: "replaceTags",
+          requestBody: {
+            content: {
+              "application/json": {
+                schema: {
+                  items: { type: "string" },
+                  type: "array",
+                },
+              },
+            },
+          },
+          summary: "Replace tags.",
+        },
+      },
+    },
+  }
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
 })
@@ -410,6 +448,53 @@ describe("openapi capability", () => {
       note: null,
       sku: "sku-1",
     }))
+  })
+
+  it("preserves non-object request bodies in generated OpenAPI CLI validation", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({ ok: true }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        openapi({
+          cli: { name: "portal" },
+          operations: ["replaceTags", "setNote"],
+          spec: nonObjectBodySpec(),
+        }),
+      ],
+    }, runtime(), { prompt: "update" })
+
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["replace-tags", "--json"],
+      input: { body: ["red", "blue"] },
+    })).resolves.toMatchObject({
+      cli: "portal",
+      exitCode: 0,
+      json: { ok: true },
+    })
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["set-note", "--json"],
+      input: { body: "hello" },
+    })).resolves.toMatchObject({
+      cli: "portal",
+      exitCode: 0,
+      json: { ok: true },
+    })
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["set-note", "--json"],
+      input: { body: null },
+    })).resolves.toMatchObject({
+      cli: "portal",
+      exitCode: 0,
+      json: { ok: true },
+    })
+
+    expect(request.mock.calls.map(call => (call[1] as RequestInit).body)).toEqual([
+      JSON.stringify(["red", "blue"]),
+      "hello",
+      JSON.stringify(null),
+    ])
   })
 
   it("uses text output format for generated OpenAPI CLI text responses", async () => {

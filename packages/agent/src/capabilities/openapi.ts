@@ -596,8 +596,11 @@ function normalizeRawToolInput(operation: OpenAPIOperationTool, input: unknown):
   if (extra.length && record.body !== undefined && !isPlainRecord(record.body)) {
     throw new TypeError(`[vitehub] ${operation.operationId} body input must be an object when mixed with top-level body fields.`)
   }
+  const body = extra.length
+    ? { ...flattenedBody, ...(record.body as Record<string, unknown> | undefined) }
+    : record.body
   return {
-    ...(record.body !== undefined || extra.length ? { body: { ...flattenedBody, ...(record.body as Record<string, unknown> | undefined) } } : {}),
+    ...(record.body !== undefined || extra.length ? { body } : {}),
     ...(record.path ? { path: record.path as Record<string, unknown> } : {}),
     ...(record.query ? { query: record.query as Record<string, unknown> } : {}),
   }
