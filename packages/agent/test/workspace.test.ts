@@ -1281,6 +1281,52 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("keeps generated capability source files selected for Harness Workspace Sessions", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { access, pullRequestContext } = await import("../src/capabilities.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "public",
+            scopes: {
+              public: { paths: ["public"] },
+            },
+          },
+        }),
+        pullRequestContext({
+          context: {
+            number: 441,
+            repository: "vite-hub/vitehub",
+          },
+        }),
+      ],
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+      workspace: {},
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      ignoreWriteBackPaths: [],
+      paths: ["public", "pull-request-context/context.md"],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
+  })
+
   it("auto-commits write-mode workspace changes when rules request it", async () => {
     diff.mockResolvedValueOnce({
       entries: [{ after: { type: "file" }, path: "inbox/audio.md", type: "added" }],

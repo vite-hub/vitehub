@@ -1,4 +1,5 @@
 import { readAgentUsageMetadata } from "../internal/agent-usage-metadata.ts"
+import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { defineCapability } from "../capability-runtime.ts"
 import {
   cloneWithPropertyDescriptors,
@@ -444,6 +445,37 @@ function hasUsageTelemetryStream(result: UnknownRecord): boolean {
   return isAsyncIterable(result.fullStream) || isAsyncIterable(result.stream)
 }
 
+function withUsageTelemetryUiMessageStream(
+  stream: ReadableStream<unknown>,
+  options: UsageTelemetryOptions,
+  run: Partial<AgentRunMetadata> | undefined,
+  onRecord: (record: AgentUsageRecord) => void,
+  metadataSource: unknown,
+): ReadableStream<unknown> {
+  let fallbackResult: UnknownRecord | undefined
+  let recorded = false
+  return stream.pipeThrough(new TransformStream({
+    async transform(chunk, controller) {
+      if (!recorded && isRecord(chunk) && chunk.type === "finish") {
+        const usageRecord = await recordUsage(chunk, options, run, chunk.usage !== undefined || chunk.totalUsage !== undefined ? metadataSource : undefined)
+        if (usageRecord) {
+          recorded = true
+          onRecord(usageRecord)
+        }
+        else if (isRecord(metadataSource)) {
+          fallbackResult = chunk
+        }
+      }
+      controller.enqueue(chunk)
+    },
+    async flush() {
+      if (recorded || !isRecord(metadataSource)) return
+      const usageRecord = await recordUsage(fallbackResult ? { ...metadataSource, ...fallbackResult } : metadataSource, options, run, metadataSource)
+      if (usageRecord) onRecord(usageRecord)
+    },
+  }))
+}
+
 function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
   result: T,
   options: UsageTelemetryOptions,
@@ -463,16 +495,33 @@ function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
     ...(isAsyncIterable(result.stream)
       ? { stream: result.stream === result.fullStream && fullStreamDescriptor ? fullStreamDescriptor : withTelemetry(result.stream) }
       : {}),
-  }
-  const toUIMessageStream = result.toUIMessageStream
-  if (typeof toUIMessageStream === "function") {
-    descriptors.toUIMessageStream = {
-      configurable: true,
-      enumerable: true,
-      value: (...args: unknown[]) => toUIMessageStream.apply(clone, args),
-    }
+    ...(typeof result.toUIMessageStream === "function"
+      ? {
+          toUIMessageStream: {
+            configurable: true,
+            enumerable: false,
+            value: (...args: unknown[]) => withUsageTelemetryUiMessageStream(
+              (result.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>).apply(result, args),
+              options,
+              run,
+              usageRecord => defineUsageTelemetryOutput(clone as UnknownRecord, usageRecord),
+              result,
+            ),
+          },
+        }
+      : {
+          toUIMessageStream: {
+            configurable: true,
+            enumerable: false,
+            value: undefined,
+          },
+        }),
   }
   clone = cloneWithPropertyDescriptors(result, descriptors)
+  Object.defineProperty(clone, Symbol.asyncIterator, {
+    configurable: true,
+    value: () => streamAgentOutputToEvents(clone)[Symbol.asyncIterator](),
+  })
   Object.defineProperty(clone, usageTelemetryWrapped, {
     value: true,
   })

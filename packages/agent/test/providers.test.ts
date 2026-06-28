@@ -481,6 +481,8 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("withAgentDefaults(withWorkspaceSourceRoot(resolveAgentModule")
       expect(webhookRoute).toContain("import { createCloudflareAgentState } from \"@vite-hub/agent/cloudflare\"")
       expect(webhookRoute).toContain("async function toRequest(event)")
+      expect(webhookRoute).toContain("const body = await readRawBody(event)")
+      expect(webhookRoute).not.toContain("return event.request")
       expect(webhookRoute).toContain("function waitUntilFromEvent(event)")
       expect(webhookRoute).toContain("function chatStateFromCloudflare(cloudflare)")
       expect(webhookRoute).toContain("function resolveChatRouteOptions(module)")
@@ -1027,9 +1029,9 @@ describe("server helpers", () => {
         ? { invokerProfileId: "customer:acme" }
         : false
     })
-    const run = vi.fn(({ context, invoker, run }) => {
+    const run = vi.fn(async ({ context, invoker, run, runtimeContext }) => {
       const chatContext = context.get("chat") as { meta?: { audience?: string, customer?: string }, user?: { email?: string } } | undefined
-      return `web ${run.channelId} ${run.origin} ${run.threadId} ${invoker.id} ${chatContext?.user?.email} ${chatContext?.meta?.customer} ${chatContext?.meta?.audience}`
+      return `web ${run.channelId} ${run.origin} ${run.threadId} ${invoker.id} ${chatContext?.user?.email} ${chatContext?.meta?.customer} ${chatContext?.meta?.audience} runtime-body:${await runtimeContext.request.text()}`
     })
     const handler = createChannelChatRouteHandler(defineAgent({
       channels: {
@@ -1082,7 +1084,9 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
-    await expect(response.text()).resolves.toContain("web portal portal portal:portal-thread customer:acme user@example.com acme technical")
+    const responseText = await response.text()
+    expect(responseText).toContain("web portal portal portal:portal-thread customer:acme user@example.com acme technical runtime-body:")
+    expect(responseText).toContain("\\\"messages\\\"")
     expect(run).toHaveBeenCalled()
     authenticate.mockClear()
 

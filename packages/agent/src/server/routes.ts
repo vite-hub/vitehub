@@ -244,6 +244,14 @@ function createRuntimeContext(
   }) as ViteAgentRouteRuntimeContext
 }
 
+function createRuntimeRequest(request: Request, body?: string): Request {
+  return new Request(request.url, {
+    ...(body ? { body } : {}),
+    headers: request.headers,
+    method: request.method,
+  })
+}
+
 async function runWithRuntimeCloudflareEnv<T>(
   context: ViteAgentRouteRuntimeContext,
   callback: () => Promise<T>,
@@ -2043,7 +2051,7 @@ export function createChannelChatRouteHandler(
       if (auth === false) throw createRouteError(401, "Agent chat route request was not admitted.")
       const body = await parseAgentChannelChatRouteAdmissionBody(parsed.body, routeOptions.admission?.body)
       const context = createRuntimeContext(
-        request,
+        createRuntimeRequest(request, parsed.rawBody),
         undefined,
         await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
         handlerOptions.cloudflare,
