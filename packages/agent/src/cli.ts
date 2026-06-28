@@ -929,6 +929,7 @@ async function sendDevWorkspaceCommand(
     response = await fetchImpl(url, {
       body: JSON.stringify({
         agent,
+        ...(parsed.payload ? { payload: parsed.payload } : {}),
         ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
         workspaceCommand: {
           ...(command.args ? { args: command.args } : {}),

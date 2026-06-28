@@ -179,8 +179,11 @@ describe("agent CLI", () => {
   it("runs ! commands through the selected Agent Workspace command surface", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-cli-"))
     const stdout = stream()
+    const stderr = stream()
     const token = await ensureWorkspaceDevToken(rootDir)
     try {
+      const payloadPath = join(rootDir, "payload.json")
+      await writeFile(payloadPath, JSON.stringify({ tenant: "api" }), "utf8")
       const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
         if (init?.method === "POST") {
           return Response.json({
@@ -197,23 +200,25 @@ describe("agent CLI", () => {
         })
       })
 
-      const exitCode = await runAgentDevCli(["--agent", "chat", "!pnpm", "test", "--filter", "api"], {
+      const exitCode = await runAgentDevCli(["--agent", "chat", "--payload", "payload.json", "!pnpm", "test", "--filter", "api"], {
         cwd: rootDir,
         env: {},
         rootDir,
         spawn: vi.fn(),
-        stderr: stream(),
+        stderr,
         stdout,
       }, { fetch: fetchAgentStream as never })
 
       expect(exitCode).toBe(0)
-      expect(stdout.output()).toBe("ok\n")
+      expect(stdout.output()).toBe(`Loaded payload: ${payloadPath}\nok\n`)
+      expect(stderr.output()).toBe("")
       const post = fetchAgentStream.mock.calls[1]
       expect(post?.[1]?.headers).toMatchObject({
         [workspaceDevTokenHeader]: token,
       })
       expect(JSON.parse(String(post?.[1]?.body))).toEqual({
         agent: "chat",
+        payload: { tenant: "api" },
         workspaceCommand: {
           args: ["test", "--filter", "api"],
           command: "pnpm",
