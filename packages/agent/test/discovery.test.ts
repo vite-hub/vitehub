@@ -568,20 +568,20 @@ describe("agent chat capability discovery", () => {
         defineCapability({
           cli: {
             commands: {
-              "purchase-orders": {
+              items: {
                 commands: {
                   list: {
-                    description: "List purchase orders.",
+                    description: "List inventory items.",
                     output: { format: "json" },
-                    run: ({ json }) => ({ json, orders: [{ id: "po_1" }] }),
+                    run: ({ json }) => ({ items: [{ id: "item_1" }], json }),
                   },
                 },
-                description: "Purchase-order runtime data.",
+                description: "Inventory item data.",
               },
             },
-            name: "portal",
+            name: "inventory",
           },
-          id: "portal-runtime",
+          id: "inventory-runtime",
         }),
       ],
       run: () => "chat fallback",
@@ -594,8 +594,8 @@ describe("agent chat capability discovery", () => {
     const response = await invokeMiddleware(handlers[0]!, {
       agent: "chat",
       cli: {
-        argv: ["purchase-orders", "list", "--json"],
-        name: "portal",
+        argv: ["items", "list", "--json"],
+        name: "inventory",
       },
     }, agentInvocationStreamRoute, {
       "content-type": "application/json",
@@ -604,14 +604,14 @@ describe("agent chat capability discovery", () => {
 
     expect(response.statusCode).toBe(200)
     expect(JSON.parse(response.body)).toMatchObject({
-      argv: ["purchase-orders", "list", "--json"],
-      capability: "portal-runtime",
-      cli: "portal",
-      command: "portal purchase-orders list --json",
+      argv: ["items", "list", "--json"],
+      capability: "inventory-runtime",
+      cli: "inventory",
+      command: "inventory items list --json",
       exitCode: 0,
       json: {
+        items: [{ id: "item_1" }],
         json: true,
-        orders: [{ id: "po_1" }],
       },
     })
   })
@@ -631,12 +631,12 @@ describe("agent chat capability discovery", () => {
             commands: {
               list: {
                 output: { format: "json" },
-                run: () => [{ id: "po_1" }],
+                run: () => [{ id: "item_1" }],
               },
             },
-            name: "portal",
+            name: "inventory",
           },
-          id: "portal-runtime",
+          id: "inventory-runtime",
           output(context) {
             context.output.render(renderOutput)
           },
@@ -653,7 +653,7 @@ describe("agent chat capability discovery", () => {
       agent: "chat",
       cli: {
         argv: ["list", "--json"],
-        name: "portal",
+        name: "inventory",
       },
     }, agentInvocationStreamRoute, {
       "content-type": "application/json",
@@ -663,11 +663,11 @@ describe("agent chat capability discovery", () => {
     expect(response.statusCode).toBe(200)
     expect(JSON.parse(response.body)).toMatchObject({
       argv: ["list", "--json"],
-      capability: "portal-runtime",
-      cli: "portal",
+      capability: "inventory-runtime",
+      cli: "inventory",
       exitCode: 0,
-      json: [{ id: "po_1" }],
-      stdout: "[\n  {\n    \"id\": \"po_1\"\n  }\n]\n",
+      json: [{ id: "item_1" }],
+      stdout: "[\n  {\n    \"id\": \"item_1\"\n  }\n]\n",
     })
     expect(renderOutput).not.toHaveBeenCalled()
   })
@@ -690,9 +690,9 @@ describe("agent chat capability discovery", () => {
                 },
               },
             },
-            name: "portal",
+            name: "inventory",
           },
-          id: "portal-runtime",
+          id: "inventory-runtime",
           input: () => Response.json({ reason: "blocked" }, { status: 409 }),
         }),
       ],
@@ -707,7 +707,7 @@ describe("agent chat capability discovery", () => {
       agent: "chat",
       cli: {
         argv: ["list"],
-        name: "portal",
+        name: "inventory",
       },
     }, agentInvocationStreamRoute, {
       "content-type": "application/json",
@@ -734,9 +734,9 @@ describe("agent chat capability discovery", () => {
                 run: () => new Promise(() => {}) as never,
               },
             },
-            name: "portal",
+            name: "inventory",
           },
-          id: "portal-runtime",
+          id: "inventory-runtime",
         }),
       ],
       run: () => "chat fallback",
@@ -750,7 +750,7 @@ describe("agent chat capability discovery", () => {
       agent: "chat",
       cli: {
         argv: ["slow"],
-        name: "portal",
+        name: "inventory",
       },
       timeout: 1,
     }, agentInvocationStreamRoute, {

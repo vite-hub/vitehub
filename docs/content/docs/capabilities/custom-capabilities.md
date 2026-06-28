@@ -118,10 +118,10 @@ Use `harnessWorkspacePaths` when a harness-backed Agent needs specific contribut
 Use `cli` when the Capability owns a real command tree that agents and developers should run instead of a generic shell command.
 The public API is a flat object on the Capability Definition.
 
-```ts [server/agents/capabilities/portal-runtime.ts]
+```ts [server/agents/capabilities/inventory-runtime.ts]
 import { defineCapability } from '@vite-hub/agent'
 
-const portalPurchaseOrdersInput = {
+const inventoryItemsInput = {
   '~standard': {
     validate(input: unknown) {
       return { value: input as { limit?: number } }
@@ -129,30 +129,30 @@ const portalPurchaseOrdersInput = {
   },
 }
 
-const portalPurchaseOrdersOutput = {
+const inventoryItemsOutput = {
   '~standard': {
     validate(input: unknown) {
-      return { value: input as { orders: Array<{ id: string }> } }
+      return { value: input as { items: Array<{ id: string }> } }
     },
   },
 }
 
-export const portalRuntime = defineCapability({
-  id: 'portal-runtime',
+export const inventoryRuntime = defineCapability({
+  id: 'inventory-runtime',
   cli: {
-    name: 'portal',
-    description: 'Inspect live Portal runtime data.',
+    name: 'inventory',
+    description: 'Inspect live inventory data.',
     commands: {
-      'purchase-orders': {
-        description: 'Purchase-order runtime data.',
+      items: {
+        description: 'Inventory item data.',
         commands: {
           list: {
-            description: 'List purchase orders for the current Portal context.',
-            input: portalPurchaseOrdersInput,
-            output: { format: 'json', schema: portalPurchaseOrdersOutput },
-            effects: ['read', 'network:portal'],
+            description: 'List inventory items for the current application context.',
+            input: inventoryItemsInput,
+            output: { format: 'json', schema: inventoryItemsOutput },
+            effects: ['read', 'network:inventory'],
             async run({ input }) {
-              return await listPortalPurchaseOrders(input)
+              return await listInventoryItems(input)
             },
           },
         },
@@ -163,12 +163,12 @@ export const portalRuntime = defineCapability({
 ```
 
 ViteHub generates the command guidance from the command metadata and places it in the Capability instruction slot.
-Keep `instructions.md` focused on policy and include `{{ capabilities.portal-runtime }}` or `{{ capabilities }}` where the generated guidance should appear.
+Keep `instructions.md` focused on policy and include `{{ capabilities.inventory-runtime }}` or `{{ capabilities }}` where the generated guidance should appear.
 
 During development, run the Capability CLI through the Agent Dev Loop.
 
 ```bash [Terminal]
-pnpm vitehub agent dev --url http://localhost:3000 --agent chat --cli portal -- purchase-orders list --json
+pnpm vitehub agent dev --url http://localhost:3000 --agent support --cli inventory -- items list --json
 ```
 
 ## Driver support

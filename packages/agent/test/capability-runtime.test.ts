@@ -198,12 +198,12 @@ describe("agent capability runtime", () => {
         defineCapability({
           cli: {
             commands: {
-              "purchase-orders": {
+              items: {
                 commands: {
                   list: {
-                    description: "List purchase orders for the current Portal context.",
-                    effects: ["read", "network:portal"],
-                    examples: ["portal purchase-orders list --json"],
+                    description: "List inventory items for the current application context.",
+                    effects: ["read", "network:inventory"],
+                    examples: ["inventory items list --json"],
                     input: schema((value) => {
                       const record = value as { limit?: unknown }
                       return { limit: typeof record.limit === "number" ? record.limit : 10 }
@@ -221,33 +221,33 @@ describe("agent capability runtime", () => {
                     },
                   },
                 },
-                description: "Purchase-order runtime data.",
+                description: "Inventory item data.",
               },
             },
-            description: "Inspect live Portal runtime data.",
-            name: "portal",
+            description: "Inspect live inventory data.",
+            name: "inventory",
           },
-          id: "portal-runtime",
+          id: "inventory-runtime",
         }),
       ],
     }, runtime(), {})
 
     expect(resolved.capabilityInstructions).toHaveLength(1)
-    expect(applyCapabilityInstructionSlots("{{ capabilities.portal-runtime }}", resolved.capabilityInstructions)).toContain("## Capability CLI: portal")
-    expect(resolved.capabilityInstructions[0]?.instructions).toContain("portal purchase-orders list --json")
+    expect(applyCapabilityInstructionSlots("{{ capabilities.inventory-runtime }}", resolved.capabilityInstructions)).toContain("## Capability CLI: inventory")
+    expect(resolved.capabilityInstructions[0]?.instructions).toContain("inventory items list --json")
     expect(resolved.capabilityInstructions[0]?.instructions).toContain("instead of generic Bash")
-    expect(Object.keys(resolved.tools || {})).toEqual(["portal"])
-    expect(resolved.tools?.portal?.description).toContain("`purchase-orders list --json`")
-    expect(resolved.tools?.portal?.description).not.toContain("`portal purchase-orders list --json`")
-    expect((resolved.tools?.portal?.inputSchema as { properties: { input: unknown } }).properties.input).toEqual({})
+    expect(Object.keys(resolved.tools || {})).toEqual(["inventory"])
+    expect(resolved.tools?.inventory?.description).toContain("`items list --json`")
+    expect(resolved.tools?.inventory?.description).not.toContain("`inventory items list --json`")
+    expect((resolved.tools?.inventory?.inputSchema as { properties: { input: unknown } }).properties.input).toEqual({})
 
-    await expect(resolved.tools?.portal?.execute?.({
-      argv: ["purchase-orders", "list", "--json"],
+    await expect(resolved.tools?.inventory?.execute?.({
+      argv: ["items", "list", "--json"],
       input: { limit: 3 },
     })).resolves.toMatchObject({
-      argv: ["purchase-orders", "list", "--json"],
-      capability: "portal-runtime",
-      cli: "portal",
+      argv: ["items", "list", "--json"],
+      capability: "inventory-runtime",
+      cli: "inventory",
       exitCode: 0,
       json: { count: 3, json: true },
       stdout: "{\n  \"count\": 3,\n  \"json\": true\n}\n",
@@ -270,20 +270,20 @@ describe("agent capability runtime", () => {
                 run: () => "ok",
               },
             },
-            name: "portal",
+            name: "inventory",
           },
-          id: "portal-runtime",
+          id: "inventory-runtime",
           resolve(context) {
-            context.instructions.add("Use Portal only for runtime data.")
+            context.instructions.add("Use inventory only for runtime data.")
           },
         }),
       ],
     }, runtime(), {})
 
     expect(resolved.capabilityInstructions).toHaveLength(1)
-    const instructions = applyCapabilityInstructionSlots("{{ capabilities.portal-runtime }}", resolved.capabilityInstructions)
-    expect(instructions).toContain("Use Portal only for runtime data.")
-    expect(instructions).toContain("## Capability CLI: portal")
+    const instructions = applyCapabilityInstructionSlots("{{ capabilities.inventory-runtime }}", resolved.capabilityInstructions)
+    expect(instructions).toContain("Use inventory only for runtime data.")
+    expect(instructions).toContain("## Capability CLI: inventory")
   })
 
   it("rejects invalid Capability CLI output formats", async () => {
@@ -297,9 +297,9 @@ describe("agent capability runtime", () => {
             run: () => "ok",
           },
         },
-        name: "portal",
+        name: "inventory",
       },
-      id: "portal-runtime",
+      id: "inventory-runtime",
     })).toThrow('output format must be "json" or "text"')
   })
 
@@ -315,17 +315,17 @@ describe("agent capability runtime", () => {
                 run: () => "ok",
               },
             },
-            name: "portal",
+            name: "inventory",
           },
-          id: "portal-runtime",
+          id: "inventory-runtime",
           tools: {
-            portal: {
-              name: "portal",
+            inventory: {
+              name: "inventory",
             },
           },
         }),
       ],
-    }, runtime(), {})).rejects.toThrow('Capability tool "portal" conflicts with an existing Capability CLI')
+    }, runtime(), {})).rejects.toThrow('Capability tool "inventory" conflicts with an existing Capability CLI')
   })
 
   it("rejects duplicate capability instruction composition keys", async () => {

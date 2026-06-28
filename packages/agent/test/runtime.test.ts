@@ -5290,9 +5290,9 @@ describe("agent message protocol", () => {
                 run: () => "cli",
               },
             },
-            name: "portal",
+            name: "inventory",
           },
-          id: "portal-runtime",
+          id: "inventory-runtime",
           tools: {
             lookup: {
               execute: () => "tool",
@@ -5305,7 +5305,7 @@ describe("agent message protocol", () => {
     const resolved = await agent.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }) as unknown as { tools?: Record<string, { execute?: (input: unknown) => Promise<unknown> }> }
 
     expect(Object.keys(resolved.tools || {})).toEqual(["lookup"])
-    expect(resolved.tools?.portal).toBeUndefined()
+    expect(resolved.tools?.inventory).toBeUndefined()
     await expect(resolved.tools?.lookup?.execute?.({})).resolves.toBe("tool")
   })
 

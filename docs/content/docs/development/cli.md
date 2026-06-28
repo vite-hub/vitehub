@@ -97,7 +97,7 @@ Use `--cli` when a Capability attached to the Agent declares a Capability CLI.
 Everything after `--` is parsed as the nested Capability CLI command.
 
 ```bash [Terminal]
-pnpm vitehub agent dev --url http://localhost:3000 --agent chat --cli portal -- purchase-orders list --json
+pnpm vitehub agent dev --url http://localhost:3000 --agent support --cli inventory -- items list --json
 ```
 
 Expected output includes the resolved payload file path before the Agent Invocation starts.

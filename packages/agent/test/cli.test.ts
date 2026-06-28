@@ -136,16 +136,16 @@ describe("agent CLI", () => {
     const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       if (init?.method === "POST") {
         return Response.json({
-          argv: ["purchase-orders", "list", "--json"],
-          capability: "portal-runtime",
-          cli: "portal",
-          command: "portal purchase-orders list --json",
+          argv: ["items", "list", "--json"],
+          capability: "inventory-runtime",
+          cli: "inventory",
+          command: "inventory items list --json",
           durationMs: 1,
           exitCode: 0,
-          json: [{ id: "po_1" }],
+          json: [{ id: "item_1" }],
           outputTruncated: false,
           stderr: "",
-          stdout: "[{\"id\":\"po_1\"}]\n",
+          stdout: "[{\"id\":\"item_1\"}]\n",
         })
       }
       return Response.json({
@@ -154,7 +154,7 @@ describe("agent CLI", () => {
       })
     })
 
-    const exitCode = await runAgentDevCli(["--agent", "chat", "--cli", "portal", "--", "purchase-orders", "list", "--json"], {
+    const exitCode = await runAgentDevCli(["--agent", "chat", "--cli", "inventory", "--", "items", "list", "--json"], {
       cwd: "/repo",
       env: {},
       rootDir: "/repo",
@@ -164,13 +164,13 @@ describe("agent CLI", () => {
     }, { fetch: fetchAgentStream as never })
 
     expect(exitCode).toBe(0)
-    expect(stdout.output()).toBe("[{\"id\":\"po_1\"}]\n")
+    expect(stdout.output()).toBe("[{\"id\":\"item_1\"}]\n")
     const post = fetchAgentStream.mock.calls[1]
     expect(JSON.parse(String(post?.[1]?.body))).toEqual({
       agent: "chat",
       cli: {
-        argv: ["purchase-orders", "list", "--json"],
-        name: "portal",
+        argv: ["items", "list", "--json"],
+        name: "inventory",
       },
     })
   })
@@ -179,16 +179,16 @@ describe("agent CLI", () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-cli-payload-"))
     try {
       const payloadPath = join(rootDir, "payload.json")
-      await writeFile(payloadPath, JSON.stringify({ tenant: "portal" }), "utf8")
+      await writeFile(payloadPath, JSON.stringify({ tenant: "inventory" }), "utf8")
       const stderr = stream()
       const stdout = stream()
       const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
         if (init?.method === "POST") {
           return Response.json({
             argv: ["list", "--json"],
-            capability: "portal-runtime",
-            cli: "portal",
-            command: "portal list --json",
+            capability: "inventory-runtime",
+            cli: "inventory",
+            command: "inventory list --json",
             durationMs: 1,
             exitCode: 0,
             outputTruncated: false,
@@ -202,7 +202,7 @@ describe("agent CLI", () => {
         })
       })
 
-      const exitCode = await runAgentDevCli(["--agent", "chat", "--payload", "payload.json", "--cli", "portal", "--", "list", "--json"], {
+      const exitCode = await runAgentDevCli(["--agent", "chat", "--payload", "payload.json", "--cli", "inventory", "--", "list", "--json"], {
         cwd: rootDir,
         env: {},
         rootDir,
@@ -219,9 +219,9 @@ describe("agent CLI", () => {
         agent: "chat",
         cli: {
           argv: ["list", "--json"],
-          name: "portal",
+          name: "inventory",
         },
-        payload: { tenant: "portal" },
+        payload: { tenant: "inventory" },
       })
     }
     finally {

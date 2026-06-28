@@ -518,39 +518,39 @@ describe("agent public types", () => {
     }
     const outputSchema = {
       "~standard": {
-        validate: (input: unknown) => ({ value: input as { orders: string[] } }),
+        validate: (input: unknown) => ({ value: input as { items: string[] } }),
       },
     }
-    const listPurchaseOrders = {
-      description: "List purchase orders for the current Portal context.",
-      effects: ["read", "network:portal"],
+    const listItems = {
+      description: "List inventory items for the current application context.",
+      effects: ["read", "network:inventory"],
       input: inputSchema,
       output: { format: "json", schema: outputSchema },
       async run({ context, input, json }) {
         expectTypeOf(context.capability.id).toEqualTypeOf<string>()
         expectTypeOf(input).toEqualTypeOf<{ limit?: number }>()
         expectTypeOf(json).toEqualTypeOf<boolean>()
-        return { orders: [] }
+        return { items: [] }
       },
-    } satisfies AgentCapabilityCliCommand<AgentRuntimeConfig, string, { limit?: number }, { orders: string[] }>
+    } satisfies AgentCapabilityCliCommand<AgentRuntimeConfig, string, { limit?: number }, { items: string[] }>
 
-    const portalRuntime = defineCapability({
-      id: "portal-runtime",
+    const inventoryRuntime = defineCapability({
+      id: "inventory-runtime",
       cli: {
-        name: "portal",
-        description: "Inspect live Portal runtime data.",
+        name: "inventory",
+        description: "Inspect live inventory data.",
         commands: {
-          "purchase-orders": {
-            description: "Purchase-order runtime data.",
+          items: {
+            description: "Inventory item data.",
             commands: {
-              list: listPurchaseOrders,
+              list: listItems,
             },
           },
         },
       },
     })
 
-    expectTypeOf(portalRuntime.cli?.commands).toEqualTypeOf<Record<string, AgentCapabilityCliCommand> | undefined>()
+    expectTypeOf(inventoryRuntime.cli?.commands).toEqualTypeOf<Record<string, AgentCapabilityCliCommand> | undefined>()
     type RootAgentExports = typeof import("../src/index.ts")
     // @ts-expect-error Capability CLI builders are not root Agent Package exports
     type _RootCliBuilder = RootAgentExports["cli"]
