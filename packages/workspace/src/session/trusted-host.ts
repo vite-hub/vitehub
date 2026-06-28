@@ -192,6 +192,7 @@ async function commitLocalChanges(
 
 async function execLocal(root: string, command: string, args: string[] = [], options: ExecOptions = {}): Promise<ExecResult> {
   const cwd = toLocalPath(root, normalizeSessionCwd(options.cwd), { allowGenerated: true })
+  if (options.abortSignal?.aborted) return { args, command, exitCode: 130, stderr: "Command aborted", stdout: "" }
   return await new Promise((resolve) => {
     const child = spawn(command, args, {
       cwd,
@@ -200,34 +201,55 @@ async function execLocal(root: string, command: string, args: string[] = [], opt
     })
     let stdout = ""
     let stderr = ""
-    let settled = false
+    let timedOut = false
+    let aborted = false
     let killTimer: NodeJS.Timeout | undefined
+    const terminate = () => {
+      child.kill("SIGTERM")
+      killTimer = setTimeout(() => child.kill("SIGKILL"), 100)
+    }
+    const abort = () => {
+      if (timedOut || aborted) return
+      aborted = true
+      terminate()
+    }
     const timer = options.timeout
       ? setTimeout(() => {
-          settled = true
-          child.kill("SIGTERM")
-          killTimer = setTimeout(() => child.kill("SIGKILL"), 100)
+          if (timedOut || aborted) return
+          timedOut = true
+          terminate()
         }, options.timeout)
       : undefined
     const clearTimers = () => {
       if (timer) clearTimeout(timer)
       if (killTimer) clearTimeout(killTimer)
+      options.abortSignal?.removeEventListener("abort", abort)
     }
+    options.abortSignal?.addEventListener("abort", abort, { once: true })
+    if (options.abortSignal?.aborted) abort()
     child.stdout?.setEncoding("utf8")
     child.stderr?.setEncoding("utf8")
     child.stdout?.on("data", chunk => stdout += chunk)
     child.stderr?.on("data", chunk => stderr += chunk)
     child.on("error", error => {
       clearTimers()
-      resolve({ args, command, exitCode: 127, stderr: error instanceof Error ? error.message : String(error), stdout })
+      resolve({
+        args,
+        command,
+        exitCode: aborted ? 130 : 127,
+        stderr: aborted ? `${stderr}${stderr ? "\n" : ""}Command aborted` : error instanceof Error ? error.message : String(error),
+        stdout,
+      })
     })
     child.on("close", (code, signal) => {
       clearTimers()
       resolve({
         args,
         command,
-        exitCode: settled ? 124 : code ?? 1,
-        stderr: settled ? `${stderr}${stderr ? "\n" : ""}Command timed out${signal ? ` (${signal})` : ""}` : stderr,
+        exitCode: aborted ? 130 : timedOut ? 124 : code ?? 1,
+        stderr: aborted
+          ? `${stderr}${stderr ? "\n" : ""}Command aborted${signal ? ` (${signal})` : ""}`
+          : timedOut ? `${stderr}${stderr ? "\n" : ""}Command timed out${signal ? ` (${signal})` : ""}` : stderr,
         stdout,
       })
     })

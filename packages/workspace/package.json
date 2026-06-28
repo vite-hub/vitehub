@@ -44,6 +44,10 @@
       "types": "./dist/ai.d.ts",
       "import": "./dist/ai.js"
     },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
+    },
     "./cloudflare": {
       "types": "./dist/cloudflare.d.ts",
       "import": "./dist/cloudflare.js"

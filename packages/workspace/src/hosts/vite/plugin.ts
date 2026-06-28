@@ -9,12 +9,17 @@ import { createNoExternalMerger, isServerEnvironment, mergeGeneratedViteHubWatch
 import { createWorkspaceRegistryContents, discoverViteWorkspaceDefinitions } from "../../build/discovery.ts"
 import { initializeWorkspaceAssetRegistry, refreshWorkspaceBuildState, syncWorkspaceBuildAssets } from "../../build/integration.ts"
 import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
+import { createWorkspaceCliContributor } from "../../cli.ts"
 import { normalizeWorkspaceOptions } from "../../config.ts"
+import { normalizeWorkspaceDefinition } from "../../core/registry.ts"
+import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenServerId } from "../../server.ts"
 
 import type { HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
+import type { IncomingMessage, ServerResponse } from "node:http"
 import type { WorkspaceBuildState } from "../../build/integration.ts"
 import type { ResolvedWorkspaceModuleOptions, WorkspaceModuleOptions } from "../../core/types.ts"
+import type { WorkspaceDevTokenOptions } from "../../server.ts"
 
 const WORKSPACE_PACKAGE_NAME = "@vite-hub/workspace"
 const WORKSPACES_ID = "#vitehub/workspaces"
@@ -76,8 +81,127 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
+function isWorkspaceRegistry(value: unknown): value is Record<string, () => Promise<{ default?: unknown }>> {
+  return isRecord(value) && Object.values(value).every(item => typeof item === "function")
+}
+
 function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]): boolean {
   return store.provider === "cloudflare-artifacts" || store.provider === "github"
+}
+
+function requestOrigin(server: ViteDevServer, req: IncomingMessage): string {
+  const host = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host
+  if (host) {
+    const fallback = server.resolvedUrls?.local?.[0] || "http://localhost/"
+    return new URL(`${new URL(fallback).protocol}//${host}`).origin
+  }
+  const base = server.resolvedUrls?.local?.[0] || `http://localhost:${server.config.server.port || 5173}/`
+  return new URL(base).origin
+}
+
+function validateWorkspaceDevRequest(server: ViteDevServer, req: IncomingMessage): Response | undefined {
+  const header = req.headers[workspaceDevHeader]
+  if ((Array.isArray(header) ? header[0] : header) !== workspaceDevHeaderValue) {
+    return new Response("Forbidden Workspace Dev request.", { status: 403 })
+  }
+  const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin
+  if (origin && origin !== requestOrigin(server, req)) {
+    return new Response("Forbidden Workspace Dev origin.", { status: 403 })
+  }
+  if (req.method !== "POST") return
+  const contentType = Array.isArray(req.headers["content-type"]) ? req.headers["content-type"][0] : req.headers["content-type"]
+  if (!contentType?.toLowerCase().startsWith("application/json")) {
+    return new Response("Workspace Dev requests must use application/json.", { status: 415 })
+  }
+}
+
+async function readRequestBody(req: IncomingMessage): Promise<string> {
+  let body = ""
+  req.setEncoding("utf8")
+  for await (const chunk of req) body += chunk
+  return body
+}
+
+function createAbortSignalFromClose(target: Pick<ServerResponse, "off" | "once">, message: string): { dispose: () => void, signal: AbortSignal } {
+  const controller = new AbortController()
+  const abort = () => controller.abort(new Error(message))
+  target.once("close", abort)
+  return {
+    dispose: () => target.off("close", abort),
+    signal: controller.signal,
+  }
+}
+
+async function writeResponse(res: ServerResponse, response: Response): Promise<void> {
+  res.statusCode = response.status
+  for (const [name, value] of response.headers) res.setHeader(name, value)
+  if (!response.body) {
+    res.end()
+    return
+  }
+  const reader = response.body.getReader()
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      res.write(Buffer.from(value))
+    }
+    res.end()
+  }
+  finally {
+    reader.releaseLock()
+  }
+}
+
+function isWorkspaceDevRoute(req: IncomingMessage): boolean {
+  return new URL(req.url || "/", "http://localhost").pathname === workspaceDevRoute
+}
+
+async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMessage, workspaces: Array<{ name: string }>, tokenOptions: WorkspaceDevTokenOptions, abortSignal?: AbortSignal): Promise<Response> {
+  const validation = validateWorkspaceDevRequest(server, req)
+  if (validation) return validation
+  if (req.method === "GET") {
+    await ensureWorkspaceDevToken(server.config.root, tokenOptions)
+    return Response.json({
+      root: server.config.root,
+      workspaceDevTokenServerId: tokenOptions.serverId,
+      workspaces,
+    })
+  }
+  if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 })
+
+  let body: { workspaceCommand?: { args?: unknown, command?: unknown, timeout?: unknown, workspace?: unknown } }
+  try {
+    body = JSON.parse(await readRequestBody(req)) as typeof body
+  }
+  catch {
+    return new Response("Malformed Workspace Dev payload.", { status: 400 })
+  }
+  const command = body.workspaceCommand
+  if (!command || typeof command.workspace !== "string" || typeof command.command !== "string") {
+    return new Response("Missing Workspace Dev command.", { status: 400 })
+  }
+  if (!await validateWorkspaceDevToken(server.config.root, req.headers, tokenOptions)) {
+    return new Response("Forbidden Workspace Dev token.", { status: 403 })
+  }
+  const mod = await server.ssrLoadModule(WORKSPACE_REGISTRY_ID) as { default?: unknown }
+  const registry = isWorkspaceRegistry(mod.default) ? mod.default : {}
+  const load = registry[command.workspace]
+  if (!load) return new Response(`Unknown Workspace Dev target: ${command.workspace}`, { status: 404 })
+  const definition = (await load()).default
+  if (command.args !== undefined && (!Array.isArray(command.args) || command.args.some(arg => typeof arg !== "string"))) {
+    return new Response("Workspace Dev command args must be strings.", { status: 400 })
+  }
+  const args = command.args as string[] | undefined
+  const timeout = typeof command.timeout === "number" && Number.isFinite(command.timeout) ? command.timeout : undefined
+  return Response.json(await runWorkspaceDevCommand({
+    abortSignal,
+    ...(args ? { args } : {}),
+    command: command.command,
+    ...(isRecord(definition) ? { definition: normalizeWorkspaceDefinition(command.workspace, definition as never) } : {}),
+    ...(timeout ? { timeout } : {}),
+    workspace: command.workspace,
+  }))
 }
 
 function hasNitroPlugin(value: unknown): boolean {
@@ -179,7 +303,11 @@ export interface WorkspaceVitePluginAPI {
   getWorkspaces: () => Array<{ name: string }>
 }
 
-export type WorkspaceVitePlugin = Plugin & { api: WorkspaceVitePluginAPI }
+interface WorkspaceCliContributingPlugin {
+  vitehub?: { cli?: () => unknown | Promise<unknown> }
+}
+
+export type WorkspaceVitePlugin = Plugin & WorkspaceCliContributingPlugin & { api: WorkspaceVitePluginAPI }
 
 export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlugin {
   let resolved: ResolvedConfig | undefined
@@ -297,8 +425,10 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         })
       },
     },
-    configureServer(devServer) {
+    async configureServer(devServer) {
       server = devServer
+      const tokenOptions = { serverId: workspaceDevTokenServerId(devServer.config.server.port) }
+      await refreshWorkspaceDevToken(devServer.config.root, tokenOptions)
       const roots = {
         projectRoot: projectRoot || resolveViteHubProjectRoot(devServer.config.root),
         viteRoot: viteRoot || resolve(devServer.config.root),
@@ -306,6 +436,19 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       const refresh = async (file: string) => await maybeRefreshTypesForFile(roots, file)
       devServer.watcher.on("add", refresh)
       devServer.watcher.on("unlink", refresh)
+      devServer.middlewares.use((req, res, next) => {
+        if (!isWorkspaceDevRoute(req)) return next()
+        const abort = createAbortSignalFromClose(res, "[vitehub] Workspace Dev response closed.")
+        void handleWorkspaceDevRequest(devServer, req, manifest.workspaces, tokenOptions, abort.signal)
+          .then(response => writeResponse(res, response))
+          .catch((error: unknown) => writeResponse(res, new Response(error instanceof Error ? error.message : "Workspace Dev request failed.", { status: 500 })))
+          .finally(abort.dispose)
+      })
+    },
+    vitehub: {
+      cli: async () => {
+        return createWorkspaceCliContributor()
+      },
     },
     async handleHotUpdate(ctx: HmrContext) {
       if (!resolved) return
