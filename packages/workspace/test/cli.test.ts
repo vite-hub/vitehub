@@ -1,7 +1,11 @@
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { describe, expect, it, vi } from "vitest"
 
 import { runWorkspaceDevCli } from "../src/cli.ts"
-import { workspaceDevHeader, workspaceDevHeaderValue } from "../src/server.ts"
+import { ensureWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevTokenHeader } from "../src/server.ts"
 import { hubWorkspace } from "../src/vite.ts"
 
 function stream() {
@@ -27,49 +31,69 @@ describe("workspace CLI", () => {
   })
 
   it("runs Workspace Dev commands through the Workspace dev endpoint", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-cli-"))
     const stdout = stream()
-    const fetchWorkspaceDev = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-      if (init?.method === "POST") {
+    const token = await ensureWorkspaceDevToken(rootDir)
+    try {
+      const fetchWorkspaceDev = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return Response.json({
+            args: ["-e", "console.log(process.argv[1])", "hello world", "--timeout=30000"],
+            command: "node",
+            exitCode: 0,
+            stderr: "",
+            stdout: "ok\n",
+          })
+        }
         return Response.json({
-          args: ["-lc", "pnpm test"],
-          command: "bash",
-          exitCode: 0,
-          stderr: "",
-          stdout: "ok\n",
+          root: rootDir,
+          workspaces: [{ name: "docs" }],
         })
-      }
-      return Response.json({
-        root: "/repo",
-        workspaces: [{ name: "docs" }],
       })
-    })
 
-    const exitCode = await runWorkspaceDevCli(["docs", "pnpm test", "--url", "http://127.0.0.1:4321", "--timeout", "10000"], {
-      cwd: "/repo",
-      env: {},
-      rootDir: "/repo",
-      stderr: stream(),
-      stdout,
-    }, { fetch: fetchWorkspaceDev as never })
+      const exitCode = await runWorkspaceDevCli([
+        "--url",
+        "http://127.0.0.1:4321",
+        "--timeout",
+        "10000",
+        "docs",
+        "node",
+        "-e",
+        "console.log(process.argv[1])",
+        "hello world",
+        "--timeout=30000",
+      ], {
+        cwd: rootDir,
+        env: {},
+        rootDir,
+        stderr: stream(),
+        stdout,
+      }, { fetch: fetchWorkspaceDev as never })
 
-    expect(exitCode).toBe(0)
-    expect(stdout.output()).toBe("ok\n")
-    const [get, post] = fetchWorkspaceDev.mock.calls
-    expect(String(get?.[0])).toBe("http://127.0.0.1:4321/__vitehub/workspace/dev")
-    expect(get?.[1]?.headers).toMatchObject({
-      accept: "application/json",
-      [workspaceDevHeader]: workspaceDevHeaderValue,
-    })
-    expect(post?.[1]?.headers).toMatchObject({
-      "content-type": "application/json",
-      [workspaceDevHeader]: workspaceDevHeaderValue,
-    })
-    expect(JSON.parse(String(post?.[1]?.body))).toEqual({
-      workspaceCommand: {
-        command: "pnpm test",
-        timeout: 10000,
-        workspace: "docs",
-      },
-    })
+      expect(exitCode).toBe(0)
+      expect(stdout.output()).toBe("ok\n")
+      const [get, post] = fetchWorkspaceDev.mock.calls
+      expect(String(get?.[0])).toBe("http://127.0.0.1:4321/__vitehub/workspace/dev")
+      expect(get?.[1]?.headers).toMatchObject({
+        accept: "application/json",
+        [workspaceDevHeader]: workspaceDevHeaderValue,
+      })
+      expect(post?.[1]?.headers).toMatchObject({
+        "content-type": "application/json",
+        [workspaceDevHeader]: workspaceDevHeaderValue,
+        [workspaceDevTokenHeader]: token,
+      })
+      expect(JSON.parse(String(post?.[1]?.body))).toEqual({
+        workspaceCommand: {
+          args: ["-e", "console.log(process.argv[1])", "hello world", "--timeout=30000"],
+          command: "node",
+          timeout: 10000,
+          workspace: "docs",
+        },
+      })
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
   })
 })

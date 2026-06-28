@@ -269,14 +269,14 @@ During local development, `vitehub workspace dev` runs commands through a Worksp
 Use it when you want the Workspace Runtime Surface to own materialization, command execution, and successful writeback.
 
 ```bash [Terminal]
-pnpm vitehub workspace dev docs pnpm test --url http://localhost:5173
+pnpm vitehub workspace dev --url http://localhost:5173 docs pnpm test --filter api
 ```
 
 `vitehub agent dev` also accepts `!` input for direct commands through the selected Agent's writable Workspace.
 Use `!` for local shell work that should happen in the same Workspace the Agent sees, and use normal messages when the Agent should reason about the task.
 
 ```bash [Terminal]
-pnpm vitehub agent dev --agent support "!pnpm test"
+pnpm vitehub agent dev --agent support !pnpm test --filter api
 ```
 
 ## Provider output

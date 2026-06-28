@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { ensureWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 import { describe, expect, it, vi } from "vitest"
 
 import { createAgentCliContributor, runAgentDevCli, runAgentEvalCli } from "../src/cli.ts"
@@ -176,82 +177,104 @@ describe("agent CLI", () => {
   })
 
   it("runs ! commands through the selected Agent Workspace command surface", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-cli-"))
     const stdout = stream()
-    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-      if (init?.method === "POST") {
+    const token = await ensureWorkspaceDevToken(rootDir)
+    try {
+      const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return Response.json({
+            args: ["test", "--filter", "api"],
+            command: "pnpm",
+            exitCode: 0,
+            stderr: "",
+            stdout: "ok\n",
+          })
+        }
         return Response.json({
-          args: ["-lc", "pnpm test"],
-          command: "bash",
-          exitCode: 0,
-          stderr: "",
-          stdout: "ok\n",
+          agents: [{ name: "chat", triggers: ["chat.message"] }],
+          root: rootDir,
         })
-      }
-      return Response.json({
-        agents: [{ name: "chat", triggers: ["chat.message"] }],
-        root: "/repo",
       })
-    })
 
-    const exitCode = await runAgentDevCli(["--agent", "chat", "!pnpm", "test"], {
-      cwd: "/repo",
-      env: {},
-      rootDir: "/repo",
-      spawn: vi.fn(),
-      stderr: stream(),
-      stdout,
-    }, { fetch: fetchAgentStream as never })
+      const exitCode = await runAgentDevCli(["--agent", "chat", "!pnpm", "test", "--filter", "api"], {
+        cwd: rootDir,
+        env: {},
+        rootDir,
+        spawn: vi.fn(),
+        stderr: stream(),
+        stdout,
+      }, { fetch: fetchAgentStream as never })
 
-    expect(exitCode).toBe(0)
-    expect(stdout.output()).toBe("ok\n")
-    const post = fetchAgentStream.mock.calls[1]
-    expect(JSON.parse(String(post?.[1]?.body))).toEqual({
-      agent: "chat",
-      workspaceCommand: {
-        command: "pnpm test",
-      },
-    })
+      expect(exitCode).toBe(0)
+      expect(stdout.output()).toBe("ok\n")
+      const post = fetchAgentStream.mock.calls[1]
+      expect(post?.[1]?.headers).toMatchObject({
+        [workspaceDevTokenHeader]: token,
+      })
+      expect(JSON.parse(String(post?.[1]?.body))).toEqual({
+        agent: "chat",
+        workspaceCommand: {
+          args: ["test", "--filter", "api"],
+          command: "pnpm",
+        },
+      })
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
   })
 
   it("runs positional Agent Dev Loop ! commands through the selected Agent Workspace", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-cli-"))
     const stdout = stream()
-    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-      if (init?.method === "POST") {
+    const token = await ensureWorkspaceDevToken(rootDir)
+    try {
+      const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return Response.json({
+            args: ["ok", "--flag"],
+            command: "printf",
+            exitCode: 0,
+            stderr: "",
+            stdout: "ok\n",
+          })
+        }
         return Response.json({
-          args: ["-lc", "printf ok"],
-          command: "bash",
-          exitCode: 0,
-          stderr: "",
-          stdout: "ok\n",
+          agents: [{ name: "proof-agent", triggers: [] }],
+          root: rootDir,
         })
-      }
-      return Response.json({
-        agents: [{ name: "proof-agent", triggers: [] }],
-        root: "/repo",
       })
-    })
 
-    const exitCode = await runAgentDevCli(["proof-agent", "!printf ok", "--url", "http://127.0.0.1:5173", "--timeout", "10000"], {
-      cwd: "/repo",
-      env: {},
-      rootDir: "/repo",
-      spawn: vi.fn(),
-      stderr: stream(),
-      stdout,
-    }, { fetch: fetchAgentStream as never })
+      const exitCode = await runAgentDevCli(["--url", "http://127.0.0.1:5173", "--timeout", "10000", "proof-agent", "!printf", "ok", "--flag"], {
+        cwd: rootDir,
+        env: {},
+        rootDir,
+        spawn: vi.fn(),
+        stderr: stream(),
+        stdout,
+      }, { fetch: fetchAgentStream as never })
 
-    expect(exitCode).toBe(0)
-    expect(stdout.output()).toBe("ok\n")
-    const [get, post] = fetchAgentStream.mock.calls
-    expect(String(get?.[0])).toBe("http://127.0.0.1:5173/__vitehub/agent/invocation-stream")
-    expect(JSON.parse(String(post?.[1]?.body))).toEqual({
-      agent: "proof-agent",
-      timeout: 10000,
-      workspaceCommand: {
-        command: "printf ok",
+      expect(exitCode).toBe(0)
+      expect(stdout.output()).toBe("ok\n")
+      const [get, post] = fetchAgentStream.mock.calls
+      expect(String(get?.[0])).toBe("http://127.0.0.1:5173/__vitehub/agent/invocation-stream")
+      expect(post?.[1]?.headers).toMatchObject({
+        [workspaceDevTokenHeader]: token,
+      })
+      expect(JSON.parse(String(post?.[1]?.body))).toEqual({
+        agent: "proof-agent",
         timeout: 10000,
-      },
-    })
+        workspaceCommand: {
+          args: ["ok", "--flag"],
+          command: "printf",
+          timeout: 10000,
+        },
+      })
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
   })
 
   it("keeps payload diagnostics off stdout for Capability CLI commands", async () => {

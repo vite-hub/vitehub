@@ -11,8 +11,7 @@ import { initializeWorkspaceAssetRegistry, refreshWorkspaceBuildState, syncWorks
 import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
 import { createWorkspaceCliContributor } from "../../cli.ts"
 import { normalizeWorkspaceOptions } from "../../config.ts"
-import { runWorkspaceDevCommand, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute } from "../../server.ts"
-import { setWorkspaceRuntimeRegistry } from "../../runtime.ts"
+import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute } from "../../server.ts"
 
 import type { HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { DiscoveredWorkspaceDefinition } from "../../build/discovery.ts"
@@ -78,6 +77,10 @@ function discoverDefinitions(roots: WorkspacePluginRoots) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
+}
+
+function isWorkspaceRegistry(value: unknown): value is Record<string, () => Promise<{ default?: unknown }>> {
+  return isRecord(value) && Object.values(value).every(item => typeof item === "function")
 }
 
 function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]): boolean {
@@ -146,6 +149,7 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
   const validation = validateWorkspaceDevRequest(server, req)
   if (validation) return validation
   if (req.method === "GET") {
+    await ensureWorkspaceDevToken(server.config.root)
     return Response.json({
       root: server.config.root,
       workspaces,
@@ -153,9 +157,7 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
   }
   if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 })
 
-  const mod = await server.ssrLoadModule(WORKSPACE_REGISTRY_ID) as { default?: unknown }
-  setWorkspaceRuntimeRegistry(isRecord(mod.default) ? mod.default as never : {})
-  let body: { workspaceCommand?: { command?: unknown, timeout?: unknown, workspace?: unknown } }
+  let body: { workspaceCommand?: { args?: unknown, command?: unknown, timeout?: unknown, workspace?: unknown } }
   try {
     body = JSON.parse(await readRequestBody(req)) as typeof body
   }
@@ -166,9 +168,23 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
   if (!command || typeof command.workspace !== "string" || typeof command.command !== "string") {
     return new Response("Missing Workspace Dev command.", { status: 400 })
   }
+  if (!await validateWorkspaceDevToken(server.config.root, req.headers)) {
+    return new Response("Forbidden Workspace Dev token.", { status: 403 })
+  }
+  const mod = await server.ssrLoadModule(WORKSPACE_REGISTRY_ID) as { default?: unknown }
+  const registry = isWorkspaceRegistry(mod.default) ? mod.default : {}
+  const load = registry[command.workspace]
+  if (!load) return new Response(`Unknown Workspace Dev target: ${command.workspace}`, { status: 404 })
+  const definition = (await load()).default
+  if (command.args !== undefined && (!Array.isArray(command.args) || command.args.some(arg => typeof arg !== "string"))) {
+    return new Response("Workspace Dev command args must be strings.", { status: 400 })
+  }
+  const args = command.args as string[] | undefined
   const timeout = typeof command.timeout === "number" && Number.isFinite(command.timeout) ? command.timeout : undefined
   return Response.json(await runWorkspaceDevCommand({
+    ...(args ? { args } : {}),
     command: command.command,
+    ...(isRecord(definition) ? { definition: definition as never } : {}),
     ...(timeout ? { timeout } : {}),
     workspace: command.workspace,
   }))
@@ -395,8 +411,9 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         })
       },
     },
-    configureServer(devServer) {
+    async configureServer(devServer) {
       server = devServer
+      await refreshWorkspaceDevToken(devServer.config.root)
       const roots = {
         projectRoot: projectRoot || resolveViteHubProjectRoot(devServer.config.root),
         viteRoot: viteRoot || resolve(devServer.config.root),

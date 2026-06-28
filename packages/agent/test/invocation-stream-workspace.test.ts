@@ -31,6 +31,21 @@ const harnessSessionDestroy = vi.hoisted(() => vi.fn(async () => {
   order.push("harness-session-destroy")
 }))
 const harnessStreamInputs = vi.hoisted(() => [] as Record<string, unknown>[])
+const workspaceSessionExec = vi.hoisted(() => vi.fn(async (command: string, args: string[] = [], options?: Record<string, unknown>) => ({
+  args,
+  command,
+  exitCode: 0,
+  options,
+  stderr: "",
+  stdout: "ok\n",
+})))
+const workspaceSessionCommit = vi.hoisted(() => vi.fn(async () => {}))
+const workspaceSessionClose = vi.hoisted(() => vi.fn(async () => {}))
+const workspaceStartSession = vi.hoisted(() => vi.fn(async () => ({
+  close: workspaceSessionClose,
+  commit: workspaceSessionCommit,
+  exec: workspaceSessionExec,
+})))
 const useWorkspace = vi.hoisted(() => vi.fn(() => ({
   diff,
   fs: {
@@ -41,6 +56,7 @@ const useWorkspace = vi.hoisted(() => vi.fn(() => ({
     writeFile: vi.fn(),
   },
   snapshot,
+  startSession: workspaceStartSession,
   tools: Object.assign(vi.fn(() => ({})), {
     inspect: vi.fn(() => ({})),
     none: vi.fn(() => ({})),
@@ -200,6 +216,10 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     harnessCreateSessionOptions.length = 0
     harnessSessionDestroy.mockClear()
     harnessStreamInputs.length = 0
+    workspaceSessionExec.mockClear()
+    workspaceSessionCommit.mockClear()
+    workspaceSessionClose.mockClear()
+    workspaceStartSession.mockClear()
     useWorkspace.mockClear()
   })
 
@@ -278,6 +298,125 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     ])
     expect(useWorkspace).toHaveBeenCalledWith("review", { mode: "write" })
     expect(replyEffect).not.toHaveBeenCalled()
+  })
+
+  it("requires the private token before running Agent Workspace commands", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workspace-command-token-"))
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      run: () => "unused",
+      workspace: { mode: "write" },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "support",
+      workspaceCommand: { command: "pnpm", args: ["test"] },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.statusCode).toBe(403)
+    expect(response.body).toBe("Forbidden Agent Dev Loop command token.")
+    expect(useWorkspace).not.toHaveBeenCalled()
+  })
+
+  it("rejects Agent Workspace commands when the Agent Workspace is read-only", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workspace-command-read-"))
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { ensureWorkspaceDevToken, workspaceDevTokenHeader } = await import("@vite-hub/workspace/server")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      run: () => "unused",
+      workspace: "shared",
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+    const token = await ensureWorkspaceDevToken(root)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "support",
+      workspaceCommand: { command: "pnpm", args: ["test"] },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      [workspaceDevTokenHeader]: token,
+    })
+
+    expect(response.statusCode).toBe(403)
+    expect(response.body).toBe("Agent Dev Loop command requires workspace.mode: \"write\".")
+    expect(useWorkspace).not.toHaveBeenCalled()
+  })
+
+  it("runs Agent Workspace commands through prepared Workspace access", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workspace-command-"))
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { ensureWorkspaceDevToken, workspaceDevTokenHeader } = await import("@vite-hub/workspace/server")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      capabilities: [{
+        id: "support-files",
+        workspaceSources: {
+          support: { path: "support.md", workspacePath: "support.md" },
+        },
+      }],
+      run: () => "unused",
+      workspace: { mode: "write", name: "shared" },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+    const token = await ensureWorkspaceDevToken(root)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "support",
+      timeout: 1234,
+      workspaceCommand: { args: ["test", "--filter", "api"], command: "pnpm" },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      [workspaceDevTokenHeader]: token,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(JSON.parse(response.body)).toEqual({
+      args: ["test", "--filter", "api"],
+      command: "pnpm",
+      exitCode: 0,
+      options: { timeout: 1234 },
+      stderr: "",
+      stdout: "ok\n",
+    })
+    expect(useWorkspace).toHaveBeenCalledWith("shared", {
+      definition: expect.objectContaining({
+        name: "shared",
+        sources: expect.objectContaining({
+          support: expect.any(Object),
+        }),
+      }),
+      mode: "write",
+    })
+    expect(workspaceStartSession).toHaveBeenCalledWith(undefined)
+    expect(workspaceSessionExec).toHaveBeenCalledWith("pnpm", ["test", "--filter", "api"], { timeout: 1234 })
+    expect(workspaceSessionCommit).toHaveBeenCalledWith({ message: "workspace dev command" })
+    expect(workspaceSessionClose).toHaveBeenCalled()
   })
 
   it("times out hung harness streams and runs failure cleanup", async () => {

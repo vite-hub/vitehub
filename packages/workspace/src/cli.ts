@@ -1,7 +1,9 @@
 import {
+  readWorkspaceDevToken,
   workspaceDevHeader,
   workspaceDevHeaderValue,
   workspaceDevRoute,
+  workspaceDevTokenHeader,
 } from "./server.ts"
 
 interface WorkspaceCliContext {
@@ -26,6 +28,7 @@ interface WorkspaceCliContributor {
 }
 
 interface ParsedWorkspaceDevArgs {
+  args?: string[]
   command?: string
   help: boolean
   timeout?: number
@@ -63,7 +66,6 @@ function readOptionValue(args: string[], index: number, flag: string): string {
 }
 
 function parseWorkspaceDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedWorkspaceDevArgs {
-  const command: string[] = []
   const parsed: ParsedWorkspaceDevArgs = {
     help: false,
     url: env.VITEHUB_DEV_SERVER_URL || "http://localhost:5173",
@@ -102,11 +104,13 @@ function parseWorkspaceDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedWo
       parsed.workspace = arg
       continue
     }
-    command.push(arg)
+    const [command, ...commandArgs] = args.slice(index)
+    if (command?.trim()) {
+      parsed.command = command
+      if (commandArgs.length) parsed.args = commandArgs
+    }
+    break
   }
-
-  const text = command.join(" ").trim()
-  if (text) parsed.command = text
   return parsed
 }
 
@@ -167,9 +171,15 @@ async function sendWorkspaceCommand(
     context.stderr.write("Pass a command or run in an interactive terminal.\n")
     return 1
   }
+  const token = await readWorkspaceDevToken(context.rootDir)
+  if (!token) {
+    context.stderr.write("No private Workspace Dev token found. Start the Compatible Vite Development Server first.\n")
+    return 1
+  }
   const response = await fetchImpl(url, {
     body: JSON.stringify({
       workspaceCommand: {
+        ...(parsed.args ? { args: parsed.args } : {}),
         command: parsed.command,
         ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
         workspace: parsed.workspace,
@@ -178,6 +188,7 @@ async function sendWorkspaceCommand(
     headers: {
       "content-type": "application/json",
       [workspaceDevHeader]: workspaceDevHeaderValue,
+      [workspaceDevTokenHeader]: token,
     },
     method: "POST",
   })

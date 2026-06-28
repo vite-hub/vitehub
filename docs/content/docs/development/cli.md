@@ -117,9 +117,10 @@ ViteHub runs the command through that Workspace Session and commits successful c
 
 ```bash [Terminal]
 pnpm vitehub agent dev --agent support "!pnpm test"
-pnpm vitehub agent dev support "!pnpm test" --url http://localhost:5173 --timeout 180000
+pnpm vitehub agent dev --url http://localhost:5173 --timeout 180000 support !pnpm test --filter api
 ```
 
+Put Agent Dev Loop options before the `!` command; flags after `!` are passed to the Workspace command.
 In interactive mode, `!` input bypasses the Agent Driver for that turn.
 Use normal messages for Agent reasoning, `!` commands for direct Workspace shell work, and `--cli` for Capability CLI Contributions.
 
@@ -134,12 +135,13 @@ Use `vitehub workspace dev` when you want a direct command against a Workspace w
 Start the app's Vite dev server first, then run the command from another terminal.
 
 ```bash [Terminal]
-pnpm vitehub workspace dev docs pnpm test --url http://localhost:5173
-pnpm vitehub workspace dev docs "npm run lint" --timeout 180000
+pnpm vitehub workspace dev --url http://localhost:5173 docs pnpm test --filter api
+pnpm vitehub workspace dev --timeout 180000 docs "npm run lint"
 ```
 
 The command runs through the Workspace dev endpoint exposed by `hubWorkspace()` on the Compatible Vite Development Server.
 ViteHub materializes a Workspace Session, executes the command, prints stdout and stderr, and commits the session when the command exits successfully.
+Put Workspace Dev options before the Workspace target; flags after the command begins are preserved for that command.
 If you omit the command in an interactive terminal, the CLI opens a prompt for repeated Workspace commands.
 
 ```txt [Output]
