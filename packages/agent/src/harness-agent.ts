@@ -240,7 +240,12 @@ async function resolveHarnessSessionKey<
   return sessionKey || undefined
 }
 
-async function createDefaultHarnessSandbox() {
+async function createDefaultHarnessSandbox(context: AgentAdapterRunContext) {
+  if (context.workspace && context.runtime.runtime === "vite") {
+    const { createLocalHarnessSandbox } = await import("./harness/local-sandbox.ts")
+    return createLocalHarnessSandbox()
+  }
+
   let sandboxModule: { createVercelSandbox: (settings: Record<string, unknown>) => unknown }
   try {
     sandboxModule = await import("@ai-sdk/sandbox-vercel") as typeof sandboxModule
@@ -263,9 +268,9 @@ async function resolveHarnessSandbox<
   context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
 ) {
   if (typeof sandbox === "function") {
-    return await sandbox(toRunCallbackContext(context)) ?? await createDefaultHarnessSandbox()
+    return await sandbox(toRunCallbackContext(context)) ?? await createDefaultHarnessSandbox(context)
   }
-  return sandbox ?? await createDefaultHarnessSandbox()
+  return sandbox ?? await createDefaultHarnessSandbox(context)
 }
 
 function hasHarnessInstructionDocument(context: AgentAdapterRunContext): boolean {
