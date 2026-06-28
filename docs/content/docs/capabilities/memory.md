@@ -80,7 +80,6 @@ For the workspace JSONL store, inspect the configured Workspace file and verify 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `stores` | `Record<string, MemoryStoreOptions>` | required | Named Memory Stores available to the Agent. |
-| `instructions` | `string \| false` | generated | Current override for generated memory instructions. Prefer explicit Capability coverage in Agent Driver Instructions for broader guidance. |
 | `stores.*.adapter` | `MemoryStoreAdapter \| MemoryStoreFactory` | required | Store implementation. |
 | `stores.*.scope` | `MemoryScope \| function` | required | Scope attached to all operations for that store. |
 | `stores.*.allowKinds` | `MemoryKind[]` | all kinds | Allowed memory kinds for the store. |
@@ -91,6 +90,8 @@ For the workspace JSONL store, inspect the configured Workspace file and verify 
 | `stores.*.write.policy` | `AgentToolPolicyDecision` | `"require-approval"` | Policy for write tools. |
 | `stores.*.retention.export` | `boolean` | `false` | Allow export operations. |
 | `stores.*.retention.hardDelete` | `boolean` | `false` | Allow hard delete behavior when supported. |
+
+Cover Memory usage guidance in Agent Driver Instructions with explicit Capability coverage blocks. Keep memory tool descriptions with the tool definitions because they are structured tool contracts.
 
 ## Reference
 

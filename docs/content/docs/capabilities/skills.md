@@ -21,7 +21,7 @@ The Capability records the configured Skill path in metadata and requires the Wo
 When `shellExecution` is set, model-backed Agents receive the normal Workspace Shell tools in the requested mode.
 When `source` is set, ViteHub adds that source to the Agent Workspace at definition time and mounts it at the skill path.
 
-Direction: model-facing guidance for a Skill should be covered by Agent Driver Instructions or deterministic imported instruction Markdown. ViteHub should warn when `skills()` makes a Skill available but no explicit instruction coverage names it.
+Model-facing guidance for a Skill belongs in Agent Driver Instructions or deterministic imported instruction Markdown. Agent DevTools metadata warns when `skills()` makes a Skill available but no explicit instruction coverage names it.
 
 ## Configuration
 
@@ -95,17 +95,19 @@ Run the Agent with the configured Workspace.
 A missing skill file should fail before model execution with a Workspace path requirement error.
 
 Inspect Capability metadata for the normalized `path` and `skillPath` values.
-When coverage diagnostics land, a configured Skill should warn until Agent Driver Instructions or a deterministic imported instruction file explicitly covers it.
+Agent DevTools metadata warns when a configured Skill lacks explicit instruction coverage.
+The warning clears when Agent Driver Instructions or a deterministic imported instruction file covers the Skill.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `instructions` | `string \| false` | generated | Current override for generated skill-read instructions. Prefer explicit Skill coverage in Agent Driver Instructions for new guidance. |
 | `path` | `string` | `"skills"` | Directory or `SKILL.md` path required in the Workspace. |
 | `shellExecution` | `"read" \| "write"` | none | Optional Workspace Shell mode for model-backed Agents. Harness-backed Agents still receive the skill files, not Workspace Shell tools. |
 | `source` | `WorkspaceSourceInput` | none | Workspace Source to mount at the skill directory. |
 | `sourceKey` | `string` | derived from `path` | Workspace source key used when `source` is configured. |
+
+Cover Skill usage guidance in Agent Driver Instructions with explicit Skill coverage blocks. Keep tool descriptions with Workspace Shell tools because they are structured tool contracts.
 
 ## Reference
 

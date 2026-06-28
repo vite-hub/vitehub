@@ -66,11 +66,11 @@ Subagent keys must be lowercase stable identifiers, and generated tool names use
 | --- | --- | --- | --- |
 | `agents` | `Record<string, SubagentDefinition>` | required | Named child Agent Definitions exposed as tools. |
 | `id` | `string` | `"subagents"` | Capability id and instruction context key. |
-| `instructions` | `string \| false` | generated | Current override for generated delegation instructions. Prefer explicit Capability coverage in Agent Driver Instructions for broader guidance. |
 | `agents.*.agent` | `AgentInput` | required | Child Agent Definition or Agent input accepted by `runAgent()`. |
 | `agents.*.description` | `string` | required | Tool description shown to the model. |
-| `agents.*.instructions` | `string` | none | Extra generated instructions for that child Agent. |
 | `agents.*.toolName` | `string` | `run_<name>` | Explicit model-facing tool name. |
+
+Cover delegation guidance in Agent Driver Instructions with explicit Capability coverage blocks. Keep each subagent's description with `agents.*.description` because it is the model-facing tool contract.
 
 ## Inspect and verify
 

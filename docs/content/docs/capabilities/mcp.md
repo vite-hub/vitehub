@@ -77,7 +77,8 @@ The Capability should fail before model execution.
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `servers` | `Record<string, McpServerConfig>` | required | MCP clients, client configs, or resolvers keyed by server name. |
-| `instructions` | `string \| false` | generated | Current override for generated MCP tool instructions. Prefer explicit Capability coverage in Agent Driver Instructions for new guidance. |
+
+Cover MCP usage guidance in Agent Driver Instructions with explicit Capability coverage blocks. Keep MCP tool descriptions with the MCP Server because they are structured tool contracts.
 
 ## Reference
 

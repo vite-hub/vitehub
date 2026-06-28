@@ -54,7 +54,7 @@ For model, harness, or custom Agent behavior, add the Agent track after the prim
 - Do not expose a primitive to a model just because the app uses it.
 - Do not add an Agent Definition when direct server code and a Runtime Helper solve the task.
 - Do not add root `tools`, `skills`, or `sandbox` Agent Definition fields; use Capabilities and Agent Driver boundaries.
-- Do not treat Source, Capability, or Skill config as a hidden prompt bag; treat coverage diagnostics for missing explicit instruction coverage as future direction until the runtime emits them.
+- Do not treat Source, Capability, or Skill config as a hidden prompt bag; DevTools metadata warns when configured primitives lack explicit instruction coverage.
 - Do not remove tool descriptions or schemas when tightening instructions; they are structured tool contracts.
 - Do not copy docs into prompts when a raw docs URL is enough.
 - Prefer current docs over memory for package names, import paths, and option shapes.
