@@ -1644,6 +1644,10 @@ describe("agent message protocol", () => {
     expect(() => defineAgent({
       driver: { execution: {}, run: () => "ok" },
     } as never)).toThrow("does not support option: execution")
+
+    expect(() => defineAgent({
+      driver: { instructions: "ignored", run: () => "ok" },
+    } as never)).toThrow("does not support option: instructions")
   })
 
   it("creates inline schedule capabilities without requiring chat history", async () => {

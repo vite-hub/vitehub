@@ -32,7 +32,6 @@ type NormalizedAgentDriver<
     sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
   }
   | {
-    instructions?: AgentAdapterInstructions<TRuntimeConfig>
     kind: "run"
     run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
@@ -84,7 +83,7 @@ function normalizeHarnessCredentialSource(value: unknown): AgentHarnessCredentia
 
 const modelDriverKeys = new Set(["execution", "instructions", "model"])
 const harnessDriverKeys = new Set(["credentials", "harness", "sandbox", "sessionKey"])
-const runDriverKeys = new Set(["instructions", "run"])
+const runDriverKeys = new Set(["run"])
 
 function normalizeExplicitAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig,
@@ -133,7 +132,6 @@ function normalizeExplicitAgentDriver<
     throw new TypeError("[vitehub] defineAgent({ driver.run }) must be a function.")
   }
   return {
-    instructions: driver.instructions as AgentAdapterInstructions<TRuntimeConfig> | undefined,
     kind: "run",
     run: driver.run as AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>,
   }

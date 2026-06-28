@@ -757,6 +757,11 @@ describe("agent public types", () => {
       driver: { run: () => "ok" },
     })
 
+    defineAgent({
+      // @ts-expect-error custom-run-backed Agent Drivers do not receive model-facing instructions
+      driver: { instructions: "ignored", run: () => "ok" },
+    })
+
     type RootAgentExports = typeof import("../src/index.ts")
     // @ts-expect-error Channel Kind helpers are imported from @vite-hub/agent/channels, not the root entry.
     type _RootTeams = RootAgentExports["teams"]

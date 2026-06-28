@@ -405,7 +405,6 @@ describe("agent chat capability discovery", () => {
         chat(),
       ],
       driver: {
-        instructions: "# Support\n\n{{ capabilities.access.workspace }}",
         run: (context: { invoker: { kind?: string, meta?: Record<string, unknown> }, workspace?: unknown }) => {
           const email = typeof context.invoker.meta?.email === "string" ? `:${context.invoker.meta.email}` : ""
           return `answered as ${context.invoker.kind}${email} with ${context.workspace ? "workspace" : "no workspace"}`
@@ -422,7 +421,7 @@ describe("agent chat capability discovery", () => {
     const state = await waitForMetadataState(handlers[0]!, { action: "get-state", invokerProfileId: "support-technical" })
     expect(state).toMatchObject({
       chats: [{ name: "support", uiMessages: [] }],
-      instructions: ["# Support\n\nAudience resolved for technical."],
+      instructions: ["Audience resolved for technical."],
       metadataStatus: "ready",
       invokerProfileId: "support-technical",
       invokerProfiles: [
@@ -459,7 +458,7 @@ describe("agent chat capability discovery", () => {
     })
     const clearedTechnicalState = JSON.parse(clearedTechnicalResponse.body)
     expect(clearedTechnicalState).toMatchObject({
-      instructions: ["# Support\n\nAudience resolved for technical."],
+      instructions: ["Audience resolved for technical."],
       invokerProfileId: "support-technical",
       selected: "support",
       uiMessages: [],
@@ -486,7 +485,7 @@ describe("agent chat capability discovery", () => {
       meta: devtoolsMeta,
     })
     expect(resolvedFallbackState).toMatchObject({
-      instructions: ["# Support\n\nAudience resolved for technical."],
+      instructions: ["Audience resolved for technical."],
       invokerFallback: true,
       metadataStatus: "ready",
       selected: "support",
@@ -1716,7 +1715,6 @@ describe("agent chat capability discovery", () => {
     const agent = withAgentDefaults(defineAgent({
       capabilities: [chat()],
       driver: {
-        instructions: "Answer from the workspace.",
         async run({ workspace }) {
           const fs = workspace?.fs as { materializeSources?: (options: { sources: string[] }) => Promise<unknown> } | undefined
           await fs?.materializeSources?.({ sources: ["ingestion"] })
@@ -1804,7 +1802,6 @@ describe("agent chat capability discovery", () => {
     const agent = withAgentDefaults(defineAgent({
       capabilities: [chat()],
       driver: {
-        instructions: "Answer from the workspace.",
         run: () => "ok"
       },
       workspace: {

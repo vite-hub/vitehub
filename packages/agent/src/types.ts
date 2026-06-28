@@ -849,7 +849,7 @@ export interface AgentRunDriver<
   credentials?: never
   execution?: never
   harness?: never
-  instructions?: AgentAdapterInstructions<TRuntimeConfig>
+  instructions?: never
   model?: never
   permissionMode?: never
   permissions?: never

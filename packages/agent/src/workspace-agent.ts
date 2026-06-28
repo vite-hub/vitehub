@@ -331,7 +331,7 @@ function modelDriverInstructions<
 ): AgentAdapterInstructions<TRuntimeConfig, Name> | undefined {
   const driver = (options as unknown as { driver?: unknown }).driver
   if (typeof driver === "object" && driver !== null) {
-    return "model" in driver || "run" in driver
+    return "model" in driver
       ? (driver as { instructions?: AgentAdapterInstructions<TRuntimeConfig, Name> }).instructions
       : undefined
   }
