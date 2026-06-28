@@ -829,6 +829,41 @@ describe("defineAgent workspace option", () => {
     expect(harnessSession.destroy).toHaveBeenCalledOnce()
   })
 
+  it("closes Harness Workspace Sessions when session creation aborts after workspace preparation", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const controller = new AbortController()
+    const harnessSession = { destroy: vi.fn() }
+    const harnessWorkspaceSession = { close: vi.fn() }
+    const abortError = new Error("timed out")
+    harnessCreateSession.mockResolvedValueOnce(harnessSession)
+    prepareHarnessWorkspaceSession.mockImplementationOnce(async () => {
+      controller.abort(abortError)
+      return harnessWorkspaceSession
+    })
+    exists.mockResolvedValue(true)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {
+        sources: {
+          guide: {
+            path: "AGENTS.md",
+          },
+        },
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), {
+      abortSignal: controller.signal,
+      prompt: "hello",
+    })).rejects.toThrow("timed out")
+    expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(abortError)
+    expect(harnessSession.destroy).toHaveBeenCalledOnce()
+    expect(harnessGenerate).not.toHaveBeenCalled()
+  })
+
   it("writes composed Instruction Documents into harness instruction files", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
