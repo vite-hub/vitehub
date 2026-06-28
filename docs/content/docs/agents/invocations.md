@@ -100,7 +100,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-Agent Trigger Consumers call the trigger surface. They do not own the Capability behavior that registered the trigger.
+Agent Trigger Consumers call the trigger surface. They do not own the Capability behavior that registered the trigger. The `run` field remains Agent Run metadata for the invocation rather than Chat context.
 
 ## Input lifecycle
 

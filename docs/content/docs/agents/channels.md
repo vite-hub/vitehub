@@ -66,7 +66,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-The `run` fields are Agent Run State and observability metadata. They help DevTools, traces, and finish hooks explain where the invocation came from.
+The `run` fields are first-class Agent Run metadata, not Chat context. They help DevTools, traces, and finish hooks explain where the invocation came from.
 
 ## Add identity separately
 

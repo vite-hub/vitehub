@@ -209,6 +209,15 @@ function createRuntimeContext(server: ViteDevServer, req: IncomingMessage, run: 
   }) as ViteAgentDevtoolsRuntimeContext
 }
 
+function createDevtoolsMetadataRunMetadata(name: string): AgentRunMetadata<"devtools"> {
+  return {
+    channelId: `devtools:${name}`,
+    origin: "devtools",
+    runId: `devtools:${name}:metadata`,
+    threadId: `devtools:${name}:thread`,
+  }
+}
+
 function createDevtoolsMetadataInput(selection: ChatDevtoolsInvokerSelection = {}): AgentRunInput {
   const meta = optionalRecord(selection.meta)
   return {
@@ -221,7 +230,6 @@ function createDevtoolsMetadataInput(selection: ChatDevtoolsInvokerSelection = {
       chat: {
         message: { metadata: {} },
         ...(meta ? { meta } : {}),
-        run: { origin: "devtools" },
         user: chatDevtoolsUser,
       },
     },
@@ -346,6 +354,7 @@ async function startMetadataResolution(
   const task = resolveAgentDevtoolsMetadata(entry.agent as never, {
     ...entry.defaults,
     input: createDevtoolsMetadataInput(metadataSelection),
+    runtime: { run: createDevtoolsMetadataRunMetadata(entry.name) },
   } as never)
     .then((metadata) => {
       if (entry.metadataTask !== task || entry.metadataSelectionKey !== selectionKey) return
@@ -762,6 +771,7 @@ async function materializeDevtoolsSource(
       input: createDevtoolsMetadataInput(metadataSelection),
       ...(input.path ? { path: input.path } : {}),
       ...(input.source ? { source: input.source } : {}),
+      runtime: { run: createDevtoolsMetadataRunMetadata(entry.name) },
       sources: materializedSourceKeys(entry.metadata),
     } as never)
     entry.metadata = metadataWithAgentName(metadata, entry.name)

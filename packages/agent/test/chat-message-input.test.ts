@@ -77,9 +77,9 @@ describe("chat message trigger input", () => {
 
     expect(result.input.context?.chat).toMatchObject({
       meta: { portal: { activePage: "/orders" } },
-      run: { origin: "portal", runId: "portal-run" },
       user: { email: "support@example.com" },
     })
+    expect(result.input.context?.chat).not.toHaveProperty("run")
     expect(result.input.context?.invoker).toEqual({
       id: "portal:acme:user_1",
       kind: "customerPortal",
@@ -116,6 +116,7 @@ describe("chat message trigger input", () => {
       kind: "devtools",
       meta: { email: "maximo@quiver.dk" },
     })
+    expect(result.input.context?.chat).not.toHaveProperty("run")
   })
 
   it("preserves completed UI tool calls", () => {
