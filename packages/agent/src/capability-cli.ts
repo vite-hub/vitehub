@@ -149,7 +149,7 @@ function commandLeaves<TRuntimeConfig extends AgentRuntimeConfig, Name extends W
 
 function firstExample(cliName: string, path: string[], command: AgentCapabilityCliCommand): string {
   const example = command.examples?.[0]
-  return example || `${cliName} ${path.join(" ")} --json`
+  return example || `${cliName} ${path.join(" ")}${outputFormat(command.output, false) === "json" ? " --json" : ""}`
 }
 
 function toolInputExample(cliName: string, path: string[], command: AgentCapabilityCliCommand): string {

@@ -1291,14 +1291,13 @@ async function createAgentInvocationContext<
         ? { capabilities: workspaceOptions.capabilities as AgentCapabilityDefinition<TRuntimeConfig>[], hooks: workspaceOptions.hooks as never }
         : undefined
     const agentModel = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentModel] as AgentModelResolver<TRuntimeConfig> | undefined
-    const driverKind = (definition as Record<PropertyKey, unknown> | undefined)?.[capabilityCliRunSurface]
-      ? "run"
-      : (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentDriverKind]
+    const driverKind = (definition as AgentDefinitionWithBaseResolve<TRuntimeConfig, CALL_OPTIONS> | undefined)?.[baseAgentDriverKind]
     const capabilities = await resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
       context: invocationContext,
       driverKind,
       invoker,
       model: agentModel as never,
+      resolveCapabilityCli: (definition as Record<PropertyKey, unknown> | undefined)?.[capabilityCliRunSurface] === true,
       workspaceDefinition: resolvedWorkspaceDefinition,
     })
     const inputHook = definition?.hooks?.["agent:input"]

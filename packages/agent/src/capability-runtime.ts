@@ -118,6 +118,7 @@ export interface AgentCapabilityInvocationOptions<
   invoker?: AgentInvoker
   model?: AgentModelResolver<TRuntimeConfig, Name>
   phases?: readonly AgentCapabilityRuntimePhase[]
+  resolveCapabilityCli?: boolean
   resolveInstructions?: boolean
   resolveTools?: boolean
   workspaceDefinition?: WorkspaceDefinition
@@ -784,6 +785,7 @@ export async function resolveAgentCapabilities<
   const invocationContext = invocationOptions.context || createAgentInvocationContextStore(input.context)
   const invoker = invocationOptions.invoker || resolveInputAgentInvoker(input.context) || createFallbackAgentInvoker(runtime.run)
   const driverKind = invocationOptions.driverKind || "model"
+  const resolveCapabilityCli = driverKind !== "harness" || invocationOptions.resolveCapabilityCli === true
   ensureAgentInvokerContext(invocationContext, invoker)
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   assertWorkspaceSourceScopesRequireAccess(invocationOptions.workspaceDefinition, capabilities)
@@ -1114,7 +1116,7 @@ export async function resolveAgentCapabilities<
     for (const { capability, context } of capabilityContexts) {
       let cli: AgentCapabilityCliContribution<TRuntimeConfig, Name> | undefined
       const resolveCli = (capability as InternalAgentCapabilityWithGeneratedCli<TRuntimeConfig, Name>).resolveCli
-      if ((capability.cli || resolveCli) && driverKind !== "harness" && (invocationOptions.resolveInstructions !== false || invocationOptions.resolveTools !== false)) {
+      if ((capability.cli || resolveCli) && resolveCapabilityCli && (invocationOptions.resolveInstructions !== false || invocationOptions.resolveTools !== false)) {
         cli = resolveCli
           ? await resolveCli(context)
           : capability.cli
@@ -1129,7 +1131,7 @@ export async function resolveAgentCapabilities<
           merge: Boolean(cliInstructions),
         })
       }
-      if (invocationOptions.resolveTools !== false && cli && driverKind !== "harness") {
+      if (invocationOptions.resolveTools !== false && cli && resolveCapabilityCli) {
         const resolved = createCapabilityCliTool(capability, context, cli)
         if (isToolSet(resolved)) {
           if (tools?.[cli.name]) {

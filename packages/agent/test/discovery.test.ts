@@ -665,6 +665,70 @@ describe("agent chat capability discovery", () => {
     })
   })
 
+  it("preserves model driver context for Capability CLI dev runs", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-model-cli-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ customers: ["acme"] }), {
+      headers: { "content-type": "application/json" },
+      status: 200,
+    }))
+
+    try {
+      const { openapi } = await import("../src/capabilities.ts")
+      const { defineAgent } = await import("../src/index.ts")
+      const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+      const agent = defineAgent({
+        capabilities: [
+          openapi({
+            cli: { name: "portal" },
+            enabled: ({ driver }) => driver?.kind === "model",
+            operations: { allow: ["listCustomers"] },
+            spec: {
+              paths: {
+                "/customers": {
+                  get: {
+                    operationId: "listCustomers",
+                    summary: "List customers.",
+                  },
+                },
+              },
+              servers: [{ url: "https://portal.example.com/runtime" }],
+            },
+          }),
+        ],
+        driver: { model: {} as never },
+      })
+      const { handlers, server } = createFakeServer(root, { default: agent })
+      const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+      await configurePluginServer(plugin, server)
+
+      const response = await invokeMiddleware(handlers[0]!, {
+        agent: "chat",
+        cli: {
+          argv: ["list-customers", "--json"],
+          name: "portal",
+        },
+      }, agentInvocationStreamRoute, {
+        "content-type": "application/json",
+        [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(JSON.parse(response.body)).toMatchObject({
+        cli: "portal",
+        command: "portal list-customers --json",
+        exitCode: 0,
+        json: { customers: ["acme"] },
+      })
+      expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/customers")
+    }
+    finally {
+      request.mockRestore()
+    }
+  })
+
   it("previews Channel Delivery Effects for Capability CLI dev runs", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-cli-effects-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

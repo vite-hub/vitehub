@@ -296,6 +296,43 @@ describe("agent capability runtime", () => {
     })
   })
 
+  it("omits --json from generated text Capability CLI examples", async () => {
+    const {
+      applyCapabilityInstructionSlots,
+      defineCapability,
+      resolveAgentCapabilities,
+    } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              say: {
+                output: { format: "text" },
+                run: () => "plain text",
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+        }),
+      ],
+    }, runtime(), {})
+
+    const instructions = applyCapabilityInstructionSlots("{{ capabilities.inventory-runtime }}", resolved.capabilityInstructions)
+    expect(instructions).toContain("inventory say")
+    expect(instructions).not.toContain("inventory say --json")
+    expect(resolved.tools?.inventory?.description).toContain("`say`")
+    expect(resolved.tools?.inventory?.description).not.toContain("`say --json`")
+    const result = await resolved.tools?.inventory?.execute?.({ argv: ["say"] })
+    expect(result).toMatchObject({
+      exitCode: 0,
+      stdout: "plain text\n",
+    })
+    expect(result).not.toHaveProperty("json")
+  })
+
   it("preserves omitted Capability CLI input as undefined", async () => {
     const {
       defineCapability,
