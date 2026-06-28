@@ -102,7 +102,7 @@ Everything after `--` is parsed as the nested Capability CLI command.
 pnpm vitehub agent dev --url http://localhost:3000 --agent support --cli inventory -- items list --json
 ```
 
-When you use `--payload`, expected output includes the resolved payload file path before the Agent Invocation starts.
+Expected output includes the resolved payload file path before the Agent Invocation starts.
 In interactive mode, type a message or command such as `/summary` at the prompt.
 
 ```txt [Output]

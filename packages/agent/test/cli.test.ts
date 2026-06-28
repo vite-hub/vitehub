@@ -210,8 +210,8 @@ describe("agent CLI", () => {
       }, { fetch: fetchAgentStream as never })
 
       expect(exitCode).toBe(0)
-      expect(stdout.output()).toBe(`Loaded payload: ${payloadPath}\nok\n`)
-      expect(stderr.output()).toBe("")
+      expect(stdout.output()).toBe("ok\n")
+      expect(stderr.output()).toBe(`Loaded payload: ${payloadPath}\n`)
       const post = fetchAgentStream.mock.calls[1]
       expect(post?.[1]?.headers).toMatchObject({
         [workspaceDevTokenHeader]: token,

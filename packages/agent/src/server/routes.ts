@@ -1,3 +1,4 @@
+import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { createRuntimeWaitUntilController } from "@vite-hub/runtime"
 import { Chat, StreamingPlan } from "chat"
@@ -82,10 +83,25 @@ export interface AgentChannelChatRouteRequestOptions extends AgentRouteRuntimeOp
   agentName?: string
 }
 
-export interface AgentChannelChatRouteMapInputContext {
+export interface AgentChannelChatRouteStandardSchemaResultSuccess<T = unknown> {
+  issues?: undefined
+  value: T
+}
+
+export interface AgentChannelChatRouteStandardSchemaResultFailure {
+  issues: readonly unknown[]
+}
+
+export interface AgentChannelChatRouteStandardSchemaV1<T = unknown> {
+  "~standard": {
+    validate: (input: unknown) => AgentChannelChatRouteStandardSchemaResultSuccess<T> | AgentChannelChatRouteStandardSchemaResultFailure | Promise<AgentChannelChatRouteStandardSchemaResultSuccess<T> | AgentChannelChatRouteStandardSchemaResultFailure>
+  }
+}
+
+export interface AgentChannelChatRouteAdmissionContext<TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody> {
   agentName: string
-  body: AgentChannelChatRouteBody
-  input: AgentChatMessageTriggerInput
+  body: TBody
+  rawBody: string
   request: Request
 }
 
@@ -93,9 +109,25 @@ type AgentChannelChatRouteInputPatch = Omit<Partial<AgentChatMessageTriggerInput
   run?: Partial<AgentRunMetadata>
 }
 
-export interface AgentChannelChatRouteHandlerOptions {
+export interface AgentChannelChatRouteContext<TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown>
+  extends AgentChannelChatRouteAdmissionContext<TBody> {
+  auth: Exclude<TAuth, false>
+  input: AgentChatMessageTriggerInput
+}
+
+export interface AgentChannelChatRouteMapInputContext<TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown>
+  extends AgentChannelChatRouteContext<TBody, TAuth> {}
+
+export interface AgentChannelChatRouteAdmissionOptions<TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown> {
+  authenticate?: (context: AgentChannelChatRouteAdmissionContext) => MaybePromise<TAuth | false>
+  body?: AgentChannelChatRouteStandardSchemaV1<TBody>
+  context?: (context: AgentChannelChatRouteContext<TBody, TAuth>) => MaybePromise<AgentChannelChatRouteInputPatch | undefined | void>
+}
+
+export interface AgentChannelChatRouteHandlerOptions<TBody extends AgentChannelChatRouteBody = AgentChannelChatRouteBody, TAuth = unknown> {
+  admission?: AgentChannelChatRouteAdmissionOptions<TBody, TAuth>
   channelId?: string
-  mapInput?: (context: AgentChannelChatRouteMapInputContext) => MaybePromise<AgentChannelChatRouteInputPatch | undefined | void>
+  mapInput?: (context: AgentChannelChatRouteMapInputContext<TBody, TAuth>) => MaybePromise<AgentChannelChatRouteInputPatch | undefined | void>
   origin?: string
 }
 
@@ -121,8 +153,12 @@ interface ChatTypingRefresh {
   stop(): void
 }
 
+function createRouteError(statusCode: number, message: string): Error & { status?: number, statusCode?: number } {
+  return Object.assign(new Error(message), { status: statusCode, statusCode })
+}
+
 function createRouteBodyError(message: string): Error & { status?: number, statusCode?: number } {
-  return Object.assign(new Error(message), { status: 400, statusCode: 400 })
+  return createRouteError(400, message)
 }
 
 function firstString(...values: unknown[]): string | undefined {
@@ -1226,7 +1262,6 @@ function createDevtoolsMetadataInput(selection: AgentChatDevtoolsInvokerSelectio
       chat: {
         message: { metadata: {} },
         ...(meta ? { meta } : {}),
-        run: { origin: "devtools" },
         user: chatDevtoolsUser(meta),
       },
     },
@@ -1318,7 +1353,7 @@ async function startAgentDevtoolsMetadataResolution(
   const task = resolveAgentDevtoolsMetadata(agent as never, {
     ...options.defaults,
     input: createDevtoolsMetadataInput(metadataSelection),
-    runtime,
+    runtime: { ...runtime, run: createDevtoolsMetadataRunMetadata(name) },
   } as never)
     .then((metadata) => {
       if (state.metadataTask !== task || state.metadataSelectionKey !== selectionKey) return
@@ -1412,6 +1447,15 @@ function createDevtoolsRunMetadata(name: string, userMessageId: string): AgentRu
   }
 }
 
+function createDevtoolsMetadataRunMetadata(name: string): AgentRunMetadata<"devtools"> {
+  return {
+    channelId: `devtools:${name}`,
+    origin: "devtools",
+    runId: `devtools:${name}:metadata`,
+    threadId: `devtools:${name}:thread`,
+  }
+}
+
 function createUserUIMessage(text: string): UIMessage {
   return {
     id: `devtools-user-${randomToken()}`,
@@ -1440,17 +1484,30 @@ function createHttpChatRunMetadata(
   }
 }
 
-async function parseAgentChannelChatRouteBody(request: Request): Promise<AgentChannelChatRouteBody> {
+async function parseAgentChannelChatRouteBody(request: Request): Promise<{ body: AgentChannelChatRouteBody, rawBody: string }> {
   const raw = await request.text()
   if (!raw.trim()) throw createRouteBodyError("Missing agent chat payload.")
   try {
     const body = JSON.parse(raw) as AgentChannelChatRouteBody
     if (!isRecord(body)) throw createRouteBodyError("Agent chat payload must be a JSON object.")
-    return body
+    return { body, rawBody: raw }
   }
   catch (error) {
     if (error instanceof Error && "statusCode" in error) throw error
     throw createRouteBodyError("Malformed agent chat payload.")
+  }
+}
+
+async function parseAgentChannelChatRouteAdmissionBody<TBody extends AgentChannelChatRouteBody>(
+  body: AgentChannelChatRouteBody,
+  schema: AgentChannelChatRouteStandardSchemaV1<TBody> | undefined,
+): Promise<TBody> {
+  if (!schema) return body as TBody
+  try {
+    return await parseStandardSchema(schema, body, "agent chat route body")
+  }
+  catch (error) {
+    throw createRouteBodyError(error instanceof Error ? error.message : "Invalid agent chat route body.")
   }
 }
 
@@ -1526,6 +1583,7 @@ function resolveAgentChannelChatRouteHandlerOptions(
   return {
     ...channelOptions,
     ...options,
+    admission: options.admission ?? channelOptions?.admission,
     mapInput: options.mapInput ?? channelOptions?.mapInput,
   }
 }
@@ -1684,15 +1742,16 @@ async function materializeDevtoolsSource(
 
   try {
     const { materializeAgentDevtoolsSourceMetadata } = await import("../workspace-agent.ts")
+    const name = agentChannelDevtoolsName(agent, options)
     const metadata = await materializeAgentDevtoolsSourceMetadata(agent as never, {
       ...options.defaults,
       input: createDevtoolsMetadataInput(metadataSelection),
       ...(input.path ? { path: input.path } : {}),
       ...(input.source ? { source: input.source } : {}),
-      runtime,
+      runtime: { ...runtime, run: createDevtoolsMetadataRunMetadata(name) },
       sources: materializedSourceKeys(state.metadata),
     } as never)
-    state.metadata = metadataWithAgentName(metadata, agentChannelDevtoolsName(agent, options))
+    state.metadata = metadataWithAgentName(metadata, name)
     state.metadataSelectionKey = metadataSelectionKey(metadataSelection)
     state.metadataStatus = "ready"
     state.metadataTask = undefined
@@ -1927,18 +1986,26 @@ export function createChannelChatRouteHandler(
     }
 
     try {
-      const body = await parseAgentChannelChatRouteBody(request)
+      const parsed = await parseAgentChannelChatRouteBody(request)
       const agentName = handlerOptions.agentName || "agent"
+      const auth = await routeOptions.admission?.authenticate?.({ agentName, body: parsed.body, rawBody: parsed.rawBody, request })
+      if (auth === false) throw createRouteError(401, "Agent chat route request was not admitted.")
+      const body = await parseAgentChannelChatRouteAdmissionBody(parsed.body, routeOptions.admission?.body)
       const context = createRuntimeContext(
         request,
         undefined,
         await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
         handlerOptions.cloudflare,
       )
-      const baseInput = agentChannelChatRouteInput(body, agentName, Boolean(routeOptions.mapInput), routeOptions)
-      const triggerInput = mergeAgentChannelChatRouteInput(
+      const baseInput = agentChannelChatRouteInput(body, agentName, Boolean(routeOptions.admission?.context || routeOptions.mapInput), routeOptions)
+      const inputContext = { agentName, auth: auth as never, body, input: baseInput, rawBody: parsed.rawBody, request }
+      const admittedInput = mergeAgentChannelChatRouteInput(
         baseInput,
-        await routeOptions.mapInput?.({ agentName, body, input: baseInput, request }),
+        await routeOptions.admission?.context?.(inputContext),
+      )
+      const triggerInput = mergeAgentChannelChatRouteInput(
+        admittedInput,
+        await routeOptions.mapInput?.({ ...inputContext, input: admittedInput }),
       )
       const result = await runWithRuntimeCloudflareEnv(context, async () => await streamAgentTrigger(agent as never, context as never, "chat.message", triggerInput, {
         output: "ui-message-stream",

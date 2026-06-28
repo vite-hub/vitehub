@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Connect } from "vite"
 
-const runWorkspaceDevCommand = vi.hoisted(() => vi.fn(async () => ({
+const runWorkspaceDevCommand = vi.hoisted(() => vi.fn(async (_input?: { abortSignal?: AbortSignal }) => ({
   exitCode: 0,
   stderr: "",
   stdout: "ok\n",
@@ -51,6 +51,7 @@ async function invokeMiddleware(
   body: Record<string, unknown>,
   url: string,
   headers: IncomingMessage["headers"],
+  options: { onResponse?: (res: ServerResponse) => void } = {},
 ) {
   let output = ""
   const req = Readable.from([JSON.stringify(body)]) as IncomingMessage
@@ -58,17 +59,34 @@ async function invokeMiddleware(
   req.method = "POST"
   req.url = url
   await new Promise<void>((resolve, reject) => {
+    const closeListeners = new Set<(...args: unknown[]) => void>()
     const res = {
+      emit(event: string, ...args: unknown[]) {
+        if (event !== "close") return false
+        const listeners = [...closeListeners]
+        closeListeners.clear()
+        for (const listener of listeners) listener(...args)
+        return listeners.length > 0
+      },
       statusCode: 200,
       end: (chunk?: unknown) => {
         if (chunk !== undefined) output += responseChunkText(chunk)
         resolve()
+      },
+      off(event: string, listener: (...args: unknown[]) => void) {
+        if (event === "close") closeListeners.delete(listener)
+        return res
+      },
+      once(event: string, listener: (...args: unknown[]) => void) {
+        if (event === "close") closeListeners.add(listener)
+        return res
       },
       setHeader: vi.fn(),
       write: (chunk: unknown) => {
         output += responseChunkText(chunk)
       },
     } as unknown as ServerResponse
+    options.onResponse?.(res)
     handler(req, res, reject)
   })
   return output
@@ -232,6 +250,7 @@ describe("hubWorkspace", () => {
 
     expect(runWorkspaceDevCommand).toHaveBeenCalledWith(expect.objectContaining({
       args: ["test"],
+      abortSignal: expect.any(AbortSignal),
       command: "pnpm",
       definition: expect.objectContaining({
         name: "docs",
@@ -239,6 +258,72 @@ describe("hubWorkspace", () => {
       }),
       workspace: "docs",
     }))
+  })
+
+  it("aborts Workspace Dev commands when the client disconnects", async () => {
+    const root = await createViteRoot()
+    const handlers: Connect.NextHandleFunction[] = []
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const { readWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenHeader } = await import("../src/server.ts")
+    const plugin = hubWorkspace()
+    const configResolved = plugin.configResolved as (config: { command: "serve", root: string }) => Promise<void>
+    let closeResponse: (() => void) | undefined
+    let commandSignal: AbortSignal | undefined
+
+    runWorkspaceDevCommand.mockImplementationOnce(async (input?: { abortSignal?: AbortSignal }) => {
+      commandSignal = input?.abortSignal
+      if (!commandSignal) throw new Error("Missing Workspace Dev abort signal.")
+      const aborted = new Promise<void>((resolve) => {
+        if (commandSignal?.aborted) resolve()
+        else commandSignal?.addEventListener("abort", () => resolve(), { once: true })
+      })
+      closeResponse?.()
+      await aborted
+      return {
+        exitCode: 130,
+        stderr: "Command aborted",
+        stdout: "",
+      }
+    })
+
+    await configResolved({ command: "serve", root })
+    await configurePluginServer(plugin, {
+      config: { root, server: { port: 3000 } },
+      middlewares: {
+        use: vi.fn((handler: Connect.NextHandleFunction) => handlers.push(handler)),
+      },
+      resolvedUrls: { local: ["http://localhost:3000/"] },
+      ssrLoadModule: vi.fn(async () => ({
+        default: {
+          docs: async () => ({ default: { store: { provider: "memory" } } }),
+        },
+      })),
+      watcher: { on: vi.fn() },
+    })
+    const token = await readWorkspaceDevToken(root)
+
+    const output = await invokeMiddleware(handlers[0]!, {
+      workspaceCommand: {
+        command: "pnpm",
+        workspace: "docs",
+      },
+    }, workspaceDevRoute, {
+      "content-type": "application/json",
+      [workspaceDevHeader]: workspaceDevHeaderValue,
+      [workspaceDevTokenHeader]: token,
+    }, {
+      onResponse(res) {
+        closeResponse = () => (res as ServerResponse & { emit: (event: string) => boolean }).emit("close")
+      },
+    })
+
+    expect(JSON.parse(output)).toMatchObject({
+      exitCode: 130,
+      stderr: "Command aborted",
+      stdout: "",
+    })
+    expect(commandSignal).toBeInstanceOf(AbortSignal)
+    expect(commandSignal?.aborted).toBe(true)
   })
 
   it("keeps ambient workspace types in generated ViteHub state without src", async () => {

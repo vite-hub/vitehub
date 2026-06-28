@@ -149,8 +149,8 @@ Runtime state created while an Agent Invocation is being processed.
 _Avoid_: Chat state, workflow state
 
 **Agent Run Origin**:
-Host-provided metadata naming where an Agent Invocation came from, such as `http`, `devtools`, or a Chat Platform name.
-_Avoid_: Platform, Agent Trigger, runtime
+Host-provided Agent Run metadata naming where an Agent Invocation came from, such as `http`, `devtools`, or a Chat Platform name. It is first-class invocation provenance, not Chat context.
+_Avoid_: Platform, Agent Trigger, runtime, Chat state
 
 **Agent Run Channel**:
 Agent Run metadata that records the configured Channel ID and Channel Kind that triggered an Agent Invocation.
@@ -337,7 +337,7 @@ _Avoid_: Fake agent, dummy model, test bot
 - Model-facing tools and instructions are **Capability Driver Contributions** consumed only by compatible Agent Drivers.
 - Workspace Tools are derived from an Agent's Colocated Workspace Definition.
 - An **Agent Invocation** can create or update **Agent Run State**.
-- An **Agent Run Origin** is observability metadata for an **Agent Invocation**; it is not the **Agent Trigger** that prepared the invocation.
+- An **Agent Run Origin** is observability metadata for an **Agent Invocation**; it is not the **Agent Trigger** that prepared the invocation and is not mirrored into Chat context.
 - **Chat History** is conversation-scoped and is not **Agent Memory**.
 - A **Chat Session** is part of Chat History behavior and is not **Agent Memory**.
 - Message-shaped **Channels** resolve the active **Chat Session** before applying the **Chat History Window**.

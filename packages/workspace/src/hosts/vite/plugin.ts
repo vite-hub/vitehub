@@ -121,6 +121,16 @@ async function readRequestBody(req: IncomingMessage): Promise<string> {
   return body
 }
 
+function createAbortSignalFromClose(target: Pick<ServerResponse, "off" | "once">, message: string): { dispose: () => void, signal: AbortSignal } {
+  const controller = new AbortController()
+  const abort = () => controller.abort(new Error(message))
+  target.once("close", abort)
+  return {
+    dispose: () => target.off("close", abort),
+    signal: controller.signal,
+  }
+}
+
 async function writeResponse(res: ServerResponse, response: Response): Promise<void> {
   res.statusCode = response.status
   for (const [name, value] of response.headers) res.setHeader(name, value)
@@ -146,7 +156,7 @@ function isWorkspaceDevRoute(req: IncomingMessage): boolean {
   return new URL(req.url || "/", "http://localhost").pathname === workspaceDevRoute
 }
 
-async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMessage, workspaces: Array<{ name: string }>): Promise<Response> {
+async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMessage, workspaces: Array<{ name: string }>, abortSignal?: AbortSignal): Promise<Response> {
   const validation = validateWorkspaceDevRequest(server, req)
   if (validation) return validation
   if (req.method === "GET") {
@@ -183,6 +193,7 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
   const args = command.args as string[] | undefined
   const timeout = typeof command.timeout === "number" && Number.isFinite(command.timeout) ? command.timeout : undefined
   return Response.json(await runWorkspaceDevCommand({
+    abortSignal,
     ...(args ? { args } : {}),
     command: command.command,
     ...(isRecord(definition) ? { definition: normalizeWorkspaceDefinition(command.workspace, definition as never) } : {}),
@@ -424,9 +435,11 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       devServer.watcher.on("unlink", refresh)
       devServer.middlewares.use((req, res, next) => {
         if (!isWorkspaceDevRoute(req)) return next()
-        void handleWorkspaceDevRequest(devServer, req, manifest.workspaces)
+        const abort = createAbortSignalFromClose(res, "[vitehub] Workspace Dev response closed.")
+        void handleWorkspaceDevRequest(devServer, req, manifest.workspaces, abort.signal)
           .then(response => writeResponse(res, response))
           .catch((error: unknown) => writeResponse(res, new Response(error instanceof Error ? error.message : "Workspace Dev request failed.", { status: 500 })))
+          .finally(abort.dispose)
       })
     },
     vitehub: {

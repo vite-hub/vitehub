@@ -66,7 +66,41 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-The `run` fields are Agent Run State and observability metadata. They help DevTools, traces, and finish hooks explain where the invocation came from.
+The `run` fields are first-class Agent Run metadata, not Chat context. They help DevTools, traces, and finish hooks explain where the invocation came from.
+
+## Admit web chat requests
+
+Use `webChat({ route: { admission } })` when an app-owned web chat route needs the common AI SDK UI-message request shape but still owns authentication and product context.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+import { webChat } from '@vite-hub/agent/channels'
+
+export default defineAgent({
+  channels: {
+    portal: webChat({
+      route: {
+        admission: {
+          authenticate({ rawBody, request }) {
+            verifyPortalSignature(rawBody, request.headers.get('x-portal-signature'))
+            return { customer: request.headers.get('x-customer') }
+          },
+          context({ auth, body }) {
+            return {
+              meta: { ...body.meta, customer: auth.customer },
+              run: { origin: 'portal' },
+              user: body.user,
+            }
+          },
+        },
+      },
+    }),
+  },
+  run: () => 'ok',
+})
+```
+
+ViteHub reads the raw request body once, parses the JSON object, runs `authenticate` with `rawBody`, then validates `admission.body` when a Standard Schema is provided. The `context` callback receives the validated body and returns trusted `chat.message` input fields such as `user`, `meta`, `run`, `session`, or `invoker`.
 
 ## Add identity separately
 

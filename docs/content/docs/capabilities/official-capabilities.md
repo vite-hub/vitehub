@@ -28,6 +28,8 @@ import {
   mcp,
   memory,
   observability,
+  openapi,
+  pullRequestContext,
   rateLimit,
   repositoryHost,
   sandbox,
@@ -52,6 +54,7 @@ import {
 | Subagents | [`subagents()`](/docs/capabilities/subagents) | A model-backed Agent should delegate bounded work to named Agent Definitions through model-facing tools. |
 | Workspace files | [`workspaceShell()`](/docs/capabilities/workspace-shell) | The Agent should inspect or edit Workspace files through constrained Workspace tools. |
 | Git source history | [`git()`](/docs/capabilities/git) | The Agent needs bounded Git source-history inspection or local Workspace Session git state selection. |
+| Pull Request context | [`pullRequestContext()`](/docs/capabilities/pull-request-context) | A trigger or host already knows the current Change Request and the Agent should inspect that normalized context in the Workspace. |
 | Repository host | [`repositoryHost()`](/docs/capabilities/repository-host) | The Agent needs provider-hosted repository, Change Request, issue, comment, check, or status data through a configured Repository Host client. |
 | Skills file | [`skills()`](/docs/capabilities/skills) | The Agent requires a Workspace skill file at invocation time. |
 | KV storage | [`kv()`](/docs/capabilities/kv) | The Agent needs scoped key-value read or edit tools. |
@@ -62,6 +65,7 @@ import {
 | MCP servers | [`mcp()`](/docs/capabilities/mcp) | External MCP server tools should become model-facing Agent tools. |
 | Web search | [`webSearch()`](/docs/capabilities/web-search) | The Agent needs model web search or normalized web search/read tools. |
 | Fetch tools | [`fetch()`](/docs/capabilities/fetch) | The Agent needs named HTTP tools for developer-approved endpoints. |
+| OpenAPI tools | [`openapi()`](/docs/capabilities/openapi) | The Agent needs a selected OpenAPI operation catalog exposed as bounded HTTP tools or a generated Capability CLI. |
 | Transcription | [`transcribe()`](/docs/capabilities/transcribe) | Audio input parts should become text before model execution. |
 | Durable memory | [`memory()`](/docs/capabilities/memory) | The Agent needs scoped durable records across invocations. |
 | LLM routing | [`llmRoute()`](/docs/capabilities/llm-route) | A pre-invocation model decision should choose one developer-defined route. |

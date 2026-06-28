@@ -115,17 +115,23 @@ function createAbortSignalFromClose(target: Pick<IncomingMessage | ServerRespons
   }
 }
 
+function linkAbortSignal(controller: AbortController, parent?: AbortSignal): () => void {
+  if (!parent) return () => {}
+  const abort = () => controller.abort(parent.reason)
+  parent.addEventListener("abort", abort, { once: true })
+  if (parent.aborted) abort()
+  return () => parent.removeEventListener("abort", abort)
+}
+
 function createWorkspaceCommandAbortSignal(req: IncomingMessage, parent?: AbortSignal): { dispose: () => void, signal: AbortSignal } {
   const controller = new AbortController()
   const close = () => controller.abort(new Error("[vitehub] Agent Dev Loop command request closed."))
-  const abort = () => controller.abort(parent?.reason)
   req.once("close", close)
-  parent?.addEventListener("abort", abort, { once: true })
-  if (parent?.aborted) abort()
+  const unlink = linkAbortSignal(controller, parent)
   return {
     dispose() {
       req.off("close", close)
-      parent?.removeEventListener("abort", abort)
+      unlink()
     },
     signal: controller.signal,
   }
@@ -149,6 +155,27 @@ function withDeliveryPreviewChannels(
     return [channelId, { ...channel, effects }]
   }))
   return { ...agent, channels } as AgentInput<ViteAgentDevRuntimeContext>
+}
+
+function formatCliDeliveryPreview(event: Extract<AgentInvocationStreamEvent, { type: "delivery-preview" }>): string {
+  const details = {
+    ...(event.effect.intent !== undefined ? { intent: event.effect.intent } : {}),
+    ...(event.effect.payload !== undefined ? { payload: event.effect.payload } : {}),
+    ...(event.effect.metadata !== undefined ? { metadata: event.effect.metadata } : {}),
+  }
+  const extra = Object.keys(details).length ? `\n${JSON.stringify(details, null, 2)}` : ""
+  return `\n[delivery preview] would ${event.effect.kind}${event.channelId ? ` on ${event.channelId}` : ""}${extra}\n`
+}
+
+function withCliDeliveryPreviews(
+  result: AgentCapabilityCliExecutionResult,
+  previews: Array<Extract<AgentInvocationStreamEvent, { type: "delivery-preview" }>>,
+): AgentCapabilityCliExecutionResult {
+  if (!previews.length) return result
+  return {
+    ...result,
+    stderr: `${result.stderr || ""}${previews.map(formatCliDeliveryPreview).join("")}`,
+  }
 }
 
 function headersFromNode(headers: IncomingHttpHeaders): Headers {
@@ -485,28 +512,31 @@ async function runCapabilityCliWithTimeout(
   context: ViteAgentDevRuntimeContext,
   input: AgentRunInput<unknown>,
   timeout: number,
+  abortSignal?: AbortSignal,
 ): Promise<Response | AgentCapabilityCliExecutionResult> {
   const controller = new AbortController()
+  const unlink = linkAbortSignal(controller, abortSignal)
   const run = runAgentInline(withCapabilityCliRun(agent, cli, execution) as never, context as never, {
     ...input,
     abortSignal: controller.signal,
     timeout,
   }, { output: "raw" }) as Promise<Response | AgentCapabilityCliExecutionResult>
-  if (timeout <= 0) return await run
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined
-  const timedOut = new Promise<Response>((resolve) => {
-    timeoutId = setTimeout(() => {
-      const error = new Error(`Agent Invocation Stream timed out after ${timeout}ms.`)
-      controller.abort(error)
-      resolve(new Response(error.message, { status: 504 }))
-    }, timeout)
-  })
   try {
+    if (timeout <= 0) return await run
+    const timedOut = new Promise<Response>((resolve) => {
+      timeoutId = setTimeout(() => {
+        const error = new Error(`Agent Invocation Stream timed out after ${timeout}ms.`)
+        controller.abort(error)
+        resolve(new Response(error.message, { status: 504 }))
+      }, timeout)
+    })
     return await Promise.race([run, timedOut])
   }
   finally {
     if (timeoutId) clearTimeout(timeoutId)
+    unlink()
   }
 }
 
@@ -535,7 +565,8 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
     if (typeof body.cli.name !== "string" || !body.cli.name.trim()) {
       return new Response("Missing Agent Capability CLI name.", { status: 400 })
     }
-    const previewAgent = withDeliveryPreviewChannels(entry.agent, () => {})
+    const previews: Array<Extract<AgentInvocationStreamEvent, { type: "delivery-preview" }>> = []
+    const previewAgent = withDeliveryPreviewChannels(entry.agent, event => previews.push(event))
     const result = await runCapabilityCliWithTimeout(previewAgent as never, body.cli.name, {
       argv: Array.isArray(body.cli.argv) ? body.cli.argv : [],
       ...(body.cli.input !== undefined ? { input: body.cli.input } : {}),
@@ -545,9 +576,9 @@ async function handleAgentInvocationStreamRequest(server: ViteDevServer, req: In
         ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}),
         ...(isRecord(body.meta) ? { meta: body.meta } : {}),
       }),
-    }, timeout)
+    }, timeout, abortSignal)
     if (result instanceof Response) return result
-    return Response.json(result)
+    return Response.json(withCliDeliveryPreviews(result, previews))
   }
 
   if (body.workspaceCommand) {

@@ -10,7 +10,6 @@ import type {
   AgentChatPlatformResolver,
   AgentChannelWebhookRegistrationDefinition,
   AgentInvocationContextStore,
-  AgentRunMetadata,
   AgentRuntimeConfig,
   AgentTriggerDefinition,
   AgentWebhookRegistrationDefinition,
@@ -74,13 +73,11 @@ type KnownChatWebhookPlatform = keyof typeof CHAT_WEBHOOK_DEFAULTS
 export interface AgentChatRunContext<
   TMessageMetadata extends object = Record<string, unknown>,
   TUser extends object = Record<string, unknown>,
-  TOrigin extends string = string,
   TMeta extends object = Record<string, unknown>,
 > {
   chat?: {
     message?: Omit<AgentChatAgentHookArgs["message"], "metadata"> & { metadata?: TMessageMetadata }
     meta?: TMeta
-    run?: AgentRunMetadata<TOrigin>
     session?: AgentChatMessageTriggerInput["session"]
     user?: TUser
   }
@@ -89,20 +86,18 @@ export interface AgentChatRunContext<
 export type AgentChatContext<
   TMeta extends object = Record<string, unknown>,
   TUser extends object = Record<string, unknown>,
-  TOrigin extends string = string,
   TMessageMetadata extends object = Record<string, unknown>,
-> = NonNullable<AgentChatRunContext<TMessageMetadata, TUser, TOrigin, TMeta>["chat"]>
+> = NonNullable<AgentChatRunContext<TMessageMetadata, TUser, TMeta>["chat"]>
 
 export function getAgentChatContext<
   TMeta extends object = Record<string, unknown>,
   TUser extends object = Record<string, unknown>,
-  TOrigin extends string = string,
   TMessageMetadata extends object = Record<string, unknown>,
 >(
   input: AgentInvocationContextStore | { context: AgentInvocationContextStore },
-): AgentChatContext<TMeta, TUser, TOrigin, TMessageMetadata> | undefined {
+): AgentChatContext<TMeta, TUser, TMessageMetadata> | undefined {
   const store = "get" in input ? input : input.context
-  return store.get<AgentChatContext<TMeta, TUser, TOrigin, TMessageMetadata>>(agentChatContextKey)
+  return store.get<AgentChatContext<TMeta, TUser, TMessageMetadata>>(agentChatContextKey)
 }
 
 async function resolveChatThinkingFallback<TRuntimeConfig extends AgentRuntimeConfig>(

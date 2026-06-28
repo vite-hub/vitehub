@@ -1060,11 +1060,13 @@ export async function runAgentDevCli(
     writeDevUsage(context)
     return 0
   }
+  const textWorkspaceCommand = parsed.message ? directWorkspaceCommand(parsed.message) : undefined
+  const workspaceCommand = parsed.workspaceCommand ?? (textWorkspaceCommand ? { command: textWorkspaceCommand } : undefined)
   if (parsed.payloadPath) {
     try {
       const loaded = await loadDevPayload(parsed.payloadPath, context.rootDir, context.cwd)
       parsed.payload = loaded.value
-      const output = parsed.cli ? context.stderr : context.stdout
+      const output = parsed.cli || workspaceCommand ? context.stderr : context.stdout
       output.write(`Loaded payload: ${loaded.path}\n`)
     }
     catch (error) {
@@ -1080,10 +1082,8 @@ export async function runAgentDevCli(
   if (parsed.cli) {
     return await sendDevCliCommand(target.url, target.agent, parsed, context, fetchImpl)
   }
-  const textCommand = parsed.message ? directWorkspaceCommand(parsed.message) : undefined
-  const command = parsed.workspaceCommand ?? (textCommand ? { command: textCommand } : undefined)
-  if (command) {
-    return await sendDevWorkspaceCommand(target.url, target.agent, command, parsed, context, fetchImpl)
+  if (workspaceCommand) {
+    return await sendDevWorkspaceCommand(target.url, target.agent, workspaceCommand, parsed, context, fetchImpl)
   }
 
   const payloadStartsInvocation = parsed.payload && (
