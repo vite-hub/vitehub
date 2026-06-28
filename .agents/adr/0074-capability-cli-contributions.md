@@ -13,3 +13,5 @@ ViteHub will let a Capability Definition declare a Capability-owned real CLI as 
 Capability CLI Contributions are model-facing Capability Driver Contributions for model-backed Agent Drivers. Harness executable/session exposure is deferred until ViteHub has a broader harness design for generated commands, workspace sessions, durability, and authority.
 
 Instruction documents stay policy-oriented. Developers include the relevant Capability instruction slot, such as `{{ capabilities.inventory-runtime }}` or the catch-all `{{ capabilities }}`, and command examples come from generated Capability CLI guidance.
+
+Custom Capability authors pass a flat `cli` object. First-party adapters may resolve generated command trees internally from their own metadata, but that resolver is not part of the public `defineCapability({ cli })` contract.

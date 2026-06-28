@@ -144,6 +144,7 @@ openapi({
 
 `spec` and `baseUrl` can also be callbacks when the OpenAPI document or runtime URL comes from the current Agent Invocation context.
 When `cli` is set, the operation tools are replaced by one CLI-named tool. ViteHub generates one subcommand per allowed operation, using the OpenAPI operation summary or description for command guidance.
+Custom Capability authors still define `cli` as a flat command tree; generated command trees stay behind adapter-owned options such as `openapi({ cli })`.
 
 ## Chat state
 

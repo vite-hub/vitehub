@@ -6,6 +6,7 @@ import type {
   AgentCapabilityContext,
   AgentCapabilityCliContribution,
   AgentCapabilityDefinition,
+  AgentCapabilityRuntimeContext,
   AgentRuntimeConfig,
   AgentToolDefinition,
   AgentToolSet,
@@ -113,6 +114,13 @@ export interface OpenAPICliOptions {
   name: string
 }
 
+type OpenAPICapabilityDefinition<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  Name extends WorkspaceName,
+> = AgentCapabilityDefinition<TRuntimeConfig, Name> & {
+  resolveCli?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<AgentCapabilityCliContribution<TRuntimeConfig, Name> | undefined>
+}
+
 export interface OpenAPICapabilityOptions<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -154,7 +162,7 @@ export function openapi<
         ? "dynamic"
         : typeof options.spec === "object" && !(options.spec instanceof URL) ? "inline" : String(options.spec),
     },
-    cli: options.cli
+    resolveCli: options.cli
       ? async (context) => {
           if (!await isOpenAPIEnabled(options, context)) return undefined
           const resolved = dynamicOperations
@@ -174,7 +182,7 @@ export function openapi<
         createOpenAPITool(operation, resolved.baseUrl, options, context),
       ])) as AgentToolSet
     },
-  })
+  } as OpenAPICapabilityDefinition<TRuntimeConfig, Name>)
 }
 
 async function isOpenAPIEnabled<

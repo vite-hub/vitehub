@@ -60,6 +60,17 @@ import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName, Works
 type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentInvocationExtensions) => MaybePromise<unknown>) & {
   providerCount: number
 }
+type InternalAgentCapabilityCliResolver<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> = (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<AgentCapabilityCliContribution<TRuntimeConfig, Name> | undefined>
+
+type InternalAgentCapabilityWithGeneratedCli<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+> = AgentCapabilityDefinition<TRuntimeConfig, Name> & {
+  resolveCli?: InternalAgentCapabilityCliResolver<TRuntimeConfig, Name>
+}
 const defaultCapabilityRuntimePhases = ["configure", "prepare", "bind", "input", "resolve", "output"] as const
 export const channelDeliveryEffectsContextKey = "channel.delivery.effects"
 export const channelDeliveryFinishEffectsContextKey = "channel.delivery.finishEffects"
@@ -157,9 +168,7 @@ export function defineCapability<
   }
   assertCapabilityId((capability as { id?: unknown }).id)
   const cli = (capability as AgentCapabilityDefinition).cli
-  if (typeof cli !== "function") {
-    assertCapabilityCliContribution((capability as { id: string }).id, cli)
-  }
+  assertCapabilityCliContribution((capability as { id: string }).id, cli)
   return capability
 }
 
@@ -1038,9 +1047,10 @@ export async function resolveAgentCapabilities<
     await applyWorkspaceContributions()
     for (const { capability, context } of capabilityContexts) {
       let cli: AgentCapabilityCliContribution<TRuntimeConfig, Name> | undefined
-      if (capability.cli && driverKind !== "harness" && (invocationOptions.resolveInstructions !== false || invocationOptions.resolveTools !== false)) {
-        cli = typeof capability.cli === "function"
-          ? await capability.cli(context)
+      const resolveCli = (capability as InternalAgentCapabilityWithGeneratedCli<TRuntimeConfig, Name>).resolveCli
+      if ((capability.cli || resolveCli) && driverKind !== "harness" && (invocationOptions.resolveInstructions !== false || invocationOptions.resolveTools !== false)) {
+        cli = resolveCli
+          ? await resolveCli(context)
           : capability.cli
         assertCapabilityCliContribution(capability.id, cli)
       }

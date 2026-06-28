@@ -260,6 +260,7 @@ _Avoid_: KV Store, hubKv, model-facing storage
 - A model-backed **Agent Driver** may receive Instruction Composition context from **Capability Driver Contributions** by writing explicit **Agent Invocation Context Values** before instructions are rendered.
 - A **Capability Definition** may provide a **Capability CLI Contribution** when the ability needs a real nested CLI surface for agents or developers.
 - A **Capability CLI Contribution** is authored as a flat `cli` object on the **Capability Definition**, not through public command-builder helpers.
+- First-party adapters may generate a **Capability CLI Contribution** internally from adapter metadata, but custom Capability authors still provide the flat `cli` object.
 - A model-backed **Agent Driver** receives generated guidance and a controlled CLI-named tool for a **Capability CLI Contribution**.
 - The **Agent Dev Loop** may invoke a **Capability CLI Contribution** for the selected Agent without making a generic public JavaScript runner API.
 - Duplicate Capability instruction block ids fail instead of merging, overriding, or silently ordering competing composition keys.
