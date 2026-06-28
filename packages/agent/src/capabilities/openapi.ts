@@ -633,7 +633,7 @@ function operationInputSchema(operation: OpenAPIOperationTool, prepared = false,
   const properties: Record<string, JsonSchema> = {}
   const required: string[] = []
   if (operation.pathParameters.length) {
-    properties.path = parameterObjectSchema(operation.pathParameters)
+    properties.path = parameterObjectSchema(operation.pathParameters, requirePath)
     if (requirePath && operation.pathParameters.some(parameter => parameter.required || parameter.in === "path")) required.push("path")
   }
   if (operation.queryParameters.length) {
@@ -732,13 +732,16 @@ function jsonSchemaTypeMatches(type: string, value: unknown): boolean {
 }
 
 function parameterObjectSchema(parameters: OpenAPIParameter[], includeRequired = true): JsonSchema {
+  const required = includeRequired
+    ? parameters.filter(parameter => parameter.in === "path" || parameter.required).map(parameter => parameter.name)
+    : []
   return {
     additionalProperties: false,
     properties: Object.fromEntries(parameters.map(parameter => [parameter.name, {
       ...(parameter.schema as JsonSchema),
       ...(parameter.description ? { description: parameter.description } : {}),
     }])),
-    required: parameters.filter(parameter => parameter.in === "path" || includeRequired && parameter.required).map(parameter => parameter.name),
+    ...(required.length ? { required } : {}),
     type: "object",
   }
 }

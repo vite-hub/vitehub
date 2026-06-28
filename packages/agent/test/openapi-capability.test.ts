@@ -64,6 +64,16 @@ function portalSpec() {
           summary: "Create order.",
         },
       },
+      "/tenants/{tenantId}/orders/{orderId}": {
+        get: {
+          operationId: "getOrder",
+          parameters: [
+            { in: "path", name: "tenantId", required: true, schema: { type: "string" } },
+            { in: "path", name: "orderId", required: true, schema: { type: "string" } },
+          ],
+          summary: "Get order.",
+        },
+      },
     },
   }
 }
@@ -318,6 +328,35 @@ describe("openapi capability", () => {
     expect((init.headers as Headers).get("x-cube-token")).toBe("cube-token")
   })
 
+  it("allows hooks to fill path params without requiring them in tool input", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        openapi({
+          operations: ["getOrder"],
+          hooks: {
+            request({ request }) {
+              request.path.tenantId = "acme"
+            },
+          },
+          spec: portalSpec(),
+        }),
+      ],
+    }, runtime(), { prompt: "get" })
+    const tools = resolved.tools as AgentToolSet
+    const schema = tools.getOrder.inputSchema as { properties: { path?: { required?: string[] } } }
+    expect(schema.properties.path?.required || []).toEqual([])
+
+    await expect(tools.getOrder.execute?.({
+      path: { orderId: "order-1" },
+    })).resolves.toEqual({ ok: true })
+
+    expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/tenants/acme/orders/order-1")
+  })
+
   it("prepares generated OpenAPI CLI requests with runtime hook values", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
@@ -361,6 +400,38 @@ describe("openapi capability", () => {
     const init = request.mock.calls[0]?.[1] as RequestInit
     expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/tenants/acme/orders?currency=EUR")
     expect(JSON.parse(init.body as string)).toEqual({ cubeToken: "cube-token", quantity: 2, sku: "sku-1" })
+  })
+
+  it("allows generated OpenAPI CLI requests to pass partial path input before hooks", async () => {
+    const request = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ ok: true }))
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { openapi } = await import("../src/capabilities.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        openapi({
+          cli: { name: "portal" },
+          operations: ["getOrder"],
+          hooks: {
+            request({ request }) {
+              request.path.tenantId = "acme"
+            },
+          },
+          spec: portalSpec(),
+        }),
+      ],
+    }, runtime(), { prompt: "get" })
+
+    await expect(resolved.tools?.portal?.execute?.({
+      argv: ["get-order", "--json"],
+      input: { path: { orderId: "order-1" } },
+    })).resolves.toMatchObject({
+      cli: "portal",
+      exitCode: 0,
+      json: { ok: true },
+    })
+
+    expect(request.mock.calls[0]?.[0]).toBe("https://portal.example.com/runtime/tenants/acme/orders/order-1")
   })
 
   it("validates generated OpenAPI CLI inputs before requests", async () => {
