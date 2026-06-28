@@ -98,6 +98,43 @@ describe("agent CLI", () => {
     })
   })
 
+  it("keeps --prompt input literal when it starts with !", async () => {
+    const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return ndjson([
+          { agent: "chat", metadata: {}, trigger: "chat.message", type: "start" },
+          { text: "portal commands", type: "text-delta" },
+          { type: "finish" },
+          { type: "done" },
+        ])
+      }
+      return Response.json({
+        agents: [{ name: "chat", triggers: ["chat.message"] }],
+        root: "/repo",
+      })
+    })
+
+    const exitCode = await runAgentDevCli(["--agent", "chat", "--prompt", "!portal-api help"], {
+      cwd: "/repo",
+      env: {},
+      rootDir: "/repo",
+      spawn: vi.fn(),
+      stderr: stream(),
+      stdout: stream(),
+    }, { fetch: fetchAgentStream as never })
+
+    expect(exitCode).toBe(0)
+    const post = fetchAgentStream.mock.calls.find(([, init]) => init?.method === "POST")
+    expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
+      agent: "chat",
+      messages: [{
+        parts: [{ text: "!portal-api help", type: "text" }],
+        role: "user",
+      }],
+    })
+    expect(JSON.parse(String(post?.[1]?.body))).not.toHaveProperty("workspaceCommand")
+  })
+
   it("accepts Agent Dev Loop discovery aliases", async () => {
     const stdout = stream()
     const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {

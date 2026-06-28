@@ -1070,8 +1070,7 @@ export async function runAgentDevCli(
     writeDevUsage(context)
     return 0
   }
-  const textWorkspaceCommand = parsed.message ? directWorkspaceCommand(parsed.message) : undefined
-  const workspaceCommand = parsed.workspaceCommand ?? (textWorkspaceCommand ? { command: textWorkspaceCommand } : undefined)
+  const workspaceCommand = parsed.workspaceCommand
   if (parsed.payloadPath) {
     try {
       const loaded = await loadDevPayload(parsed.payloadPath, context.rootDir, context.cwd)
