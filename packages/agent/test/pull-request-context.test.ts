@@ -24,7 +24,7 @@ const emptyWorkspace = () => ({
 })
 
 describe("pullRequestContext", () => {
-  it("requires an explicit workspace when contributing sources", async () => {
+  it("requires an explicit workspace when contributing custom sources", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { pullRequestContext } = await import("../src/capabilities.ts")
 
@@ -125,9 +125,47 @@ describe("pullRequestContext", () => {
       {
         capabilityId: "pull-request-context",
         rules: ["artifacts/review/**"],
-        sources: ["pullRequest"],
+        sources: ["pullRequestContext", "pullRequest"],
       },
     ])
+  })
+
+  it("renders pull request context as markdown frontmatter in the workspace", async () => {
+    const { pullRequestContext } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        pullRequestContext({
+          context: {
+            actor: "mona",
+            baseRef: "main",
+            headRef: "feature",
+            number: 42,
+            provider: "github",
+            repository: "acme/app",
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    await expect(resolved.workspace?.fs.readFile("pull-request-context/context.md")).resolves.toContain([
+      "---",
+      'repository: "acme/app"',
+      "number: 42",
+      'provider: "github"',
+      'baseRef: "main"',
+      'headRef: "feature"',
+      'actor: "mona"',
+      "---",
+      "",
+      "# Pull Request Context",
+    ].join("\n"))
   })
 
   it("rejects duplicate pull request context values before resolving trusted context", async () => {

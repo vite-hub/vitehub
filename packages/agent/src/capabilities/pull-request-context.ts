@@ -1,6 +1,7 @@
 import { defineCapability } from "../capability-runtime.ts"
 
 import type {
+  AgentInvocationContextStore,
   AgentCapabilityContext,
   AgentCapabilityDefinition,
   AgentCapabilityTypeContract,
@@ -9,7 +10,9 @@ import type {
   AgentTriggerDefinition,
   MaybePromise,
 } from "../types.ts"
+import { markLiveWorkspaceSource } from "@vite-hub/workspace"
 import type {
+  WorkspaceSource,
   WorkspaceName,
   WorkspaceRules,
   WorkspaceSourceInput,
@@ -63,6 +66,10 @@ type PullRequestContextCapabilityTypeContract<
   invocationContext: Record<TContextKey, PullRequestContextValue>
 }
 
+const defaultSourceKey = "pullRequestContext"
+const defaultSourcePath = "context.md"
+const defaultWorkspacePath = "pull-request-context/context.md"
+
 async function resolveMaybeFunction<TValue, TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(
   value: TValue | ((context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<TValue | false | null | undefined>) | undefined,
   context: AgentCapabilityContext<TRuntimeConfig, Name>,
@@ -71,6 +78,50 @@ async function resolveMaybeFunction<TValue, TRuntimeConfig extends AgentRuntimeC
     ? await (value as (context: AgentCapabilityContext<TRuntimeConfig, Name>) => MaybePromise<TValue | false | null | undefined>)(context)
     : value
   return resolved || undefined
+}
+
+function frontmatterValue(value: number | string): string {
+  return typeof value === "number" ? String(value) : JSON.stringify(value)
+}
+
+function renderPullRequestContextMarkdown(value: PullRequestContextValue | undefined): string {
+  const frontmatter = ([
+    ["repository", value?.repository],
+    ["number", value?.number],
+    ["id", value?.id],
+    ["provider", value?.provider],
+    ["baseRef", value?.baseRef],
+    ["headRef", value?.headRef],
+    ["actor", value?.actor],
+    ["deliveryId", value?.deliveryId],
+  ] as const)
+    .flatMap(([key, item]) => item === undefined ? [] : `${key}: ${frontmatterValue(item)}`)
+    .join("\n")
+  const body = value
+    ? `# Pull Request Context\n\nChange Request ${value.number} in ${value.repository}.`
+    : "# Pull Request Context\n\nNo pull request context was recorded for this Agent Invocation."
+  return `---\n${frontmatter}\n---\n\n${body}\n`
+}
+
+function pullRequestContextSource(
+  context: AgentInvocationContextStore,
+  contextKey: string,
+): WorkspaceSource {
+  return markLiveWorkspaceSource({
+    materialize: "lazy",
+    mount: "pull-request-context",
+    probeKeys: [defaultSourcePath],
+    async getKeys() {
+      return [defaultSourcePath]
+    },
+    async getItem(key) {
+      return {
+        content: renderPullRequestContextMarkdown(context.get<PullRequestContextValue>(contextKey)),
+        key,
+        mediaType: "text/markdown",
+      }
+    },
+  }, { [defaultWorkspacePath]: defaultSourcePath })
 }
 
 export function pullRequestContext<
@@ -82,7 +133,7 @@ export function pullRequestContext<
   options: PullRequestContextOptions<TRuntimeConfig, Name> & { contextKey?: TContextKey, sources?: TSourceMap | PullRequestContextSources<TRuntimeConfig, Name> } = {},
 ): AgentCapabilityDefinition<TRuntimeConfig, Name, PullRequestContextCapabilityTypeContract<TContextKey>> {
   const contextKey = options.contextKey || "pullRequest"
-  const hasWorkspaceContribution = options.sources !== undefined || options.rules !== undefined
+  const hasCustomWorkspaceContribution = options.sources !== undefined || options.rules !== undefined
   const recordedContexts = new WeakSet<AgentCapabilityContext<TRuntimeConfig, Name>["context"]>()
 
   async function recordContext(context: AgentCapabilityContext<TRuntimeConfig, Name>) {
@@ -99,22 +150,21 @@ export function pullRequestContext<
     metadata: {
       contextKey,
       kind: "pull-request-context",
+      workspaceOptional: !hasCustomWorkspaceContribution,
     },
     prepare: recordContext,
     triggers: options.triggers,
-    ...(hasWorkspaceContribution
-      ? {
-          workspace: async (context): Promise<AgentCapabilityWorkspaceContribution | undefined> => {
-            await recordContext(context)
-            const sources = await resolveMaybeFunction(options.sources, context)
-            const rules = await resolveMaybeFunction(options.rules, context)
-            if (!sources && !rules) return
-            return {
-              ...(rules ? { rules } : {}),
-              ...(sources ? { sources } : {}),
-            }
-          },
-        }
-      : {}),
+    workspace: async (context): Promise<AgentCapabilityWorkspaceContribution | undefined> => {
+      await recordContext(context)
+      const sources = await resolveMaybeFunction(options.sources, context)
+      const rules = await resolveMaybeFunction(options.rules, context)
+      return {
+        ...(rules ? { rules } : {}),
+        sources: {
+          [defaultSourceKey]: pullRequestContextSource(context.context, contextKey),
+          ...(sources || {}),
+        },
+      }
+    },
   })
 }
