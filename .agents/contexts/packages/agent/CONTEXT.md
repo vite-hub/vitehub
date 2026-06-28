@@ -139,6 +139,7 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - The **Agent Package** owns **Agent Error Normalization** for Agent Invocation lifecycle events and public response boundaries.
 - An **Agent Trigger Consumer** uses the **Agent Trigger API** and does not create a parallel chat-specific behavior surface.
 - An **Agent Trigger Consumer** may pass a trusted Agent Actor through trigger input when it has already authenticated or resolved caller identity; trigger metadata should not become a parallel identity or command-admission boundary.
+- Message-shaped Agent Trigger input may pass Agent Run metadata for invocation provenance, but the Agent Package should not copy that metadata into public Chat context.
 - The Agent Invocation Stream Endpoint consumes **Agent Dev Loop Payload Loading** by passing payload files to the selected Agent Trigger before any Agent Invocation is streamed.
 - The Agent Package should not put development-only sample payloads on the public Agent Definition shape.
 - A **Channel** may be implemented by an **Agent Trigger Consumer**, but Channel is the framework term for Agent reachability.

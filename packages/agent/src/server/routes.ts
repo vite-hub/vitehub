@@ -1226,7 +1226,6 @@ function createDevtoolsMetadataInput(selection: AgentChatDevtoolsInvokerSelectio
       chat: {
         message: { metadata: {} },
         ...(meta ? { meta } : {}),
-        run: { origin: "devtools" },
         user: chatDevtoolsUser(meta),
       },
     },

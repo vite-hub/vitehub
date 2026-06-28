@@ -51,7 +51,7 @@ With this configuration, a follow-up in the same thread can keep the same Chat H
 
 This is not Agent Memory. Thread-scoped Chat History keeps recent conversation input together; it does not remember user preferences or facts across unrelated threads.
 
-For Chat Platform Adapters, ViteHub receives normalized channel, message, and thread facts from the message-shaped Channel. For app-owned chat routes, pass the current thread's messages to `chat.message` and include a stable `run.threadId` so DevTools, traces, sessions, and finish hooks can describe the same boundary.
+For Chat Platform Adapters, ViteHub receives normalized channel, message, and thread facts from the message-shaped Channel. For app-owned chat routes, pass the current thread's messages to `chat.message` and include a stable first-class `run.threadId` so DevTools, traces, sessions, and finish hooks can describe the same boundary without making run metadata part of Chat context.
 
 Use `sessions` only when one platform thread can contain more than one host-visible conversation. For example, add sessions when a support UI has a "new conversation" button inside the same customer chat, or when inactivity should start a fresh conversation without creating a new platform thread.
 

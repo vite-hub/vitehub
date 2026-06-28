@@ -674,17 +674,16 @@ describe("agent public types", () => {
     type ChatContext = AgentChatRunContext<
       { quiver?: { customer?: string } },
       { email?: string },
-      "portal" | "teams",
       { customer?: string, email?: string }
     >
     const workspaceAccess: AccessWorkspaceOptionsFor<typeof workspace, ChatContext> = {
       defaultScope: "customer",
-      resolve({ input }) {
+      resolve({ input, run }) {
         const chat = input.get().context?.chat
         expectTypeOf(chat?.message?.metadata?.quiver?.customer).toEqualTypeOf<string | undefined>()
         expectTypeOf(chat?.meta?.customer).toEqualTypeOf<string | undefined>()
         expectTypeOf(chat?.meta?.email).toEqualTypeOf<string | undefined>()
-        expectTypeOf(chat?.run?.origin).toEqualTypeOf<"portal" | "teams" | undefined>()
+        expectTypeOf(run?.origin).toEqualTypeOf<string | undefined>()
         expectTypeOf(chat?.user?.email).toEqualTypeOf<string | undefined>()
         return chat?.user?.email?.endsWith("@quiver.dk")
           ? { instructions: "Use the internal support tone.", role: "admin", scope: "quiver" }
@@ -772,7 +771,7 @@ describe("agent public types", () => {
       },
     }
     type SupportInvoker = AgentInvoker<{ audience?: "support" | "technical", customer?: "acme" }>
-    type SupportInputContext = AgentChatRunContext<SupportMessageMetadata, SupportChatUser, "teams"> & {
+    type SupportInputContext = AgentChatRunContext<SupportMessageMetadata, SupportChatUser> & {
       invoker?: SupportInvoker
     }
     const supportProfiles: readonly AgentInvokerProfile<{ audience?: "technical", customer?: "acme" }>[] = [
@@ -805,10 +804,10 @@ describe("agent public types", () => {
       },
     })
     const supportAccess: AccessWorkspaceOptionsFor<typeof workspace, SupportInputContext> = {
-      resolve({ actor, input, invoker }) {
+      resolve({ actor, input, invoker, run }) {
         const chat = input.get().context?.chat
         expectTypeOf(chat?.message?.metadata?.quiver?.customer).toEqualTypeOf<string | undefined>()
-        expectTypeOf(chat?.run?.origin).toEqualTypeOf<"teams" | undefined>()
+        expectTypeOf(run?.origin).toEqualTypeOf<string | undefined>()
         expectTypeOf(chat?.user?.email).toEqualTypeOf<string | undefined>()
         expectTypeOf(actor.id).toEqualTypeOf<string>()
         expectTypeOf(invoker.id).toEqualTypeOf<string>()
