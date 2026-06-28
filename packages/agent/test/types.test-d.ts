@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineAgent, defineAgentInvoker, defineCapability, type AgentActor, type AgentCapabilityCliCommand, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentDeliveryArtifact, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
+import { defineAgent, defineAgentInvoker, defineCapability, type AgentActor, type AgentCapabilityCliCommand, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentDeliveryArtifact, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
 import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, openapi, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
@@ -534,6 +534,8 @@ describe("agent public types", () => {
 
     type CapabilityExports = typeof import("../src/capabilities.ts")
     type _PublicAudioBytes = CapabilityExports["audioBytes"]
+    // @ts-expect-error app-owned ingress belongs to Channels, not entry()
+    type _PublicEntry = CapabilityExports["entry"]
     // @ts-expect-error Access Capability Type Contract is internal to access() inference
     type _PublicAccessCapabilityTypeContract = CapabilityExports["AccessCapabilityTypeContract"]
     // @ts-expect-error transcription extension inference is internal, not public capabilities API
@@ -615,6 +617,10 @@ describe("agent public types", () => {
     }
     const channel: AgentChannelDefinition = teams()
     expectTypeOf(channel.kind).toEqualTypeOf<string>()
+    const reviewFinishEffect: AgentChannelDeliveryFinishEffect = event => ({
+      kind: "reply",
+      payload: event.result,
+    })
     // @ts-expect-error Development samples belong in CLI payload files, not Channel options.
     teams({ dev: { samples: {} } })
     // @ts-expect-error Development samples belong in CLI payload files, not Channel Definitions.
@@ -676,7 +682,7 @@ describe("agent public types", () => {
             },
             hooks: {
               async "agent:input"(context) {
-                await context.message.react("eyes")
+                await context.message.react("eyes", { transient: true })
               },
               async "agent:finish"(context) {
                 if (context.error) await context.message.reply("failed")
@@ -691,6 +697,7 @@ describe("agent public types", () => {
           events: {
             pullRequestComments: {
               origin: "github-review",
+              reply: reviewFinishEffect,
             },
           },
         }),
