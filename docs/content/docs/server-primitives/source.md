@@ -7,7 +7,7 @@ icon: i-lucide-folder-input
 
 Source owns typed retrieval from read-only origins. Use it when server code needs addressable content from files, globs, markdown, GitHub, MCP resources, or custom loaders without first modeling a persistent Workspace file tree.
 
-Source does not own Workspace placement, Source Sync, Workspace rules, snapshots, or model-facing Source Instructions. Workspace can consume Sources and decide where retrieved items appear in a Workspace File Tree.
+Source does not own Workspace placement, Source Sync, Workspace rules, snapshots, or model-facing guidance. Workspace can consume Sources and decide where retrieved items appear in a Workspace File Tree; Agent Driver Instructions decide how model-backed Agents should use them.
 
 ## Quick start
 
@@ -172,7 +172,7 @@ export default defineWorkspace({
 })
 ```
 
-The Source Package owns retrieval. The Workspace Package owns Mount placement, Source-Backed Paths, Source Sync Policy, Source Instructions, and Workspace Store reconciliation.
+The Source Package owns retrieval. The Workspace Package owns Mount placement, Source-Backed Paths, Source Sync Policy, low-level Source Instruction metadata, and Workspace Store reconciliation.
 
 ## Provider output
 

@@ -30,6 +30,7 @@ Use the ViteHub vocabulary:
 - **Capability** adds one named Agent ability.
 - **Workspace** owns persistent file-tree state.
 - **Source** provides read-only context.
+- **Instruction coverage** is explicit Agent Driver instruction guidance for configured Sources, Capabilities, and Skills.
 
 For ordinary server behavior, start with the server primitive:
 
@@ -45,13 +46,16 @@ For model, harness, or custom Agent behavior, add the Agent track after the prim
 2. Select one Agent Driver.
 3. Add Workspace and Sources for context.
 4. Attach Capabilities only when the Agent should receive that specific ability.
-5. Keep host-specific behavior behind ViteHub package docs unless the host boundary is the task.
+5. Put model-facing guidance for configured Sources, Capabilities, and Skills in Agent Driver Instructions or deterministic imported instruction Markdown.
+6. Keep host-specific behavior behind ViteHub package docs unless the host boundary is the task.
 
 ## Guardrails
 
 - Do not expose a primitive to a model just because the app uses it.
 - Do not add an Agent Definition when direct server code and a Runtime Helper solve the task.
 - Do not add root `tools`, `skills`, or `sandbox` Agent Definition fields; use Capabilities and Agent Driver boundaries.
+- Do not treat Source, Capability, or Skill config as a hidden prompt bag; expect coverage diagnostics when a configured primitive lacks explicit instruction coverage.
+- Do not remove tool descriptions or schemas when tightening instructions; they are structured tool contracts.
 - Do not copy docs into prompts when a raw docs URL is enough.
 - Prefer current docs over memory for package names, import paths, and option shapes.
 - Treat Nuxt, Nitro/UnJS, Vercel, Cloudflare, and Node as host/framework targets, not separate ViteHub product models.

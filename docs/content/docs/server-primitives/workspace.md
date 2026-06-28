@@ -102,7 +102,6 @@ export default defineWorkspace({
     docs: glob({
       cwd: '.',
       include: ['README.md', 'docs/**/*.md'],
-      instructions: 'Use these docs for public product behavior.',
     }),
     handbook: github({
       repo: 'acme/handbook',
@@ -110,7 +109,6 @@ export default defineWorkspace({
       root: 'support',
       mount: 'handbook',
       materialize: 'lazy',
-      instructions: 'Use this handbook for support policy.',
     }),
   },
   rules: {
@@ -150,7 +148,7 @@ Workspace Source Bindings can wrap Source Package loaders and add Workspace beha
 | `cache` | `false or WorkspaceCacheOptions` | Source cache policy. Use `false` to disable caching or `{ maxAge }` to set a TTL. |
 | `validate` | `WorkspaceValidateMode` | Request validation mode for API-backed Sources. Use `false` or `request`. |
 | `sync` | `WorkspaceSourceSyncConfig` | Enables explicit Workspace Source Sync. Accepts `true`, `false`, or a sync policy. |
-| `instructions` | `WorkspaceSourceInstructions` | Workspace-owned Source Instructions metadata. Accepts a string or a string array. |
+| `instructions` | `WorkspaceSourceInstructions` | Current low-level Source Instructions metadata. New model-facing guidance should prefer explicit instruction coverage in Agent Driver Instructions or deterministic imports. |
 | `resolve` | `WorkspaceSourceResolver` | Invocation-aware source resolution. |
 
 ## Use it at runtime
@@ -211,14 +209,13 @@ github(({ invocation }) => {
     repo: 'quiverdk/ingestion',
     root: `dbt/${customer}`,
     mount: `ingestion/${customer}`,
-    instructions: `Use this source only for ${customer} ingestion models.`,
   }
 })
 ```
 
 The resolver reads Agent Invocation Context Values and the Selected Workspace Scope, not model output. Access still enforces visibility, and scope-affecting resolved options are fingerprinted so source caches do not reuse data across scopes.
 
-Resolved Sources are evaluated at invocation time and default to lazy materialization. A resolver can return a narrowed GitHub `repo`, `root`, `mount`, and `instructions` without also declaring build-time materialization or cache options; the resolved fingerprint includes the Selected Workspace Scope so one scope cannot reuse another scope's source data.
+Resolved Sources are evaluated at invocation time and default to lazy materialization. A resolver can return a narrowed GitHub `repo`, `root`, and `mount` without also declaring build-time materialization or cache options; the resolved fingerprint includes the Selected Workspace Scope so one scope cannot reuse another scope's source data.
 
 ## Sync Sources
 

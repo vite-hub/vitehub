@@ -31,6 +31,7 @@ Use the error family to choose the next proof path before changing implementatio
 | `RateLimitRejectedError` | Agent Package | Rate Limit Capability rejected an Agent Invocation. |
 | `LlmGateRejectedError` | Agent Package | LLM Gate Capability rejected before the main Agent Invocation. |
 | `Agent Invocation Stream timed out after <ms>.` | Agent Package | The dev-loop stream aborted a long or stalled Agent Invocation after its timeout. |
+| Instruction coverage warning | Agent Package | A configured Source, Capability, or Skill is available to an Agent but lacks explicit coverage in Agent Driver Instructions or deterministic imported instruction Markdown. |
 
 ## Diagnostics sources
 
@@ -40,6 +41,7 @@ Use the error family to choose the next proof path before changing implementatio
 | Env diagnostics | Missing, defaulted, valid, and masked Env Declaration status. |
 | Generated files | Discovery, Runtime Registry, and Provider Output inspection. |
 | DevTools Bridge responses | Interactive Agent and Workspace inspection failures. |
+| Instruction coverage metadata | Missing Source, Capability, or Skill guidance before a model-backed Agent Driver runs. |
 | Trace Events | Runtime policy, approval, capability, lifecycle, and error records. |
 | Package tests | Contract failures owned by the primitive package. |
 
@@ -47,6 +49,8 @@ Use the error family to choose the next proof path before changing implementatio
 
 Start with the owning package and the failing proof path.
 For provider failures, inspect generated output before changing runtime code.
+
+For instruction coverage warnings, update the Agent Driver instructions or a deterministic imported instruction file. Do not clear the warning by adding an unreferenced Workspace file.
 
 ```bash [Terminal]
 pnpm vitehub provision run --provider cloudflare --dry-run

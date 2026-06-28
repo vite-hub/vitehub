@@ -28,7 +28,7 @@ An Agent Definition keeps the execution boundary visible in one file. The Agent 
 | --- | --- |
 | Declare the server actor, its driver, hooks, context, and abilities | [Agent Definitions](/docs/agents/agent-definitions) |
 | Choose model-backed, harness-backed, or custom-run-backed execution | [Agent Drivers](/docs/agents/agent-drivers) |
-| Compose model-facing instruction text and Capability instruction blocks | [Instructions](/docs/agents/instructions) |
+| Compose model-facing instruction text and explicit primitive coverage | [Instructions](/docs/agents/instructions) |
 | Start, stream, and inspect one runtime request | [Invocations](/docs/agents/invocations) |
 
 Define the driver first, then attach the abilities and context the Agent needs.
@@ -44,15 +44,14 @@ export default defineAgent({
     model: gateway('openai/gpt-5.1-mini'),
     instructions: [
       'Answer support questions from the connected workspace.',
-      '{{ workspace.sources }}',
-      '{{ capabilities }}',
+      'Use the support Source for support policies and known answers.',
+      'Inspect Workspace files before using outside knowledge.',
     ],
   },
   workspace: {
     sources: {
       support: file({
         path: 'support.md',
-        instructions: 'Use this source for support policies and known answers.',
       }),
     },
   },
@@ -77,7 +76,7 @@ Channels and Agent Triggers make an Agent reachable from product events without 
 
 ## Add controlled abilities
 
-Agents do not receive server primitives automatically. Attach a Capability only when the active Agent Driver should receive a model-facing ability, policy, instruction block, trigger, or context value.
+Agents do not receive server primitives automatically. Attach a Capability only when the active Agent Driver should receive a model-facing ability, policy, trigger, metadata, or context value.
 
 | Need | Read |
 | --- | --- |
@@ -115,7 +114,7 @@ Agent behavior should be inspectable without guessing which hook, Capability, Ch
 | --- | --- |
 | Agent Definition | Declares one Agent, its Agent Driver, Capabilities, Workspace, hooks, and Agent Invoker options. |
 | Agent Driver | Selects model-backed, harness-backed, or custom-run-backed execution for each Agent Invocation. |
-| Capability | Adds a named ability and may contribute triggers, tools, instructions, policy, or context values. |
+| Capability | Adds a named ability and may contribute triggers, tools, policy, metadata, or context values. |
 | Agent Invocation | Runs one request through the selected Agent Definition and records lifecycle state. |
 | Agent Invoker | Carries the trusted caller identity for one Agent Invocation. |
 | Channel | Names origin, events, delivery, and message facts. It does not replace Agent Invoker identity. |

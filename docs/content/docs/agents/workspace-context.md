@@ -21,7 +21,7 @@ ViteHub materializes `server/agents/<name>/instructions.md` into the Agent Works
 
 ## Declare Sources
 
-Declare a colocated Workspace when the Agent primarily owns the file-tree context. Add Source Instructions when the model-backed driver needs guidance about a Source.
+Declare a colocated Workspace when the Agent primarily owns the file-tree context. Put model-facing guidance about how to use a Source in Agent Driver Instructions or deterministic imported instruction Markdown.
 
 Install the Workspace Package and register its Vite integration before the Agent integration when the Agent declares Workspace Sources.
 
@@ -51,16 +51,16 @@ import { glob } from '@vite-hub/workspace'
 export default defineAgent({
   driver: {
     model: gateway('openai/gpt-5.1-mini'),
+    instructions: [
+      'Answer from the docs Source before using outside knowledge.',
+      'Say when the docs do not cover the answer.',
+    ],
   },
   workspace: {
     sources: {
       docs: glob({
         cwd: '.',
         include: ['README.md', 'docs/**/*.md'],
-        instructions: [
-          'Use this source for public product documentation.',
-          'Say when these docs do not cover the answer.',
-        ],
       }),
     },
   },
@@ -85,15 +85,17 @@ export default defineAgent({
 })
 ```
 
-## Render Source Instructions
+## Cover Source usage
 
-ViteHub renders visible Source Instructions into a `## Workspace Sources` block for model-backed drivers. Put `{{ workspace.sources }}` where that block belongs, or omit the slot and let ViteHub append it.
+Current ViteHub can render visible Source Instructions into a `## Workspace Sources` block for model-backed drivers. Put `{{ workspace.sources }}` where that block belongs when you are using existing Source Instructions.
 
 Only visible Sources render. If Access selects a Workspace Scope, ViteHub omits hidden Source Instructions along with hidden files.
 
-Explicit `driver.instructions` still wins when the Agent needs custom prompt composition, including manual `{{ workspace.sources }}` placement. Ordinary Workspace files named `AGENTS.md` are just files; only colocated `instructions.md` is the default Agent instructions convention.
+Direction: ViteHub should warn when a visible Source is configured but lacks explicit instruction coverage in Agent Driver Instructions or a deterministic imported instruction file. Do not rely on a file merely existing in the Workspace to clear that warning.
 
-Use `workspace.bindings` when an instruction document needs an explicit Workspace-owned value or Markdown fragment. `{{ workspace.foo }}` renders scalar text, and `@workspace.foo` inserts the declared Markdown binding before Instruction Composition continues. `{{ workspace.sources }}` remains reserved for Source Instructions and does not come from `workspace.bindings`.
+Explicit `driver.instructions` still wins when the Agent needs custom prompt composition. Ordinary Workspace files named `AGENTS.md` are just files; only colocated `instructions.md` is the default Agent instructions convention.
+
+Use `workspace.bindings` when an instruction document needs an explicit Workspace-owned value or Markdown fragment. `{{ workspace.foo }}` renders scalar text, and `@workspace.foo` inserts the declared Markdown binding before Instruction Composition continues. `{{ workspace.sources }}` remains reserved for current Source Instructions and does not come from `workspace.bindings`.
 
 ## Start with read access
 
@@ -185,9 +187,6 @@ export const supportSources = {
       repo: 'acme/ingestion',
       root: customer ? `dbt/${customer}` : 'dbt',
       mount: customer ? `ingestion/${customer}` : 'ingestion',
-      instructions: customer
-        ? `Use this source only for ${customer} ingestion models.`
-        : 'Use this source for shared ingestion models.',
     }
   }),
 }
@@ -198,5 +197,5 @@ Access remains the boundary that decides which Workspace paths are visible. Sour
 ## Next steps
 
 - Read [Invokers](/docs/agents/invokers) for trusted identity.
-- Read [Instructions](/docs/agents/instructions) for `{{ workspace.sources }}`.
+- Read [Instructions](/docs/agents/instructions) for explicit instruction coverage.
 - Read [Capabilities](/docs/capabilities) for `access()` and `workspaceShell()`.

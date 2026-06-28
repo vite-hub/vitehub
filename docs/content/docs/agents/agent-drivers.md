@@ -32,7 +32,7 @@ export default defineAgent({
     model: gateway('openai/gpt-5.1-mini'),
     instructions: [
       'Answer support requests from inspected evidence.',
-      '{{ capabilities }}',
+      'Use configured Capabilities only for the roles named in these instructions.',
     ],
     execution: {
       callSettings: { temperature: 0.2 },
@@ -42,7 +42,7 @@ export default defineAgent({
 })
 ```
 
-Capability Driver Contributions such as model-facing tools and instructions are filtered for the selected Agent Driver before the model call.
+Capability Driver Contributions such as model-facing tools are filtered for the selected Agent Driver before the model call. Free-form Capability guidance belongs in Agent Driver Instructions or deterministic imported instruction Markdown.
 
 ## Harness-backed driver
 

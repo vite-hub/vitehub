@@ -1,13 +1,17 @@
 ---
 title: Instructions
-description: Compose model-facing behavior with instruction documents, Source Instructions, and Capability instruction slots.
+description: Compose model-facing behavior with instruction documents and explicit primitive coverage.
 navigation.order: 24
 icon: i-lucide-scroll-text
 ---
 
-An instruction document is Markdown parsed through Comark that ViteHub composes into model-facing instructions. Use it for durable behavior, trust boundaries, source-use policy, and uncertainty handling. Capabilities and Sources contribute their own instruction blocks when they own the guidance.
+An instruction document is Markdown parsed through Comark that ViteHub composes into model-facing instructions. Use it for durable behavior, trust boundaries, source-use policy, capability-use policy, skill-use policy, and uncertainty handling.
 
 Model Driver Instructions are the model-backed Agent Driver field that receives the composed document. ViteHub keeps that model-facing surface separate from harness and custom-run execution.
+
+:::warning
+Direction: free-form model-facing guidance should live in Agent Driver Instructions or deterministic imported instruction Markdown. Configured Sources, Capabilities, and Skills stay available as runtime primitives, but ViteHub should warn in DevTools, build output, or generated metadata when they lack explicit instruction coverage.
+:::
 
 ## Add an instruction document
 
@@ -115,7 +119,7 @@ export default defineAgent({
 
 Missing `workspace.*` bindings fail during Instruction Composition instead of rendering empty output.
 
-`workspace.sources` is reserved for Source Instructions. Keep using `{{ workspace.sources }}` to place visible Source Instructions in the final model instructions.
+`workspace.sources` is reserved for Source Instructions during the current migration. Prefer explicit coverage in the instruction document when adding new Source guidance.
 
 ## Branch with conditions
 
@@ -135,9 +139,33 @@ Conditions use a small safe expression subset: `context.*` paths, string, number
 
 Use Comark attribute syntax such as `::if{condition="context.audience === 'technical'"}` when authoring new condition blocks. The shorter `::if{context.audience === 'technical'}` form remains supported.
 
+## Cover configured primitives
+
+Explicit instruction coverage means the instruction document names how a configured Source, Capability, or Skill should be used. A merely discoverable Workspace file should not clear coverage warnings; the file must be imported or bound from the Agent Driver instructions.
+
+The binding syntax below is proposed direction, not a shipped runtime API yet.
+
+```md [server/agents/support/instructions.md]
+# Support
+
+::source{key="docs"}
+Use the docs Source for published product behavior. Say when the docs do not answer.
+::
+
+::capability{key="workspaceShell"}
+Use Workspace inspection before answering implementation questions.
+::
+
+::skill{path="skills/review-browser-evidence"}
+Use this Skill only when the task needs browser evidence.
+::
+```
+
+Tool descriptions and schemas are different. They remain structured tool contracts and should stay with the tool definition; they are not arbitrary system-instruction injection and they do not clear broader instruction coverage by themselves.
+
 ## Place Capability slots
 
-Capabilities may contribute named instruction blocks. Place one Capability block with `{{ capabilities.<id> }}`, or place every remaining Capability block with `{{ capabilities }}`. ViteHub fails when two Capability contributions use the same instruction block id.
+Current Capability instruction blocks can be placed with `{{ capabilities.<id> }}`, or every remaining Capability block with `{{ capabilities }}`. ViteHub fails when two Capability contributions use the same instruction block id.
 
 ```ts [server/agents/support.ts]
 import { gateway } from '@ai-sdk/gateway'
@@ -158,7 +186,7 @@ export default defineAgent({
 })
 ```
 
-Use slots when the Agent should receive Capability-owned guidance without copying that guidance into every Agent Definition.
+Use slots only for explicit placement while migrating existing Capability guidance. New free-form Capability use guidance should be authored as instruction coverage in the Agent Driver instructions or a deterministic imported instruction file.
 
 Capabilities can also add invocation context values for instruction composition.
 
@@ -176,7 +204,7 @@ const supportAudience = defineCapability({
 
 ## Place Source Instructions
 
-Sources can contribute Source Instructions through the low-level `WorkspaceSource.instructions` field. Put `{{ workspace.sources }}` where those instructions belong in the final model instructions.
+Sources can still carry low-level Source Instructions through the `WorkspaceSource.instructions` field. Put `{{ workspace.sources }}` where existing Source Instructions belong in the final model instructions while migrating to explicit coverage.
 
 ```ts [server/agents/docs.ts]
 import { gateway } from '@ai-sdk/gateway'
@@ -204,6 +232,8 @@ export default defineAgent({
 
 Only visible Sources render Source Instructions. When Access selects a Workspace Scope, ViteHub omits hidden Source Instructions with the hidden files. Markdown never grants access; Access and Workspace Scope remain the runtime enforcement boundary.
 
+Direction: configured-but-uncovered Sources should warn in DevTools, build output, or generated metadata. The warning should clear only when Agent Driver Instructions, or a deterministic imported instruction file, explicitly covers that Source.
+
 ## Harness and run drivers
 
 Harness-backed drivers do not receive Model Driver Instructions by default. When a workspace-backed Agent has a colocated `instructions.md`, ViteHub renders that Instruction Document into the Harness Workspace Session as `AGENTS.md` and `CLAUDE.md`. Use harness-specific configuration for adapter behavior that is not expressible as workspace instructions.
@@ -213,5 +243,5 @@ Custom `driver.run` code receives prepared runtime context and decides which val
 ## Next steps
 
 - Read [Agent Drivers](/docs/agents/agent-drivers) for driver-specific instruction behavior.
-- Read [Workspace context](/docs/agents/workspace-context) for Source Instructions.
-- Read [Capabilities](/docs/capabilities) for Capability-owned instruction blocks.
+- Read [Workspace context](/docs/agents/workspace-context) for Source visibility and coverage.
+- Read [Capabilities](/docs/capabilities) for ability boundaries and tool contracts.

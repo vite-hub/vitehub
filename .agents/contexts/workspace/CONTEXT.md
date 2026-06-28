@@ -31,6 +31,10 @@ _Avoid_: Query-only tool, default materialized file
 Model-facing guidance attached to a Source that explains what the Source is for and how a model-backed Agent Driver should use it.
 _Avoid_: Source description, source metadata, prompt fragment
 
+**Source Instruction Coverage**:
+Explicit Instruction Coverage for a configured Source, authored in Agent Driver Instructions or deterministic imported instruction Markdown.
+_Avoid_: Source metadata, provider description, Source presence
+
 **Source Network Grant**:
 A network access boundary contributed by a Source so a Workspace-backed Shell Runtime can inspect the Source's HTTP origin through controlled shell commands.
 _Avoid_: Source Instruction, generic fetch permission
@@ -230,7 +234,8 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - **Source Instructions** may be declared statically or produced by **Source Resolution**.
 - **Source Instructions** are explicit developer-authored Source configuration, not inferred provider metadata.
 - **Source Instructions** guide model-backed Agent Driver behavior, but they do not grant access to hidden Sources or change Workspace Scope.
-- **Source Instructions** remain the low-level `WorkspaceSource.instructions` field even when the Agent Package renders them through **Instruction Composition**.
+- **Source Instructions** remain low-level Source guidance metadata even when Agent Driver Instructions bind or render them through **Instruction Composition**.
+- A configured Source that is visible to an Agent but lacks **Source Instruction Coverage** should produce an Instruction Coverage Diagnostic.
 - A **Source** may contribute a **Source Network Grant** separately from its **Source Instructions**.
 - **Source Network Grants** grant controlled shell network access; **Source Instructions** only guide model-backed Agent Driver behavior.
 - A visible API-backed **Source** may contribute a **Source Network Grant** automatically when a Workspace-backed Shell Runtime is enabled.
@@ -277,9 +282,9 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - A **Shell Source Request Hint** should be placeable through the `workspaceShell()` Capability instruction block, such as `{{ capabilities.workspaceShell }}` or the catch-all `{{ capabilities }}`.
 - A **Shell Source Request Hint** must not render through `workspace.sources`, because it is generated shell guidance rather than developer-authored **Source Instructions**.
 - A model-backed Agent Driver should receive **Source Instructions** only for Sources visible through the **Selected Workspace Scope**.
-- If any visible Source has **Source Instructions**, a model-backed Agent Driver should receive them by default at the end of its instructions unless the driver explicitly places the source guidance.
+- ViteHub should not append visible **Source Instructions** merely because the Source is configured; Agent Driver Instructions or deterministic imported instruction Markdown should provide **Source Instruction Coverage**.
+- Explicit Source Instruction placement may use `workspace.sources` during the migration and renders the complete generated Source guidance block, including its heading.
 - If a model-backed Agent Driver places `workspace.sources` but no visible Source has **Source Instructions**, the placement should render as empty instructions.
-- Explicit Source Instruction placement uses `workspace.sources` and renders the complete generated Source guidance block, including its heading.
 - The generated Source guidance block should render each Source under a Source Map key heading and should not add generated descriptions or Mount summaries when the Source already has **Source Instructions**.
 - Sources without **Source Instructions** should be omitted from the generated Source guidance block.
 - A **Colocated Workspace Definition** has a **Workspace Source Root**.
@@ -416,7 +421,7 @@ _Avoid_: Chat Session, thread id, implicit conversation state
 - "source" can mean source code, provenance, or data connector - resolved: in Workspace, **Source** means a named origin that exposes read-only addressable files or items.
 - "source instructions" were considered source descriptions or generic metadata - resolved: use **Source Instruction** for model-facing guidance about how a model-backed Agent Driver should use a Source.
 - Dynamic Source Instructions were considered - resolved: **Source Instructions** may be produced by **Invocation-Scoped Source Resolution** when the guidance describes the resolved Source itself; invocation-specific audience or behavior guidance still belongs in model-backed driver or Capability instructions.
-- Unplaced Source Instructions were considered explicit-placement-only - resolved: append visible Source Instructions by default at the end of model-backed driver instructions, while allowing explicit placement.
+- Unplaced Source Instructions were considered default model guidance - resolved: require **Source Instruction Coverage** and warn when visible Sources lack it instead of relying on ambient append.
 - Empty Source Instruction placement was considered for an explanatory fallback - resolved: render empty instructions so hidden or scoped-out Sources are not implied.
 - Custom heading ownership for Source Instruction placement was considered - resolved: the generated Source guidance block includes its own heading.
 - Generated Source descriptions and Mount summaries were considered for each Source Instruction entry - resolved: when a Source declares **Source Instructions**, render the Source Map key heading plus the declared instructions only.
