@@ -6,11 +6,9 @@ import {
 } from "./internal/stream-result.ts"
 import { loadAiSdk } from "./internal/ai-sdk-runtime.ts"
 import {
-  applyCapabilityInstructionSlots,
   applyCapabilityToolTransforms,
 } from "./capability-runtime.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
-import { applyWorkspaceSourceInstructionSlot } from "./workspace-agent.ts"
 import {
   applyAgentToolPolicies,
   reportWorkspaceMaterialization,
@@ -830,15 +828,11 @@ async function createAgent(
   const instrumentedModel = instrumentations.length
     ? await instrumentModel(model, instrumentations, { ...runtime, actor: context.actor, context: context.context, invoker: context.invoker, model, run: context.runtime.run })
     : model
-  const baseInstructions = await composeInstructions(
+  const instructions = await composeInstructions(
     context.instructions ?? await resolveInstructions(options, metadataContext),
     metadataContext,
     context.workspaceInstructionBindings,
   )
-  const instructions = await composeInstructions(applyWorkspaceSourceInstructionSlot(
-    applyCapabilityInstructionSlots(baseInstructions, context.capabilityInstructions),
-    context.sourceInstructions,
-  ), metadataContext, context.workspaceInstructionBindings)
   const adapterTools = await resolveTools(options, metadataContext, context.devtools?.reportToolStep)
   const resolvedTools = withDefaultToolInputSchemas(withWorkspaceFallbackToolEvidence(await applyCapabilityToolTransforms({
     ...context.tools,

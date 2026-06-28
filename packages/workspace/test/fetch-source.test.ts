@@ -312,7 +312,6 @@ describe("fetch sources", () => {
       sources: {
         inventoryHealthSummary: fetch({
           cookies: { auth_token: "secret" },
-          instructions: "Use for fresh filtered inventory health data.",
           querySchema,
           url: "https://portal.example.com/runtime/inventory-health",
         }),

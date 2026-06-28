@@ -296,7 +296,6 @@ export type {
 } from "./storage/shared.ts"
 export type {
   MemoryAppendRequest,
-  MemoryCapabilityInstructionsOption,
   MemoryCapabilityOptions,
   MemoryDeleteRequest,
   MemoryExportRequest,

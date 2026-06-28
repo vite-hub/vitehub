@@ -233,7 +233,6 @@ describe("openapi capability", () => {
   it("generates a Capability CLI from allowed operations and OpenAPI descriptions", async () => {
     const request = vi.spyOn(globalThis, "fetch").mockImplementation(async () => jsonResponse({ customers: ["acme"] }))
     const {
-      applyCapabilityInstructionSlots,
       resolveAgentCapabilities,
     } = await import("../src/capability-runtime.ts")
     const { openapi } = await import("../src/capabilities.ts")
@@ -258,12 +257,8 @@ describe("openapi capability", () => {
     })
 
     expect(Object.keys(resolved.tools || {})).toEqual(["portal"])
-    const instructions = applyCapabilityInstructionSlots("{{ capabilities.openapi }}", resolved.capabilityInstructions)
-    expect(instructions).toContain("## Capability CLI: portal")
-    expect(instructions).toContain("portal list-customers --json")
-    expect(instructions).toContain("List customers.")
-    expect(instructions).toContain("portal create-order --json")
-    expect(instructions).toContain("Create order.")
+    expect(resolved.tools?.portal?.description).toContain("`list-customers --json`")
+    expect(resolved.tools?.portal?.description).toContain("`create-order --json`")
 
     await expect(resolved.tools?.portal?.execute?.({
       argv: ["list-customers", "--json"],
@@ -502,7 +497,7 @@ describe("openapi capability", () => {
       headers: { "content-type": "text/plain" },
       status: 200,
     }))
-    const { applyCapabilityInstructionSlots, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { openapi } = await import("../src/capabilities.ts")
 
     const resolved = await resolveAgentCapabilities({
@@ -515,10 +510,8 @@ describe("openapi capability", () => {
         }),
       ],
     }, runtime(), { prompt: "list" })
-    const instructions = applyCapabilityInstructionSlots("{{ capabilities.openapi }}", resolved.capabilityInstructions)
-
-    expect(instructions).toContain("portal list-customers")
-    expect(instructions).not.toContain("portal list-customers --json")
+    expect(resolved.tools?.portal?.description).toContain("`list-customers`")
+    expect(resolved.tools?.portal?.description).not.toContain("`list-customers --json`")
 
     await expect(resolved.tools?.portal?.execute?.({
       argv: ["list-customers"],

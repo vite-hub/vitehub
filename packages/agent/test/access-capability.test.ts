@@ -251,19 +251,9 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(true)
   })
 
-  it("uses Agent Invoker meta across access and prompt instructions", async () => {
-    const { applyCapabilityInstructionSlots, defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+  it("uses Agent Invoker meta across access resolution", async () => {
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
-    const supportAudience = defineCapability({
-      id: "support-audience",
-      prepare(context) {
-        context.instructions.add(
-          context.invoker.meta?.audience === "technical"
-            ? "Prefer implementation details."
-            : "Prefer product-level support answers.",
-        )
-      },
-    })
 
     const resolved = await resolveAgentCapabilities({
       capabilities: [
@@ -280,7 +270,6 @@ describe("access capability", () => {
             },
           },
         }),
-        supportAudience,
       ],
     }, { ...runtime(), runtimeConfig: {} }, {
       context: {
@@ -298,81 +287,6 @@ describe("access capability", () => {
 
     await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
     await expect(resolved.workspace!.fs.exists("customers/globex/brief.md")).resolves.toBe(false)
-    expect(applyCapabilityInstructionSlots("{{ capabilities.support-audience }}", resolved.capabilityInstructions)).toBe("Prefer product-level support answers.")
-  })
-
-  it("adds selected Workspace Scope instructions", async () => {
-    const { applyCapabilityInstructionSlots, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { access } = await import("../src/capabilities.ts")
-
-    const resolved = await resolveAgentCapabilities({
-      capabilities: [
-        access({
-          workspace: {
-            defaultScope: "acme",
-            scopes: {
-              acme: {
-                instructions: "Workspace scope: customer acme.",
-                paths: ["customers/acme"],
-              },
-            },
-          },
-        }),
-      ],
-    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace())
-
-    await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
-    expect(applyCapabilityInstructionSlots("{{ capabilities.access.workspace }}", resolved.capabilityInstructions)).toBe("Workspace scope: customer acme.")
-  })
-
-  it("uses resolver Workspace Scope instructions before static scope instructions", async () => {
-    const { applyCapabilityInstructionSlots, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { access } = await import("../src/capabilities.ts")
-
-    const resolved = await resolveAgentCapabilities({
-      capabilities: [
-        access({
-          workspace: {
-            resolve: () => ({
-              instructions: "Resolver scope guidance.",
-              role: "viewer",
-              scope: "acme",
-            }),
-            scopes: {
-              acme: {
-                instructions: "Static scope guidance.",
-                paths: ["customers/acme"],
-              },
-            },
-          },
-        }),
-      ],
-    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace())
-
-    await expect(resolved.workspace!.fs.exists("customers/acme/brief.md")).resolves.toBe(true)
-    expect(applyCapabilityInstructionSlots("{{ capabilities.access.workspace }}", resolved.capabilityInstructions)).toBe("Resolver scope guidance.")
-  })
-
-  it("fails clearly when Workspace Scope instructions are not strings", async () => {
-    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-    const { access } = await import("../src/capabilities.ts")
-
-    await expect(resolveAgentCapabilities({
-      capabilities: [
-        access({
-          workspace: {
-            defaultScope: "acme",
-            scopes: {
-              acme: {
-                instructions: ["ok", 123] as never,
-                paths: ["customers/acme"],
-              },
-            },
-          },
-        }),
-      ],
-    }, { ...runtime(), runtimeConfig: {} }, { prompt: "check" }, createWorkspace()))
-      .rejects.toThrow("Workspace Scope \"acme\" instructions must be a string or an array of strings.")
   })
 
   it("can resolve an inline Workspace Scope definition", async () => {
@@ -675,7 +589,6 @@ describe("access capability", () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access, workspaceShell } = await import("../src/capabilities.ts")
     const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
-    const { resolveWorkspaceSourceInstructionBlock } = await import("../src/workspace-agent.ts")
     const resolverScopes: unknown[] = []
     const invocationContext = createAgentInvocationContextStore({
       "support.customerScope": { customers: ["acme", "globex"] },
@@ -690,7 +603,6 @@ describe("access capability", () => {
             const customer = scope?.customers[0]
             if (!customer) return false
             return custom({
-              instructions: `Use this source for ${customer} ingestion models only.`,
               materialize: "lazy",
               mount: `ingestion/${customer}`,
               async getKeys() {
@@ -736,11 +648,7 @@ describe("access capability", () => {
     await expect(resolved.workspace!.fs.readFile("ingestion/acme/models/orders.sql")).resolves.toBe("select * from acme_orders\n")
     await expect(resolved.workspace!.fs.exists("ingestion/globex/models/orders.sql")).resolves.toBe(false)
     expect(resolverScopes).toEqual([{ customers: ["acme", "globex"] }])
-    const resolvedDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
-    await expect(resolveWorkspaceSourceInstructionBlock(resolvedDefinition, resolved.workspace)).resolves.toBe([
-      "## Workspace Sources",
-      "### ingestion\n\nUse this source for acme ingestion models only.",
-    ].join("\n\n"))
+    expect(invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")?.sources).toHaveProperty("ingestion")
     expect(resolved.tools!.materialize_sources).toBeUndefined()
   })
 
@@ -945,11 +853,10 @@ describe("access capability", () => {
     ])
   })
 
-  it("omits resolved Source Instructions when the resolved source is outside access scope", async () => {
+  it("omits resolved sources outside access scope", async () => {
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
     const { access } = await import("../src/capabilities.ts")
     const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
-    const { resolveWorkspaceSourceInstructionBlock } = await import("../src/workspace-agent.ts")
     const invocationContext = createAgentInvocationContextStore()
     const workspaceDefinition: WorkspaceDefinition = {
       name: "support",
@@ -957,7 +864,6 @@ describe("access capability", () => {
         ingestion: custom({
           async resolve() {
             return custom({
-              instructions: "Use this source for globex ingestion models only.",
               mount: "ingestion/globex",
               async getKeys() {
                 return ["models/orders.sql"]
@@ -994,8 +900,6 @@ describe("access capability", () => {
     })
 
     await expect(resolved.workspace!.fs.exists("ingestion/globex/models/orders.sql")).resolves.toBe(false)
-    const resolvedDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
-    await expect(resolveWorkspaceSourceInstructionBlock(resolvedDefinition, resolved.workspace)).resolves.toBeUndefined()
   })
 
   it("fails closed when access is ordered after another capability", async () => {

@@ -21,7 +21,7 @@ ViteHub materializes `server/agents/<name>/instructions.md` into the Agent Works
 
 ## Declare Sources
 
-Declare a colocated Workspace when the Agent primarily owns the file-tree context. Add Source Instructions when the model-backed driver needs guidance about a Source.
+Declare a colocated Workspace when the Agent primarily owns the file-tree context. Put model-facing guidance about how to use a Source in Agent Driver Instructions or deterministic imported instruction Markdown.
 
 Install the Workspace Package and register its Vite integration before the Agent integration when the Agent declares Workspace Sources.
 
@@ -51,16 +51,16 @@ import { glob } from '@vite-hub/workspace'
 export default defineAgent({
   driver: {
     model: gateway('openai/gpt-5.1-mini'),
+    instructions: [
+      'Answer from the docs Source before using outside knowledge.',
+      'Say when the docs do not cover the answer.',
+    ],
   },
   workspace: {
     sources: {
       docs: glob({
         cwd: '.',
         include: ['README.md', 'docs/**/*.md'],
-        instructions: [
-          'Use this source for public product documentation.',
-          'Say when these docs do not cover the answer.',
-        ],
       }),
     },
   },
@@ -85,15 +85,21 @@ export default defineAgent({
 })
 ```
 
-## Render Source Instructions
+## Cover Source usage
 
-ViteHub renders visible Source Instructions into a `## Workspace Sources` block for model-backed drivers. Put `{{ workspace.sources }}` where that block belongs, or omit the slot and let ViteHub append it.
+Put model-facing Source guidance in Agent Driver Instructions or deterministic imported instruction Markdown. Use an explicit coverage wrapper around the authored prose:
 
-Only visible Sources render. If Access selects a Workspace Scope, ViteHub omits hidden Source Instructions along with hidden files.
+```md [server/agents/docs/instructions.md]
+::source{key="docs"}
+Use the docs Source for published product behavior. Say when the docs do not answer.
+::
+```
 
-Explicit `driver.instructions` still wins when the Agent needs custom prompt composition, including manual `{{ workspace.sources }}` placement. Ordinary Workspace files named `AGENTS.md` are just files; only colocated `instructions.md` is the default Agent instructions convention.
+ViteHub warns in DevTools metadata when a configured Source lacks explicit instruction coverage. The warning clears only when Agent Driver Instructions, or a deterministic imported instruction file, contains a `::source{key="..."}` block for that Source.
 
-Use `workspace.bindings` when an instruction document needs an explicit Workspace-owned value or Markdown fragment. `{{ workspace.foo }}` renders scalar text, and `@workspace.foo` inserts the declared Markdown binding before Instruction Composition continues. `{{ workspace.sources }}` remains reserved for Source Instructions and does not come from `workspace.bindings`.
+Explicit `driver.instructions` still wins when the Agent needs custom prompt composition. Ordinary Workspace files named `AGENTS.md` are just files; only colocated `instructions.md` is the default Agent instructions convention.
+
+Use `workspace.bindings` when an instruction document needs an explicit Workspace-owned value or Markdown fragment. `{{ workspace.foo }}` renders scalar text, and `@workspace.foo` inserts the declared Markdown binding before Instruction Composition continues. The legacy `{{ workspace.sources }}` binding is unsupported.
 
 ## Start with read access
 
@@ -133,7 +139,7 @@ export default defineAgent({
 })
 ```
 
-Read mode materializes the selected Workspace into the harness sandbox and discards sandbox changes. Write mode syncs additions, updates, and deletions back through Workspace rules. Capabilities can also contribute harness-only Workspace paths, such as skill directories, without broadening the product-data Workspace Scope. Keep Skills behind the `skills()` Capability; ViteHub does not add root `skills`, `tools`, or `sandbox` Agent Definition fields for harness-backed Agents. Put harness guidance in colocated `instructions.md`; model-facing Source Instructions are not forwarded to harness-backed Agent Drivers yet.
+Read mode materializes the selected Workspace into the harness sandbox and discards sandbox changes. Write mode syncs additions, updates, and deletions back through Workspace rules. Capabilities can also contribute harness-only Workspace paths, such as skill directories, without broadening the product-data Workspace Scope. Keep Skills behind the `skills()` Capability; ViteHub does not add root `skills`, `tools`, or `sandbox` Agent Definition fields for harness-backed Agents. Put harness guidance in colocated `instructions.md`; Sources, Capabilities, and Skills do not inject additional harness instructions.
 
 ## Scope by Agent Invoker
 
@@ -156,9 +162,6 @@ export const supportCapabilities = [
             { path: 'AGENTS.md' },
             { path: `customers/${customer}` },
           ],
-          instructions: customer
-            ? `Answer for the ${customer} customer workspace.`
-            : 'Answer from the public support workspace.',
           scope: customer || 'public',
         }
       },
@@ -168,7 +171,8 @@ export const supportCapabilities = [
 ]
 ```
 
-Workspace Scope Instructions are explicit prompt text for the selected scope. ViteHub does not generate prompt text from scope names, grants, roles, Source metadata, or invoker metadata.
+ViteHub does not generate prompt text from scope names, grants, roles, Source metadata, or invoker metadata.
+When the Agent needs scope-specific model guidance, write it in Agent Driver Instructions or an imported instruction file and mark the Access coverage with `::capability{key="access"}`.
 
 ## Resolve Sources per invocation
 
@@ -185,9 +189,6 @@ export const supportSources = {
       repo: 'acme/ingestion',
       root: customer ? `dbt/${customer}` : 'dbt',
       mount: customer ? `ingestion/${customer}` : 'ingestion',
-      instructions: customer
-        ? `Use this source only for ${customer} ingestion models.`
-        : 'Use this source for shared ingestion models.',
     }
   }),
 }
@@ -198,5 +199,5 @@ Access remains the boundary that decides which Workspace paths are visible. Sour
 ## Next steps
 
 - Read [Invokers](/docs/agents/invokers) for trusted identity.
-- Read [Instructions](/docs/agents/instructions) for `{{ workspace.sources }}`.
+- Read [Instructions](/docs/agents/instructions) for explicit instruction coverage.
 - Read [Capabilities](/docs/capabilities) for `access()` and `workspaceShell()`.

@@ -4,7 +4,6 @@ import { hasTrustedWorkspaceAccessScope, hasTrustedWorkspaceSourceResolutionDefi
 import {
   assertCapabilityCliContribution,
   createCapabilityCliTool,
-  renderCapabilityCliInstructions,
 } from "./capability-cli.ts"
 import { getAccessCapabilityOptions } from "./capabilities/access-metadata.ts"
 import { createMessage } from "./messages.ts"
@@ -18,7 +17,6 @@ import {
 import { runObservedAgentHook } from "./hooks.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
 import type {
-  AgentAdapterInstructionsValue,
   AgentCallbackContext,
   AgentCapabilityCliContribution,
   AgentCapabilityContext,
@@ -37,7 +35,6 @@ import type {
   AgentFinishEvent,
   AgentFinishExtensionProvider,
   AgentHookObserverHooks,
-  AgentInstructionBlock,
   AgentInvocationExtensions,
   AgentOutputExtensionProvider,
   AgentInvocationContextStore,
@@ -70,6 +67,14 @@ type InternalAgentCapabilityWithGeneratedCli<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > = AgentCapabilityDefinition<TRuntimeConfig, Name> & {
+  resolveCli?: InternalAgentCapabilityCliResolver<TRuntimeConfig, Name>
+}
+type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
+type AgentCapabilityDefinitionInput<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  Name extends WorkspaceName = WorkspaceName,
+  TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
+> = AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract> & {
   resolveCli?: InternalAgentCapabilityCliResolver<TRuntimeConfig, Name>
 }
 const defaultCapabilityRuntimePhases = ["configure", "prepare", "bind", "input", "resolve", "output"] as const
@@ -120,13 +125,11 @@ export interface AgentCapabilityInvocationOptions<
   model?: AgentModelResolver<TRuntimeConfig, Name>
   phases?: readonly AgentCapabilityRuntimePhase[]
   resolveCapabilityCli?: boolean
-  resolveInstructions?: boolean
   resolveTools?: boolean
   workspaceDefinition?: WorkspaceDefinition
 }
 
 export interface ResolvedAgentCapabilities {
-  capabilityInstructions: AgentInstructionBlock[]
   close: () => Promise<void>
   driverContributions: AgentDriverContribution[]
   hasCloseCallbacks: boolean
@@ -171,10 +174,13 @@ export function defineCapability<
   TTypeContract extends AgentCapabilityTypeContract = AgentCapabilityTypeContract,
   const TCapability extends AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract> = AgentCapabilityDefinition<TRuntimeConfig, Name, TTypeContract>,
 >(
-  capability: TCapability,
+  capability: ExactOptions<TCapability, AgentCapabilityDefinitionInput<TRuntimeConfig, Name, TTypeContract>>,
 ): TCapability {
   if (!capability || typeof capability !== "object") {
     throw new TypeError("[vitehub] defineCapability() requires a capability definition.")
+  }
+  if ("instructions" in capability) {
+    throw new TypeError("[vitehub] Capability instructions were removed. Put model-facing guidance in Agent Driver Instructions with ::capability coverage.")
   }
   assertCapabilityId((capability as { id?: unknown }).id)
   const cli = (capability as AgentCapabilityDefinition).cli
@@ -282,52 +288,11 @@ async function callHooks<
   })
 }
 
-function addInstructionBlock(
-  capabilityInstructions: AgentInstructionBlock[],
-  capabilityId: string,
-  value: AgentAdapterInstructionsValue | false | undefined,
-  options?: { id?: string, merge?: boolean },
-) {
-  if (value === false || value === undefined) return
-  const instructions = (Array.isArray(value) ? value : [value])
-    .map(part => part.trim())
-    .filter(Boolean)
-    .join("\n\n")
-  if (instructions) {
-    const id = capabilityInstructionBlockId(options?.id || capabilityId)
-    const existing = capabilityInstructions.find(block => block.id === id)
-    if (existing && options?.merge) {
-      existing.instructions = `${existing.instructions}\n\n${instructions}`
-      return
-    }
-    if (existing) {
-      throw new Error(`[vitehub] Duplicate capability instruction block "${id}".`)
-    }
-    capabilityInstructions.push({
-      id,
-      instructions,
-    })
-  }
-}
-
-export function capabilityInstructionBlockId(capabilityId: string): string {
-  return `capabilities.${capabilityId === "workspace-shell" ? "workspaceShell" : capabilityId}`
-}
-
 function toAgentCallbackContext<TRuntimeConfig extends AgentRuntimeConfig>(
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>,
 ): AgentCallbackContext<TRuntimeConfig> {
   const { runtimeConfig: _runtimeConfig, ...context } = runtime
   return context
-}
-
-function compactInstructionValues(values: Array<AgentAdapterInstructionsValue | false | undefined>): AgentAdapterInstructionsValue | false | undefined {
-  const instructions = values
-    .filter((value): value is AgentAdapterInstructionsValue => value !== false && value !== undefined)
-    .flatMap(value => Array.isArray(value) ? value : [value])
-    .map(value => value.trim())
-    .filter(Boolean)
-  return instructions.length ? instructions : undefined
 }
 
 function pathContains(container: string, path: string): boolean {
@@ -755,22 +720,6 @@ async function applyCapabilityWorkspaceContributions<
   }
 }
 
-async function resolveInstructionValue<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(
-  capability: AgentCapabilityDefinition<TRuntimeConfig, Name>,
-  context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>,
-) {
-  const parts = Array.isArray(capability.instructions)
-    ? capability.instructions
-    : [capability.instructions]
-  const values = await Promise.all(parts.map(part => typeof part === "function"
-    ? (part as (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<AgentAdapterInstructionsValue | false | undefined>)(context)
-    : part))
-  return values.flatMap(value => Array.isArray(value) ? value : [value])
-}
-
 export async function resolveAgentCapabilities<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -802,7 +751,6 @@ export async function resolveAgentCapabilities<
   let currentWorkspaceDefinition = invocationOptions.workspaceDefinition
   let messages = getRunMessages(currentInput)
   let tools: AgentToolSet | undefined
-  const capabilityInstructions: AgentInstructionBlock[] = []
   const closeCallbacks: Array<() => MaybePromise<void>> = []
   const driverContributions: AgentDriverContribution[] = []
   let hasCloseWork = false
@@ -834,18 +782,6 @@ export async function resolveAgentCapabilities<
       kind,
       ...(uniqueNames.length ? { names: uniqueNames } : {}),
     })
-  }
-
-  function addCapabilityInstructionContribution(
-    capabilityId: string,
-    value: AgentAdapterInstructionsValue | false | undefined,
-    options?: { id?: string, merge?: boolean },
-  ) {
-    const before = capabilityInstructions.length
-    addInstructionBlock(capabilityInstructions, capabilityId, value, options)
-    if (capabilityInstructions.length > before) {
-      recordDriverContribution("Capability instructions", capabilityId)
-    }
   }
 
   function addFinishExtensionProvider(capabilityId: string, value: unknown | AgentFinishExtensionProvider) {
@@ -935,11 +871,6 @@ export async function resolveAgentCapabilities<
         },
         capability,
         mode: capability.mode,
-        instructions: {
-          add(value, options) {
-            addCapabilityInstructionContribution(capability.id, value, options)
-          },
-        },
         input: {
           get: () => currentInput,
           messages: () => messages,
@@ -1097,7 +1028,6 @@ export async function resolveAgentCapabilities<
         await callHooks(`capability:${phase}:after`, capabilityContext, options?.hooks)
         if (result instanceof Response) {
           return {
-            capabilityInstructions,
             close: closeRegisteredCallbacks,
             driverContributions,
             hasCloseCallbacks: hasCloseWork,
@@ -1117,20 +1047,11 @@ export async function resolveAgentCapabilities<
     for (const { capability, context } of capabilityContexts) {
       let cli: AgentCapabilityCliContribution<TRuntimeConfig, Name> | undefined
       const resolveCli = (capability as InternalAgentCapabilityWithGeneratedCli<TRuntimeConfig, Name>).resolveCli
-      if ((capability.cli || resolveCli) && resolveCapabilityCli && (invocationOptions.resolveInstructions !== false || invocationOptions.resolveTools !== false)) {
+      if ((capability.cli || resolveCli) && resolveCapabilityCli && invocationOptions.resolveTools !== false) {
         cli = resolveCli
           ? await resolveCli(context)
           : capability.cli
         assertCapabilityCliContribution(capability.id, cli)
-      }
-      if (invocationOptions.resolveInstructions !== false) {
-        const values = capability.instructions !== undefined ? await resolveInstructionValue(capability, context) : []
-        const cliInstructions = cli && driverKind !== "harness"
-          ? renderCapabilityCliInstructions(capability.id, cli)
-          : undefined
-        addCapabilityInstructionContribution(capability.id, compactInstructionValues([...values, cliInstructions]), {
-          merge: Boolean(cliInstructions),
-        })
       }
       if (invocationOptions.resolveTools !== false && cli && resolveCapabilityCli) {
         const resolved = createCapabilityCliTool(capability, context, cli)
@@ -1167,7 +1088,6 @@ export async function resolveAgentCapabilities<
   }
 
   return {
-    capabilityInstructions,
     close: closeRegisteredCallbacks,
     driverContributions,
     hasCloseCallbacks: hasCloseWork,
@@ -1242,39 +1162,6 @@ export async function validateCapabilityRuntimeRequirement<Name extends Workspac
       }
     }
   }
-}
-
-export function applyCapabilityInstructionSlots(instructions: string, blocks: AgentInstructionBlock[] = []): string {
-  if (!blocks.length) return instructions
-
-  const remaining = [...blocks]
-  const used = new Set<string>()
-  const slotPattern = /\{\{\s*([a-zA-Z][\w.-]*)\s*\}\}/g
-  const rendered = instructions.replace(slotPattern, (match, slot: string) => {
-    if (slot === "capabilities") {
-      return remaining.splice(0).map(block => block.instructions).join("\n\n")
-    }
-
-    const selected = blocks.filter(block => block.id === slot)
-    if (!selected.length) {
-      return match
-    }
-    if (used.has(slot)) {
-      throw new Error(`[vitehub] Duplicate capability instruction slot "${slot}". Use {{ capabilities }} for repeated catch-all insertion.`)
-    }
-    if (selected.some(block => !remaining.includes(block))) {
-      throw new Error(`[vitehub] Capability instruction slot "${slot}" references instructions that were already inserted by another slot.`)
-    }
-    used.add(slot)
-    for (const block of selected) {
-      const index = remaining.indexOf(block)
-      if (index >= 0) remaining.splice(index, 1)
-    }
-    return selected.map(block => block.instructions).join("\n\n")
-  })
-
-  const appendix = remaining.map(block => block.instructions).join("\n\n")
-  return [rendered.trim(), appendix.trim()].filter(Boolean).join("\n\n")
 }
 
 export async function applyCapabilityToolTransforms(

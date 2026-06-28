@@ -1,6 +1,6 @@
 ---
 title: Channels
-description: Keep message origins, delivery facts, Agent Actors, and input commands separate.
+description: Keep invocation origins, delivery facts, Agent Actors, and input commands separate.
 navigation.order: 25
 icon: i-lucide-radio
 ---
@@ -39,7 +39,7 @@ This split keeps shared channels from becoming implicit access roles. A Teams ch
 
 ## Message-shaped input
 
-Chat and channel surfaces usually start Agents with `messages`. The Chat Capability registers the `chat.message` Agent Trigger and translates UI-message-like input into Agent messages.
+Message-shaped Channels usually start Agents with `messages`. The `chat.message` Agent Trigger maps UI-message-like input into Agent messages; chat history and sessions stay in message Channel settings rather than route admission.
 
 ```ts [server/api/support-chat.post.ts]
 import { streamAgentTrigger } from '@vite-hub/agent'
@@ -70,7 +70,7 @@ The `run` fields are first-class Agent Run metadata, not Chat context. They help
 
 ## Admit web chat requests
 
-Use `webChat({ route: { admission } })` when an app-owned web chat route needs the common AI SDK UI-message request shape but still owns authentication and product context.
+Use `webChat({ route })` when an app-owned web chat route needs the common AI SDK UI-message request shape but still owns authentication and product context.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
@@ -85,13 +85,9 @@ export default defineAgent({
             verifyPortalSignature(rawBody, request.headers.get('x-portal-signature'))
             return { customer: request.headers.get('x-customer') }
           },
-          context({ auth, body }) {
-            return {
-              meta: { ...body.meta, customer: auth.customer },
-              run: { origin: 'portal' },
-              user: body.user,
-            }
-          },
+        },
+        input: {
+          trust: ['meta', 'user', 'session'],
         },
       },
     }),
@@ -100,7 +96,7 @@ export default defineAgent({
 })
 ```
 
-ViteHub reads the raw request body once, parses the JSON object, runs `authenticate` with `rawBody`, then validates `admission.body` when a Standard Schema is provided. The `context` callback receives the validated body and returns trusted `chat.message` input fields such as `user`, `meta`, `run`, `session`, or `invoker`.
+ViteHub reads the raw request body once, parses the JSON object, runs `authenticate` with `rawBody`, then validates `admission.body` when a Standard Schema is provided. `input.trust` lists request body fields that may be copied after authentication. Use `admission.context` only when the route needs to derive or validate different `chat.message` input.
 
 ## Add identity separately
 

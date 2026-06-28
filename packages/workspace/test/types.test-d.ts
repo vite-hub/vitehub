@@ -104,8 +104,9 @@ describe("workspace types", () => {
       root: "docs",
       include: "**/*.md",
       exclude: "docs/drafts/**",
-      instructions: "Use for hosted docs.",
     })
+    // @ts-expect-error Source Instructions no longer belong on Source config.
+    github({ repo: "acme/app", instructions: "Use for hosted docs." })
     github(({ invocation, selectedWorkspaceScope, source: sourceContext, workspace }) => {
       expectTypeOf(invocation.context.get("support.customerScope")?.customers).toEqualTypeOf<Array<"acme" | "globex"> | undefined>()
       expectTypeOf(selectedWorkspaceScope?.name).toEqualTypeOf<"acme" | "globex" | "support" | undefined>()
@@ -117,7 +118,6 @@ describe("workspace types", () => {
         repo: "acme/app",
         root: `dbt/${customer}`,
         mount: `ingestion/${customer}`,
-        instructions: [`Use for ${customer} ingestion models.`],
       }
     })
     glob({
@@ -126,11 +126,11 @@ describe("workspace types", () => {
       followSymlinks: false,
       ignore: "drafts/**",
       include: "**/*.md",
-      instructions: ["Use for local docs.", "Prefer README files first."] as const,
       prefix: "content",
     })
+    // @ts-expect-error Source Instructions no longer belong on Source config.
+    glob({ include: "**/*.md", instructions: "Use for local docs." })
     fetch<{ status: string }, { ok: boolean }>({
-      instructions: "Use for live status.",
       querySchema: {
         "~standard": {
           jsonSchema: {
@@ -186,8 +186,9 @@ describe("workspace types", () => {
         url: `https://status.example.com/api/${sourceContext.key}`,
       }
     })
+    // @ts-expect-error Source Instructions no longer belong on Source config.
+    fetch({ instructions: "Use for live status.", url: "https://status.example.com" })
     mcpResources({
-      instructions: "Use for MCP resource docs.",
       mount: "nuxt",
       server: {
         async listResources() {
@@ -198,6 +199,8 @@ describe("workspace types", () => {
         },
       },
     })
+    // @ts-expect-error Source Instructions no longer belong on Source config.
+    mcpResources({ instructions: "Use for MCP resource docs.", server: { listResources: async () => ({ resources: [] }), readResource: async () => ({ contents: [] }) } })
     // @ts-expect-error fetch does not expose public lifecycle hooks
     fetch({ url: "https://status.example.com/api/summary", beforeRequest() {} })
     // @ts-expect-error fetch uses workspacePath as its only Workspace-facing address

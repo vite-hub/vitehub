@@ -65,13 +65,11 @@ type StaticTranscribeOptions =
   | (AiSdkTranscribeOptions & {
     artifacts?: TranscribeArtifactsOptions
     execute?: never
-    instructions?: AgentCapabilityDefinition["instructions"]
     maxBytes?: number
   })
   | {
     artifacts?: TranscribeArtifactsOptions
     execute: (input: TranscribeExecuteInput) => MaybePromise<TranscribeExecuteResult>
-    instructions?: AgentCapabilityDefinition["instructions"]
     maxBytes?: number
     model?: never
   }
@@ -227,7 +225,6 @@ async function runTranscription(options: StaticTranscribeOptions, audio: AudioPa
 
   const {
     artifacts: _artifacts,
-    instructions: _instructions,
     maxBytes: maxBytesOption,
     ...transcribeOptions
   } = options
@@ -485,7 +482,6 @@ export function transcribe(options: TranscribeOptions): AgentCapabilityDefinitio
       context.input.setMessages(messages)
       appendTranscriptionResults(context.context, results)
     },
-    instructions: typeof options === "function" ? false : options.instructions ?? false,
     output(context) {
       context.finish.provide(() => {
         const results = getTranscriptionResults(context)

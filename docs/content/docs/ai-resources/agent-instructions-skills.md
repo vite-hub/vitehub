@@ -32,7 +32,7 @@ Any future public affordance should separate three audiences.
 | --- | --- |
 | Agents editing this repo | Read `AGENTS.md`, `.agents/domain.md`, and the relevant context glossary. |
 | Agents building apps with ViteHub | Read product docs for server primitives, Agents, package references, examples, and AI resource indexes. |
-| Agents embedded in ViteHub apps | Read application-provided Agent Instructions, Source Instructions, and Capability-owned guidance. |
+| Agents embedded in ViteHub apps | Read application-provided Agent Instructions with explicit coverage for Sources, Capabilities, and Skills. |
 
 ## Use with Agent Definitions
 
@@ -47,8 +47,7 @@ export default defineAgent({
     model,
     instructions: [
       'Answer from connected Workspace Sources first.',
-      '{{ workspace.sources }}',
-      '{{ capabilities }}',
+      'Use configured Sources, Capabilities, and Skills only for the roles named in these instructions.',
     ].join('\n\n'),
   },
 })

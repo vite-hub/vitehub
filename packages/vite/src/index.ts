@@ -43,6 +43,7 @@ const facadeAliases: Record<string, string> = {
   "@vite-hub/agent/mcp/stdio": "@vite-hub/vite/agent/mcp/stdio",
   "@vite-hub/agent/runtime/workflow": "@vite-hub/vite/agent/runtime/workflow",
   "@vite-hub/agent/server": "@vite-hub/vite/agent/server",
+  "@vite-hub/agent/server/internal": "@vite-hub/vite/agent/server/internal",
   "@vite-hub/agent/server/workspace": "@vite-hub/vite/agent/server/workspace",
   "@vite-hub/agent/state/sqlite": "@vite-hub/vite/agent/state/sqlite",
   "@vite-hub/blob": "@vite-hub/vite/blob",

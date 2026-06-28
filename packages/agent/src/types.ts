@@ -569,12 +569,7 @@ export type AgentCapabilityWorkspaceContributionResolver<
 export type AgentCapabilityPhase = "configure" | "prepare" | "bind" | "input" | "resolve" | "output" | "close"
 export type AgentCapabilityHookName = `capability:${AgentCapabilityPhase}` | `capability:${AgentCapabilityPhase}:after`
 
-export interface AgentInstructionBlock {
-  id: string
-  instructions: string
-}
-
-export type AgentDriverContributionKind = "Capability instructions" | "Capability tools" | "provider tools"
+export type AgentDriverContributionKind = "Capability tools" | "provider tools"
 
 export interface AgentDriverContribution {
   capabilityId: string
@@ -615,9 +610,6 @@ export interface AgentCapabilityRuntimeContext<
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentCapabilityContext<TRuntimeConfig, Name> {
   capability: AgentCapabilityDefinition<TRuntimeConfig, Name>
-  instructions: {
-    add: (instructions: AgentAdapterInstructionsValue | false | undefined, options?: { id?: string }) => void
-  }
   input: {
     get: () => AgentRunInput
     messages: () => Message[]
@@ -677,10 +669,6 @@ export interface AgentCapabilityDefinition<
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
   id: string
   input?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<Response | void>
-  instructions?:
-    | AgentAdapterInstructions<TRuntimeConfig, Name>
-    | false
-    | ((context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<AgentAdapterInstructionsValue | false | undefined>)
   harnessWorkspacePaths?: readonly string[]
   metadata?: Record<string, unknown>
   mode?: AgentCapabilityMode
@@ -1268,6 +1256,15 @@ export interface AgentDevtoolsMetadata {
   name?: string
   tools?: AgentDevtoolsToolDefinition[]
   version?: string
+  warnings?: AgentDevtoolsWarning[]
+}
+
+export interface AgentDevtoolsWarning {
+  id: string
+  kind: "instruction-coverage"
+  message: string
+  primitive: "capability" | "skill" | "source"
+  severity: "warning"
 }
 
 export interface AgentAdapterResult {
@@ -1344,7 +1341,6 @@ export interface AgentAdapterRunContext<
   Name extends WorkspaceName = WorkspaceName,
 > {
   actor: AgentActor
-  capabilityInstructions?: AgentInstructionBlock[]
   close?: () => Promise<void>
   context: AgentInvocationContextStore
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
@@ -1360,7 +1356,6 @@ export interface AgentAdapterRunContext<
   prompt?: string
   providerTools?: AgentProviderToolContribution[]
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
-  sourceInstructions?: string
   tools?: AgentToolSet
   workspace?: ReadonlyWorkspaceFacade<Name>
   workspaceDefinition?: WorkspaceDefinition

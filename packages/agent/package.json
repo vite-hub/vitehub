@@ -97,6 +97,10 @@
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js"
     },
+    "./server/internal": {
+      "types": "./dist/server/internal.d.ts",
+      "import": "./dist/server/internal.js"
+    },
     "./server/workspace": {
       "types": "./dist/server/workspace.d.ts",
       "import": "./dist/server/workspace.js"

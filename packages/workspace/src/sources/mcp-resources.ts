@@ -6,24 +6,25 @@ import { markLiveWorkspaceSource } from "./live.ts"
 import type { WorkspaceSource } from "../core/types.ts"
 import type { McpResourcesSourceOptions as SourcePackageMcpResourcesSourceOptions } from "@vite-hub/source"
 
-type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "instructions" | "materialize" | "mount" | "scopes" | "sync" | "validate">
+type SourceRuntimeOptions = Pick<WorkspaceSource, "cache" | "materialize" | "mount" | "scopes" | "sync" | "validate">
 type SourceScopes<T> = T extends { scopes?: infer TScopes } ? { scopes?: TScopes } : {}
 type TypedWorkspaceSource<T> = WorkspaceSource & SourceScopes<T>
+type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
 
 export interface McpResourcesSourceOptions<TKey extends string = string>
   extends Omit<SourcePackageMcpResourcesSourceOptions<TKey>, "cache">, SourceRuntimeOptions {}
 
-export function mcpResources<const TKey extends string = string, const TOptions extends McpResourcesSourceOptions<TKey> = McpResourcesSourceOptions<TKey>>(options: TOptions): TypedWorkspaceSource<TOptions> {
+export function mcpResources<const TKey extends string = string, const TOptions extends McpResourcesSourceOptions<TKey> = McpResourcesSourceOptions<TKey>>(options: ExactOptions<TOptions, McpResourcesSourceOptions<TKey>>): TypedWorkspaceSource<TOptions> {
   const livePaths: Record<string, string> = {}
   const baseSource = createMcpResourcesSource({
     ...options,
     cache: options.cache,
   })
+  delete (baseSource as typeof baseSource & { instructions?: unknown }).instructions
 
   return markLiveWorkspaceSource({
     ...baseSource,
     cache: options.cache,
-    instructions: options.instructions,
     materialize: options.materialize || (options.sync ? "none" : "lazy"),
     mount: options.mount,
     scopes: options.scopes,

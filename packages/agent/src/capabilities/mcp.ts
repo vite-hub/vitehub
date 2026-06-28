@@ -114,13 +114,6 @@ export function mcp<
         }
       }
       context.tools.add(tools)
-      if (options.instructions !== false) {
-        const serverNames = Object.keys(options.servers)
-        context.instructions.add(options.instructions || [
-          `MCP tools are available from: ${serverNames.length ? serverNames.join(", ") : "none"}.`,
-          "Use them when they fit the request.",
-        ].join("\n"))
-      }
     },
     async close(context) {
       const clients = clientsByContext.get(context) || []

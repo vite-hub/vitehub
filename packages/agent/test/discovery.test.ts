@@ -413,8 +413,8 @@ describe("agent chat capability discovery", () => {
                 : { role: "viewer", scope: "customer" }
             },
             scopes: {
-              customer: { instructions: "Audience resolved for customer.", paths: ["customers/acme"] },
-              support: { all: true, instructions: "Audience resolved for technical." },
+              customer: { paths: ["customers/acme"] },
+              support: { all: true },
             },
           },
         }),
@@ -424,7 +424,7 @@ describe("agent chat capability discovery", () => {
         run: (context: { invoker: { kind?: string, meta?: Record<string, unknown> }, workspace?: unknown }) => {
           const email = typeof context.invoker.meta?.email === "string" ? `:${context.invoker.meta.email}` : ""
           return `answered as ${context.invoker.kind}${email} with ${context.workspace ? "workspace" : "no workspace"}`
-        }
+        },
       },
       workspace: {},
     }), { workspace: "support" })
@@ -437,7 +437,7 @@ describe("agent chat capability discovery", () => {
     const state = await waitForMetadataState(handlers[0]!, { action: "get-state", invokerProfileId: "support-technical" })
     expect(state).toMatchObject({
       chats: [{ name: "support", uiMessages: [] }],
-      instructions: ["Audience resolved for technical."],
+      instructions: [],
       metadataStatus: "ready",
       invokerProfileId: "support-technical",
       invokerProfiles: [
@@ -474,7 +474,7 @@ describe("agent chat capability discovery", () => {
     })
     const clearedTechnicalState = JSON.parse(clearedTechnicalResponse.body)
     expect(clearedTechnicalState).toMatchObject({
-      instructions: ["Audience resolved for technical."],
+      instructions: [],
       invokerProfileId: "support-technical",
       selected: "support",
       uiMessages: [],
@@ -501,7 +501,7 @@ describe("agent chat capability discovery", () => {
       meta: devtoolsMeta,
     })
     expect(resolvedFallbackState).toMatchObject({
-      instructions: ["Audience resolved for technical."],
+      instructions: [],
       invokerFallback: true,
       metadataStatus: "ready",
       selected: "support",

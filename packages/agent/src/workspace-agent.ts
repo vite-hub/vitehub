@@ -1,7 +1,5 @@
 import {
-  applyCapabilityInstructionSlots,
   capabilityWorkspaceSources,
-  capabilityInstructionBlockId,
   normalizeCapabilities,
   normalizeMode,
   resolveAgentCapabilities,
@@ -12,6 +10,7 @@ import {
   resolveAgentInvoker,
 } from "./invoker.ts"
 import {
+  createInstructionCoverage,
   composeInstructionDocument,
   composeStaticInstructionDocument,
   resolveInstructionImports,
@@ -34,12 +33,12 @@ import type {
   AgentDevtoolsModelExecutionMetadata,
   AgentDevtoolsModelMetadata,
   AgentDevtoolsToolDefinition,
+  AgentDevtoolsWarning,
   AgentDriverKind,
   AgentInvocationContextStore,
   AgentInvocationContextValues,
   AgentInvokerProfile,
   AgentInput,
-  AgentInstructionBlock,
   AgentModelInput,
   AgentRunInput,
   AgentRuntimeConfig,
@@ -52,7 +51,6 @@ import type {
 import type { AgentWorkspaceSourceMetadata } from "./workspace-source-metadata.ts"
 import type {
   ReadonlyWorkspaceFacade,
-  SourceContext,
   WorkspaceEntry,
   WorkspaceDefinition,
   WorkspaceMaterializeSourcesOptions,
@@ -246,6 +244,7 @@ function withCapabilityWorkspaceSources(
   workspace: NormalizedWorkspaceOptions,
   capabilities: AgentCapabilityDefinition[] | undefined,
 ): NormalizedWorkspaceOptions {
+  assertNoLegacyWorkspaceSourceInstructions(workspace.sources)
   const contributed = capabilityWorkspaceSources(capabilities)
   if (!contributed) return workspace
   const sources = { ...workspace.sources }
@@ -255,9 +254,18 @@ function withCapabilityWorkspaceSources(
     }
     sources[key] = source
   }
+  assertNoLegacyWorkspaceSourceInstructions(sources)
   return {
     ...workspace,
     sources,
+  }
+}
+
+function assertNoLegacyWorkspaceSourceInstructions(sources: WorkspaceDefinition["sources"] | undefined): void {
+  for (const [key, source] of Object.entries(sources || {})) {
+    if (source && typeof source === "object" && "instructions" in source) {
+      throw new TypeError(`[vitehub] Workspace source "${key}" instructions were removed. Put model-facing guidance in Agent Driver Instructions with ::source coverage.`)
+    }
   }
 }
 
@@ -666,8 +674,9 @@ async function composeInstructions(
   content: string,
   context?: AgentInvocationContextStore,
   workspace?: Record<string, unknown>,
+  coverage?: ReturnType<typeof createInstructionCoverage>,
 ): Promise<string> {
-  return await composeInstructionDocument(content, { context: context?.toJSON(), workspace })
+  return await composeInstructionDocument(content, { context: context?.toJSON(), coverage, workspace })
 }
 
 export async function resolveWorkspaceInstructionBindings(
@@ -679,7 +688,7 @@ export async function resolveWorkspaceInstructionBindings(
   const resolved: Record<string, unknown> = {}
   for (const [key, binding] of Object.entries(bindings)) {
     if (key === "sources") {
-      throw new Error("[vitehub] Workspace instruction binding \"sources\" is reserved for Source Instructions.")
+      throw new Error("[vitehub] Workspace instruction binding \"sources\" is reserved. Cover Sources with ::source blocks in Agent Driver Instructions.")
     }
     if (!/^[A-Za-z_$][\w$-]*(?:\.[A-Za-z_$][\w$-]*)*$/.test(key)) {
       throw new TypeError(`[vitehub] Workspace instruction binding "${key}" must be addressable as workspace.${key}.`)
@@ -876,36 +885,6 @@ async function resolveWorkspaceMetadataTools<
   })
 }
 
-function staticCapabilityInstructionBlocks<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  Name extends WorkspaceName,
->(
-  options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
-): AgentInstructionBlock[] {
-  return normalizeCapabilities(options.capabilities)
-    .flatMap((capability) => {
-      if (capability.instructions === undefined || capability.instructions === false) return []
-      const parts = Array.isArray(capability.instructions) ? capability.instructions : [capability.instructions]
-      const instructions = parts
-        .flatMap(part => Array.isArray(part) ? part : [part])
-        .map(part => typeof part === "string" ? part.trim() : "")
-        .filter(Boolean)
-        .join("\n\n")
-      return instructions
-        ? [{ id: capabilityInstructionBlockId(capability.id), instructions }]
-        : []
-    })
-}
-
-const capabilityInstructionSlotPattern = /\{\{\s*capabilities(?:\.[a-zA-Z][\w.-]*)?\s*\}\}/g
-
-function applyPassiveCapabilityInstructionSlots(instructions: string, blocks: AgentInstructionBlock[] = []): string {
-  const rendered = blocks.length
-    ? applyCapabilityInstructionSlots(instructions, blocks)
-    : instructions
-  return rendered.replace(capabilityInstructionSlotPattern, "").trim().replace(/\n{3,}/g, "\n\n")
-}
-
 function workspaceMetadataInstructions<
   TRuntimeConfig extends AgentRuntimeConfig,
   Name extends WorkspaceName,
@@ -927,14 +906,7 @@ function workspaceMetadataInstructions<
     return []
   })
   if (defaultInstructions) instructions.unshift(defaultInstructions)
-  const renderedInstructions = applyWorkspaceSourceInstructionsToParts(
-    [applyPassiveCapabilityInstructionSlots(
-      instructions.join("\n\n"),
-      staticCapabilityInstructionBlocks(options),
-    )],
-    renderWorkspaceSourceInstructionBlock(workspaceDefinitionFromOptions(options).sources),
-  )
-  const composed = composeStaticInstructionDocument(renderedInstructions.join("\n\n"))
+  const composed = composeStaticInstructionDocument(instructions.join("\n\n"))
   return composed ? [composed] : []
 }
 
@@ -1014,10 +986,9 @@ async function resolveWorkspaceMetadataInstructions<
   options: WorkspaceAgentOptions<TRuntimeConfig, Name>,
   workspace: ReadonlyWorkspaceFacade<Name>,
   resolution: AgentDevtoolsMetadataResolutionOptions<TRuntimeConfig, Name> = {},
-  capabilityBlocks: AgentInstructionBlock[] = staticCapabilityInstructionBlocks(options),
   sourceDefinition: WorkspaceDefinition = workspaceDefinitionWithNameFromOptions(options, resolution),
   compositionContext?: AgentInvocationContextStore,
-) {
+): Promise<{ instructions: string[], warnings: AgentDevtoolsWarning[] }> {
   const instructionContext = {
     fs: workspace.fs,
     workspace,
@@ -1035,164 +1006,88 @@ async function resolveWorkspaceMetadataInstructions<
     .map(part => part?.trim())
     .filter((part): part is string => Boolean(part))
   if (defaultInstructions) baseInstructions.unshift(defaultInstructions)
-  const renderedInstructions = applyWorkspaceSourceInstructionsToParts(
-    [applyPassiveCapabilityInstructionSlots(baseInstructions.join("\n\n"), capabilityBlocks)],
-    await resolveWorkspaceSourceInstructionBlock(sourceDefinition, workspace),
-  )
   const workspaceBindings = await resolveWorkspaceInstructionBindings(sourceDefinition, workspace)
-  const composed = await composeInstructions(renderedInstructions.join("\n\n"), compositionContext, workspaceBindings)
-  return composed ? [composed] : []
-}
-
-function sourceInstructionsText(value: AgentWorkspaceSourceMetadata["instructions"]): string | undefined {
-  const instructions = (Array.isArray(value) ? value : [value])
-    .map(part => part?.trim())
-    .filter(Boolean)
-    .join("\n\n")
-  return instructions || undefined
-}
-
-function renderWorkspaceSourceInstructionBlock(sources: WorkspaceDefinition["sources"] | undefined, visible?: Set<string>): string | undefined {
-  const entries = normalizeAgentWorkspaceSources(sources)
-    .filter(source => !visible || visible.has(source.key))
-    .map(source => ({ instructions: sourceInstructionsText(source.instructions), key: source.key }))
-    .filter((entry): entry is { instructions: string, key: string } => Boolean(entry.instructions))
-    .sort((left, right) => left.key.localeCompare(right.key))
-
-  if (!entries.length) return undefined
-
-  return [
-    "## Workspace Sources",
-    ...entries.map(entry => `### ${entry.key}\n\n${entry.instructions}`),
-  ].join("\n\n")
-}
-
-async function visibleWorkspaceSourceNames(
-  sources: WorkspaceDefinition["sources"],
-  workspace: ReadonlyWorkspaceFacade,
-  definition?: WorkspaceDefinition,
-): Promise<Set<string>> {
-  const visible = new Set<string>()
-  await Promise.all(normalizeAgentWorkspaceSources(sources).map(async (source) => {
-    try {
-      const paths = await sourceVisibilityProbePaths(source, definition)
-      for (const path of paths) {
-        if (await workspace.fs.exists(path)) {
-          visible.add(source.key)
-          break
-        }
-      }
-    }
-    catch {}
-  }))
-  return visible
-}
-
-async function sourceVisibilityProbePaths(
-  source: AgentWorkspaceSourceMetadata,
-  definition?: WorkspaceDefinition,
-): Promise<string[]> {
-  const descriptorSource = source.source
-  let descriptorPath: string | undefined
-  let requestOnly = false
-  if (descriptorSource) {
-    const {
-      getWorkspaceSourceRequestDescriptor,
-      isWorkspaceSourceRequestOnly,
-      workspaceSourceRequestDescriptorPath,
-    } = await import("@vite-hub/workspace/runtime")
-    descriptorPath = getWorkspaceSourceRequestDescriptor(descriptorSource)
-      ? workspaceSourceRequestDescriptorPath(source.key)
-      : undefined
-    requestOnly = isWorkspaceSourceRequestOnly(descriptorSource)
-  }
-  if (descriptorPath && requestOnly) {
-    return [descriptorPath]
-  }
-  const mountPath = normalizeSourceInstructionPath(sourceMountPath(source))
-  const descriptorPaths = descriptorPath ? [descriptorPath] : []
-  if (mountPath === undefined) return descriptorPaths
-  if (mountPath) return [...descriptorPaths, mountPath]
-  if (source.probeKeys?.length) {
-    return [
-      ...descriptorPaths,
-      ...source.probeKeys
-      .map(sourcePath => joinSourceInstructionPath(mountPath, sourcePath))
-        .filter((path): path is string => Boolean(path)),
-    ]
-  }
-  if (!source.source) return descriptorPaths
-
-  const ctx = sourceInstructionContext(definition, source.key, mountPath)
-  try {
-    await source.source.prepare?.(ctx)
-    const keys = await source.source.getKeys(ctx)
-    return [
-      ...descriptorPaths,
-      ...(keys || [])
-      .map(sourcePath => joinSourceInstructionPath(mountPath, sourcePath))
-        .filter((path): path is string => Boolean(path)),
-    ]
-  }
-  catch {
-    return descriptorPaths
-  }
-}
-
-function sourceInstructionContext(definition: WorkspaceDefinition | undefined, key: string, mountPath: string): SourceContext {
-  const cwd = (globalThis.process as { cwd?: () => string } | undefined)?.cwd?.() || "."
+  const coverage = createInstructionCoverage()
+  const composed = await composeInstructions(baseInstructions.join("\n\n"), compositionContext, workspaceBindings, coverage)
   return {
-    mountPath,
-    rootDir: definition?.rootDir || cwd,
-    source: key,
-    sourceRootDir: definition?.sourceRootDir,
-    workspace: definition?.name || defaultWorkspaceName,
+    instructions: composed ? [composed] : [],
+    warnings: instructionCoverageWarnings(coverage, sourceDefinition, options.capabilities),
   }
 }
 
-function joinSourceInstructionPath(...parts: string[]): string | undefined {
-  return normalizeSourceInstructionPath(parts.filter(Boolean).join("/"))
-}
-
-function normalizeSourceInstructionPath(path = ""): string | undefined {
-  const raw = path.replace(/\\/g, "/")
-  const normalized = raw.replace(/^\/+/, "").replace(/\/+$/, "").replace(/\/+/g, "/")
-  const parts = normalized.split("/").filter(Boolean)
-  if (raw.startsWith("/") || parts.some(part => part === "." || part === "..")) return undefined
-  return normalized
-}
-
-export async function resolveWorkspaceSourceInstructionBlock(
+function instructionCoverageWarnings(
+  coverage: ReturnType<typeof createInstructionCoverage>,
   definition: WorkspaceDefinition | undefined,
-  workspace: ReadonlyWorkspaceFacade | undefined,
-): Promise<string | undefined> {
-  const sources = definition?.sources
-  if (!sources) return undefined
-  const visible = workspace ? await visibleWorkspaceSourceNames(sources, workspace, definition) : undefined
-  return renderWorkspaceSourceInstructionBlock(sources, visible)
+  capabilities: readonly AgentCapabilityDefinition[] | undefined,
+): AgentDevtoolsWarning[] {
+  return [
+    ...sourceCoverageWarnings(coverage, definition),
+    ...capabilityCoverageWarnings(coverage, capabilities),
+    ...skillCoverageWarnings(coverage, capabilities),
+  ]
 }
 
-const sourceInstructionSlotPattern = /\{\{\s*workspace\.sources\s*\}\}/g
-
-export function applyWorkspaceSourceInstructionSlot(instructions: string, sourceInstructions: string | undefined): string {
-  const sourceBlock = sourceInstructions?.trim()
-  let placed = false
-  const rendered = instructions.replace(sourceInstructionSlotPattern, () => {
-    placed = true
-    return sourceBlock || ""
-  })
-
-  if (placed) return rendered.trim().replace(/\n{3,}/g, "\n\n")
-  return sourceBlock
-    ? [instructions.trim(), sourceBlock].filter(Boolean).join("\n\n")
-    : instructions
+function warning(id: string, primitive: AgentDevtoolsWarning["primitive"], message: string): AgentDevtoolsWarning {
+  return { id, kind: "instruction-coverage", message, primitive, severity: "warning" }
 }
 
-function applyWorkspaceSourceInstructionsToParts(parts: string[], sourceInstructions: string | undefined): string[] {
-  const hasSourceSlot = parts.some(part => /\{\{\s*workspace\.sources\s*\}\}/.test(part))
-  if (!hasSourceSlot && !sourceInstructions?.trim()) return parts
-  const instructions = applyWorkspaceSourceInstructionSlot(parts.join("\n\n"), sourceInstructions)
-  return instructions ? [instructions] : []
+function sourceCoverageWarnings(
+  coverage: ReturnType<typeof createInstructionCoverage>,
+  definition: WorkspaceDefinition | undefined,
+): AgentDevtoolsWarning[] {
+  return normalizeAgentWorkspaceSources(definition?.sources)
+    .filter(source => source.key !== colocatedAgentInstructionsSourceKey)
+    .filter(source => !coverage.sources.has(source.key))
+    .map(source => warning(
+      `instruction-coverage:source:${source.key}`,
+      "source",
+      `Source "${source.key}" is configured but not covered by Agent Driver Instructions. Add ::source{key="${source.key}"} around the relevant instruction section.`,
+    ))
+}
+
+function capabilityCoverageKeys(id: string): string[] {
+  return [...new Set([id, id.replace(/-([a-z])/g, (_, value: string) => value.toUpperCase())])]
+}
+
+function capabilityCoverageWarnings(
+  coverage: ReturnType<typeof createInstructionCoverage>,
+  capabilities: readonly AgentCapabilityDefinition[] | undefined,
+): AgentDevtoolsWarning[] {
+  return normalizeCapabilities(capabilities as AgentCapabilityDefinition[] | undefined)
+    .filter(capability => capability.id !== "skills")
+    .filter(capability => !capabilityCoverageKeys(capability.id).some(key => coverage.capabilities.has(key)))
+    .map(capability => warning(
+      `instruction-coverage:capability:${capability.id}`,
+      "capability",
+      `Capability "${capability.id}" is configured but not covered by Agent Driver Instructions. Add ::capability{key="${capabilityCoverageKeys(capability.id).at(-1)}"} around the relevant instruction section.`,
+    ))
+}
+
+function skillCoveragePath(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return
+  return value.trim().replace(/\/+$/, "").replace(/\/SKILL\.md$/, "") || "."
+}
+
+function skillCoverageWarnings(
+  coverage: ReturnType<typeof createInstructionCoverage>,
+  capabilities: readonly AgentCapabilityDefinition[] | undefined,
+): AgentDevtoolsWarning[] {
+  return normalizeCapabilities(capabilities as AgentCapabilityDefinition[] | undefined)
+    .filter(capability => capability.id === "skills")
+    .flatMap((capability) => {
+      const metadata = capability.metadata || {}
+      const path = skillCoveragePath(metadata.path) || skillCoveragePath(metadata.skillPath)
+      if (!path) return []
+      const skillPath = skillCoveragePath(metadata.skillPath)
+      const covered = [path, skillPath].filter((value): value is string => Boolean(value)).some(value => coverage.skills.has(value) || coverage.skills.has(`${value}/SKILL.md`))
+      return covered
+        ? []
+        : [warning(
+            `instruction-coverage:skill:${path}`,
+            "skill",
+            `Skill "${path}" is configured but not covered by Agent Driver Instructions. Add ::skill{path="${path}"} around the relevant instruction section.`,
+          )]
+    })
 }
 
 function createDevtoolsSourceResolutionContext(input: AgentRunInput | undefined): WorkspaceSourceResolutionContextValueReader<object> {
@@ -1339,7 +1234,6 @@ async function resolveWorkspaceMetadataCapabilityContext<
   const metadataWorkspace = capabilities.workspace || workspace
 
   return {
-    capabilityInstructions: capabilities.capabilityInstructions,
     definition: capabilities.workspaceDefinition || sourceResolvedDefinition || workspaceDefinition,
     metadataContext: {
       ...agentCallbackContext(runtime),
@@ -1404,20 +1298,21 @@ export async function resolveAgentDevtoolsMetadata<
     workspaceDefinition as AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
     capabilityContext.metadataContext,
   )
+  const instructionMetadata = await resolveWorkspaceMetadataInstructions(
+    metadataOptions as never,
+    capabilityContext.workspace as never,
+    defaultsOverride,
+    capabilityContext.definition,
+    capabilityContext.metadataContext.context,
+  )
 
   return {
     files: await resolveWorkspaceMetadataFiles(metadataOptions as never, metadataWorkspace.defaults as never, capabilityContext.workspace as never),
-    instructions: await resolveWorkspaceMetadataInstructions(
-      metadataOptions as never,
-      capabilityContext.workspace as never,
-      defaultsOverride,
-      capabilityContext.capabilityInstructions,
-      capabilityContext.definition,
-      capabilityContext.metadataContext.context,
-    ),
+    instructions: instructionMetadata.instructions,
     ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
     ...(config ? { config } : {}),
     tools: await resolveWorkspaceMetadataTools(metadataWorkspace.options as never, capabilityContext.workspace as never),
+    ...(instructionMetadata.warnings.length ? { warnings: instructionMetadata.warnings } : {}),
   }
 }
 
@@ -1470,19 +1365,20 @@ export async function materializeAgentDevtoolsSourceMetadata<
     workspaceDefinition as AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
     capabilityContext.metadataContext,
   )
+  const instructionMetadata = await resolveWorkspaceMetadataInstructions(
+    metadataOptions as never,
+    capabilityContext.workspace as never,
+    options,
+    capabilityContext.definition,
+    capabilityContext.metadataContext.context,
+  )
 
   return {
     files: await resolveWorkspaceMetadataFiles(metadataOptions as never, metadataWorkspace.defaults as never, capabilityContext.workspace as never),
-    instructions: await resolveWorkspaceMetadataInstructions(
-      metadataOptions as never,
-      capabilityContext.workspace as never,
-      options,
-      capabilityContext.capabilityInstructions,
-      capabilityContext.definition,
-      capabilityContext.metadataContext.context,
-    ),
+    instructions: instructionMetadata.instructions,
     ...agentDevtoolsMetadata(workspaceDefinition as AgentDefinition<TRuntimeConfig>),
     ...(config ? { config } : {}),
     tools: await resolveWorkspaceMetadataTools(metadataWorkspace.options as never, capabilityContext.workspace as never),
+    ...(instructionMetadata.warnings.length ? { warnings: instructionMetadata.warnings } : {}),
   }
 }
