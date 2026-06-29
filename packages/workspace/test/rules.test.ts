@@ -4,6 +4,22 @@ import { resolveWorkspaceAutoCommit } from "../src/core/rules.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
 
 describe("workspace rules", () => {
+  it("creates an auto-commit plan from workspace commit", () => {
+    expect(resolveWorkspaceAutoCommit({
+      commit: "chore: update docs",
+      name: "docs",
+    }, {
+      entries: [
+        { after: { type: "file" }, path: "inbox/audio.ogg", type: "added" },
+        { after: { type: "file" }, path: "notes/today.md", type: "modified" },
+      ],
+      to: "next",
+    })).toEqual({
+      message: "chore: update docs",
+      paths: ["inbox/audio.ogg", "notes/today.md"],
+    })
+  })
+
   it("creates an auto-commit plan when every changed path matches a commit rule", () => {
     expect(resolveWorkspaceAutoCommit({
       name: "docs",

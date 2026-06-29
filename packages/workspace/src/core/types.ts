@@ -591,6 +591,7 @@ export type WorkspaceStoreOptions =
 
 export interface WorkspaceDefinition {
   name: string
+  commit?: boolean | string
   rootDir?: string
   sourceRootDir?: string
   runtime?: WorkspaceRuntime
