@@ -1,3 +1,5 @@
+import { posix } from "node:path";
+
 import { WorkspaceError } from "../../core/errors.ts";
 import {
   contentStreamToBytes,
@@ -43,6 +45,7 @@ import type {
 interface GitHubWorkspaceStoreFile {
   bytes?: Uint8Array;
   gitSha: string;
+  mode?: string;
   mediaType?: string;
   metadata?: Record<string, unknown>;
   path: string;
@@ -84,6 +87,15 @@ function parentDirectories(path: string): string[] {
   for (let index = 1; index < parts.length; index++)
     directories.push(parts.slice(0, index).join("/"));
   return directories;
+}
+
+function resolveSymlinkTarget(path: string, bytes: Uint8Array): string | undefined {
+  const target = new TextDecoder().decode(bytes).replace(/\0/g, "").trim();
+  if (!target || target.startsWith("/")) return;
+  const base = path.split("/").slice(0, -1).join("/");
+  const resolved = posix.normalize(base ? `${base}/${target}` : target);
+  if (!resolved || resolved === "." || resolved === ".." || resolved.startsWith("../")) return;
+  return normalizeSafeWorkspacePath(resolved);
 }
 
 class GitHubWorkspaceStore implements WorkspaceStore {
@@ -356,6 +368,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
 
   async #readWorkspaceFile(
     path: string,
+    seen = new Set<string>(),
   ): Promise<(WorkspaceFile & { bytes: Uint8Array }) | undefined> {
     const current = this.#files.get(path);
     if (!current) return undefined;
@@ -367,6 +380,21 @@ class GitHubWorkspaceStore implements WorkspaceStore {
         token: this.#token,
       });
       current.size = current.bytes.byteLength;
+    }
+    if (current.mode === "120000" && !seen.has(path)) {
+      const target = resolveSymlinkTarget(path, current.bytes);
+      if (target && this.#files.has(target)) {
+        seen.add(path);
+        const resolved = await this.#readWorkspaceFile(target, seen);
+        if (resolved) {
+          return {
+            ...resolved,
+            mediaType: current.mediaType ?? resolved.mediaType,
+            metadata: current.metadata ?? resolved.metadata,
+            path,
+          };
+        }
+      }
     }
     return {
       content: current.bytes,

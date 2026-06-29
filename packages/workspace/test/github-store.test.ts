@@ -297,6 +297,35 @@ describe("GitHub workspace store", () => {
     expect(requests.filter((request) => request.method !== "GET")).toEqual([]);
   });
 
+  it("reads GitHub symlink blobs from their in-workspace target", async () => {
+    seedRemote(".vitehub/workspaces/docs/AGENTS.md", "# Instructions\n");
+    const target = textBytes("AGENTS.md");
+    const sha = gitBlobSha(target);
+    blobs.set(sha, target);
+    remoteTree.push({
+      mode: "120000",
+      path: ".vitehub/workspaces/docs/CLAUDE.md",
+      sha,
+      size: target.byteLength,
+      type: "blob",
+    });
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await expect(store.readFile("CLAUDE.md")).resolves.toMatchObject({
+      content: textBytes("# Instructions\n"),
+      path: "CLAUDE.md",
+    });
+  });
+
   it("diffs a fresh loaded store from the remote baseline", async () => {
     seedRemote(".vitehub/workspaces/docs/README.md", "# Docs\n");
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
