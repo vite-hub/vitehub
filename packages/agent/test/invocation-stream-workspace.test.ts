@@ -568,11 +568,9 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     expect(harnessCreateSessionOptions[0]?.timeout).toBe(100)
     expect(harnessStreamInputs[0]?.abortSignal).toBeInstanceOf(AbortSignal)
     expect(harnessStreamInputs[0]?.timeout).toBe(100)
-    await waitFor(() => {
-      expect(workspaceClose).toHaveBeenCalledOnce()
-      expect(harnessSessionDestroy).toHaveBeenCalledOnce()
-      expect(finishHook).toHaveBeenCalledOnce()
-    })
+    expect(workspaceClose).toHaveBeenCalledOnce()
+    expect(harnessSessionDestroy).toHaveBeenCalledOnce()
+    expect(finishHook).toHaveBeenCalledOnce()
     expect(workspaceCloseErrors[0]).toBeInstanceOf(Error)
     expect(finishEvents[0]).toEqual(expect.objectContaining({
       error: expect.any(Error),
