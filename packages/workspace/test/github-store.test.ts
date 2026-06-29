@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env";
 
 const requests: Array<{ body?: unknown; headers: Headers; method: string; path: string }> = [];
 let refSha = "base-sha";
@@ -112,6 +113,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.WORKSPACE_GITHUB_TOKEN;
+  clearActiveCloudflareEnv();
 });
 
 describe("GitHub workspace store", () => {
@@ -126,6 +128,27 @@ describe("GitHub workspace store", () => {
           repository: "onmax/repo",
           root: ".vitehub/workspaces/<workspace>",
           token: maskedToken,
+        },
+        "docs",
+      );
+
+      await expect(store.list("", { recursive: true })).resolves.toEqual([]);
+
+      expect(requests[0]?.headers.get("authorization")).toBe("Bearer env-token");
+    },
+  );
+
+  it.each(["********", "<redacted>", "[redacted]"])(
+    "falls back to env credentials for masked active binding %s",
+    async (maskedToken) => {
+      process.env.WORKSPACE_GITHUB_TOKEN = "env-token";
+      setActiveCloudflareEnv({ GITHUB_TOKEN: maskedToken });
+      const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+      const store = createGitHubWorkspaceStore(
+        {
+          provider: "github",
+          repository: "onmax/repo",
+          root: ".vitehub/workspaces/<workspace>",
         },
         "docs",
       );

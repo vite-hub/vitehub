@@ -187,8 +187,9 @@ export function resolveGitHubTokenOption(
 ): string | undefined {
   const token = resolveGitHubOption(options.token);
   if (token && !isMaskedGitHubTokenOption(token)) return token;
+  const bindingToken = getActiveCloudflareBinding<string>("GITHUB_TOKEN");
+  if (bindingToken && !isMaskedGitHubTokenOption(bindingToken)) return bindingToken;
   return (
-    getActiveCloudflareBinding<string>("GITHUB_TOKEN") ||
     processEnv(env, "WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN")
   );
 }
