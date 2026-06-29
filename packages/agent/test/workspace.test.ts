@@ -778,6 +778,20 @@ describe("defineAgent workspace option", () => {
     })).toThrow("[vitehub] defineWorkspace does not support option: stroe.")
   })
 
+  it("accepts colocated Workspace auto-commit", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = defineAgent({
+      driver: { model: {} as never },
+      workspace: {
+        commit: "chore: update workspace",
+        store: { provider: "memory" },
+      },
+    })
+
+    expect(agent.commit).toBe("chore: update workspace")
+  })
+
   it("prepares Harness Workspace Sessions for workspace-backed harness Agent Drivers", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const harnessSession = { destroy: vi.fn() }
