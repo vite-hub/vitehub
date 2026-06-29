@@ -4862,6 +4862,17 @@ describe("agent message protocol", () => {
                   type: "tool-input-error",
                 } as never)
                 writer.write({
+                  errorText: "Invalid input.",
+                  input: { argv: ["list"], extra: true, json: "true" },
+                  toolCallId: "cli-invalid",
+                  toolMetadata: {
+                    cli: "portal-api",
+                    vitehubCapabilityCli: true,
+                  },
+                  toolName: "portal-api",
+                  type: "tool-input-error",
+                } as never)
+                writer.write({
                   output: {
                     command: "portal-api purchase-orders --json",
                     exitCode: 0,
@@ -4890,12 +4901,21 @@ describe("agent message protocol", () => {
       toolCallId: "cli-1",
       type: "tool-input-error",
     }))
+    expect(chunks).toContainEqual(expect.objectContaining({
+      input: { argv: ["list"], extra: true, json: "true" },
+      toolCallId: "cli-invalid",
+      type: "tool-input-error",
+    }))
     expect(traceLog.entries()).toContainEqual(expect.objectContaining({
       attributes: expect.objectContaining({
         "tool.hasInput": true,
         "tool.id": "cli-1",
         "tool.name": "portal-api",
       }),
+      name: "agent.tool.start",
+    }))
+    expect(traceLog.entries()).not.toContainEqual(expect.objectContaining({
+      attributes: expect.objectContaining({ "tool.id": "cli-invalid" }),
       name: "agent.tool.start",
     }))
   })

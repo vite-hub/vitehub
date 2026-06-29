@@ -158,10 +158,14 @@ function uiMessageTextDelta(event: unknown): string | undefined {
   return typeof text === "string" ? text : undefined
 }
 
-function isCapabilityCliInput(input: unknown): input is { argv: string[] } {
-  if (typeof input !== "object" || input === null) return false
-  const argv = (input as { argv?: unknown }).argv
-  return Array.isArray(argv) && argv.every(arg => typeof arg === "string")
+function isCapabilityCliInput(input: unknown): input is { argv: string[], input?: unknown, json?: boolean } {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return false
+  const record = input as Record<string, unknown>
+  const argv = record.argv
+  return Object.keys(record).every(key => key === "argv" || key === "input" || key === "json")
+    && Array.isArray(argv)
+    && argv.every(arg => typeof arg === "string")
+    && (record.json === undefined || typeof record.json === "boolean")
 }
 
 function normalizeUiMessageStreamChunk(chunk: unknown): unknown {
