@@ -1,3 +1,4 @@
+import { gunzipSync } from "node:zlib"
 import { describe, expect, it, vi } from "vitest"
 
 import { prepareHarnessWorkspaceSession } from "../src/session/harness.ts"
@@ -51,6 +52,21 @@ function expectWorkDirReset(run: ReturnType<typeof vi.fn>, writeBinaryFile: Retu
   })
 }
 
+function archiveEntry(writeBinaryFile: ReturnType<typeof vi.fn>, path: string) {
+  const archive = writeBinaryFile.mock.calls.find(([input]) => input.path.endsWith(".vitehub-workspace.tar.gz"))?.[0].content
+  if (!archive) throw new Error("missing archive write")
+  const tar = gunzipSync(Buffer.from(archive))
+  for (let offset = 0; offset < tar.byteLength; offset += 512) {
+    const name = tar.subarray(offset, offset + 100).toString().replace(/\0.*$/, "")
+    if (!name) break
+    const sizeText = tar.subarray(offset + 124, offset + 136).toString().replace(/\0.*$/, "").trim()
+    const size = Number.parseInt(sizeText || "0", 8)
+    if (name === path) return tar.subarray(offset, offset + 512)
+    offset += Math.ceil(size / 512) * 512
+  }
+  throw new Error(`missing archive entry: ${path}`)
+}
+
 describe("Harness Workspace Session", () => {
   it("resets and materializes selected Workspace files into the harness sandbox", async () => {
     const readme = bytes("# Docs\n")
@@ -75,6 +91,30 @@ describe("Harness Workspace Session", () => {
     expect(readFile).toHaveBeenCalledWith("README.md", { encoding: "binary" })
     expectArchiveWrite(writeBinaryFile)
     expectArchiveExtract(run)
+
+    await session.close()
+  })
+
+  it("preserves GitHub symlinks in the harness archive", async () => {
+    const list = vi.fn(async () => [
+      { path: "AGENTS.md", type: "file" },
+      { metadata: { gitMode: "120000" }, path: "CLAUDE.md", type: "file" },
+    ])
+    const readFile = vi.fn(async (path: string) => path === "CLAUDE.md" ? bytes("AGENTS.md") : bytes("# Agents\n"))
+    const run = sandboxRun(["AGENTS.md", "CLAUDE.md"])
+    const writeBinaryFile = vi.fn(async () => {})
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: { list, readFile },
+      tools: {},
+    } as never, {
+      session: { readBinaryFile: vi.fn(async () => null), run, writeBinaryFile },
+      sessionWorkDir: "/work/agent",
+    })
+
+    const header = archiveEntry(writeBinaryFile, "CLAUDE.md")
+    expect(String.fromCharCode(header[156]!)).toBe("2")
+    expect(header.subarray(157, 257).toString().replace(/\0.*$/, "")).toBe("AGENTS.md")
 
     await session.close()
   })
@@ -410,7 +450,7 @@ describe("Harness Workspace Session", () => {
     expect(startSession).toHaveBeenCalledOnce()
     expect(run).toHaveBeenCalledWith({
       abortSignal: undefined,
-      command: "find . -type f -print",
+      command: "find . \\( -type f -o -type l \\) -print",
       workingDirectory: "/work/agent",
     })
     expect(workspaceSession.writeFile).toHaveBeenCalledWith("README.md", updated, { mediaType: "text/markdown" })

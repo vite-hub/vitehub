@@ -235,6 +235,7 @@ export interface WorkspaceEntry {
   size?: number
   mtime?: number
   mediaType?: string
+  metadata?: Record<string, unknown>
   digest?: string
 }
 

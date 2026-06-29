@@ -34,7 +34,7 @@ export interface PrepareHarnessWorkspaceSessionOptions {
 }
 
 type WorkspaceFacade = ReadonlyWorkspaceFacade | WritableWorkspaceFacade
-type InitialFile = { content: Uint8Array, mediaType?: string }
+type InitialFile = { content: Uint8Array, mediaType?: string, symlinkTarget?: string }
 type InitialTree = {
   archiveDirectories: Set<string>
   directories: Set<string>
@@ -226,9 +226,11 @@ function writeTarOctal(header: Buffer, offset: number, length: number, value: nu
   header[offset + length - 1] = 0
 }
 
-function tarHeader(path: string, options: { mode: number, size: number, type: "directory" | "file" }) {
+function tarHeader(path: string, options: { linkName?: string, mode: number, size: number, type: "directory" | "file" | "symlink" }) {
   const header = Buffer.alloc(tarBlockSize)
   const { name, prefix } = splitTarPath(path)
+  if (options.linkName && Buffer.byteLength(options.linkName) > 100)
+    throw new Error(`[vitehub] Harness Workspace Session symlink target is too long for tar transfer: ${path}`)
   writeTarString(header, 0, 100, name)
   writeTarOctal(header, 100, 8, options.mode)
   writeTarOctal(header, 108, 8, 0)
@@ -236,7 +238,8 @@ function tarHeader(path: string, options: { mode: number, size: number, type: "d
   writeTarOctal(header, 124, 12, options.size)
   writeTarOctal(header, 136, 12, 0)
   header.fill(0x20, 148, 156)
-  header[156] = options.type === "directory" ? 0x35 : 0x30
+  header[156] = options.type === "directory" ? 0x35 : options.type === "symlink" ? 0x32 : 0x30
+  if (options.linkName) writeTarString(header, 157, 100, options.linkName)
   writeTarString(header, 257, 6, "ustar")
   writeTarString(header, 263, 2, "00")
   if (prefix) writeTarString(header, 345, 155, prefix)
@@ -255,11 +258,19 @@ function createWorkspaceTarGz(directories: Iterable<string>, files: Map<string, 
     blocks.push(tarHeader(path, { mode: 0o755, size: 0, type: "directory" }))
   }
   for (const [path, file] of [...files.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+    if (file.symlinkTarget) {
+      blocks.push(tarHeader(path, { linkName: file.symlinkTarget, mode: 0o777, size: 0, type: "symlink" }))
+      continue
+    }
     blocks.push(tarHeader(path, { mode: 0o644, size: file.content.byteLength, type: "file" }))
     blocks.push(paddedTarContent(file.content))
   }
   blocks.push(Buffer.alloc(tarBlockSize * 2))
   return gzipSync(Buffer.concat(blocks))
+}
+
+function gitSymlinkTarget(entry: WorkspaceEntry, content: Uint8Array): string | undefined {
+  return entry.metadata?.gitMode === "120000" ? new TextDecoder().decode(content) : undefined
 }
 
 async function extractWorkspaceArchive(
@@ -289,9 +300,10 @@ async function listSandboxPaths(
   type: "d" | "f",
   abortSignal: AbortSignal | undefined,
 ) {
+  const predicate = type === "f" ? "\\( -type f -o -type l \\)" : `-type ${type}`
   const result = await runSandbox(sandbox, {
     abortSignal,
-    command: `find . -type ${type} -print`,
+    command: `find . ${predicate} -print`,
     workingDirectory: sessionWorkDir,
   })
   return new Set(pathsFromFindOutput(result.stdout))
@@ -316,7 +328,8 @@ async function copyWorkspaceToSandbox(
   for (const entry of files) addParentDirectories(directoriesToCreate, entry.path)
   await forEachConcurrent(files, workspaceReadConcurrency, async (entry) => {
     const content = await workspace.fs.readFile(entry.path, { encoding: "binary" })
-    initialTree.files.set(entry.path, { content: contentToBytes(content), mediaType: entry.mediaType })
+    const bytes = contentToBytes(content)
+    initialTree.files.set(entry.path, { content: bytes, mediaType: entry.mediaType, symlinkTarget: gitSymlinkTarget(entry, bytes) })
   })
   await resetSandboxWorkDir(sandbox, sessionWorkDir, abortSignal)
   await extractWorkspaceArchive(sandbox, sessionWorkDir, initialTree, directoriesToCreate, abortSignal)
@@ -355,6 +368,7 @@ async function copySandboxChangesToWorkspace(
       path: sandboxPath(sessionWorkDir, path),
     })
     const initial = initialTree.files.get(path)
+    if (initial?.symlinkTarget) continue
     if (!content || bytesEqual(initial?.content, content)) continue
     await session.writeFile(path, content, {
       mediaType: initial?.mediaType || lookup(path) || undefined,

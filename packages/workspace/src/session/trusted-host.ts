@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, posix, relative, sep } from "node:path"
 
@@ -88,11 +88,20 @@ async function listLocalEntries(root: string, path = "", recursive = false, opti
       if (recursive) entries.push(...await listLocalEntries(root, workspacePath, true, options))
       continue
     }
+    if (dirent.isSymbolicLink()) {
+      const item = await lstat(entryPath)
+      entries.push({ metadata: { gitMode: "120000" }, path: workspacePath, size: item.size, type: "file" })
+      continue
+    }
     if (!dirent.isFile()) continue
     const item = await stat(entryPath)
     entries.push({ path: workspacePath, size: item.size, type: "file" })
   }
   return entries.sort((left, right) => left.path.localeCompare(right.path))
+}
+
+function isGitSymlinkEntry(entry: WorkspaceEntry): boolean {
+  return entry.metadata?.gitMode === "120000"
 }
 
 async function readLocalFile(root: string, path: string, options: { allowGenerated?: boolean } = {}): Promise<WorkspaceFile | undefined> {
@@ -110,7 +119,9 @@ async function snapshotLocal(root: string, name?: string) {
   const entries = await listLocalEntries(root, "", true, { allowGenerated: true, skipUncommitted: true })
   const files = await Promise.all(entries.map(async (entry) => {
     if (entry.type !== "file") return entry
-    const content = await readFile(toLocalPath(root, entry.path))
+    const content = isGitSymlinkEntry(entry)
+      ? await readlink(toLocalPath(root, entry.path))
+      : await readFile(toLocalPath(root, entry.path))
     return {
       ...entry,
       digest: await sha256(content),
@@ -153,6 +164,10 @@ async function materializeWorkspace(workspace: Workspace, root: string, options?
     if (entry.type !== "file") continue
     const target = toLocalPath(root, entry.path, { allowGenerated: true })
     await mkdir(dirname(target), { recursive: true })
+    if (isGitSymlinkEntry(entry)) {
+      await symlink(await workspace.readFile(entry.path), target)
+      continue
+    }
     await writeFile(target, await workspace.readFile(entry.path, { encoding: "binary" }))
   }
   return await snapshotLocal(root, "local-open")

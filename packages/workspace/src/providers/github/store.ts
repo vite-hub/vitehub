@@ -60,6 +60,10 @@ function contentLength(content: string | Uint8Array): number {
     : content.byteLength;
 }
 
+function gitHubFileMetadata(entry: GitHubTreeEntry): Record<string, unknown> | undefined {
+  return entry.mode === "120000" ? { gitMode: entry.mode } : undefined;
+}
+
 function parentDirectories(path: string): string[] {
   const parts = normalizeWorkspacePath(path).split("/").filter(Boolean);
   const directories: string[] = [];
@@ -317,6 +321,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
           path,
           {
             gitSha: entry.sha!,
+            metadata: gitHubFileMetadata(entry),
             path,
             size: entry.size,
           },
@@ -377,6 +382,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     return {
       digest: file.gitSha,
       mediaType: file.mediaType,
+      metadata: file.metadata,
       path: file.path,
       size: file.size,
       type: "file",

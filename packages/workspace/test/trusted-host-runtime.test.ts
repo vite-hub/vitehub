@@ -226,6 +226,32 @@ describe("trusted host workspace runtime", () => {
     await session.close()
   })
 
+  it("materializes GitHub symlink metadata as local symlinks", async () => {
+    const workspace = {
+      name: "docs",
+      async list() {
+        return [
+          { path: "AGENTS.md", type: "file" as const },
+          { metadata: { gitMode: "120000" }, path: "CLAUDE.md", type: "file" as const },
+        ]
+      },
+      async readFile(path: string) {
+        if (path === "AGENTS.md") return "# Agents\n"
+        if (path === "CLAUDE.md") return "AGENTS.md"
+        throw new Error(`unexpected read: ${path}`)
+      },
+    } as unknown as Workspace
+
+    const session = await createTrustedHostWorkspaceSession({ name: "docs", runtime: "trusted-host" }, workspace)
+    const result = await session.exec(process.execPath, [
+      "-e",
+      "const fs = require('node:fs'); process.stdout.write(`${fs.lstatSync('CLAUDE.md').isSymbolicLink()}:${fs.readFileSync('CLAUDE.md', 'utf8')}`)",
+    ])
+
+    expect(result).toMatchObject({ exitCode: 0, stdout: "true:# Agents\n" })
+    await session.close()
+  })
+
   it("ignores git metadata when committing host session changes", async () => {
     const workspace = createWorkspace({
       ...defineWorkspace({

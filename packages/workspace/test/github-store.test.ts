@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const requests: Array<{ body?: unknown; headers: Headers; method: string; path: string }> = [];
 let refSha = "base-sha";
 let remoteTreeSha = "base-tree";
-let remoteTree: Array<{ path: string; sha: string; size?: number; type: "blob" }> = [];
+let remoteTree: Array<{ mode?: string; path: string; sha: string; size?: number; type: "blob" }> = [];
 let commitIndex = 0;
 let treeIndex = 0;
 const blobs = new Map<string, Uint8Array>();
@@ -21,11 +21,11 @@ function textSha(content: string): string {
   return gitBlobSha(textBytes(content));
 }
 
-function seedRemote(path: string, content: string) {
+function seedRemote(path: string, content: string, mode?: string) {
   const bytes = textBytes(content);
   const sha = gitBlobSha(bytes);
   blobs.set(sha, bytes);
-  remoteTree.push({ path, sha, size: bytes.byteLength, type: "blob" });
+  remoteTree.push({ mode, path, sha, size: bytes.byteLength, type: "blob" });
 }
 
 function jsonResponse(value: unknown) {
@@ -382,6 +382,31 @@ describe("GitHub workspace store", () => {
         path: `/repos/onmax/repo/git/blobs/${textSha("# Docs\n")}`,
       }),
     ]);
+  });
+
+  it("marks GitHub symlink blobs from the remote tree", async () => {
+    seedRemote(".vitehub/workspaces/docs/AGENTS.md", "# Agents\n");
+    seedRemote(".vitehub/workspaces/docs/CLAUDE.md", "AGENTS.md", "120000");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await expect(store.stat("CLAUDE.md")).resolves.toMatchObject({
+      metadata: { gitMode: "120000" },
+      path: "CLAUDE.md",
+      type: "file",
+    });
+    await expect(store.readFile("CLAUDE.md")).resolves.toMatchObject({
+      content: textBytes("AGENTS.md"),
+      metadata: { gitMode: "120000" },
+    });
   });
 
   it("fails dirty snapshots when the branch moved after load", async () => {
