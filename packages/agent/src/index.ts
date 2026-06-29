@@ -29,7 +29,7 @@ import {
 } from "./capability-runtime.ts"
 import type { AgentCapabilityRegistries, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
-import { finalizeUiMessageStreamOutput, isUIMessageStreamResult } from "./stream-output.ts"
+import { finalizeUiMessageStreamOutput, isUIMessageStreamResult, normalizeUiMessageStream } from "./stream-output.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -1587,7 +1587,7 @@ function maybeTraceUiMessageStreamResult<
     toUIMessageStream: {
       configurable: true,
       enumerable: false,
-      value: (...args: unknown[]) => traceUiMessageStream(toUIMessageStream.apply(rendered, args), context),
+      value: (...args: unknown[]) => traceUiMessageStream(normalizeUiMessageStream(toUIMessageStream.apply(rendered, args)), context),
     },
   })
 }

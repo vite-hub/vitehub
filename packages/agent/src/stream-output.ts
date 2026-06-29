@@ -177,7 +177,7 @@ function normalizeUiMessageStreamChunk(chunk: unknown): unknown {
   return { ...available, type: "tool-input-available" }
 }
 
-function normalizeUiMessageStream(stream: ReadableStream<unknown>): ReadableStream<unknown> {
+export function normalizeUiMessageStream(stream: ReadableStream<unknown>): ReadableStream<unknown> {
   return stream.pipeThrough(new TransformStream<unknown, unknown>({
     transform(chunk, controller) {
       controller.enqueue(normalizeUiMessageStreamChunk(chunk))

@@ -4843,6 +4843,7 @@ describe("agent message protocol", () => {
   it("normalizes valid capability CLI input errors in native UI message streams", async () => {
     const { createUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
     const agent = defineAgent({
       driver: { run: () => ({
           toUIMessageStream() {
@@ -4875,7 +4876,7 @@ describe("agent message protocol", () => {
         }) },
     })
 
-    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
     const chunks: unknown[] = []
     for await (const chunk of stream) chunks.push(chunk)
 
@@ -4888,6 +4889,14 @@ describe("agent message protocol", () => {
     expect(chunks).not.toContainEqual(expect.objectContaining({
       toolCallId: "cli-1",
       type: "tool-input-error",
+    }))
+    expect(traceLog.entries()).toContainEqual(expect.objectContaining({
+      attributes: expect.objectContaining({
+        "tool.hasInput": true,
+        "tool.id": "cli-1",
+        "tool.name": "portal-api",
+      }),
+      name: "agent.tool.start",
     }))
   })
 
