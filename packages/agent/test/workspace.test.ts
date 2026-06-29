@@ -1316,7 +1316,7 @@ describe("defineAgent workspace option", () => {
     })
   })
 
-  it("uses explicit harness paths instead of root materialization when access() selects all", async () => {
+  it("keeps all-scope Harness Workspace Sessions unrestricted when support paths exist", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { markTrustedWorkspaceAccessScope } = await import("../src/access-runtime.ts")
     const harnessWorkspaceSession = { close: vi.fn() }
@@ -1357,7 +1357,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
-      paths: ["AGENTS.md", "CLAUDE.md", "README.md"],
+      paths: [""],
       session: harnessSandboxSession,
       sessionWorkDir: "/workspace/codex-session",
     })
