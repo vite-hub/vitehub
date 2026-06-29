@@ -2824,6 +2824,104 @@ describe("server helpers", () => {
     })
   })
 
+  it("posts prepare-time channel delivery replies before the final chat answer", async () => {
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "prepare-reply",
+          prepare(context) {
+            context.delivery.effect({ kind: "reply", payload: { body: "Preparing assets." } })
+          },
+        }),
+      ],
+      channels: {
+        support: telegram({
+          adapter: () => adapter as never,
+        }),
+      },
+      driver: { run: () => "agent answer" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
+      body: JSON.stringify({
+        update_id: 1888,
+        message: {
+          chat: { id: 988, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1888,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "support")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:988", { markdown: "Preparing assets." })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:988", { markdown: "agent answer" })
+  })
+
+  it("posts finish channel delivery replies after input replacement and appends link artifacts", async () => {
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "finish-link-reply",
+          prepare(context) {
+            context.input.set({ prompt: "rewritten" })
+            context.delivery.finishEffect(() => ({
+              artifacts: [{
+                alt: "Result report",
+                path: "reports/result.md",
+                placement: "link",
+                url: "https://assets.example/reports/result.md",
+              }],
+              kind: "reply",
+              payload: { body: "See the report." },
+            }))
+          },
+        }),
+      ],
+      channels: {
+        support: telegram({
+          adapter: () => adapter as never,
+        }),
+      },
+      driver: { run: () => "agent answer" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
+      body: JSON.stringify({
+        update_id: 1887,
+        message: {
+          chat: { id: 987, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1887,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "support")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:987", { markdown: "agent answer" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:987", {
+      markdown: "See the report.\n\n[Result report](<https://assets.example/reports/result.md>)",
+    })
+  })
+
   it("maps channel delivery reply artifacts to Chat SDK attachments and files", async () => {
     const { defineAgent, defineCapability } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")

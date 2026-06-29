@@ -26,7 +26,7 @@ import type {
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
-import type { FileUpload } from "chat"
+import type { Adapter, FileUpload } from "chat"
 
 export { deliveryArtifactAttachments } from "./delivery-artifacts.ts"
 export type {
@@ -279,6 +279,10 @@ function maybeStrings(value: unknown): string[] | undefined {
 
 function chatFinishExtension(input: AgentRunInput): AgentChatFinishExtension | undefined {
   const value = isRecord(input.context) ? input.context[CHAT_FINISH_EXTENSION_CONTEXT_KEY] : undefined
+  return chatFinishExtensionFromUnknown(value)
+}
+
+function chatFinishExtensionFromUnknown(value: unknown): AgentChatFinishExtension | undefined {
   return isRecord(value) && typeof value.sendMessage === "function"
     ? value as unknown as AgentChatFinishExtension
     : undefined
@@ -771,6 +775,17 @@ function replyBody<TRuntimeConfig extends AgentRuntimeConfig>(
   if (typeof context.effect.metadata?.body === "string") return context.effect.metadata.body
 }
 
+function replyBodyWithLinkArtifacts(body: string | undefined, artifacts: readonly PublishedAgentDeliveryArtifact[]): string | undefined {
+  const links = artifacts.flatMap((artifact) => {
+    if (artifact.placement !== "link" || !artifact.url) return []
+    const label = (artifact.alt || artifact.path.split("/").pop() || artifact.path).replace(/[\r\n\[\]]+/g, " ").trim() || "Artifact"
+    const url = artifact.url.replace(/[\r\n<>]+/g, "")
+    return url ? [`[${label}](<${url}>)`] : []
+  })
+  if (!links.length) return body
+  return body ? `${body}\n\n${links.join("\n")}` : links.join("\n")
+}
+
 function deliveryArtifactFromUnknown(value: unknown): PublishedAgentDeliveryArtifact | undefined {
   if (!isRecord(value) || typeof value.path !== "string") return
   return {
@@ -830,10 +845,8 @@ async function deliveryArtifactFiles<TRuntimeConfig extends AgentRuntimeConfig>(
 async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
 ): Promise<void> {
-  const chat = chatFinishExtension(context.input)
-  if (!chat) return
-  const body = replyBody(context)
   const artifacts = deliveryArtifacts(context)
+  const body = replyBodyWithLinkArtifacts(replyBody(context), artifacts)
   const attachments = deliveryArtifactAttachments(artifacts)
   const files = await deliveryArtifactFiles(context, artifacts)
   if (!body && !attachments.length && !files.length) return
@@ -842,7 +855,19 @@ async function messageChannelReplyEffect<TRuntimeConfig extends AgentRuntimeConf
     ...(attachments.length ? { attachments } : {}),
     ...(files.length ? { files } : {}),
   }
-  await chat.sendMessage(message)
+  const chat = context.finish
+    ? chatFinishExtensionFromUnknown(context.finish.extensions.get("chat")) || chatFinishExtension(context.input)
+    : undefined
+  if (chat) {
+    await chat.sendMessage(message)
+    return
+  }
+  const adapter = context.channel.adapter
+    ? await resolveEffectOption(context.channel.adapter as MaybeResolvable<Adapter, AgentChannelDeliveryEffectContext<TRuntimeConfig>>, context)
+    : undefined
+  if (adapter && context.run?.threadId) {
+    await adapter.postMessage(adapter.channelIdFromThreadId(context.run.threadId), message)
+  }
 }
 
 function messageChannelDeliveryEffects<TRuntimeConfig extends AgentRuntimeConfig>(
