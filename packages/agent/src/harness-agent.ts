@@ -8,7 +8,6 @@ import { composeInstructionDocument } from "./instruction-composition.ts"
 import { colocatedAgentInstructionsSourceKey, resolveColocatedAgentInstructionDocument } from "./workspace-agent.ts"
 import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
-import { getMessageText } from "./messages.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
 import { isAsyncIterable, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
 import {
@@ -186,12 +185,20 @@ async function composeHarnessInstructions(content: string, context: AgentAdapter
   return await composeInstructionDocument(content, compositionContext)
 }
 
+function renderHarnessModelMessageContent(content: unknown): string {
+  if (typeof content === "string") return content
+  if (Array.isArray(content) && content.every(part => part && typeof part === "object" && (part as { type?: unknown }).type === "text" && typeof (part as { text?: unknown }).text === "string")) {
+    return content.map(part => (part as { text: string }).text).join("")
+  }
+  return JSON.stringify(content)
+}
+
 function renderHarnessChatPrompt(messages: Message[]): string {
   return [
     "Conversation history:",
-    ...messages.map((message) => {
+    ...toAiSdkModelMessages(messages).map((message) => {
       const role = message.role === "assistant" ? "Assistant" : message.role === "user" ? "User" : message.role
-      return `${role}: ${getMessageText(message)}`
+      return `${role}: ${renderHarnessModelMessageContent(message.content)}`
     }),
     "",
     "Respond to the latest user message.",

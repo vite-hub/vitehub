@@ -1172,6 +1172,55 @@ describe("agent message protocol", () => {
     expect(session.destroy).toHaveBeenCalledTimes(1)
   })
 
+  it("preserves non-text chat history in harness prompts", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({ text: "ok" })
+
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      context: { chat: {} },
+      messages: [
+        createMessage({ id: "user-1", role: "user", text: "Remember kiwi-714." }),
+        createMessage({
+          id: "assistant-1",
+          parts: [
+            { id: "lookup-1", input: { marker: "kiwi-714" }, name: "lookup", state: "running", type: "tool-call" },
+            { id: "lookup-1", name: "lookup", output: { marker: "kiwi-714" }, state: "completed", type: "tool-result" },
+            { text: "Tool confirmed marker.", type: "text" },
+          ],
+          role: "assistant",
+        }),
+        createMessage({ id: "user-2", parts: [{ data: { scope: "kiwi-714" }, type: "data" }], role: "user" }),
+        createMessage({ id: "user-3", parts: [{ error: "prior lookup warning", type: "error" }], role: "user" }),
+        createMessage({ id: "user-4", role: "user", text: "What marker?" }),
+      ],
+    })).resolves.toMatchObject({ text: "ok" })
+
+    expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: [
+        "Conversation history:",
+        "User: Remember kiwi-714.",
+        "Assistant: [{\"input\":{\"marker\":\"kiwi-714\"},\"toolCallId\":\"lookup-1\",\"toolName\":\"lookup\",\"type\":\"tool-call\"}]",
+        "tool: [{\"output\":{\"type\":\"json\",\"value\":{\"marker\":\"kiwi-714\"}},\"toolCallId\":\"lookup-1\",\"toolName\":\"lookup\",\"type\":\"tool-result\"}]",
+        "Assistant: Tool confirmed marker.",
+        "User: {\"scope\":\"kiwi-714\"}",
+        "User: prior lookup warning",
+        "User: What marker?",
+        "",
+        "Respond to the latest user message.",
+      ].join("\n"),
+      session,
+    }))
+  })
+
   it("resolves function-valued harness Agent Driver config for each invocation", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     harnessAgentSettings.length = 0
@@ -4647,6 +4696,36 @@ describe("agent message protocol", () => {
       "agent.invocation.finish",
     ])
     expect(deriveTraceRuns(traceLog.entries()).map(run => run.id)).toEqual(["run-1"])
+  })
+
+  it("traces direct async iterable results when UI message streams are requested", async () => {
+    const { readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+          yield { id: "tool-1", input: { query: "users" }, name: "search", type: "tool-call" }
+          yield { id: "tool-1", name: "search", output: "42", type: "tool-result" }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-1" },
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {}, { output: "ui-message-stream" }) as ReadableStream<never>
+    for await (const _message of readUIMessageStream({ stream })) {}
+
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.tool.start",
+      "agent.tool.finish",
+      "agent.stream.finish",
+      "agent.invocation.finish",
+    ])
   })
 
   it("does not drain traced UI message streams ahead of the caller", async () => {

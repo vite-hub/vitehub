@@ -1581,6 +1581,7 @@ function maybeTraceUiMessageStreamOutput<
 >(rendered: unknown, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): unknown {
   if (context.runtimeContext.traceLog) {
     if (isUIMessageStreamResult(rendered)) return maybeTraceUiMessageStreamResult(rendered, context)
+    if (isAsyncIterable(rendered)) return maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, context)
     if (!hasTraceableStreamResult(rendered)) return rendered
     return maybeTraceAgentStream(streamAgentOutputToEvents(rendered), context)
   }
