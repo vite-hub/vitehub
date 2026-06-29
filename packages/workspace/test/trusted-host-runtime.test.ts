@@ -276,6 +276,34 @@ describe("trusted host workspace runtime", () => {
     await session.close()
   })
 
+  it("materializes and commits GitHub executable modes", async () => {
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "trusted-host",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+    await workspace.writeFile("scripts/setup", "#!/bin/sh\nprintf setup\n", { metadata: { gitMode: "100755" } })
+
+    const session = await workspace.startSession()
+    const run = await session.exec("./scripts/setup")
+    const update = await session.exec(process.execPath, [
+      "-e",
+      "require('node:fs').writeFileSync('scripts/setup', '#!/bin/sh\\nprintf next\\n')",
+    ])
+
+    expect(run).toMatchObject({ exitCode: 0, stdout: "setup" })
+    expect(update.exitCode).toBe(0)
+    await session.commit()
+    await session.close()
+
+    await expect(workspace.readFile("scripts/setup")).resolves.toBe("#!/bin/sh\nprintf next\n")
+    await expect(workspace.stat("scripts/setup")).resolves.toEqual(expect.objectContaining({
+      metadata: { gitMode: "100755" },
+    }))
+  })
+
   it("commits retargeted host symlinks as GitHub symlink blobs", async () => {
     const writeFile = vi.fn(async () => {})
     const workspace = {

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process"
-import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, stat, writeFile } from "node:fs/promises"
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path"
 
@@ -53,6 +53,10 @@ function isUncommittedSessionPath(path: string): boolean {
   return isGeneratedSourceDescriptorPath(path) || path.split("/").includes(".git")
 }
 
+function executableGitMetadata(mode: number): Record<string, unknown> | undefined {
+  return (mode & 0o111) !== 0 ? { gitMode: "100755" } : undefined
+}
+
 function normalizeLocalWorkspacePath(path = "", options: { allowEmpty?: boolean, allowGenerated?: boolean } = {}) {
   const normalized = posix.normalize(path.replace(/\\/g, "/"))
   const workspacePath = normalized === "." ? "" : normalized
@@ -95,7 +99,8 @@ async function listLocalEntries(root: string, path = "", recursive = false, opti
     }
     if (!dirent.isFile()) continue
     const item = await stat(entryPath)
-    entries.push({ path: workspacePath, size: item.size, type: "file" })
+    const metadata = executableGitMetadata(item.mode)
+    entries.push(metadata ? { metadata, path: workspacePath, size: item.size, type: "file" } : { path: workspacePath, size: item.size, type: "file" })
   }
   return entries.sort((left, right) => left.path.localeCompare(right.path))
 }
@@ -104,18 +109,23 @@ function isGitSymlinkEntry(entry: WorkspaceEntry): boolean {
   return entry.metadata?.gitMode === "120000"
 }
 
+function isGitExecutableEntry(entry: WorkspaceEntry): boolean {
+  return entry.metadata?.gitMode === "100755"
+}
+
 function isLocalSymlinkTargetInside(root: string, linkPath: string, target: string): boolean {
   const rel = relative(resolve(root), resolve(dirname(linkPath), target))
   return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`))
 }
 
-async function readLocalFile(root: string, path: string, options: { allowGenerated?: boolean, preserveSymlink?: boolean } = {}): Promise<WorkspaceFile | undefined> {
+async function readLocalFile(root: string, path: string, options: { allowGenerated?: boolean, preserveGitMetadata?: boolean } = {}): Promise<WorkspaceFile | undefined> {
   const target = toLocalPath(root, path, options)
   try {
-    if (options.preserveSymlink && (await lstat(target)).isSymbolicLink()) {
+    const item = options.preserveGitMetadata ? await lstat(target) : undefined
+    if (item?.isSymbolicLink()) {
       return { content: await readlink(target), metadata: { gitMode: "120000" }, path: normalizeWorkspacePath(path) }
     }
-    return { content: await readFile(target), path: normalizeWorkspacePath(path) }
+    return { content: await readFile(target), metadata: item ? executableGitMetadata(item.mode) : undefined, path: normalizeWorkspacePath(path) }
   }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
@@ -179,6 +189,7 @@ async function materializeWorkspace(workspace: Workspace, root: string, options?
       continue
     }
     await writeFile(target, await workspace.readFile(entry.path, { encoding: "binary" }))
+    if (isGitExecutableEntry(entry)) await chmod(target, 0o755)
   }
   return await snapshotLocal(root, "local-open")
 }
@@ -207,7 +218,7 @@ async function commitLocalChanges(
       const before = entry.before?.type === "file"
         ? await workspace.stat(entry.path).catch(() => undefined)
         : undefined
-      const file = await readLocalFile(root, entry.path, { preserveSymlink: true })
+      const file = await readLocalFile(root, entry.path, { preserveGitMetadata: true })
       if (file)
         await workspace.writeFile(entry.path, file.content, { mediaType: file.mediaType || mediaTypes.get(entry.path) || before?.mediaType, metadata: file.metadata })
     }
@@ -327,6 +338,7 @@ export async function createTrustedHostWorkspaceSession(
       }
       else {
         await writeFile(target, content)
+        if (options?.metadata?.gitMode === "100755") await chmod(target, 0o755)
       }
       if (options?.mediaType)
         mediaTypes.set(workspacePath, options.mediaType)
