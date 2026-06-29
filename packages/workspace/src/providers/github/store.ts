@@ -64,6 +64,10 @@ function gitHubFileMetadata(entry: GitHubTreeEntry): Record<string, unknown> | u
   return entry.mode === "120000" ? { gitMode: entry.mode } : undefined;
 }
 
+function gitHubFileMode(metadata: Record<string, unknown> | undefined): string {
+  return metadata?.gitMode === "120000" ? "120000" : "100644";
+}
+
 function parentDirectories(path: string): string[] {
   const parts = normalizeWorkspacePath(path).split("/").filter(Boolean);
   const directories: string[] = [];
@@ -111,6 +115,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     const update = await createGitHubFileUpdate(normalized, this.#root, file.content);
     const current = this.#files.get(normalized);
     if (current?.gitSha === update.gitSha) {
+      if (gitHubFileMode(current.metadata) !== gitHubFileMode(file.metadata)) this.#dirty = true;
       this.#files.set(normalized, {
         ...current,
         mediaType: file.mediaType,
@@ -231,7 +236,10 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     this.#baselineTreeSha = remote.treeSha;
 
     const changedFiles = [...this.#files.values()].filter(
-      (file) => this.#remoteFiles.get(file.path)?.sha !== file.gitSha,
+      (file) => {
+        const remote = this.#remoteFiles.get(file.path);
+        return remote?.sha !== file.gitSha || (remote.mode || "100644") !== gitHubFileMode(file.metadata);
+      },
     );
     const deletePaths = [...this.#remoteFiles]
       .filter(([path]) => !this.#files.has(path))
@@ -248,6 +256,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
         bytes: file.bytes,
         fullPath: joinGitPath(this.#root, file.path),
         gitSha: file.gitSha,
+        mode: gitHubFileMode(file.metadata),
       };
     });
     const commit = await commitGitHubChanges({
@@ -415,6 +424,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
           sha: file.gitSha,
           size: file.size,
           type: "blob",
+          mode: gitHubFileMode(file.metadata),
         },
       ]),
     );

@@ -104,9 +104,12 @@ function isGitSymlinkEntry(entry: WorkspaceEntry): boolean {
   return entry.metadata?.gitMode === "120000"
 }
 
-async function readLocalFile(root: string, path: string, options: { allowGenerated?: boolean } = {}): Promise<WorkspaceFile | undefined> {
+async function readLocalFile(root: string, path: string, options: { allowGenerated?: boolean, preserveSymlink?: boolean } = {}): Promise<WorkspaceFile | undefined> {
   const target = toLocalPath(root, path, options)
   try {
+    if (options.preserveSymlink && (await lstat(target)).isSymbolicLink()) {
+      return { content: await readlink(target), metadata: { gitMode: "120000" }, path: normalizeWorkspacePath(path) }
+    }
     return { content: await readFile(target), path: normalizeWorkspacePath(path) }
   }
   catch (error) {
@@ -197,9 +200,9 @@ async function commitLocalChanges(
       const before = entry.before?.type === "file"
         ? await workspace.stat(entry.path).catch(() => undefined)
         : undefined
-      const file = await readLocalFile(root, entry.path)
+      const file = await readLocalFile(root, entry.path, { preserveSymlink: true })
       if (file)
-        await workspace.writeFile(entry.path, file.content, { mediaType: file.mediaType || mediaTypes.get(entry.path) || before?.mediaType })
+        await workspace.writeFile(entry.path, file.content, { mediaType: file.mediaType || mediaTypes.get(entry.path) || before?.mediaType, metadata: file.metadata })
     }
   }
   await workspace.snapshot({ name: "local-commit" })

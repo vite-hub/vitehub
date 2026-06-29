@@ -38,6 +38,7 @@ export interface GitHubFileUpdate {
   bytes?: Uint8Array;
   fullPath: string;
   gitSha: string;
+  mode?: string;
 }
 
 export interface GitHubCommitResult {
@@ -318,7 +319,7 @@ export async function commitGitHubChanges(input: {
         base_tree: input.baseTreeSha,
         tree: [
           ...input.files.map((file, index) => ({
-            mode: "100644",
+            mode: file.mode || "100644",
             path: file.fullPath,
             sha: blobs[index]!.sha,
             type: "blob",

@@ -409,6 +409,41 @@ describe("GitHub workspace store", () => {
     });
   });
 
+  it("commits GitHub symlink metadata as tree mode 120000", async () => {
+    seedRemote(".vitehub/workspaces/docs/CLAUDE.md", "AGENTS.md", "120000");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await store.writeFile("CLAUDE.md", {
+      path: "CLAUDE.md",
+      content: "NEXT.md",
+      metadata: { gitMode: "120000" },
+    });
+    await store.snapshot({ name: "retarget symlink" });
+
+    expect(
+      requests.find((request) => request.path.endsWith("/git/trees") && request.method === "POST")
+        ?.body,
+    ).toMatchObject({
+      tree: expect.arrayContaining([
+        {
+          mode: "120000",
+          path: ".vitehub/workspaces/docs/CLAUDE.md",
+          sha: textSha("NEXT.md"),
+          type: "blob",
+        },
+      ]),
+    });
+  });
+
   it("fails dirty snapshots when the branch moved after load", async () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(

@@ -365,12 +365,11 @@ async function copySandboxChangesToWorkspace(
   for (const path of sandboxFiles) {
     if (ignoreWriteBackPaths.has(path)) continue
     const initial = initialTree.files.get(path)
-    if (initial?.symlinkTarget) continue
     const content = await sandbox.readBinaryFile({
       abortSignal,
       path: sandboxPath(sessionWorkDir, path),
     })
-    if (!content || bytesEqual(initial?.content, content)) continue
+    if (!content || (!initial?.symlinkTarget && bytesEqual(initial?.content, content))) continue
     await session.writeFile(path, content, {
       mediaType: initial?.mediaType || lookup(path) || undefined,
     })

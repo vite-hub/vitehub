@@ -357,7 +357,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
         workspace: definition.name,
       })
       try {
-        await store.writeFile(input.path, { path: input.path, content: input.content ?? content, mediaType: input.mediaType })
+        await store.writeFile(input.path, { path: input.path, content: input.content ?? content, mediaType: input.mediaType, metadata: options?.metadata })
         await writePolicy.after(input)
       }
       catch (error) {

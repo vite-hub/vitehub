@@ -504,6 +504,46 @@ describe("Harness Workspace Session", () => {
     expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
   })
 
+  it("commits regular files that replace initial harness symlinks", async () => {
+    const workspaceSession = {
+      close: vi.fn(async () => {}),
+      commit: vi.fn(async () => {}),
+      diff: vi.fn(async () => ({
+        entries: [{ path: "CLAUDE.md", type: "modified" }],
+        to: "next",
+      })),
+      mkdir: vi.fn(async () => {}),
+      rm: vi.fn(async () => {}),
+      writeFile: vi.fn(async () => {}),
+    }
+    const replacement = bytes("# Local instructions\n")
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: {
+        list: vi.fn(async () => [
+          { path: "AGENTS.md", type: "file" },
+          { metadata: { gitMode: "120000" }, path: "CLAUDE.md", type: "file" },
+        ]),
+        readFile: vi.fn(async (path: string) => path === "CLAUDE.md" ? bytes("AGENTS.md") : bytes("# Agents\n")),
+      },
+      startSession: vi.fn(async () => workspaceSession),
+      tools: {},
+    } as never, {
+      session: {
+        readBinaryFile: vi.fn(async ({ path }: { path: string }) =>
+          path.endsWith("CLAUDE.md") ? replacement : bytes("# Agents\n")),
+        run: sandboxRun(["AGENTS.md", "CLAUDE.md"]),
+        writeBinaryFile: vi.fn(async () => {}),
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    await session.close()
+
+    expect(workspaceSession.writeFile).toHaveBeenCalledWith("CLAUDE.md", replacement, { mediaType: "text/markdown" })
+    expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
+  })
+
   it("does not recreate unchanged initial directories during write-back", async () => {
     const initial = bytes("unchanged")
     const summary = bytes("summary")

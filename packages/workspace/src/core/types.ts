@@ -18,6 +18,7 @@ export type ReadFileResult<TOptions extends ReadFileOptions | undefined = undefi
 
 export interface WriteFileOptions {
   mediaType?: string
+  metadata?: Record<string, unknown>
 }
 
 export interface ListOptions {

@@ -252,6 +252,47 @@ describe("trusted host workspace runtime", () => {
     await session.close()
   })
 
+  it("commits retargeted host symlinks as GitHub symlink blobs", async () => {
+    const writeFile = vi.fn(async () => {})
+    const workspace = {
+      name: "docs",
+      async list() {
+        return [
+          { path: "AGENTS.md", type: "file" as const },
+          { metadata: { gitMode: "120000" }, path: "CLAUDE.md", type: "file" as const },
+        ]
+      },
+      async readFile(path: string) {
+        if (path === "AGENTS.md") return "# Agents\n"
+        if (path === "CLAUDE.md") return "AGENTS.md"
+        throw new Error(`unexpected read: ${path}`)
+      },
+      async rm() {},
+      async mkdir() {},
+      async stat(path: string) {
+        if (path === "CLAUDE.md") return { metadata: { gitMode: "120000" }, path, type: "file" as const }
+        return { path, type: "file" as const }
+      },
+      writeFile,
+      snapshot: vi.fn(async () => ({ createdAt: new Date().toISOString(), entries: {}, id: "snapshot" })),
+    } as unknown as Workspace
+
+    const session = await createTrustedHostWorkspaceSession({ name: "docs", runtime: "trusted-host" }, workspace)
+    const result = await session.exec(process.execPath, [
+      "-e",
+      "const fs = require('node:fs'); fs.unlinkSync('CLAUDE.md'); fs.symlinkSync('NEXT.md', 'CLAUDE.md')",
+    ])
+
+    expect(result.exitCode).toBe(0)
+    await session.commit()
+    await session.close()
+
+    expect(writeFile).toHaveBeenCalledWith("CLAUDE.md", "NEXT.md", {
+      mediaType: undefined,
+      metadata: { gitMode: "120000" },
+    })
+  })
+
   it("ignores git metadata when committing host session changes", async () => {
     const workspace = createWorkspace({
       ...defineWorkspace({
