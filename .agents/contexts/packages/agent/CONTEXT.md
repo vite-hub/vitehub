@@ -128,7 +128,7 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - The **Agent Package** should preserve raw provider- or harness-reported usage details and the resolved Harness Credential Source label when available without exposing secrets.
 - The **Agent Package** coordinates scoped Workspace Session preparation for harness-backed Agent Drivers through the Workspace Package boundary.
 - The **Agent Package** carries **Harness Workspace Path Contributions** from Capabilities into harness-backed Workspace Session preparation.
-- The **Agent Package** does not copy Flue-style root `tools`, `skills`, or `sandbox` fields; custom harness sandbox providers stay Capability-owned through `sandbox({ provider })`, while default harness sandbox setup stays Agent Package runtime plumbing behind the **Agent Harness Driver Contract**.
+- The **Agent Package** does not copy Flue-style root `tools`, `skills`, or `sandbox` fields; custom harness sandbox providers use `harnessSandbox`, while default harness sandbox setup stays Agent Package runtime plumbing behind the **Agent Harness Driver Contract**.
 - The **Agent Package** resolves explicit Harness Session Keys for harness-backed Agent Drivers and does not infer durable harness reuse from chat or thread metadata by default.
 - An **Agent Driver Boundary** is configured as one object on the Agent Definition, with exactly one concrete driver key such as `model`, `harness`, or `run`.
 - The concrete **Agent Driver Boundary** key holds the implementation value directly; driver-specific options are sibling fields on the same driver object.
