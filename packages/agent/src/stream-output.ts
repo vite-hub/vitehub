@@ -158,6 +158,37 @@ function uiMessageTextDelta(event: unknown): string | undefined {
   return typeof text === "string" ? text : undefined
 }
 
+function isCapabilityCliInput(input: unknown): input is { argv: string[], input?: unknown, json?: boolean } {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return false
+  const record = input as Record<string, unknown>
+  const argv = record.argv
+  return Object.keys(record).every(key => key === "argv" || key === "input" || key === "json")
+    && Array.isArray(argv)
+    && argv.every(arg => typeof arg === "string")
+    && (record.json === undefined || typeof record.json === "boolean")
+}
+
+function normalizeUiMessageStreamChunk(chunk: unknown): unknown {
+  if (typeof chunk !== "object" || chunk === null) return chunk
+  const record = chunk as Record<string, unknown>
+  if (record.type !== "tool-input-error") return chunk
+  const metadata = typeof record.toolMetadata === "object" && record.toolMetadata !== null
+    ? record.toolMetadata as Record<string, unknown>
+    : undefined
+  if (metadata?.vitehubCapabilityCli !== true || !isCapabilityCliInput(record.input)) return chunk
+
+  const { errorText: _errorText, ...available } = record
+  return { ...available, type: "tool-input-available" }
+}
+
+export function normalizeUiMessageStream(stream: ReadableStream<unknown>): ReadableStream<unknown> {
+  return stream.pipeThrough(new TransformStream<unknown, unknown>({
+    transform(chunk, controller) {
+      controller.enqueue(normalizeUiMessageStreamChunk(chunk))
+    },
+  }))
+}
+
 function uiDataType(data: unknown): `data-${string}` {
   const rawType = typeof data === "object" && data !== null && typeof (data as { type?: unknown }).type === "string"
     ? (data as { type: string }).type
@@ -226,7 +257,7 @@ export async function finalizeUiMessageStreamOutput(
   if (!hasUiMessageStream && !hasAsyncIterable && text === undefined) {
     throw new Error("[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream().")
   }
-  const stream = hasUiMessageStream
+  const stream = normalizeUiMessageStream(hasUiMessageStream
     ? rendered.toUIMessageStream()
     : hasAsyncIterable
       ? createAgentUIMessageStream({
@@ -241,7 +272,7 @@ export async function finalizeUiMessageStreamOutput(
           writer.write({ type: "text-end", id: messageId })
           writer.write({ type: "finish", finishReason: "stop" })
         },
-      })
+      }))
   let streamedText = ""
   return {
     deferFinish: shouldWrapOutput,
