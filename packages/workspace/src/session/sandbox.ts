@@ -22,7 +22,7 @@ import type {
 } from "../core/types.ts"
 
 type SandboxClient = Awaited<ReturnType<typeof import("@vite-hub/sandbox").createSandboxWithConfig>>
-type SandboxFileEntry = { path: string, size?: number, type: "file" | "directory" }
+type SandboxFileEntry = { path: string, size?: number, type: "directory" | "file" | "symlink" }
 type SandboxPackage = typeof import("@vite-hub/sandbox")
 type SandboxRuntimeStateModule = typeof import("@vite-hub/sandbox/runtime/state")
 
@@ -48,11 +48,16 @@ function fromSandboxPath(path: string) {
   return normalizeWorkspacePath(normalizedPath.slice(normalizedRoot.length + 1))
 }
 
-function toWorkspaceEntry(entry: { path: string, size?: number, type: "file" | "directory" }): WorkspaceEntry {
+function isGitSymlinkEntry(entry: WorkspaceEntry): boolean {
+  return entry.metadata?.gitMode === "120000"
+}
+
+function toWorkspaceEntry(entry: SandboxFileEntry): WorkspaceEntry {
   return {
+    metadata: entry.type === "symlink" ? { gitMode: "120000" } : undefined,
     path: fromSandboxPath(entry.path),
     size: entry.size,
-    type: entry.type,
+    type: entry.type === "directory" ? "directory" : "file",
   }
 }
 
@@ -60,6 +65,20 @@ async function ensureSandboxParent(sandbox: SandboxClient, path: string) {
   const parent = posix.dirname(path)
   if (parent && parent !== "." && parent !== "/")
     await sandbox.mkdir(parent, { recursive: true })
+}
+
+async function readSandboxSymlinkTarget(sandbox: SandboxClient, path: string): Promise<string> {
+  const result = await sandbox.exec("readlink", [path])
+  if (!result.ok)
+    throw new WorkspaceError(`[vitehub] Failed to read sandbox symlink: ${path}. ${result.stderr || "readlink failed"}`)
+  return result.stdout.replace(/\n$/, "")
+}
+
+async function writeSandboxSymlink(sandbox: SandboxClient, path: string, target: string) {
+  await sandbox.deleteFile(path).catch(() => undefined)
+  const result = await sandbox.exec("ln", ["-s", target, path])
+  if (!result.ok)
+    throw new WorkspaceError(`[vitehub] Failed to create sandbox symlink: ${path}. ${result.stderr || "ln failed"}`)
 }
 
 async function readSandboxFile(sandbox: SandboxClient, path: string): Promise<WorkspaceFile | undefined> {
@@ -84,7 +103,9 @@ async function snapshotSandbox(sandbox: SandboxClient, name?: string) {
   const entries = await listSandboxEntries(sandbox, "", true)
   const files = await Promise.all(entries.map(async (entry) => {
     if (entry.type !== "file") return entry
-    const content = await sandbox.readFile(toSandboxPath(entry.path), { encoding: "binary" })
+    const content = isGitSymlinkEntry(entry)
+      ? await readSandboxSymlinkTarget(sandbox, toSandboxPath(entry.path))
+      : await sandbox.readFile(toSandboxPath(entry.path), { encoding: "binary" })
     return {
       ...entry,
       digest: await sha256(content),
@@ -136,7 +157,10 @@ async function materializeWorkspace(workspace: Workspace, sandbox: SandboxClient
     const content = await workspace.readFile(entry.path, { encoding: "binary" })
     const target = toSandboxPath(entry.path)
     await ensureSandboxParent(sandbox, target)
-    await sandbox.writeFile(target, content)
+    if (isGitSymlinkEntry(entry))
+      await writeSandboxSymlink(sandbox, target, new TextDecoder().decode(contentToBytes(content)))
+    else
+      await sandbox.writeFile(target, content)
   }
   return await snapshotSandbox(sandbox, "sandbox-open")
 }
@@ -164,9 +188,12 @@ async function commitSandboxChanges(
       const before = entry.before?.type === "file"
         ? await workspace.stat(entry.path).catch(() => undefined)
         : undefined
-      const file = await readSandboxFile(sandbox, toSandboxPath(entry.path))
+      const target = toSandboxPath(entry.path)
+      const file = entry.after.metadata?.gitMode === "120000"
+        ? { content: await readSandboxSymlinkTarget(sandbox, target), metadata: entry.after.metadata, path: entry.path }
+        : await readSandboxFile(sandbox, target)
       if (file)
-        await workspace.writeFile(entry.path, file.content, { mediaType: file.mediaType || mediaTypes.get(entry.path) || before?.mediaType })
+        await workspace.writeFile(entry.path, file.content, { mediaType: file.mediaType || mediaTypes.get(entry.path) || before?.mediaType, metadata: file.metadata })
     }
   }
   await workspace.snapshot({ name: "sandbox-commit" })
@@ -213,7 +240,11 @@ export async function createSandboxWorkspaceSession(
       assertOpen()
       const target = toSandboxPath(assertPathInSessionScope(normalizeSafeWorkspacePath(path), sessionPaths))
       await ensureSandboxParent(sandbox, target)
-      await sandbox.writeFile(target, content)
+      await sandbox.deleteFile(target).catch(() => undefined)
+      if (options?.metadata?.gitMode === "120000")
+        await writeSandboxSymlink(sandbox, target, new TextDecoder().decode(contentToBytes(content)))
+      else
+        await sandbox.writeFile(target, content)
       const workspacePath = fromSandboxPath(target)
       if (options?.mediaType)
         mediaTypes.set(workspacePath, options.mediaType)

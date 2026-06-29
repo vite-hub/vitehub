@@ -251,6 +251,7 @@ export interface WorkspaceSnapshot {
   entries: Record<string, {
     type: "file" | "directory"
     digest?: string
+    metadata?: Record<string, unknown>
     size?: number
   }>
 }

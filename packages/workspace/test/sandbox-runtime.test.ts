@@ -7,7 +7,7 @@ import { defineWorkspace } from "../src/index.ts"
 import { createWorkspace } from "../src/core/workspace.ts"
 import { setSandboxRuntimeConfig } from "@vite-hub/sandbox/runtime/state"
 
-type FakeEntry = { content?: string | Uint8Array, type: "directory" | "file" }
+type FakeEntry = { content?: string | Uint8Array, target?: string, type: "directory" | "file" | "symlink" }
 
 const tempDirs: string[] = []
 
@@ -63,7 +63,9 @@ function createFakeSandbox(provider: "cloudflare" | "vercel") {
       },
       async readFile(path: string, options?: { encoding?: "binary" | "utf8" }) {
         const entry = files.get(path)
-        if (!entry || entry.type !== "file") throw new Error(`missing file: ${path}`)
+        if (!entry || (entry.type !== "file" && entry.type !== "symlink")) throw new Error(`missing file: ${path}`)
+        if (entry.type === "symlink")
+          return await this.readFile(join(parent(path), entry.target || ""), options)
         const content = entry.content || ""
         if (options?.encoding === "binary")
           return typeof content === "string" ? new TextEncoder().encode(content) : content
@@ -80,7 +82,7 @@ function createFakeSandbox(provider: "cloudflare" | "vercel") {
           .map(([entryPath, entry]) => ({
             name: entryPath.split("/").at(-1) || entryPath,
             path: entryPath,
-            size: typeof entry.content === "string" ? entry.content.length : entry.content?.byteLength,
+            size: entry.type === "symlink" ? entry.target?.length : typeof entry.content === "string" ? entry.content.length : entry.content?.byteLength,
             type: entry.type,
           }))
       },
@@ -105,6 +107,13 @@ function createFakeSandbox(provider: "cloudflare" | "vercel") {
         if (command === "rm" && args[0] === "-rf") {
           for (const key of [...files.keys()].filter(key => key === args[1] || key.startsWith(`${args[1]}/`)))
             files.delete(key)
+        }
+        if (command === "ln" && args[0] === "-s" && args[1] && args[2]) {
+          files.set(args[2], { target: args[1], type: "symlink" })
+        }
+        if (command === "readlink" && args[0]) {
+          const entry = files.get(args[0])
+          return { code: entry?.type === "symlink" ? 0 : 1, ok: entry?.type === "symlink", stderr: entry?.type === "symlink" ? "" : "not a symlink", stdout: entry?.type === "symlink" ? `${entry.target}\n` : "" }
         }
         return { code: 0, ok: true, stderr: "", stdout: "ok\n" }
       },
@@ -220,6 +229,31 @@ describe("sandbox workspace runtime", () => {
     await session.close()
 
     await expect(workspace.exists("old.txt")).resolves.toBe(false)
+  })
+
+  it("commits session-written symlinks as GitHub symlink blobs", async () => {
+    const fake = createFakeSandbox("cloudflare")
+    const sandboxPackage = await import("@vite-hub/sandbox")
+    vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
+    setSandboxRuntimeConfig({ provider: "cloudflare", binding: "SANDBOX" })
+
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "sandbox",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+
+    const session = await workspace.startSession()
+    await session.writeFile("AGENTS.md", "# Agents\n")
+    await session.writeFile("CLAUDE.md", "AGENTS.md", { metadata: { gitMode: "120000" } })
+    await session.commit()
+    await session.close()
+
+    await expect(workspace.stat("CLAUDE.md")).resolves.toEqual(expect.objectContaining({
+      metadata: { gitMode: "120000" },
+    }))
   })
 
   it("rejects changes outside scoped sandbox session paths", async () => {

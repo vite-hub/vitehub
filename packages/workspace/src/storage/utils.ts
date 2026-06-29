@@ -7,6 +7,7 @@ export async function createSnapshotFromEntries(entries: WorkspaceEntry[], name?
   for (const entry of entries) {
     snapshotEntries[entry.path] = {
       digest: entry.digest,
+      metadata: entry.metadata,
       size: entry.size,
       type: entry.type,
     }
@@ -28,7 +29,7 @@ export function diffSnapshots(from: WorkspaceSnapshot | undefined, to: Workspace
     const after = to.entries[path]
     if (!before && after) entries.push({ path, type: "added", after })
     else if (before && !after) entries.push({ path, type: "removed", before })
-    else if (before && after && (before.digest !== after.digest || before.type !== after.type || before.size !== after.size)) {
+    else if (before && after && (before.digest !== after.digest || before.type !== after.type || before.size !== after.size || JSON.stringify(before.metadata) !== JSON.stringify(after.metadata))) {
       entries.push({ path, type: "modified", before, after })
     }
   }

@@ -232,14 +232,14 @@ export class VercelSandboxAdapter extends BaseSandboxAdapter<'vercel'> {
         .filter(Boolean)
         .map((line): SandboxFileEntry | undefined => {
           const [kind, size, mtime, filePath] = line.split('\t')
-          if (!filePath || (kind !== 'f' && kind !== 'd')) return undefined
+          if (!filePath || (kind !== 'f' && kind !== 'd' && kind !== 'l')) return undefined
           const mtimeSeconds = Number(mtime)
           return {
             mtime: Number.isFinite(mtimeSeconds) ? new Date(mtimeSeconds * 1000).toISOString() : undefined,
             name: posix.basename(filePath),
             path: filePath,
             size: kind === 'f' ? Number(size) : undefined,
-            type: kind === 'd' ? 'directory' : 'file',
+            type: kind === 'd' ? 'directory' : kind === 'l' ? 'symlink' : 'file',
           }
         })
         .filter((entry): entry is SandboxFileEntry => Boolean(entry))
@@ -259,7 +259,7 @@ export class VercelSandboxAdapter extends BaseSandboxAdapter<'vercel'> {
           name,
           path: child,
           size: stat.isFile() ? stat.size : undefined,
-          type: stat.isDirectory() ? 'directory' : 'file',
+          type: stat.isDirectory() ? 'directory' : stat.isSymbolicLink() ? 'symlink' : 'file',
         }
         entries.push(entry)
         if (opts?.recursive && stat.isDirectory())

@@ -312,7 +312,11 @@ export async function createTrustedHostWorkspaceSession(
       const workspacePath = assertPathInSessionScope(normalizeLocalWorkspacePath(path), sessionPaths)
       const target = toLocalPath(root, workspacePath)
       await mkdir(dirname(target), { recursive: true })
-      await writeFile(target, content)
+      await rm(target, { force: true, recursive: true })
+      if (options?.metadata?.gitMode === "120000")
+        await symlink(new TextDecoder().decode(contentToBytes(content)), target)
+      else
+        await writeFile(target, content)
       if (options?.mediaType)
         mediaTypes.set(workspacePath, options.mediaType)
       else

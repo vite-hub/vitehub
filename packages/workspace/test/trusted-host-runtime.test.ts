@@ -293,6 +293,70 @@ describe("trusted host workspace runtime", () => {
     })
   })
 
+  it("diffs regular files that replace symlinks with matching bytes", async () => {
+    const writeFile = vi.fn(async () => {})
+    const workspace = {
+      name: "docs",
+      async list() {
+        return [
+          { path: "AGENTS.md", type: "file" as const },
+          { metadata: { gitMode: "120000" }, path: "CLAUDE.md", type: "file" as const },
+        ]
+      },
+      async readFile(path: string) {
+        if (path === "AGENTS.md") return "# Agents\n"
+        if (path === "CLAUDE.md") return "AGENTS.md"
+        throw new Error(`unexpected read: ${path}`)
+      },
+      async rm() {},
+      async mkdir() {},
+      async stat(path: string) {
+        if (path === "CLAUDE.md") return { metadata: { gitMode: "120000" }, path, type: "file" as const }
+        return { path, type: "file" as const }
+      },
+      writeFile,
+      snapshot: vi.fn(async () => ({ createdAt: new Date().toISOString(), entries: {}, id: "snapshot" })),
+    } as unknown as Workspace
+
+    const session = await createTrustedHostWorkspaceSession({ name: "docs", runtime: "trusted-host" }, workspace)
+    const result = await session.exec(process.execPath, [
+      "-e",
+      "const fs = require('node:fs'); fs.unlinkSync('CLAUDE.md'); fs.writeFileSync('CLAUDE.md', 'AGENTS.md')",
+    ])
+
+    expect(result.exitCode).toBe(0)
+    expect((await session.diff()).entries).toEqual([
+      expect.objectContaining({ path: "CLAUDE.md", type: "modified" }),
+    ])
+    await session.commit()
+    await session.close()
+
+    expect(writeFile).toHaveBeenCalledWith("CLAUDE.md", Buffer.from("AGENTS.md"), {
+      mediaType: undefined,
+      metadata: undefined,
+    })
+  })
+
+  it("commits session-written symlinks as GitHub symlink blobs", async () => {
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "trusted-host",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+
+    const session = await workspace.startSession()
+    await session.writeFile("AGENTS.md", "# Agents\n")
+    await session.writeFile("CLAUDE.md", "AGENTS.md", { metadata: { gitMode: "120000" } })
+    await session.commit()
+    await session.close()
+
+    await expect(workspace.stat("CLAUDE.md")).resolves.toEqual(expect.objectContaining({
+      metadata: { gitMode: "120000" },
+    }))
+  })
+
   it("ignores git metadata when committing host session changes", async () => {
     const workspace = createWorkspace({
       ...defineWorkspace({

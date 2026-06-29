@@ -277,7 +277,7 @@ export class CloudflareSandboxAdapter extends BaseSandboxAdapter<'cloudflare'> {
     if (this.native.listFiles) {
       const result = await this.native.listFiles(path, opts)
       return result.files
-        .filter((file): file is typeof file & { type: 'file' | 'directory' } => file.type === 'file' || file.type === 'directory')
+        .filter((file): file is typeof file & { type: 'directory' | 'file' | 'symlink' } => file.type === 'file' || file.type === 'directory' || file.type === 'symlink')
         .map(file => ({ name: file.name, path: file.absolutePath, type: file.type, size: file.size, mtime: file.modifiedAt }))
     }
     const result = await this.exec('ls', [opts?.recursive ? '-laR' : '-la', path])
@@ -292,7 +292,7 @@ export class CloudflareSandboxAdapter extends BaseSandboxAdapter<'cloudflare'> {
         return {
           name,
           path: `${path}/${name}`,
-          type: (line.startsWith('d') ? 'directory' : 'file') as 'file' | 'directory',
+          type: (line.startsWith('d') ? 'directory' : line.startsWith('l') ? 'symlink' : 'file') as 'directory' | 'file' | 'symlink',
         }
       })
       .filter(file => file.name && file.name !== '.' && file.name !== '..')
