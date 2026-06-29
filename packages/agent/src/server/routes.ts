@@ -195,6 +195,7 @@ function withCleanUiMessageStreamResponse(response: Response): Response {
   const reader = response.body.getReader()
   let tail = ""
   const headers = new Headers(response.headers)
+  headers.delete("content-encoding")
   headers.delete("content-length")
 
   function enqueueDone(controller: ReadableStreamDefaultController<Uint8Array>) {

@@ -495,7 +495,6 @@ function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
       defineUsageTelemetryOutput(clone as UnknownRecord, usageRecord)
     }, result))
   const fullStreamDescriptor = isAsyncIterable(result.fullStream) ? withTelemetry(result.fullStream) : undefined
-  const toUIMessageStreamDescriptor = Object.getOwnPropertyDescriptor(result, "toUIMessageStream")
   const descriptors: PropertyDescriptorMap = {
     ...(fullStreamDescriptor ? { fullStream: fullStreamDescriptor } : {}),
     ...(isAsyncIterable(result.stream)
@@ -507,7 +506,7 @@ function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
             configurable: true,
             enumerable: false,
             value: (...args: unknown[]) => withUsageTelemetryUiMessageStream(
-              (result.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>).apply(toUIMessageStreamDescriptor?.enumerable === false ? clone : result, args),
+              (result.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>).apply(result, args),
               options,
               run,
               usageRecord => defineUsageTelemetryOutput(clone as UnknownRecord, usageRecord),

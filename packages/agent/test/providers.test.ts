@@ -971,7 +971,7 @@ describe("server helpers", () => {
     await expect(response.text()).resolves.toBe("event: custom\ndata: ok\n\n")
   })
 
-  it("appends DONE to UI message chat Response bodies and drops stale length headers", async () => {
+  it("appends DONE to UI message chat Response bodies and drops stale body headers", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
@@ -980,6 +980,7 @@ describe("server helpers", () => {
       driver: {
         run: () => new Response("data: {\"type\":\"finish\"}\n\n", {
           headers: {
+            "content-encoding": "gzip",
             "content-length": "24",
             "content-type": "text/event-stream",
             "x-vercel-ai-ui-message-stream": "v1",
@@ -1001,6 +1002,7 @@ describe("server helpers", () => {
     }), { agentName: "support" })
 
     expect(response.headers.get("content-length")).toBeNull()
+    expect(response.headers.get("content-encoding")).toBeNull()
     await expect(response.text()).resolves.toBe("data: {\"type\":\"finish\"}\n\ndata: [DONE]\n\n")
   })
 
