@@ -4840,6 +4840,57 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("normalizes valid capability CLI input errors in native UI message streams", async () => {
+    const { createUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return createUIMessageStream({
+              execute({ writer }) {
+                writer.write({ type: "start", messageId: "assistant-1" })
+                writer.write({
+                  errorText: "An error occurred.",
+                  input: { argv: ["purchase-orders", "--json"] },
+                  toolCallId: "cli-1",
+                  toolMetadata: {
+                    cli: "portal-api",
+                    vitehubCapabilityCli: true,
+                  },
+                  toolName: "portal-api",
+                  type: "tool-input-error",
+                } as never)
+                writer.write({
+                  output: {
+                    command: "portal-api purchase-orders --json",
+                    exitCode: 0,
+                  },
+                  toolCallId: "cli-1",
+                  type: "tool-output-available",
+                })
+                writer.write({ type: "finish", finishReason: "stop" })
+              },
+            })
+          },
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const chunks: unknown[] = []
+    for await (const chunk of stream) chunks.push(chunk)
+
+    expect(chunks).toContainEqual(expect.objectContaining({
+      input: { argv: ["purchase-orders", "--json"] },
+      toolCallId: "cli-1",
+      toolName: "portal-api",
+      type: "tool-input-available",
+    }))
+    expect(chunks).not.toContainEqual(expect.objectContaining({
+      toolCallId: "cli-1",
+      type: "tool-input-error",
+    }))
+  })
+
   it("traces fullStream results when UI message streams are requested", async () => {
     const { createUIMessageStream, readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")

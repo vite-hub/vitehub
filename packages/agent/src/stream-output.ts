@@ -158,6 +158,33 @@ function uiMessageTextDelta(event: unknown): string | undefined {
   return typeof text === "string" ? text : undefined
 }
 
+function isCapabilityCliInput(input: unknown): input is { argv: string[] } {
+  if (typeof input !== "object" || input === null) return false
+  const argv = (input as { argv?: unknown }).argv
+  return Array.isArray(argv) && argv.every(arg => typeof arg === "string")
+}
+
+function normalizeUiMessageStreamChunk(chunk: unknown): unknown {
+  if (typeof chunk !== "object" || chunk === null) return chunk
+  const record = chunk as Record<string, unknown>
+  if (record.type !== "tool-input-error") return chunk
+  const metadata = typeof record.toolMetadata === "object" && record.toolMetadata !== null
+    ? record.toolMetadata as Record<string, unknown>
+    : undefined
+  if (metadata?.vitehubCapabilityCli !== true || !isCapabilityCliInput(record.input)) return chunk
+
+  const { errorText: _errorText, ...available } = record
+  return { ...available, type: "tool-input-available" }
+}
+
+function normalizeUiMessageStream(stream: ReadableStream<unknown>): ReadableStream<unknown> {
+  return stream.pipeThrough(new TransformStream<unknown, unknown>({
+    transform(chunk, controller) {
+      controller.enqueue(normalizeUiMessageStreamChunk(chunk))
+    },
+  }))
+}
+
 function uiDataType(data: unknown): `data-${string}` {
   const rawType = typeof data === "object" && data !== null && typeof (data as { type?: unknown }).type === "string"
     ? (data as { type: string }).type
@@ -226,7 +253,7 @@ export async function finalizeUiMessageStreamOutput(
   if (!hasUiMessageStream && !hasAsyncIterable && text === undefined) {
     throw new Error("[vitehub] Agent stream output \"ui-message-stream\" requires a result with toUIMessageStream().")
   }
-  const stream = hasUiMessageStream
+  const stream = normalizeUiMessageStream(hasUiMessageStream
     ? rendered.toUIMessageStream()
     : hasAsyncIterable
       ? createAgentUIMessageStream({
@@ -241,7 +268,7 @@ export async function finalizeUiMessageStreamOutput(
           writer.write({ type: "text-end", id: messageId })
           writer.write({ type: "finish", finishReason: "stop" })
         },
-      })
+      }))
   let streamedText = ""
   return {
     deferFinish: shouldWrapOutput,
