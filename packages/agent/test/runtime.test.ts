@@ -1214,6 +1214,32 @@ describe("agent message protocol", () => {
     expect(session.destroy).toHaveBeenCalledTimes(1)
   })
 
+  it("avoids Claude Code bypass permissions when the host process runs as root", async () => {
+    const getuid = vi.spyOn(process, "getuid").mockReturnValue(0)
+    try {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const session = { destroy: vi.fn() }
+      const harness = { harnessId: "claude-code" }
+      harnessCreateSession.mockResolvedValueOnce(session)
+      harnessGenerate.mockResolvedValueOnce({ text: "ok" })
+
+      const agent = defineAgent({
+        driver: {
+          harness,
+        },
+      })
+
+      await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+      expect(harnessAgentSettings.at(-1)).toMatchObject({
+        harness,
+        permissionMode: "allow-edits",
+      })
+    }
+    finally {
+      getuid.mockRestore()
+    }
+  })
+
   it("uses harnessSandbox for harness runtime setup", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }

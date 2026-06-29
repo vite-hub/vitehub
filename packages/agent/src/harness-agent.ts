@@ -65,6 +65,18 @@ function hasEntries(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && Object.keys(value).length > 0
 }
 
+function defaultHarnessPermissionMode(harness: unknown): "allow-all" | "allow-edits" {
+  if (
+    hasEntries(harness)
+    && harness.harnessId === "claude-code"
+    && typeof process.getuid === "function"
+    && process.getuid() === 0
+  ) {
+    return "allow-edits"
+  }
+  return "allow-all"
+}
+
 function unsupportedHarnessContributionKinds(context: AgentAdapterRunContext): Set<AgentDriverContributionKind> {
   const kinds = new Set<AgentDriverContributionKind>()
   if (context.providerTools?.length) kinds.add("provider tools")
@@ -393,7 +405,7 @@ async function createHarnessAgent<
         await prepareWorkspaceSession(session, sessionWorkDir, abortSignal)
       },
     },
-    permissionMode: "allow-all",
+    permissionMode: defaultHarnessPermissionMode(harness),
     sandbox,
     ...(tools ? { tools } : {}),
   })
