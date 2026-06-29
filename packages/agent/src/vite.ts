@@ -309,10 +309,11 @@ function generatedNetlifyRuntimeHelpers(): string[] {
 async function generateAgentWebhookRouteHandler(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
-  options: { chatRoute?: false | string, cloudflareState?: boolean, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { chatRoute?: false | string, cloudflareState?: boolean, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
   const agentImportBase = options.agentImportBase ?? agentPackageName
   const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
+  const runtimeRouteOption = options.runtime === "vite" ? ", runtime: 'vite'" : ""
   const imports = definitions
     .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
     .join("\n")
@@ -409,8 +410,8 @@ async function generateAgentWebhookRouteHandler(
     "  }",
     "  const cloudflare = cloudflareFromEvent(event)",
     options.cloudflareState
-      ? "  return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, runtime: 'vite', state: chatStateFromCloudflare(cloudflare), waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare, runtime: 'vite', waitUntil: waitUntilFromEvent(event) })"
-      : "  return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, runtime: 'vite', waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare, runtime: 'vite', waitUntil: waitUntilFromEvent(event) })",
+      ? `  return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare${runtimeRouteOption}, state: chatStateFromCloudflare(cloudflare), waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event) })`
+      : `  return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event) })`,
     "})",
     "",
   ].join("\n")
@@ -512,7 +513,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
 
 async function writeAgentWebhookRouteHandler(
   root: string,
-  options: { chatRoute?: false | string, cloudflareState?: boolean, webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { chatRoute?: false | string, cloudflareState?: boolean, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<void> {
   const handlerPath = join(root, generatedAgentWebhookRouteHandler)
   const definitions = discoverAgentDefinitions({
@@ -827,6 +828,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
             agentImportBase: getAgentImportBase(agent),
             chatRoute: normalized.routes.chat,
             cloudflareState: shouldInstallCloudflareAgentState(normalized),
+            ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
             workspaceImportBase: getWorkspaceImportBase(agent),
             webhookRoute: normalized.routes.webhooks,
           })
