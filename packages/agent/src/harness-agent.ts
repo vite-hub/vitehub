@@ -22,6 +22,7 @@ import type {
   AgentDriverContributionKind,
   AgentHarnessCredentialSource,
   AgentHarnessDriverInput,
+  AgentHarnessSandboxProviderInput,
   AgentHarnessSessionKey,
   AgentRunCallbackContext,
   AgentRuntimeConfig,
@@ -55,6 +56,7 @@ interface HarnessAgentAdapterOptions<
 > {
   credentials?: AgentHarnessCredentialSource
   harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
+  harnessSandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS>
   sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
 }
 
@@ -316,6 +318,22 @@ async function resolveHarness<
   return harness
 }
 
+async function resolveHarnessSandboxProvider<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  harnessSandbox: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
+): Promise<object | undefined> {
+  const provider = typeof harnessSandbox === "function"
+    ? await harnessSandbox(toRunCallbackContext(context))
+    : harnessSandbox
+  if (provider !== undefined && (!provider || typeof provider !== "object")) {
+    throw new TypeError("[vitehub] defineAgent({ harnessSandbox }) must return a harness sandbox provider object.")
+  }
+  return provider
+}
+
 async function createHarnessAgent<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -326,7 +344,7 @@ async function createHarnessAgent<
 ): Promise<HarnessAgentLike> {
   assertSupportedHarnessDriverContributions(context)
   const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
-  const sandbox = context.harnessSandboxProvider ?? await createDefaultHarnessSandbox(context)
+  const sandbox = context.harnessSandboxProvider ?? await resolveHarnessSandboxProvider(options.harnessSandbox, context) ?? await createDefaultHarnessSandbox(context)
   const harness = await resolveHarness(options.harness, context)
   const tools = toHarnessTools(context)
   return new HarnessAgent({

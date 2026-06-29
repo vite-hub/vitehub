@@ -488,6 +488,7 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("function resolveChatRouteOptions(module)")
       expect(webhookRoute).toContain("waitUntil: waitUntilFromEvent(event)")
       expect(webhookRoute).toContain("state: chatStateFromCloudflare(cloudflare)")
+      expect(webhookRoute).toContain("runtime: 'vite'")
       expect(webhookRoute).toContain("const agentModules")
       expect(webhookRoute).toContain("const chatHandlers")
       expect(webhookRoute).toContain("createChannelChatRouteHandler(agent, resolveChatRouteOptions(agentModules[name]))")

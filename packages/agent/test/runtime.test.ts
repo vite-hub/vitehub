@@ -69,6 +69,20 @@ describe("agent message protocol", () => {
     }))
   })
 
+  it("does not resolve harnessSandbox for custom Agent Drivers", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const harnessSandbox = vi.fn(() => {
+      throw new Error("unused")
+    })
+    const agent = defineAgent({
+      driver: { run: () => "ok" },
+      harnessSandbox,
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toBe("ok")
+    expect(harnessSandbox).not.toHaveBeenCalled()
+  })
+
   it("runs agent input hooks once before driver execution and can abort", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const run = vi.fn(() => "ok")
@@ -1226,6 +1240,42 @@ describe("agent message protocol", () => {
     expect(harnessSandbox).toHaveBeenCalledWith(expect.objectContaining({
       input: expect.objectContaining({ prompt: "hello" }),
       run: { runId: "run-1" },
+    }))
+    expect(vercelSandboxSettings).toEqual([])
+    expect(harnessAgentSettings.at(-1)).toMatchObject({
+      sandbox: provider,
+    })
+  })
+
+  it("uses harnessSandbox on resolved harness adapters", async () => {
+    const { defineAgent, resolveAgent } = await import("../src/index.ts")
+    const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
+    const session = { destroy: vi.fn() }
+    const provider = { providerId: "local-test", specificationVersion: "harness-sandbox-v1" }
+    const harnessSandbox = vi.fn(() => provider)
+    const invoker = { id: "anonymous:test", kind: "anonymous", label: "Anonymous" }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({ text: "ok" })
+
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      harnessSandbox,
+    })
+    const adapter = await resolveAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() })
+
+    await expect(adapter.generate({
+      actor: invoker,
+      context: createAgentInvocationContextStore(),
+      input: { prompt: "hello" },
+      invoker,
+      messages: [],
+      prompt: "hello",
+      runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+    })).resolves.toMatchObject({ text: "ok" })
+    expect(harnessSandbox).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ prompt: "hello" }),
     }))
     expect(vercelSandboxSettings).toEqual([])
     expect(harnessAgentSettings.at(-1)).toMatchObject({

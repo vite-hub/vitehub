@@ -71,6 +71,7 @@ interface ViteAgentRouteRuntimeContext extends AgentRuntimeContext<ViteAgentRout
 
 interface AgentRouteRuntimeOptions {
   cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"]
+  runtime?: AgentRuntimeName
   waitUntil?: AgentWaitUntil
 }
 
@@ -229,9 +230,10 @@ function createRuntimeContext(
   run: AgentRunMetadata | undefined,
   waitUntil?: AgentWaitUntil,
   cloudflare?: ViteAgentRouteRuntimeContext["cloudflare"],
+  runtimeOverride?: AgentRuntimeName,
 ): ViteAgentRouteRuntimeContext {
   const waitUntilController = createRuntimeWaitUntilController({ forward: waitUntil })
-  const runtime = cloudflare ? "cloudflare-agents" : detectRuntime()
+  const runtime = cloudflare ? "cloudflare-agents" : runtimeOverride || detectRuntime()
   return createAgentRuntimeContext({
     ...(cloudflare ? { cloudflare } : {}),
     flushWaitUntil: waitUntilController.flushWaitUntil,
@@ -2055,6 +2057,7 @@ export function createChannelChatRouteHandler(
         undefined,
         await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
         handlerOptions.cloudflare,
+        handlerOptions.runtime,
       )
       const trustInput = Boolean(routeOptions.admission?.authenticate && routeOptions.input?.trust?.length)
       const baseInput = agentChannelChatRouteInput(body, agentName, Boolean(trustInput || routeOptions.admission?.context || routeOptions.mapInput), routeOptions)
@@ -2100,6 +2103,7 @@ export function createChannelWebhookRouteHandler(
       undefined,
       await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
       handlerOptions.cloudflare,
+      handlerOptions.runtime,
     )
     return await runWithRuntimeCloudflareEnv(context, async () => {
       const match = await findAgentWebhookRegistration(agent, context, request, webhookId)

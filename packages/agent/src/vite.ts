@@ -409,8 +409,8 @@ async function generateAgentWebhookRouteHandler(
     "  }",
     "  const cloudflare = cloudflareFromEvent(event)",
     options.cloudflareState
-      ? "  return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, state: chatStateFromCloudflare(cloudflare), waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) })"
-      : "  return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) })",
+      ? "  return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, runtime: 'vite', state: chatStateFromCloudflare(cloudflare), waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare, runtime: 'vite', waitUntil: waitUntilFromEvent(event) })"
+      : "  return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, runtime: 'vite', waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare, runtime: 'vite', waitUntil: waitUntilFromEvent(event) })",
     "})",
     "",
   ].join("\n")
