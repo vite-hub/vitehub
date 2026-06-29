@@ -1183,6 +1183,48 @@ describe("agent message protocol", () => {
     expect(session.destroy).toHaveBeenCalledTimes(1)
   })
 
+  it("uses sandbox Capability providers for harness runtime setup", async () => {
+    const { sandbox } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const session = { destroy: vi.fn() }
+    const harness = { provider: "codex" }
+    const provider = { providerId: "local-test", specificationVersion: "harness-sandbox-v1" }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({ text: "ok" })
+
+    const agent = defineAgent({
+      capabilities: [sandbox({ provider: provider as never })],
+      driver: {
+        harness,
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+    expect(vercelSandboxSettings).toEqual([])
+    expect(harnessAgentSettings.at(-1)).toMatchObject({
+      harness,
+      sandbox: provider,
+    })
+    expect((harnessAgentSettings.at(-1)?.tools as Record<string, unknown> | undefined)?.sandbox_exec).toBeUndefined()
+  })
+
+  it("rejects multiple harness sandbox provider Capability contributions", async () => {
+    const { defineCapability } = await import("../src/capability-runtime.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({ harnessSandboxProvider: { providerId: "one" }, id: "one" }),
+        defineCapability({ harnessSandboxProvider: { providerId: "two" }, id: "two" }),
+      ],
+      driver: {
+        harness: { provider: "codex" },
+      },
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).rejects.toThrow("conflicts with another harness sandbox provider")
+    expect(harnessAgentSettings).toHaveLength(0)
+  })
+
   it("resolves function-valued harness Agent Driver config for each invocation", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     harnessAgentSettings.length = 0
@@ -5502,6 +5544,9 @@ describe("agent message protocol", () => {
   it("validates capability ids and sandbox commands", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { sandbox, workspaceShell } = await import("../src/capabilities.ts")
+
+    expect(sandbox({ provider: { providerId: "local-test" } as never }).tools).toBeUndefined()
+    expect(sandbox({ commands: ["node"] }).tools).toEqual(expect.any(Function))
 
     expect(() => defineAgent({
       capabilities: [{ id: "custom" }, { id: "custom" }],

@@ -735,7 +735,8 @@ export {
 } from "./invocation-stream.ts"
 export type { AgentInvocationStreamEvent } from "./invocation-stream.ts"
 
-function validateSandboxCommands(commands: unknown): string[] {
+function validateSandboxCommands(commands: unknown): string[] | undefined {
+  if (commands === undefined) return undefined
   if (!Array.isArray(commands) || !commands.length) {
     throw new TypeError("[vitehub] sandbox({ commands }) requires at least one executable name.")
   }
@@ -785,10 +786,16 @@ function capabilityWorkspaceIsOptional(capability: NormalizedCapability): boolea
     && (metadata as { [optionalWorkspaceCapabilitySymbol]?: unknown })[optionalWorkspaceCapabilitySymbol] === true
 }
 
+function sandboxCapabilityRequiresWorkspace(capability: NormalizedCapability): boolean {
+  if (capability.id !== "sandbox") return false
+  const metadata = capability.metadata as { commands?: unknown } | undefined
+  return Array.isArray(metadata?.commands)
+}
+
 function validateNonWorkspaceCapabilities(capabilities: NormalizedCapability[], hasWorkspace: boolean): void {
   if (hasWorkspace) return
   for (const capability of capabilities) {
-    if (capability.workspace && !capabilityWorkspaceIsOptional(capability) || capability.id === "workspace-shell" || capability.id === "sandbox" || accessCapabilityRequiresWorkspace(capability)) {
+    if (capability.workspace && !capabilityWorkspaceIsOptional(capability) || capability.id === "workspace-shell" || sandboxCapabilityRequiresWorkspace(capability) || accessCapabilityRequiresWorkspace(capability)) {
       const name = capability.id === "workspace-shell" ? "workspaceShell" : capability.id
       throw new Error(`[vitehub] ${name}() requires an explicit workspace.`)
     }
@@ -1154,6 +1161,7 @@ type AgentInvocationContext<
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finishHook?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS> extends infer TEvent ? (event: TEvent) => MaybePromise<void> : never
   hasCapabilityCleanup: boolean
+  harnessSandboxProvider?: unknown
   harnessWorkspacePaths: readonly string[]
   hooks?: AgentHookObserverHooks
   modelExecutionInstrumentation: AgentCapabilityRegistries["modelExecutionInstrumentation"]
@@ -1363,6 +1371,7 @@ async function createAgentInvocationContext<
       finishExtensionProviders: capabilities.registries.finishExtensionProviders,
       finishHook: definition?.hooks?.["agent:finish"] as never,
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
+      harnessSandboxProvider: capabilities.harnessSandboxProvider,
       harnessWorkspacePaths: capabilities.harnessWorkspacePaths,
       handledResponse: capabilities.response,
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,

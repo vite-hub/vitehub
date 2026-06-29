@@ -326,7 +326,7 @@ async function createHarnessAgent<
 ): Promise<HarnessAgentLike> {
   assertSupportedHarnessDriverContributions(context)
   const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
-  const sandbox = await createDefaultHarnessSandbox(context)
+  const sandbox = context.harnessSandboxProvider ?? await createDefaultHarnessSandbox(context)
   const harness = await resolveHarness(options.harness, context)
   const tools = toHarnessTools(context)
   return new HarnessAgent({

@@ -69,14 +69,32 @@ export default defineAgent({
 })
 ```
 
-ViteHub resolves harness sandbox setup as Agent Package runtime plumbing. Workspace-backed harness drivers in Vite dev use ViteHub's trusted local harness sandbox by default. Other runtime paths use the AI SDK Vercel Sandbox default when `@ai-sdk/sandbox-vercel` is installed. `sandbox()` remains the Capability for model-facing command execution authority.
+ViteHub resolves harness sandbox setup through the Agent Package runtime. Workspace-backed harness drivers in Vite dev use ViteHub's trusted local harness sandbox by default. Other runtime paths use the AI SDK Vercel Sandbox default when `@ai-sdk/sandbox-vercel` is installed. When an Agent needs a specific harness sandbox provider, pass it through the `sandbox()` Capability:
+
+```ts
+import { createCodex } from '@ai-sdk/harness-codex'
+import { defineAgent } from '@vite-hub/agent'
+import { createLocalHarnessSandbox } from '@vite-hub/agent/harness/local-sandbox'
+import { sandbox } from '@vite-hub/agent/capabilities'
+
+export default defineAgent({
+  driver: {
+    harness: createCodex({ model: 'gpt-5.5' }),
+  },
+  capabilities: [
+    sandbox({ provider: createLocalHarnessSandbox({ rootDir: '/tmp' }) }),
+  ],
+})
+```
+
+`sandbox({ commands })` remains the Capability shape for model-facing command execution authority.
 
 `driver.harness` and `driver.sessionKey` can also be callbacks. Use callbacks when one Agent Definition needs invocation-scoped harness auth or session reuse.
 
 Harness-backed drivers do not receive `driver.instructions` as a model prompt. Use explicit harness configuration or Workspace instruction surfaces when the harness needs guidance.
 
-Harness-backed drivers also do not receive model-facing Capability tools, provider tools, or ambient Capability, Source, or Skill prose.
-When a Capability should support harness execution, give the harness files it can inspect through Workspace Sources, `harnessWorkspacePaths`, or a harness-native configuration surface.
+Harness-backed drivers receive resolved Capability tools through harness tool support, but they do not receive provider tools or ambient Capability, Source, or Skill prose.
+When a Capability should support harness execution with files, give the harness files it can inspect through Workspace Sources or `harnessWorkspacePaths`.
 
 For a fresh TypeScript app, use ESM and NodeNext resolution so the ESM-only ViteHub and harness subpath imports load correctly.
 

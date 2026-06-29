@@ -667,6 +667,7 @@ export interface AgentCapabilityDefinition<
   configure?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   finish?: AgentFinishExtensionProvider<TRuntimeConfig>
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
+  harnessSandboxProvider?: unknown
   id: string
   input?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<Response | void>
   harnessWorkspacePaths?: readonly string[]
@@ -1338,6 +1339,7 @@ export interface AgentAdapterRunContext<
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
   driverContributions?: AgentDriverContribution[]
   hasCapabilityCleanup?: boolean
+  harnessSandboxProvider?: unknown
   harnessWorkspacePaths?: readonly string[]
   input: AgentRunInput<TOptions>
   instructions?: string
