@@ -136,16 +136,18 @@ describe("agent channels", () => {
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
     const postedBodies: string[] = []
     const uploadedPaths: string[] = []
+    const uploadedBodies: Array<Record<string, unknown>> = []
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const href = String(url)
       if (href.endsWith("/app/installations/456/access_tokens")) {
         return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
       }
-      if (href.endsWith("/git/ref/heads/vitehub-agent-assets")) return Response.json({ message: "not found" }, { status: 404 })
+      if (href.endsWith("/git/ref/heads/review-assets")) return Response.json({ message: "not found" }, { status: 404 })
       if (href.endsWith("/pulls/42")) return Response.json({ head: { sha: "head-sha" } })
       if (href.endsWith("/git/refs")) return Response.json({ ok: true }, { status: 201 })
       if (href.includes("/contents/")) {
         uploadedPaths.push(href)
+        uploadedBodies.push(JSON.parse(String(init?.body)))
         return Response.json({ content: { sha: "content-sha" } }, { status: 201 })
       }
       if (href.endsWith("/issues/42/comments")) {
@@ -158,6 +160,7 @@ describe("agent channels", () => {
       app: {
         apiBaseUrl: "https://api.github.test",
         appId: "2",
+        artifacts: { branch: "review-assets", pathPrefix: "review-output" },
         fetch: fetcher as typeof fetch,
         installationId: 456,
         privateKey: privateKeyPem,
@@ -170,7 +173,7 @@ describe("agent channels", () => {
       channel,
       effect: {
         kind: "reply",
-        payload: { body: "Screenshot: screenshots/login.png" },
+        payload: { body: "Screenshot: screenshots/login.png\nLink: [screenshot](screenshots/login.png)" },
       },
       input: {
         context: {
@@ -205,9 +208,38 @@ describe("agent channels", () => {
 
     expect(uploadedPaths).toHaveLength(1)
     expect(uploadedPaths[0]).toContain("/contents/")
-    expect(uploadedPaths[0]).toContain("vitehub-agent-assets")
+    expect(uploadedPaths[0]).toContain("review-output")
+    expect(uploadedBodies[0]).toMatchObject({
+      branch: "review-assets",
+      message: "chore: publish agent delivery artifact screenshots/login.png [skip ci]",
+    })
     expect(postedBodies).toHaveLength(1)
-    expect(postedBodies[0]).toContain("Screenshot: ![login.png](<https://github.com/vite-hub/vitehub/raw/vitehub-agent-assets/")
+    expect(postedBodies[0]).toContain("Screenshot: ![login.png](<https://github.test/vite-hub/vitehub/raw/review-assets/")
+    expect(postedBodies[0]).toContain("Link: [screenshot](<https://github.test/vite-hub/vitehub/raw/review-assets/")
     expect(postedBodies[0]).not.toContain("Screenshot: screenshots/login.png")
+    expect(postedBodies[0]).not.toContain("[screenshot](![")
+  })
+
+  it("ignores GitHub PR delivery effects without pull request context", async () => {
+    const { github } = await import("../src/channels.ts")
+    const channel = github({
+      app: {
+        appId: "3",
+        fetch: vi.fn() as typeof fetch,
+      },
+    })
+
+    for (const kind of ["reply", "update", "review"] as const) {
+      const effect = channel.effects?.[kind]
+      if (typeof effect !== "function") throw new Error(`Missing GitHub ${kind} effect.`)
+      await expect(effect({
+        channel,
+        effect: { kind, payload: { body: "No GitHub context" } },
+        input: { prompt: "No GitHub context" },
+        memo: vi.fn(),
+        runtime: "unknown",
+        waitUntil: vi.fn(),
+      } as never)).resolves.toBeUndefined()
+    }
   })
 })
