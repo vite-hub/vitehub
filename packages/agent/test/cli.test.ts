@@ -648,6 +648,11 @@ describe("agent CLI", () => {
           { id: "tool-7", input: {}, name: "lookup_doc", type: "tool-call" },
           { id: "tool-7", input: { slug: "final" }, name: "lookup_doc", type: "tool-call" },
           { id: "tool-7", name: "lookup_doc", output: { text: "lookup result" }, type: "tool-result" },
+          { id: "tool-12", input: { argv: ["purchase-orders"] }, name: "portal", type: "tool-call" },
+          { id: "tool-12", input: { argv: ["purchase-orders"], input: { limit: 100, planningGroupId: "demo" }, json: true }, name: "portal", type: "tool-call" },
+          { id: "tool-15", input: { argv: ["post"], input: "abc" }, name: "portal", type: "tool-call" },
+          { id: "tool-14", input: { argv: ["post"], input: "line one\nline two" }, name: "portal", type: "tool-call" },
+          { id: "tool-13", input: { operation: "comment", body: "line one\nline two", target: { id: "PR-1" } }, name: "repository_host_write", type: "tool-call" },
           { id: "tool-9", input: { query: "first" }, name: "first_tool", type: "tool-call" },
           { id: "tool-10", input: { query: "second" }, name: "second_tool", type: "tool-call" },
           { id: "tool-10", name: "second_tool", output: { text: "second done" }, type: "tool-result" },
@@ -689,6 +694,12 @@ describe("agent CLI", () => {
     expect(stderr.output()).toContain(`\n[tool] search_docs {"query":"Agent Dev Loop"}\nsearch result\n---\n`)
     expect(stderr.output()).toContain(`\n[tool] lookup_doc\n  input: {"slug":"final"}\nlookup result\n---\n`)
     expect(stderr.output()).not.toContain(`\n[tool] lookup_doc {}\n`)
+    expect(stderr.output()).toContain(`\n[tool] portal purchase-orders\n`)
+    expect(stderr.output()).toContain(`\n[tool] portal purchase-orders --json --input '{"limit":100,"planningGroupId":"demo"}'\n`)
+    expect(stderr.output()).toContain(`\n[tool] portal post --input '"abc"'\n`)
+    expect(stderr.output()).not.toContain(`[tool] portal {"argv":["purchase-orders"]`)
+    expect(stderr.output()).toContain(`\n[tool] portal post --input '"line one\\nline two"'\n`)
+    expect(stderr.output()).toContain(`\n[tool] repository_host_write {"operation":"comment","body":"line one\\nline two","target":{"id":"PR-1"}}\n`)
     const firstToolIndex = stderr.output().indexOf(`[tool] first_tool {"query":"first"}`)
     const secondToolIndex = stderr.output().indexOf(`[tool] second_tool {"query":"second"}`)
     expect(firstToolIndex).toBeGreaterThanOrEqual(0)
