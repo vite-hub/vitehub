@@ -610,6 +610,23 @@ describe("agent message protocol", () => {
     expect(outcomes).toEqual([{ failed: false }])
   })
 
+  it("propagates post-chunk UI message response read failures", async () => {
+    const { createAgentUIMessageStreamResponse } = await import("../src/stream-output.ts")
+    const error = new Error("upstream failed")
+    let read = false
+    const response = createAgentUIMessageStreamResponse({
+      stream: new ReadableStream({
+        pull(controller) {
+          if (read) throw error
+          read = true
+          controller.enqueue({ text: "partial", type: "text-delta" })
+        },
+      }),
+    })
+
+    await expect(response.text()).rejects.toThrow("upstream failed")
+  })
+
   it("records a failed invocation when failure cleanup also fails", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()

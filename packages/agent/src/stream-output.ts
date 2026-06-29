@@ -65,35 +65,6 @@ export function createAgentUIMessageStream(options: {
   })
 }
 
-function withCleanUiMessageEventStream<T>(stream: ReadableStream<T>): ReadableStream<T> {
-  const reader = stream.getReader()
-  let sawChunk = false
-  return new ReadableStream<T>({
-    async pull(controller) {
-      try {
-        const result = await reader.read()
-        if (result.done) {
-          controller.close()
-          return
-        }
-
-        sawChunk = true
-        controller.enqueue(result.value)
-      }
-      catch (error) {
-        if (sawChunk) {
-          controller.close()
-          return
-        }
-        controller.error(error)
-      }
-    },
-    async cancel(reason) {
-      await reader.cancel(reason)
-    },
-  })
-}
-
 export function createAgentUIMessageStreamResponse(options: {
   headers?: ConstructorParameters<typeof Headers>[0]
   status?: number
@@ -105,7 +76,7 @@ export function createAgentUIMessageStreamResponse(options: {
     if (!headers.has(key)) headers.set(key, value)
   }
   const encoder = new TextEncoder()
-  const stream = withCleanUiMessageEventStream(options.stream).pipeThrough(new TransformStream<unknown, Uint8Array>({
+  const stream = options.stream.pipeThrough(new TransformStream<unknown, Uint8Array>({
     flush(controller) {
       controller.enqueue(encoder.encode("data: [DONE]\n\n"))
     },
