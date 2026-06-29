@@ -61,7 +61,7 @@ function createFakeSandbox(provider: "cloudflare" | "vercel") {
         await mkdir(parent(path))
         files.set(path, { content, type: "file" })
       },
-      async readFile(path: string, options?: { encoding?: "binary" | "utf8" }) {
+      async readFile(path: string, options?: { encoding?: "binary" | "utf8" }): Promise<string | Uint8Array> {
         const entry = files.get(path)
         if (!entry || (entry.type !== "file" && entry.type !== "symlink")) throw new Error(`missing file: ${path}`)
         if (entry.type === "symlink")
