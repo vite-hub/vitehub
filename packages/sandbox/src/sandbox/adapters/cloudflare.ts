@@ -287,7 +287,7 @@ export class CloudflareSandboxAdapter extends BaseSandboxAdapter<'cloudflare'> {
       .filter(Boolean)
       .slice(1)
       .map((line) => {
-        const parts = line.split(/\s+/)
+        const parts = line.replace(/\s+->\s+.*$/, '').split(/\s+/)
         const name = parts[parts.length - 1] || ''
         return {
           name,
