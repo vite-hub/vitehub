@@ -40,8 +40,6 @@ export function createAgentInvocationStreamResponse(
   const encoder = new TextEncoder()
   const abortController = new AbortController()
   let closed = false
-  let closeAfterRun: (() => void) | undefined
-  let runSettled = false
   let timeout: ReturnType<typeof setTimeout> | undefined
 
   function clearTimeoutSignal(): void {
@@ -81,8 +79,7 @@ export function createAgentInvocationStreamResponse(
         error: cause instanceof Error ? cause.message : "Agent Invocation Stream event could not be serialized.",
         type: "error",
       })
-      if (runSettled) closeFailed(controller)
-      else closeAfterRun = () => closeFailed(controller)
+      closeFailed(controller)
     }
     catch {
       closed = true
@@ -122,10 +119,6 @@ export function createAgentInvocationStreamResponse(
             type: "error",
           })
           if (emit(controller, { type: "done" })) close(controller)
-        })
-        .finally(() => {
-          runSettled = true
-          closeAfterRun?.()
         })
     },
     cancel() {
