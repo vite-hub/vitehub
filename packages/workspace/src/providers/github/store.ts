@@ -61,11 +61,21 @@ function contentLength(content: string | Uint8Array): number {
 }
 
 function gitHubFileMetadata(entry: GitHubTreeEntry): Record<string, unknown> | undefined {
-  return entry.mode === "120000" ? { gitMode: entry.mode } : undefined;
+  return entry.mode === "120000" || entry.mode === "100755" ? { gitMode: entry.mode } : undefined;
 }
 
 function gitHubFileMode(metadata: Record<string, unknown> | undefined): string {
-  return metadata?.gitMode === "120000" ? "120000" : "100644";
+  return metadata?.gitMode === "120000" || metadata?.gitMode === "100755"
+    ? metadata.gitMode
+    : "100644";
+}
+
+function inheritedGitHubFileMetadata(
+  file: WorkspaceFile,
+  current: GitHubWorkspaceStoreFile | undefined,
+): Record<string, unknown> | undefined {
+  if (file.metadata) return file.metadata;
+  return current?.metadata?.gitMode === "100755" ? current.metadata : undefined;
 }
 
 function parentDirectories(path: string): string[] {
@@ -114,12 +124,13 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     await this.#ensure({ refresh: false });
     const update = await createGitHubFileUpdate(normalized, this.#root, file.content);
     const current = this.#files.get(normalized);
+    const metadata = inheritedGitHubFileMetadata(file, current);
     if (current?.gitSha === update.gitSha) {
-      if (gitHubFileMode(current.metadata) !== gitHubFileMode(file.metadata)) this.#dirty = true;
+      if (gitHubFileMode(current.metadata) !== gitHubFileMode(metadata)) this.#dirty = true;
       this.#files.set(normalized, {
         ...current,
         mediaType: file.mediaType,
-        metadata: file.metadata,
+        metadata,
         size: contentLength(file.content),
       });
       return;
@@ -133,7 +144,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     this.#files.set(normalized, {
       gitSha: update.gitSha,
       mediaType: file.mediaType,
-      metadata: file.metadata,
+      metadata,
       path: normalized,
       size: contentLength(file.content),
     });

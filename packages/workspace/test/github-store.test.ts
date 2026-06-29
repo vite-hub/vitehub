@@ -56,7 +56,7 @@ beforeEach(() => {
               content?: string;
               force?: boolean;
               sha?: string | null;
-              tree?: Array<{ path: string; sha: string | null; type: "blob" }>;
+              tree?: Array<{ mode?: string; path: string; sha: string | null; type: "blob" }>;
             })
           : undefined;
       requests.push({ body, headers: new Headers(init.headers), method, path: url.pathname });
@@ -86,6 +86,7 @@ beforeEach(() => {
           if (entry.sha) {
             const bytes = blobs.get(entry.sha);
             remoteTree.push({
+              mode: entry.mode,
               path: entry.path,
               sha: entry.sha,
               size: bytes?.byteLength,
@@ -461,6 +462,35 @@ describe("GitHub workspace store", () => {
           sha: textSha("NEXT.md"),
           type: "blob",
         },
+      ]),
+    });
+  });
+
+  it("preserves remote executable file modes during unrelated snapshots", async () => {
+    seedRemote(".vitehub/workspaces/docs/bin/tool.sh", "#!/bin/sh\n", "100755");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await expect(store.stat("bin/tool.sh")).resolves.toMatchObject({
+      metadata: { gitMode: "100755" },
+    });
+    await store.writeFile("notes.md", { path: "notes.md", content: "ok\n" });
+    await store.snapshot({ name: "write note" });
+
+    expect(
+      requests.find((request) => request.path.endsWith("/git/trees") && request.method === "POST")
+        ?.body,
+    ).toMatchObject({
+      tree: expect.not.arrayContaining([
+        expect.objectContaining({ path: ".vitehub/workspaces/docs/bin/tool.sh" }),
       ]),
     });
   });
