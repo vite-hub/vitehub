@@ -8,6 +8,7 @@ import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "../chat-trigger.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
+import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { normalizeAgentInvokerProfiles, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
 import { createAgentRuntimeContext } from "../runtime/context.ts"
@@ -28,6 +29,7 @@ import type {
   AgentChatMessage,
   AgentChatOptions,
   AgentDefinition,
+  PublishedAgentDeliveryArtifact,
   AgentInput,
   AgentInvoker,
   AgentInvokerProfile,
@@ -50,7 +52,7 @@ import type {
   ChatDevtoolsMetadataStatus,
   ChatDevtoolsStateResult,
 } from "@vite-hub/devtools/chat-shared"
-import type { Adapter, Attachment, ChatConfig, Lock, Message as ChatSdkMessage, MessageContext, QueueEntry, StateAdapter, Thread, WebhookOptions } from "chat"
+import type { Adapter, AdapterPostableMessage, Attachment, ChatConfig, Lock, Message as ChatSdkMessage, MessageContext, QueueEntry, StateAdapter, Thread, WebhookOptions } from "chat"
 import type { UIMessage } from "ai"
 import {
   chatDevtoolsClearRpc,
@@ -975,8 +977,39 @@ function isTextChatMessage(message: AgentChatMessage): message is { text: string
     && typeof message.text === "string"
 }
 
+function chatMessageDeliveryArtifacts(message: AgentChatMessage): readonly PublishedAgentDeliveryArtifact[] {
+  const artifacts = (message as { artifacts?: unknown }).artifacts
+  return Array.isArray(artifacts) ? artifacts as readonly PublishedAgentDeliveryArtifact[] : []
+}
+
 async function postChatMessage(thread: Thread, message: AgentChatMessage): Promise<void> {
-  await thread.post(isTextChatMessage(message) ? message.text : message)
+  if (typeof message !== "object" || message === null) {
+    await thread.post(message)
+    return
+  }
+
+  const attachments = deliveryArtifactAttachments(chatMessageDeliveryArtifacts(message))
+  if (!attachments.length) {
+    await thread.post(isTextChatMessage(message) ? message.text : message as AdapterPostableMessage)
+    return
+  }
+
+  if (isTextChatMessage(message)) {
+    await thread.post({ attachments, raw: message.text })
+    return
+  }
+
+  const { artifacts: _artifacts, ...postable } = message as Exclude<AgentChatMessage, string | { text: string }> & {
+    artifacts?: readonly PublishedAgentDeliveryArtifact[]
+    attachments?: unknown
+  }
+  await thread.post({
+    ...postable,
+    attachments: [
+      ...(Array.isArray(postable.attachments) ? postable.attachments as Attachment[] : []),
+      ...attachments,
+    ],
+  } as AdapterPostableMessage)
 }
 
 async function resolveChatErrorFallbackText(
