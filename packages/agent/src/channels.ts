@@ -22,8 +22,8 @@ import type {
   PublishedAgentDeliveryArtifact,
 } from "./types.ts"
 import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } from "./server.ts"
-import type { Attachment } from "chat"
 
+export { deliveryArtifactAttachments } from "./delivery-artifacts.ts"
 export type {
   AgentChannelDeliveryEffectContext,
   AgentChannelDeliveryEffectHandler,
@@ -85,30 +85,6 @@ export type AgentDeliveryArtifactPublisher =
 export interface PublishWorkspaceArtifactsOptions {
   prefix?: string
   publish: AgentDeliveryArtifactPublisher
-}
-
-const chatImageArtifactExtensions = new Set(["gif", "jpeg", "jpg", "png", "svg", "webp"])
-
-function deliveryArtifactAttachmentType(artifact: PublishedAgentDeliveryArtifact): Attachment["type"] {
-  const mediaType = artifact.mediaType?.toLowerCase()
-  if (mediaType?.startsWith("audio/")) return "audio"
-  if (mediaType?.startsWith("image/")) return "image"
-  if (mediaType?.startsWith("video/")) return "video"
-  return chatImageArtifactExtensions.has(artifact.path.split(".").pop()?.toLowerCase() || "") ? "image" : "file"
-}
-
-export function deliveryArtifactAttachments(
-  artifacts: readonly PublishedAgentDeliveryArtifact[] | undefined,
-): Attachment[] {
-  return (artifacts || []).flatMap((artifact) => {
-    if (!artifact.url) return []
-    return [{
-      ...(artifact.mediaType ? { mimeType: artifact.mediaType } : {}),
-      name: artifact.path.split("/").pop() || artifact.path,
-      type: deliveryArtifactAttachmentType(artifact),
-      url: artifact.url,
-    }]
-  })
 }
 
 type GitHubAppValue<T, TRuntimeConfig extends AgentRuntimeConfig> =
@@ -854,10 +830,13 @@ async function githubBodyImageArtifacts<TRuntimeConfig extends AgentRuntimeConfi
     const path = await existingWorkspaceImagePath(context, value)
     if (path) paths.add(path)
   }
-  for (const match of body.matchAll(/!\[[^\]\r\n]*\]\(\s*(\.?\/?(?:[\w.-]+\/)*[\w.-]+\.(?:gif|jpe?g|png|svg|webp))\s*\)/gi)) {
+  for (const match of body.matchAll(/!\[[^\]\r\n]*\]\(\s*<?(\.?\/?(?:[\w.-]+\/)*[\w.-]+\.(?:gif|jpe?g|png|svg|webp))>?\s*\)/gi)) {
     await collect(match[1])
   }
-  for (const match of body.matchAll(/(^|[\s('"`<])((?:\.\/)?(?:[\w.-]+\/)*[\w.-]+\.(?:gif|jpe?g|png|svg|webp))(?![\w.-])/gi)) {
+  for (const match of body.matchAll(/(?<!!)\[[^\]\r\n]*\]\(\s*<?(\.?\/?(?:[\w.-]+\/)*[\w.-]+\.(?:gif|jpe?g|png|svg|webp))>?\s*\)/gi)) {
+    await collect(match[1])
+  }
+  for (const match of body.matchAll(/(^|[\s('"])((?:\.\/)?(?:[\w.-]+\/)*[\w.-]+\.(?:gif|jpe?g|png|svg|webp))(?![\w.-])/gi)) {
     await collect(match[2])
   }
   if (!paths.size) return []
@@ -962,9 +941,9 @@ async function githubBodyWithArtifacts<TRuntimeConfig extends AgentRuntimeConfig
     const path = artifact.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
     const url = githubMarkdownUrl(artifact.url!)
     return text
-      .replace(new RegExp(`!\\[([^\\]\\r\\n]*)\\]\\(\\s*(?:\\./)?${path}\\s*\\)`, "g"), (_match, alt) => `![${githubMarkdownText(alt || artifact.alt || artifact.path)}](<${url}>)`)
-      .replace(new RegExp(`(?<!!)\\[([^\\]\\r\\n]*)\\]\\(\\s*(?:\\./)?${path}\\s*\\)`, "g"), (_match, label) => `[${githubMarkdownText(label || artifact.alt || artifact.path)}](<${url}>)`)
-      .replace(new RegExp(`(^|[\\s('"\\x60<])(?:\\./)?${path}(?![\\w.-])`, "g"), (_match, prefix) => `${prefix}${markdown}`)
+      .replace(new RegExp(`!\\[([^\\]\\r\\n]*)\\]\\(\\s*<?(?:\\./)?${path}>?\\s*\\)`, "g"), (_match, alt) => `![${githubMarkdownText(alt || artifact.alt || artifact.path)}](<${url}>)`)
+      .replace(new RegExp(`(?<!!)\\[([^\\]\\r\\n]*)\\]\\(\\s*<?(?:\\./)?${path}>?\\s*\\)`, "g"), (_match, label) => `[${githubMarkdownText(label || artifact.alt || artifact.path)}](<${url}>)`)
+      .replace(new RegExp(`(^|[\\s('"])(?:\\./)?${path}(?![\\w.-])`, "g"), (_match, prefix) => `${prefix}${markdown}`)
   }, body || "")
   const explicitArtifacts = artifacts.filter(line => !bodyArtifacts.some(artifact => githubArtifactMarkdown(artifact) === line))
   if (!explicitArtifacts.length) return rewrittenBody || body

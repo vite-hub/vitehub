@@ -59,7 +59,7 @@ describe("agent channels", () => {
   })
 
   it("maps published delivery artifacts to Chat SDK attachments", async () => {
-    const { deliveryArtifactAttachments } = await import("../src/channels.ts")
+    const { deliveryArtifactAttachments } = await import("../src/delivery-artifacts.ts")
 
     expect(deliveryArtifactAttachments([{
       mediaType: "image/png",
@@ -71,6 +71,11 @@ describe("agent channels", () => {
       path: "reports/review.pdf",
       placement: "attachment",
       url: "https://assets.example/reports/review.pdf",
+    }, {
+      mediaType: "image/png",
+      path: "screenshots/link-only.png",
+      placement: "link",
+      url: "https://assets.example/screenshots/link-only.png",
     }, {
       path: "local-only.txt",
     }])).toEqual([{
@@ -205,7 +210,7 @@ describe("agent channels", () => {
       channel,
       effect: {
         kind: "reply",
-        payload: { body: "Screenshot: screenshots/login.png\nRoot: result.png\nLink: [result](result.png)\nInline: ![result](result.png)" },
+        payload: { body: "Screenshot: screenshots/login.png\nAngled: ![login](<screenshots/login.png>)\nRoot: result.png\nLink: [result](result.png)\nAngle link: [result](<result.png>)\nInline: ![result](result.png)\nCode: `unused.png`" },
       },
       input: {
         context: {
@@ -253,9 +258,12 @@ describe("agent channels", () => {
     ])
     expect(postedBodies).toHaveLength(1)
     expect(postedBodies[0]).toContain("Screenshot: ![login.png](<https://github.test/vite-hub/vitehub/raw/review-assets/")
+    expect(postedBodies[0]).toContain("Angled: ![login](<https://github.test/vite-hub/vitehub/raw/review-assets/")
     expect(postedBodies[0]).toContain("Root: ![result.png](<https://github.test/vite-hub/vitehub/raw/review-assets/")
     expect(postedBodies[0]).toContain("Link: [result](<https://github.test/vite-hub/vitehub/raw/review-assets/")
+    expect(postedBodies[0]).toContain("Angle link: [result](<https://github.test/vite-hub/vitehub/raw/review-assets/")
     expect(postedBodies[0]).toContain("Inline: ![result](<https://github.test/vite-hub/vitehub/raw/review-assets/")
+    expect(postedBodies[0]).toContain("Code: `unused.png`")
     expect(postedBodies[0]).not.toContain("Screenshot: screenshots/login.png")
     expect(postedBodies[0]).not.toContain("Root: result.png")
     expect(postedBodies[0]).not.toContain("[result](![")
