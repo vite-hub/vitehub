@@ -359,6 +359,11 @@ function quoteCliValue(value: unknown): string | undefined {
     : `'${text.replace(/'/g, "'\\''")}'`
 }
 
+function quoteCliPart(value: unknown): string | undefined {
+  const quoted = quoteCliValue(value)
+  return quoted && !quoted.includes("\n") ? quoted : undefined
+}
+
 function operationCommand(name: string, value: unknown): string | undefined {
   if (!isRecord(value)) return
   const operation = typeof value.operationId === "string" && value.operationId.trim()
@@ -366,27 +371,50 @@ function operationCommand(name: string, value: unknown): string | undefined {
     : typeof value.operation === "string" && value.operation.trim()
       ? value.operation.trim()
       : undefined
-  const quotedOperation = quoteCliValue(operation)
-  if (!quotedOperation || quotedOperation.includes("\n")) return
+  const quotedOperation = quoteCliPart(operation)
+  if (!quotedOperation) return
 
   const parts = [name, quotedOperation]
   for (const key of ["path", "query", "body"]) {
     if (value[key] === undefined) continue
-    const quoted = quoteCliValue(value[key])
+    const quoted = quoteCliPart(value[key])
     if (quoted) parts.push(`--${key}`, quoted)
   }
 
   const rest = Object.fromEntries(Object.entries(value).filter(([key, item]) =>
     item !== undefined && !["operation", "operationId", "path", "query", "body"].includes(key),
   ))
-  const quotedRest = Object.keys(rest).length ? quoteCliValue(rest) : undefined
+  const quotedRest = Object.keys(rest).length ? quoteCliPart(rest) : undefined
   if (quotedRest) parts.push("--input", quotedRest)
 
   return parts.join(" ")
 }
 
+function argvCommand(name: string, value: unknown): string | undefined {
+  if (!isRecord(value)) return
+  const argv = value.argv
+  if (!Array.isArray(argv) || argv.some(arg => typeof arg !== "string")) return
+  const parts = [name]
+  for (const arg of argv) {
+    const quoted = quoteCliPart(arg)
+    if (!quoted) return
+    parts.push(quoted)
+  }
+  if (value.json === true && !argv.includes("--json")) parts.push("--json")
+  if (value.input !== undefined && !argv.includes("--input") && !argv.some(arg => arg.startsWith("--input="))) {
+    const quoted = quoteCliPart(value.input)
+    if (quoted) parts.push("--input", quoted)
+  }
+  return parts.join(" ")
+}
+
 function toolCommand(name: string, input?: unknown, output?: unknown): string | undefined {
-  return shellCommand(input) ?? shellCommand(output) ?? operationCommand(name, input) ?? operationCommand(name, output)
+  return shellCommand(input)
+    ?? shellCommand(output)
+    ?? argvCommand(name, input)
+    ?? argvCommand(name, output)
+    ?? operationCommand(name, input)
+    ?? operationCommand(name, output)
 }
 
 function toolHeader(name: string, input?: unknown, output?: unknown): string {
