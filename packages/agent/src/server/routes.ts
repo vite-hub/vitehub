@@ -185,7 +185,6 @@ function readableStreamFromResult(value: unknown): ReadableStream<unknown> {
 
 function isUiMessageStreamResponse(response: Response): boolean {
   return response.headers.get("x-vercel-ai-ui-message-stream") === "v1"
-    || response.headers.get("content-type")?.includes("text/event-stream") === true
 }
 
 function withCleanUiMessageStreamResponse(response: Response): Response {
@@ -194,8 +193,9 @@ function withCleanUiMessageStreamResponse(response: Response): Response {
   const doneFrame = new TextEncoder().encode("data: [DONE]\n\n")
   const decoder = new TextDecoder()
   const reader = response.body.getReader()
-  let sawChunk = false
   let tail = ""
+  const headers = new Headers(response.headers)
+  headers.delete("content-length")
 
   function enqueueDone(controller: ReadableStreamDefaultController<Uint8Array>) {
     if (!tail.includes("data: [DONE]")) {
@@ -213,25 +213,18 @@ function withCleanUiMessageStreamResponse(response: Response): Response {
           return
         }
 
-        sawChunk = true
         tail = `${tail}${decoder.decode(result.value, { stream: true })}`.slice(-128)
         controller.enqueue(result.value)
       }
       catch (error) {
-        if (!sawChunk) {
-          controller.error(error)
-          return
-        }
-
-        enqueueDone(controller)
-        controller.close()
+        controller.error(error)
       }
     },
     async cancel(reason) {
       await reader.cancel(reason)
     },
   }), {
-    headers: response.headers,
+    headers,
     status: response.status,
     statusText: response.statusText,
   })
