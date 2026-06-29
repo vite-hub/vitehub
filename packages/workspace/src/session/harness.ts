@@ -308,6 +308,20 @@ async function listSandboxPaths(
   return new Set(pathsFromFindOutput(result.stdout))
 }
 
+async function readSandboxSymlinkTarget(
+  sandbox: HarnessSandboxSession,
+  sessionWorkDir: string,
+  path: string,
+  abortSignal: AbortSignal | undefined,
+) {
+  const result = await runSandbox(sandbox, {
+    abortSignal,
+    command: `readlink -- ${shellQuote(path)}`,
+    workingDirectory: sessionWorkDir,
+  })
+  return result.stdout.replace(/\n$/, "")
+}
+
 async function copyWorkspaceToSandbox(
   workspace: WorkspaceFacade,
   sandbox: HarnessSandboxSession,
@@ -372,6 +386,15 @@ async function copySandboxChangesToWorkspace(
     if (!content || (!initial?.symlinkTarget && bytesEqual(initial?.content, content))) continue
     await session.writeFile(path, content, {
       mediaType: initial?.mediaType || lookup(path) || undefined,
+    })
+  }
+  for (const path of sandboxSymlinks) {
+    if (ignoreWriteBackPaths.has(path)) continue
+    const initial = initialTree.files.get(path)
+    const target = await readSandboxSymlinkTarget(sandbox, sessionWorkDir, path, abortSignal)
+    if (initial?.symlinkTarget === target) continue
+    await session.writeFile(path, contentToBytes(target), {
+      metadata: { gitMode: "120000" },
     })
   }
 

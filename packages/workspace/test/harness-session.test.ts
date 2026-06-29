@@ -465,12 +465,12 @@ describe("Harness Workspace Session", () => {
     expect(workspaceSession.close).toHaveBeenCalledOnce()
   })
 
-  it("does not write harness symlink targets back as Workspace files", async () => {
+  it("commits harness symlinks as Git symlink blobs", async () => {
     const workspaceSession = {
       close: vi.fn(async () => {}),
       commit: vi.fn(async () => {}),
       diff: vi.fn(async () => ({
-        entries: [{ path: "result.txt", type: "added" }],
+        entries: [{ path: "linked.txt", type: "added" }],
         to: "next",
       })),
       mkdir: vi.fn(async () => {}),
@@ -479,18 +479,28 @@ describe("Harness Workspace Session", () => {
     }
     const readBinaryFile = vi.fn(async ({ path }: { path: string }) =>
       path.endsWith("linked.txt") ? bytes("target bytes") : bytes("result"))
+    const run = vi.fn(async ({ command }: { command: string }) => {
+      if (command.includes("-type d")) return ok()
+      if (command.includes("-type f")) return ok("./result.txt")
+      if (command.includes("-type l")) return ok("./CLAUDE.md\n./linked.txt")
+      if (command === "readlink -- 'CLAUDE.md'") return ok("NEXT.md\n")
+      if (command === "readlink -- 'linked.txt'") return ok("target.txt\n")
+      return ok()
+    })
 
     const session = await prepareHarnessWorkspaceSession({
       fs: {
-        list: vi.fn(async () => []),
-        readFile: vi.fn(async () => bytes("")),
+        list: vi.fn(async () => [
+          { metadata: { gitMode: "120000" }, path: "CLAUDE.md", type: "file" },
+        ]),
+        readFile: vi.fn(async () => bytes("AGENTS.md")),
       },
       startSession: vi.fn(async () => workspaceSession),
       tools: {},
     } as never, {
       session: {
         readBinaryFile,
-        run: sandboxRun(["result.txt"], [], ["linked.txt"]),
+        run,
         writeBinaryFile: vi.fn(async () => {}),
       },
       sessionWorkDir: "/work/agent",
@@ -500,7 +510,8 @@ describe("Harness Workspace Session", () => {
 
     expect(readBinaryFile).not.toHaveBeenCalledWith({ abortSignal: undefined, path: "/work/agent/linked.txt" })
     expect(workspaceSession.writeFile).toHaveBeenCalledWith("result.txt", bytes("result"), { mediaType: "text/plain" })
-    expect(workspaceSession.writeFile).not.toHaveBeenCalledWith("linked.txt", expect.anything(), expect.anything())
+    expect(workspaceSession.writeFile).toHaveBeenCalledWith("CLAUDE.md", bytes("NEXT.md"), { metadata: { gitMode: "120000" } })
+    expect(workspaceSession.writeFile).toHaveBeenCalledWith("linked.txt", bytes("target.txt"), { metadata: { gitMode: "120000" } })
     expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
   })
 
