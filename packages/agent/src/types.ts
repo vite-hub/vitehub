@@ -788,15 +788,15 @@ export type AgentHarnessDriverInput<
   | object
   | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<object>)
 
-export type AgentHarnessPermissionMode = "allow-reads" | "allow-edits" | "allow-all"
+export type AgentHarnessSandboxProvider = object
 
-export type AgentHarnessSandboxInput<
+export type AgentHarnessSandboxProviderInput<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
   TContextValues extends object = AgentInvocationContextValues,
 > =
-  | object
-  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>) => MaybePromise<object | undefined>)
+  | AgentHarnessSandboxProvider
+  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>) => MaybePromise<AgentHarnessSandboxProvider | undefined>)
 
 export interface AgentModelDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
@@ -824,10 +824,10 @@ export interface AgentHarnessDriver<
   harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
   instructions?: never
   model?: never
-  permissionMode?: AgentHarnessPermissionMode
+  permissionMode?: never
   permissions?: never
   run?: never
-  sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  sandbox?: never
   sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS, TContextValues>
 }
 
@@ -867,6 +867,7 @@ type AgentSharedSettings<
   capabilities?: TCapabilities
   channels?: AgentChannels<TRuntimeConfig>
   description?: string
+  harnessSandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
@@ -895,6 +896,7 @@ export interface AgentDefinition<
   channels?: AgentChannels<TRuntimeConfig>
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
+  harnessSandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   hooks?: AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
@@ -1240,7 +1242,7 @@ export interface AgentDevtoolsModelExecutionMetadata {
 export interface AgentDevtoolsHarnessMetadata {
   credentials?: AgentHarnessCredentialSource
   provider?: string
-  sandbox?: boolean
+  sandboxProvider?: string
   sessionKey?: boolean
 }
 
@@ -1353,6 +1355,7 @@ export interface AgentAdapterRunContext<
   devtools?: AgentRuntimeContext<TRuntimeConfig>["devtools"]
   driverContributions?: AgentDriverContribution[]
   hasCapabilityCleanup?: boolean
+  harnessSandboxProvider?: unknown
   harnessWorkspacePaths?: readonly string[]
   input: AgentRunInput<TOptions>
   instructions?: string

@@ -535,7 +535,6 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       },
       driver: {
         harness: { provider: "codex" },
-        sandbox: {},
       },
       hooks: { "agent:finish": finishHook },
       workspace: { mode: "write" },
@@ -609,8 +608,8 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       },
       driver: {
         harness: { provider: "codex" },
-        sandbox: {},
       },
+      harnessSandbox: {},
       workspace: { mode: "write" },
     })
 
@@ -690,7 +689,6 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       },
       driver: {
         harness: { provider: "codex" },
-        sandbox: {},
       },
       workspace: { mode: "write" },
     })
@@ -743,7 +741,6 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       capabilities: [chat()],
       driver: {
         harness: { provider: "codex" },
-        sandbox: {},
       },
       workspace: { mode: "write" },
     })

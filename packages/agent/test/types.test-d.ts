@@ -232,6 +232,16 @@ describe("agent public types", () => {
       workspace: { mode: "read" },
     })
 
+    defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      harnessSandbox: ({ input }) => {
+        expectTypeOf(input.prompt).toEqualTypeOf<AgentRunInput["prompt"]>()
+        return { providerId: "local-test" }
+      },
+    })
+
     type GeneratedScheduleTargetName = "daily-reports" | "weekly-cleanup"
     schedule<GeneratedScheduleTargetName>({ mode: "write", targets: ["daily-reports"] })
     // @ts-expect-error target allowlists are typed by generated Schedule Target Names where supplied
@@ -272,6 +282,9 @@ describe("agent public types", () => {
 
     // @ts-expect-error workspaceShell timeout must be a number
     workspaceShell({ commands: ["agent-browser"], timeout: "1000" })
+
+    // @ts-expect-error sandbox requires commands
+    sandbox({})
 
     const invocationContext: AgentInvocationContextStore = {
       entries: () => new Map<string, unknown>().entries(),
@@ -517,11 +530,9 @@ describe("agent public types", () => {
     defineAgent({
       driver: {
         credentials: { label: "local Codex", source: "ambient" },
-        harness: { provider: "codex" },
-        permissionMode: "allow-edits",
-        sandbox({ input }) {
+        harness({ input }) {
           expectTypeOf(input.prompt).toEqualTypeOf<AgentRunInput["prompt"]>()
-          return {}
+          return { provider: "codex" }
         },
       },
     })
@@ -531,6 +542,12 @@ describe("agent public types", () => {
 
     // @ts-expect-error raw harness permissions are intentionally not public in V1
     const _permissionDriver: AgentDriver = { harness: { provider: "codex" }, permissions: "bypass" }
+
+    // @ts-expect-error harness permission mode is runtime policy, not a public Agent Driver option
+    const _permissionModeDriver: AgentDriver = { harness: { provider: "codex" }, permissionMode: "allow-edits" }
+
+    // @ts-expect-error harness sandbox setup is runtime plumbing, not a public Agent Driver option
+    const _sandboxDriver: AgentDriver = { harness: { provider: "codex" }, sandbox: { provider: "sandbox" } }
 
     // @ts-expect-error raw harness credential material is not accepted by the generic driver boundary
     const _rawCredentialDriver: AgentDriver = { credentials: { value: "secret" }, harness: { provider: "codex" } }

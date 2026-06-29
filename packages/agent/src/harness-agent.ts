@@ -22,8 +22,7 @@ import type {
   AgentDriverContributionKind,
   AgentHarnessCredentialSource,
   AgentHarnessDriverInput,
-  AgentHarnessPermissionMode,
-  AgentHarnessSandboxInput,
+  AgentHarnessSandboxProviderInput,
   AgentHarnessSessionKey,
   AgentRunCallbackContext,
   AgentRuntimeConfig,
@@ -58,8 +57,7 @@ interface HarnessAgentAdapterOptions<
 > {
   credentials?: AgentHarnessCredentialSource
   harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
-  permissionMode?: AgentHarnessPermissionMode
-  sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS>
+  harnessSandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS>
   sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
 }
 
@@ -298,26 +296,13 @@ async function createDefaultHarnessSandbox(context: AgentAdapterRunContext) {
     sandboxModule = await import("@ai-sdk/sandbox-vercel") as typeof sandboxModule
   }
   catch (error) {
-    throw new Error("[vitehub] defineAgent({ driver: { harness } }) requires driver.sandbox or @ai-sdk/sandbox-vercel for the default harness sandbox.", { cause: error })
+    throw new Error("[vitehub] defineAgent({ driver: { harness } }) requires @ai-sdk/sandbox-vercel for the default harness sandbox outside local Vite workspace runs.", { cause: error })
   }
 
   return sandboxModule.createVercelSandbox({
     ports: [4000],
     runtime: "node24",
   })
-}
-
-async function resolveHarnessSandbox<
-  TRuntimeConfig extends AgentRuntimeConfig,
-  CALL_OPTIONS,
->(
-  sandbox: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS> | undefined,
-  context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
-) {
-  if (typeof sandbox === "function") {
-    return await sandbox(toRunCallbackContext(context)) ?? await createDefaultHarnessSandbox(context)
-  }
-  return sandbox ?? await createDefaultHarnessSandbox(context)
 }
 
 function hasHarnessInstructionDocument(context: AgentAdapterRunContext): boolean {
@@ -368,6 +353,22 @@ async function resolveHarness<
   return harness
 }
 
+async function resolveHarnessSandboxProvider<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  harnessSandbox: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
+): Promise<object | undefined> {
+  const provider = typeof harnessSandbox === "function"
+    ? await harnessSandbox(toRunCallbackContext(context))
+    : harnessSandbox
+  if (provider !== undefined && (!provider || typeof provider !== "object")) {
+    throw new TypeError("[vitehub] defineAgent({ harnessSandbox }) must return a harness sandbox provider object.")
+  }
+  return provider
+}
+
 async function createHarnessAgent<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -378,7 +379,7 @@ async function createHarnessAgent<
 ): Promise<HarnessAgentLike> {
   assertSupportedHarnessDriverContributions(context)
   const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
-  const sandbox = await resolveHarnessSandbox(options.sandbox, context)
+  const sandbox = context.harnessSandboxProvider ?? await resolveHarnessSandboxProvider(options.harnessSandbox, context) ?? await createDefaultHarnessSandbox(context)
   const harness = await resolveHarness(options.harness, context)
   const tools = toHarnessTools(context)
   return new HarnessAgent({
@@ -388,7 +389,7 @@ async function createHarnessAgent<
         await prepareWorkspaceSession(session, sessionWorkDir, abortSignal)
       },
     },
-    permissionMode: options.permissionMode ?? "allow-all",
+    permissionMode: "allow-all",
     sandbox,
     ...(tools ? { tools } : {}),
   })

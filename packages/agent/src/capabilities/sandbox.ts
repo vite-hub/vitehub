@@ -9,6 +9,10 @@ import type {
   MaybePromise,
 } from "../types.ts"
 
+export interface SandboxCapabilityOptions {
+  commands: string[]
+}
+
 function validateSandboxCommands(commands: unknown): string[] {
   if (!Array.isArray(commands) || !commands.length) {
     throw new TypeError("[vitehub] sandbox({ commands }) requires at least one executable name.")
@@ -21,7 +25,7 @@ function validateSandboxCommands(commands: unknown): string[] {
   return commands
 }
 
-export function sandbox(options: { commands: string[] }): AgentCapabilityDefinition {
+export function sandbox(options: SandboxCapabilityOptions): AgentCapabilityDefinition {
   const commands = validateSandboxCommands(options?.commands)
   return defineCapability({
     id: "sandbox",

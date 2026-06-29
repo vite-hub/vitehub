@@ -186,6 +186,7 @@ describe("agent Vite plugin", () => {
       expect(wrapper).toContain("process.env.VITEHUB_HOSTING = 'netlify'")
       expect(wrapper).toContain("const waitUntil = waitUntilFromContext(context)")
       expect(wrapper).toContain("const webhook = netlifyParam(context, 'webhook')")
+      expect(wrapper).not.toContain("runtime: 'vite'")
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith({
         clientOutDir: "dist/client",
         netlify: {
@@ -254,6 +255,9 @@ describe("agent Vite plugin", () => {
         root,
       })
 
+      const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
+      expect(wrapper).toContain("handler(request, webhook, { agentName: agent, runtime: 'vite', waitUntil })")
+      expect(wrapper).toContain("handler(request, { agentName: agent, runtime: 'vite', waitUntil })")
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(expect.objectContaining({
         netlify: expect.objectContaining({
           functions: [expect.objectContaining({
@@ -472,7 +476,7 @@ describe("agent Vite plugin", () => {
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent({ routes: { chat: true, webhooks: true } })
       if (typeof plugin.configResolved === "function") {
-        await plugin.configResolved.call({} as never, { root } as never)
+        await plugin.configResolved.call({} as never, { command: "serve", root } as never)
       }
 
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
@@ -488,6 +492,7 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("function resolveChatRouteOptions(module)")
       expect(webhookRoute).toContain("waitUntil: waitUntilFromEvent(event)")
       expect(webhookRoute).toContain("state: chatStateFromCloudflare(cloudflare)")
+      expect(webhookRoute).toContain("runtime: 'vite'")
       expect(webhookRoute).toContain("const agentModules")
       expect(webhookRoute).toContain("const chatHandlers")
       expect(webhookRoute).toContain("createChannelChatRouteHandler(agent, resolveChatRouteOptions(agentModules[name]))")
@@ -495,6 +500,27 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("const webhookRoutePattern")
       expect(webhookRoute).toContain("const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)")
       expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("lets built generated Nitro handlers detect the host runtime", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-routes-build-runtime-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const plugin = hubAgent({ routes: { chat: true, webhooks: true } })
+      if (typeof plugin.configResolved === "function") {
+        await plugin.configResolved.call({} as never, { command: "build", root } as never)
+      }
+
+      const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+
+      expect(webhookRoute).not.toContain("runtime: 'vite'")
+      expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, state: chatStateFromCloudflare(cloudflare), waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) })")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -796,6 +822,7 @@ describe("server helpers", () => {
 
   it("serves hosted Chat DevTools state for an explicit agent handler", async () => {
     const { defineAgent, defineAgentInvoker } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
     const { createChannelDevtoolsRouteHandler } = await import("../src/server/internal.ts")
     const { custom, defineWorkspace } = await import("@vite-hub/workspace")
     const profiles: Array<{ id: string, kind?: string, meta?: Record<string, unknown> }> = [{
@@ -803,11 +830,18 @@ describe("server helpers", () => {
       kind: "customerPortal",
       meta: { customer: "demo" },
     }]
+    const runtimeEvents: string[] = []
     const agent = defineAgent({
+      capabilities: [
+        chat(),
+      ],
       invoker: defineAgentInvoker({
         profiles,
       }),
-      driver: { run: () => "unused" },
+      driver: { run: ({ runtime }) => {
+        runtimeEvents.push(`run:${runtime}`)
+        return `devtools on ${runtime}`
+      } },
       version: "test-agent",
       workspace: defineWorkspace({
         store: { provider: "memory" },
@@ -827,6 +861,7 @@ describe("server helpers", () => {
     })
     const handler = createChannelDevtoolsRouteHandler(agent as never, {
       name: "support",
+      runtime: "vite",
     })
 
     const response = await handler(new Request("https://example.com/__vitehub/agent/chat/devtools", {
@@ -862,6 +897,7 @@ describe("server helpers", () => {
       version: "test-agent",
     })
 
+    runtimeEvents.length = 0
     const materializedResponse = await handler(new Request("https://example.com/__vitehub/agent/chat/devtools", {
       body: JSON.stringify({
         action: "materialize-source",
@@ -881,6 +917,71 @@ describe("server helpers", () => {
       }],
       title: "support",
     })
+
+    runtimeEvents.length = 0
+    const sendResponse = await handler(new Request("https://example.com/__vitehub/agent/chat/devtools", {
+      body: JSON.stringify({
+        action: "send",
+        invokerProfileId: "customer:demo:support",
+        stream: true,
+        text: "hello",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+
+    expect(sendResponse.status).toBe(200)
+    expect(await sendResponse.text()).toContain("devtools on vite")
+    expect(runtimeEvents).toContain("run:vite")
+  })
+
+  it("threads hosted Chat DevTools runtime overrides through metadata resolution", async () => {
+    const { defineAgent, defineAgentInvoker } = await import("../src/index.ts")
+    const { createChannelDevtoolsRouteHandler } = await import("../src/server/internal.ts")
+    const { registerWorkspaceAgent } = await import("../src/server/workspace.ts")
+    const { custom, defineWorkspace } = await import("@vite-hub/workspace")
+    const runtimeEvents: string[] = []
+    const agent = registerWorkspaceAgent(defineAgent({
+      driver: { run: () => "unused" },
+      invoker: defineAgentInvoker({
+        resolve({ defaultInvoker, runtime }) {
+          runtimeEvents.push(`metadata:${runtime}`)
+          return defaultInvoker
+        },
+      }),
+      workspace: defineWorkspace({
+        store: { provider: "memory" },
+        sources: {
+          docs: custom({
+            materialize: "lazy",
+            mount: "docs",
+            async getKeys() {
+              return ["README.md"]
+            },
+            async getItem(key) {
+              return { content: "# Support\n", key }
+            },
+          }),
+        },
+      }),
+    }), { workspace: "support-devtools-runtime-override" })
+    const handler = createChannelDevtoolsRouteHandler(agent as never, {
+      name: "support",
+      runtime: "vite",
+    })
+
+    const response = await handler(new Request("https://example.com/__vitehub/agent/chat/devtools", {
+      body: JSON.stringify({
+        action: "materialize-source",
+        path: "docs",
+        source: "docs",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(200)
+    expect(runtimeEvents).toContain("metadata:vite")
   })
 
   it("serves AI SDK UI message chat requests through the chat trigger", async () => {
@@ -895,9 +996,9 @@ describe("server helpers", () => {
         user: request.headers.get("x-user"),
       },
     }))
-    const run = vi.fn(({ context, invoker, messages, run }) => {
+    const run = vi.fn(({ context, invoker, messages, run, runtime }) => {
       const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
-      return `echo ${text?.text} for ${invoker.id} via ${run.origin} from ${invoker.meta.user} after ${invoker.meta.fallback}`
+      return `echo ${text?.text} for ${invoker.id} via ${run.origin} on ${runtime} from ${invoker.meta.user} after ${invoker.meta.fallback}`
     })
     const agent = defineAgent({
       capabilities: [chat()],
@@ -927,7 +1028,7 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
-    await expect(response.text()).resolves.toContain("echo hello for customer:acme via http from portal-user after anonymous:http")
+    await expect(response.text()).resolves.toContain("echo hello for customer:acme via http on unknown from portal-user after anonymous:http")
     expect(resolveInvoker).toHaveBeenCalledWith(expect.objectContaining({
       defaultInvoker: expect.objectContaining({
         id: "anonymous:http",

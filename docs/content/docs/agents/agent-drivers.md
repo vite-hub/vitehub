@@ -14,7 +14,7 @@ The concrete key holds the implementation value directly. Driver-specific option
 | Driver | Use it when | Driver-owned options |
 | --- | --- | --- |
 | `driver.model` | The Agent should call an AI SDK model through ViteHub model execution. | `instructions`, `execution` |
-| `driver.harness` | The Agent should run through an AI SDK harness adapter behind ViteHub's Agent Harness Driver Contract. | `credentials`, `sandbox`, `sessionKey` |
+| `driver.harness` | The Agent should run through an AI SDK harness adapter behind ViteHub's Agent Harness Driver Contract. | `credentials`, `sessionKey` |
 | `driver.run` | The Agent should execute developer code directly. | none |
 
 Driver variants are mutually exclusive. A single Agent Definition cannot combine `driver.model` with `driver.run`, or `driver.harness` with model instructions.
@@ -69,9 +69,9 @@ export default defineAgent({
 })
 ```
 
-Use `driver.sandbox` when the harness needs a specific execution runtime. For local development and Agent Evals, `@vite-hub/agent/harness/local-sandbox` provides a trusted-host sandbox that runs commands on the local machine.
+ViteHub resolves harness sandbox setup through the Agent Package runtime. Workspace-backed harness drivers in Vite dev use ViteHub's trusted local harness sandbox by default. Other runtime paths use the AI SDK Vercel Sandbox default when `@ai-sdk/sandbox-vercel` is installed. When an Agent needs a specific harness sandbox provider, pass it through `harnessSandbox`:
 
-```ts [server/agents/codex/config.ts]
+```ts
 import { createCodex } from '@ai-sdk/harness-codex'
 import { defineAgent } from '@vite-hub/agent'
 import { createLocalHarnessSandbox } from '@vite-hub/agent/harness/local-sandbox'
@@ -79,20 +79,19 @@ import { createLocalHarnessSandbox } from '@vite-hub/agent/harness/local-sandbox
 export default defineAgent({
   driver: {
     harness: createCodex({ model: 'gpt-5.5' }),
-    sandbox: createLocalHarnessSandbox(),
-    credentials: { label: 'local Codex', source: 'ambient' },
   },
+  harnessSandbox: () => createLocalHarnessSandbox({ rootDir: '/tmp' }),
 })
 ```
 
-`createLocalHarnessSandbox()` is for trusted local development and tests. It is not a production isolation boundary.
+`sandbox({ commands })` remains the Capability shape for model-facing command execution authority.
 
-`driver.harness`, `driver.sandbox`, and `driver.sessionKey` can also be callbacks. Use callbacks when one Agent Definition needs invocation-scoped harness auth, sandbox selection, or session reuse.
+`driver.harness`, `driver.sessionKey`, and `harnessSandbox` can also be callbacks. Use callbacks when one Agent Definition needs invocation-scoped harness auth, sandbox env/root setup, or session reuse.
 
 Harness-backed drivers do not receive `driver.instructions` as a model prompt. Use explicit harness configuration or Workspace instruction surfaces when the harness needs guidance.
 
-Harness-backed drivers also do not receive model-facing Capability tools, provider tools, or ambient Capability, Source, or Skill prose.
-When a Capability should support harness execution, give the harness files it can inspect through Workspace Sources, `harnessWorkspacePaths`, or a harness-native configuration surface.
+Harness-backed drivers receive resolved Capability tools through harness tool support, but they do not receive provider tools or ambient Capability, Source, or Skill prose.
+When a Capability should support harness execution with files, give the harness files it can inspect through Workspace Sources or `harnessWorkspacePaths`.
 
 For a fresh TypeScript app, use ESM and NodeNext resolution so the ESM-only ViteHub and harness subpath imports load correctly.
 

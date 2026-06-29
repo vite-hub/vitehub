@@ -185,6 +185,35 @@ describe("agent test runner", () => {
     })
   })
 
+  it("defaults workspace test runs to the Vite runtime", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { createAgentTestRunner } = await import("../src/test.ts")
+
+    const runner = createAgentTestRunner(defineAgent({
+      workspace: {},
+      driver: { run: ({ runtime }) => runtime },
+    }), {
+      runtimeConfig: {},
+      workspace: "docs",
+    })
+
+    await expect(runner.run({ prompt: "hello" })).resolves.toMatchObject({ text: "vite" })
+  })
+
+  it("defaults workspace Agent Definition test runs to the Vite runtime", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { createAgentTestRunner } = await import("../src/test.ts")
+
+    const runner = createAgentTestRunner(defineAgent({
+      workspace: {},
+      driver: { run: ({ runtime }) => runtime },
+    }), {
+      runtimeConfig: {},
+    })
+
+    await expect(runner.run({ prompt: "hello" })).resolves.toMatchObject({ text: "vite" })
+  })
+
   it("stops test runs after repeated workspace inspection guardrails", async () => {
     const execute = vi.fn(async () => ({ workspaceGuardrail: { kind: "broad_search" } }))
     inspectTools.mockReturnValueOnce({

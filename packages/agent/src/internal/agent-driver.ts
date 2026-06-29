@@ -4,8 +4,6 @@ import type {
   AgentAdapterInstructions,
   AgentHarnessCredentialSource,
   AgentHarnessDriverInput,
-  AgentHarnessPermissionMode,
-  AgentHarnessSandboxInput,
   AgentHarnessSessionKey,
   AgentInvokerProfile,
   AgentModelExecutionOptions,
@@ -29,8 +27,6 @@ type NormalizedAgentDriver<
     credentials?: AgentHarnessCredentialSource
     harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
     kind: "harness"
-    permissionMode?: AgentHarnessPermissionMode
-    sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS>
     sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
   }
   | {
@@ -54,19 +50,9 @@ function assertNoUnsupportedOptions(
 }
 
 function validateNoHarnessPermissionOption(driver: Record<string, unknown>): void {
-  if (hasOwnDefined(driver, "permissions")) {
+  if (hasOwnDefined(driver, "permissions") || hasOwnDefined(driver, "permissionMode")) {
     throw new Error("[vitehub] defineAgent({ driver }) does not expose harness permissions in V1.")
   }
-}
-
-const harnessPermissionModes = new Set(["allow-reads", "allow-edits", "allow-all"])
-
-function normalizeHarnessPermissionMode(value: unknown): AgentHarnessPermissionMode | undefined {
-  if (value === undefined) return undefined
-  if (typeof value !== "string" || !harnessPermissionModes.has(value)) {
-    throw new TypeError("[vitehub] defineAgent({ driver.permissionMode }) must be allow-reads, allow-edits, or allow-all.")
-  }
-  return value as AgentHarnessPermissionMode
 }
 
 function normalizeHarnessCredentialSource(value: unknown): AgentHarnessCredentialSource | undefined {
@@ -94,7 +80,7 @@ function normalizeHarnessCredentialSource(value: unknown): AgentHarnessCredentia
 }
 
 const modelDriverKeys = new Set(["execution", "instructions", "model"])
-const harnessDriverKeys = new Set(["credentials", "harness", "permissionMode", "sandbox", "sessionKey"])
+const harnessDriverKeys = new Set(["credentials", "harness", "sessionKey"])
 const runDriverKeys = new Set(["run"])
 
 function normalizeExplicitAgentDriver<
@@ -127,15 +113,10 @@ function normalizeExplicitAgentDriver<
     if (!driver.harness || (typeof driver.harness !== "object" && typeof driver.harness !== "function")) {
       throw new TypeError("[vitehub] defineAgent({ driver.harness }) must be an AI SDK harness adapter.")
     }
-    if (hasOwnDefined(driver, "sandbox") && (!driver.sandbox || (typeof driver.sandbox !== "object" && typeof driver.sandbox !== "function"))) {
-      throw new TypeError("[vitehub] defineAgent({ driver.sandbox }) must be an AI SDK harness sandbox provider or resolver.")
-    }
     return {
       credentials: normalizeHarnessCredentialSource(driver.credentials),
       harness: driver.harness as AgentHarnessDriverInput,
       kind: "harness",
-      permissionMode: normalizeHarnessPermissionMode(driver.permissionMode),
-      sandbox: driver.sandbox as AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS> | undefined,
       sessionKey: driver.sessionKey as AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS> | undefined,
     }
   }

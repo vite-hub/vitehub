@@ -217,7 +217,8 @@ export type {
   AgentHarnessCredentialSource,
   AgentHarnessDriver,
   AgentHarnessDriverInput,
-  AgentHarnessSandboxInput,
+  AgentHarnessSandboxProvider,
+  AgentHarnessSandboxProviderInput,
   AgentHarnessSessionKey,
   AgentInput,
   AgentInputHook,
@@ -737,7 +738,8 @@ export {
 } from "./invocation-stream.ts"
 export type { AgentInvocationStreamEvent } from "./invocation-stream.ts"
 
-function validateSandboxCommands(commands: unknown): string[] {
+function validateSandboxCommands(commands: unknown): string[] | undefined {
+  if (commands === undefined) return undefined
   if (!Array.isArray(commands) || !commands.length) {
     throw new TypeError("[vitehub] sandbox({ commands }) requires at least one executable name.")
   }
@@ -787,10 +789,16 @@ function capabilityWorkspaceIsOptional(capability: NormalizedCapability): boolea
     && (metadata as { [optionalWorkspaceCapabilitySymbol]?: unknown })[optionalWorkspaceCapabilitySymbol] === true
 }
 
+function sandboxCapabilityRequiresWorkspace(capability: NormalizedCapability): boolean {
+  if (capability.id !== "sandbox") return false
+  const metadata = capability.metadata as { commands?: unknown } | undefined
+  return Array.isArray(metadata?.commands)
+}
+
 function validateNonWorkspaceCapabilities(capabilities: NormalizedCapability[], hasWorkspace: boolean): void {
   if (hasWorkspace) return
   for (const capability of capabilities) {
-    if (capability.workspace && !capabilityWorkspaceIsOptional(capability) || capability.id === "workspace-shell" || capability.id === "sandbox" || accessCapabilityRequiresWorkspace(capability)) {
+    if (capability.workspace && !capabilityWorkspaceIsOptional(capability) || capability.id === "workspace-shell" || sandboxCapabilityRequiresWorkspace(capability) || accessCapabilityRequiresWorkspace(capability)) {
       const name = capability.id === "workspace-shell" ? "workspaceShell" : capability.id
       throw new Error(`[vitehub] ${name}() requires an explicit workspace.`)
     }
@@ -805,10 +813,11 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const driver = normalizeAgentDriver(options)
-  const { capabilities, channels, description, hooks, messages, runtime, version, workspace } = options
+  const { capabilities, channels, description, harnessSandbox, hooks, messages, runtime, version, workspace } = options
   const run = driver.kind === "run" ? driver.run : undefined
   const baseCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
+  const harnessDriver = driver.kind === "harness" ? { ...driver, harnessSandbox } : undefined
   const channelChat = resolveAgentChannelChatOptions<TRuntimeConfig>(channels, messages)
   const chatCapability = getChatCapabilityOptions<TRuntimeConfig>(baseCapabilities)
   if (chatCapability && channelChat) {
@@ -827,7 +836,7 @@ function defineBaseAgent<
           model: driver.model,
         } as never) as AgentAdapter<CALL_OPTIONS>
       : driver.kind === "harness"
-        ? (await import("./harness-agent.ts")).createHarnessAgentAdapter<CALL_OPTIONS>(driver as never)
+        ? (await import("./harness-agent.ts")).createHarnessAgentAdapter<CALL_OPTIONS>(harnessDriver as never)
         : undefined
     if (!resolvedAdapter) {
       throw new Error("[vitehub] Agent Driver is required unless the agent uses driver.run.")
@@ -846,6 +855,7 @@ function defineBaseAgent<
     chat,
     description,
     hooks,
+    harnessSandbox,
     invoker,
     messages,
     runtime,
@@ -1156,6 +1166,7 @@ type AgentInvocationContext<
   finishExtensionProviders: ResolvedAgentFinishExtensionProvider[]
   finishHook?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS> extends infer TEvent ? (event: TEvent) => MaybePromise<void> : never
   hasCapabilityCleanup: boolean
+  harnessSandboxProvider?: unknown
   harnessWorkspacePaths: readonly string[]
   hooks?: AgentHookObserverHooks
   modelExecutionInstrumentation: AgentCapabilityRegistries["modelExecutionInstrumentation"]
