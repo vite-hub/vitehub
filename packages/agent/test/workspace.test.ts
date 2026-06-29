@@ -1048,6 +1048,38 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("keeps global write rules unrestricted for harness Workspace Sessions", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {
+        mode: "write",
+        rules: {
+          "**/*.md": { write: true },
+        },
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      ignoreWriteBackPaths: [],
+      paths: undefined,
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
+  })
+
   it("scopes workspace instruction files into harness Agent calls without passing them as prompt instructions", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const sourceRootDir = await mkdtemp(join(tmpdir(), "vitehub-agent-"))
