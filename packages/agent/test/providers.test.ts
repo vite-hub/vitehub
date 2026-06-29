@@ -186,6 +186,7 @@ describe("agent Vite plugin", () => {
       expect(wrapper).toContain("process.env.VITEHUB_HOSTING = 'netlify'")
       expect(wrapper).toContain("const waitUntil = waitUntilFromContext(context)")
       expect(wrapper).toContain("const webhook = netlifyParam(context, 'webhook')")
+      expect(wrapper).not.toContain("runtime: 'vite'")
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith({
         clientOutDir: "dist/client",
         netlify: {
@@ -254,6 +255,9 @@ describe("agent Vite plugin", () => {
         root,
       })
 
+      const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
+      expect(wrapper).toContain("handler(request, webhook, { agentName: agent, runtime: 'vite', waitUntil })")
+      expect(wrapper).toContain("handler(request, { agentName: agent, runtime: 'vite', waitUntil })")
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(expect.objectContaining({
         netlify: expect.objectContaining({
           functions: [expect.objectContaining({
