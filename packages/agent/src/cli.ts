@@ -573,9 +573,6 @@ function parseDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedDevArgs {
       parsed.timeout = timeout
       continue
     }
-    if (arg === "--follow-up" || arg.startsWith("--follow-up=")) {
-      throw new Error("--follow-up is intentionally unsupported and must not ship in ViteHub; conversation continuity needs a separate session/chat-history API design.")
-    }
     if (arg.startsWith("-")) {
       throw new Error(`Unknown option: ${arg}.`)
     }

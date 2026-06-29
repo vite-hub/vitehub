@@ -135,21 +135,6 @@ describe("agent CLI", () => {
     expect(JSON.parse(String(post?.[1]?.body))).not.toHaveProperty("workspaceCommand")
   })
 
-  it("rejects --follow-up as an Agent Dev Loop option", async () => {
-    const stderr = stream()
-    const exitCode = await runAgentDevCli(["--follow-up", "hello"], {
-      cwd: "/repo",
-      env: {},
-      rootDir: "/repo",
-      spawn: vi.fn(),
-      stderr,
-      stdout: stream(),
-    }, { fetch: vi.fn() as never })
-
-    expect(exitCode).toBe(1)
-    expect(stderr.output()).toContain("--follow-up is intentionally unsupported and must not ship in ViteHub; conversation continuity needs a separate session/chat-history API design.")
-  })
-
   it("accepts Agent Dev Loop discovery aliases", async () => {
     const stdout = stream()
     const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
