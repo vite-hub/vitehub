@@ -187,6 +187,7 @@ async function sendWorkspaceCommand(
     context.stderr.write("No private Workspace Dev token found. Start the Compatible Vite Development Server first.\n")
     return 1
   }
+  context.stderr.write("[vitehub] Workspace command started; first run may materialize sources.\n")
   const response = await fetchImpl(target.url, {
     body: JSON.stringify({
       workspaceCommand: {

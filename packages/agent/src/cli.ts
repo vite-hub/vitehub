@@ -1052,6 +1052,7 @@ async function sendDevWorkspaceCommand(
     context.stderr.write("No private Agent Dev Loop command token found. Start the Compatible Vite Development Server first.\n")
     return 1
   }
+  context.stderr.write("[vitehub] Workspace command started; first run may materialize sources.\n")
   let response: Response
   try {
     response = await fetchImpl(url, {

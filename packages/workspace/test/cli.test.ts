@@ -64,6 +64,7 @@ describe("workspace CLI", () => {
 
   it("runs Workspace Dev commands through the Workspace dev endpoint", async () => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-workspace-cli-"))
+    const stderr = stream()
     const stdout = stream()
     const tokenServerId = "pid-1:4321"
     const token = await refreshWorkspaceDevToken(rootDir, { serverId: tokenServerId })
@@ -100,11 +101,12 @@ describe("workspace CLI", () => {
         cwd: rootDir,
         env: {},
         rootDir,
-        stderr: stream(),
+        stderr,
         stdout,
       }, { fetch: fetchWorkspaceDev as never })
 
       expect(exitCode).toBe(0)
+      expect(stderr.output()).toBe("[vitehub] Workspace command started; first run may materialize sources.\n")
       expect(stdout.output()).toBe("ok\n")
       const [get, post] = fetchWorkspaceDev.mock.calls
       expect(String(get?.[0])).toBe("http://127.0.0.1:4321/__vitehub/workspace/dev")
