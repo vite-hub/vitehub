@@ -1151,6 +1151,7 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       driver: {
         harness,
+        permissionMode: "allow-edits",
         sandbox,
       },
     })
@@ -1158,7 +1159,7 @@ describe("agent message protocol", () => {
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
     expect(harnessAgentSettings.at(-1)).toMatchObject({
       harness,
-      permissionMode: "allow-all",
+      permissionMode: "allow-edits",
       sandboxConfig: {
         onSession: expect.any(Function),
       },
@@ -1671,7 +1672,11 @@ describe("agent message protocol", () => {
 
     expect(() => defineAgent({
       driver: { harness: { provider: "codex" }, permissions: "bypass" },
-    } as never)).toThrow("does not expose harness permission options")
+    } as never)).toThrow("does not expose harness permissions")
+
+    expect(() => defineAgent({
+      driver: { harness: { provider: "codex" }, permissionMode: "ask" },
+    } as never)).toThrow("driver.permissionMode")
 
     expect(() => defineAgent({
       driver: { credentials: { value: "secret" }, harness: { provider: "codex" } },

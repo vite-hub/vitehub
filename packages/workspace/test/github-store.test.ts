@@ -252,6 +252,22 @@ describe("GitHub workspace store", () => {
     expect(requests.filter((request) => request.method !== "GET")).toEqual([]);
   });
 
+  it("diffs a fresh loaded store from the remote baseline", async () => {
+    seedRemote(".vitehub/workspaces/docs/README.md", "# Docs\n");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await expect(store.diff()).resolves.toMatchObject({ entries: [] });
+  });
+
   it("uploads changed blobs during writes and snapshots by sha", async () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
     const store = createGitHubWorkspaceStore(
