@@ -20,6 +20,7 @@ import { createChatDevtoolsStreamResponse } from "../chat/devtools-stream.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 
 import type { AgentChatMessageTriggerInput } from "../chat-trigger.ts"
+import type { UIMessageLike } from "../chat-message-input.ts"
 import type {
   AgentChatStateResolver,
   AgentCapabilityDefinition,
@@ -923,15 +924,9 @@ function chatMessageParts(message: ChatSdkMessage): MessagePart[] {
   return parts
 }
 
-function createChatTriggerInput(
-  provider: string,
-  thread: Thread,
-  message: ChatSdkMessage,
-  messageContext?: MessageContext,
-  channelId?: string,
-): AgentChatMessageTriggerInput {
+function chatMessageMetadata(thread: Thread, message: ChatSdkMessage, messageContext?: MessageContext): Record<string, unknown> | undefined {
   const platformChannelId = thread.adapter.channelIdFromThreadId(message.threadId)
-  const metadata = objectWithoutUndefined({
+  return objectWithoutUndefined({
     chat: objectWithoutUndefined({
       edited: message.metadata.edited,
       editedAt: isoDate(message.metadata.editedAt),
@@ -946,6 +941,93 @@ function createChatTriggerInput(
       totalSinceLastHandler: messageContext?.totalSinceLastHandler,
     }),
   })
+}
+
+function chatSdkMessageToUiMessage(message: ChatSdkMessage, metadata?: Record<string, unknown>): UIMessageLike {
+  return {
+    createdAt: isoDate(message.metadata.dateSent),
+    id: message.id,
+    ...(metadata ? { metadata } : {}),
+    parts: chatMessageParts(message),
+    role: message.author.isMe ? "assistant" : "user",
+  }
+}
+
+interface ChatThreadHistoryCache {
+  getMessages(threadId: string, limit?: number): Promise<ChatSdkMessage[]>
+}
+
+function chatThreadHistoryCache(thread: Thread): ChatThreadHistoryCache | undefined {
+  const history = (thread as { _threadHistory?: unknown })._threadHistory
+  if (!history || typeof history !== "object") return
+  const getMessages = (history as { getMessages?: unknown }).getMessages
+  if (typeof getMessages !== "function") return
+  return history as ChatThreadHistoryCache
+}
+
+async function durableChatThreadMessages(thread: Thread, limit: number): Promise<ChatSdkMessage[]> {
+  try {
+    return await chatThreadHistoryCache(thread)?.getMessages(thread.id, limit) ?? []
+  }
+  catch {
+    return []
+  }
+}
+
+function chatHistoryLimit(history: AgentChatOptions["history"]): number | undefined {
+  if (history === false || history === "none") return
+  if (!history || typeof history !== "object" || history.source !== "thread") return
+  return Math.max(1, typeof history.maxMessages === "number" ? history.maxMessages : 20)
+}
+
+async function chatTriggerMessages(
+  thread: Thread,
+  message: ChatSdkMessage,
+  options: AgentChatOptions | undefined,
+  messageContext?: MessageContext,
+): Promise<UIMessageLike[]> {
+  const current = chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext))
+  const limit = chatHistoryLimit(options?.history)
+  if (!limit) return [current]
+
+  const fetchedNewestFirst: UIMessageLike[] = []
+  try {
+    for await (const item of thread.messages) {
+      fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item))
+      if (fetchedNewestFirst.length >= limit) break
+    }
+  } catch {}
+
+  const durable = await durableChatThreadMessages(thread, limit)
+  const messages = [
+    ...durable.map(item => item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item)),
+    ...fetchedNewestFirst.slice().reverse(),
+  ].reduce<UIMessageLike[]>((deduped, item) => {
+    if (!item.id) {
+      deduped.push(item)
+      return deduped
+    }
+    const existing = deduped.findIndex(message => message.id === item.id)
+    if (existing === -1) deduped.push(item)
+    else deduped[existing] = item
+    return deduped
+  }, [])
+
+  if (!current.id || !messages.some(item => item.id === current.id)) {
+    messages.push(current)
+  }
+  return messages.slice(-limit)
+}
+
+function createChatTriggerInput(
+  provider: string,
+  thread: Thread,
+  message: ChatSdkMessage,
+  messages: UIMessageLike[],
+  messageContext?: MessageContext,
+  channelId?: string,
+): AgentChatMessageTriggerInput {
+  const platformChannelId = thread.adapter.channelIdFromThreadId(message.threadId)
   const user = objectWithoutUndefined({
     id: message.author.userId,
     isBot: message.author.isBot,
@@ -956,13 +1038,7 @@ function createChatTriggerInput(
   const email = chatMessageAuthorEmail(message)
   return {
     ...(email ? { meta: { email } } : {}),
-    messages: [{
-      createdAt: isoDate(message.metadata.dateSent),
-      id: message.id,
-      metadata,
-      parts: chatMessageParts(message),
-      role: "user",
-    }],
+    messages,
     run: {
       channelId: channelId || platformChannelId,
       messageId: message.id,
@@ -1182,9 +1258,10 @@ async function handleChatSdkMessage(
   let run: AgentRunMetadata | undefined
   let typing: ChatTypingRefresh | undefined
   try {
-    input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, messageContext, registration.channelId)
-    const firstMessage = input.messages[0]
-    if (!firstMessage || !Array.isArray(firstMessage.parts) || firstMessage.parts.length === 0) return
+    const messages = await chatTriggerMessages(thread, message, options, messageContext)
+    const currentMessage = messages.find(item => item.id === message.id) || messages.at(-1)
+    if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) return
+    input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, messages, messageContext, registration.channelId)
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
     if (isResolvedAgentTriggerHandledInvocation(invocation)) return
     const invoker = await isChatMessageAuthorized(agent, context, registration, thread, message, invocation.input as AgentRunInput, invocation.run, messageContext)

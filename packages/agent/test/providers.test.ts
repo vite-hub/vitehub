@@ -23,8 +23,13 @@ function githubSignature(secret: string, body: string) {
   return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`
 }
 
-function createTestChatAdapter(options: { deferMessageProcessing?: boolean, secret?: string } = {}) {
+function createTestChatAdapter(options: { deferMessageProcessing?: boolean, missingIncomingMessageId?: boolean, persistThreadHistory?: boolean, secret?: string } = {}) {
   let chatInstance: ChatInstance | undefined
+  let sentMessageId = 0
+  const cachedMessages = new Map<string, Message[]>()
+  const cacheMessage = (message: Message) => {
+    cachedMessages.set(message.threadId, [...(cachedMessages.get(message.threadId) ?? []), message])
+  }
   const adapter = {
     channelIdFromThreadId: vi.fn((threadId: string) => threadId),
     handleWebhook: vi.fn(async (request: Request, webhookOptions?: WebhookOptions) => {
@@ -63,12 +68,13 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, secr
           userName: String(from?.username ?? "maxi"),
         },
         formatted: { children: [], type: "root" },
-        id: String(rawMessage.message_id ?? "7"),
+        id: options.missingIncomingMessageId ? undefined as unknown as string : String(rawMessage.message_id ?? "7"),
         metadata: { dateSent: date, edited: false },
         raw: body,
         text: typeof rawMessage.text === "string" ? rawMessage.text : "",
         threadId: `telegram:${String(chat?.id ?? "456")}`,
       })
+      cacheMessage(message)
       const task = chatInstance.processMessage(adapter as unknown as Adapter, message.threadId, message, webhookOptions)
       if (!options.deferMessageProcessing) {
         await task
@@ -83,14 +89,40 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, secr
     }),
     isDM: vi.fn(() => true),
     editMessage: vi.fn(async (threadId: string, messageId: string, message: unknown) => ({ id: messageId, raw: { message }, threadId })),
+    fetchMessages: vi.fn(async (threadId: string) => ({ messages: cachedMessages.get(threadId) ?? [] })),
     name: "telegram",
-    postMessage: vi.fn(async (threadId: string, message: unknown) => ({ id: "sent-1", raw: { message }, threadId })),
+    persistThreadHistory: options.persistThreadHistory,
+    postMessage: vi.fn(async (threadId: string, message: unknown) => {
+      const id = `sent-${++sentMessageId}`
+      cacheMessage(new Message({
+        attachments: [],
+        author: {
+          fullName: "vitehub",
+          isBot: true,
+          isMe: true,
+          userId: "self",
+          userName: "vitehub",
+        },
+        formatted: { children: [], type: "root" },
+        id,
+        metadata: { dateSent: new Date("2026-06-10T12:00:00.000Z"), edited: false },
+        raw: { message },
+        text: typeof message === "string"
+          ? message
+          : typeof message === "object" && message && "markdown" in message && typeof message.markdown === "string"
+            ? message.markdown
+            : "",
+        threadId,
+      }))
+      return { id, raw: { message }, threadId }
+    }),
     startTyping: vi.fn(async () => {}),
     userName: "vitehub",
   }
   return adapter as unknown as Adapter & {
     handleWebhook: ReturnType<typeof vi.fn>
     editMessage: ReturnType<typeof vi.fn>
+    fetchMessages: ReturnType<typeof vi.fn>
     postMessage: ReturnType<typeof vi.fn>
     startTyping: ReturnType<typeof vi.fn>
   }
@@ -2788,6 +2820,120 @@ describe("server helpers", () => {
     expect(model.generate).toHaveBeenCalledOnce()
     expect(model.stream).not.toHaveBeenCalled()
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "generated ok" })
+  })
+
+  it("passes configured thread history into chat webhook runs", async () => {
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { getMessageText } = await import("../src/messages.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter({ persistThreadHistory: true })
+    const runs: string[][] = []
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          history: { maxMessages: 25, source: "thread" },
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          stream: false,
+          threadHistory: { maxMessages: 25 },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      driver: {
+        run: ({ messages }) => {
+          runs.push(messages.map(getMessageText))
+          return `reply ${runs.length}`
+        },
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = (messageId: number, text: string) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: messageId,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800 + messageId,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: messageId,
+          text,
+        },
+      }),
+      method: "POST",
+    })
+
+    await expect(handler(request(20, "remember BROWSER-HISTORY"), "telegram")).resolves.toMatchObject({ status: 200 })
+    await expect(handler(request(21, "what marker did I ask you to remember?"), "telegram")).resolves.toMatchObject({ status: 200 })
+
+    expect(runs).toEqual([
+      ["remember BROWSER-HISTORY"],
+      ["remember BROWSER-HISTORY", "reply 1", "what marker did I ask you to remember?"],
+    ])
+  })
+
+  it("passes durable thread history into chat webhook runs after adapter cache resets", async () => {
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { getMessageText } = await import("../src/messages.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-history-state-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const runs: string[][] = []
+    const request = (messageId: number, text: string) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: messageId,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800 + messageId,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: messageId,
+          text,
+        },
+      }),
+      method: "POST",
+    })
+    const handler = (adapter: ReturnType<typeof createTestChatAdapter>) => {
+      const agent = defineAgent({
+        capabilities: [
+          chat({
+            history: { maxMessages: 25, source: "thread" },
+            platforms: {
+              telegram: () => adapter as never,
+            },
+            state: () => state,
+            stream: false,
+            threadHistory: { maxMessages: 25 },
+            webhooks: {
+              telegram: {},
+            },
+          }),
+        ],
+        driver: {
+          run: ({ messages }) => {
+            runs.push(messages.map(getMessageText))
+            return `reply ${runs.length}`
+          },
+        },
+      })
+      return createChannelWebhookRouteHandler(agent as never)
+    }
+
+    try {
+      await expect(handler(createTestChatAdapter({ persistThreadHistory: true }))(request(30, "remember DEPLOY-HISTORY"), "telegram")).resolves.toMatchObject({ status: 200 })
+      await expect(handler(createTestChatAdapter({ persistThreadHistory: true }))(request(31, "what marker did I ask you to remember?"), "telegram")).resolves.toMatchObject({ status: 200 })
+
+      expect(runs).toEqual([
+        ["remember DEPLOY-HISTORY"],
+        ["remember DEPLOY-HISTORY", "reply 1", "what marker did I ask you to remember?"],
+      ])
+    }
+    finally {
+      await rm(stateDir, { force: true, recursive: true })
+    }
   })
 
   it("runs non-streaming chat webhooks inline for workflow-backed agents", async () => {
