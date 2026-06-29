@@ -797,6 +797,7 @@ describe("server helpers", () => {
 
   it("serves hosted Chat DevTools state for an explicit agent handler", async () => {
     const { defineAgent, defineAgentInvoker } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
     const { createChannelDevtoolsRouteHandler } = await import("../src/server/internal.ts")
     const { custom, defineWorkspace } = await import("@vite-hub/workspace")
     const profiles: Array<{ id: string, kind?: string, meta?: Record<string, unknown> }> = [{
@@ -804,11 +805,18 @@ describe("server helpers", () => {
       kind: "customerPortal",
       meta: { customer: "demo" },
     }]
+    const runtimeEvents: string[] = []
     const agent = defineAgent({
+      capabilities: [
+        chat(),
+      ],
       invoker: defineAgentInvoker({
         profiles,
       }),
-      driver: { run: () => "unused" },
+      driver: { run: ({ runtime }) => {
+        runtimeEvents.push(`run:${runtime}`)
+        return `devtools on ${runtime}`
+      } },
       version: "test-agent",
       workspace: defineWorkspace({
         store: { provider: "memory" },
@@ -828,6 +836,7 @@ describe("server helpers", () => {
     })
     const handler = createChannelDevtoolsRouteHandler(agent as never, {
       name: "support",
+      runtime: "vite",
     })
 
     const response = await handler(new Request("https://example.com/__vitehub/agent/chat/devtools", {
@@ -863,6 +872,7 @@ describe("server helpers", () => {
       version: "test-agent",
     })
 
+    runtimeEvents.length = 0
     const materializedResponse = await handler(new Request("https://example.com/__vitehub/agent/chat/devtools", {
       body: JSON.stringify({
         action: "materialize-source",
@@ -882,6 +892,71 @@ describe("server helpers", () => {
       }],
       title: "support",
     })
+
+    runtimeEvents.length = 0
+    const sendResponse = await handler(new Request("https://example.com/__vitehub/agent/chat/devtools", {
+      body: JSON.stringify({
+        action: "send",
+        invokerProfileId: "customer:demo:support",
+        stream: true,
+        text: "hello",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+
+    expect(sendResponse.status).toBe(200)
+    expect(await sendResponse.text()).toContain("devtools on vite")
+    expect(runtimeEvents).toContain("run:vite")
+  })
+
+  it("threads hosted Chat DevTools runtime overrides through metadata resolution", async () => {
+    const { defineAgent, defineAgentInvoker } = await import("../src/index.ts")
+    const { createChannelDevtoolsRouteHandler } = await import("../src/server/internal.ts")
+    const { registerWorkspaceAgent } = await import("../src/server/workspace.ts")
+    const { custom, defineWorkspace } = await import("@vite-hub/workspace")
+    const runtimeEvents: string[] = []
+    const agent = registerWorkspaceAgent(defineAgent({
+      driver: { run: () => "unused" },
+      invoker: defineAgentInvoker({
+        resolve({ defaultInvoker, runtime }) {
+          runtimeEvents.push(`metadata:${runtime}`)
+          return defaultInvoker
+        },
+      }),
+      workspace: defineWorkspace({
+        store: { provider: "memory" },
+        sources: {
+          docs: custom({
+            materialize: "lazy",
+            mount: "docs",
+            async getKeys() {
+              return ["README.md"]
+            },
+            async getItem(key) {
+              return { content: "# Support\n", key }
+            },
+          }),
+        },
+      }),
+    }), { workspace: "support-devtools-runtime-override" })
+    const handler = createChannelDevtoolsRouteHandler(agent as never, {
+      name: "support",
+      runtime: "vite",
+    })
+
+    const response = await handler(new Request("https://example.com/__vitehub/agent/chat/devtools", {
+      body: JSON.stringify({
+        action: "materialize-source",
+        path: "docs",
+        source: "docs",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }))
+
+    expect(response.status).toBe(200)
+    expect(runtimeEvents).toContain("metadata:vite")
   })
 
   it("serves AI SDK UI message chat requests through the chat trigger", async () => {

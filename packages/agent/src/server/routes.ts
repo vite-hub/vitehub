@@ -1875,6 +1875,7 @@ async function sendDevtoolsUIMessage(
     run,
     await resolveRuntimeWaitUntil(requestOptions.waitUntil ?? options.waitUntil),
     requestOptions.cloudflare ?? options.cloudflare,
+    requestOptions.runtime ?? options.runtime,
   )
   const triggerInput: AgentChatMessageTriggerInput = {
     ...(state.session.invokerProfileId ? { invokerProfileId: state.session.invokerProfileId } : {}),
@@ -1963,6 +1964,7 @@ async function handleAgentChannelDevtoolsRouteRequest(
       undefined,
       await resolveRuntimeWaitUntil(requestOptions.waitUntil ?? options.waitUntil),
       requestOptions.cloudflare ?? options.cloudflare,
+      requestOptions.runtime ?? options.runtime,
     )
     const invokerSelection = normalizeInvokerSelection(body)
     await runWithRuntimeCloudflareEnv(runtime, async () => await startAgentDevtoolsMetadataResolution(agent, state, options, runtime, invokerSelection))
