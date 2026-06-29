@@ -73,10 +73,6 @@ function gitHubFileMode(metadata: Record<string, unknown> | undefined): string {
     : "100644";
 }
 
-function gitSymlinkTargetMetadata(metadata: Record<string, unknown> | undefined): string | undefined {
-  return typeof metadata?.symlinkTarget === "string" ? metadata.symlinkTarget : undefined;
-}
-
 function inheritedGitHubFileMetadata(
   file: WorkspaceFile,
   current: GitHubWorkspaceStoreFile | undefined,
@@ -419,7 +415,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   }
 
   async #fileMetadata(file: GitHubWorkspaceStoreFile): Promise<Record<string, unknown> | undefined> {
-    if (gitHubFileMode(file.metadata) !== "120000" || gitSymlinkTargetMetadata(file.metadata)) return file.metadata;
+    if (gitHubFileMode(file.metadata) !== "120000" || typeof file.metadata?.symlinkTarget === "string") return file.metadata;
     return {
       ...file.metadata,
       symlinkTarget: gitSymlinkTargetFromBytes(await this.#readFileBytes(file)),
