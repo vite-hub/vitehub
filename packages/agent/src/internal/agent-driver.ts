@@ -4,6 +4,7 @@ import type {
   AgentAdapterInstructions,
   AgentHarnessCredentialSource,
   AgentHarnessDriverInput,
+  AgentHarnessPermissionMode,
   AgentHarnessSandboxInput,
   AgentHarnessSessionKey,
   AgentInvokerProfile,
@@ -28,6 +29,7 @@ type NormalizedAgentDriver<
     credentials?: AgentHarnessCredentialSource
     harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
     kind: "harness"
+    permissionMode?: AgentHarnessPermissionMode
     sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS>
     sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
   }
@@ -52,9 +54,19 @@ function assertNoUnsupportedOptions(
 }
 
 function validateNoHarnessPermissionOption(driver: Record<string, unknown>): void {
-  if (hasOwnDefined(driver, "permissions") || hasOwnDefined(driver, "permissionMode")) {
-    throw new Error("[vitehub] defineAgent({ driver }) does not expose harness permission options in V1.")
+  if (hasOwnDefined(driver, "permissions")) {
+    throw new Error("[vitehub] defineAgent({ driver }) does not expose harness permissions in V1.")
   }
+}
+
+const harnessPermissionModes = new Set(["allow-reads", "allow-edits", "allow-all"])
+
+function normalizeHarnessPermissionMode(value: unknown): AgentHarnessPermissionMode | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== "string" || !harnessPermissionModes.has(value)) {
+    throw new TypeError("[vitehub] defineAgent({ driver.permissionMode }) must be allow-reads, allow-edits, or allow-all.")
+  }
+  return value as AgentHarnessPermissionMode
 }
 
 function normalizeHarnessCredentialSource(value: unknown): AgentHarnessCredentialSource | undefined {
@@ -82,7 +94,7 @@ function normalizeHarnessCredentialSource(value: unknown): AgentHarnessCredentia
 }
 
 const modelDriverKeys = new Set(["execution", "instructions", "model"])
-const harnessDriverKeys = new Set(["credentials", "harness", "sandbox", "sessionKey"])
+const harnessDriverKeys = new Set(["credentials", "harness", "permissionMode", "sandbox", "sessionKey"])
 const runDriverKeys = new Set(["run"])
 
 function normalizeExplicitAgentDriver<
@@ -122,6 +134,7 @@ function normalizeExplicitAgentDriver<
       credentials: normalizeHarnessCredentialSource(driver.credentials),
       harness: driver.harness as AgentHarnessDriverInput,
       kind: "harness",
+      permissionMode: normalizeHarnessPermissionMode(driver.permissionMode),
       sandbox: driver.sandbox as AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS> | undefined,
       sessionKey: driver.sessionKey as AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS> | undefined,
     }

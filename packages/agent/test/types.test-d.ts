@@ -518,6 +518,7 @@ describe("agent public types", () => {
       driver: {
         credentials: { label: "local Codex", source: "ambient" },
         harness: { provider: "codex" },
+        permissionMode: "allow-edits",
         sandbox({ input }) {
           expectTypeOf(input.prompt).toEqualTypeOf<AgentRunInput["prompt"]>()
           return {}
@@ -528,7 +529,7 @@ describe("agent public types", () => {
     // @ts-expect-error Agent Driver variants are mutually exclusive
     const _mixedDriver: AgentDriver = { model: "model", run: () => "ok" }
 
-    // @ts-expect-error harness permissions are intentionally not public in V1
+    // @ts-expect-error raw harness permissions are intentionally not public in V1
     const _permissionDriver: AgentDriver = { harness: { provider: "codex" }, permissions: "bypass" }
 
     // @ts-expect-error raw harness credential material is not accepted by the generic driver boundary

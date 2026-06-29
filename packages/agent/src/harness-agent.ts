@@ -22,6 +22,7 @@ import type {
   AgentDriverContributionKind,
   AgentHarnessCredentialSource,
   AgentHarnessDriverInput,
+  AgentHarnessPermissionMode,
   AgentHarnessSandboxInput,
   AgentHarnessSessionKey,
   AgentRunCallbackContext,
@@ -56,6 +57,7 @@ interface HarnessAgentAdapterOptions<
 > {
   credentials?: AgentHarnessCredentialSource
   harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
+  permissionMode?: AgentHarnessPermissionMode
   sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS>
   sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
 }
@@ -351,7 +353,7 @@ async function createHarnessAgent<
         await prepareWorkspaceSession(session, sessionWorkDir, abortSignal)
       },
     },
-    permissionMode: "allow-all",
+    permissionMode: options.permissionMode ?? "allow-all",
     sandbox,
     ...(tools ? { tools } : {}),
   })

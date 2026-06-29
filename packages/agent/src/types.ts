@@ -788,6 +788,8 @@ export type AgentHarnessDriverInput<
   | object
   | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<object>)
 
+export type AgentHarnessPermissionMode = "allow-reads" | "allow-edits" | "allow-all"
+
 export type AgentHarnessSandboxInput<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -822,7 +824,7 @@ export interface AgentHarnessDriver<
   harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
   instructions?: never
   model?: never
-  permissionMode?: never
+  permissionMode?: AgentHarnessPermissionMode
   permissions?: never
   run?: never
   sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS, TContextValues>
