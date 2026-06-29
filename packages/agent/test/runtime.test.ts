@@ -1872,6 +1872,47 @@ describe("agent message protocol", () => {
     expect(secondSession.detach).toHaveBeenCalledTimes(1)
   })
 
+  it("treats undefined harness detach state as a resumed session", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const firstSession = { detach: vi.fn(async () => undefined), destroy: vi.fn() }
+    const secondSession = { detach: vi.fn(async () => undefined), destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(firstSession).mockResolvedValueOnce(secondSession)
+    harnessGenerate.mockResolvedValue({ text: "ok" })
+
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+        sessionKey: "thread-1",
+      },
+    })
+    const input = {
+      context: { chat: {} },
+      messages: [
+        createMessage({ id: "user-1", role: "user", text: "hello" }),
+        createMessage({ id: "assistant-1", role: "assistant", text: "ok" }),
+        createMessage({ id: "user-2", role: "user", text: "again" }),
+      ],
+    }
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, input)
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, input)
+
+    expect(harnessCreateSession).toHaveBeenNthCalledWith(1, { sessionId: "thread-1" })
+    expect(harnessCreateSession).toHaveBeenNthCalledWith(2, { sessionId: "thread-1" })
+    expect(harnessGenerate).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      prompt: [
+        "Conversation history:",
+        "User: again",
+        "",
+        "Respond to the latest user message.",
+      ].join("\n"),
+      session: secondSession,
+    }))
+    expect(firstSession.detach).toHaveBeenCalledTimes(1)
+    expect(secondSession.detach).toHaveBeenCalledTimes(1)
+  })
+
   it("rejects mixed, permission-shaped, or raw-credential Agent Drivers", async () => {
     const { defineAgent } = await import("../src/index.ts")
 

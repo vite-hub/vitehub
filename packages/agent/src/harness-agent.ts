@@ -551,6 +551,7 @@ export function createHarnessAgentAdapter<
     getWorkspaceSession: () => { close: (error?: unknown) => MaybePromise<void> } | undefined,
   ) {
     const sessionId = await resolveHarnessSessionKey(options.sessionKey, context)
+    const resumesSession = sessionId ? resumeStates.has(sessionId) : false
     const resumeFrom = sessionId ? resumeStates.get(sessionId) : undefined
     const sessionOptions = {
       ...(context.input.abortSignal ? { abortSignal: context.input.abortSignal } : {}),
@@ -588,7 +589,7 @@ export function createHarnessAgentAdapter<
     return {
       cleanup,
       session,
-      resumesSession: resumeFrom !== undefined,
+      resumesSession,
     }
   }
 
