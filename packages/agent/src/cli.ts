@@ -198,13 +198,37 @@ function deliveryReactionContent(payload: unknown): string | undefined {
   return isRecord(payload) && typeof payload.content === "string" ? payload.content : undefined
 }
 
+function deliveryReactionAction(payload: unknown): string | undefined {
+  return isRecord(payload) && typeof payload.action === "string" ? payload.action : undefined
+}
+
 function deliveryPreviewHeader(event: { channelId?: string, effect: { kind: string, payload?: unknown } }): string {
   const channel = event.channelId ? ` on ${event.channelId}` : ""
   if (event.effect.kind === "reaction") {
     const content = deliveryReactionContent(event.effect.payload)
+    if (deliveryReactionAction(event.effect.payload) === "remove") return `[delivery] remove reaction${content ? ` ${content}` : ""}${channel}`
     return `[delivery] reaction${content ? ` ${content}` : ""}${channel}`
   }
   return `[delivery preview] would ${event.effect.kind}${channel}`
+}
+
+function deliveryPreviewArtifacts(effect: { artifacts?: unknown, payload?: unknown }): Array<Record<string, unknown>> {
+  const artifacts = [
+    ...(Array.isArray(effect.artifacts) ? effect.artifacts : []),
+    ...(isRecord(effect.payload) && Array.isArray(effect.payload.artifacts) ? effect.payload.artifacts : []),
+  ]
+  return artifacts.filter(isRecord)
+}
+
+function writeDeliveryPreviewArtifacts(context: AgentCliContext, event: { channelId?: string, effect: { artifacts?: unknown, payload?: unknown } }): void {
+  const channel = event.channelId ? ` on ${event.channelId}` : ""
+  for (const artifact of deliveryPreviewArtifacts(event.effect)) {
+    const path = typeof artifact.path === "string" ? artifact.path : "artifact"
+    const label = artifact.placement === "attachment" ? "attachment" : "asset"
+    context.stderr.write(`\n[delivery] ${label} ${path}${channel}\n`)
+    writeDevPayload(context, "url", artifact.url)
+    writeDevPayload(context, "attachment", artifact.channelAttachmentId)
+  }
 }
 
 function toolTextOutput(value: unknown, seen = new Set<unknown>()): string | undefined {
@@ -857,6 +881,7 @@ async function sendDevMessage(
       if (event.type === "delivery-preview") {
         clearPendingFallback()
         previewSeen = true
+        writeDeliveryPreviewArtifacts(context, event)
         context.stderr.write(`\n${deliveryPreviewHeader(event)}\n`)
         writeDevPayload(context, "intent", event.effect.intent)
         if (event.effect.kind !== "reaction") writeDeliveryPreviewPayload(context, event.effect.payload)

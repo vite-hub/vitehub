@@ -764,7 +764,8 @@ describe("agent CLI", () => {
           { agent: "review", trigger: "github.webhook", type: "start" },
           { channelId: "github", effect: { kind: "reaction", payload: { content: "eyes" } }, type: "delivery-preview" },
           { text: "verbose review prose", type: "text-delta" },
-          { channelId: "github", effect: { kind: "reply", payload: { body: "**Summary:** Short review.\n\n<details>\n<summary>Usage telemetry</summary>\n\nlarge table\n</details>" } }, type: "delivery-preview" },
+          { channelId: "github", effect: { artifacts: [{ path: "screenshots/login.png", url: "https://assets.example/login.png" }], kind: "reply", payload: { body: "**Summary:** Short review.\n\n<details>\n<summary>Usage telemetry</summary>\n\nlarge table\n</details>" } }, type: "delivery-preview" },
+          { channelId: "github", effect: { kind: "reaction", payload: { action: "remove", content: "eyes" } }, type: "delivery-preview" },
           { type: "finish" },
           { type: "done" },
         ])
@@ -795,9 +796,15 @@ describe("agent CLI", () => {
 
     expect(stdout.output()).toBe(`Loaded payload: ${join(rootDir, "payload.json")}\n`)
     expect(stderr.output()).toContain("[delivery] reaction eyes on github")
+    expect(stderr.output()).toContain("[delivery] asset screenshots/login.png on github")
+    expect(stderr.output()).toContain("url: https://assets.example/login.png")
     expect(stderr.output()).toContain("[delivery preview] would reply on github")
+    expect(stderr.output()).toContain("[delivery] remove reaction eyes on github")
     expect(stderr.output()).toContain("body: Summary: Short review.")
-    expect(stderr.output().indexOf("[delivery] reaction eyes on github")).toBeLessThan(stderr.output().indexOf("body: Summary: Short review."))
+    expect(stderr.output().match(/\[delivery\] reaction eyes on github/g)).toHaveLength(1)
+    expect(stderr.output().indexOf("[delivery] reaction eyes on github")).toBeLessThan(stderr.output().indexOf("[delivery] asset screenshots/login.png on github"))
+    expect(stderr.output().indexOf("[delivery] asset screenshots/login.png on github")).toBeLessThan(stderr.output().indexOf("body: Summary: Short review."))
+    expect(stderr.output().indexOf("body: Summary: Short review.")).toBeLessThan(stderr.output().indexOf("[delivery] remove reaction eyes on github"))
     expect(stderr.output()).not.toContain("Usage telemetry")
     expect(stderr.output()).not.toContain("large table")
     expect(stderr.output()).not.toContain("verbose review prose")

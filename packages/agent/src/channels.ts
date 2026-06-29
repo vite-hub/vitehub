@@ -1,4 +1,4 @@
-import { createSign } from "node:crypto"
+import { createHash, createSign } from "node:crypto"
 
 import type {
   AgentCallbackContext,
@@ -94,6 +94,10 @@ type GitHubAppContext<TRuntimeConfig extends AgentRuntimeConfig> =
 export interface GitHubAppOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   apiBaseUrl?: string
   appId?: GitHubAppValue<number | string | undefined, TRuntimeConfig>
+  artifacts?: false | {
+    branch?: string
+    pathPrefix?: string
+  }
   fetch?: typeof fetch
   installationId?: GitHubAppValue<number | string | undefined, TRuntimeConfig>
   privateKey?: GitHubAppValue<string | { unseal: () => string } | undefined, TRuntimeConfig>
@@ -234,6 +238,7 @@ export interface GitHubChannelOptions<TRuntimeConfig extends AgentRuntimeConfig 
 
 interface GitHubPullRequestEffectsOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   apiBaseUrl?: string
+  artifacts?: GitHubAppOptions<TRuntimeConfig>["artifacts"]
   fetch?: typeof fetch
   statusContext?: string
   token: MaybeResolvable<string, AgentChannelDeliveryEffectContext<TRuntimeConfig>>
@@ -783,6 +788,112 @@ function githubMarkdownUrl(value: string): string {
   return value.replace(/[\r\n<>]+/g, "")
 }
 
+const imageArtifactExtensions = new Set(["gif", "jpeg", "jpg", "png", "svg", "webp"])
+let githubArtifactPublishCounter = 0
+
+function isImageArtifactPath(value: string): boolean {
+  return imageArtifactExtensions.has(value.split(".").pop()?.toLowerCase() || "")
+}
+
+function githubBodyImagePath(value: string): string | undefined {
+  if (!isImageArtifactPath(value)) return
+  try {
+    return normalizeDeliveryArtifactPath(value, "GitHub delivery image path")
+  }
+  catch {
+    return
+  }
+}
+
+async function existingWorkspaceImagePath<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+  path: string,
+): Promise<string | undefined> {
+  const normalized = githubBodyImagePath(path)
+  if (!normalized || !context.workspace) return
+  const stat = await context.workspace.fs.stat(normalized).catch(() => undefined)
+  if (!stat || stat.type !== "file") return
+  return normalized
+}
+
+async function githubBodyImageArtifacts<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
+  body: string | undefined,
+  options: GitHubPullRequestEffectsOptions<TRuntimeConfig>,
+  command: GitHubPullRequestCommand,
+  headers: Record<string, string>,
+): Promise<PublishedAgentDeliveryArtifact[]> {
+  if (!body || !context.workspace || options.artifacts === false) return []
+  const paths = new Set<string>()
+  const collect = async (value: string) => {
+    const path = await existingWorkspaceImagePath(context, value)
+    if (path) paths.add(path)
+  }
+  for (const match of body.matchAll(/!\[[^\]\r\n]*\]\(\s*(\.?\/?(?:[\w.-]+\/)+[\w.-]+\.(?:gif|jpe?g|png|svg|webp))\s*\)/gi)) {
+    await collect(match[1])
+  }
+  for (const match of body.matchAll(/(^|[\s('"`<])((?:\.\/)?(?:[\w.-]+\/)+[\w.-]+\.(?:gif|jpe?g|png|svg|webp))(?![\w.-])/gi)) {
+    await collect(match[2])
+  }
+  if (!paths.size) return []
+  const branch = options.artifacts && options.artifacts.branch || "vitehub-agent-assets"
+  const pathPrefix = options.artifacts && options.artifacts.pathPrefix || "vitehub-agent-assets"
+  const fetcher = options.fetch || fetch
+  await ensureGitHubArtifactBranch(fetcher, options.apiBaseUrl, command, headers, branch)
+  return await publishWorkspaceArtifacts(context, [...paths].map(path => ({ path, placement: "inline" })), {
+    prefix: `${pathPrefix}/pr-${command.issueNumber}/${context.run?.runId || command.commentId}`,
+    publish: async input => await publishGitHubArtifact(fetcher, options.apiBaseUrl, command, headers, branch, input),
+  })
+}
+
+async function ensureGitHubArtifactBranch(
+  fetcher: typeof fetch,
+  apiBaseUrl: string | undefined,
+  command: GitHubPullRequestCommand,
+  headers: Record<string, string>,
+  branch: string,
+): Promise<void> {
+  const baseUrl = apiBaseUrl || "https://api.github.com"
+  const refUrl = `${baseUrl}/repos/${command.owner}/${command.repo}/git/ref/heads/${encodeURIComponent(branch)}`
+  const existing = await fetcher(refUrl, { headers, method: "GET" })
+  if (existing.ok) return
+  if (existing.status !== 404) throw new Error(`[vitehub] GitHub delivery effect failed with ${existing.status}.`)
+  const sha = await githubPullRequestHeadSha(fetcher, command, headers)
+  if (!sha) throw new Error("[vitehub] GitHub delivery artifact publishing requires a pull request head SHA.")
+  const created = await fetcher(`${baseUrl}/repos/${command.owner}/${command.repo}/git/refs`, {
+    body: JSON.stringify({ ref: `refs/heads/${branch}`, sha }),
+    headers,
+    method: "POST",
+  })
+  if (!created.ok && created.status !== 422) throw new Error(`[vitehub] GitHub delivery effect failed with ${created.status}.`)
+}
+
+function githubRawUrl(command: GitHubPullRequestCommand, branch: string, pathname: string): string {
+  return `https://github.com/${command.owner}/${command.repo}/raw/${encodeURIComponent(branch)}/${pathname.split("/").map(encodeURIComponent).join("/")}`
+}
+
+async function publishGitHubArtifact(
+  fetcher: typeof fetch,
+  apiBaseUrl: string | undefined,
+  command: GitHubPullRequestCommand,
+  headers: Record<string, string>,
+  branch: string,
+  input: AgentDeliveryArtifactPublishInput,
+): Promise<AgentDeliveryArtifactPublishResult> {
+  const hash = createHash("sha256").update(input.content).digest("hex").slice(0, 12)
+  const pathname = joinDeliveryArtifactPath(`${Date.now()}-${++githubArtifactPublishCounter}-${hash}`, input.pathname)
+  await githubApi(fetcher, `${apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/contents/${pathname.split("/").map(encodeURIComponent).join("/")}`, {
+    body: JSON.stringify({
+      branch,
+      content: Buffer.from(input.content).toString("base64"),
+      message: `chore: publish agent delivery artifact ${input.artifact.path}`,
+    }),
+    headers,
+    method: "PUT",
+  })
+  return { url: githubRawUrl(command, branch, pathname) }
+}
+
 function githubArtifactMarkdown(artifact: PublishedAgentDeliveryArtifact): string | undefined {
   if (!artifact.url) return
   const label = githubMarkdownText(artifact.alt || artifact.path.split("/").pop() || artifact.path)
@@ -794,13 +905,29 @@ function githubArtifactMarkdown(artifact: PublishedAgentDeliveryArtifact): strin
   return `[${label}](<${url}>)`
 }
 
-function githubBodyWithArtifacts<TRuntimeConfig extends AgentRuntimeConfig>(
+async function githubBodyWithArtifacts<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
   body: string | undefined,
-): string | undefined {
-  const artifacts = deliveryArtifacts(context).map(githubArtifactMarkdown).filter((line): line is string => Boolean(line))
-  if (!artifacts.length) return body
-  return body ? `${body}\n\n${artifacts.join("\n")}` : artifacts.join("\n")
+  options: GitHubPullRequestEffectsOptions<TRuntimeConfig>,
+  command: GitHubPullRequestCommand,
+  headers: Record<string, string>,
+): Promise<string | undefined> {
+  const bodyArtifacts = await githubBodyImageArtifacts(context, body, options, command, headers)
+  const artifacts = [
+    ...deliveryArtifacts(context),
+    ...bodyArtifacts,
+  ].map(githubArtifactMarkdown).filter((line): line is string => Boolean(line))
+  const rewrittenBody = bodyArtifacts.reduce((text, artifact) => {
+    const markdown = githubArtifactMarkdown(artifact)
+    if (!markdown || !artifact.url) return text
+    const path = artifact.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    return text
+      .replace(new RegExp(`!\\[([^\\]\\r\\n]*)\\]\\(\\s*(?:\\./)?${path}\\s*\\)`, "g"), (_match, alt) => `![${githubMarkdownText(alt || artifact.alt || artifact.path)}](<${githubMarkdownUrl(artifact.url!)}>)`)
+      .replace(new RegExp(`(^|[\\s('"\\x60<])(?:\\./)?${path}(?![\\w.-])`, "g"), (_match, prefix) => `${prefix}${markdown}`)
+  }, body || "")
+  const explicitArtifacts = artifacts.filter(line => !bodyArtifacts.some(artifact => githubArtifactMarkdown(artifact) === line))
+  if (!explicitArtifacts.length) return rewrittenBody || body
+  return rewrittenBody ? `${rewrittenBody}\n\n${explicitArtifacts.join("\n")}` : explicitArtifacts.join("\n")
 }
 
 function finishResultText(result: unknown): string | undefined {
@@ -894,44 +1021,50 @@ function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = Ag
     },
     async reply(context) {
       const command = githubCommandFromEffect(context)
-      const body = githubBodyWithArtifacts(context, replyBody(context))
-      if (!command || !body) return
       const fetcher = options.fetch || fetch
       const token = await resolveEffectOption(options.token, context)
+      if (!command) return
+      const headers = githubApiHeaders(token, options.userAgent)
+      const body = await githubBodyWithArtifacts(context, replyBody(context), options, command, headers)
+      if (!body) return
       const url = `${options.apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/issues/${command.issueNumber}/comments`
       await githubApi(fetcher, url, {
         body: JSON.stringify({ body }),
-        headers: githubApiHeaders(token, options.userAgent),
+        headers,
         method: "POST",
       })
     },
     async update(context) {
       const command = githubCommandFromEffect(context)
-      const body = githubBodyWithArtifacts(context, replyBody(context))
-      if (!command || !body) return
       const fetcher = options.fetch || fetch
       const token = await resolveEffectOption(options.token, context)
+      if (!command) return
+      const headers = githubApiHeaders(token, options.userAgent)
+      const body = await githubBodyWithArtifacts(context, replyBody(context), options, command, headers)
+      if (!body) return
       const url = `${options.apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/issues/comments/${command.commentId}`
       await githubApi(fetcher, url, {
         body: JSON.stringify({ body }),
-        headers: githubApiHeaders(token, options.userAgent),
+        headers,
         method: "PATCH",
       })
     },
     async review(context) {
       const command = githubCommandFromEffect(context)
-      const body = githubBodyWithArtifacts(context, replyBody(context))
-      if (!command || !body) return
       const payload = isRecord(context.effect.payload) ? context.effect.payload : {}
       const fetcher = options.fetch || fetch
       const token = await resolveEffectOption(options.token, context)
+      if (!command) return
+      const headers = githubApiHeaders(token, options.userAgent)
+      const body = await githubBodyWithArtifacts(context, replyBody(context), options, command, headers)
+      if (!body) return
       const url = `${options.apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/pulls/${command.issueNumber}/reviews`
       await githubApi(fetcher, url, {
         body: JSON.stringify({
           body,
           event: maybeString(payload.event) || maybeString(context.effect.metadata?.event) || "COMMENT",
         }),
-        headers: githubApiHeaders(token, options.userAgent),
+        headers,
         method: "POST",
       })
     },
