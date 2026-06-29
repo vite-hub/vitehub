@@ -2761,6 +2761,69 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:888", { markdown: "side message via telegram" })
   })
 
+  it("maps finish hook delivery artifacts to Chat SDK attachments", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const finish = vi.fn(async (event) => {
+      const chat = event.extensions.get("chat") as { sendMessage?: (message: { artifacts: unknown[], markdown: string }) => Promise<void> } | undefined
+      await chat?.sendMessage?.({
+        artifacts: [{
+          mediaType: "image/png",
+          path: "screenshots/login.png",
+          placement: "inline",
+          url: "https://assets.example/screenshots/login.png",
+        }],
+        markdown: "See attached screenshot.",
+      })
+    })
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          stream: false,
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      hooks: {
+        "agent:finish": finish,
+      },
+      driver: { run: () => ({ text: "agent answer" }) },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 1889,
+        message: {
+          chat: { id: 889, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1889,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:889", {
+      attachments: [{
+        mimeType: "image/png",
+        name: "login.png",
+        type: "image",
+        url: "https://assets.example/screenshots/login.png",
+      }],
+      markdown: "See attached screenshot.",
+    })
+  })
+
   it("commits native streamed chat responses before flushing finish hook messages", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
