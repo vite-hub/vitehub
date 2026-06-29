@@ -263,6 +263,7 @@ export async function createSandboxWorkspaceSession(
     },
     async commit(options) {
       const diff = await currentDiff()
+      if (!diff.entries.length) return
       assertDiffInsideSessionPaths(diff, sessionPaths)
       await commitSandboxChanges(sandbox, workspace, diff, mediaTypes)
       baseline = await snapshotSandbox(sandbox, options?.message || "sandbox-commit")

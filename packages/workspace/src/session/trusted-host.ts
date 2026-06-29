@@ -360,6 +360,7 @@ export async function createTrustedHostWorkspaceSession(
     },
     async commit(options) {
       const diff = await currentDiff()
+      if (!diff.entries.length) return
       assertDiffInsideSessionPaths(diff, sessionPaths)
       await commitLocalChanges(root, workspace, diff, mediaTypes)
       baseline = await snapshotLocal(root, options?.message || "local-commit")

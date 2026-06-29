@@ -53,6 +53,17 @@ interface WorkspaceDevTarget {
   url: string
 }
 
+const workspaceCommandFeedbackIntervalMs = 15_000
+const workspaceCommandStartedMessage = "[vitehub] Workspace command started; first run may materialize sources.\n"
+const workspaceCommandWaitingMessage = "[vitehub] Workspace command still running; sources may still be materializing.\n"
+
+function startWorkspaceCommandFeedback(context: WorkspaceCliContext): () => void {
+  context.stderr.write(workspaceCommandStartedMessage)
+  const timer = setInterval(() => context.stderr.write(workspaceCommandWaitingMessage), workspaceCommandFeedbackIntervalMs)
+  timer.unref?.()
+  return () => clearInterval(timer)
+}
+
 function writeWorkspaceDevUsage(context: WorkspaceCliContext): void {
   context.stdout.write([
     "Usage: vitehub workspace dev <workspace> [command...] [--url <url>] [--timeout <ms>]",
@@ -187,31 +198,36 @@ async function sendWorkspaceCommand(
     context.stderr.write("No private Workspace Dev token found. Start the Compatible Vite Development Server first.\n")
     return 1
   }
-  context.stderr.write("[vitehub] Workspace command started; first run may materialize sources.\n")
-  const response = await fetchImpl(target.url, {
-    body: JSON.stringify({
-      workspaceCommand: {
-        ...(parsed.args ? { args: parsed.args } : {}),
-        command: parsed.command,
-        ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
-        workspace: parsed.workspace,
+  const stopFeedback = startWorkspaceCommandFeedback(context)
+  try {
+    const response = await fetchImpl(target.url, {
+      body: JSON.stringify({
+        workspaceCommand: {
+          ...(parsed.args ? { args: parsed.args } : {}),
+          command: parsed.command,
+          ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
+          workspace: parsed.workspace,
+        },
+      }),
+      headers: {
+        "content-type": "application/json",
+        [workspaceDevHeader]: workspaceDevHeaderValue,
+        [workspaceDevTokenHeader]: token,
       },
-    }),
-    headers: {
-      "content-type": "application/json",
-      [workspaceDevHeader]: workspaceDevHeaderValue,
-      [workspaceDevTokenHeader]: token,
-    },
-    method: "POST",
-  })
-  if (!response.ok) {
-    context.stderr.write(`${await response.text()}\n`)
-    return 1
+      method: "POST",
+    })
+    if (!response.ok) {
+      context.stderr.write(`${await response.text()}\n`)
+      return 1
+    }
+    const result = await response.json().catch(() => ({})) as { exitCode?: unknown, stderr?: unknown, stdout?: unknown }
+    if (typeof result.stdout === "string") context.stdout.write(result.stdout)
+    if (typeof result.stderr === "string" && result.stderr) context.stderr.write(result.stderr)
+    return typeof result.exitCode === "number" ? result.exitCode : 0
   }
-  const result = await response.json().catch(() => ({})) as { exitCode?: unknown, stderr?: unknown, stdout?: unknown }
-  if (typeof result.stdout === "string") context.stdout.write(result.stdout)
-  if (typeof result.stderr === "string" && result.stderr) context.stderr.write(result.stderr)
-  return typeof result.exitCode === "number" ? result.exitCode : 0
+  finally {
+    stopFeedback()
+  }
 }
 
 async function runInteractiveWorkspaceDev(

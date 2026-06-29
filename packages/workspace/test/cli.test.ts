@@ -139,10 +139,11 @@ describe("workspace CLI", () => {
       stderr: "",
       stdout: "ok\n",
     }))
+    const diff = vi.fn(async () => ({ entries: [] }))
     const commit = vi.fn(async () => {})
     const close = vi.fn(async () => {})
     const workspace = {
-      startSession: vi.fn(async () => ({ close, commit, exec })),
+      startSession: vi.fn(async () => ({ close, commit, diff, exec })),
     }
 
     await expect(runWorkspaceDevCommand({
@@ -157,6 +158,33 @@ describe("workspace CLI", () => {
       abortSignal: undefined,
       timeout: undefined,
     })
+    expect(diff).toHaveBeenCalledOnce()
+    expect(commit).not.toHaveBeenCalled()
+    expect(close).toHaveBeenCalledOnce()
+  })
+
+  it("commits changed Workspace Dev command sessions", async () => {
+    const exec = vi.fn(async () => ({
+      exitCode: 0,
+      stderr: "",
+      stdout: "ok\n",
+    }))
+    const diff = vi.fn(async () => ({ entries: [{ path: "README.md" }] }))
+    const commit = vi.fn(async () => {})
+    const close = vi.fn(async () => {})
+    const workspace = {
+      startSession: vi.fn(async () => ({ close, commit, diff, exec })),
+    }
+
+    await expect(runWorkspaceDevCommand({
+      command: "echo ok > README.md",
+      workspace: workspace as never,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "ok\n",
+    })
+
+    expect(diff).toHaveBeenCalledOnce()
     expect(commit).toHaveBeenCalledWith({ message: "workspace dev command" })
     expect(close).toHaveBeenCalledOnce()
   })
