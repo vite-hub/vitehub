@@ -68,7 +68,7 @@ Run a disallowed command during development and verify ViteHub rejects it before
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `commands` | `string[]` | none | Allowlisted executable names. Values must be executable names, not shell command strings. |
+| `commands` | `string[]` | required | Allowlisted executable names. Pass at least one executable name, not shell command strings. |
 
 ## Reference
 
