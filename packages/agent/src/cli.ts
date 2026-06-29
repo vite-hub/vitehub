@@ -351,8 +351,46 @@ function shellCommand(value: unknown): string | undefined {
   return command && !command.includes("\n") ? command : undefined
 }
 
+function quoteCliValue(value: unknown): string | undefined {
+  const text = typeof value === "string" ? value : JSON.stringify(value)
+  if (!text) return
+  return /^[\w./:@=-]+$/.test(text)
+    ? text
+    : `'${text.replace(/'/g, "'\\''")}'`
+}
+
+function operationCommand(name: string, value: unknown): string | undefined {
+  if (!isRecord(value)) return
+  const operation = typeof value.operationId === "string" && value.operationId.trim()
+    ? value.operationId.trim()
+    : typeof value.operation === "string" && value.operation.trim()
+      ? value.operation.trim()
+      : undefined
+  const quotedOperation = quoteCliValue(operation)
+  if (!quotedOperation || quotedOperation.includes("\n")) return
+
+  const parts = [name, quotedOperation]
+  for (const key of ["path", "query", "body"]) {
+    if (value[key] === undefined) continue
+    const quoted = quoteCliValue(value[key])
+    if (quoted) parts.push(`--${key}`, quoted)
+  }
+
+  const rest = Object.fromEntries(Object.entries(value).filter(([key, item]) =>
+    item !== undefined && !["operation", "operationId", "path", "query", "body"].includes(key),
+  ))
+  const quotedRest = Object.keys(rest).length ? quoteCliValue(rest) : undefined
+  if (quotedRest) parts.push("--input", quotedRest)
+
+  return parts.join(" ")
+}
+
+function toolCommand(name: string, input?: unknown, output?: unknown): string | undefined {
+  return shellCommand(input) ?? shellCommand(output) ?? operationCommand(name, input) ?? operationCommand(name, output)
+}
+
 function toolHeader(name: string, input?: unknown, output?: unknown): string {
-  const command = shellCommand(input) ?? shellCommand(output)
+  const command = toolCommand(name, input, output)
   if (command) return `[tool] ${command}`
 
   const formattedInput = isRecord(input) && Object.keys(input).length === 0 ? undefined : formatDevPayload(input)
@@ -841,10 +879,18 @@ async function sendDevMessage(
         if (event.type === "tool-input-start" && event.input === undefined) continue
         if (!visibleTools.has(event.id)) {
           visibleTools.add(event.id)
-          visibleToolInputs.set(event.id, formatDevPayload(event.input))
+          visibleToolInputs.set(event.id, toolCommand(event.name, event.input) ?? formatDevPayload(event.input))
           context.stderr.write(`\n${toolHeader(event.name, event.input)}\n`)
         }
-        else if (event.input !== undefined && !shellCommand(event.input)) {
+        else if (event.input !== undefined) {
+          const command = toolCommand(event.name, event.input)
+          if (command) {
+            if (command !== visibleToolInputs.get(event.id)) {
+              visibleToolInputs.set(event.id, command)
+              context.stderr.write(`\n[tool] ${command}\n`)
+            }
+            continue
+          }
           const formattedInput = formatDevPayload(event.input)
           if (formattedInput !== visibleToolInputs.get(event.id)) {
             visibleToolInputs.set(event.id, formattedInput)

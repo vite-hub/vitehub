@@ -648,6 +648,8 @@ describe("agent CLI", () => {
           { id: "tool-7", input: {}, name: "lookup_doc", type: "tool-call" },
           { id: "tool-7", input: { slug: "final" }, name: "lookup_doc", type: "tool-call" },
           { id: "tool-7", name: "lookup_doc", output: { text: "lookup result" }, type: "tool-result" },
+          { id: "tool-12", input: { operationId: "portalPurchaseOrders" }, name: "portal", type: "tool-call" },
+          { id: "tool-12", input: { body: { limit: 100 }, operationId: "portalPurchaseOrders", query: { planningGroupId: "demo" } }, name: "portal", type: "tool-call" },
           { id: "tool-9", input: { query: "first" }, name: "first_tool", type: "tool-call" },
           { id: "tool-10", input: { query: "second" }, name: "second_tool", type: "tool-call" },
           { id: "tool-10", name: "second_tool", output: { text: "second done" }, type: "tool-result" },
@@ -689,6 +691,9 @@ describe("agent CLI", () => {
     expect(stderr.output()).toContain(`\n[tool] search_docs {"query":"Agent Dev Loop"}\nsearch result\n---\n`)
     expect(stderr.output()).toContain(`\n[tool] lookup_doc\n  input: {"slug":"final"}\nlookup result\n---\n`)
     expect(stderr.output()).not.toContain(`\n[tool] lookup_doc {}\n`)
+    expect(stderr.output()).toContain(`\n[tool] portal portalPurchaseOrders\n`)
+    expect(stderr.output()).toContain(`\n[tool] portal portalPurchaseOrders --query '{"planningGroupId":"demo"}' --body '{"limit":100}'\n`)
+    expect(stderr.output()).not.toContain(`[tool] portal {"operationId":"portalPurchaseOrders"}`)
     const firstToolIndex = stderr.output().indexOf(`[tool] first_tool {"query":"first"}`)
     const secondToolIndex = stderr.output().indexOf(`[tool] second_tool {"query":"second"}`)
     expect(firstToolIndex).toBeGreaterThanOrEqual(0)
