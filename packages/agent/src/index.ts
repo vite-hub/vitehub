@@ -1,5 +1,6 @@
 import agentRegistry from "#vitehub/agent/registry"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
+import { cloneWithPropertyDescriptors } from "./internal/stream-result.ts"
 import { agentErrorDetails, agentErrorMessage } from "./agent-error.ts"
 import { getMessageText } from "./messages.ts"
 import { resolveRuntimeContext } from "@vite-hub/runtime"
@@ -1570,9 +1571,14 @@ function maybeTraceUiMessageStreamResult<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(rendered: { toUIMessageStream: () => ReadableStream<unknown> }, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>) {
-  return {
-    toUIMessageStream: () => traceUiMessageStream(rendered.toUIMessageStream(), context),
-  }
+  const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+  return cloneWithPropertyDescriptors(rendered, {
+    toUIMessageStream: {
+      configurable: true,
+      enumerable: false,
+      value: (...args: unknown[]) => traceUiMessageStream(toUIMessageStream.apply(rendered, args), context),
+    },
+  })
 }
 
 function maybeTraceUiMessageStreamOutput<

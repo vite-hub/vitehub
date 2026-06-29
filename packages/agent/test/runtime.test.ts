@@ -4698,6 +4698,76 @@ describe("agent message protocol", () => {
     expect(deriveTraceRuns(traceLog.entries()).map(run => run.id)).toEqual(["run-1"])
   })
 
+  it("preserves native UI message result metadata for traced finish renderers", async () => {
+    const { createUIMessageStream, readUIMessageStream } = await import("ai")
+    const { defineCapability } = await import("../src/capability-runtime.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const finish = vi.fn()
+
+    class NativeUiResult {
+      metadata = { id: "native-result" }
+      text = "existing text"
+      usageRecord = { usage: { totalTokens: 3 } }
+
+      describe() {
+        return this.metadata.id
+      }
+
+      toUIMessageStream() {
+        return createUIMessageStream({
+          execute({ writer }) {
+            writer.write({ type: "start", messageId: "assistant-1" })
+            writer.write({ type: "text-start", id: "text-1" })
+            writer.write({ type: "text-delta", id: "text-1", delta: "native answer" })
+            writer.write({ type: "text-end", id: "text-1" })
+            writer.write({ type: "finish", finishReason: "stop" })
+          },
+        })
+      }
+    }
+
+    const nativeResult = new NativeUiResult()
+    const finalRenderer = vi.fn((result: unknown) => {
+      expect(result).toBe(nativeResult)
+      expect(result).toBeInstanceOf(NativeUiResult)
+      expect((result as NativeUiResult).metadata).toBe(nativeResult.metadata)
+      expect((result as NativeUiResult).usageRecord).toBe(nativeResult.usageRecord)
+      expect((result as NativeUiResult).describe()).toBe("native-result")
+      return result
+    })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "native-ui-result-assertion",
+          output(context) {
+            context.output.final(finalRenderer)
+          },
+        }),
+      ],
+      driver: { run: () => nativeResult },
+      hooks: {
+        "agent:finish": finish,
+      },
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {}, { output: "ui-message-stream" }) as ReadableStream<never>
+    for await (const _message of readUIMessageStream({ stream })) {}
+
+    expect(finalRenderer).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].result).toBe(nativeResult)
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.stream.finish",
+      "agent.invocation.finish",
+    ])
+  })
+
   it("traces direct async iterable results when UI message streams are requested", async () => {
     const { readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
