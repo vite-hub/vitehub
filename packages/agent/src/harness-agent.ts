@@ -117,7 +117,7 @@ function staticWorkspaceRulePath(pattern: string): string | undefined {
   const base = wildcard === -1 ? pattern : pattern.slice(0, wildcard)
   const normalized = base.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "").replace(/\/+/g, "/")
   const parts = normalized.split("/").filter(Boolean)
-  if (!normalized || parts.some(part => part === "." || part === "..")) return
+  if (parts.some(part => part === "." || part === "..")) return
   return normalized
 }
 
