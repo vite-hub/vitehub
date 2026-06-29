@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process"
 import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, join, posix, relative, sep } from "node:path"
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path"
 
 import { WorkspaceError } from "../core/errors.ts"
 import { contentToBytes, decodeFile, matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
@@ -104,6 +104,11 @@ function isGitSymlinkEntry(entry: WorkspaceEntry): boolean {
   return entry.metadata?.gitMode === "120000"
 }
 
+function isLocalSymlinkTargetInside(root: string, linkPath: string, target: string): boolean {
+  const rel = relative(resolve(root), resolve(dirname(linkPath), target))
+  return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`))
+}
+
 async function readLocalFile(root: string, path: string, options: { allowGenerated?: boolean, preserveSymlink?: boolean } = {}): Promise<WorkspaceFile | undefined> {
   const target = toLocalPath(root, path, options)
   try {
@@ -168,7 +173,9 @@ async function materializeWorkspace(workspace: Workspace, root: string, options?
     const target = toLocalPath(root, entry.path, { allowGenerated: true })
     await mkdir(dirname(target), { recursive: true })
     if (isGitSymlinkEntry(entry)) {
-      await symlink(await workspace.readFile(entry.path), target)
+      const linkTarget = await workspace.readFile(entry.path)
+      if (isLocalSymlinkTargetInside(root, target, linkTarget)) await symlink(linkTarget, target)
+      else await writeFile(target, linkTarget)
       continue
     }
     await writeFile(target, await workspace.readFile(entry.path, { encoding: "binary" }))
@@ -313,10 +320,14 @@ export async function createTrustedHostWorkspaceSession(
       const target = toLocalPath(root, workspacePath)
       await mkdir(dirname(target), { recursive: true })
       await rm(target, { force: true, recursive: true })
-      if (options?.metadata?.gitMode === "120000")
-        await symlink(new TextDecoder().decode(contentToBytes(content)), target)
-      else
+      if (options?.metadata?.gitMode === "120000") {
+        const linkTarget = new TextDecoder().decode(contentToBytes(content))
+        if (isLocalSymlinkTargetInside(root, target, linkTarget)) await symlink(linkTarget, target)
+        else await writeFile(target, content)
+      }
+      else {
         await writeFile(target, content)
+      }
       if (options?.mediaType)
         mediaTypes.set(workspacePath, options.mediaType)
       else

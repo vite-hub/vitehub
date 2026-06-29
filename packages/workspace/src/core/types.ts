@@ -64,6 +64,7 @@ export interface WorkspaceWriteInput {
   path: string
   content?: WorkspaceContent
   mediaType?: string
+  metadata?: Record<string, unknown>
   previous?: WorkspaceStat
   rule?: ResolvedWorkspaceRule
 }

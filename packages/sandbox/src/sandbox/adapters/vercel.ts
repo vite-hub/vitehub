@@ -219,7 +219,7 @@ export class VercelSandboxAdapter extends BaseSandboxAdapter<'vercel'> {
 
   override async listFiles(path: string, opts?: SandboxListFilesOptions): Promise<SandboxFileEntry[]> {
     const fs = this.native.fs
-    if (!fs?.readdir || !fs.stat) {
+    if (!fs?.readdir || !(fs.lstat || fs.stat)) {
       const root = path.replace(/\/+$/, '') || '/'
       const args = [root, '-mindepth', '1']
       if (!opts?.recursive)
@@ -253,7 +253,7 @@ export class VercelSandboxAdapter extends BaseSandboxAdapter<'vercel'> {
       const names = await fs.readdir(dir)
       await Promise.all(names.map(async (name) => {
         const child = posix.join(dir, name)
-        const stat = await fs.stat(child)
+        const stat = fs.lstat ? await fs.lstat(child) : await fs.stat(child)
         const entry: SandboxFileEntry = {
           mtime: stat.mtime?.toISOString?.() || (typeof stat.mtimeMs === 'number' ? new Date(stat.mtimeMs).toISOString() : undefined),
           name,

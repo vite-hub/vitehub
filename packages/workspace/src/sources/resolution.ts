@@ -414,9 +414,10 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
       writeFile: async (path, content, options) => await writeWithPolicy({
         content,
         mediaType: options?.mediaType,
+        metadata: options?.metadata,
         operation: "writeFile",
         path,
-      }, async input => await workspace.fs.writeFile(input.path as never, input.content ?? content, input.mediaType === undefined ? options : { ...options, mediaType: input.mediaType })),
+      }, async input => await workspace.fs.writeFile(input.path as never, input.content ?? content, { ...options, mediaType: input.mediaType, metadata: input.metadata })),
     }, sourceRequestExecution)
     writeWorkspace = attachWorkspaceSourceRequestExecution({
       name: resolvedDefinition.name,

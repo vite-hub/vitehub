@@ -252,6 +252,30 @@ describe("trusted host workspace runtime", () => {
     await session.close()
   })
 
+  it("materializes unsafe GitHub symlink targets as regular files", async () => {
+    const workspace = {
+      name: "docs",
+      async list() {
+        return [
+          { metadata: { gitMode: "120000" }, path: "CLAUDE.md", type: "file" as const },
+        ]
+      },
+      async readFile(path: string) {
+        if (path === "CLAUDE.md") return "../../secret"
+        throw new Error(`unexpected read: ${path}`)
+      },
+    } as unknown as Workspace
+
+    const session = await createTrustedHostWorkspaceSession({ name: "docs", runtime: "trusted-host" }, workspace)
+    const result = await session.exec(process.execPath, [
+      "-e",
+      "const fs = require('node:fs'); process.stdout.write(`${fs.lstatSync('CLAUDE.md').isSymbolicLink()}:${fs.readFileSync('CLAUDE.md', 'utf8')}`)",
+    ])
+
+    expect(result).toMatchObject({ exitCode: 0, stdout: "false:../../secret" })
+    await session.close()
+  })
+
   it("commits retargeted host symlinks as GitHub symlink blobs", async () => {
     const writeFile = vi.fn(async () => {})
     const workspace = {
