@@ -351,13 +351,14 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
       const input = await writePolicy.before({
         content,
         mediaType: options?.mediaType,
+        metadata: options?.metadata,
         operation: "writeFile",
         path: resolution.workspacePath,
         previous: await previousStat(resolution.workspacePath),
         workspace: definition.name,
       })
       try {
-        await store.writeFile(input.path, { path: input.path, content: input.content ?? content, mediaType: input.mediaType })
+        await store.writeFile(input.path, { path: input.path, content: input.content ?? content, mediaType: input.mediaType, metadata: input.metadata })
         await writePolicy.after(input)
       }
       catch (error) {

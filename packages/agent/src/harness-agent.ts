@@ -65,6 +65,18 @@ function hasEntries(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && Object.keys(value).length > 0
 }
 
+function defaultHarnessPermissionMode(harness: unknown): "allow-all" | "allow-edits" {
+  if (
+    hasEntries(harness)
+    && harness.harnessId === "claude-code"
+    && typeof process.getuid === "function"
+    && process.getuid() === 0
+  ) {
+    return "allow-edits"
+  }
+  return "allow-all"
+}
+
 function unsupportedHarnessContributionKinds(context: AgentAdapterRunContext): Set<AgentDriverContributionKind> {
   const kinds = new Set<AgentDriverContributionKind>()
   if (context.providerTools?.length) kinds.add("provider tools")
@@ -163,8 +175,12 @@ function harnessSupportWorkspacePaths(context: AgentAdapterRunContext): string[]
   ])
 }
 
+function withHarnessInstructionPaths(paths: readonly string[]): string[] {
+  return paths.length ? compactWorkspacePaths([...harnessInstructionFiles, ...paths]) : []
+}
+
 function explicitHarnessWorkspacePaths(context: AgentAdapterRunContext): string[] {
-  return compactWorkspacePaths([
+  return withHarnessInstructionPaths([
     ...harnessSupportWorkspacePaths(context),
     ...workspaceSourceHarnessPaths(context),
   ])
@@ -177,7 +193,7 @@ function selectedWorkspaceScopePaths(context: AgentAdapterRunContext): string[] 
   if (!scope) return harnessPaths.length ? harnessPaths : undefined
   if (scope.all) return [""]
   const paths = [...new Set([...(scope.paths || []), ...harnessSupportWorkspacePaths(context)])]
-  return paths.length ? paths : []
+  return paths.length ? withHarnessInstructionPaths(paths) : []
 }
 
 async function composeHarnessInstructions(content: string, context: AgentAdapterRunContext) {
@@ -389,7 +405,7 @@ async function createHarnessAgent<
         await prepareWorkspaceSession(session, sessionWorkDir, abortSignal)
       },
     },
-    permissionMode: "allow-all",
+    permissionMode: defaultHarnessPermissionMode(harness),
     sandbox,
     ...(tools ? { tools } : {}),
   })

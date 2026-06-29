@@ -75,6 +75,7 @@ export function resolveVercelBlobWorkspaceStore(
 export function resolveGitHubWorkspaceStore(
   config: Partial<GitHubWorkspaceStoreOptions> = {},
   env: Record<string, string | undefined> = process.env,
+  input: Pick<WorkspaceResolutionInput, "runtime"> = {},
 ): GitHubWorkspaceStoreOptions {
   return {
     branch: trimmed(config.branch) ?? readEnv(env, "WORKSPACE_GITHUB_BRANCH", "VITEHUB_WORKSPACE_GITHUB_BRANCH", "GITHUB_BRANCH") ?? "main",
@@ -83,7 +84,7 @@ export function resolveGitHubWorkspaceStore(
       ?? trimmed(config.repo)
       ?? readEnv(env, "WORKSPACE_GITHUB_REPOSITORY", "VITEHUB_WORKSPACE_GITHUB_REPOSITORY", "GITHUB_REPOSITORY"),
     root: trimmed(config.root) ?? readEnv(env, "WORKSPACE_GITHUB_ROOT", "VITEHUB_WORKSPACE_GITHUB_ROOT") ?? ".vitehub/workspaces/<workspace>",
-    token: MASKED_WORKSPACE_RUNTIME_VALUE,
+    token: input.runtime ? trimmed(config.token) ?? MASKED_WORKSPACE_RUNTIME_VALUE : MASKED_WORKSPACE_RUNTIME_VALUE,
   }
 }
 
@@ -103,7 +104,7 @@ export function normalizeWorkspaceStoreOptions(
   const hosting = input.hosting || ""
 
   if (store?.provider === "cloudflare-artifacts") return resolveCloudflareArtifactsStore(store, env)
-  if (store?.provider === "github") return resolveGitHubWorkspaceStore(store, env)
+  if (store?.provider === "github") return resolveGitHubWorkspaceStore(store, env, input)
   if (store?.provider === "memory") return store
   if (store?.provider === "vercel-blob") return resolveVercelBlobWorkspaceStore(store, env)
   if (store?.provider === "local" || store?.root) return defu(store, { provider: "local" as const }) as ResolvedWorkspaceStoreOptions

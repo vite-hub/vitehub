@@ -228,7 +228,9 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
     const result = input.args
       ? await session.exec(command, input.args, execOptions)
       : await session.exec("sh", ["-lc", command], execOptions)
-    if (result.exitCode === 0) await session.commit({ message: "workspace dev command" })
+    if (result.exitCode === 0 && (await session.diff()).entries.length) {
+      await session.commit({ message: "workspace dev command" })
+    }
     return result
   }
   finally {

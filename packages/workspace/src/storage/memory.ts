@@ -123,7 +123,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       const after = to.entries[path]
       if (!before && after) entries.push({ path, type: "added", after })
       else if (before && !after) entries.push({ path, type: "removed", before })
-      else if (before && after && (before.digest !== after.digest || before.type !== after.type || before.size !== after.size)) {
+      else if (before && after && (before.digest !== after.digest || before.type !== after.type || before.size !== after.size || JSON.stringify(before.metadata) !== JSON.stringify(after.metadata))) {
         entries.push({ path, type: "modified", before, after })
       }
     }
@@ -155,6 +155,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       size,
       mtime: node.mtime,
       mediaType: node.mediaType,
+      metadata: node.metadata,
       digest: node.type === "file" ? await sha256(content) : undefined,
     }
   }
@@ -167,6 +168,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       entries[path] = {
         type: entry.type,
         digest: entry.digest,
+        metadata: entry.metadata,
         size: entry.size,
       }
     }

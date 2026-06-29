@@ -22,6 +22,7 @@ export interface VercelSandboxInstance {
     mkdir: (path: string, options?: { recursive?: boolean, signal?: AbortSignal } | number) => Promise<string | undefined>
     readdir: (path: string, options?: { signal?: AbortSignal, withFileTypes?: false }) => Promise<string[]>
     stat: (path: string, options?: { signal?: AbortSignal }) => Promise<{ isFile(): boolean, isDirectory(): boolean, isSymbolicLink(): boolean, size: number, mtime?: Date, mtimeMs?: number }>
+    lstat?: (path: string, options?: { signal?: AbortSignal }) => Promise<{ isFile(): boolean, isDirectory(): boolean, isSymbolicLink(): boolean, size: number, mtime?: Date, mtimeMs?: number }>
     rm: (path: string, options?: { recursive?: boolean, force?: boolean, signal?: AbortSignal }) => Promise<void>
     rename: (oldPath: string, newPath: string, options?: { signal?: AbortSignal }) => Promise<void>
     exists?: (path: string, options?: { signal?: AbortSignal }) => Promise<boolean>

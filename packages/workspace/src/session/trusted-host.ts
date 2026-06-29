@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process"
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { dirname, join, posix, relative, sep } from "node:path"
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path"
 
 import { WorkspaceError } from "../core/errors.ts"
 import { contentToBytes, decodeFile, matchesAny, normalizeSafeWorkspacePath, normalizeWorkspacePath, resolveInside, sha256 } from "../core/path.ts"
@@ -53,6 +53,10 @@ function isUncommittedSessionPath(path: string): boolean {
   return isGeneratedSourceDescriptorPath(path) || path.split("/").includes(".git")
 }
 
+function executableGitMetadata(mode: number): Record<string, unknown> | undefined {
+  return (mode & 0o111) !== 0 ? { gitMode: "100755" } : undefined
+}
+
 function normalizeLocalWorkspacePath(path = "", options: { allowEmpty?: boolean, allowGenerated?: boolean } = {}) {
   const normalized = posix.normalize(path.replace(/\\/g, "/"))
   const workspacePath = normalized === "." ? "" : normalized
@@ -88,17 +92,40 @@ async function listLocalEntries(root: string, path = "", recursive = false, opti
       if (recursive) entries.push(...await listLocalEntries(root, workspacePath, true, options))
       continue
     }
+    if (dirent.isSymbolicLink()) {
+      const item = await lstat(entryPath)
+      entries.push({ metadata: { gitMode: "120000" }, path: workspacePath, size: item.size, type: "file" })
+      continue
+    }
     if (!dirent.isFile()) continue
     const item = await stat(entryPath)
-    entries.push({ path: workspacePath, size: item.size, type: "file" })
+    const metadata = executableGitMetadata(item.mode)
+    entries.push(metadata ? { metadata, path: workspacePath, size: item.size, type: "file" } : { path: workspacePath, size: item.size, type: "file" })
   }
   return entries.sort((left, right) => left.path.localeCompare(right.path))
 }
 
-async function readLocalFile(root: string, path: string, options: { allowGenerated?: boolean } = {}): Promise<WorkspaceFile | undefined> {
+function isGitSymlinkEntry(entry: WorkspaceEntry): boolean {
+  return entry.metadata?.gitMode === "120000"
+}
+
+function isGitExecutableEntry(entry: WorkspaceEntry): boolean {
+  return entry.metadata?.gitMode === "100755"
+}
+
+function isLocalSymlinkTargetInside(root: string, linkPath: string, target: string): boolean {
+  const rel = relative(resolve(root), resolve(dirname(linkPath), target))
+  return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`))
+}
+
+async function readLocalFile(root: string, path: string, options: { allowGenerated?: boolean, preserveGitMetadata?: boolean } = {}): Promise<WorkspaceFile | undefined> {
   const target = toLocalPath(root, path, options)
   try {
-    return { content: await readFile(target), path: normalizeWorkspacePath(path) }
+    const item = options.preserveGitMetadata ? await lstat(target) : undefined
+    if (item?.isSymbolicLink()) {
+      return { content: await readlink(target), metadata: { gitMode: "120000" }, path: normalizeWorkspacePath(path) }
+    }
+    return { content: await readFile(target), metadata: item ? executableGitMetadata(item.mode) : undefined, path: normalizeWorkspacePath(path) }
   }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined
@@ -110,7 +137,9 @@ async function snapshotLocal(root: string, name?: string) {
   const entries = await listLocalEntries(root, "", true, { allowGenerated: true, skipUncommitted: true })
   const files = await Promise.all(entries.map(async (entry) => {
     if (entry.type !== "file") return entry
-    const content = await readFile(toLocalPath(root, entry.path))
+    const content = isGitSymlinkEntry(entry)
+      ? await readlink(toLocalPath(root, entry.path))
+      : await readFile(toLocalPath(root, entry.path))
     return {
       ...entry,
       digest: await sha256(content),
@@ -153,7 +182,14 @@ async function materializeWorkspace(workspace: Workspace, root: string, options?
     if (entry.type !== "file") continue
     const target = toLocalPath(root, entry.path, { allowGenerated: true })
     await mkdir(dirname(target), { recursive: true })
+    if (isGitSymlinkEntry(entry)) {
+      const linkTarget = await workspace.readFile(entry.path)
+      if (isLocalSymlinkTargetInside(root, target, linkTarget)) await symlink(linkTarget, target)
+      else await writeFile(target, linkTarget)
+      continue
+    }
     await writeFile(target, await workspace.readFile(entry.path, { encoding: "binary" }))
+    if (isGitExecutableEntry(entry)) await chmod(target, 0o755)
   }
   return await snapshotLocal(root, "local-open")
 }
@@ -182,9 +218,9 @@ async function commitLocalChanges(
       const before = entry.before?.type === "file"
         ? await workspace.stat(entry.path).catch(() => undefined)
         : undefined
-      const file = await readLocalFile(root, entry.path)
+      const file = await readLocalFile(root, entry.path, { preserveGitMetadata: true })
       if (file)
-        await workspace.writeFile(entry.path, file.content, { mediaType: file.mediaType || mediaTypes.get(entry.path) || before?.mediaType })
+        await workspace.writeFile(entry.path, file.content, { mediaType: file.mediaType || mediaTypes.get(entry.path) || before?.mediaType, metadata: file.metadata })
     }
   }
   await workspace.snapshot({ name: "local-commit" })
@@ -294,7 +330,16 @@ export async function createTrustedHostWorkspaceSession(
       const workspacePath = assertPathInSessionScope(normalizeLocalWorkspacePath(path), sessionPaths)
       const target = toLocalPath(root, workspacePath)
       await mkdir(dirname(target), { recursive: true })
-      await writeFile(target, content)
+      await rm(target, { force: true, recursive: true })
+      if (options?.metadata?.gitMode === "120000") {
+        const linkTarget = new TextDecoder().decode(contentToBytes(content))
+        if (isLocalSymlinkTargetInside(root, target, linkTarget)) await symlink(linkTarget, target)
+        else await writeFile(target, content)
+      }
+      else {
+        await writeFile(target, content)
+        if (options?.metadata?.gitMode === "100755") await chmod(target, 0o755)
+      }
       if (options?.mediaType)
         mediaTypes.set(workspacePath, options.mediaType)
       else
@@ -342,6 +387,7 @@ export async function createTrustedHostWorkspaceSession(
     },
     async commit(options) {
       const diff = await currentDiff()
+      if (!diff.entries.length) return
       assertDiffInsideSessionPaths(diff, sessionPaths)
       await commitLocalChanges(root, workspace, diff, mediaTypes)
       baseline = await snapshotLocal(root, options?.message || "local-commit")

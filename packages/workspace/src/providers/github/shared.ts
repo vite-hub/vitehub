@@ -38,6 +38,7 @@ export interface GitHubFileUpdate {
   bytes?: Uint8Array;
   fullPath: string;
   gitSha: string;
+  mode?: string;
 }
 
 export interface GitHubCommitResult {
@@ -54,6 +55,10 @@ function processEnv(
 
 export function resolveGitHubOption(value: GitHubWorkspaceOption | undefined): string | undefined {
   return typeof value === "function" ? value() : value;
+}
+
+function isMaskedGitHubTokenOption(value: string): boolean {
+  return value === "********" || value === "<redacted>" || value === "[redacted]";
 }
 
 export function requireGitHubOption(
@@ -181,9 +186,10 @@ export function resolveGitHubTokenOption(
   env: Record<string, string | undefined> = typeof process !== "undefined" ? process.env : {},
 ): string | undefined {
   const token = resolveGitHubOption(options.token);
-  if (token && token !== "********") return token;
+  if (token && !isMaskedGitHubTokenOption(token)) return token;
+  const bindingToken = getActiveCloudflareBinding<string>("GITHUB_TOKEN");
+  if (bindingToken && !isMaskedGitHubTokenOption(bindingToken)) return bindingToken;
   return (
-    getActiveCloudflareBinding<string>("GITHUB_TOKEN") ||
     processEnv(env, "WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN")
   );
 }
@@ -318,7 +324,7 @@ export async function commitGitHubChanges(input: {
         base_tree: input.baseTreeSha,
         tree: [
           ...input.files.map((file, index) => ({
-            mode: "100644",
+            mode: file.mode || "100644",
             path: file.fullPath,
             sha: blobs[index]!.sha,
             type: "blob",
