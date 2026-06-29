@@ -14,7 +14,7 @@ The concrete key holds the implementation value directly. Driver-specific option
 | Driver | Use it when | Driver-owned options |
 | --- | --- | --- |
 | `driver.model` | The Agent should call an AI SDK model through ViteHub model execution. | `instructions`, `execution` |
-| `driver.harness` | The Agent should run through an AI SDK harness adapter behind ViteHub's Agent Harness Driver Contract. | `credentials`, `sandbox`, `sessionKey` |
+| `driver.harness` | The Agent should run through an AI SDK harness adapter behind ViteHub's Agent Harness Driver Contract. | `credentials`, `sessionKey` |
 | `driver.run` | The Agent should execute developer code directly. | none |
 
 Driver variants are mutually exclusive. A single Agent Definition cannot combine `driver.model` with `driver.run`, or `driver.harness` with model instructions.
@@ -69,25 +69,9 @@ export default defineAgent({
 })
 ```
 
-Use `driver.sandbox` when the harness needs a specific execution runtime. For local development and Agent Evals, `@vite-hub/agent/harness/local-sandbox` provides a trusted-host sandbox that runs commands on the local machine.
+ViteHub resolves harness sandbox setup as Agent Package runtime plumbing. Workspace-backed harness drivers in Vite dev use ViteHub's trusted local harness sandbox by default. Other runtime paths use the AI SDK Vercel Sandbox default when `@ai-sdk/sandbox-vercel` is installed. `sandbox()` remains the Capability for model-facing command execution authority.
 
-```ts [server/agents/codex/config.ts]
-import { createCodex } from '@ai-sdk/harness-codex'
-import { defineAgent } from '@vite-hub/agent'
-import { createLocalHarnessSandbox } from '@vite-hub/agent/harness/local-sandbox'
-
-export default defineAgent({
-  driver: {
-    harness: createCodex({ model: 'gpt-5.5' }),
-    sandbox: createLocalHarnessSandbox(),
-    credentials: { label: 'local Codex', source: 'ambient' },
-  },
-})
-```
-
-`createLocalHarnessSandbox()` is for trusted local development and tests. It is not a production isolation boundary.
-
-`driver.harness`, `driver.sandbox`, and `driver.sessionKey` can also be callbacks. Use callbacks when one Agent Definition needs invocation-scoped harness auth, sandbox selection, or session reuse.
+`driver.harness` and `driver.sessionKey` can also be callbacks. Use callbacks when one Agent Definition needs invocation-scoped harness auth or session reuse.
 
 Harness-backed drivers do not receive `driver.instructions` as a model prompt. Use explicit harness configuration or Workspace instruction surfaces when the harness needs guidance.
 

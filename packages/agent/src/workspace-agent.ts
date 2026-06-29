@@ -488,7 +488,7 @@ function executionMetadata(value: AgentDevtoolsDriverMetadata["execution"] | und
     : undefined
 }
 
-function harnessMetadata(driver: { credentials?: unknown, harness: unknown, sandbox?: unknown, sessionKey?: unknown }): AgentDevtoolsHarnessMetadata | undefined {
+function harnessMetadata(driver: { credentials?: unknown, harness: unknown, sessionKey?: unknown }): AgentDevtoolsHarnessMetadata | undefined {
   const harness = isRecord(driver.harness) ? driver.harness : undefined
   const provider = harness ? stringField(harness, ["provider", "name"]) : undefined
   const credentials = isRecord(driver.credentials)
@@ -497,11 +497,10 @@ function harnessMetadata(driver: { credentials?: unknown, harness: unknown, sand
         ...(typeof driver.credentials.source === "string" && driver.credentials.source ? { source: driver.credentials.source } : {}),
       }
     : undefined
-  return provider || credentials || driver.sandbox || driver.sessionKey
+  return provider || credentials || driver.sessionKey
     ? {
         ...(credentials && Object.keys(credentials).length ? { credentials } : {}),
         ...(provider ? { provider } : {}),
-        ...(driver.sandbox ? { sandbox: true } : {}),
         ...(driver.sessionKey ? { sessionKey: true } : {}),
       }
     : undefined

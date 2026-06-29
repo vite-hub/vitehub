@@ -788,14 +788,6 @@ export type AgentHarnessDriverInput<
   | object
   | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS>) => MaybePromise<object>)
 
-export type AgentHarnessSandboxInput<
-  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
-  CALL_OPTIONS = unknown,
-  TContextValues extends object = AgentInvocationContextValues,
-> =
-  | object
-  | ((context: AgentRunCallbackContext<TRuntimeConfig, CALL_OPTIONS, TContextValues>) => MaybePromise<object | undefined>)
-
 export interface AgentModelDriver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
@@ -825,7 +817,7 @@ export interface AgentHarnessDriver<
   permissionMode?: never
   permissions?: never
   run?: never
-  sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS, TContextValues>
+  sandbox?: never
   sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS, TContextValues>
 }
 
@@ -1233,7 +1225,6 @@ export interface AgentDevtoolsModelExecutionMetadata {
 export interface AgentDevtoolsHarnessMetadata {
   credentials?: AgentHarnessCredentialSource
   provider?: string
-  sandbox?: boolean
   sessionKey?: boolean
 }
 

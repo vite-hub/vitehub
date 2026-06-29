@@ -12,6 +12,7 @@ const harnessAgentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 const harnessCreateSession = vi.hoisted(() => vi.fn())
 const harnessGenerate = vi.hoisted(() => vi.fn())
 const harnessStream = vi.hoisted(() => vi.fn())
+const vercelSandboxSettings = vi.hoisted(() => [] as Record<string, unknown>[])
 
 vi.mock("@ai-sdk/harness/agent", () => ({
   HarnessAgent: class {
@@ -33,6 +34,13 @@ vi.mock("@ai-sdk/harness/agent", () => ({
   },
 }))
 
+vi.mock("@ai-sdk/sandbox-vercel", () => ({
+  createVercelSandbox(settings: Record<string, unknown>) {
+    vercelSandboxSettings.push(settings)
+    return { providerId: "vercel", settings }
+  },
+}))
+
 const { withAgentDefaults } = await import("../src/index.ts")
 
 afterEach(() => {
@@ -40,6 +48,7 @@ afterEach(() => {
   harnessCreateSession.mockReset()
   harnessGenerate.mockReset()
   harnessStream.mockReset()
+  vercelSandboxSettings.length = 0
 })
 
 describe("agent message protocol", () => {
@@ -1144,25 +1153,27 @@ describe("agent message protocol", () => {
     harnessAgentSettings.length = 0
     const session = { destroy: vi.fn() }
     const harness = { provider: "codex" }
-    const sandbox = { provider: "sandbox" }
     harnessCreateSession.mockResolvedValueOnce(session)
     harnessGenerate.mockResolvedValueOnce({ text: "ok" })
 
     const agent = defineAgent({
       driver: {
         harness,
-        sandbox,
       },
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+    expect(vercelSandboxSettings).toEqual([{ ports: [4000], runtime: "node24" }])
     expect(harnessAgentSettings.at(-1)).toMatchObject({
       harness,
       permissionMode: "allow-all",
       sandboxConfig: {
         onSession: expect.any(Function),
       },
-      sandbox,
+      sandbox: {
+        providerId: "vercel",
+        settings: { ports: [4000], runtime: "node24" },
+      },
     })
     expect(harnessCreateSession).toHaveBeenCalledWith(undefined)
     expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
@@ -1176,9 +1187,7 @@ describe("agent message protocol", () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     harnessAgentSettings.length = 0
     const resolvedHarness = { provider: "codex", runId: "run-1" }
-    const resolvedSandbox = { provider: "sandbox", tenant: "acme" }
     const harness = vi.fn(() => resolvedHarness)
-    const sandbox = vi.fn(() => resolvedSandbox)
     const sessionKey = vi.fn(({ context, run }) => {
       const tenant = context.get("tenant") as { id?: string } | undefined
       return `${tenant?.id}:${run?.runId}`
@@ -1190,7 +1199,6 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       driver: {
         harness,
-        sandbox,
         sessionKey,
       },
     })
@@ -1209,15 +1217,12 @@ describe("agent message protocol", () => {
       run: expect.objectContaining({ runId: "run-1" }),
       input: expect.objectContaining({ prompt: "hello" }),
     }))
-    expect(sandbox).toHaveBeenCalledWith(expect.objectContaining({
-      input: expect.objectContaining({ prompt: "hello" }),
-    }))
     expect(sessionKey).toHaveBeenCalledWith(expect.objectContaining({
       context: expect.any(Object),
     }))
     expect(harnessAgentSettings.at(-1)).toMatchObject({
       harness: resolvedHarness,
-      sandbox: resolvedSandbox,
+      sandbox: { providerId: "vercel" },
     })
     expect(harnessCreateSession).toHaveBeenCalledWith({ sessionId: "acme:run-1" })
   })
@@ -1240,7 +1245,6 @@ describe("agent message protocol", () => {
       driver: {
         credentials: { label: "local Codex", source: "ambient" },
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
     })
 
@@ -1293,7 +1297,6 @@ describe("agent message protocol", () => {
       ],
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
     })
 
@@ -1326,7 +1329,6 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
     })
 
@@ -1369,7 +1371,6 @@ describe("agent message protocol", () => {
       ],
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
       hooks: {
         "agent:finish": finish,
@@ -1427,7 +1428,6 @@ describe("agent message protocol", () => {
       ],
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
       hooks: {
         "agent:finish": finish,
@@ -1488,7 +1488,6 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
     })
 
@@ -1526,7 +1525,6 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
     })
 
@@ -1565,7 +1563,6 @@ describe("agent message protocol", () => {
       ],
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
     })
 
@@ -1598,7 +1595,6 @@ describe("agent message protocol", () => {
       ],
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
     })
 
@@ -1616,7 +1612,6 @@ describe("agent message protocol", () => {
       capabilities: [webSearch({ mode: "model" })],
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
     })
 
@@ -1648,7 +1643,6 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
         sessionKey: "thread-1",
       },
     })
@@ -1680,6 +1674,10 @@ describe("agent message protocol", () => {
     expect(() => defineAgent({
       driver: { harness: { provider: "codex" }, instructions: "ignored" },
     } as never)).toThrow("does not support option: instructions")
+
+    expect(() => defineAgent({
+      driver: { harness: { provider: "codex" }, sandbox: { provider: "sandbox" } },
+    } as never)).toThrow("does not support option: sandbox")
 
     expect(() => defineAgent({
       driver: { model: {} as never, sandbox: { provider: "sandbox" } },

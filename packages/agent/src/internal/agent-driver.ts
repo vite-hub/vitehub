@@ -4,7 +4,6 @@ import type {
   AgentAdapterInstructions,
   AgentHarnessCredentialSource,
   AgentHarnessDriverInput,
-  AgentHarnessSandboxInput,
   AgentHarnessSessionKey,
   AgentInvokerProfile,
   AgentModelExecutionOptions,
@@ -28,7 +27,6 @@ type NormalizedAgentDriver<
     credentials?: AgentHarnessCredentialSource
     harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
     kind: "harness"
-    sandbox?: AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS>
     sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
   }
   | {
@@ -82,7 +80,7 @@ function normalizeHarnessCredentialSource(value: unknown): AgentHarnessCredentia
 }
 
 const modelDriverKeys = new Set(["execution", "instructions", "model"])
-const harnessDriverKeys = new Set(["credentials", "harness", "sandbox", "sessionKey"])
+const harnessDriverKeys = new Set(["credentials", "harness", "sessionKey"])
 const runDriverKeys = new Set(["run"])
 
 function normalizeExplicitAgentDriver<
@@ -115,14 +113,10 @@ function normalizeExplicitAgentDriver<
     if (!driver.harness || (typeof driver.harness !== "object" && typeof driver.harness !== "function")) {
       throw new TypeError("[vitehub] defineAgent({ driver.harness }) must be an AI SDK harness adapter.")
     }
-    if (hasOwnDefined(driver, "sandbox") && (!driver.sandbox || (typeof driver.sandbox !== "object" && typeof driver.sandbox !== "function"))) {
-      throw new TypeError("[vitehub] defineAgent({ driver.sandbox }) must be an AI SDK harness sandbox provider or resolver.")
-    }
     return {
       credentials: normalizeHarnessCredentialSource(driver.credentials),
       harness: driver.harness as AgentHarnessDriverInput,
       kind: "harness",
-      sandbox: driver.sandbox as AgentHarnessSandboxInput<TRuntimeConfig, CALL_OPTIONS> | undefined,
       sessionKey: driver.sessionKey as AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS> | undefined,
     }
   }

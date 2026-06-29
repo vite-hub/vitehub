@@ -216,7 +216,6 @@ export type {
   AgentHarnessCredentialSource,
   AgentHarnessDriver,
   AgentHarnessDriverInput,
-  AgentHarnessSandboxInput,
   AgentHarnessSessionKey,
   AgentInput,
   AgentInputHook,

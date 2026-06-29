@@ -517,10 +517,9 @@ describe("agent public types", () => {
     defineAgent({
       driver: {
         credentials: { label: "local Codex", source: "ambient" },
-        harness: { provider: "codex" },
-        sandbox({ input }) {
+        harness({ input }) {
           expectTypeOf(input.prompt).toEqualTypeOf<AgentRunInput["prompt"]>()
-          return {}
+          return { provider: "codex" }
         },
       },
     })
@@ -530,6 +529,9 @@ describe("agent public types", () => {
 
     // @ts-expect-error harness permissions are intentionally not public in V1
     const _permissionDriver: AgentDriver = { harness: { provider: "codex" }, permissions: "bypass" }
+
+    // @ts-expect-error harness sandbox setup is runtime plumbing, not a public Agent Driver option
+    const _sandboxDriver: AgentDriver = { harness: { provider: "codex" }, sandbox: { provider: "sandbox" } }
 
     // @ts-expect-error raw harness credential material is not accepted by the generic driver boundary
     const _rawCredentialDriver: AgentDriver = { credentials: { value: "secret" }, harness: { provider: "codex" } }

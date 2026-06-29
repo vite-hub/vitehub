@@ -400,7 +400,6 @@ describe("agent eval", () => {
       agent: defineAgent({
         driver: {
           harness: { provider: "codex" },
-          sandbox: { provider: "sandbox" },
         },
         workspace: {},
       }),

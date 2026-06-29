@@ -303,7 +303,6 @@ describe("defineAgent workspace option", () => {
       capabilities: [skills({ path: "skills/agent-browser", shellExecution: "write" })],
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
       workspace: {
         mode: "write",
@@ -879,7 +878,6 @@ describe("defineAgent workspace option", () => {
     const agent = withAgentDefaults(defineAgent({
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
       workspace: {
         sourceRootDir,
@@ -922,7 +920,6 @@ describe("defineAgent workspace option", () => {
     const agent = withAgentDefaults(defineAgent({
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
       workspace: { sourceRootDir },
     }), { workspace: "docs" })
@@ -941,7 +938,6 @@ describe("defineAgent workspace option", () => {
     const agent = withAgentDefaults(defineAgent({
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
       workspace: {
         sources: {
@@ -984,7 +980,6 @@ describe("defineAgent workspace option", () => {
     const agent = withAgentDefaults(defineAgent({
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
       workspace: {
         sources: {
@@ -1035,7 +1030,6 @@ describe("defineAgent workspace option", () => {
     const agent = withAgentDefaults(defineAgent({
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
       workspace: {},
     }), { workspace: "docs" })
@@ -1066,7 +1060,6 @@ describe("defineAgent workspace option", () => {
     const agent = withAgentDefaults(defineAgent({
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
       workspace: {
         sourceRootDir,
@@ -1103,7 +1096,6 @@ describe("defineAgent workspace option", () => {
     const agent = withAgentDefaults(defineAgent({
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
       workspace: {
         mode: "write",
@@ -1153,7 +1145,6 @@ describe("defineAgent workspace option", () => {
       ],
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
       workspace: {
         sources: {
@@ -1204,7 +1195,6 @@ describe("defineAgent workspace option", () => {
       ],
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
       workspace: {
         sources: {
@@ -1253,7 +1243,6 @@ describe("defineAgent workspace option", () => {
       ],
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
       workspace: {
         sources: {
@@ -1308,7 +1297,6 @@ describe("defineAgent workspace option", () => {
       ],
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
       workspace: {},
     }), { workspace: "docs" })
@@ -3008,7 +2996,6 @@ describe("defineAgent workspace option", () => {
       capabilities: [skills({ path: "skills/agent-browser", shellExecution: "write" })],
       driver: {
         harness: { provider: "codex" },
-        sandbox: { provider: "sandbox" },
       },
       workspace: { mode: "write" },
     }), { workspace: "support" })
