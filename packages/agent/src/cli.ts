@@ -406,7 +406,7 @@ function argvCommand(name: string, value: unknown): string | undefined {
   }
   if (value.json === true && !argv.includes("--json")) parts.push("--json")
   if (value.input !== undefined && !argv.includes("--input") && !argv.some(arg => arg.startsWith("--input="))) {
-    const quoted = quoteCliPart(value.input)
+    const quoted = quoteCliPart(JSON.stringify(value.input))
     if (!quoted) return
     parts.push("--input", quoted)
   }
