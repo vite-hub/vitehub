@@ -46,6 +46,19 @@ It enforces the configured maximum audio size, resolves audio data from direct d
 
 When artifacts are enabled, it writes sanitized transcript and optional audio files to the Agent's writable Workspace and exposes results as a finish extension.
 
+Use `artifacts.directory` when the transcript and source audio should stay together.
+The generated paths share a sanitized timestamp/message stem.
+
+```ts
+transcribe({
+  model: transcriptionModel,
+  artifacts: {
+    directory: 'inputs/voice-notes',
+    transcript: { format: 'markdown' },
+  },
+})
+```
+
 ## Requirements
 
 Basic transcription requires a model or custom executor.
@@ -76,7 +89,9 @@ When artifacts are enabled, inspect the Workspace for transcript files and the f
 | `model` | AI SDK transcription model | required unless `execute` is set | Model used by AI SDK transcription. |
 | `execute` | `(input) => string \| result` | none | Custom transcription function; mutually exclusive with `model`. |
 | `maxBytes` | `number` | `26214400` | Maximum accepted audio bytes. |
+| `artifacts.directory` | `string \| function` | generated | Directory for generated transcript and audio artifacts. |
 | `artifacts.transcript` | `false \| object` | disabled | Persist transcript artifacts to Workspace. |
+| `artifacts.transcript.format` | `"text" \| "markdown"` | `"text"` | Default transcript artifact body and generated extension. |
 | `artifacts.transcript.path` | `string \| function` | generated | Transcript artifact path. |
 | `artifacts.transcript.mediaType` | `string \| function` | inferred | Transcript artifact media type. |
 | `artifacts.transcript.template` | `function` | default text | Custom transcript artifact body. |

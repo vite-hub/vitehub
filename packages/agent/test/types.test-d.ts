@@ -333,8 +333,8 @@ describe("agent public types", () => {
     transcribe({
       execute: () => "transcript",
       artifacts: {
-        // @ts-expect-error transcription artifacts do not accept directory builders
         directory: "inbox",
+        transcript: { format: "markdown" },
       },
     })
 

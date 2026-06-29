@@ -49,6 +49,7 @@ export interface TranscribeAudioArtifactOptions {
 }
 
 export interface TranscribeTranscriptArtifactOptions {
+  format?: "markdown" | "text"
   mediaType?: TranscribeArtifactValue<string | undefined, TranscribeArtifactTemplateInput>
   path?: TranscribeArtifactValue<string, TranscribeArtifactTemplateInput>
   template?: (input: TranscribeArtifactTemplateInput) => MaybePromise<WorkspaceContent>
@@ -56,6 +57,7 @@ export interface TranscribeTranscriptArtifactOptions {
 
 export interface TranscribeArtifactsOptions {
   audio?: boolean | TranscribeAudioArtifactOptions
+  directory?: TranscribeArtifactValue<string, TranscribeArtifactTemplateInput>
   transcript?: false | TranscribeTranscriptArtifactOptions
 }
 
@@ -371,7 +373,15 @@ async function writeTranscriptionArtifacts(
 
   const audioOptions = getAudioArtifactOptions(artifacts)
   const transcriptOptions = getTranscriptArtifactOptions(artifacts)
-  const defaultTranscriptPath = joinWorkspacePath("transcripts", input.date, `${input.stem}.txt`)
+  const artifactDirectory = artifacts.directory
+    ? normalizeTranscribeArtifactPath(await resolveArtifactValue(artifacts.directory, input), "artifacts.directory")
+    : undefined
+  const defaultTranscriptExtension = transcriptOptions?.format === "markdown" ? "md" : "txt"
+  const defaultTranscriptPath = joinWorkspacePath(
+    artifactDirectory || "transcripts",
+    artifactDirectory ? undefined : input.date,
+    `${input.stem}.${defaultTranscriptExtension}`,
+  )
   const transcriptPath = transcriptOptions
     ? normalizeTranscribeArtifactPath(
         transcriptOptions.path ? await resolveArtifactValue(transcriptOptions.path, input) : defaultTranscriptPath,
@@ -381,11 +391,11 @@ async function writeTranscriptionArtifacts(
 
   if (transcriptPath)
     input = { ...input, transcriptPath }
-  const artifactDirectory = transcriptPath ? pathDirectory(transcriptPath) : joinWorkspacePath("audio", input.date)
+  const resolvedArtifactDirectory = transcriptPath ? pathDirectory(transcriptPath) : artifactDirectory || joinWorkspacePath("audio", input.date)
   const artifactStem = transcriptPath ? pathStem(transcriptPath) || input.stem : input.stem
 
   if (audioOptions) {
-    const defaultAudioPath = joinWorkspacePath(artifactDirectory, `${artifactStem}.${input.audioExtension}`)
+    const defaultAudioPath = joinWorkspacePath(resolvedArtifactDirectory, `${artifactStem}.${input.audioExtension}`)
     const audioPath = normalizeTranscribeArtifactPath(
       audioOptions.path ? await resolveArtifactValue(audioOptions.path, input) : defaultAudioPath,
       "artifacts.audio.path",
@@ -396,11 +406,23 @@ async function writeTranscriptionArtifacts(
   }
 
   if (transcriptOptions && transcriptPath) {
-    const content = transcriptOptions.template ? await transcriptOptions.template(input) : `${transcript.trim()}\n`
+    const content = transcriptOptions.template
+      ? await transcriptOptions.template(input)
+      : transcriptOptions.format === "markdown"
+        ? [
+            "---",
+            `created_at: ${input.createdAt}`,
+            `audio: ${input.audioPath || ""}`,
+            "---",
+            "",
+            transcript.trim(),
+            "",
+          ].join("\n")
+        : `${transcript.trim()}\n`
     const transcriptMediaTypeExtension = pathExtension(transcriptPath)
     const mediaType = transcriptOptions.mediaType
       ? await resolveArtifactValue(transcriptOptions.mediaType, input)
-      : transcriptMediaTypeExtension === "md" ? "text/markdown" : "text/plain"
+      : transcriptOptions.format === "markdown" || transcriptMediaTypeExtension === "md" ? "text/markdown" : "text/plain"
     await context.workspace.fs.writeFile(transcriptPath as never, content, { mediaType })
   }
 
