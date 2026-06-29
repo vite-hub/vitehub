@@ -8,6 +8,7 @@ import { composeInstructionDocument } from "./instruction-composition.ts"
 import { colocatedAgentInstructionsSourceKey, resolveColocatedAgentInstructionDocument } from "./workspace-agent.ts"
 import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
+import { getMessageText } from "./messages.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
 import { isAsyncIterable, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
 import {
@@ -29,6 +30,7 @@ import type {
   AgentToolSet,
   MaybePromise,
 } from "./types.ts"
+import type { Message } from "./messages.ts"
 
 type HarnessAgentLike = {
   createSession: (options?: Record<string, unknown>) => MaybePromise<HarnessAgentSessionLike>
@@ -184,6 +186,18 @@ async function composeHarnessInstructions(content: string, context: AgentAdapter
   return await composeInstructionDocument(content, compositionContext)
 }
 
+function renderHarnessChatPrompt(messages: Message[]): string {
+  return [
+    "Conversation history:",
+    ...messages.map((message) => {
+      const role = message.role === "assistant" ? "Assistant" : message.role === "user" ? "User" : message.role
+      return `${role}: ${getMessageText(message)}`
+    }),
+    "",
+    "Respond to the latest user message.",
+  ].join("\n")
+}
+
 async function toHarnessCallInput(context: AgentAdapterRunContext) {
   const instructions = await composeHarnessInstructions(context.instructions || "", context)
   const base = {
@@ -194,6 +208,12 @@ async function toHarnessCallInput(context: AgentAdapterRunContext) {
   }
 
   if (context.messages.length) {
+    if (context.context.has("chat")) {
+      return {
+        ...base,
+        prompt: renderHarnessChatPrompt(context.messages),
+      }
+    }
     return {
       ...base,
       messages: toAiSdkModelMessages(context.messages),

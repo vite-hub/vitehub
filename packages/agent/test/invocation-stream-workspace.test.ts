@@ -647,11 +647,15 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       { type: "finish" },
       { type: "done" },
     ])
-    expect(harnessStreamInputs[0]?.messages).toEqual([
-      { content: "Remember the marker kiwi-714.", role: "user" },
-      { content: [{ text: "stored kiwi-714", type: "text" }], role: "assistant" },
-      { content: "What marker did I ask you to remember?", role: "user" },
-    ])
+    expect(harnessStreamInputs[0]?.messages).toBeUndefined()
+    expect(harnessStreamInputs[0]?.prompt).toBe([
+      "Conversation history:",
+      "User: Remember the marker kiwi-714.",
+      "Assistant: stored kiwi-714",
+      "User: What marker did I ask you to remember?",
+      "",
+      "Respond to the latest user message.",
+    ].join("\n"))
   })
 
   it("closes harness workspace sessions when streams finish normally", async () => {
