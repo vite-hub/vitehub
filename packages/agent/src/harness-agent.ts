@@ -9,7 +9,7 @@ import { colocatedAgentInstructionsSourceKey, resolveColocatedAgentInstructionDo
 import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
-import { isAsyncIterable, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
+import { isAsyncIterable } from "./internal/stream-result.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -29,6 +29,7 @@ import type {
   AgentToolSet,
   MaybePromise,
 } from "./types.ts"
+import type { Message } from "./messages.ts"
 
 type HarnessAgentLike = {
   createSession: (options?: Record<string, unknown>) => MaybePromise<HarnessAgentSessionLike>
@@ -184,7 +185,35 @@ async function composeHarnessInstructions(content: string, context: AgentAdapter
   return await composeInstructionDocument(content, compositionContext)
 }
 
-async function toHarnessCallInput(context: AgentAdapterRunContext) {
+function renderHarnessModelMessageContent(content: unknown): string {
+  if (typeof content === "string") return content
+  if (Array.isArray(content) && content.every(part => part && typeof part === "object" && (part as { type?: unknown }).type === "text" && typeof (part as { text?: unknown }).text === "string")) {
+    return content.map(part => (part as { text: string }).text).join("")
+  }
+  return JSON.stringify(content)
+}
+
+function renderHarnessChatPrompt(messages: Message[]): string {
+  return [
+    "Conversation history:",
+    ...toAiSdkModelMessages(messages).map((message) => {
+      const role = message.role === "assistant" ? "Assistant" : message.role === "user" ? "User" : message.role
+      return `${role}: ${renderHarnessModelMessageContent(message.content)}`
+    }),
+    "",
+    "Respond to the latest user message.",
+  ].join("\n")
+}
+
+function latestHarnessUserMessage(messages: Message[]): Message[] {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    if (message?.role === "user") return [message]
+  }
+  return messages.slice(-1)
+}
+
+async function toHarnessCallInput(context: AgentAdapterRunContext, resumesSession = false) {
   const instructions = await composeHarnessInstructions(context.instructions || "", context)
   const base = {
     abortSignal: context.input.abortSignal,
@@ -194,6 +223,12 @@ async function toHarnessCallInput(context: AgentAdapterRunContext) {
   }
 
   if (context.messages.length) {
+    if (context.context.has("chat")) {
+      return {
+        ...base,
+        prompt: renderHarnessChatPrompt(resumesSession ? latestHarnessUserMessage(context.messages) : context.messages),
+      }
+    }
     return {
       ...base,
       messages: toAiSdkModelMessages(context.messages),
@@ -426,7 +461,7 @@ function withCleanupStream<T>(stream: ReadableStream<T>, cleanup: (error?: unkno
 }
 
 function wrapCleanupIterable<T>(iterable: AsyncIterable<T>, cleanup: (error?: unknown) => Promise<void>, abortSignal?: AbortSignal) {
-  return toReadableAsyncIterableStream(withCleanup(iterable, cleanup, abortSignal))
+  return withCleanup(iterable, cleanup, abortSignal)
 }
 
 async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) => Promise<void>, abortSignal?: AbortSignal): Promise<unknown> {
@@ -457,11 +492,17 @@ async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) =>
 
   const clone = Object.create(Object.getPrototypeOf(result)) as Record<string, unknown>
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(result))
+  const wrappedIterables = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
   for (const [key, iterable] of entries) {
+    let wrapped = wrappedIterables.get(iterable)
+    if (!wrapped) {
+      wrapped = wrapCleanupIterable(iterable, cleanupOnce, abortSignal)
+      wrappedIterables.set(iterable, wrapped)
+    }
     Object.defineProperty(clone, key, {
       configurable: true,
       enumerable: true,
-      value: wrapCleanupIterable(iterable, cleanupOnce, abortSignal),
+      value: wrapped,
     })
   }
   const toUIMessageStream = (result as { toUIMessageStream?: unknown }).toUIMessageStream
@@ -471,7 +512,7 @@ async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) =>
       enumerable: false,
       value: (...args: unknown[]) => {
         try {
-          const stream = toUIMessageStream.apply(clone, args) as unknown
+          const stream = toUIMessageStream.apply(result, args) as unknown
           return typeof stream === "object" && stream !== null && typeof (stream as ReadableStream<unknown>).getReader === "function"
             ? withCleanupStream(stream as ReadableStream<unknown>, cleanupOnce)
             : stream
@@ -513,6 +554,7 @@ export function createHarnessAgentAdapter<
     getWorkspaceSession: () => { close: (error?: unknown) => MaybePromise<void> } | undefined,
   ) {
     const sessionId = await resolveHarnessSessionKey(options.sessionKey, context)
+    const resumesSession = sessionId ? resumeStates.has(sessionId) : false
     const resumeFrom = sessionId ? resumeStates.get(sessionId) : undefined
     const sessionOptions = {
       ...(context.input.abortSignal ? { abortSignal: context.input.abortSignal } : {}),
@@ -550,6 +592,7 @@ export function createHarnessAgentAdapter<
     return {
       cleanup,
       session,
+      resumesSession,
     }
   }
 
@@ -583,10 +626,10 @@ export function createHarnessAgentAdapter<
 
   return {
     async generate(context) {
-      const { agent, cleanup, session } = await createAgentAndSession(context)
+      const { agent, cleanup, session, resumesSession } = await createAgentAndSession(context)
       try {
         const result = defineAgentUsageMetadata(await agent.generate({
-          ...await toHarnessCallInput(context),
+          ...await toHarnessCallInput(context, resumesSession),
           session,
         }), usageMetadata)
         await cleanup()
@@ -599,10 +642,10 @@ export function createHarnessAgentAdapter<
     },
     name: "ai-sdk-harness",
     async stream(context) {
-      const { agent, cleanup, session } = await createAgentAndSession(context)
+      const { agent, cleanup, session, resumesSession } = await createAgentAndSession(context)
       try {
         const result = defineAgentUsageMetadata(await agent.stream({
-          ...await toHarnessCallInput(context),
+          ...await toHarnessCallInput(context, resumesSession),
           session,
         }), usageMetadata)
         return await withSessionCleanup(result, cleanup, context.input.abortSignal)

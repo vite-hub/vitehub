@@ -633,6 +633,23 @@ describe("agent message protocol", () => {
     expect(outcomes).toEqual([{ failed: false }])
   })
 
+  it("propagates post-chunk UI message response read failures", async () => {
+    const { createAgentUIMessageStreamResponse } = await import("../src/stream-output.ts")
+    const error = new Error("upstream failed")
+    let read = false
+    const response = createAgentUIMessageStreamResponse({
+      stream: new ReadableStream({
+        pull(controller) {
+          if (read) throw error
+          read = true
+          controller.enqueue({ text: "partial", type: "text-delta" })
+        },
+      }),
+    })
+
+    await expect(response.text()).rejects.toThrow("upstream failed")
+  })
+
   it("records a failed invocation when failure cleanup also fails", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const traceLog = createTraceEventLog()
@@ -1283,6 +1300,60 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("preserves non-text chat history in harness prompts", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const session = { destroy: vi.fn() }
+    const provider = { provider: "sandbox" }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    harnessGenerate.mockResolvedValueOnce({ text: "ok" })
+
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      harnessSandbox: provider,
+    })
+
+    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      context: { chat: {} },
+      messages: [
+        createMessage({ id: "user-1", role: "user", text: "Remember kiwi-714." }),
+        createMessage({
+          id: "assistant-1",
+          parts: [
+            { id: "lookup-1", input: { marker: "kiwi-714" }, name: "lookup", state: "running", type: "tool-call" },
+            { id: "lookup-1", name: "lookup", output: { marker: "kiwi-714" }, state: "completed", type: "tool-result" },
+            { text: "Tool confirmed marker.", type: "text" },
+          ],
+          role: "assistant",
+        }),
+        createMessage({ id: "user-2", parts: [{ data: { scope: "kiwi-714" }, type: "data" }], role: "user" }),
+        createMessage({ id: "user-3", parts: [{ error: "prior lookup warning", type: "error" }], role: "user" }),
+        createMessage({ id: "user-4", role: "user", text: "What marker?" }),
+      ],
+    })).resolves.toMatchObject({ text: "ok" })
+
+    expect(vercelSandboxSettings).toEqual([])
+    expect(harnessAgentSettings.at(-1)).toMatchObject({
+      sandbox: provider,
+    })
+    expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: [
+        "Conversation history:",
+        "User: Remember kiwi-714.",
+        "Assistant: [{\"input\":{\"marker\":\"kiwi-714\"},\"toolCallId\":\"lookup-1\",\"toolName\":\"lookup\",\"type\":\"tool-call\"}]",
+        "tool: [{\"output\":{\"type\":\"json\",\"value\":{\"marker\":\"kiwi-714\"}},\"toolCallId\":\"lookup-1\",\"toolName\":\"lookup\",\"type\":\"tool-result\"}]",
+        "Assistant: Tool confirmed marker.",
+        "User: {\"scope\":\"kiwi-714\"}",
+        "User: prior lookup warning",
+        "User: What marker?",
+        "",
+        "Respond to the latest user message.",
+      ].join("\n"),
+      session,
+    }))
+  })
+
   it("resolves function-valued harness Agent Driver config for each invocation", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     harnessAgentSettings.length = 0
@@ -1608,6 +1679,116 @@ describe("agent message protocol", () => {
     expect(session.destroy).toHaveBeenCalledOnce()
   })
 
+  it("preserves aliased harness stream surfaces during session cleanup wrapping", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    const nativeStream = new ReadableStream<unknown>({
+      start(controller) {
+        controller.enqueue({ messageId: "msg-1", type: "start" })
+        controller.enqueue({ id: "msg-1", type: "text-start" })
+        controller.enqueue({ delta: "native", id: "msg-1", type: "text-delta" })
+        controller.enqueue({ id: "msg-1", type: "text-end" })
+        controller.enqueue({ finishReason: "stop", type: "finish" })
+        controller.close()
+      },
+    })
+    const toUIMessageStreamMock = vi.fn(function (this: { fullStream: unknown, stream: unknown }) {
+      expect(this.stream).toBe(this.fullStream)
+      return this.stream
+    })
+    harnessStream.mockResolvedValueOnce({
+      fullStream: nativeStream,
+      stream: nativeStream,
+      toUIMessageStream: toUIMessageStreamMock,
+    })
+
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      harnessSandbox: { provider: "sandbox" },
+    })
+
+    const stream = await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      { prompt: "hello" },
+      { output: "ui-message-stream" },
+    ) as ReadableStream<unknown>
+    const chunks: unknown[] = []
+    for await (const chunk of stream) {
+      chunks.push(chunk)
+    }
+
+    expect(chunks).toContainEqual({ delta: "native", id: "msg-1", type: "text-delta" })
+    expect(toUIMessageStreamMock).toHaveBeenCalledOnce()
+    expect(session.destroy).toHaveBeenCalledOnce()
+  })
+
+  it("keeps aliased harness UI message streams readable with usage telemetry", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const session = { destroy: vi.fn() }
+    const onUsage = vi.fn()
+    harnessCreateSession.mockResolvedValueOnce(session)
+    const nativeStream = new ReadableStream<unknown>({
+      start(controller) {
+        controller.enqueue({ messageId: "msg-1", type: "start" })
+        controller.enqueue({ id: "msg-1", type: "text-start" })
+        controller.enqueue({ delta: "native", id: "msg-1", type: "text-delta" })
+        controller.enqueue({ id: "msg-1", type: "text-end" })
+        controller.enqueue({
+          finishReason: "stop",
+          totalUsage: {
+            inputTokens: 1,
+            outputTokens: 2,
+          },
+          type: "finish",
+        })
+        controller.close()
+      },
+    })
+    const toUIMessageStreamMock = vi.fn(function (this: { stream: ReadableStream<unknown> }) {
+      return this.stream
+    })
+    harnessStream.mockResolvedValueOnce({
+      fullStream: nativeStream,
+      stream: nativeStream,
+      toUIMessageStream: toUIMessageStreamMock,
+    })
+
+    const agent = defineAgent({
+      capabilities: [usageTelemetry({ onUsage })],
+      driver: {
+        harness: { provider: "codex" },
+      },
+      harnessSandbox: { provider: "sandbox" },
+    })
+
+    const stream = await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      { prompt: "hello" },
+      { output: "ui-message-stream" },
+    ) as ReadableStream<unknown>
+    const chunks: unknown[] = []
+    for await (const chunk of stream) {
+      chunks.push(chunk)
+    }
+
+    expect(chunks).toContainEqual({ delta: "native", id: "msg-1", type: "text-delta" })
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({
+      usage: {
+        inputTokens: 1,
+        outputTokens: 2,
+        totalTokens: 3,
+      },
+    }), expect.anything())
+    expect(toUIMessageStreamMock).toHaveBeenCalledOnce()
+    expect(session.destroy).toHaveBeenCalledOnce()
+  })
+
   it("converts harness text streams with native UI streams after session cleanup wrapping", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }
@@ -1747,11 +1928,86 @@ describe("agent message protocol", () => {
       },
     })
 
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "again" })
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      context: { chat: {} },
+      messages: [
+        createMessage({ id: "user-1", role: "user", text: "hello" }),
+        createMessage({ id: "assistant-1", role: "assistant", text: "ok" }),
+        createMessage({ id: "user-2", role: "user", text: "again" }),
+      ],
+    })
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      context: { chat: {} },
+      messages: [
+        createMessage({ id: "user-1", role: "user", text: "hello" }),
+        createMessage({ id: "assistant-1", role: "assistant", text: "ok" }),
+        createMessage({ id: "user-2", role: "user", text: "again" }),
+      ],
+    })
 
     expect(harnessCreateSession).toHaveBeenNthCalledWith(1, { sessionId: "thread-1" })
     expect(harnessCreateSession).toHaveBeenNthCalledWith(2, { resumeFrom: { token: "resume" }, sessionId: "thread-1" })
+    expect(harnessGenerate).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      prompt: [
+        "Conversation history:",
+        "User: hello",
+        "Assistant: ok",
+        "User: again",
+        "",
+        "Respond to the latest user message.",
+      ].join("\n"),
+      session: firstSession,
+    }))
+    expect(harnessGenerate).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      prompt: [
+        "Conversation history:",
+        "User: again",
+        "",
+        "Respond to the latest user message.",
+      ].join("\n"),
+      session: secondSession,
+    }))
+    expect(firstSession.detach).toHaveBeenCalledTimes(1)
+    expect(secondSession.detach).toHaveBeenCalledTimes(1)
+  })
+
+  it("treats undefined harness detach state as a resumed session", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const firstSession = { detach: vi.fn(async () => undefined), destroy: vi.fn() }
+    const secondSession = { detach: vi.fn(async () => undefined), destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(firstSession).mockResolvedValueOnce(secondSession)
+    harnessGenerate.mockResolvedValue({ text: "ok" })
+
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        sessionKey: "thread-1",
+      },
+      harnessSandbox: { provider: "sandbox" },
+    })
+    const input = {
+      context: { chat: {} },
+      messages: [
+        createMessage({ id: "user-1", role: "user", text: "hello" }),
+        createMessage({ id: "assistant-1", role: "assistant", text: "ok" }),
+        createMessage({ id: "user-2", role: "user", text: "again" }),
+      ],
+    }
+
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, input)
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, input)
+
+    expect(harnessCreateSession).toHaveBeenNthCalledWith(1, { sessionId: "thread-1" })
+    expect(harnessCreateSession).toHaveBeenNthCalledWith(2, { sessionId: "thread-1" })
+    expect(harnessGenerate).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      prompt: [
+        "Conversation history:",
+        "User: again",
+        "",
+        "Respond to the latest user message.",
+      ].join("\n"),
+      session: secondSession,
+    }))
     expect(firstSession.detach).toHaveBeenCalledTimes(1)
     expect(secondSession.detach).toHaveBeenCalledTimes(1)
   })
@@ -1765,7 +2021,11 @@ describe("agent message protocol", () => {
 
     expect(() => defineAgent({
       driver: { harness: { provider: "codex" }, permissions: "bypass" },
-    } as never)).toThrow("does not expose harness permission options")
+    } as never)).toThrow("does not expose harness permissions")
+
+    expect(() => defineAgent({
+      driver: { harness: { provider: "codex" }, permissionMode: "ask" },
+    } as never)).toThrow("does not expose harness permissions")
 
     expect(() => defineAgent({
       driver: { credentials: { value: "secret" }, harness: { provider: "codex" } },
@@ -4635,6 +4895,151 @@ describe("agent message protocol", () => {
       "agent.invocation.finish",
     ])
     expect(deriveTraceRuns(traceLog.entries()).map(run => run.id)).toEqual(["run-1"])
+  })
+
+  it("preserves native UI message result metadata for traced finish renderers", async () => {
+    const { createUIMessageStream, readUIMessageStream } = await import("ai")
+    const { defineCapability } = await import("../src/capability-runtime.ts")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const finish = vi.fn()
+
+    class NativeUiResult {
+      metadata = { id: "native-result" }
+      text = "existing text"
+      usageRecord = { usage: { totalTokens: 3 } }
+
+      describe() {
+        return this.metadata.id
+      }
+
+      toUIMessageStream() {
+        return createUIMessageStream({
+          execute({ writer }) {
+            writer.write({ type: "start", messageId: "assistant-1" })
+            writer.write({ type: "text-start", id: "text-1" })
+            writer.write({ type: "text-delta", id: "text-1", delta: "native answer" })
+            writer.write({ type: "text-end", id: "text-1" })
+            writer.write({ type: "finish", finishReason: "stop" })
+          },
+        })
+      }
+    }
+
+    const nativeResult = new NativeUiResult()
+    const finalRenderer = vi.fn((result: unknown) => {
+      expect(result).toBe(nativeResult)
+      expect(result).toBeInstanceOf(NativeUiResult)
+      expect((result as NativeUiResult).metadata).toBe(nativeResult.metadata)
+      expect((result as NativeUiResult).usageRecord).toBe(nativeResult.usageRecord)
+      expect((result as NativeUiResult).describe()).toBe("native-result")
+      return result
+    })
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "native-ui-result-assertion",
+          output(context) {
+            context.output.final(finalRenderer)
+          },
+        }),
+      ],
+      driver: { run: () => nativeResult },
+      hooks: {
+        "agent:finish": finish,
+      },
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {}, { output: "ui-message-stream" }) as ReadableStream<never>
+    for await (const _message of readUIMessageStream({ stream })) {}
+
+    expect(finalRenderer).toHaveBeenCalledOnce()
+    expect(finish.mock.calls[0]![0].result).toBe(nativeResult)
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.stream.finish",
+      "agent.invocation.finish",
+    ])
+  })
+
+  it("traces native UI results with non-configurable own UI stream methods", async () => {
+    const { createUIMessageStream, readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const nativeResult = { metadata: { id: "native-result" } }
+    Object.defineProperty(nativeResult, "toUIMessageStream", {
+      value() {
+        return createUIMessageStream({
+          execute({ writer }) {
+            writer.write({ type: "start", messageId: "assistant-1" })
+            writer.write({ type: "text-start", id: "text-1" })
+            writer.write({ type: "text-delta", id: "text-1", delta: "native answer" })
+            writer.write({ type: "text-end", id: "text-1" })
+            writer.write({ type: "finish", finishReason: "stop" })
+          },
+        })
+      },
+    })
+    const agent = defineAgent({
+      driver: { run: () => nativeResult },
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {}, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(Object.getOwnPropertyDescriptor(nativeResult, "toUIMessageStream")?.configurable).toBe(false)
+    expect(messages.at(-1)?.parts).toContainEqual(expect.objectContaining({
+      text: "native answer",
+      type: "text",
+    }))
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.stream.finish",
+      "agent.invocation.finish",
+    ])
+  })
+
+  it("traces direct async iterable results when UI message streams are requested", async () => {
+    const { readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: { run: () => (async function* () {
+          yield { id: "tool-1", input: { query: "users" }, name: "search", type: "tool-call" }
+          yield { id: "tool-1", name: "search", output: "42", type: "tool-result" }
+          yield { type: "finish" }
+        })() },
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      run: { runId: "run-1" },
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {}, { output: "ui-message-stream" }) as ReadableStream<never>
+    for await (const _message of readUIMessageStream({ stream })) {}
+
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.tool.start",
+      "agent.tool.finish",
+      "agent.stream.finish",
+      "agent.invocation.finish",
+    ])
   })
 
   it("does not drain traced UI message streams ahead of the caller", async () => {

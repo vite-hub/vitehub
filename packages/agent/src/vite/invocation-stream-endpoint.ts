@@ -435,19 +435,24 @@ function triggerInput(trigger: ResolvedAgentTriggerDefinition, body: AgentInvoca
       ...(isRecord(body.meta) ? { meta: body.meta } : {}),
     }
   }
-  const messages = payload && Array.isArray(payload.messages) && payload.messages.length
-    ? undefined
-    : messagesFromBody(body)
-  return withDevLoopControls(withPayloadDefaults(payload || {}, {
+  const messages = Array.isArray(body.messages) && body.messages.length
+    ? messagesFromBody(body)
+    : payload && Array.isArray(payload.messages) && payload.messages.length
+      ? undefined
+      : messagesFromBody(body)
+  const input = withPayloadDefaults(payload || {}, {
     ...(typeof body.invokerProfileId === "string" ? { invokerProfileId: body.invokerProfileId } : {}),
     ...(isRecord(body.meta) ? { meta: body.meta } : {}),
-    ...(messages ? { messages } : {}),
     run,
     user: {
       id: "dev",
       name: "ViteHub Dev Loop",
     },
-  }) as unknown as AgentChatMessageTriggerInput, signal, timeout)
+  })
+  return withDevLoopControls({
+    ...input,
+    ...(messages ? { messages } : {}),
+  } as unknown as AgentChatMessageTriggerInput, signal, timeout)
 }
 
 function parseBody(rawBody: string): AgentInvocationStreamBody {

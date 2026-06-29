@@ -262,9 +262,9 @@ _Avoid_: Fake agent, dummy model, test bot
 - Harness-backed instruction behavior should rely on explicit harness or Workspace instruction surfaces, such as workspace `AGENTS.md`, unless a future harness-specific option is introduced.
 - A harness-backed **Agent Driver** implements the **Agent Harness Driver Contract**.
 - V1 harness-backed **Agent Drivers** use a single active permission layer: ViteHub-owned Workspace and runtime boundaries.
-- V1 **Harness Permission Policy** bypasses adapter-level approval prompts by configuring the harness adapter to its most permissive no-approval mode when the adapter supports one.
-- V1 does not expose a public permission option; bypass is implicit for supported harness-backed **Agent Drivers** until a second policy is intentionally designed.
-- For the current AI SDK Codex adapter, V1 should use `permissionMode: "allow-all"` behind the ViteHub harness adapter boundary.
+- V1 **Harness Permission Policy** defaults to bypassing adapter-level approval prompts by configuring the harness adapter to its most permissive no-approval mode when the adapter supports one.
+- V1 exposes `driver.permissionMode` as a narrow harness-backed **Agent Driver** override when a harness adapter needs a less permissive no-approval mode.
+- For the current AI SDK harness adapter, V1 should default to `permissionMode: "allow-all"` behind the ViteHub harness adapter boundary.
 - A harness adapter that cannot bypass its own approval layer should be unsupported for V1 rather than introducing a second hidden permission layer.
 - V1 should not enable host-executed HarnessAgent approval flows for harness-backed Agent Drivers; approval-based policy is a future design.
 - A harness-backed **Agent Driver** receives Workspace state through a scoped **Workspace Session** or equivalent materialized filesystem, not model-facing Workspace Tools by default.
@@ -428,8 +428,8 @@ _Avoid_: Fake agent, dummy model, test bot
 - Root Agent Definition `instructions` were considered shared by model-backed and harness-backed execution - resolved: use **Model Driver Instructions** for model-backed drivers, and do not pass them to harness-backed drivers by default.
 - Ambient Source, Capability, and Skill prose was considered convenient default model guidance - resolved: use **Explicit Instruction Coverage** and **Instruction Coverage Diagnostics** so model-facing guidance has an authored owner.
 - AI SDK `HarnessAgent` was considered as the public harness boundary - resolved: use the ViteHub-owned **Agent Harness Driver Contract** and adapt AI SDK harnesses behind it.
-- Adapter-level harness approvals were considered for V1 - resolved: use **Harness Permission Policy** to bypass adapter approvals and rely on ViteHub-owned Workspace and runtime boundaries, avoiding two active permission layers.
-- A public permission option was considered for V1 - resolved: avoid it because bypass is the only supported **Harness Permission Policy** for now.
+- Adapter-level harness approvals were considered for V1 - resolved: use **Harness Permission Policy** to bypass adapter approvals by default and rely on ViteHub-owned Workspace and runtime boundaries, avoiding two active permission layers.
+- A public permission option was considered for V1 - resolved: expose only `driver.permissionMode` for harness adapter no-approval modes, while keeping raw harness permissions unsupported.
 - A full approval policy matrix was considered for V1 - resolved: defer it; if a harness adapter cannot bypass its own approval layer, mark it unsupported for V1.
 - Model-facing Workspace Tools were considered the default Workspace surface for harness-backed drivers - resolved: harness-backed drivers use a scoped **Workspace Session** or equivalent materialized filesystem by default.
 - Capability-owned support files were considered harness instructions - resolved: pass them only as **Harness Workspace Path Contributions** when a harness-backed **Agent Driver** needs filesystem-visible support files.

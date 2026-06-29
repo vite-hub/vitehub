@@ -1096,7 +1096,12 @@ export interface AgentChatStateContext<TRuntimeConfig extends AgentRuntimeConfig
 export type AgentChatStateResolver<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   MaybeResolvable<StateAdapter, AgentChatStateContext<TRuntimeConfig>>
 
-export type AgentChatMessage = AdapterPostableMessage | { text: string }
+export type AgentChatMessage =
+  | AdapterPostableMessage
+  | { text: string }
+  | ((Exclude<AdapterPostableMessage, string> | { text: string }) & {
+    artifacts?: readonly PublishedAgentDeliveryArtifact[]
+  })
 
 export type AgentChatSendMessage = (message: AgentChatMessage) => Promise<void>
 

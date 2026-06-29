@@ -540,8 +540,11 @@ describe("agent public types", () => {
     // @ts-expect-error Agent Driver variants are mutually exclusive
     const _mixedDriver: AgentDriver = { model: "model", run: () => "ok" }
 
-    // @ts-expect-error harness permissions are intentionally not public in V1
+    // @ts-expect-error raw harness permissions are intentionally not public in V1
     const _permissionDriver: AgentDriver = { harness: { provider: "codex" }, permissions: "bypass" }
+
+    // @ts-expect-error harness permission mode is runtime policy, not a public Agent Driver option
+    const _permissionModeDriver: AgentDriver = { harness: { provider: "codex" }, permissionMode: "allow-edits" }
 
     // @ts-expect-error harness sandbox setup is runtime plumbing, not a public Agent Driver option
     const _sandboxDriver: AgentDriver = { harness: { provider: "codex" }, sandbox: { provider: "sandbox" } }

@@ -266,8 +266,9 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   }
 
   async diff(options: DiffOptions = {}): Promise<WorkspaceDiff> {
+    await this.#ensure({ refresh: true });
     const from = options.from || this.#baseline;
-    const to = await createSnapshotFromEntries(await this.list("", { recursive: true }));
+    const to = await createSnapshotFromEntries(await this.#listEntries("", { recursive: true }));
     return diffSnapshots(from, to);
   }
 
@@ -320,6 +321,10 @@ class GitHubWorkspaceStore implements WorkspaceStore {
             size: entry.size,
           },
         ]),
+      );
+      this.#baseline = await createSnapshotFromEntries(
+        await this.#listEntries("", { recursive: true }),
+        "github-workspace-store-load",
       );
     }
   }

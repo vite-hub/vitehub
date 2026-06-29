@@ -51,7 +51,7 @@ function assertNoUnsupportedOptions(
 
 function validateNoHarnessPermissionOption(driver: Record<string, unknown>): void {
   if (hasOwnDefined(driver, "permissions") || hasOwnDefined(driver, "permissionMode")) {
-    throw new Error("[vitehub] defineAgent({ driver }) does not expose harness permission options in V1.")
+    throw new Error("[vitehub] defineAgent({ driver }) does not expose harness permissions in V1.")
   }
 }
 

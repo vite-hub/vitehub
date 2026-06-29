@@ -111,9 +111,9 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - The **Agent Package** owns the **Agent Driver Boundary**.
 - The **Agent Package** owns the **Agent Harness Driver Contract** for harness-backed Agent Drivers.
 - The **Agent Package** owns **Harness Permission Policy** for harness-backed Agent Drivers.
-- V1 **Harness Permission Policy** bypasses adapter-level approval prompts by configuring the harness adapter to its most permissive no-approval mode when available.
-- The **Agent Package** should not expose a public permission option in V1; bypass is implicit because it is the only supported **Harness Permission Policy**.
-- For the current AI SDK Codex adapter, the **Agent Package** should set `permissionMode: "allow-all"` behind the ViteHub harness adapter boundary.
+- V1 **Harness Permission Policy** defaults to bypassing adapter-level approval prompts by configuring the harness adapter to its most permissive no-approval mode when available.
+- The **Agent Package** exposes `driver.permissionMode` as a narrow harness-backed **Agent Driver** override when a harness adapter needs a less permissive no-approval mode.
+- For the current AI SDK harness adapter, the **Agent Package** should default to `permissionMode: "allow-all"` behind the ViteHub harness adapter boundary.
 - The **Agent Package** should reject or mark unsupported a V1 harness adapter that cannot bypass its own approval layer.
 - V1 harness-backed Agent Drivers should rely on ViteHub-owned Workspace and runtime boundaries instead of host-executed HarnessAgent approval flows.
 - The **Agent Package** allows harness-backed Agent Drivers to omit `credentials`.
@@ -205,8 +205,8 @@ _Avoid_: Root Agent Package export, Capability factory export, Chat Adapter Faca
 - Capability-owned support files were considered harness instructions or root Agent fields - resolved: keep them as **Harness Workspace Path Contributions** from Capabilities.
 - Capability tools and instructions were considered unconditional Agent inputs - resolved: treat them as Capability Driver Contributions filtered by the selected Agent Driver.
 - AI SDK `HarnessAgent` was considered as the public harness boundary - resolved: use the ViteHub-owned **Agent Harness Driver Contract** and adapt AI SDK harnesses behind it.
-- Adapter-level harness approvals were considered for V1 - resolved: use Agent Package-owned **Harness Permission Policy** to bypass adapter approvals and rely on ViteHub-owned Workspace and runtime boundaries.
-- A public permission option was considered for V1 - resolved: avoid it because bypass is the only supported **Harness Permission Policy** for now.
+- Adapter-level harness approvals were considered for V1 - resolved: use Agent Package-owned **Harness Permission Policy** to bypass adapter approvals by default and rely on ViteHub-owned Workspace and runtime boundaries.
+- A public permission option was considered for V1 - resolved: expose only `driver.permissionMode` for harness adapter no-approval modes, while keeping raw harness permissions unsupported.
 - A complete approval and permission matrix was considered for V1 - resolved: defer it; V1 rejects or marks unsupported harness adapters that cannot bypass their own approval layer.
 - Model-facing Workspace Tools were considered the default Workspace surface for harness-backed drivers - resolved: harness-backed drivers use a scoped Workspace Session or equivalent materialized filesystem by default.
 - Durable harness sessions were considered as an implicit chat or thread default - resolved: harness-backed Agent Drivers use invocation-scoped Harness Workspace Sessions by default and require an explicit Harness Session Key for reuse.
