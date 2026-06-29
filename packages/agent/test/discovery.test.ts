@@ -573,6 +573,60 @@ describe("agent chat capability discovery", () => {
     expect(abortSignal).toBeInstanceOf(AbortSignal)
   })
 
+  it("passes prior chat history to second-turn Agent Dev Loop invocations", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-history-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      capabilities: [chat()],
+      driver: {
+        run: ({ messages }) => messages.map(message => `${message.role}:${getMessageText(message)}`).join(" | "),
+      },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      messages: [
+        {
+          id: "user-1",
+          parts: [{ text: "remember blue", type: "text" }],
+          role: "user",
+        },
+        {
+          id: "assistant-1",
+          parts: [{ text: "blue is remembered", type: "text" }],
+          role: "assistant",
+        },
+        {
+          id: "user-2",
+          parts: [{ text: "what did I ask you to remember?", type: "text" }],
+          role: "user",
+        },
+      ],
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+    const events = response.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+
+    expect(events).toEqual([
+      expect.objectContaining({ agent: "support", trigger: "chat.message", type: "start" }),
+      { text: "user:remember blue | assistant:blue is remembered | user:what did I ask you to remember?", type: "text-delta" },
+      { type: "finish" },
+      { type: "done" },
+    ])
+  })
+
   it("runs Capability CLI commands through the Vite endpoint", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-cli-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

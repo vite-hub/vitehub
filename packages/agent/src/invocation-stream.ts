@@ -54,16 +54,32 @@ export function createAgentInvocationStreamResponse(
     controller.close()
   }
 
+  function write(controller: ReadableStreamDefaultController<Uint8Array>, event: AgentInvocationStreamEvent): void {
+    controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+  }
+
+  function closeFailed(controller: ReadableStreamDefaultController<Uint8Array>): void {
+    if (closed) return
+    try {
+      write(controller, { type: "done" })
+      close(controller)
+    }
+    catch (cause) {
+      closed = true
+      controller.error(cause)
+    }
+  }
+
   function fail(controller: ReadableStreamDefaultController<Uint8Array>, cause: unknown): void {
     if (closed) return
     clearTimeoutSignal()
     abortController.abort(cause)
     try {
-      controller.enqueue(encoder.encode(`${JSON.stringify({
+      write(controller, {
         error: cause instanceof Error ? cause.message : "Agent Invocation Stream event could not be serialized.",
         type: "error",
-      })}\n${JSON.stringify({ type: "done" })}\n`))
-      close(controller)
+      })
+      closeFailed(controller)
     }
     catch {
       closed = true

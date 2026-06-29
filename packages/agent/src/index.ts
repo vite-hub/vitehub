@@ -1,5 +1,6 @@
 import agentRegistry from "#vitehub/agent/registry"
 import { normalizeAgentDriver } from "./internal/agent-driver.ts"
+import { cloneWithPropertyDescriptors } from "./internal/stream-result.ts"
 import { agentErrorDetails, agentErrorMessage } from "./agent-error.ts"
 import { getMessageText } from "./messages.ts"
 import { resolveRuntimeContext } from "@vite-hub/runtime"
@@ -1570,19 +1571,24 @@ function maybeTraceUiMessageStreamResult<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(rendered: { toUIMessageStream: () => ReadableStream<unknown> }, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>) {
-  return {
-    toUIMessageStream: () => traceUiMessageStream(rendered.toUIMessageStream(), context),
-  }
+  const toUIMessageStream = rendered.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>
+  return cloneWithPropertyDescriptors(rendered, {
+    toUIMessageStream: {
+      configurable: true,
+      enumerable: false,
+      value: (...args: unknown[]) => traceUiMessageStream(toUIMessageStream.apply(rendered, args), context),
+    },
+  })
 }
 
 function maybeTraceUiMessageStreamOutput<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(rendered: unknown, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): unknown {
-  if (context.runtimeContext.traceLog && hasTraceableStreamResult(rendered)) {
-    if (isUIMessageStreamResult(rendered)) {
-      return maybeTraceUiMessageStreamResult(rendered, context)
-    }
+  if (context.runtimeContext.traceLog) {
+    if (isUIMessageStreamResult(rendered)) return maybeTraceUiMessageStreamResult(rendered, context)
+    if (isAsyncIterable(rendered)) return maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, context)
+    if (!hasTraceableStreamResult(rendered)) return rendered
     return maybeTraceAgentStream(streamAgentOutputToEvents(rendered), context)
   }
   return isAsyncIterable(rendered) ? maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, context) : rendered

@@ -588,6 +588,76 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     ]))
   })
 
+  it("sends Agent Dev Loop chat history to harness agents over payload fixture messages", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-stream-harness-history-"))
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    harnessStreamResult.mockReturnValueOnce({
+      fullStream: (async function* () {
+        yield { text: "kiwi-714", type: "text-delta" }
+        yield { type: "finish" }
+      })(),
+    })
+
+    const { defineChannel } = await import("../src/channels.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      channels: {
+        web: defineChannel("web-chat", {}),
+      },
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: {},
+      },
+      workspace: { mode: "write" },
+    })
+
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      messages: [
+        { id: "dev-user-0", parts: [{ text: "Remember the marker kiwi-714.", type: "text" }], role: "user" },
+        { id: "dev-assistant-1", parts: [{ text: "stored kiwi-714", type: "text" }], role: "assistant" },
+        { id: "dev-user-2", parts: [{ text: "What marker did I ask you to remember?", type: "text" }], role: "user" },
+      ],
+      payload: {
+        messages: [
+          { id: "fixture-user", parts: [{ text: "Fixture setup only.", type: "text" }], role: "user" },
+        ],
+        meta: { audience: "support" },
+      },
+      timeout: 100,
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+    const events = response.body
+      .trim()
+      .split("\n")
+      .map(line => JSON.parse(line))
+
+    expect(events).toEqual([
+      expect.objectContaining({ agent: "chat", trigger: "chat.message", type: "start" }),
+      { text: "kiwi-714", type: "text-delta" },
+      { type: "finish" },
+      { type: "done" },
+    ])
+    expect(harnessStreamInputs[0]?.messages).toBeUndefined()
+    expect(harnessStreamInputs[0]?.prompt).toBe([
+      "Conversation history:",
+      "User: Remember the marker kiwi-714.",
+      "Assistant: stored kiwi-714",
+      "User: What marker did I ask you to remember?",
+      "",
+      "Respond to the latest user message.",
+    ].join("\n"))
+  })
+
   it("closes harness workspace sessions when streams finish normally", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invocation-stream-harness-finish-"))
     await mkdir(join(root, "server", "agents"), { recursive: true })

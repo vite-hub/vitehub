@@ -942,6 +942,141 @@ describe("server helpers", () => {
     }))
   })
 
+  it("leaves custom text/event-stream chat Response bodies unchanged", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      capabilities: [chat()],
+      driver: {
+        run: () => new Response("event: custom\ndata: ok\n\n", {
+          headers: { "content-type": "text/event-stream" },
+        }),
+      },
+    }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }), { agentName: "support" })
+
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBeNull()
+    await expect(response.text()).resolves.toBe("event: custom\ndata: ok\n\n")
+  })
+
+  it("appends DONE to UI message chat Response bodies and drops stale body headers", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      capabilities: [chat()],
+      driver: {
+        run: () => new Response("data: {\"type\":\"finish\"}\n\n", {
+          headers: {
+            "content-encoding": "gzip",
+            "content-length": "24",
+            "content-type": "text/event-stream",
+            "x-vercel-ai-ui-message-stream": "v1",
+          },
+        }),
+      },
+    }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }), { agentName: "support" })
+
+    expect(response.headers.get("content-length")).toBeNull()
+    expect(response.headers.get("content-encoding")).toBeNull()
+    await expect(response.text()).resolves.toBe("data: {\"type\":\"finish\"}\n\ndata: [DONE]\n\n")
+  })
+
+  it("appends DONE when UI message content mentions the DONE frame", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      capabilities: [chat()],
+      driver: {
+        run: () => new Response("data: {\"type\":\"text-delta\",\"text\":\"data: [DONE]\"}\n\n", {
+          headers: {
+            "content-type": "text/event-stream",
+            "x-vercel-ai-ui-message-stream": "v1",
+          },
+        }),
+      },
+    }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }), { agentName: "support" })
+
+    await expect(response.text()).resolves.toBe("data: {\"type\":\"text-delta\",\"text\":\"data: [DONE]\"}\n\ndata: [DONE]\n\n")
+  })
+
+  it("propagates partial UI message chat Response read failures", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const encoder = new TextEncoder()
+    const error = new Error("upstream failed")
+    let read = false
+    const handler = createChannelChatRouteHandler(defineAgent({
+      capabilities: [chat()],
+      driver: {
+        run: () => new Response(new ReadableStream({
+          pull(controller) {
+            if (read) throw error
+            read = true
+            controller.enqueue(encoder.encode("data: {\"type\":\"text-delta\",\"text\":\"partial\"}\n\n"))
+          },
+        }), {
+          headers: {
+            "content-type": "text/event-stream",
+            "x-vercel-ai-ui-message-stream": "v1",
+          },
+        }),
+      },
+    }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }), { agentName: "support" })
+
+    await expect(response.text()).rejects.toThrow("upstream failed")
+  })
+
   it("serves stream Channel chat routes with channel-owned trusted input mapping", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { stream } = await import("../src/channels.ts")

@@ -183,6 +183,54 @@ function readableStreamFromResult(value: unknown): ReadableStream<unknown> {
   throw new Error("[vitehub] Agent chat trigger expected a UI message stream.")
 }
 
+function isUiMessageStreamResponse(response: Response): boolean {
+  return response.headers.get("x-vercel-ai-ui-message-stream") === "v1"
+}
+
+function withCleanUiMessageStreamResponse(response: Response): Response {
+  if (!response.body || !isUiMessageStreamResponse(response)) return response
+
+  const doneFrame = new TextEncoder().encode("data: [DONE]\n\n")
+  const decoder = new TextDecoder()
+  const reader = response.body.getReader()
+  let tail = ""
+  const headers = new Headers(response.headers)
+  headers.delete("content-encoding")
+  headers.delete("content-length")
+
+  function enqueueDone(controller: ReadableStreamDefaultController<Uint8Array>) {
+    if (!/(^|\r?\n)data: \[DONE]\r?\n\r?\n$/.test(tail)) {
+      controller.enqueue(doneFrame)
+    }
+  }
+
+  return new Response(new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const result = await reader.read()
+        if (result.done) {
+          enqueueDone(controller)
+          controller.close()
+          return
+        }
+
+        tail = `${tail}${decoder.decode(result.value, { stream: true })}`.slice(-128)
+        controller.enqueue(result.value)
+      }
+      catch (error) {
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      await reader.cancel(reason)
+    },
+  }), {
+    headers,
+    status: response.status,
+    statusText: response.statusText,
+  })
+}
+
 function createJsonErrorResponse(status: number, message: string): Response {
   return Response.json({
     error: true,
@@ -2054,7 +2102,7 @@ export function createChannelDevtoolsRouteHandler(
 }
 
 async function toAgentChatFetchResponse(result: unknown): Promise<Response> {
-  if (result instanceof Response) return result
+  if (result instanceof Response) return withCleanUiMessageStreamResponse(result)
   return createAgentUIMessageStreamResponse({ stream: readableStreamFromResult(result) })
 }
 
