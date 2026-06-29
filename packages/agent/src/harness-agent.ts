@@ -454,11 +454,17 @@ async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) =>
 
   const clone = Object.create(Object.getPrototypeOf(result)) as Record<string, unknown>
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(result))
+  const wrappedIterables = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
   for (const [key, iterable] of entries) {
+    let wrapped = wrappedIterables.get(iterable)
+    if (!wrapped) {
+      wrapped = wrapCleanupIterable(iterable, cleanupOnce, abortSignal)
+      wrappedIterables.set(iterable, wrapped)
+    }
     Object.defineProperty(clone, key, {
       configurable: true,
       enumerable: true,
-      value: wrapCleanupIterable(iterable, cleanupOnce, abortSignal),
+      value: wrapped,
     })
   }
   const toUIMessageStream = (result as { toUIMessageStream?: unknown }).toUIMessageStream

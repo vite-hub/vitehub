@@ -1509,6 +1509,53 @@ describe("agent message protocol", () => {
     expect(session.destroy).toHaveBeenCalledOnce()
   })
 
+  it("preserves aliased harness stream surfaces during session cleanup wrapping", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const session = { destroy: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce(session)
+    const nativeStream = new ReadableStream<unknown>({
+      start(controller) {
+        controller.enqueue({ messageId: "msg-1", type: "start" })
+        controller.enqueue({ id: "msg-1", type: "text-start" })
+        controller.enqueue({ delta: "native", id: "msg-1", type: "text-delta" })
+        controller.enqueue({ id: "msg-1", type: "text-end" })
+        controller.enqueue({ finishReason: "stop", type: "finish" })
+        controller.close()
+      },
+    })
+    const toUIMessageStreamMock = vi.fn(function (this: { fullStream: unknown, stream: unknown }) {
+      expect(this.stream).toBe(this.fullStream)
+      return this.stream
+    })
+    harnessStream.mockResolvedValueOnce({
+      fullStream: nativeStream,
+      stream: nativeStream,
+      toUIMessageStream: toUIMessageStreamMock,
+    })
+
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
+      },
+    })
+
+    const stream = await streamAgent(
+      agent,
+      { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() },
+      { prompt: "hello" },
+      { output: "ui-message-stream" },
+    ) as ReadableStream<unknown>
+    const chunks: unknown[] = []
+    for await (const chunk of stream) {
+      chunks.push(chunk)
+    }
+
+    expect(chunks).toContainEqual({ delta: "native", id: "msg-1", type: "text-delta" })
+    expect(toUIMessageStreamMock).toHaveBeenCalledOnce()
+    expect(session.destroy).toHaveBeenCalledOnce()
+  })
+
   it("converts harness text streams with native UI streams after session cleanup wrapping", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }
