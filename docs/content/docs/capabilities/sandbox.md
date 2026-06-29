@@ -13,14 +13,12 @@ Use `commands` only when the Agent needs a model-facing allowlist of executable 
 ## Installation
 
 Import the Capability factory from `@vite-hub/agent/capabilities` and add it to `defineAgent({ capabilities })`.
-Use the configuration example below as the starting point, then tighten modes, policies, stores, and providers for the Agent boundary.
+Use the configuration example below as the starting point, then tighten modes and policies for the Agent boundary.
 
 ## What it adds
 
 With `commands`, the Capability contributes `sandbox_exec`.
 The tool accepts one configured executable name, optional args, cwd, environment, and timeout, then delegates execution to the Sandbox primitive.
-
-With `provider`, the Capability supplies the harness sandbox provider for harness-backed Agents without adding a model-facing tool.
 
 ## Configuration
 
@@ -50,8 +48,6 @@ At invocation time, `sandbox_exec` checks the requested executable against the a
 `sandbox({ commands })` requires an explicit Workspace and a configured `sandbox` primitive.
 The `commands` option must contain at least one executable name when present.
 
-`sandbox({ provider })` configures harness sandbox provider setup and does not require a Workspace or expose `sandbox_exec`.
-
 Sandbox is not Workspace Shell.
 Use `workspaceShell()` for Workspace inspection and structured Workspace mutation.
 
@@ -60,7 +56,7 @@ Use `workspaceShell()` for Workspace inspection and structured Workspace mutatio
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives `sandbox_exec`. |
-| Harness-backed | Uses `provider` as the harness sandbox provider. Receives `sandbox_exec` when `commands` are configured. |
+| Harness-backed | Receives `sandbox_exec` when `commands` are configured. Use `defineAgent({ harnessSandbox })` for harness sandbox provider setup. |
 | Custom-run-backed | The Sandbox primitive is available through runtime context; `driver.run` decides whether to call it. |
 
 ## Inspect and verify
@@ -73,7 +69,6 @@ Run a disallowed command during development and verify ViteHub rejects it before
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `commands` | `string[]` | none | Allowlisted executable names. Values must be executable names, not shell command strings. |
-| `provider` | `HarnessV1SandboxProvider` | runtime default | Harness sandbox provider for harness-backed Agents. |
 
 ## Reference
 

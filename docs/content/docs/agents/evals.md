@@ -9,7 +9,7 @@ Agent Evals are repeatable development checks that run an Agent Definition again
 
 ViteHub Agent Evals use `defineEval` and run through the Agent test runner. They preserve Agent Driver, Capability, Workspace, and runtime boundaries unless a variant explicitly overrides model-backed driver fields.
 
-Keep the harness adapter, credentials, session key, and runtime selection on the Agent Definition. An eval should declare scenarios and scorers; it should not duplicate the Agent Driver setup. Harness sandbox provider setup is Agent Package runtime plumbing resolved from defaults or `sandbox({ provider: createLocalHarnessSandbox(...) })`. Add `sandbox({ commands })` only when the model should receive `sandbox_exec`.
+Keep the harness adapter, credentials, session key, harness sandbox provider, and runtime selection on the Agent Definition. An eval should declare scenarios and scorers; it should not duplicate the Agent Driver setup. Harness sandbox provider setup is Agent Package runtime plumbing resolved from defaults or `harnessSandbox`. Add `sandbox({ commands })` only when the model should receive `sandbox_exec`.
 
 ## Define an eval
 

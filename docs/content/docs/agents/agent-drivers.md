@@ -69,27 +69,24 @@ export default defineAgent({
 })
 ```
 
-ViteHub resolves harness sandbox setup through the Agent Package runtime. Workspace-backed harness drivers in Vite dev use ViteHub's trusted local harness sandbox by default. Other runtime paths use the AI SDK Vercel Sandbox default when `@ai-sdk/sandbox-vercel` is installed. When an Agent needs a specific harness sandbox provider, pass it through the `sandbox()` Capability:
+ViteHub resolves harness sandbox setup through the Agent Package runtime. Workspace-backed harness drivers in Vite dev use ViteHub's trusted local harness sandbox by default. Other runtime paths use the AI SDK Vercel Sandbox default when `@ai-sdk/sandbox-vercel` is installed. When an Agent needs a specific harness sandbox provider, pass it through `harnessSandbox`:
 
 ```ts
 import { createCodex } from '@ai-sdk/harness-codex'
 import { defineAgent } from '@vite-hub/agent'
 import { createLocalHarnessSandbox } from '@vite-hub/agent/harness/local-sandbox'
-import { sandbox } from '@vite-hub/agent/capabilities'
 
 export default defineAgent({
   driver: {
     harness: createCodex({ model: 'gpt-5.5' }),
   },
-  capabilities: [
-    sandbox({ provider: createLocalHarnessSandbox({ rootDir: '/tmp' }) }),
-  ],
+  harnessSandbox: () => createLocalHarnessSandbox({ rootDir: '/tmp' }),
 })
 ```
 
 `sandbox({ commands })` remains the Capability shape for model-facing command execution authority.
 
-`driver.harness` and `driver.sessionKey` can also be callbacks. Use callbacks when one Agent Definition needs invocation-scoped harness auth or session reuse.
+`driver.harness`, `driver.sessionKey`, and `harnessSandbox` can also be callbacks. Use callbacks when one Agent Definition needs invocation-scoped harness auth, sandbox env/root setup, or session reuse.
 
 Harness-backed drivers do not receive `driver.instructions` as a model prompt. Use explicit harness configuration or Workspace instruction surfaces when the harness needs guidance.
 

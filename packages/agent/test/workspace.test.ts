@@ -3008,9 +3008,9 @@ describe("defineAgent workspace option", () => {
     expect(metadata.instructions?.join("\n")).not.toContain("Skill")
     expect(metadata.config?.driver.harness).toMatchObject({
       provider: "codex",
-      sandboxProvider: "local",
     })
     expect(metadata.config?.driver.harness).not.toHaveProperty("sandbox")
+    expect(metadata.config?.driver.harness).not.toHaveProperty("sandboxProvider")
     expect(readFile).not.toHaveBeenCalledWith("skills/agent-browser/SKILL.md")
   })
 

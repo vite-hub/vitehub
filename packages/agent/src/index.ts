@@ -88,6 +88,7 @@ import type {
   AgentFinishEvent,
   AgentChatOptions,
   AgentHandlerOptions,
+  AgentHarnessSandboxProviderInput,
   AgentInput,
   AgentInputHook,
   AgentInvocationContextStore,
@@ -216,6 +217,8 @@ export type {
   AgentHarnessCredentialSource,
   AgentHarnessDriver,
   AgentHarnessDriverInput,
+  AgentHarnessSandboxProvider,
+  AgentHarnessSandboxProviderInput,
   AgentHarnessSessionKey,
   AgentInput,
   AgentInputHook,
@@ -810,7 +813,7 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const driver = normalizeAgentDriver(options)
-  const { capabilities, channels, description, hooks, messages, runtime, version, workspace } = options
+  const { capabilities, channels, description, harnessSandbox, hooks, messages, runtime, version, workspace } = options
   const run = driver.kind === "run" ? driver.run : undefined
   const baseCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
@@ -851,6 +854,7 @@ function defineBaseAgent<
     chat,
     description,
     hooks,
+    harnessSandbox,
     invoker,
     messages,
     runtime,
@@ -1254,6 +1258,33 @@ async function registerResolvedAgentWorkspaceDefinition(name: string, definition
   registerWorkspace(name, workspace)
 }
 
+async function resolveHarnessSandboxProvider<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  CALL_OPTIONS,
+>(
+  harnessSandbox: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  context: AgentRuntimeContext<TRuntimeConfig>,
+  callbackContext: ReturnType<typeof createAgentCallbackContext<TRuntimeConfig>>,
+  invocationContext: AgentInvocationContextStore,
+  input: AgentRunInput<CALL_OPTIONS>,
+  invoker: AgentInvoker,
+): Promise<object | undefined> {
+  const provider = typeof harnessSandbox === "function"
+    ? await harnessSandbox({
+        ...callbackContext,
+        actor: invoker,
+        context: invocationContext,
+        input,
+        invoker,
+        run: context.run,
+      })
+    : harnessSandbox
+  if (provider !== undefined && (!provider || typeof provider !== "object")) {
+    throw new TypeError("[vitehub] defineAgent({ harnessSandbox }) must return a harness sandbox provider object.")
+  }
+  return provider
+}
+
 async function createAgentInvocationContext<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
@@ -1371,7 +1402,7 @@ async function createAgentInvocationContext<
       finishExtensionProviders: capabilities.registries.finishExtensionProviders,
       finishHook: definition?.hooks?.["agent:finish"] as never,
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
-      harnessSandboxProvider: capabilities.harnessSandboxProvider,
+      harnessSandboxProvider: await resolveHarnessSandboxProvider(definition?.harnessSandbox, context, callbackContext, invocationContext, capabilities.input as AgentRunInput<CALL_OPTIONS>, invoker),
       harnessWorkspacePaths: capabilities.harnessWorkspacePaths,
       handledResponse: capabilities.response,
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,

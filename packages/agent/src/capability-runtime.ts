@@ -133,7 +133,6 @@ export interface ResolvedAgentCapabilities {
   close: () => Promise<void>
   driverContributions: AgentDriverContribution[]
   hasCloseCallbacks: boolean
-  harnessSandboxProvider?: unknown
   harnessWorkspacePaths: readonly string[]
   input: AgentRunInput
   messages: Message[]
@@ -754,7 +753,6 @@ export async function resolveAgentCapabilities<
   let tools: AgentToolSet | undefined
   const closeCallbacks: Array<() => MaybePromise<void>> = []
   const driverContributions: AgentDriverContribution[] = []
-  let harnessSandboxProvider: unknown
   let hasCloseWork = false
   const toolTransforms: AgentToolTransform[] = []
   const initialDeliveryEffectIntents = invocationContext.get<AgentChannelDeliveryEffectIntent[]>(channelDeliveryEffectsContextKey) || []
@@ -784,14 +782,6 @@ export async function resolveAgentCapabilities<
       kind,
       ...(uniqueNames.length ? { names: uniqueNames } : {}),
     })
-  }
-
-  function registerHarnessSandboxProvider(capabilityId: string, provider: unknown) {
-    if (provider === undefined) return
-    if (harnessSandboxProvider !== undefined) {
-      throw new Error(`[vitehub] ${capabilityId}() conflicts with another harness sandbox provider.`)
-    }
-    harnessSandboxProvider = provider
   }
 
   function addFinishExtensionProvider(capabilityId: string, value: unknown | AgentFinishExtensionProvider) {
@@ -995,7 +985,6 @@ export async function resolveAgentCapabilities<
         workspace: currentWorkspace,
       } as AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
       capabilityContexts.push({ capability, context: capabilityContext })
-      if (driverKind === "harness") registerHarnessSandboxProvider(capability.id, capability.harnessSandboxProvider)
       if (capability.finish) addFinishExtensionProvider(capability.id, capability.finish)
 
       for (const [name, trigger] of Object.entries(capability.triggers || {})) {
@@ -1042,7 +1031,6 @@ export async function resolveAgentCapabilities<
             close: closeRegisteredCallbacks,
             driverContributions,
             hasCloseCallbacks: hasCloseWork,
-            harnessSandboxProvider,
             harnessWorkspacePaths,
             input: currentInput,
             messages,
@@ -1103,7 +1091,6 @@ export async function resolveAgentCapabilities<
     close: closeRegisteredCallbacks,
     driverContributions,
     hasCloseCallbacks: hasCloseWork,
-    harnessSandboxProvider,
     harnessWorkspacePaths,
     input: currentInput,
     messages,

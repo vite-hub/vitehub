@@ -7,7 +7,6 @@ import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinit
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
 import { streamAgentOutputToEvents, toAgentRunResult } from "../src/output.ts"
-import { createLocalHarnessSandbox } from "../src/harness/local-sandbox.ts"
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentUsageRecord, StreamEvent } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import { fetch as fetchSource, file, github as githubSource } from "@vite-hub/workspace"
@@ -161,8 +160,6 @@ describe("agent public types", () => {
         skills({ shellExecution: "read" }),
         skills({ shellExecution: "write" }),
         sandbox({ commands: ["node"] }),
-        sandbox({ provider: createLocalHarnessSandbox() }),
-        sandbox({ commands: ["node"], provider: createLocalHarnessSandbox({ rootDir: "/tmp" }) }),
         schedule({ mode: "read", targets: ["daily-reports"] as const }),
         schedule({ allowSelfTarget: true, mode: "write", policy: "require-approval", selfTarget: "agent/digest", targets: ["agent/digest", "daily-reports"] as const }),
         transcribe({
@@ -235,6 +232,16 @@ describe("agent public types", () => {
       workspace: { mode: "read" },
     })
 
+    defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      harnessSandbox: ({ input }) => {
+        expectTypeOf(input.prompt).toEqualTypeOf<AgentRunInput["prompt"]>()
+        return { providerId: "local-test" }
+      },
+    })
+
     type GeneratedScheduleTargetName = "daily-reports" | "weekly-cleanup"
     schedule<GeneratedScheduleTargetName>({ mode: "write", targets: ["daily-reports"] })
     // @ts-expect-error target allowlists are typed by generated Schedule Target Names where supplied
@@ -276,7 +283,7 @@ describe("agent public types", () => {
     // @ts-expect-error workspaceShell timeout must be a number
     workspaceShell({ commands: ["agent-browser"], timeout: "1000" })
 
-    // @ts-expect-error sandbox requires commands or provider
+    // @ts-expect-error sandbox requires commands
     sandbox({})
 
     const invocationContext: AgentInvocationContextStore = {
