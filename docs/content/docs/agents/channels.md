@@ -125,7 +125,43 @@ Link command docs and command examples to [Capabilities](/docs/capabilities), no
 
 ## Deliver Workspace artifacts
 
-Delivery effects can include artifacts that were written into the Agent Workspace. Use `publishWorkspaceArtifacts()` from `@vite-hub/agent/channels` inside a finish effect when a channel needs public URLs or channel-native attachment handles.
+Delivery effects can include artifacts that were written into the Agent Workspace. Use workspace-relative artifact paths so ViteHub can read the generated files through the Agent Workspace instead of exposing host filesystem paths.
+
+Adapter-backed message channels, such as Slack, Telegram, Teams, Discord, and custom `defineChannel()` integrations with an adapter, send delivery artifacts through Chat SDK message output. Artifacts with a `url` become Chat SDK attachments. Workspace artifacts without a `url` become uploaded files when the artifact is not marked with `placement: 'link'`.
+
+```ts [server/agents/support.ts]
+import { defineAgent, defineCapability } from '@vite-hub/agent'
+import { telegram } from '@vite-hub/agent/channels'
+
+const screenshotDelivery = defineCapability({
+  id: 'screenshot-delivery',
+  prepare(context) {
+    context.delivery.finishEffect(() => ({
+      artifacts: [{
+        mediaType: 'image/png',
+        path: 'screenshots/login.png',
+        placement: 'attachment',
+      }],
+      kind: 'reply',
+      payload: { body: 'See attached screenshot.' },
+    }))
+  },
+})
+
+export default defineAgent({
+  capabilities: [screenshotDelivery],
+  channels: {
+    support: telegram({ adapter: createTelegramAdapter }),
+  },
+  workspace: { mode: 'write' },
+  run: async ({ workspace }) => {
+    await renderScreenshot(workspace, 'screenshots/login.png')
+    return 'Captured the login state.'
+  },
+})
+```
+
+GitHub comments and reviews need hosted markdown URLs instead of channel-native file uploads. The GitHub channel publishes workspace image paths that appear in reply or review bodies, then rewrites those paths to hosted raw URLs. Use `publishWorkspaceArtifacts()` from `@vite-hub/agent/channels` inside a finish effect when explicit GitHub artifacts need public URLs before delivery.
 
 ```ts [server/agents/review.ts]
 import { defineAgent } from '@vite-hub/agent'
@@ -162,7 +198,7 @@ export default defineAgent({
 })
 ```
 
-The GitHub channel renders inline image artifacts as markdown in `reply` and `review` effects. It only renders artifacts that already have a `url`; it does not scan `screenshots/**` or upload files unless your finish effect explicitly asks it to.
+The GitHub channel renders inline image artifacts as markdown in `reply` and `review` effects. It does not attach local files directly to GitHub comments.
 
 ## Next steps
 
