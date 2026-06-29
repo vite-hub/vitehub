@@ -114,6 +114,27 @@ afterEach(() => {
 });
 
 describe("GitHub workspace store", () => {
+  it.each(["********", "<redacted>", "[redacted]"])(
+    "falls back to env credentials for masked token %s",
+    async (maskedToken) => {
+      process.env.WORKSPACE_GITHUB_TOKEN = "env-token";
+      const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+      const store = createGitHubWorkspaceStore(
+        {
+          provider: "github",
+          repository: "onmax/repo",
+          root: ".vitehub/workspaces/<workspace>",
+          token: maskedToken,
+        },
+        "docs",
+      );
+
+      await expect(store.list("", { recursive: true })).resolves.toEqual([]);
+
+      expect(requests[0]?.headers.get("authorization")).toBe("Bearer env-token");
+    },
+  );
+
   it("reads, lists, stats, writes, snapshots, and persists metadata through GitHub", async () => {
     seedRemote(".vitehub/workspaces/docs/data/existing.json", '{"ok":true}\n');
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");

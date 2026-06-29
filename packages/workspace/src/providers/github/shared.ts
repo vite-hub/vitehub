@@ -57,6 +57,10 @@ export function resolveGitHubOption(value: GitHubWorkspaceOption | undefined): s
   return typeof value === "function" ? value() : value;
 }
 
+function isMaskedGitHubTokenOption(value: string): boolean {
+  return value === "********" || value === "<redacted>" || value === "[redacted]";
+}
+
 export function requireGitHubOption(
   kind: "publisher" | "store",
   label: string,
@@ -182,7 +186,7 @@ export function resolveGitHubTokenOption(
   env: Record<string, string | undefined> = typeof process !== "undefined" ? process.env : {},
 ): string | undefined {
   const token = resolveGitHubOption(options.token);
-  if (token && token !== "********") return token;
+  if (token && !isMaskedGitHubTokenOption(token)) return token;
   return (
     getActiveCloudflareBinding<string>("GITHUB_TOKEN") ||
     processEnv(env, "WORKSPACE_GITHUB_TOKEN", "VITEHUB_WORKSPACE_GITHUB_TOKEN", "GITHUB_TOKEN")
