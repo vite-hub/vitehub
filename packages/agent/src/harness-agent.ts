@@ -9,7 +9,7 @@ import { colocatedAgentInstructionsSourceKey, resolveColocatedAgentInstructionDo
 import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
-import { isAsyncIterable, toReadableAsyncIterableStream } from "./internal/stream-result.ts"
+import { isAsyncIterable } from "./internal/stream-result.ts"
 import {
   applyAgentToolPolicies,
   withAgentToolStepReporting,
@@ -458,7 +458,7 @@ function withCleanupStream<T>(stream: ReadableStream<T>, cleanup: (error?: unkno
 }
 
 function wrapCleanupIterable<T>(iterable: AsyncIterable<T>, cleanup: (error?: unknown) => Promise<void>, abortSignal?: AbortSignal) {
-  return toReadableAsyncIterableStream(withCleanup(iterable, cleanup, abortSignal))
+  return withCleanup(iterable, cleanup, abortSignal)
 }
 
 async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) => Promise<void>, abortSignal?: AbortSignal): Promise<unknown> {
@@ -507,10 +507,9 @@ async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) =>
     Object.defineProperty(clone, "toUIMessageStream", {
       configurable: true,
       enumerable: false,
-      value: function (this: unknown, ...args: unknown[]) {
+      value: (...args: unknown[]) => {
         try {
-          const target = this && typeof this === "object" ? this : clone
-          const stream = toUIMessageStream.apply(target, args) as unknown
+          const stream = toUIMessageStream.apply(result, args) as unknown
           return typeof stream === "object" && stream !== null && typeof (stream as ReadableStream<unknown>).getReader === "function"
             ? withCleanupStream(stream as ReadableStream<unknown>, cleanupOnce)
             : stream

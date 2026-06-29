@@ -58,11 +58,12 @@ export function toReadableAsyncIterableStream<T>(iterable: AsyncIterable<T>): As
 }
 
 export function teeingAsyncIterableStreamDescriptor<T>(iterable: AsyncIterable<T>): PropertyDescriptor {
-  let stream = toReadableAsyncIterableStream(iterable)
+  let stream: AsyncIterableReadableStream<T> | undefined
   return {
     configurable: true,
     enumerable: true,
     get() {
+      stream ??= toReadableAsyncIterableStream(iterable)
       const [next, branch] = stream.tee()
       stream = withAsyncIterator(next)
       return withAsyncIterator(branch)
