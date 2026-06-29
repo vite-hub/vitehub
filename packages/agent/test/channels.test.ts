@@ -58,6 +58,34 @@ describe("agent channels", () => {
     expect(publish).not.toHaveBeenCalled()
   })
 
+  it("maps published delivery artifacts to Chat SDK attachments", async () => {
+    const { deliveryArtifactAttachments } = await import("../src/channels.ts")
+
+    expect(deliveryArtifactAttachments([{
+      mediaType: "image/png",
+      path: "screenshots/login.png",
+      placement: "inline",
+      url: "https://assets.example/screenshots/login.png",
+    }, {
+      mediaType: "application/pdf",
+      path: "reports/review.pdf",
+      placement: "attachment",
+      url: "https://assets.example/reports/review.pdf",
+    }, {
+      path: "local-only.txt",
+    }])).toEqual([{
+      mimeType: "image/png",
+      name: "login.png",
+      type: "image",
+      url: "https://assets.example/screenshots/login.png",
+    }, {
+      mimeType: "application/pdf",
+      name: "review.pdf",
+      type: "file",
+      url: "https://assets.example/reports/review.pdf",
+    }])
+  })
+
   it("posts GitHub PR reviews with inline published image artifacts", async () => {
     const { github } = await import("../src/channels.ts")
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
