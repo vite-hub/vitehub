@@ -3000,10 +3000,17 @@ describe("defineAgent workspace option", () => {
       workspace: { mode: "write" },
     }), { workspace: "support" })
 
-    const metadata = await resolveAgentDevtoolsMetadata(agent)
+    const metadata = await resolveAgentDevtoolsMetadata(agent, {
+      runtime: { runtime: "vite" },
+    })
 
     expect((metadata.tools || []).map(tool => tool.name)).not.toContain("skills")
     expect(metadata.instructions?.join("\n")).not.toContain("Skill")
+    expect(metadata.config?.driver.harness).toMatchObject({
+      provider: "codex",
+      sandboxProvider: "local",
+    })
+    expect(metadata.config?.driver.harness).not.toHaveProperty("sandbox")
     expect(readFile).not.toHaveBeenCalledWith("skills/agent-browser/SKILL.md")
   })
 

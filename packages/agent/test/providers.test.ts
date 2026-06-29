@@ -895,9 +895,9 @@ describe("server helpers", () => {
         user: request.headers.get("x-user"),
       },
     }))
-    const run = vi.fn(({ context, invoker, messages, run }) => {
+    const run = vi.fn(({ context, invoker, messages, run, runtime }) => {
       const text = messages[0]?.parts.find((part: { type?: string }) => part.type === "text") as { text?: string } | undefined
-      return `echo ${text?.text} for ${invoker.id} via ${run.origin} from ${invoker.meta.user} after ${invoker.meta.fallback}`
+      return `echo ${text?.text} for ${invoker.id} via ${run.origin} on ${runtime} from ${invoker.meta.user} after ${invoker.meta.fallback}`
     })
     const agent = defineAgent({
       capabilities: [chat()],
@@ -927,7 +927,7 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1")
-    await expect(response.text()).resolves.toContain("echo hello for customer:acme via http from portal-user after anonymous:http")
+    await expect(response.text()).resolves.toContain("echo hello for customer:acme via http on unknown from portal-user after anonymous:http")
     expect(resolveInvoker).toHaveBeenCalledWith(expect.objectContaining({
       defaultInvoker: expect.objectContaining({
         id: "anonymous:http",

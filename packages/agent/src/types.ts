@@ -1225,6 +1225,7 @@ export interface AgentDevtoolsModelExecutionMetadata {
 export interface AgentDevtoolsHarnessMetadata {
   credentials?: AgentHarnessCredentialSource
   provider?: string
+  sandboxProvider?: string
   sessionKey?: boolean
 }
 

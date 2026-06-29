@@ -488,19 +488,26 @@ function executionMetadata(value: AgentDevtoolsDriverMetadata["execution"] | und
     : undefined
 }
 
-function harnessMetadata(driver: { credentials?: unknown, harness: unknown, sessionKey?: unknown }): AgentDevtoolsHarnessMetadata | undefined {
+function harnessSandboxProviderMetadata(context?: AgentAdapterMetadataContext): string | undefined {
+  if (!context) return
+  return context.workspace && context.runtime === "vite" ? "local" : "vercel"
+}
+
+function harnessMetadata(driver: { credentials?: unknown, harness: unknown, sessionKey?: unknown }, context?: AgentAdapterMetadataContext): AgentDevtoolsHarnessMetadata | undefined {
   const harness = isRecord(driver.harness) ? driver.harness : undefined
   const provider = harness ? stringField(harness, ["provider", "name"]) : undefined
+  const sandboxProvider = harnessSandboxProviderMetadata(context)
   const credentials = isRecord(driver.credentials)
     ? {
         ...(typeof driver.credentials.label === "string" && driver.credentials.label ? { label: driver.credentials.label } : {}),
         ...(typeof driver.credentials.source === "string" && driver.credentials.source ? { source: driver.credentials.source } : {}),
       }
     : undefined
-  return provider || credentials || driver.sessionKey
+  return provider || credentials || sandboxProvider || driver.sessionKey
     ? {
         ...(credentials && Object.keys(credentials).length ? { credentials } : {}),
         ...(provider ? { provider } : {}),
+        ...(sandboxProvider ? { sandboxProvider } : {}),
         ...(driver.sessionKey ? { sessionKey: true } : {}),
       }
     : undefined
@@ -552,7 +559,7 @@ async function resolvedDriverMetadata<
     }
   }
   if (driver.kind === "harness") {
-    const harness = harnessMetadata(driver)
+    const harness = harnessMetadata(driver, context)
     return {
       ...(harness ? { harness } : {}),
       kind: "harness",

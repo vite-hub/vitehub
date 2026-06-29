@@ -71,7 +71,7 @@ export interface ChatDevtoolsHarnessMetadata {
     source?: string
   }
   provider?: string
-  sandbox?: boolean
+  sandboxProvider?: string
   sessionKey?: boolean
 }
 

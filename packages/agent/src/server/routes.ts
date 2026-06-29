@@ -221,7 +221,7 @@ function detectRuntime(): AgentRuntimeName {
   if ("Deno" in globalThis) return "deno"
   const env = typeof process === "object" && process ? process.env : undefined
   if (env?.VERCEL) return "vercel"
-  return "vite"
+  return "unknown"
 }
 
 function createRuntimeContext(
