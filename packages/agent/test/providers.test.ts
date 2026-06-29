@@ -2824,6 +2824,87 @@ describe("server helpers", () => {
     })
   })
 
+  it("maps channel delivery reply artifacts to Chat SDK attachments and files", async () => {
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const content = new Uint8Array([1, 2, 3])
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          id: "delivery-assets",
+          prepare(context) {
+            context.delivery.finishEffect(() => ({
+              artifacts: [{
+                mediaType: "image/png",
+                path: "screenshots/login.png",
+                placement: "attachment",
+              }, {
+                mediaType: "image/png",
+                path: "screenshots/published.png",
+                placement: "inline",
+                url: "https://assets.example/screenshots/published.png",
+              }],
+              kind: "reply",
+              payload: { body: "See attached screenshots." },
+            }))
+          },
+        }),
+      ],
+      channels: {
+        support: telegram({
+          adapter: () => adapter as never,
+        }),
+      },
+      driver: {
+        run: async ({ workspace }) => {
+          await (workspace as { fs: { writeFile: (path: string, content: Uint8Array, options?: { mediaType?: string }) => Promise<void> } }).fs.writeFile("screenshots/login.png", content, { mediaType: "image/png" })
+          return "agent answer"
+        },
+      },
+      workspace: { mode: "write", store: { provider: "memory" } },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/support", {
+      body: JSON.stringify({
+        update_id: 1989,
+        message: {
+          chat: { id: 989, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1989,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "support")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:989", { markdown: "agent answer" })
+    const deliveryMessage = adapter.postMessage.mock.calls[1]?.[1] as {
+      attachments?: Array<{ mimeType?: string, name?: string, type?: string, url?: string }>
+      files?: Array<{ data: ArrayBuffer, filename: string, mimeType?: string }>
+      markdown?: string
+    }
+    expect(deliveryMessage).toMatchObject({
+      attachments: [{
+        mimeType: "image/png",
+        name: "published.png",
+        type: "image",
+        url: "https://assets.example/screenshots/published.png",
+      }],
+      files: [{
+        filename: "login.png",
+        mimeType: "image/png",
+      }],
+      markdown: "See attached screenshots.",
+    })
+    expect(new Uint8Array(deliveryMessage.files![0]!.data)).toEqual(content)
+  })
+
   it("commits native streamed chat responses before flushing finish hook messages", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
