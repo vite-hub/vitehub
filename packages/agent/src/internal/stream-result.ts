@@ -73,7 +73,11 @@ export function teeingAsyncIterableStreamDescriptor<T>(iterable: AsyncIterable<T
 
 export function cloneWithPropertyDescriptors<T extends object>(value: T, descriptors: PropertyDescriptorMap): T {
   const clone = Object.create(Object.getPrototypeOf(value)) as T
-  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(value))
+  const ownDescriptors = Object.getOwnPropertyDescriptors(value) as PropertyDescriptorMap & Record<PropertyKey, PropertyDescriptor>
+  for (const key of Reflect.ownKeys(descriptors)) {
+    delete ownDescriptors[key]
+  }
+  Object.defineProperties(clone, ownDescriptors)
   Object.defineProperties(clone, descriptors)
   return clone
 }

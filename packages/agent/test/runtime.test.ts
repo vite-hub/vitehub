@@ -4860,6 +4860,51 @@ describe("agent message protocol", () => {
     ])
   })
 
+  it("traces native UI results with non-configurable own UI stream methods", async () => {
+    const { createUIMessageStream, readUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const nativeResult = { metadata: { id: "native-result" } }
+    Object.defineProperty(nativeResult, "toUIMessageStream", {
+      value() {
+        return createUIMessageStream({
+          execute({ writer }) {
+            writer.write({ type: "start", messageId: "assistant-1" })
+            writer.write({ type: "text-start", id: "text-1" })
+            writer.write({ type: "text-delta", id: "text-1", delta: "native answer" })
+            writer.write({ type: "text-end", id: "text-1" })
+            writer.write({ type: "finish", finishReason: "stop" })
+          },
+        })
+      },
+    })
+    const agent = defineAgent({
+      driver: { run: () => nativeResult },
+    })
+
+    const stream = await streamAgent(agent, {
+      memo: vi.fn(),
+      runtime: "unknown",
+      traceLog,
+      waitUntil: vi.fn(),
+    }, {}, { output: "ui-message-stream" }) as ReadableStream<never>
+    const messages = []
+    for await (const message of readUIMessageStream({ stream })) {
+      messages.push(message)
+    }
+
+    expect(Object.getOwnPropertyDescriptor(nativeResult, "toUIMessageStream")?.configurable).toBe(false)
+    expect(messages.at(-1)?.parts).toContainEqual(expect.objectContaining({
+      text: "native answer",
+      type: "text",
+    }))
+    expect(traceLog.entries().map(event => event.name)).toEqual([
+      "agent.invocation.start",
+      "agent.stream.finish",
+      "agent.invocation.finish",
+    ])
+  })
+
   it("traces direct async iterable results when UI message streams are requested", async () => {
     const { readUIMessageStream } = await import("ai")
     const { defineAgent, streamAgent } = await import("../src/index.ts")
