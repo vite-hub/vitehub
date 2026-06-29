@@ -1466,19 +1466,7 @@ function resultWithStreamedText(result: unknown, text: string): unknown {
   if (!text || typeof result === "string") return result
   if (result && typeof result === "object" && !(result instanceof Response)) {
     const current = (result as { text?: unknown }).text
-    if (typeof current === "string" && current) return result
-    try {
-      Object.defineProperty(result, "text", {
-        configurable: true,
-        enumerable: true,
-        value: text,
-        writable: true,
-      })
-      return result
-    }
-    catch {
-      return { raw: result, text }
-    }
+    return typeof current === "string" && current ? result : { ...result, text }
   }
   return { raw: result, text }
 }

@@ -200,6 +200,10 @@ function deliveryReactionContent(payload: unknown): string | undefined {
 
 function deliveryPreviewHeader(event: { channelId?: string, effect: { kind: string, payload?: unknown } }): string {
   const channel = event.channelId ? ` on ${event.channelId}` : ""
+  if (event.effect.kind === "reaction") {
+    const content = deliveryReactionContent(event.effect.payload)
+    return `[delivery] reaction${content ? ` ${content}` : ""}${channel}`
+  }
   return `[delivery preview] would ${event.effect.kind}${channel}`
 }
 
@@ -855,7 +859,7 @@ async function sendDevMessage(
         previewSeen = true
         context.stderr.write(`\n${deliveryPreviewHeader(event)}\n`)
         writeDevPayload(context, "intent", event.effect.intent)
-        writeDeliveryPreviewPayload(context, event.effect.kind === "reaction" ? deliveryReactionContent(event.effect.payload) ?? event.effect.payload : event.effect.payload)
+        if (event.effect.kind !== "reaction") writeDeliveryPreviewPayload(context, event.effect.payload)
         writeDevPayload(context, "metadata", event.effect.metadata)
         continue
       }

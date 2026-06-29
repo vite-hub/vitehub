@@ -18,7 +18,6 @@ interface LocalHarnessSandboxSession extends HarnessV1NetworkSandboxSession {
   readonly cleanup: boolean
   readonly env: Record<string, string>
   readonly processes: Set<ChildProcessWithoutNullStreams>
-  readonly processGroups: Set<number>
   readonly rootDir: string
 }
 
@@ -101,30 +100,15 @@ function spawnProcess(session: LocalHarnessSandboxSession, options: {
   const cwd = resolvePath(session, options.workingDirectory)
   const child = spawnChildProcess(options.command, {
     cwd,
-    detached: process.platform !== "win32",
     env: { ...session.env, ...options.env, INIT_CWD: cwd, OLDPWD: cwd, PWD: cwd },
     shell: true,
   })
   session.processes.add(child)
-  if (process.platform !== "win32" && child.pid) session.processGroups.add(child.pid)
-
-  const killChild = () => {
-    if (process.platform !== "win32" && child.pid) {
-      try {
-        process.kill(-child.pid, "SIGTERM")
-        return
-      }
-      catch (error) {
-        if (!isNoSuchProcess(error)) throw error
-      }
-    }
-    child.kill()
-  }
 
   let abortReason: unknown
   const abort = () => {
     abortReason = options.abortSignal?.reason || new Error("Sandbox command aborted.")
-    killChild()
+    child.kill()
   }
   options.abortSignal?.addEventListener("abort", abort, { once: true })
 
@@ -132,14 +116,6 @@ function spawnProcess(session: LocalHarnessSandboxSession, options: {
     child.once("error", reject)
     child.once("close", (code) => {
       session.processes.delete(child)
-      if (child.pid) {
-        try {
-          killChild()
-        }
-        finally {
-          session.processGroups.delete(child.pid)
-        }
-      }
       options.abortSignal?.removeEventListener("abort", abort)
       if (abortReason) {
         reject(abortReason)
@@ -155,14 +131,10 @@ function spawnProcess(session: LocalHarnessSandboxSession, options: {
     stderr: Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>,
     wait: () => wait,
     kill: async () => {
-      killChild()
+      child.kill()
       await wait.catch(() => undefined)
     },
   }
-}
-
-function isNoSuchProcess(error: unknown) {
-  return typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH"
 }
 
 async function collect(stream: ReadableStream<Uint8Array>) {
@@ -180,7 +152,6 @@ async function createSession(options: LocalHarnessSandboxOptions, sessionId: str
     env,
     id: sessionId || randomUUID(),
     ports: options.ports || [4000],
-    processGroups: new Set<number>(),
     processes: new Set<ChildProcessWithoutNullStreams>(),
     rootDir,
     async destroy() {
@@ -225,26 +196,8 @@ async function createSession(options: LocalHarnessSandboxOptions, sessionId: str
     async stop() {
       await Promise.all(Array.from(this.processes, child => new Promise<void>((resolve) => {
         child.once("close", () => resolve())
-        if (process.platform !== "win32" && child.pid) {
-          try {
-            process.kill(-child.pid, "SIGTERM")
-            return
-          }
-          catch (error) {
-            if (!isNoSuchProcess(error)) throw error
-          }
-        }
         child.kill()
       })))
-      for (const pid of this.processGroups) {
-        try {
-          process.kill(-pid, "SIGTERM")
-        }
-        catch (error) {
-          if (!isNoSuchProcess(error)) throw error
-        }
-      }
-      this.processGroups.clear()
     },
     async writeBinaryFile({ content, path }: { content: Uint8Array, path: string }) {
       const resolved = resolvePath(this, path)
