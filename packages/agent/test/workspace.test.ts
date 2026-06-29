@@ -1302,6 +1302,53 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("uses explicit harness paths instead of root materialization when access() selects all", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { markTrustedWorkspaceAccessScope } = await import("../src/access-runtime.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [
+        {
+          id: "workspace-scope",
+          prepare(context) {
+            context.context.set("access", {
+              workspaceScope: {
+                all: true,
+                paths: [""],
+                scope: "all",
+              },
+            })
+            markTrustedWorkspaceAccessScope(context.context)
+          },
+        },
+        {
+          harnessWorkspacePaths: ["README.md"],
+          id: "support",
+        },
+      ],
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {},
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      ignoreWriteBackPaths: [],
+      paths: ["AGENTS.md", "CLAUDE.md", "README.md"],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
+  })
+
   it("keeps generated capability source files selected for Harness Workspace Sessions", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { access, pullRequestContext } = await import("../src/capabilities.ts")
