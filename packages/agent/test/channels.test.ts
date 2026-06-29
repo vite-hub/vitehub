@@ -210,7 +210,7 @@ describe("agent channels", () => {
       channel,
       effect: {
         kind: "reply",
-        payload: { body: "Screenshot: screenshots/login.png\nAngled: ![login](<screenshots/login.png>)\nRoot: result.png\nLink: [result](result.png)\nAngle link: [result](<result.png>)\nInline: ![result](result.png)\nCode: `unused.png`" },
+        payload: { body: "Screenshot: screenshots/login.png\nAngled: ![login](<screenshots/login.png>)\nRoot: result.png\nLink: [result](result.png)\nAngle link: [result](<result.png>)\nInline: ![result](result.png)\nQuery: ![query](screenshots/login.png?raw=1)\nFragment: ![fragment](result.png#v1)\nHTML: <img src=\"screenshots/login.png\" width=\"400\">\nCode: `unused.png`" },
       },
       input: {
         context: {
@@ -263,6 +263,9 @@ describe("agent channels", () => {
     expect(postedBodies[0]).toContain("Link: [result](<https://github.test/vite-hub/vitehub/raw/review-assets/")
     expect(postedBodies[0]).toContain("Angle link: [result](<https://github.test/vite-hub/vitehub/raw/review-assets/")
     expect(postedBodies[0]).toContain("Inline: ![result](<https://github.test/vite-hub/vitehub/raw/review-assets/")
+    expect(postedBodies[0]).toContain("Query: ![query](screenshots/login.png?raw=1)")
+    expect(postedBodies[0]).toContain("Fragment: ![fragment](result.png#v1)")
+    expect(postedBodies[0]).toContain("HTML: <img src=\"screenshots/login.png\" width=\"400\">")
     expect(postedBodies[0]).toContain("Code: `unused.png`")
     expect(postedBodies[0]).not.toContain("Screenshot: screenshots/login.png")
     expect(postedBodies[0]).not.toContain("Root: result.png")
