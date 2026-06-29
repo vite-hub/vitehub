@@ -1038,7 +1038,7 @@ describe("usage telemetry", () => {
       fullStream = (async function* () {
       })()
 
-      toUIMessageStream() {
+      toUIMessageStream = function (this: StreamResult) {
         return this.#stream
       }
     }

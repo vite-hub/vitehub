@@ -506,7 +506,7 @@ function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
             configurable: true,
             enumerable: false,
             value: (...args: unknown[]) => withUsageTelemetryUiMessageStream(
-              (result.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>).apply(Object.hasOwn(result, "toUIMessageStream") ? clone : result, args),
+              (result.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>).apply(result, args),
               options,
               run,
               usageRecord => defineUsageTelemetryOutput(clone as UnknownRecord, usageRecord),
