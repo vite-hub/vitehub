@@ -297,13 +297,12 @@ async function extractWorkspaceArchive(
 async function listSandboxPaths(
   sandbox: HarnessSandboxSession,
   sessionWorkDir: string,
-  type: "d" | "f",
+  type: "d" | "f" | "l",
   abortSignal: AbortSignal | undefined,
 ) {
-  const predicate = type === "f" ? "\\( -type f -o -type l \\)" : `-type ${type}`
   const result = await runSandbox(sandbox, {
     abortSignal,
-    command: `find . ${predicate} -print`,
+    command: `find . -type ${type} -print`,
     workingDirectory: sessionWorkDir,
   })
   return new Set(pathsFromFindOutput(result.stdout))
@@ -350,9 +349,11 @@ async function copySandboxChangesToWorkspace(
 
   const sandboxDirectories = await listSandboxPaths(sandbox, sessionWorkDir, "d", abortSignal)
   const sandboxFiles = await listSandboxPaths(sandbox, sessionWorkDir, "f", abortSignal)
+  const sandboxSymlinks = await listSandboxPaths(sandbox, sessionWorkDir, "l", abortSignal)
+  const sandboxFileEntries = new Set([...sandboxFiles, ...sandboxSymlinks])
   for (const path of initialTree.files.keys()) {
     if (ignoreWriteBackPaths.has(path)) continue
-    if (!sandboxFiles.has(path)) await session.rm(path, { force: true })
+    if (!sandboxFileEntries.has(path)) await session.rm(path, { force: true })
   }
   for (const path of [...initialTree.directories].sort((left, right) => right.length - left.length)) {
     if (!sandboxDirectories.has(path)) await session.rm(path, { force: true, recursive: true })
@@ -363,12 +364,12 @@ async function copySandboxChangesToWorkspace(
   }
   for (const path of sandboxFiles) {
     if (ignoreWriteBackPaths.has(path)) continue
+    const initial = initialTree.files.get(path)
+    if (initial?.symlinkTarget) continue
     const content = await sandbox.readBinaryFile({
       abortSignal,
       path: sandboxPath(sessionWorkDir, path),
     })
-    const initial = initialTree.files.get(path)
-    if (initial?.symlinkTarget) continue
     if (!content || bytesEqual(initial?.content, content)) continue
     await session.writeFile(path, content, {
       mediaType: initial?.mediaType || lookup(path) || undefined,

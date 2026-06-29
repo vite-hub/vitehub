@@ -13,9 +13,10 @@ function ok(stdout = "") {
   return { exitCode: 0, stderr: "", stdout }
 }
 
-function sandboxRun(files: string[] = [], directories: string[] = []) {
+function sandboxRun(files: string[] = [], directories: string[] = [], symlinks: string[] = []) {
   return vi.fn(async ({ command }: { command: string }) => {
     if (command.includes("-type d")) return ok(directories.map(path => `./${path}`).join("\n"))
+    if (command.includes("-type l")) return ok(symlinks.map(path => `./${path}`).join("\n"))
     if (command.includes("-type f")) return ok(files.map(path => `./${path}`).join("\n"))
     return ok()
   })
@@ -450,13 +451,57 @@ describe("Harness Workspace Session", () => {
     expect(startSession).toHaveBeenCalledOnce()
     expect(run).toHaveBeenCalledWith({
       abortSignal: undefined,
-      command: "find . \\( -type f -o -type l \\) -print",
+      command: "find . -type f -print",
+      workingDirectory: "/work/agent",
+    })
+    expect(run).toHaveBeenCalledWith({
+      abortSignal: undefined,
+      command: "find . -type l -print",
       workingDirectory: "/work/agent",
     })
     expect(workspaceSession.writeFile).toHaveBeenCalledWith("README.md", updated, { mediaType: "text/markdown" })
     expect(workspaceSession.writeFile).toHaveBeenCalledWith("new.json", added, { mediaType: "application/json" })
     expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
     expect(workspaceSession.close).toHaveBeenCalledOnce()
+  })
+
+  it("does not write harness symlink targets back as Workspace files", async () => {
+    const workspaceSession = {
+      close: vi.fn(async () => {}),
+      commit: vi.fn(async () => {}),
+      diff: vi.fn(async () => ({
+        entries: [{ path: "result.txt", type: "added" }],
+        to: "next",
+      })),
+      mkdir: vi.fn(async () => {}),
+      rm: vi.fn(async () => {}),
+      writeFile: vi.fn(async () => {}),
+    }
+    const readBinaryFile = vi.fn(async ({ path }: { path: string }) =>
+      path.endsWith("linked.txt") ? bytes("target bytes") : bytes("result"))
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: {
+        list: vi.fn(async () => []),
+        readFile: vi.fn(async () => bytes("")),
+      },
+      startSession: vi.fn(async () => workspaceSession),
+      tools: {},
+    } as never, {
+      session: {
+        readBinaryFile,
+        run: sandboxRun(["result.txt"], [], ["linked.txt"]),
+        writeBinaryFile: vi.fn(async () => {}),
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    await session.close()
+
+    expect(readBinaryFile).not.toHaveBeenCalledWith({ abortSignal: undefined, path: "/work/agent/linked.txt" })
+    expect(workspaceSession.writeFile).toHaveBeenCalledWith("result.txt", bytes("result"), { mediaType: "text/plain" })
+    expect(workspaceSession.writeFile).not.toHaveBeenCalledWith("linked.txt", expect.anything(), expect.anything())
+    expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
   })
 
   it("does not recreate unchanged initial directories during write-back", async () => {
