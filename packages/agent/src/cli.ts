@@ -378,14 +378,18 @@ function operationCommand(name: string, value: unknown): string | undefined {
   for (const key of ["path", "query", "body"]) {
     if (value[key] === undefined) continue
     const quoted = quoteCliPart(value[key])
-    if (quoted) parts.push(`--${key}`, quoted)
+    if (!quoted) return
+    parts.push(`--${key}`, quoted)
   }
 
   const rest = Object.fromEntries(Object.entries(value).filter(([key, item]) =>
     item !== undefined && !["operation", "operationId", "path", "query", "body"].includes(key),
   ))
-  const quotedRest = Object.keys(rest).length ? quoteCliPart(rest) : undefined
-  if (quotedRest) parts.push("--input", quotedRest)
+  if (Object.keys(rest).length) {
+    const quotedRest = quoteCliPart(rest)
+    if (!quotedRest) return
+    parts.push("--input", quotedRest)
+  }
 
   return parts.join(" ")
 }
