@@ -370,7 +370,7 @@ export function createAgentTestRunner<
         },
         request: options.request,
         run: await resolveRun(options.name, options.run),
-        runtime: options.runtime || (options.workspace ? "vite" : "unknown"),
+        runtime: options.runtime || (options.workspace || isWorkspaceAgentDefinition(agent) ? "vite" : "unknown"),
         runtimeConfig: await resolveRuntimeConfig(options.runtimeConfig),
         waitUntil: options.waitUntil || createWaitUntil(),
       })
