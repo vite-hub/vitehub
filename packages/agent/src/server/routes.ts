@@ -198,7 +198,7 @@ function withCleanUiMessageStreamResponse(response: Response): Response {
   headers.delete("content-length")
 
   function enqueueDone(controller: ReadableStreamDefaultController<Uint8Array>) {
-    if (!tail.includes("data: [DONE]")) {
+    if (!/(^|\r?\n)data: \[DONE]\r?\n\r?\n$/.test(tail)) {
       controller.enqueue(doneFrame)
     }
   }

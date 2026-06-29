@@ -1004,6 +1004,37 @@ describe("server helpers", () => {
     await expect(response.text()).resolves.toBe("data: {\"type\":\"finish\"}\n\ndata: [DONE]\n\n")
   })
 
+  it("appends DONE when UI message content mentions the DONE frame", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { chat } = await import("../src/capabilities.ts")
+    const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
+    const handler = createChannelChatRouteHandler(defineAgent({
+      capabilities: [chat()],
+      driver: {
+        run: () => new Response("data: {\"type\":\"text-delta\",\"text\":\"data: [DONE]\"}\n\n", {
+          headers: {
+            "content-type": "text/event-stream",
+            "x-vercel-ai-ui-message-stream": "v1",
+          },
+        }),
+      },
+    }) as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/chat", {
+      body: JSON.stringify({
+        messages: [{
+          id: "user-1",
+          parts: [{ text: "hello", type: "text" }],
+          role: "user",
+        }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    }), { agentName: "support" })
+
+    await expect(response.text()).resolves.toBe("data: {\"type\":\"text-delta\",\"text\":\"data: [DONE]\"}\n\ndata: [DONE]\n\n")
+  })
+
   it("propagates partial UI message chat Response read failures", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { chat } = await import("../src/capabilities.ts")
