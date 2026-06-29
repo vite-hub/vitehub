@@ -2815,35 +2815,14 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("infers webhook registration metadata from static chat adapters", async () => {
-    const { chat } = await import("../src/chat-trigger.ts")
-    const { resolveAgentTriggers } = await import("../src/trigger-runtime.ts")
-    const agent = {
-      capabilities: [
-        chat({
-          platforms: {
-            teams: () => ({}) as never,
-            telegram: () => ({}) as never,
-          },
-        }),
-      ],
-      resolve: vi.fn(),
-    }
+  it("rejects legacy chat platform adapters", async () => {
+    const { chat } = await import("../src/capabilities.ts")
 
-    await expect(resolveAgentTriggers(agent, { memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })).resolves.toMatchObject({
-      "chat.message": {
-        webhooks: [{
-          id: "teams",
-          method: "POST",
-          provider: "teams",
-        }, {
-          id: "telegram",
-          method: "POST",
-          provider: "telegram",
-          secretHeader: "x-telegram-bot-api-secret-token",
-        }],
+    expect(() => chat({
+      platforms: {
+        telegram: () => ({}) as never,
       },
-    })
+    } as never)).toThrow("chat({ platforms }) was removed")
   })
 
   it("creates chat triggers from message-shaped channels", async () => {

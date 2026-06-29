@@ -1148,7 +1148,7 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
 export type AgentChannels<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Record<string, AgentChannelDefinition<TRuntimeConfig>>
 
-export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+interface AgentChatBaseOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
   extends AgentMessageChannelSettings<TRuntimeConfig> {
   adapters?: never
   agent?: never
@@ -1157,10 +1157,19 @@ export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
   hooks?: AgentChatEventHooks<TRuntimeConfig>
   identity?: IdentityResolver
   lifecycleHooks?: Record<string, unknown>
-  platforms?: AgentChatPlatformsResolver<TRuntimeConfig>
   webhooks?: Record<string, false | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig> | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>[]>
   workflow?: never
   [key: string]: unknown
+}
+
+export interface AgentChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends AgentChatBaseOptions<TRuntimeConfig> {
+  platforms?: never
+}
+
+export interface AgentChatOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends AgentChatBaseOptions<TRuntimeConfig> {
+  platforms?: AgentChatPlatformsResolver<TRuntimeConfig>
 }
 
 export type AgentToolPolicyDecision = "allow" | "deny" | "require-approval" | "retryable-failure"

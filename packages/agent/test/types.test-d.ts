@@ -10,7 +10,7 @@ import { streamAgentOutputToEvents, toAgentRunResult } from "../src/output.ts"
 import type { AgentChatFinishExtension, AgentInvocationContextStore, AgentInvokerProfile, AgentOutputExtensionProvider, AgentUsageRecord, StreamEvent } from "../src/index.ts"
 import type { MCPClient } from "@ai-sdk/mcp"
 import { fetch as fetchSource, file, github as githubSource } from "@vite-hub/workspace"
-import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatPlatformResolver, AgentChatRunContext, FetchCapabilityToolOptions, PullRequestContextValue, RepositoryHostClient, TranscriptionResult, UsageTelemetryOutputExtension, UsageTelemetrySummaryOptions } from "../src/capabilities.ts"
+import type { AccessInvocationContextValue, AccessWorkspaceOptionsFor, AgentChatRunContext, FetchCapabilityToolOptions, PullRequestContextValue, RepositoryHostClient, TranscriptionResult, UsageTelemetryOutputExtension, UsageTelemetrySummaryOptions } from "../src/capabilities.ts"
 
 describe("agent public types", () => {
   it("accepts capabilities from the capabilities entry", () => {
@@ -951,18 +951,36 @@ describe("agent public types", () => {
     interface SupportChatUser {
       email?: string
     }
-    const teamsAdapter = {} as AgentChatPlatformResolver
+    const teamsAdapter = () => ({}) as never
     const supportChat = chat({
       identity: ({ adapter, author }) => `${adapter}:${author.userId}`,
-      platforms: () => ({ teams: teamsAdapter }),
       transcripts: {
         maxPerUser: 50,
         retention: "30d",
       },
     })
     chat({
-      // @ts-expect-error adapters was removed; public Chat config uses platforms
+      // @ts-expect-error platform adapters live on defineAgent({ channels })
+      platforms: () => ({ teams: teamsAdapter }),
+    })
+    chat({
+      // @ts-expect-error adapters was removed; use defineAgent({ channels })
       adapters: () => ({ teams: teamsAdapter }),
+    })
+    defineAgent({
+      channels: {
+        teams: teams({ adapter: teamsAdapter }),
+      },
+      messages: {
+        identity: ({ adapter, author }) => `${adapter}:${author.userId}`,
+        transcripts: {
+          maxPerUser: 50,
+          retention: "30d",
+        },
+      },
+      driver: {
+        run: () => "ok",
+      },
     })
     const workspace = {
       sources: {

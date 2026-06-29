@@ -127,6 +127,7 @@ export type {
 export type {
   AgentChatAgentBindingOptions,
   AgentChatAgentHookArgs,
+  AgentChatCapabilityOptions,
   AgentChatErrorHookArgs,
   AgentChatEventHookArgs,
   AgentChatEventHooks,

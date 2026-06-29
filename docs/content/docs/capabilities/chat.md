@@ -23,7 +23,7 @@ Message-shaped Channels own route admission and delivery into that trigger.
 ## Configuration
 
 Attach `chat()` when a chat surface should call the Agent through the Agent Trigger API.
-The application UI or platform adapter remains the trigger consumer.
+Use [Channels](/docs/agents/channels) when Slack, Telegram, Teams, web chat, or another adapter-backed surface should deliver messages.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from '@vite-hub/agent'
@@ -45,7 +45,7 @@ It prepares Chat History state when available, records chat context, and provide
 ## Requirements
 
 Chat History state is optional in local development but needs an Agent State Provider when the deployed stack requires durable sessions or concurrency coordination.
-External Chat Platform Adapters remain explicit application dependencies.
+External Chat Platform Adapters remain explicit application dependencies configured through Channels.
 
 ## Driver support
 
@@ -60,14 +60,13 @@ External Chat Platform Adapters remain explicit application dependencies.
 Open Agent DevTools and confirm the Agent exposes a `chat.message` trigger.
 Send one DevTools message and verify the invocation origin, Chat Session behavior, and finish extension in the run details.
 
-When adapters are configured, inspect generated webhook registrations for the expected platform names and route metadata.
+For adapter-backed delivery, inspect the Channel-generated webhook registrations for the expected route metadata.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `platforms` | `Record<string, Adapter> \| resolver` | none | Chat Platform Adapters used to infer webhook registrations. |
-| `webhooks` | `Record<string, webhook \| webhook[] \| false>` | inferred | Explicit Chat Webhook registrations by platform. |
+| `webhooks` | `Record<string, webhook \| webhook[] \| false>` | none | Explicit Chat Webhook registrations for non-Channel trigger consumers. |
 | `hooks` | `AgentChatEventHooks` | none | Chat event hooks such as `onDirectMessage`. |
 | `event` | `"directMessage"` | none | Chat event binding hint. |
 | `history` | `boolean \| "none" \| { source: "thread"; maxMessages?: number }` | inherited | Chat History selection for message input. |
