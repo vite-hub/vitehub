@@ -170,7 +170,7 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
   }
   if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 })
 
-  let body: { workspaceCommand?: { args?: unknown, command?: unknown, timeout?: unknown, workspace?: unknown } }
+  let body: { workspaceCommand?: { args?: unknown, command?: unknown, paths?: unknown, timeout?: unknown, workspace?: unknown } }
   try {
     body = JSON.parse(await readRequestBody(req)) as typeof body
   }
@@ -192,13 +192,18 @@ async function handleWorkspaceDevRequest(server: ViteDevServer, req: IncomingMes
   if (command.args !== undefined && (!Array.isArray(command.args) || command.args.some(arg => typeof arg !== "string"))) {
     return new Response("Workspace Dev command args must be strings.", { status: 400 })
   }
+  if (command.paths !== undefined && (!Array.isArray(command.paths) || command.paths.some(path => typeof path !== "string"))) {
+    return new Response("Workspace Dev command paths must be strings.", { status: 400 })
+  }
   const args = command.args as string[] | undefined
+  const paths = command.paths as string[] | undefined
   const timeout = typeof command.timeout === "number" && Number.isFinite(command.timeout) ? command.timeout : undefined
   return Response.json(await runWorkspaceDevCommand({
     abortSignal,
     ...(args ? { args } : {}),
     command: command.command,
     ...(isRecord(definition) ? { definition: normalizeWorkspaceDefinition(command.workspace, definition as never) } : {}),
+    ...(paths?.length ? { paths } : {}),
     ...(timeout ? { timeout } : {}),
     workspace: command.workspace,
   }))

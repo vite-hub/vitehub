@@ -91,6 +91,9 @@ describe("workspace CLI", () => {
         "http://127.0.0.1:4321",
         "--timeout",
         "10000",
+        "--path",
+        "AGENTS.md",
+        "--path=backlog",
         "docs",
         "node",
         "-e",
@@ -123,6 +126,7 @@ describe("workspace CLI", () => {
         workspaceCommand: {
           args: ["-e", "console.log(process.argv[1])", "hello world", "--timeout=30000"],
           command: "node",
+          paths: ["AGENTS.md", "backlog"],
           timeout: 10000,
           workspace: "docs",
         },

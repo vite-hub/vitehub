@@ -33,6 +33,7 @@ interface ParsedWorkspaceDevArgs {
   args?: string[]
   command?: string
   help: boolean
+  paths?: string[]
   timeout?: number
   url: string
   workspace?: string
@@ -73,6 +74,7 @@ function writeWorkspaceDevUsage(context: WorkspaceCliContext): void {
     "Options:",
     "  --url <url>       Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
     "  --timeout <ms>    Workspace command timeout.",
+    "  --path <path>     Workspace path to materialize for command sessions. Repeatable.",
     "  -h, --help        Show this help.",
     "",
   ].join("\n"))
@@ -116,6 +118,17 @@ function parseWorkspaceDevArgs(args: string[], env: NodeJS.ProcessEnv): ParsedWo
       const timeout = Number.parseInt(arg.slice("--timeout=".length), 10)
       if (!Number.isFinite(timeout) || timeout <= 0) throw new Error("--timeout must be a positive number.")
       parsed.timeout = timeout
+      continue
+    }
+    if (arg === "--path") {
+      parsed.paths ??= []
+      parsed.paths.push(readOptionValue(args, index, arg))
+      index += 1
+      continue
+    }
+    if (arg.startsWith("--path=")) {
+      parsed.paths ??= []
+      parsed.paths.push(arg.slice("--path=".length))
       continue
     }
     if (arg.startsWith("-") && !parsed.workspace) throw new Error(`Unknown option: ${arg}.`)
@@ -205,6 +218,7 @@ async function sendWorkspaceCommand(
         workspaceCommand: {
           ...(parsed.args ? { args: parsed.args } : {}),
           command: parsed.command,
+          ...(parsed.paths?.length ? { paths: parsed.paths } : {}),
           ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
           workspace: parsed.workspace,
         },
