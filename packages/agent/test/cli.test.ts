@@ -794,10 +794,11 @@ describe("agent CLI", () => {
     }
 
     expect(stdout.output()).toBe(`Loaded payload: ${join(rootDir, "payload.json")}\n`)
-    expect(stderr.output()).toContain("[delivery] reaction eyes on github")
+    expect(stderr.output()).toContain("[delivery preview] would reaction on github")
+    expect(stderr.output()).toContain("payload: eyes")
     expect(stderr.output()).toContain("[delivery preview] would reply on github")
     expect(stderr.output()).toContain("body: Summary: Short review.")
-    expect(stderr.output().indexOf("[delivery] reaction eyes on github")).toBeLessThan(stderr.output().indexOf("body: Summary: Short review."))
+    expect(stderr.output().indexOf("[delivery preview] would reaction on github")).toBeLessThan(stderr.output().indexOf("body: Summary: Short review."))
     expect(stderr.output()).not.toContain("Usage telemetry")
     expect(stderr.output()).not.toContain("large table")
     expect(stderr.output()).not.toContain("verbose review prose")

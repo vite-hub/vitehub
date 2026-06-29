@@ -1,10 +1,28 @@
 import { mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { promisify } from "node:util"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
 import { createLocalHarnessSandbox } from "../src/harness/local-sandbox.ts"
+
+const execFileAsync = promisify(execFile)
+
+async function waitForProcessExit(pid: number) {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    try {
+      process.kill(pid, 0)
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH") return
+      throw error
+    }
+  }
+  throw new Error(`Process ${pid} was still running.`)
+}
 
 describe("local harness sandbox", () => {
   it("runs commands and reads written files", async () => {
@@ -20,6 +38,35 @@ describe("local harness sandbox", () => {
       await expect(session.getPortUrl({ port: 4000, protocol: "ws" })).resolves.toBe("ws://127.0.0.1:4000")
     }
     finally {
+      await session.destroy?.()
+    }
+  })
+
+  it("stops background descendants after command completion", async () => {
+    const provider = createLocalHarnessSandbox({ env: { PATH: process.env.PATH } })
+    const session = await provider.createSession()
+    let childPid: number | undefined
+
+    try {
+      await session.writeTextFile({
+        content: [
+          "const { spawn } = require('node:child_process')",
+          "const { writeFileSync } = require('node:fs')",
+          "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })",
+          "writeFileSync('child.pid', String(child.pid))",
+          "child.unref()",
+        ].join("\n"),
+        path: "spawn-child.cjs",
+      })
+
+      const result = await session.run({ command: "node spawn-child.cjs" })
+      expect(result.exitCode).toBe(0)
+      childPid = Number(await session.readTextFile({ path: "child.pid" }))
+      expect(childPid).toBeGreaterThan(0)
+      await waitForProcessExit(childPid)
+    }
+    finally {
+      if (childPid) await execFileAsync("kill", ["-TERM", String(childPid)]).catch(() => undefined)
       await session.destroy?.()
     }
   })
