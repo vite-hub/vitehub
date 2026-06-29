@@ -120,6 +120,30 @@ describe("Harness Workspace Session", () => {
     await session.close()
   })
 
+  it("uses GitHub symlink target metadata when readFile resolves the target content", async () => {
+    const list = vi.fn(async () => [
+      { path: "AGENTS.md", type: "file" },
+      { metadata: { gitMode: "120000", symlinkTarget: "AGENTS.md" }, path: "CLAUDE.md", type: "file" },
+    ])
+    const readFile = vi.fn(async () => bytes("# Agents\n"))
+    const run = sandboxRun(["AGENTS.md", "CLAUDE.md"])
+    const writeBinaryFile = vi.fn(async () => {})
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: { list, readFile },
+      tools: {},
+    } as never, {
+      session: { readBinaryFile: vi.fn(async () => null), run, writeBinaryFile },
+      sessionWorkDir: "/work/agent",
+    })
+
+    const header = archiveEntry(writeBinaryFile, "CLAUDE.md")
+    expect(String.fromCharCode(header[156]!)).toBe("2")
+    expect(header.subarray(157, 257).toString().replace(/\0.*$/, "")).toBe("AGENTS.md")
+
+    await session.close()
+  })
+
   it("materializes only selected Workspace Session paths", async () => {
     const publicReadme = bytes("# Public\n")
     const stat = vi.fn(async (path: string) => {

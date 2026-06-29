@@ -473,13 +473,13 @@ describe("GitHub workspace store", () => {
     );
 
     await expect(store.stat("CLAUDE.md")).resolves.toMatchObject({
-      metadata: { gitMode: "120000" },
+      metadata: { gitMode: "120000", symlinkTarget: "AGENTS.md" },
       path: "CLAUDE.md",
       type: "file",
     });
     await expect(store.readFile("CLAUDE.md")).resolves.toMatchObject({
-      content: textBytes("AGENTS.md"),
-      metadata: { gitMode: "120000" },
+      content: textBytes("# Agents\n"),
+      metadata: { gitMode: "120000", symlinkTarget: "AGENTS.md" },
     });
   });
 

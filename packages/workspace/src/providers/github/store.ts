@@ -73,6 +73,10 @@ function gitHubFileMode(metadata: Record<string, unknown> | undefined): string {
     : "100644";
 }
 
+function gitSymlinkTargetMetadata(metadata: Record<string, unknown> | undefined): string | undefined {
+  return typeof metadata?.symlinkTarget === "string" ? metadata.symlinkTarget : undefined;
+}
+
 function inheritedGitHubFileMetadata(
   file: WorkspaceFile,
   current: GitHubWorkspaceStoreFile | undefined,
@@ -90,12 +94,16 @@ function parentDirectories(path: string): string[] {
 }
 
 function resolveSymlinkTarget(path: string, bytes: Uint8Array): string | undefined {
-  const target = new TextDecoder().decode(bytes).replace(/\0/g, "").trim();
+  const target = gitSymlinkTargetFromBytes(bytes);
   if (!target || target.startsWith("/")) return;
   const base = path.split("/").slice(0, -1).join("/");
   const resolved = posix.normalize(base ? `${base}/${target}` : target);
   if (!resolved || resolved === "." || resolved === ".." || resolved.startsWith("../")) return;
   return normalizeSafeWorkspacePath(resolved);
+}
+
+function gitSymlinkTargetFromBytes(bytes: Uint8Array): string {
+  return new TextDecoder().decode(bytes).replace(/\0/g, "").trim();
 }
 
 class GitHubWorkspaceStore implements WorkspaceStore {
@@ -372,17 +380,9 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   ): Promise<(WorkspaceFile & { bytes: Uint8Array }) | undefined> {
     const current = this.#files.get(path);
     if (!current) return undefined;
-    if (!current.bytes) {
-      current.bytes = await readGitHubBlob({
-        kind: "store",
-        repository: this.#repository,
-        sha: current.gitSha,
-        token: this.#token,
-      });
-      current.size = current.bytes.byteLength;
-    }
-    if (current.mode === "120000" && !seen.has(path)) {
-      const target = resolveSymlinkTarget(path, current.bytes);
+    const currentBytes = await this.#readFileBytes(current);
+    if (gitHubFileMode(current.metadata) === "120000" && !seen.has(path)) {
+      const target = resolveSymlinkTarget(path, currentBytes);
       if (target && this.#files.has(target)) {
         seen.add(path);
         const resolved = await this.#readWorkspaceFile(target, seen);
@@ -390,18 +390,39 @@ class GitHubWorkspaceStore implements WorkspaceStore {
           return {
             ...resolved,
             mediaType: current.mediaType ?? resolved.mediaType,
-            metadata: current.metadata ?? resolved.metadata,
+            metadata: await this.#fileMetadata(current) ?? resolved.metadata,
             path,
           };
         }
       }
     }
     return {
-      content: current.bytes,
-      bytes: current.bytes,
+      content: currentBytes,
+      bytes: currentBytes,
       mediaType: current.mediaType,
-      metadata: current.metadata,
+      metadata: await this.#fileMetadata(current),
       path,
+    };
+  }
+
+  async #readFileBytes(file: GitHubWorkspaceStoreFile): Promise<Uint8Array> {
+    if (!file.bytes) {
+      file.bytes = await readGitHubBlob({
+        kind: "store",
+        repository: this.#repository,
+        sha: file.gitSha,
+        token: this.#token,
+      });
+      file.size = file.bytes.byteLength;
+    }
+    return file.bytes;
+  }
+
+  async #fileMetadata(file: GitHubWorkspaceStoreFile): Promise<Record<string, unknown> | undefined> {
+    if (gitHubFileMode(file.metadata) !== "120000" || gitSymlinkTargetMetadata(file.metadata)) return file.metadata;
+    return {
+      ...file.metadata,
+      symlinkTarget: gitSymlinkTargetFromBytes(await this.#readFileBytes(file)),
     };
   }
 
@@ -426,11 +447,11 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     return options.recursive || !path.slice(prefix.length + 1).includes("/");
   }
 
-  #fileEntry(file: GitHubWorkspaceStoreFile): WorkspaceEntry {
+  async #fileEntry(file: GitHubWorkspaceStoreFile): Promise<WorkspaceEntry> {
     return {
       digest: file.gitSha,
       mediaType: file.mediaType,
-      metadata: file.metadata,
+      metadata: await this.#fileMetadata(file),
       path: file.path,
       size: file.size,
       type: "file",

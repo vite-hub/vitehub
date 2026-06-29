@@ -270,7 +270,10 @@ function createWorkspaceTarGz(directories: Iterable<string>, files: Map<string, 
 }
 
 function gitSymlinkTarget(entry: WorkspaceEntry, content: Uint8Array): string | undefined {
-  return entry.metadata?.gitMode === "120000" ? new TextDecoder().decode(content) : undefined
+  if (entry.metadata?.gitMode !== "120000") return
+  return typeof entry.metadata.symlinkTarget === "string"
+    ? entry.metadata.symlinkTarget
+    : new TextDecoder().decode(content)
 }
 
 async function extractWorkspaceArchive(
