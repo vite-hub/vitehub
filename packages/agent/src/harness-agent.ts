@@ -213,7 +213,7 @@ function latestHarnessUserMessage(messages: Message[]): Message[] {
   return messages.slice(-1)
 }
 
-async function toHarnessCallInput(context: AgentAdapterRunContext, usesSessionKey = false) {
+async function toHarnessCallInput(context: AgentAdapterRunContext, resumesSession = false) {
   const instructions = await composeHarnessInstructions(context.instructions || "", context)
   const base = {
     abortSignal: context.input.abortSignal,
@@ -226,7 +226,7 @@ async function toHarnessCallInput(context: AgentAdapterRunContext, usesSessionKe
     if (context.context.has("chat")) {
       return {
         ...base,
-        prompt: renderHarnessChatPrompt(usesSessionKey ? latestHarnessUserMessage(context.messages) : context.messages),
+        prompt: renderHarnessChatPrompt(resumesSession ? latestHarnessUserMessage(context.messages) : context.messages),
       }
     }
     return {
@@ -589,7 +589,7 @@ export function createHarnessAgentAdapter<
     return {
       cleanup,
       session,
-      usesSessionKey: Boolean(sessionId),
+      resumesSession: resumeFrom !== undefined,
     }
   }
 
@@ -623,10 +623,10 @@ export function createHarnessAgentAdapter<
 
   return {
     async generate(context) {
-      const { agent, cleanup, session, usesSessionKey } = await createAgentAndSession(context)
+      const { agent, cleanup, session, resumesSession } = await createAgentAndSession(context)
       try {
         const result = defineAgentUsageMetadata(await agent.generate({
-          ...await toHarnessCallInput(context, usesSessionKey),
+          ...await toHarnessCallInput(context, resumesSession),
           session,
         }), usageMetadata)
         await cleanup()
@@ -639,10 +639,10 @@ export function createHarnessAgentAdapter<
     },
     name: "ai-sdk-harness",
     async stream(context) {
-      const { agent, cleanup, session, usesSessionKey } = await createAgentAndSession(context)
+      const { agent, cleanup, session, resumesSession } = await createAgentAndSession(context)
       try {
         const result = defineAgentUsageMetadata(await agent.stream({
-          ...await toHarnessCallInput(context, usesSessionKey),
+          ...await toHarnessCallInput(context, resumesSession),
           session,
         }), usageMetadata)
         return await withSessionCleanup(result, cleanup, context.input.abortSignal)

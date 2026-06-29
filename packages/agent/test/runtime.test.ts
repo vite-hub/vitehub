@@ -1831,7 +1831,11 @@ describe("agent message protocol", () => {
 
     await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       context: { chat: {} },
-      messages: [createMessage({ id: "user-1", role: "user", text: "hello" })],
+      messages: [
+        createMessage({ id: "user-1", role: "user", text: "hello" }),
+        createMessage({ id: "assistant-1", role: "assistant", text: "ok" }),
+        createMessage({ id: "user-2", role: "user", text: "again" }),
+      ],
     })
     await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
       context: { chat: {} },
@@ -1848,6 +1852,8 @@ describe("agent message protocol", () => {
       prompt: [
         "Conversation history:",
         "User: hello",
+        "Assistant: ok",
+        "User: again",
         "",
         "Respond to the latest user message.",
       ].join("\n"),
