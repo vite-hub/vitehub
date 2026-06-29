@@ -227,13 +227,6 @@ function agentConfigRows(config: ChatDevtoolsStateResult["config"]): ConfigRow[]
       value: harness.credentials.label || harness.credentials.source || "configured",
     })
   }
-  if (harness?.sandbox) {
-    rows.push({
-      icon: "i-lucide-box",
-      label: "Sandbox",
-      value: "configured",
-    })
-  }
   if (harness?.sessionKey) {
     rows.push({
       icon: "i-lucide-link",
