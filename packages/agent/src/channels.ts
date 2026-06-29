@@ -854,10 +854,10 @@ async function githubBodyImageArtifacts<TRuntimeConfig extends AgentRuntimeConfi
     const path = await existingWorkspaceImagePath(context, value)
     if (path) paths.add(path)
   }
-  for (const match of body.matchAll(/!\[[^\]\r\n]*\]\(\s*(\.?\/?(?:[\w.-]+\/)+[\w.-]+\.(?:gif|jpe?g|png|svg|webp))\s*\)/gi)) {
+  for (const match of body.matchAll(/!\[[^\]\r\n]*\]\(\s*(\.?\/?(?:[\w.-]+\/)*[\w.-]+\.(?:gif|jpe?g|png|svg|webp))\s*\)/gi)) {
     await collect(match[1])
   }
-  for (const match of body.matchAll(/(^|[\s('"`<])((?:\.\/)?(?:[\w.-]+\/)+[\w.-]+\.(?:gif|jpe?g|png|svg|webp))(?![\w.-])/gi)) {
+  for (const match of body.matchAll(/(^|[\s('"`<])((?:\.\/)?(?:[\w.-]+\/)*[\w.-]+\.(?:gif|jpe?g|png|svg|webp))(?![\w.-])/gi)) {
     await collect(match[2])
   }
   if (!paths.size) return []
@@ -883,8 +883,8 @@ async function ensureGitHubArtifactBranch(
   const existing = await fetcher(refUrl, { headers, method: "GET" })
   if (existing.ok) return
   if (existing.status !== 404) throw new Error(`[vitehub] GitHub delivery effect failed with ${existing.status}.`)
-  const sha = await githubPullRequestHeadSha(fetcher, command, headers)
-  if (!sha) throw new Error("[vitehub] GitHub delivery artifact publishing requires a pull request head SHA.")
+  const sha = await githubPullRequestBaseSha(fetcher, command, headers)
+  if (!sha) throw new Error("[vitehub] GitHub delivery artifact publishing requires a pull request base SHA.")
   const created = await fetcher(`${baseUrl}/repos/${command.owner}/${command.repo}/git/refs`, {
     body: JSON.stringify({ ref: `refs/heads/${branch}`, sha }),
     headers,
@@ -918,7 +918,9 @@ async function publishGitHubArtifact(
   input: AgentDeliveryArtifactPublishInput,
 ): Promise<AgentDeliveryArtifactPublishResult> {
   const hash = createHash("sha256").update(input.content).digest("hex").slice(0, 12)
-  const pathname = joinDeliveryArtifactPath(`${Date.now()}-${++githubArtifactPublishCounter}-${hash}`, input.pathname)
+  const parts = input.pathname.split("/")
+  const filename = parts.pop() || input.artifact.path.split("/").pop() || "artifact"
+  const pathname = [...parts, `${Date.now()}-${++githubArtifactPublishCounter}-${hash}`, filename].join("/")
   await githubApi(fetcher, `${apiBaseUrl || "https://api.github.com"}/repos/${command.owner}/${command.repo}/contents/${pathname.split("/").map(encodeURIComponent).join("/")}`, {
     body: JSON.stringify({
       branch,
@@ -1018,14 +1020,31 @@ function statusPayload<TRuntimeConfig extends AgentRuntimeConfig>(
   }
 }
 
+async function githubPullRequestSha(
+  fetcher: typeof fetch,
+  command: GitHubPullRequestCommand,
+  headers: Record<string, string>,
+  key: "base" | "head",
+): Promise<string | undefined> {
+  const response = await githubApi(fetcher, command.pullRequestUrl, { headers, method: "GET" })
+  const payload = await response.json().catch(() => undefined)
+  return isRecord(payload) && isRecord(payload[key]) ? maybeString(payload[key].sha) : undefined
+}
+
+async function githubPullRequestBaseSha(
+  fetcher: typeof fetch,
+  command: GitHubPullRequestCommand,
+  headers: Record<string, string>,
+): Promise<string | undefined> {
+  return await githubPullRequestSha(fetcher, command, headers, "base")
+}
+
 async function githubPullRequestHeadSha(
   fetcher: typeof fetch,
   command: GitHubPullRequestCommand,
   headers: Record<string, string>,
 ): Promise<string | undefined> {
-  const response = await githubApi(fetcher, command.pullRequestUrl, { headers, method: "GET" })
-  const payload = await response.json().catch(() => undefined)
-  return isRecord(payload) && isRecord(payload.head) ? maybeString(payload.head.sha) : undefined
+  return await githubPullRequestSha(fetcher, command, headers, "head")
 }
 
 function githubPullRequestEffects<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(

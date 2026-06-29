@@ -163,6 +163,7 @@ describe("agent channels", () => {
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
     const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
     const postedBodies: string[] = []
+    const createdRefs: Array<Record<string, unknown>> = []
     const uploadedPaths: string[] = []
     const uploadedBodies: Array<Record<string, unknown>> = []
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
@@ -171,8 +172,11 @@ describe("agent channels", () => {
         return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
       }
       if (href.endsWith("/git/ref/heads/review-assets")) return Response.json({ message: "not found" }, { status: 404 })
-      if (href.endsWith("/pulls/42")) return Response.json({ head: { sha: "head-sha" } })
-      if (href.endsWith("/git/refs")) return Response.json({ ok: true }, { status: 201 })
+      if (href.endsWith("/pulls/42")) return Response.json({ base: { sha: "base-sha" }, head: { sha: "head-sha" } })
+      if (href.endsWith("/git/refs")) {
+        createdRefs.push(JSON.parse(String(init?.body)))
+        return Response.json({ ok: true }, { status: 201 })
+      }
       if (href.includes("/contents/")) {
         uploadedPaths.push(href)
         uploadedBodies.push(JSON.parse(String(init?.body)))
@@ -201,7 +205,7 @@ describe("agent channels", () => {
       channel,
       effect: {
         kind: "reply",
-        payload: { body: "Screenshot: screenshots/login.png\nLink: [screenshot](screenshots/login.png)" },
+        payload: { body: "Screenshot: screenshots/login.png\nRoot: result.png\nLink: [result](result.png)\nInline: ![result](result.png)" },
       },
       input: {
         context: {
@@ -229,23 +233,32 @@ describe("agent channels", () => {
       workspace: {
         fs: {
           readFile: vi.fn(async () => new Uint8Array([1, 2, 3])),
-          stat: vi.fn(async () => ({ mediaType: "image/png", path: "screenshots/login.png", type: "file" as const })),
+          stat: vi.fn(async (path: string) => ({ mediaType: "image/png", path, type: "file" as const })),
         },
       },
     } as never)
 
-    expect(uploadedPaths).toHaveLength(1)
-    expect(uploadedPaths[0]).toContain("/contents/")
-    expect(uploadedPaths[0]).toContain("review-output")
-    expect(uploadedBodies[0]).toMatchObject({
-      branch: "review-assets",
-      message: "chore: publish agent delivery artifact screenshots/login.png [skip ci]",
-    })
+    expect(createdRefs).toEqual([{
+      ref: "refs/heads/review-assets",
+      sha: "base-sha",
+    }])
+    expect(uploadedPaths).toHaveLength(2)
+    const contentPaths = uploadedPaths.map(path => decodeURIComponent(path.split("/contents/")[1]!)).sort()
+    expect(contentPaths[0]).toMatch(/^review-output\/pr-42\/run-1\/\d+-\d+-[a-f0-9]{12}\/result\.png$/)
+    expect(contentPaths[1]).toMatch(/^review-output\/pr-42\/run-1\/screenshots\/\d+-\d+-[a-f0-9]{12}\/login\.png$/)
+    expect(uploadedBodies.map(body => body.branch)).toEqual(["review-assets", "review-assets"])
+    expect(uploadedBodies.map(body => body.message).sort()).toEqual([
+      "chore: publish agent delivery artifact result.png [skip ci]",
+      "chore: publish agent delivery artifact screenshots/login.png [skip ci]",
+    ])
     expect(postedBodies).toHaveLength(1)
     expect(postedBodies[0]).toContain("Screenshot: ![login.png](<https://github.test/vite-hub/vitehub/raw/review-assets/")
-    expect(postedBodies[0]).toContain("Link: [screenshot](<https://github.test/vite-hub/vitehub/raw/review-assets/")
+    expect(postedBodies[0]).toContain("Root: ![result.png](<https://github.test/vite-hub/vitehub/raw/review-assets/")
+    expect(postedBodies[0]).toContain("Link: [result](<https://github.test/vite-hub/vitehub/raw/review-assets/")
+    expect(postedBodies[0]).toContain("Inline: ![result](<https://github.test/vite-hub/vitehub/raw/review-assets/")
     expect(postedBodies[0]).not.toContain("Screenshot: screenshots/login.png")
-    expect(postedBodies[0]).not.toContain("[screenshot](![")
+    expect(postedBodies[0]).not.toContain("Root: result.png")
+    expect(postedBodies[0]).not.toContain("[result](![")
   })
 
   it("ignores GitHub PR delivery effects without pull request context", async () => {
