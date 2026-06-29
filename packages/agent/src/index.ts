@@ -1579,10 +1579,9 @@ function maybeTraceUiMessageStreamOutput<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(rendered: unknown, context: InvocationRunContext<TRuntimeConfig, CALL_OPTIONS>): unknown {
-  if (context.runtimeContext.traceLog && hasTraceableStreamResult(rendered)) {
-    if (isUIMessageStreamResult(rendered)) {
-      return maybeTraceUiMessageStreamResult(rendered, context)
-    }
+  if (context.runtimeContext.traceLog) {
+    if (isUIMessageStreamResult(rendered)) return maybeTraceUiMessageStreamResult(rendered, context)
+    if (!hasTraceableStreamResult(rendered)) return rendered
     return maybeTraceAgentStream(streamAgentOutputToEvents(rendered), context)
   }
   return isAsyncIterable(rendered) ? maybeTraceAgentStream(rendered as AsyncIterable<StreamEvent>, context) : rendered

@@ -456,6 +456,10 @@ function withUsageTelemetryUiMessageStream(
   let recorded = false
   return stream.pipeThrough(new TransformStream({
     async transform(chunk, controller) {
+      if (isRecord(chunk) && chunk.type === "usage" && isRecord(chunk.usageRecord)) {
+        recorded = true
+        onRecord(chunk.usageRecord as AgentUsageRecord)
+      }
       if (!recorded && isRecord(chunk) && chunk.type === "finish") {
         const usageRecord = await recordUsage(chunk, options, run, chunk.usage !== undefined || chunk.totalUsage !== undefined ? metadataSource : undefined)
         if (usageRecord) {
@@ -501,7 +505,7 @@ function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
             configurable: true,
             enumerable: false,
             value: (...args: unknown[]) => withUsageTelemetryUiMessageStream(
-              (result.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>).apply(result, args),
+              (result.toUIMessageStream as (...args: unknown[]) => ReadableStream<unknown>).apply(clone, args),
               options,
               run,
               usageRecord => defineUsageTelemetryOutput(clone as UnknownRecord, usageRecord),

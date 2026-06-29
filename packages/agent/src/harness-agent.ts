@@ -492,9 +492,10 @@ async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) =>
     Object.defineProperty(clone, "toUIMessageStream", {
       configurable: true,
       enumerable: false,
-      value: (...args: unknown[]) => {
+      value: function (this: unknown, ...args: unknown[]) {
         try {
-          const stream = toUIMessageStream.apply(clone, args) as unknown
+          const target = this && typeof this === "object" ? this : clone
+          const stream = toUIMessageStream.apply(target, args) as unknown
           return typeof stream === "object" && stream !== null && typeof (stream as ReadableStream<unknown>).getReader === "function"
             ? withCleanupStream(stream as ReadableStream<unknown>, cleanupOnce)
             : stream
