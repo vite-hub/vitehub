@@ -1829,11 +1829,39 @@ describe("agent message protocol", () => {
       },
     })
 
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })
-    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "again" })
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      context: { chat: {} },
+      messages: [createMessage({ id: "user-1", role: "user", text: "hello" })],
+    })
+    await runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
+      context: { chat: {} },
+      messages: [
+        createMessage({ id: "user-1", role: "user", text: "hello" }),
+        createMessage({ id: "assistant-1", role: "assistant", text: "ok" }),
+        createMessage({ id: "user-2", role: "user", text: "again" }),
+      ],
+    })
 
     expect(harnessCreateSession).toHaveBeenNthCalledWith(1, { sessionId: "thread-1" })
     expect(harnessCreateSession).toHaveBeenNthCalledWith(2, { resumeFrom: { token: "resume" }, sessionId: "thread-1" })
+    expect(harnessGenerate).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      prompt: [
+        "Conversation history:",
+        "User: hello",
+        "",
+        "Respond to the latest user message.",
+      ].join("\n"),
+      session: firstSession,
+    }))
+    expect(harnessGenerate).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      prompt: [
+        "Conversation history:",
+        "User: again",
+        "",
+        "Respond to the latest user message.",
+      ].join("\n"),
+      session: secondSession,
+    }))
     expect(firstSession.detach).toHaveBeenCalledTimes(1)
     expect(secondSession.detach).toHaveBeenCalledTimes(1)
   })
