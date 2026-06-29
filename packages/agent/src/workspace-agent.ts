@@ -488,19 +488,21 @@ function executionMetadata(value: AgentDevtoolsDriverMetadata["execution"] | und
     : undefined
 }
 
-function harnessMetadata(driver: { credentials?: unknown, harness: unknown, sessionKey?: unknown }): AgentDevtoolsHarnessMetadata | undefined {
+function harnessMetadata(driver: { credentials?: unknown, harness: unknown, sessionKey?: unknown }, harnessSandbox?: unknown): AgentDevtoolsHarnessMetadata | undefined {
   const harness = isRecord(driver.harness) ? driver.harness : undefined
   const provider = harness ? stringField(harness, ["provider", "name"]) : undefined
+  const sandboxProvider = isRecord(harnessSandbox) ? stringField(harnessSandbox, ["provider", "providerId"]) : undefined
   const credentials = isRecord(driver.credentials)
     ? {
         ...(typeof driver.credentials.label === "string" && driver.credentials.label ? { label: driver.credentials.label } : {}),
         ...(typeof driver.credentials.source === "string" && driver.credentials.source ? { source: driver.credentials.source } : {}),
       }
     : undefined
-  return provider || credentials || driver.sessionKey
+  return provider || credentials || sandboxProvider || driver.sessionKey
     ? {
         ...(credentials && Object.keys(credentials).length ? { credentials } : {}),
         ...(provider ? { provider } : {}),
+        ...(sandboxProvider ? { sandboxProvider } : {}),
         ...(driver.sessionKey ? { sessionKey: true } : {}),
       }
     : undefined
@@ -521,8 +523,9 @@ function staticDriverMetadata<
     }
   }
   if (driver.kind === "harness") {
+    const harness = harnessMetadata(driver, settings.harnessSandbox)
     return {
-      ...(harnessMetadata(driver) ? { harness: harnessMetadata(driver) } : {}),
+      ...(harness ? { harness } : {}),
       kind: "harness",
     }
   }
@@ -552,7 +555,7 @@ async function resolvedDriverMetadata<
     }
   }
   if (driver.kind === "harness") {
-    const harness = harnessMetadata(driver)
+    const harness = harnessMetadata(driver, settings.harnessSandbox)
     return {
       ...(harness ? { harness } : {}),
       kind: "harness",

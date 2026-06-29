@@ -3014,6 +3014,24 @@ describe("defineAgent workspace option", () => {
     expect(readFile).not.toHaveBeenCalledWith("skills/agent-browser/SKILL.md")
   })
 
+  it("includes explicit harnessSandbox in harness DevTools metadata", async () => {
+    const { defineAgent, resolveAgentDevtoolsMetadata } = await import("../src/index.ts")
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      harnessSandbox: { providerId: "local-test", specificationVersion: "harness-sandbox-v1" },
+      workspace: { mode: "write" },
+    }), { workspace: "support" })
+
+    const metadata = await resolveAgentDevtoolsMetadata(agent)
+
+    expect(metadata.config?.driver.harness).toMatchObject({
+      provider: "codex",
+      sandboxProvider: "local-test",
+    })
+  })
+
   it("adds controlled curl to resolved DevTools metadata when source request descriptors are visible", async () => {
     list.mockImplementation(async path => path === ".vitehub/sources"
       ? [{ path: ".vitehub/sources/inventoryHealthSummary.json", type: "file" }]
