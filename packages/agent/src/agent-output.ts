@@ -288,15 +288,6 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   const result = value && typeof value === "object"
     ? value as { fullStream?: unknown, stream?: unknown, textStream?: unknown }
     : undefined
-  if (isAsyncIterable(result?.stream)) {
-    yield* streamChunksToEvents(result.stream, result)
-    return
-  }
-  const fullStream = result?.fullStream
-  if (isAsyncIterable(fullStream)) {
-    yield* streamChunksToEvents(fullStream, result)
-    return
-  }
   if (isAsyncIterable<string>(result?.textStream)) {
     for await (const text of result.textStream) {
       yield { text, type: "text-delta" }
@@ -307,6 +298,15 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     if (!usageRecord && isRecord(value)) usageRecord = await usageFromResult(value.raw)
     if (usageRecord) yield { type: "usage", usageRecord }
     yield { type: "finish" }
+    return
+  }
+  if (isAsyncIterable(result?.stream)) {
+    yield* streamChunksToEvents(result.stream, result)
+    return
+  }
+  const fullStream = result?.fullStream
+  if (isAsyncIterable(fullStream)) {
+    yield* streamChunksToEvents(fullStream, result)
     return
   }
   if (isAsyncIterable(value)) {

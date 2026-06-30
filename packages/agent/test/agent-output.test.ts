@@ -339,6 +339,27 @@ describe("agent output helpers", () => {
     ])
   })
 
+  it("prefers textStream over event streams without visible text", async () => {
+    const output = {
+      stream: (async function* () {
+        yield { finishReason: "stop", type: "finish" }
+      })(),
+      textStream: (async function* () {
+        yield "ok"
+      })(),
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      { type: "finish" },
+    ])
+  })
+
   it("emits usage from AI SDK finish-step chunks before finish", async () => {
     const output = {
       fullStream: (async function* () {
