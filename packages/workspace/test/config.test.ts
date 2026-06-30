@@ -233,6 +233,30 @@ describe("workspace config", () => {
     })
   })
 
+  it("resolves lazy GitHub store options before normalizing config", () => {
+    const config = normalizeWorkspaceOptions({
+      store: {
+        branch: () => " workspace-state ",
+        provider: "github",
+        repository: () => " acme/app ",
+        root: () => " state/<workspace> ",
+        token: () => "secret-token",
+      },
+    }, {
+      env: {},
+      rootDir: "/repo",
+    })
+
+    expect(JSON.stringify(config)).not.toContain("secret-token")
+    expect(config && config.store).toEqual({
+      branch: "workspace-state",
+      provider: "github",
+      repository: "acme/app",
+      root: "state/<workspace>",
+      token: "********",
+    })
+  })
+
   it("resolves GitHub store options from the environment", () => {
     const config = normalizeWorkspaceOptions({
       store: {
