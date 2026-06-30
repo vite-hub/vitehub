@@ -89,7 +89,7 @@ export default defineWorkspaceFileHandler({
 
 ```ts
 // nitro.config.ts
-import { createWorkspaceNitroConfig } from "@vite-hub/workspace/vite"
+import { createWorkspaceNitroConfig } from "@vite-hub/workspace/nitro"
 
 export default createWorkspaceNitroConfig()
 ```

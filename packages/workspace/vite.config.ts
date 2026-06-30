@@ -21,6 +21,7 @@ export default defineConfig({
       "src/cli.ts",
       "src/index.ts",
       "src/loader.ts",
+      "src/nitro.ts",
       "src/nuxt.ts",
       "src/publish.ts",
       "src/runtime.ts",

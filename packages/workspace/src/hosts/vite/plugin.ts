@@ -264,9 +264,9 @@ function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptio
   return [
     ...runtimeImports,
     `import registry from ${JSON.stringify(registryImport)}`,
-    "import { defineNitroPlugin } from 'nitropack/runtime'",
+    "import { definePlugin } from 'nitro'",
     "",
-    "export default defineNitroPlugin(() => {",
+    "export default definePlugin(() => {",
     "  setWorkspaceRuntimeRegistry(registry)",
     ...runtimeSetup,
     "})",

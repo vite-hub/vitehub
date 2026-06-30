@@ -573,6 +573,20 @@ describe("hubWorkspace", () => {
     await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")).rejects.toThrow()
   })
 
+  it("exposes standalone Nitro config through the Nitro subpath", async () => {
+    const root = await createViteRoot()
+    const { createWorkspaceNitroConfig } = await import("../src/nitro.ts")
+
+    await expect(createWorkspaceNitroConfig({ viteRoot: root })).resolves.toMatchObject({
+      plugins: [".vitehub/nitro/workspace/plugin.ts"],
+    })
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("import { definePlugin } from 'nitro'")
+    expect(pluginSource).toContain("export default definePlugin(() => {")
+    expect(pluginSource).not.toContain("nitropack/runtime")
+  })
+
   it("uses discovered source roots from generated Nitro workspace registries", async () => {
     const testRoot = join(process.cwd(), "..", "..", ".vitest-tmp")
     await mkdir(testRoot, { recursive: true })
