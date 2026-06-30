@@ -273,6 +273,31 @@ async function* streamChunksToEvents(chunks: AsyncIterable<unknown>, usageSource
   yield finishEvent ?? { type: "finish" }
 }
 
+async function* streamChunksToEventsWithTextFallback(
+  chunks: AsyncIterable<unknown>,
+  usageSource: unknown,
+  textStream: AsyncIterable<unknown>,
+): AsyncIterable<StreamEvent> {
+  let hasText = false
+  const terminalEvents: StreamEvent[] = []
+  for await (const event of streamChunksToEvents(chunks, usageSource)) {
+    if (event.type === "text-delta" && event.text) hasText = true
+    if (event.type === "finish" || event.type === "usage") {
+      terminalEvents.push(event)
+      continue
+    }
+    yield event
+  }
+  if (!hasText) {
+    for await (const text of textStream) {
+      if (typeof text === "string" && text) {
+        yield { text, type: "text-delta" }
+      }
+    }
+  }
+  yield* terminalEvents
+}
+
 export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<StreamEvent> {
   if (typeof value === "string") {
     if (value) yield { text: value, type: "text-delta" }
@@ -288,9 +313,25 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
   const result = value && typeof value === "object"
     ? value as { fullStream?: unknown, stream?: unknown, textStream?: unknown }
     : undefined
-  if (isAsyncIterable<string>(result?.textStream)) {
-    for await (const text of result.textStream) {
-      yield { text, type: "text-delta" }
+  const textStream = isAsyncIterable(result?.textStream) ? result.textStream : undefined
+  if (isAsyncIterable(result?.stream)) {
+    yield* (textStream
+      ? streamChunksToEventsWithTextFallback(result.stream, result, textStream)
+      : streamChunksToEvents(result.stream, result))
+    return
+  }
+  const fullStream = result?.fullStream
+  if (isAsyncIterable(fullStream)) {
+    yield* (textStream
+      ? streamChunksToEventsWithTextFallback(fullStream, result, textStream)
+      : streamChunksToEvents(fullStream, result))
+    return
+  }
+  if (textStream) {
+    for await (const text of textStream) {
+      if (typeof text === "string" && text) {
+        yield { text, type: "text-delta" }
+      }
     }
     let usageRecord = isUsageRecord((value as { usageRecord?: unknown }).usageRecord)
       ? (value as { usageRecord: AgentUsageRecord }).usageRecord
@@ -298,15 +339,6 @@ export async function* streamAgentOutputToEvents(value: unknown): AsyncIterable<
     if (!usageRecord && isRecord(value)) usageRecord = await usageFromResult(value.raw)
     if (usageRecord) yield { type: "usage", usageRecord }
     yield { type: "finish" }
-    return
-  }
-  if (isAsyncIterable(result?.stream)) {
-    yield* streamChunksToEvents(result.stream, result)
-    return
-  }
-  const fullStream = result?.fullStream
-  if (isAsyncIterable(fullStream)) {
-    yield* streamChunksToEvents(fullStream, result)
     return
   }
   if (isAsyncIterable(value)) {

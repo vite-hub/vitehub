@@ -2598,6 +2598,56 @@ describe("server helpers", () => {
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "done" })
   })
 
+  it("edits Telegram fallback with event stream text when textStream is empty", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability({
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { delta: "ok", type: "text-delta" }
+            yield { finishReason: "stop", type: "finish" }
+          })(),
+          textStream: (async function* () {
+            yield undefined
+          })(),
+        }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 1049,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1049,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "...")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "ok" })
+  })
+
   it("posts configured chat fallback while streamed webhook work is still running", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
