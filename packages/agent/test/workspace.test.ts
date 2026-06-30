@@ -1363,6 +1363,36 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("mounts the Workspace root for Harness Agents with Workspace auto-commit", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {
+        commit: "chore: update docs",
+        mode: "write",
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      ignoreWriteBackPaths: [],
+      paths: [""],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
+  })
+
   it("keeps generated capability source files selected for Harness Workspace Sessions", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { access, pullRequestContext } = await import("../src/capabilities.ts")

@@ -171,6 +171,7 @@ function compactWorkspacePaths(paths: readonly string[]): string[] {
 function harnessSupportWorkspacePaths(context: AgentAdapterRunContext): string[] {
   return compactWorkspacePaths([
     ...(context.harnessWorkspacePaths || []),
+    ...(context.workspaceDefinition?.commit ? [""] : []),
     ...workspaceRuleHarnessPaths(context),
   ])
 }
