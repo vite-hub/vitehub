@@ -559,6 +559,47 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("installs hosted workspace runtime setup for GitHub-backed Agent workspaces", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-hosted-workspace-route-"))
+    try {
+      await mkdir(join(root, "server", "agents", "audio-bitacora"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "audio-bitacora", "config.ts"), [
+        "import { defineAgent } from '@vite-hub/agent'",
+        "export default defineAgent({",
+        "  workspace: {",
+        "    mode: 'write',",
+        "    store: {",
+        "      branch: 'main',",
+        "      provider: 'github',",
+        "      repository: 'onmax/bitacora-de-vida',",
+        "      root: '/',",
+        "    },",
+        "  },",
+        "  async run() { return 'ok' },",
+        "})",
+        "",
+      ].join("\n"), "utf8")
+      const plugin = hubAgent({ routes: { chat: true, webhooks: true } })
+      if (typeof plugin.configResolved === "function") {
+        await plugin.configResolved.call({} as never, { command: "build", root } as never)
+      }
+
+      const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+
+      expect(webhookRoute).toContain("import { installHostedWorkspaceRuntime } from \"@vite-hub/workspace/hosted\"")
+      expect(webhookRoute).toContain("function hasHostedWorkspaceStore(module)")
+      expect(webhookRoute).toContain("if ([agent0].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()")
+      expect(webhookRoute).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
+      expect(webhookRoute).toContain("workspaceRegistryEntry(\"audio-bitacora\", agent0")
+      expect(webhookRoute).not.toContain("@vite-hub/workspace/internal/stores/github")
+      expect(webhookRoute).not.toContain("configureCloudflareWorkspaceRuntime")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("writes generated Deno server output for chat and webhook routes", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-deno-routes-"))

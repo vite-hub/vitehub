@@ -19,6 +19,7 @@ export default defineConfig({
       "src/ai.ts",
       "src/cloudflare.ts",
       "src/cli.ts",
+      "src/hosted.ts",
       "src/index.ts",
       "src/loader.ts",
       "src/nitro.ts",

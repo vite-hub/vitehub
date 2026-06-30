@@ -252,12 +252,12 @@ function shouldConfigureRuntime(options: false | WorkspaceModuleOptions | undefi
 function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptions, registryImport: string): string {
   const runtimeImports = config
     ? isHostedWorkspaceStore(config.store)
-      ? ["import { configureCloudflareWorkspaceRuntime } from '@vite-hub/workspace/cloudflare'"]
+      ? ["import { configureHostedWorkspaceRuntime } from '@vite-hub/workspace/hosted'"]
       : ["import { setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'"]
     : ["import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'"]
   const runtimeSetup = config
     ? isHostedWorkspaceStore(config.store)
-      ? [`  configureCloudflareWorkspaceRuntime(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`]
+      ? [`  configureHostedWorkspaceRuntime(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`]
       : [`  setWorkspaceRuntimeConfig(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`]
     : []
 
