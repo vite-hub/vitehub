@@ -264,12 +264,11 @@ function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptio
   return [
     ...runtimeImports,
     `import registry from ${JSON.stringify(registryImport)}`,
-    "import { definePlugin } from 'nitro'",
     "",
-    "export default definePlugin(() => {",
+    "export default function vitehubWorkspacePlugin() {",
     "  setWorkspaceRuntimeRegistry(registry)",
     ...runtimeSetup,
-    "})",
+    "}",
     "",
   ].join("\n")
 }

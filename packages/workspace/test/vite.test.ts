@@ -582,8 +582,8 @@ describe("hubWorkspace", () => {
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("import { definePlugin } from 'nitro'")
-    expect(pluginSource).toContain("export default definePlugin(() => {")
+    expect(pluginSource).toContain("export default function vitehubWorkspacePlugin() {")
+    expect(pluginSource).not.toContain("from 'nitro'")
     expect(pluginSource).not.toContain("nitropack/runtime")
   })
 

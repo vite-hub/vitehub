@@ -11,7 +11,7 @@
 ## Install
 
 ```sh
-pnpm add @vite-hub/workspace vite nitropack h3
+pnpm add @vite-hub/workspace vite nitro h3
 pnpm add -D typescript @types/node
 ```
 
