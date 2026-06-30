@@ -436,7 +436,7 @@ describe("hubWorkspace", () => {
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     const registrySource = await readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry(registry)")
-    expect(pluginSource).not.toContain("configureCloudflareWorkspaceRuntime")
+    expect(pluginSource).not.toContain("configureHostedWorkspaceRuntime")
     expect(registrySource).toContain('"mirror": async () => {')
     expect(registrySource).toContain("../../../server/workspaces/mirror/config.ts")
   })
@@ -498,7 +498,7 @@ describe("hubWorkspace", () => {
     expect(userConfig.nitro).toMatchObject({ plugins: [".vitehub/nitro/workspace/plugin.ts"] })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("configureCloudflareWorkspaceRuntime")
+    expect(pluginSource).toContain("configureHostedWorkspaceRuntime")
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")
     expect(pluginSource).toContain("import registry from \"./registry.js\"")
     expect(pluginSource).toContain('"provider": "github"')
@@ -535,7 +535,7 @@ describe("hubWorkspace", () => {
     expect(pluginSource).toContain("import registry from \"./registry.js\"")
     expect(pluginSource).toContain('"provider": "local"')
     expect(pluginSource).toContain(JSON.stringify(join(root, "server", "workspaces")))
-    expect(pluginSource).not.toContain("configureCloudflareWorkspaceRuntime")
+    expect(pluginSource).not.toContain("configureHostedWorkspaceRuntime")
   })
 
   it("emits Nitro runtime setup when the Nitro Vite plugin is installed", async () => {
@@ -644,7 +644,7 @@ describe("hubWorkspace", () => {
       },
     })
 
-    await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")).resolves.toContain("configureCloudflareWorkspaceRuntime")
+    await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")).resolves.toContain("configureHostedWorkspaceRuntime")
     await expect(readFile(join(root, "app", ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")).rejects.toThrow()
     await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")).resolves.toContain('"mirror": async () => {')
   })
@@ -682,7 +682,7 @@ describe("hubWorkspace", () => {
       },
     })
 
-    await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")).resolves.toContain("configureCloudflareWorkspaceRuntime")
+    await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")).resolves.toContain("configureHostedWorkspaceRuntime")
     await expect(readFile(join(root, "frontend", ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")).rejects.toThrow()
     await expect(readFile(join(root, ".vitehub", "nitro", "workspace", "registry.js"), "utf8")).resolves.toContain('"mirror": async () => {')
   })

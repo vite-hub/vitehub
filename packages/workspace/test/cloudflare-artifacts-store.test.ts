@@ -109,7 +109,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     await expect(workspace.fs.readFile("README.md")).resolves.toBe("hello")
   })
 
-  it("configures GitHub Workspace Stores through the Cloudflare runtime", async () => {
+  it("configures GitHub Workspace Stores through the hosted runtime", async () => {
     const requests: Array<{ headers: Headers; method: string; path: string }> = []
     setActiveCloudflareEnv({ GITHUB_TOKEN: "github-token" })
     vi.stubGlobal(
@@ -148,9 +148,9 @@ describe("Cloudflare Artifacts workspace store", () => {
       }),
     )
 
-    const { configureCloudflareWorkspaceRuntime } = await import("../src/cloudflare.ts")
+    const { configureHostedWorkspaceRuntime } = await import("../src/hosted.ts")
     const { useWorkspace } = await import("../src/runtime.ts")
-    configureCloudflareWorkspaceRuntime({
+    configureHostedWorkspaceRuntime({
       store: {
         branch: "main",
         provider: "github",
