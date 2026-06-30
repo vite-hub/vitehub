@@ -138,16 +138,19 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
     const normalized = normalizeSafeWorkspacePath(path);
     await this.#ensure({ refresh: false });
-    const update = await createGitHubFileUpdate(normalized, this.#root, file.content);
     const current = this.#files.get(normalized);
     const metadata = inheritedGitHubFileMetadata(file, current);
+    const content = gitHubFileMode(metadata) === "120000" && typeof metadata?.symlinkTarget === "string"
+      ? metadata.symlinkTarget
+      : file.content;
+    const update = await createGitHubFileUpdate(normalized, this.#root, content);
     if (current?.gitSha === update.gitSha) {
       if (gitHubFileMode(current.metadata) !== gitHubFileMode(metadata)) this.#dirty = true;
       this.#files.set(normalized, {
         ...current,
         mediaType: file.mediaType,
         metadata,
-        size: contentLength(file.content),
+        size: contentLength(content),
       });
       return;
     }
@@ -162,7 +165,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       mediaType: file.mediaType,
       metadata,
       path: normalized,
-      size: contentLength(file.content),
+      size: contentLength(content),
     });
     this.#dirty = true;
   }

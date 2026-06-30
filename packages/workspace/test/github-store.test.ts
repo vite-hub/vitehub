@@ -483,6 +483,34 @@ describe("GitHub workspace store", () => {
     });
   });
 
+  it("round-trips GitHub symlink metadata without replacing the link target bytes", async () => {
+    seedRemote(".vitehub/workspaces/docs/AGENTS.md", "# Agents\n");
+    seedRemote(".vitehub/workspaces/docs/CLAUDE.md", "AGENTS.md", "120000");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    const file = await store.readFile("CLAUDE.md");
+    expect(file).toBeDefined();
+    await store.writeFile("CLAUDE.md", file!);
+    await store.snapshot({ name: "round-trip symlink" });
+
+    expect(remoteTree).toContainEqual(
+      expect.objectContaining({
+        mode: "120000",
+        path: ".vitehub/workspaces/docs/CLAUDE.md",
+        sha: textSha("AGENTS.md"),
+      }),
+    );
+  });
+
   it("commits GitHub symlink metadata as tree mode 120000", async () => {
     seedRemote(".vitehub/workspaces/docs/CLAUDE.md", "AGENTS.md", "120000");
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
