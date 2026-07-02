@@ -9,6 +9,7 @@ let remoteTree: Array<{ mode?: string; path: string; sha: string; size?: number;
 let commitIndex = 0;
 let treeIndex = 0;
 const blobs = new Map<string, Uint8Array>();
+const jsonBlobResponses = new Set<string>();
 
 function gitBlobSha(bytes: Uint8Array): string {
   return createHash("sha1").update(`blob ${bytes.byteLength}\0`).update(bytes).digest("hex");
@@ -44,6 +45,7 @@ beforeEach(() => {
   commitIndex = 0;
   treeIndex = 0;
   blobs.clear();
+  jsonBlobResponses.clear();
   delete process.env.WORKSPACE_GITHUB_TOKEN;
 
   vi.stubGlobal(
@@ -71,6 +73,12 @@ beforeEach(() => {
       if (url.pathname.startsWith("/repos/onmax/repo/git/blobs/") && method === "GET") {
         const sha = url.pathname.split("/").at(-1)!;
         const bytes = blobs.get(sha);
+        if (bytes && jsonBlobResponses.has(sha)) {
+          return jsonResponse({
+            content: Buffer.from(bytes).toString("base64"),
+            encoding: "base64",
+          });
+        }
         return bytes
           ? new Response(bytes, {
               headers: { "content-type": "application/octet-stream" },
@@ -254,6 +262,32 @@ describe("GitHub workspace store", () => {
       "docs",
     );
     await expect(freshStore.getMeta!("loader")).resolves.toEqual({ digest: "abc" });
+  });
+
+  it("decodes GitHub JSON blob responses when raw bytes are unavailable", async () => {
+    const content = "fallback\n";
+    const sha = textSha(content);
+    seedRemote(".vitehub/workspaces/docs/data/fallback.txt", content);
+    jsonBlobResponses.add(sha);
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await expect(store.readFile("data/fallback.txt")).resolves.toMatchObject({
+      content: textBytes(content),
+      path: "data/fallback.txt",
+    });
+    expect(
+      requests.find(request => request.path.includes("/git/blobs/") && request.method === "GET")
+        ?.headers.get("accept"),
+    ).toBe("application/vnd.github.raw");
   });
 
   it("deletes files and directories through snapshot commits", async () => {
