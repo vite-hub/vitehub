@@ -72,7 +72,10 @@ beforeEach(() => {
         const sha = url.pathname.split("/").at(-1)!;
         const bytes = blobs.get(sha);
         return bytes
-          ? jsonResponse({ content: Buffer.from(bytes).toString("base64"), encoding: "base64" })
+          ? new Response(bytes, {
+              headers: { "content-type": "application/octet-stream" },
+              status: 200,
+            })
           : new Response("not found", { status: 404 });
       }
       if (url.pathname === "/repos/onmax/repo/git/blobs" && method === "POST" && body?.content) {
@@ -179,7 +182,7 @@ describe("GitHub workspace store", () => {
     expect(
       requests.find(request => request.path.includes("/git/blobs/") && request.method === "GET")
         ?.headers.get("accept"),
-    ).toBe("application/vnd.github+json");
+    ).toBe("application/vnd.github.raw");
     await expect(store.list("", { recursive: true })).resolves.toEqual([
       expect.objectContaining({ path: "data", type: "directory" }),
       expect.objectContaining({
