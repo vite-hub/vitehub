@@ -1,3 +1,7 @@
+import { mkdir } from "node:fs/promises"
+import { dirname } from "node:path"
+import { fileURLToPath } from "node:url"
+
 import type { Lock, QueueEntry, StateAdapter } from "chat"
 
 type MaybePromise<T> = T | Promise<T>
@@ -379,6 +383,13 @@ export function createLibsqlAgentState(options: LibsqlAgentStateOptions): StateA
   let client: LibsqlAgentStateClient | undefined
   const openClient = async () => {
     if (options.client) return options.client
+    if (options.url?.startsWith("file:")) {
+      const filePath = options.url.startsWith("file://")
+        ? fileURLToPath(options.url)
+        : options.url.slice("file:".length)
+      const directory = dirname(filePath)
+      if (directory && directory !== ".") await mkdir(directory, { recursive: true })
+    }
     const { createClient } = await import("@libsql/client")
     return createClient({ authToken: options.authToken, url: options.url! }) as LibsqlAgentStateClient
   }
