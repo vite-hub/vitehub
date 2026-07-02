@@ -280,19 +280,34 @@ async function* streamChunksToEventsWithTextFallback(
 ): AsyncIterable<StreamEvent> {
   let hasText = false
   const terminalEvents: StreamEvent[] = []
-  for await (const event of streamChunksToEvents(chunks, usageSource)) {
-    if (event.type === "text-delta" && event.text) hasText = true
-    if (event.type === "finish" || event.type === "usage") {
-      terminalEvents.push(event)
-      continue
-    }
-    yield event
-  }
-  if (!hasText) {
-    for await (const text of textStream) {
-      if (typeof text === "string" && text) {
-        yield { text, type: "text-delta" }
+  const textIterator = textStream[Symbol.asyncIterator]()
+  let textIteratorClosed = false
+  try {
+    for await (const event of streamChunksToEvents(chunks, usageSource)) {
+      if (event.type === "text-delta" && event.text) hasText = true
+      if (event.type === "finish" || event.type === "usage") {
+        terminalEvents.push(event)
+        continue
       }
+      yield event
+    }
+    if (!hasText) {
+      for (;;) {
+        const result = await textIterator.next()
+        if (result.done) {
+          textIteratorClosed = true
+          break
+        }
+        const text = result.value
+        if (typeof text === "string" && text) {
+          yield { text, type: "text-delta" }
+        }
+      }
+    }
+  }
+  finally {
+    if (!textIteratorClosed) {
+      await textIterator.return?.()
     }
   }
   yield* terminalEvents

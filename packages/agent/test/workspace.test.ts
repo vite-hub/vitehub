@@ -338,6 +338,48 @@ describe("defineAgent workspace option", () => {
     expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
   })
 
+  it("keeps harness workspace sessions open through text fallback", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const harnessSession = { destroy: vi.fn() }
+    let workspaceClosed = false
+    const harnessWorkspaceSession = {
+      close: vi.fn(async () => {
+        workspaceClosed = true
+      }),
+    }
+    harnessCreateSession.mockResolvedValueOnce(harnessSession)
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+    harnessStream.mockResolvedValueOnce({
+      stream: (async function* () {
+        yield { finishReason: "stop", type: "finish" }
+      })(),
+      textStream: (async function* () {
+        if (workspaceClosed) throw new Error("workspace session closed before text fallback")
+        yield "fallback"
+      })(),
+    } as never)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {},
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { prompt: "hello" })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "fallback", type: "text-delta" },
+      { reason: "stop", type: "finish" },
+    ])
+    expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
+    expect(harnessSession.destroy).toHaveBeenCalledOnce()
+  })
+
   it("records opt-in skill shell execution mode", async () => {
     const { skills } = await import("../src/capabilities.ts")
 
