@@ -2,6 +2,7 @@ import { existsSync, statSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { installHostedWorkspaceRuntime } from "@vite-hub/workspace/hosted"
 import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
 import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
 
@@ -282,6 +283,13 @@ async function installServerAgentWorkspaceRegistry(
   server: ViteDevServer,
   entries: Array<{ agent: AgentInput<ViteAgentDevRuntimeContext>, aliases?: string[], definition: DiscoveredAgentDefinition }>,
 ): Promise<WorkspaceRegistry> {
+  if (entries.some(({ agent }) => {
+    const options = isRecord(agent) && isRecord(agent.__vitehubWorkspaceAgentOptions) ? agent.__vitehubWorkspaceAgentOptions : undefined
+    const workspace = isRecord(options?.workspace) ? options.workspace : undefined
+    const store = isRecord(workspace?.store) ? workspace.store : undefined
+    return store?.provider === "cloudflare-artifacts" || store?.provider === "github" || store?.provider === "vercel-blob"
+  })) installHostedWorkspaceRuntime()
+
   const registry = {
     ...await loadViteWorkspaceRegistry(server),
     ...Object.fromEntries(entries

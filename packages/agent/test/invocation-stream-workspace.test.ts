@@ -59,6 +59,7 @@ const workspaceStartSession = vi.hoisted(() => vi.fn(async () => ({
   diff: workspaceSessionDiff,
   exec: workspaceSessionExec,
 })))
+const installHostedWorkspaceRuntime = vi.hoisted(() => vi.fn())
 const useWorkspace = vi.hoisted(() => vi.fn(() => ({
   diff,
   fs: {
@@ -76,6 +77,14 @@ const useWorkspace = vi.hoisted(() => vi.fn(() => ({
     readonly: vi.fn(() => ({})),
   }),
 })))
+
+vi.mock("@vite-hub/workspace/hosted", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@vite-hub/workspace/hosted")>()
+  return {
+    ...actual,
+    installHostedWorkspaceRuntime,
+  }
+})
 
 vi.mock("@vite-hub/workspace", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@vite-hub/workspace")>()
@@ -238,6 +247,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     workspaceSessionCommit.mockClear()
     workspaceSessionClose.mockClear()
     workspaceStartSession.mockClear()
+    installHostedWorkspaceRuntime.mockClear()
     useWorkspace.mockClear()
   })
 
@@ -441,6 +451,41 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     expect(workspaceSessionDiff).toHaveBeenCalled()
     expect(workspaceSessionCommit).toHaveBeenCalledWith({ message: "workspace dev command" })
     expect(workspaceSessionClose).toHaveBeenCalled()
+  })
+
+  it("installs hosted workspace runtime before hosted Agent Workspace commands", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workspace-command-hosted-"))
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { readWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } = await import("@vite-hub/workspace/server")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      driver: { run: () => "unused" },
+      workspace: {
+        mode: "write",
+        store: { provider: "github", repository: "onmax/bitacora-de-vida", root: "/" },
+      },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+    const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "support",
+      workspaceCommand: { command: "ls" },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      [workspaceDevTokenHeader]: token,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(installHostedWorkspaceRuntime).toHaveBeenCalledOnce()
+    expect(workspaceStartSession).toHaveBeenCalled()
   })
 
   it("aborts Agent Workspace commands when the request closes", async () => {
