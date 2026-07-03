@@ -233,6 +233,31 @@ describe("workspace config", () => {
     })
   })
 
+  it("preserves lazy GitHub store options while resolving runtime definitions", () => {
+    const branch = () => "workspace-state"
+    const repository = () => "acme/app"
+    const root = () => ".vitehub/workspaces/<workspace>"
+    const token = () => "secret-token"
+    const store = normalizeWorkspaceStoreOptions({
+      branch,
+      provider: "github",
+      repository,
+      root,
+      token,
+    }, {
+      env: {},
+      runtime: true,
+    })
+
+    expect(store).toEqual({
+      branch,
+      provider: "github",
+      repository,
+      root,
+      token,
+    })
+  })
+
   it("resolves GitHub store options from the environment", () => {
     const config = normalizeWorkspaceOptions({
       store: {
