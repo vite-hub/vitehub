@@ -128,7 +128,7 @@ function workspaceRuleHarnessPaths(context: AgentAdapterRunContext): string[] {
     ...Object.entries(definition.rules || {}),
     ...(definition.plugins || []).flatMap(plugin => Object.entries(plugin.rules || {})),
   ]
-  return rules.flatMap(([pattern, rule]) => rule.write ? [staticWorkspaceRulePath(pattern)].filter((path): path is string => Boolean(path)) : [])
+  return rules.flatMap(([pattern, rule]) => rule.write ? [staticWorkspaceRulePath(pattern)].filter((path): path is string => path !== undefined) : [])
 }
 
 function workspaceSourceHarnessPaths(context: AgentAdapterRunContext): string[] {

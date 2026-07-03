@@ -2937,6 +2937,64 @@ describe("server helpers", () => {
     expect(runs).toEqual([["previous id-less", "current id-less"]])
   })
 
+  it("does not run id-less chat deliveries without current message parts", async () => {
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter({ missingIncomingMessageId: true })
+    const idLessHistory = (text: string) => new Message({
+      attachments: [],
+      author: {
+        fullName: "Maxi",
+        isBot: false,
+        isMe: false,
+        userId: "123",
+        userName: "maxi",
+      },
+      formatted: { children: [], type: "root" },
+      id: undefined as unknown as string,
+      metadata: { dateSent: new Date("2026-06-10T12:00:00.000Z"), edited: false },
+      raw: {},
+      text,
+      threadId: "telegram:456",
+    })
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      capabilities: [
+        chat({
+          history: { maxMessages: 10, source: "thread" },
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          stream: false,
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      driver: {
+        run,
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const request = (updateId: number, text?: string) => new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: updateId,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800 + updateId,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          ...(text !== undefined ? { text } : {}),
+        },
+      }),
+      method: "POST",
+    })
+
+    adapter.fetchMessages.mockResolvedValueOnce({ messages: [idLessHistory("previous id-less")] })
+    await expect(handler(request(23), "telegram")).resolves.toMatchObject({ status: 200 })
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it("passes durable thread history into chat webhook runs after adapter cache resets", async () => {
     const { chat } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")

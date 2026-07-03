@@ -1259,7 +1259,7 @@ async function handleChatSdkMessage(
   let typing: ChatTypingRefresh | undefined
   try {
     const messages = await chatTriggerMessages(thread, message, options, messageContext)
-    const currentMessage = messages.find(item => item.id === message.id) || messages.at(-1)
+    const currentMessage = chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext))
     if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) return
     input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, messages, messageContext, registration.channelId)
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
