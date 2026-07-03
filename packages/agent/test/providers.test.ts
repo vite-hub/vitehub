@@ -3027,7 +3027,7 @@ describe("server helpers", () => {
   })
 
   it("keeps fetched thread history when the current chat message has no id", async () => {
-    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { telegram } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -3052,23 +3052,18 @@ describe("server helpers", () => {
     })
     const runs: string[][] = []
     const agent = defineAgent({
-      capabilities: [
-        defineChatCapability({
-          history: { maxMessages: 10, source: "thread" },
-          platforms: {
-            telegram: () => adapter as never,
-          },
-          stream: false,
-          webhooks: {
-            telegram: {},
-          },
-        }),
-      ],
+      channels: {
+        telegram: telegram({ adapter: () => adapter as never }),
+      },
       driver: {
         run: ({ messages }) => {
           runs.push(messages.map(getMessageText))
           return "ok"
         },
+      },
+      messages: {
+        history: { maxMessages: 10, source: "thread" },
+        stream: false,
       },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
