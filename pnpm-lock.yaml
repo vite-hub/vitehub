@@ -36,8 +36,8 @@ catalogs:
       version: 1.6.18
   chat:
     chat:
-      specifier: ^4.29.0
-      version: 4.29.0
+      specifier: ^4.32.0
+      version: 4.32.0
     chat-state-cloudflare-do:
       specifier: ^0.2.0
       version: 0.2.0
@@ -324,10 +324,10 @@ importers:
         version: 0.2.0(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@netlify/blobs@10.7.5)(@pnpm/logger@1001.0.1)(@upstash/redis@1.37.0)(@vercel/blob@2.4.0)(@vercel/functions@3.4.3(@aws-sdk/credential-provider-web-identity@3.972.38))(@voidzero-dev/vite-plus-core@0.1.24)(aws4fetch@1.0.20)(crossws@0.4.5(srvx@0.11.15))(db0@0.3.4(@libsql/client@0.15.15)(better-sqlite3@12.9.0)(drizzle-orm@0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(kysely@0.29.2)(postgres@3.4.9)(sql.js@1.14.1)))(ioredis@5.10.1)(typescript@6.0.2)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15)))(tailwindcss@4.3.0))
       chat:
         specifier: catalog:chat
-        version: 4.29.0(ai@7.0.0(zod@4.4.3))(zod@4.4.3)
+        version: 4.32.0(ai@7.0.0(zod@4.4.3))(zod@4.4.3)
       chat-state-cloudflare-do:
         specifier: catalog:chat
-        version: 0.2.0(chat@4.29.0(zod@4.4.3))
+        version: 0.2.0(chat@4.32.0(zod@4.4.3))
       drizzle-orm:
         specifier: catalog:database
         version: 0.44.7(@cloudflare/workers-types@4.20260509.1)(@libsql/client@0.15.15)(@opentelemetry/api@1.9.0)(@upstash/redis@1.37.0)(better-sqlite3@12.9.0)(kysely@0.29.2)(postgres@3.4.9)(sql.js@1.14.1)
@@ -442,7 +442,7 @@ importers:
         version: 0.2.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.4.3))(@voidzero-dev/vite-plus-core@0.1.24)(crossws@0.4.5(srvx@0.11.15))(typescript@6.0.2)
       chat:
         specifier: catalog:chat
-        version: 4.29.0(ai@7.0.0(zod@4.4.3))(zod@4.4.3)
+        version: 4.32.0(ai@7.0.0(zod@4.4.3))(zod@4.4.3)
       comark:
         specifier: catalog:ui
         version: 0.3.2(shiki@4.0.2)
@@ -7608,8 +7608,8 @@ packages:
     peerDependencies:
       chat: ^4.26.0
 
-  chat@4.29.0:
-    resolution: {integrity: sha512-KdPfzaie5ivYytyRICTERg5xT+LeCbYefokvNAqTHe92eqkFaoTMXXkSitikxJVWhZIb2YoXF1b9UZHyzSzKzw==}
+  chat@4.32.0:
+    resolution: {integrity: sha512-0NlJcCLycTy8kytRsZEnW4Gzomm+SNh1Yg7y9GVYB5fTjyhOxCcnzqrythgXNn2dvv7VeihDIISpNU0WZdOKKg==}
     engines: {node: '>=20'}
     peerDependencies:
       ai: ^6.0.182
@@ -20777,11 +20777,11 @@ snapshots:
 
   character-reference-invalid@2.0.1: {}
 
-  chat-state-cloudflare-do@0.2.0(chat@4.29.0(zod@4.4.3)):
+  chat-state-cloudflare-do@0.2.0(chat@4.32.0(zod@4.4.3)):
     dependencies:
-      chat: 4.29.0(ai@7.0.0(zod@4.4.3))(zod@4.4.3)
+      chat: 4.32.0(ai@7.0.0(zod@4.4.3))(zod@4.4.3)
 
-  chat@4.29.0(ai@7.0.0(zod@4.4.3))(zod@4.4.3):
+  chat@4.32.0(ai@7.0.0(zod@4.4.3))(zod@4.4.3):
     dependencies:
       '@workflow/serde': 4.1.0-beta.2
       mdast-util-to-string: 4.0.0
