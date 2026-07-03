@@ -125,9 +125,11 @@ function assertSupportedHarnessDriverContributions(context: AgentAdapterRunConte
 }
 
 function staticWorkspaceRulePath(pattern: string): string | undefined {
-  const wildcard = pattern.search(/[*{[(?]/)
-  const base = wildcard === -1 ? pattern : pattern.slice(0, wildcard)
-  const normalized = base.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "").replace(/\/+/g, "/")
+  const normalizedPattern = pattern.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+/g, "/")
+  const wildcard = normalizedPattern.search(/[*{[(?]/)
+  if (wildcard === 0 && normalizedPattern !== "**" && !normalizedPattern.startsWith("**/")) return
+  const base = wildcard === -1 ? normalizedPattern : normalizedPattern.slice(0, wildcard)
+  const normalized = base.replace(/\/+$/, "")
   const parts = normalized.split("/").filter(Boolean)
   if (parts.some(part => part === "." || part === "..")) return
   return normalized
