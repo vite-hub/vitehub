@@ -219,10 +219,20 @@ export function workspaceDefinitionFromOptions<
     )
   }
   const workspace = normalizeWorkspaceOptions(options.workspace)
-  const { mode: _mode, ...definition } = workspace
+  const { commit, mode: _mode, ...definition } = workspace
   assertWorkspaceDefinition(definition)
+  const normalizedWorkspace = {
+    ...definition,
+    mode: workspace.mode,
+    ...(commit === undefined || commit === false ? {} : {
+      rules: {
+        "**": { commit },
+        ...definition.rules,
+      },
+    }),
+  }
   return withColocatedAgentInstructions(withCapabilityWorkspaceSources(
-    workspace,
+    normalizedWorkspace,
     options.capabilities as AgentCapabilityDefinition[] | undefined,
   ))
 }

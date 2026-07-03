@@ -53,7 +53,15 @@ export interface WorkspaceDevTokenOptions {
   serverId?: string
 }
 
-const workspaceDevTokens = new Map<string, string>()
+const workspaceDevTokensKey = Symbol.for("vitehub.workspace.devTokens")
+
+type WorkspaceDevTokensGlobal = typeof globalThis & Record<symbol, Map<string, string> | undefined>
+
+function workspaceDevTokens(): Map<string, string> {
+  const scope = globalThis as WorkspaceDevTokensGlobal
+  scope[workspaceDevTokensKey] ??= new Map()
+  return scope[workspaceDevTokensKey]
+}
 
 export function workspaceDevTokenServerId(port?: number | string | null): string {
   return `${process.pid}:${port ?? "unknown"}`
@@ -90,7 +98,7 @@ function randomToken(): string {
 export async function refreshWorkspaceDevToken(rootDir: string, options: WorkspaceDevTokenOptions = {}): Promise<string> {
   const token = randomToken()
   const tokenRoot = await workspaceDevTokenRoot(rootDir, options)
-  workspaceDevTokens.set(tokenRoot.key, token)
+  workspaceDevTokens().set(tokenRoot.key, token)
   const [{ mkdir, rm, writeFile }, { dirname }] = await Promise.all([
     import("node:fs/promises"),
     import("node:path"),
@@ -103,7 +111,7 @@ export async function refreshWorkspaceDevToken(rootDir: string, options: Workspa
 }
 
 export async function ensureWorkspaceDevToken(rootDir: string, options: WorkspaceDevTokenOptions = {}): Promise<string> {
-  const existing = workspaceDevTokens.get((await workspaceDevTokenRoot(rootDir, options)).key)
+  const existing = workspaceDevTokens().get((await workspaceDevTokenRoot(rootDir, options)).key)
   return existing || await refreshWorkspaceDevToken(rootDir, options)
 }
 

@@ -12,6 +12,8 @@ import { workspaceSuffixPattern } from "../../build/workspace-config.ts"
 import { createWorkspaceCliContributor } from "../../cli.ts"
 import { normalizeWorkspaceOptions } from "../../config.ts"
 import { normalizeWorkspaceDefinition } from "../../core/registry.ts"
+import { createGitHubWorkspaceStore } from "../../providers/github/store.ts"
+import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader } from "../../runtime/hosted-store-loader.ts"
 import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenServerId } from "../../server.ts"
 
 import type { HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
@@ -249,24 +251,41 @@ function shouldConfigureRuntime(options: false | WorkspaceModuleOptions | undefi
   return isHostedWorkspaceStore(normalized.store) || hasExplicitWorkspaceRuntimeOptions(options)
 }
 
-function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptions, registryImport: string): string {
+function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptions, registryImport: string, installGitHubStoreLoader: boolean): string {
+  const runtimeImportNames = [
+    ...(installGitHubStoreLoader ? ["getWorkspaceHostedStoreLoader", "setWorkspaceHostedStoreLoader"] : []),
+    ...(config ? ["setWorkspaceRuntimeConfig"] : []),
+    "setWorkspaceRuntimeRegistry",
+  ].join(", ")
   const runtimeImports = config
     ? isHostedWorkspaceStore(config.store)
       ? ["import { configureCloudflareWorkspaceRuntime } from '@vite-hub/workspace/cloudflare'"]
-      : ["import { setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'"]
-    : ["import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'"]
+      : [`import { ${runtimeImportNames} } from '@vite-hub/workspace/runtime'`]
+    : [`import { ${runtimeImportNames} } from '@vite-hub/workspace/runtime'`]
   const runtimeSetup = config
     ? isHostedWorkspaceStore(config.store)
       ? [`  configureCloudflareWorkspaceRuntime(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`]
       : [`  setWorkspaceRuntimeConfig(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`]
     : []
+  const loaderSetup = installGitHubStoreLoader
+    ? [
+        "  const existingWorkspaceHostedStoreLoader = getWorkspaceHostedStoreLoader()",
+        "  setWorkspaceHostedStoreLoader((storeOptions, workspaceName) => {",
+        "    if (storeOptions.provider === 'github') return createGitHubWorkspaceStore(storeOptions, workspaceName)",
+        "    if (existingWorkspaceHostedStoreLoader) return existingWorkspaceHostedStoreLoader(storeOptions, workspaceName)",
+        "    throw new Error(`[vitehub] Hosted workspace store \"${storeOptions.provider}\" is not available in this runtime.`)",
+        "  })",
+      ]
+    : []
 
   return [
     ...runtimeImports,
+    ...(installGitHubStoreLoader ? ["import { createGitHubWorkspaceStore } from '@vite-hub/workspace/internal/stores/github'"] : []),
     `import registry from ${JSON.stringify(registryImport)}`,
     "",
     "export default function vitehubWorkspacePlugin() {",
     "  setWorkspaceRuntimeRegistry(registry)",
+    ...loaderSetup,
     ...runtimeSetup,
     "}",
     "",
@@ -281,7 +300,11 @@ async function writeNitroWorkspacePlugin(root: string, config: false | ResolvedW
     mkdir(dirname(registryFile), { recursive: true }),
   ])
   await writeFile(registryFile, createWorkspaceRegistryContents(registryFile, definitions), "utf8")
-  await writeFile(pluginFile, renderNitroWorkspacePlugin(config, moduleImportSpecifier(pluginFile, registryFile)), "utf8")
+  await writeFile(
+    pluginFile,
+    renderNitroWorkspacePlugin(config, moduleImportSpecifier(pluginFile, registryFile), definitions.length > 0 && !(config && isHostedWorkspaceStore(config.store))),
+    "utf8",
+  )
 }
 
 export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOptions = {}): Promise<NitroConfig | null> {
@@ -431,6 +454,12 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
     },
     async configureServer(devServer) {
       server = devServer
+      const existingWorkspaceHostedStoreLoader = getWorkspaceHostedStoreLoader()
+      setWorkspaceHostedStoreLoader((storeOptions, workspaceName) => {
+        if (storeOptions.provider === "github") return createGitHubWorkspaceStore(storeOptions, workspaceName)
+        if (existingWorkspaceHostedStoreLoader) return existingWorkspaceHostedStoreLoader(storeOptions, workspaceName)
+        throw new Error(`[vitehub] Hosted workspace store "${storeOptions.provider}" is not available in this runtime.`)
+      })
       const tokenOptions = { serverId: workspaceDevTokenServerId(devServer.config.server.port) }
       await refreshWorkspaceDevToken(devServer.config.root, tokenOptions)
       const roots = {

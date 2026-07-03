@@ -9,6 +9,9 @@ catalogs:
     '@ai-sdk/harness':
       specifier: 1.0.0
       version: 1.0.0
+    '@ai-sdk/harness-claude-code':
+      specifier: 1.0.0
+      version: 1.0.0
     '@ai-sdk/harness-codex':
       specifier: 1.0.0
       version: 1.0.0
@@ -465,6 +468,9 @@ importers:
       '@ai-sdk/harness':
         specifier: catalog:ai
         version: 1.0.0(ws@8.21.0)(zod@4.4.3)
+      '@ai-sdk/harness-claude-code':
+        specifier: catalog:ai
+        version: 1.0.0
       '@ai-sdk/mcp':
         specifier: catalog:ai
         version: 2.0.0(zod@4.4.3)
@@ -1231,6 +1237,10 @@ packages:
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/harness-claude-code@1.0.0':
+    resolution: {integrity: sha512-yMqJ0F8tRbWi7zuutVOxY0nSB7SKl6SRCNPrE0L6HXTwUocuaKO6Av4kVVhVUpyUU1Kuc56x5Qc7JyTz32oREw==}
+    engines: {node: '>=22'}
 
   '@ai-sdk/harness-codex@1.0.0':
     resolution: {integrity: sha512-nQ1LbFVq8FKiRTqecimmYobFPW9fEY3qcwCuduavBRZ60jtaPaICjJ3Abemf3X7hJgXR02beTs3CAeomBv/Avw==}
@@ -12885,6 +12895,16 @@ snapshots:
       '@vercel/oidc': 3.2.0
       zod: 4.4.3
 
+  '@ai-sdk/harness-claude-code@1.0.0':
+    dependencies:
+      '@ai-sdk/harness': 1.0.0(ws@8.21.0)(zod@3.25.76)
+      '@ai-sdk/provider-utils': 5.0.0(zod@3.25.76)
+      ws: 8.21.0
+      zod: 3.25.76
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
   '@ai-sdk/harness-codex@1.0.0':
     dependencies:
       '@ai-sdk/harness': 1.0.0(ws@8.21.0)(zod@3.25.76)
@@ -14876,7 +14896,7 @@ snapshots:
   '@libsql/isomorphic-ws@0.1.5':
     dependencies:
       '@types/ws': 8.18.1
-      ws: 8.20.1
+      ws: 8.21.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate

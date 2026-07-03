@@ -378,6 +378,25 @@ describe("defineAgent workspace option", () => {
     })
   })
 
+  it("maps workspace commit shorthand to a catch-all rule", async () => {
+    const { workspaceDefinitionFromOptions } = await import("../src/workspace-agent.ts")
+
+    const definition = workspaceDefinitionFromOptions({
+      driver: { model: {} as never },
+      workspace: {
+        commit: "chore: update workspace",
+        rules: {
+          "notes/**": { commit: "chore: update notes" },
+        },
+      },
+    })
+
+    expect(definition.rules).toEqual({
+      "**": { commit: "chore: update workspace" },
+      "notes/**": { commit: "chore: update notes" },
+    })
+  })
+
   it("rebases file skill sources under the configured skill path", async () => {
     const { skills } = await import("../src/capabilities.ts")
     const { workspaceDefinitionFromOptions } = await import("../src/workspace-agent.ts")

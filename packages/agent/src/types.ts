@@ -1183,6 +1183,7 @@ export interface AgentToolDefinition<TInput = unknown, TOutput = unknown> {
 export type AgentToolSet = Record<string, AgentToolDefinition>
 
 export interface WorkspaceAgentWorkspaceOptions extends Omit<WorkspaceDefinitionInput, "name"> {
+  commit?: boolean | string
   mode?: AgentCapabilityMode
   name?: never
 }
