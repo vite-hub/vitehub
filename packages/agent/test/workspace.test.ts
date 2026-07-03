@@ -1130,7 +1130,52 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
-      paths: undefined,
+      paths: [""],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
+  })
+
+  it("keeps global write rules unrestricted when explicit harness paths exist", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { custom } = await import("@vite-hub/workspace")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {
+        mode: "write",
+        rules: {
+          "**/*.md": { write: true },
+        },
+        sources: {
+          docs: custom({
+            materialize: "lazy",
+            mount: "docs",
+            async getKeys() {
+              return ["guide.md"]
+            },
+            async getItem(key) {
+              return { content: "docs", key, mediaType: "text/markdown", path: key }
+            },
+          }),
+        },
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      ignoreWriteBackPaths: [],
+      paths: [""],
       session: harnessSandboxSession,
       sessionWorkDir: "/workspace/codex-session",
     })
