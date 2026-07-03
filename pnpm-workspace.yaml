@@ -115,6 +115,7 @@ catalogs:
     picomatch: ^4.0.4
     tinyglobby: ^0.2.16
 patchedDependencies:
+  '@ai-sdk/harness-claude-code@1.0.0': patches/@ai-sdk__harness-claude-code@1.0.0.patch
   h3@2.0.1-rc.20: patches/h3@2.0.1-rc.20.patch
 
 overrides:

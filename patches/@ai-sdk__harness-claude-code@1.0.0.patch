@@ -1,0 +1,28 @@
+diff --git a/src/bridge/index.ts b/src/bridge/index.ts
+index c9a6de628d938eb51e6b3e043bb54041e40ce0bd..c55e507ede92b0ab079b8666a603fa57ba33503f 100644
+--- a/src/bridge/index.ts
++++ b/src/bridge/index.ts
+@@ -434,6 +434,15 @@ async function runTurn(start: StartMessage, turn: BridgeTurn): Promise<void> {
+         continue;
+       }
+ 
++      if (
++        type === 'assistant' &&
++        typeof msg.error === 'string' &&
++        msg.error.trim()
++      ) {
++        emitTerminalError(stringifyContent(msg.content) || msg.error);
++        continue;
++      }
++
+       if (
+         type === 'system' &&
+         msg.subtype === 'api_retry' &&
+@@ -628,6 +637,7 @@ type ClaudeMessage = {
+     content?: ReadonlyArray<MessageBlock>;
+     usage?: Record<string, unknown>;
+   };
++  content?: ReadonlyArray<MessageBlock>;
+   result?: string;
+   errors?: ReadonlyArray<string>;
+   usage?: Record<string, unknown>;

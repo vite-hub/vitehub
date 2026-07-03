@@ -260,6 +260,9 @@ overrides:
   vitest: npm:@voidzero-dev/vite-plus-test@0.1.24
 
 patchedDependencies:
+  '@ai-sdk/harness-claude-code@1.0.0':
+    hash: 99becfc75601f1503d738c6ee8a5ead1d941e83dd38b305572790d1b4264c743
+    path: patches/@ai-sdk__harness-claude-code@1.0.0.patch
   h3@2.0.1-rc.20:
     hash: 7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600
     path: patches/h3@2.0.1-rc.20.patch
@@ -470,7 +473,7 @@ importers:
         version: 1.0.0(ws@8.21.0)(zod@4.4.3)
       '@ai-sdk/harness-claude-code':
         specifier: catalog:ai
-        version: 1.0.0
+        version: 1.0.0(patch_hash=99becfc75601f1503d738c6ee8a5ead1d941e83dd38b305572790d1b4264c743)
       '@ai-sdk/mcp':
         specifier: catalog:ai
         version: 2.0.0(zod@4.4.3)
@@ -12895,7 +12898,7 @@ snapshots:
       '@vercel/oidc': 3.2.0
       zod: 4.4.3
 
-  '@ai-sdk/harness-claude-code@1.0.0':
+  '@ai-sdk/harness-claude-code@1.0.0(patch_hash=99becfc75601f1503d738c6ee8a5ead1d941e83dd38b305572790d1b4264c743)':
     dependencies:
       '@ai-sdk/harness': 1.0.0(ws@8.21.0)(zod@3.25.76)
       '@ai-sdk/provider-utils': 5.0.0(zod@3.25.76)
