@@ -194,7 +194,7 @@ function selectedWorkspaceScopePaths(context: AgentAdapterRunContext): string[] 
   const scope = context.context.get("access")?.workspaceScope
   if (!scope) return harnessPaths.length ? harnessPaths : undefined
   if (scope.all) return [""]
-  const paths = [...new Set([...(scope.paths || []), ...harnessSupportWorkspacePaths(context)])]
+  const paths = [...new Set([...(scope.paths || []), ...harnessSupportWorkspacePaths(context).filter(path => path !== "")])]
   return paths.length ? withHarnessInstructionPaths(paths) : []
 }
 

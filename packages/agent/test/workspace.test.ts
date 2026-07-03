@@ -1262,6 +1262,94 @@ describe("defineAgent workspace option", () => {
     expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
   })
 
+  it("does not widen selected Workspace Scope paths for global write rules", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "public",
+            scopes: {
+              public: { paths: ["public"] },
+            },
+          },
+        }),
+      ],
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {
+        mode: "write",
+        rules: {
+          "**/*.md": { write: true },
+        },
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      ignoreWriteBackPaths: [],
+      paths: ["public", "AGENTS.md", "CLAUDE.md"],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
+  })
+
+  it("keeps all-scope Workspace Sessions unrestricted for global write rules", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [
+        access({
+          workspace: {
+            resolve: { role: "admin", scope: "support" },
+            scopes: {
+              support: { all: true },
+            },
+          },
+        }),
+      ],
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {
+        mode: "write",
+        rules: {
+          "**/*.md": { write: true },
+        },
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      ignoreWriteBackPaths: [],
+      paths: [""],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
+  })
+
   it("does not pass other scoped file sources into Harness Workspace Sessions", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { access } = await import("../src/capabilities.ts")
