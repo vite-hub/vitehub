@@ -229,12 +229,17 @@ async function runTranscription(options: StaticTranscribeOptions, audio: AudioPa
     ...transcribeOptions
   } = options
   const maxBytes = normalizeMaxBytes(maxBytesOption)
-  const { createDownload, transcribe } = await loadAiSdk()
+  const aiSdk = await loadAiSdk() as typeof import("ai") & {
+    experimental_transcribe?: AiSdkTranscribe
+    transcribe?: AiSdkTranscribe
+  }
+  const transcribe = Object.hasOwn(aiSdk, "transcribe") ? aiSdk.transcribe : aiSdk.experimental_transcribe
+  if (!transcribe) throw new TypeError("[vitehub] transcribe() requires ai.transcribe or ai.experimental_transcribe.")
   const result = await transcribe({
     ...transcribeOptions,
     abortSignal,
     audio: await toAiSdkAudio(audio, maxBytes),
-    download: transcribeOptions.download ?? createDownload({ maxBytes }),
+    download: transcribeOptions.download ?? aiSdk.createDownload({ maxBytes }),
   })
   return result.text
 }
