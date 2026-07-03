@@ -111,6 +111,7 @@ describe("workspace public API", () => {
       .map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
 
     expect(packageJson.dependencies?.h3).toBe("catalog:unjs")
+    expect(packageJson.dependencies?.["files-sdk"]).toBe("catalog:storage")
     expect(packageJson.peerDependencies?.h3).toBeUndefined()
     expect(packageJson.peerDependenciesMeta?.h3).toBeUndefined()
     expect(packageJson.peerDependencies?.["@vite-hub/sandbox"]).toBeUndefined()
