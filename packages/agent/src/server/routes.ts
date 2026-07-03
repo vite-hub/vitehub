@@ -1264,13 +1264,14 @@ async function handleChatSdkMessage(
   let run: AgentRunMetadata | undefined
   let typing: ChatTypingRefresh | undefined
   try {
-    const messages = await chatTriggerMessages(thread, message, options, messageContext, {
+    const messageOptions = {
       includeAudioAttachments: getAgentCapabilities(agent).some((capability) => {
         const metadata = capability.metadata as { chatAttachments?: { audio?: unknown } } | undefined
         return metadata?.chatAttachments?.audio === true
       }),
-    })
-    const currentMessage = messages.find(item => item.id === message.id) || messages.at(-1)
+    }
+    const messages = await chatTriggerMessages(thread, message, options, messageContext, messageOptions)
+    const currentMessage = chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), messageOptions)
     if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) return
     input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, messages, messageContext, registration.channelId)
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
