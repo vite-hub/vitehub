@@ -317,6 +317,7 @@ function generatedHostedWorkspaceRuntimeSetup(definitions: DiscoveredAgentDefini
       "function hasHostedWorkspaceStore(module) {",
       "  const agent = resolveAgentModule(module)",
       "  const store = agent?.__vitehubWorkspaceAgentOptions?.workspace?.store",
+      "  if (!store && typeof process === 'object' && process?.env?.BLOB_READ_WRITE_TOKEN) return true",
       "  return store && typeof store === 'object' && ['cloudflare-artifacts', 'github', 'vercel-blob'].includes(store.provider)",
       "}",
       "",
