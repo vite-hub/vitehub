@@ -229,7 +229,7 @@ export async function requestGitHubBytes(
   const response = await fetch(`https://api.github.com${path}`, {
     ...init,
     headers: {
-      accept: "application/vnd.github.raw",
+      accept: "application/vnd.github.raw+json",
       authorization: `Bearer ${token}`,
       "user-agent": "vitehub-workspace",
       "x-github-api-version": "2022-11-28",

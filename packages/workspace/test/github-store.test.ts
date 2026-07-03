@@ -190,7 +190,7 @@ describe("GitHub workspace store", () => {
     expect(
       requests.find(request => request.path.includes("/git/blobs/") && request.method === "GET")
         ?.headers.get("accept"),
-    ).toBe("application/vnd.github.raw");
+    ).toBe("application/vnd.github.raw+json");
     await expect(store.list("", { recursive: true })).resolves.toEqual([
       expect.objectContaining({ path: "data", type: "directory" }),
       expect.objectContaining({
@@ -287,7 +287,7 @@ describe("GitHub workspace store", () => {
     expect(
       requests.find(request => request.path.includes("/git/blobs/") && request.method === "GET")
         ?.headers.get("accept"),
-    ).toBe("application/vnd.github.raw");
+    ).toBe("application/vnd.github.raw+json");
   });
 
   it("deletes files and directories through snapshot commits", async () => {
