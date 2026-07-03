@@ -7,6 +7,7 @@ import { Message } from "chat"
 import { describe, expect, it, vi } from "vitest"
 
 import type { AgentChannelChatRouteStandardSchemaV1 } from "../src/server.ts"
+import type { AgentChatOptions } from "../src/types.ts"
 import type { Adapter, ChatInstance, StreamChunk, WebhookOptions } from "chat"
 
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
@@ -3112,20 +3113,21 @@ describe("server helpers", () => {
       method: "POST",
     })
     const handler = (adapter: ReturnType<typeof createTestChatAdapter>) => {
+      const chatOptions = {
+        history: { maxMessages: 25, source: "thread" },
+        platforms: {
+          telegram: () => adapter as never,
+        },
+        state: () => state,
+        stream: false,
+        threadHistory: { maxMessages: 25 },
+        webhooks: {
+          telegram: {},
+        },
+      } satisfies AgentChatOptions
       const agent = defineAgent({
         capabilities: [
-          defineChatCapability({
-            history: { maxMessages: 25, source: "thread" },
-            platforms: {
-              telegram: () => adapter as never,
-            },
-            state: () => state,
-            stream: false,
-            threadHistory: { maxMessages: 25 },
-            webhooks: {
-              telegram: {},
-            },
-          }),
+          defineChatCapability(chatOptions),
         ],
         driver: {
           run: ({ messages }) => {
