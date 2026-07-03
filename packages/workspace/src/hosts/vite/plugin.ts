@@ -86,7 +86,7 @@ function isWorkspaceRegistry(value: unknown): value is Record<string, () => Prom
 }
 
 function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]): boolean {
-  return store.provider === "cloudflare-artifacts" || store.provider === "github"
+  return store.provider === "cloudflare-artifacts" || store.provider === "github" || store.provider === "vercel-blob"
 }
 
 function requestOrigin(server: ViteDevServer, req: IncomingMessage): string {
