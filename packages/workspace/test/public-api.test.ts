@@ -123,6 +123,16 @@ describe("workspace public API", () => {
     expect(declarations).not.toContain("@vite-hub/sandbox")
   })
 
+  it("keeps provider adapters off the hosted runtime surface", async () => {
+    const hosted = await import("../src/hosted.ts")
+
+    expect(hosted).toHaveProperty("configureHostedWorkspaceRuntime")
+    expect(hosted).toHaveProperty("installHostedWorkspaceRuntime")
+    expect(hosted).not.toHaveProperty("createCloudflareArtifactsWorkspaceStore")
+    expect(hosted).not.toHaveProperty("createGitHubWorkspaceStore")
+    expect(hosted).not.toHaveProperty("createVercelBlobWorkspaceStore")
+  })
+
   it("uses the writable facade for synced reads and writes", async () => {
     registerWorkspace("api", defineWorkspace({
       store: { provider: "memory" },

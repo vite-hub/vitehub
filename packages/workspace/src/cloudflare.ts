@@ -5,8 +5,8 @@ import type {
 } from "./core/types.ts"
 export {
   configureHostedWorkspaceRuntime as configureCloudflareWorkspaceRuntime,
-  createCloudflareArtifactsWorkspaceStore,
 } from "./hosted.ts"
+export { createCloudflareArtifactsWorkspaceStore } from "./providers/cloudflare/artifacts-store.ts"
 
 export type CloudflareWorkspaceRuntimeStoreOptions =
   | Partial<CloudflareArtifactsWorkspaceStoreOptions>
