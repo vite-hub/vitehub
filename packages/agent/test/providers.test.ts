@@ -7,7 +7,6 @@ import { Message } from "chat"
 import { describe, expect, it, vi } from "vitest"
 
 import type { AgentChannelChatRouteStandardSchemaV1 } from "../src/server.ts"
-import type { AgentChatOptions } from "../src/types.ts"
 import type { Adapter, ChatInstance, StreamChunk, WebhookOptions } from "chat"
 
 vi.mock("@vite-hub/internal/build/vercel-runtime-packages", () => ({
@@ -3091,7 +3090,7 @@ describe("server helpers", () => {
   })
 
   it("passes durable thread history into chat webhook runs after adapter cache resets", async () => {
-    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { telegram } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -3113,27 +3112,21 @@ describe("server helpers", () => {
       method: "POST",
     })
     const handler = (adapter: ReturnType<typeof createTestChatAdapter>) => {
-      const chatOptions = {
-        history: { maxMessages: 25, source: "thread" },
-        platforms: {
-          telegram: () => adapter as never,
-        },
-        state: () => state,
-        stream: false,
-        threadHistory: { maxMessages: 25 },
-        webhooks: {
-          telegram: {},
-        },
-      } satisfies AgentChatOptions
       const agent = defineAgent({
-        capabilities: [
-          defineChatCapability(chatOptions),
-        ],
+        channels: {
+          telegram: telegram({ adapter: () => adapter as never }),
+        },
         driver: {
           run: ({ messages }) => {
             runs.push(messages.map(getMessageText))
             return `reply ${runs.length}`
           },
+        },
+        messages: {
+          history: { maxMessages: 25, source: "thread" },
+          state: () => state,
+          stream: false,
+          threadHistory: { maxMessages: 25 },
         },
       })
       return createChannelWebhookRouteHandler(agent as never)
