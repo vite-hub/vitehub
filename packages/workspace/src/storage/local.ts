@@ -154,6 +154,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
         return {
           ...existing,
           mediaType: file.mediaType,
+          metadata: file.metadata,
           size,
           digest,
         }
@@ -169,6 +170,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
         type: "file",
         size,
         mediaType: file.mediaType,
+        metadata: file.metadata,
         digest,
       }
     }
@@ -191,6 +193,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       .map(entry => ({
         ...entry,
         mediaType: entry.type === "file" ? this.#files.get(entry.path)?.mediaType : entry.mediaType,
+        metadata: entry.type === "file" ? this.#files.get(entry.path)?.metadata : entry.metadata,
       }))
       .sort((a, b) => a.path.localeCompare(b.path))
   }
@@ -216,6 +219,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       size: info.isFile() ? info.size : undefined,
       mtime: info.mtimeMs,
       mediaType: info.isFile() ? this.#files.get(normalized)?.mediaType : undefined,
+      metadata: info.isFile() ? this.#files.get(normalized)?.metadata : undefined,
       digest: info.isFile() ? await fileDigest(absolute) : undefined,
     }
     return entry
@@ -259,7 +263,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       const after = to.entries[path]
       if (!before && after) entries.push({ path, type: "added", after })
       else if (before && !after) entries.push({ path, type: "removed", before })
-      else if (before && after && (before.digest !== after.digest || before.type !== after.type || before.size !== after.size)) {
+      else if (before && after && (before.digest !== after.digest || before.type !== after.type || before.size !== after.size || JSON.stringify(before.metadata) !== JSON.stringify(after.metadata))) {
         entries.push({ path, type: "modified", before, after })
       }
     }
@@ -283,6 +287,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       entries[entry.path] = {
         type: entry.type,
         digest: entry.digest,
+        metadata: entry.metadata,
         size: entry.size,
       }
     }

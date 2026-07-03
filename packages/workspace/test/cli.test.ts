@@ -91,6 +91,9 @@ describe("workspace CLI", () => {
         "http://127.0.0.1:4321",
         "--timeout",
         "10000",
+        "--path",
+        "AGENTS.md",
+        "--path=backlog",
         "docs",
         "node",
         "-e",
@@ -123,6 +126,7 @@ describe("workspace CLI", () => {
         workspaceCommand: {
           args: ["-e", "console.log(process.argv[1])", "hello world", "--timeout=30000"],
           command: "node",
+          paths: ["AGENTS.md", "backlog"],
           timeout: 10000,
           workspace: "docs",
         },
@@ -139,10 +143,11 @@ describe("workspace CLI", () => {
       stderr: "",
       stdout: "ok\n",
     }))
+    const diff = vi.fn(async () => ({ entries: [] }))
     const commit = vi.fn(async () => {})
     const close = vi.fn(async () => {})
     const workspace = {
-      startSession: vi.fn(async () => ({ close, commit, exec })),
+      startSession: vi.fn(async () => ({ close, commit, diff, exec })),
     }
 
     await expect(runWorkspaceDevCommand({
@@ -157,6 +162,33 @@ describe("workspace CLI", () => {
       abortSignal: undefined,
       timeout: undefined,
     })
+    expect(diff).toHaveBeenCalledOnce()
+    expect(commit).not.toHaveBeenCalled()
+    expect(close).toHaveBeenCalledOnce()
+  })
+
+  it("commits changed Workspace Dev command sessions", async () => {
+    const exec = vi.fn(async () => ({
+      exitCode: 0,
+      stderr: "",
+      stdout: "ok\n",
+    }))
+    const diff = vi.fn(async () => ({ entries: [{ path: "README.md" }] }))
+    const commit = vi.fn(async () => {})
+    const close = vi.fn(async () => {})
+    const workspace = {
+      startSession: vi.fn(async () => ({ close, commit, diff, exec })),
+    }
+
+    await expect(runWorkspaceDevCommand({
+      command: "echo ok > README.md",
+      workspace: workspace as never,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "ok\n",
+    })
+
+    expect(diff).toHaveBeenCalledOnce()
     expect(commit).toHaveBeenCalledWith({ message: "workspace dev command" })
     expect(close).toHaveBeenCalledOnce()
   })

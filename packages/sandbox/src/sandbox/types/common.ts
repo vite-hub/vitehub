@@ -45,7 +45,7 @@ export interface SandboxCapabilities {
 export interface SandboxFileEntry {
   name: string
   path: string
-  type: 'file' | 'directory'
+  type: 'directory' | 'file' | 'symlink'
   size?: number
   mtime?: string
 }

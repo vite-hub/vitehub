@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { normalizeWorkspaceOptions, resolveRuntimeVercelBlobWorkspaceStore } from "../src/config.ts"
+import { normalizeWorkspaceOptions, normalizeWorkspaceStoreOptions, resolveRuntimeVercelBlobWorkspaceStore } from "../src/config.ts"
 import { defineWorkspace } from "../src/core/define.ts"
 
 describe("workspace config", () => {
@@ -209,6 +209,27 @@ describe("workspace config", () => {
       repository: "acme/app",
       root: ".vitehub/workspaces/<workspace>",
       token: "********",
+    })
+  })
+
+  it("preserves explicit GitHub tokens while resolving runtime definitions", () => {
+    const store = normalizeWorkspaceStoreOptions({
+      branch: "workspace-state",
+      provider: "github",
+      repository: "acme/app",
+      root: ".vitehub/workspaces/<workspace>",
+      token: "secret-token",
+    }, {
+      env: {},
+      runtime: true,
+    })
+
+    expect(store).toEqual({
+      branch: "workspace-state",
+      provider: "github",
+      repository: "acme/app",
+      root: ".vitehub/workspaces/<workspace>",
+      token: "secret-token",
     })
   })
 

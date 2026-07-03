@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env";
 
 const requests: Array<{ body?: unknown; headers: Headers; method: string; path: string }> = [];
 let refSha = "base-sha";
 let remoteTreeSha = "base-tree";
-let remoteTree: Array<{ path: string; sha: string; size?: number; type: "blob" }> = [];
+let remoteTree: Array<{ mode?: string; path: string; sha: string; size?: number; type: "blob" }> = [];
 let commitIndex = 0;
 let treeIndex = 0;
 const blobs = new Map<string, Uint8Array>();
@@ -21,11 +22,11 @@ function textSha(content: string): string {
   return gitBlobSha(textBytes(content));
 }
 
-function seedRemote(path: string, content: string) {
+function seedRemote(path: string, content: string, mode?: string) {
   const bytes = textBytes(content);
   const sha = gitBlobSha(bytes);
   blobs.set(sha, bytes);
-  remoteTree.push({ path, sha, size: bytes.byteLength, type: "blob" });
+  remoteTree.push({ mode, path, sha, size: bytes.byteLength, type: "blob" });
 }
 
 function jsonResponse(value: unknown) {
@@ -56,7 +57,7 @@ beforeEach(() => {
               content?: string;
               force?: boolean;
               sha?: string | null;
-              tree?: Array<{ path: string; sha: string | null; type: "blob" }>;
+              tree?: Array<{ mode?: string; path: string; sha: string | null; type: "blob" }>;
             })
           : undefined;
       requests.push({ body, headers: new Headers(init.headers), method, path: url.pathname });
@@ -86,6 +87,7 @@ beforeEach(() => {
           if (entry.sha) {
             const bytes = blobs.get(entry.sha);
             remoteTree.push({
+              mode: entry.mode,
               path: entry.path,
               sha: entry.sha,
               size: bytes?.byteLength,
@@ -111,9 +113,52 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.WORKSPACE_GITHUB_TOKEN;
+  clearActiveCloudflareEnv();
 });
 
 describe("GitHub workspace store", () => {
+  it.each(["********", "<redacted>", "[redacted]"])(
+    "falls back to env credentials for masked token %s",
+    async (maskedToken) => {
+      process.env.WORKSPACE_GITHUB_TOKEN = "env-token";
+      const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+      const store = createGitHubWorkspaceStore(
+        {
+          provider: "github",
+          repository: "onmax/repo",
+          root: ".vitehub/workspaces/<workspace>",
+          token: maskedToken,
+        },
+        "docs",
+      );
+
+      await expect(store.list("", { recursive: true })).resolves.toEqual([]);
+
+      expect(requests[0]?.headers.get("authorization")).toBe("Bearer env-token");
+    },
+  );
+
+  it.each(["********", "<redacted>", "[redacted]"])(
+    "falls back to env credentials for masked active binding %s",
+    async (maskedToken) => {
+      process.env.WORKSPACE_GITHUB_TOKEN = "env-token";
+      setActiveCloudflareEnv({ GITHUB_TOKEN: maskedToken });
+      const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+      const store = createGitHubWorkspaceStore(
+        {
+          provider: "github",
+          repository: "onmax/repo",
+          root: ".vitehub/workspaces/<workspace>",
+        },
+        "docs",
+      );
+
+      await expect(store.list("", { recursive: true })).resolves.toEqual([]);
+
+      expect(requests[0]?.headers.get("authorization")).toBe("Bearer env-token");
+    },
+  );
+
   it("reads, lists, stats, writes, snapshots, and persists metadata through GitHub", async () => {
     seedRemote(".vitehub/workspaces/docs/data/existing.json", '{"ok":true}\n');
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
@@ -382,6 +427,95 @@ describe("GitHub workspace store", () => {
         path: `/repos/onmax/repo/git/blobs/${textSha("# Docs\n")}`,
       }),
     ]);
+  });
+
+  it("marks GitHub symlink blobs from the remote tree", async () => {
+    seedRemote(".vitehub/workspaces/docs/AGENTS.md", "# Agents\n");
+    seedRemote(".vitehub/workspaces/docs/CLAUDE.md", "AGENTS.md", "120000");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await expect(store.stat("CLAUDE.md")).resolves.toMatchObject({
+      metadata: { gitMode: "120000" },
+      path: "CLAUDE.md",
+      type: "file",
+    });
+    await expect(store.readFile("CLAUDE.md")).resolves.toMatchObject({
+      content: textBytes("AGENTS.md"),
+      metadata: { gitMode: "120000" },
+    });
+  });
+
+  it("commits GitHub symlink metadata as tree mode 120000", async () => {
+    seedRemote(".vitehub/workspaces/docs/CLAUDE.md", "AGENTS.md", "120000");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await store.writeFile("CLAUDE.md", {
+      path: "CLAUDE.md",
+      content: "NEXT.md",
+      metadata: { gitMode: "120000" },
+    });
+    await store.snapshot({ name: "retarget symlink" });
+
+    expect(
+      requests.find((request) => request.path.endsWith("/git/trees") && request.method === "POST")
+        ?.body,
+    ).toMatchObject({
+      tree: expect.arrayContaining([
+        {
+          mode: "120000",
+          path: ".vitehub/workspaces/docs/CLAUDE.md",
+          sha: textSha("NEXT.md"),
+          type: "blob",
+        },
+      ]),
+    });
+  });
+
+  it("preserves remote executable file modes during unrelated snapshots", async () => {
+    seedRemote(".vitehub/workspaces/docs/bin/tool.sh", "#!/bin/sh\n", "100755");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await expect(store.stat("bin/tool.sh")).resolves.toMatchObject({
+      metadata: { gitMode: "100755" },
+    });
+    await store.writeFile("notes.md", { path: "notes.md", content: "ok\n" });
+    await store.snapshot({ name: "write note" });
+
+    expect(
+      requests.find((request) => request.path.endsWith("/git/trees") && request.method === "POST")
+        ?.body,
+    ).toMatchObject({
+      tree: expect.not.arrayContaining([
+        expect.objectContaining({ path: ".vitehub/workspaces/docs/bin/tool.sh" }),
+      ]),
+    });
   });
 
   it("fails dirty snapshots when the branch moved after load", async () => {

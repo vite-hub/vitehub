@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { resolveWorkspaceAutoCommit } from "../src/core/rules.ts"
+import { createWorkspace } from "../src/core/workspace.ts"
 
 describe("workspace rules", () => {
   it("creates an auto-commit plan when every changed path matches a commit rule", () => {
@@ -38,5 +39,29 @@ describe("workspace rules", () => {
       ],
       to: "next",
     })).toBeUndefined()
+  })
+
+  it("passes write metadata through validators before storing", async () => {
+    const seen: unknown[] = []
+    const workspace = createWorkspace({
+      name: "docs",
+      rules: {
+        "**": {
+          validate(input) {
+            seen.push(input.metadata)
+            return { ...input, metadata: { gitMode: "100755" } }
+          },
+          write: true,
+        },
+      },
+      store: { provider: "memory" },
+    })
+
+    await workspace.writeFile("script.sh", "echo ok\n", { metadata: { gitMode: "120000" } })
+
+    expect(seen).toEqual([{ gitMode: "120000" }])
+    await expect(workspace.stat("script.sh")).resolves.toMatchObject({
+      metadata: { gitMode: "100755" },
+    })
   })
 })

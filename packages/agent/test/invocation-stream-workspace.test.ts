@@ -50,11 +50,13 @@ const workspaceSessionExec = vi.hoisted(() => vi.fn(async (command: string, args
   stderr: "",
   stdout: "ok\n",
 })))
+const workspaceSessionDiff = vi.hoisted(() => vi.fn(async () => ({ entries: [{ path: "review.md", type: "modified" }] })))
 const workspaceSessionCommit = vi.hoisted(() => vi.fn(async () => {}))
 const workspaceSessionClose = vi.hoisted(() => vi.fn(async () => {}))
 const workspaceStartSession = vi.hoisted(() => vi.fn(async () => ({
   close: workspaceSessionClose,
   commit: workspaceSessionCommit,
+  diff: workspaceSessionDiff,
   exec: workspaceSessionExec,
 })))
 const useWorkspace = vi.hoisted(() => vi.fn(() => ({
@@ -232,6 +234,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       },
     })
     workspaceSessionExec.mockClear()
+    workspaceSessionDiff.mockClear()
     workspaceSessionCommit.mockClear()
     workspaceSessionClose.mockClear()
     workspaceStartSession.mockClear()
@@ -435,6 +438,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       abortSignal: expect.any(AbortSignal),
       timeout: 1234,
     })
+    expect(workspaceSessionDiff).toHaveBeenCalled()
     expect(workspaceSessionCommit).toHaveBeenCalledWith({ message: "workspace dev command" })
     expect(workspaceSessionClose).toHaveBeenCalled()
   })

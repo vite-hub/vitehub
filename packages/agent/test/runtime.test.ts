@@ -1214,6 +1214,32 @@ describe("agent message protocol", () => {
     expect(session.destroy).toHaveBeenCalledTimes(1)
   })
 
+  it("avoids Claude Code bypass permissions when the host process runs as root", async () => {
+    const getuid = vi.spyOn(process, "getuid").mockReturnValue(0)
+    try {
+      const { defineAgent, runAgent } = await import("../src/index.ts")
+      const session = { destroy: vi.fn() }
+      const harness = { harnessId: "claude-code" }
+      harnessCreateSession.mockResolvedValueOnce(session)
+      harnessGenerate.mockResolvedValueOnce({ text: "ok" })
+
+      const agent = defineAgent({
+        driver: {
+          harness,
+        },
+      })
+
+      await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
+      expect(harnessAgentSettings.at(-1)).toMatchObject({
+        harness,
+        permissionMode: "allow-edits",
+      })
+    }
+    finally {
+      getuid.mockRestore()
+    }
+  })
+
   it("uses harnessSandbox for harness runtime setup", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }
@@ -4838,6 +4864,86 @@ describe("agent message protocol", () => {
     expect(messages.at(-1)?.parts).toEqual([
       { providerMetadata: undefined, state: "done", text: "answer", type: "text" },
     ])
+  })
+
+  it("normalizes valid capability CLI input errors in native UI message streams", async () => {
+    const { createUIMessageStream } = await import("ai")
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const traceLog = createTraceEventLog()
+    const agent = defineAgent({
+      driver: { run: () => ({
+          toUIMessageStream() {
+            return createUIMessageStream({
+              execute({ writer }) {
+                writer.write({ type: "start", messageId: "assistant-1" })
+                writer.write({
+                  errorText: "An error occurred.",
+                  input: { argv: ["purchase-orders", "--json"] },
+                  toolCallId: "cli-1",
+                  toolMetadata: {
+                    cli: "portal-api",
+                    vitehubCapabilityCli: true,
+                  },
+                  toolName: "portal-api",
+                  type: "tool-input-error",
+                } as never)
+                writer.write({
+                  errorText: "Invalid input.",
+                  input: { argv: ["list"], extra: true, json: "true" },
+                  toolCallId: "cli-invalid",
+                  toolMetadata: {
+                    cli: "portal-api",
+                    vitehubCapabilityCli: true,
+                  },
+                  toolName: "portal-api",
+                  type: "tool-input-error",
+                } as never)
+                writer.write({
+                  output: {
+                    command: "portal-api purchase-orders --json",
+                    exitCode: 0,
+                  },
+                  toolCallId: "cli-1",
+                  type: "tool-output-available",
+                })
+                writer.write({ type: "finish", finishReason: "stop" })
+              },
+            })
+          },
+        }) },
+    })
+
+    const stream = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", traceLog, waitUntil: vi.fn() }, {}, { output: "ui-message-stream" }) as ReadableStream<unknown>
+    const chunks: unknown[] = []
+    for await (const chunk of stream) chunks.push(chunk)
+
+    expect(chunks).toContainEqual(expect.objectContaining({
+      input: { argv: ["purchase-orders", "--json"] },
+      toolCallId: "cli-1",
+      toolName: "portal-api",
+      type: "tool-input-available",
+    }))
+    expect(chunks).not.toContainEqual(expect.objectContaining({
+      toolCallId: "cli-1",
+      type: "tool-input-error",
+    }))
+    expect(chunks).toContainEqual(expect.objectContaining({
+      input: { argv: ["list"], extra: true, json: "true" },
+      toolCallId: "cli-invalid",
+      type: "tool-input-error",
+    }))
+    expect(traceLog.entries()).toContainEqual(expect.objectContaining({
+      attributes: expect.objectContaining({
+        "tool.hasInput": true,
+        "tool.id": "cli-1",
+        "tool.name": "portal-api",
+      }),
+      name: "agent.tool.start",
+    }))
+    expect(traceLog.entries()).not.toContainEqual(expect.objectContaining({
+      attributes: expect.objectContaining({ "tool.id": "cli-invalid" }),
+      name: "agent.tool.start",
+    }))
   })
 
   it("traces fullStream results when UI message streams are requested", async () => {

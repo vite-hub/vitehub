@@ -27,7 +27,7 @@ export interface CloudflareWorkspaceRuntimeOptions {
 export function configureCloudflareWorkspaceRuntime(options: CloudflareWorkspaceRuntimeOptions = {}): ResolvedWorkspaceModuleOptions {
   const root = resolve(process.cwd(), options.root || ".vitehub/workspaces")
   const store = options.store?.provider === "github"
-    ? resolveGitHubWorkspaceStore(options.store, options.env)
+    ? resolveGitHubWorkspaceStore(options.store, options.env, { runtime: true })
     : resolveCloudflareArtifactsStore(options.store, options.env)
   const config: ResolvedWorkspaceModuleOptions = {
     assets: options.assets,

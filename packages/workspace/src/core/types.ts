@@ -18,6 +18,7 @@ export type ReadFileResult<TOptions extends ReadFileOptions | undefined = undefi
 
 export interface WriteFileOptions {
   mediaType?: string
+  metadata?: Record<string, unknown>
 }
 
 export interface ListOptions {
@@ -63,6 +64,7 @@ export interface WorkspaceWriteInput {
   path: string
   content?: WorkspaceContent
   mediaType?: string
+  metadata?: Record<string, unknown>
   previous?: WorkspaceStat
   rule?: ResolvedWorkspaceRule
 }
@@ -235,6 +237,7 @@ export interface WorkspaceEntry {
   size?: number
   mtime?: number
   mediaType?: string
+  metadata?: Record<string, unknown>
   digest?: string
 }
 
@@ -249,6 +252,7 @@ export interface WorkspaceSnapshot {
   entries: Record<string, {
     type: "file" | "directory"
     digest?: string
+    metadata?: Record<string, unknown>
     size?: number
   }>
 }

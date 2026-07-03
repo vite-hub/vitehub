@@ -56,6 +56,10 @@
       "types": "./dist/loader.d.ts",
       "import": "./dist/loader.js"
     },
+    "./nitro": {
+      "types": "./dist/nitro.d.ts",
+      "import": "./dist/nitro.js"
+    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js"

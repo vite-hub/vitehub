@@ -14,6 +14,16 @@ function commandResult(stdout: string, exitCode = 0) {
   }
 }
 
+function fileStat(options: { directory?: boolean, file?: boolean, symlink?: boolean, size?: number }) {
+  return {
+    isDirectory: () => Boolean(options.directory),
+    isFile: () => Boolean(options.file),
+    isSymbolicLink: () => Boolean(options.symlink),
+    mtimeMs: 1710000000000,
+    size: options.size ?? 0,
+  }
+}
+
 describe("VercelSandboxAdapter", () => {
   it("falls back to find when native fs listing APIs are unavailable", async () => {
     const runCommandMock = vi.fn(async () => commandResult([
@@ -55,5 +65,65 @@ describe("VercelSandboxAdapter", () => {
       env: undefined,
       sudo: undefined,
     })
+  })
+
+  it("uses native lstat when listing Vercel symlinks", async () => {
+    const fs = {
+      lstat: vi.fn(async (path: string) => {
+        if (path === "/workspace/docs") return fileStat({ directory: true })
+        if (path === "/workspace/docs/readme.md") return fileStat({ file: true, size: 12 })
+        if (path === "/workspace/link") return fileStat({ symlink: true })
+        throw new Error(`unexpected lstat: ${path}`)
+      }),
+      mkdir: vi.fn(),
+      readFile: vi.fn(),
+      readdir: vi.fn(async (path: string) => {
+        if (path === "/workspace") return ["docs", "link"]
+        if (path === "/workspace/docs") return ["readme.md"]
+        throw new Error(`unexpected readdir: ${path}`)
+      }),
+      rename: vi.fn(),
+      rm: vi.fn(),
+      stat: vi.fn(async (path: string) => {
+        if (path === "/workspace/link") return fileStat({ directory: true })
+        throw new Error(`unexpected stat: ${path}`)
+      }),
+      writeFile: vi.fn(),
+    }
+    const adapter = new VercelSandboxAdapter("sandbox-id", {
+      domain: port => `https://sandbox-${port}.example.com`,
+      fs,
+      mkDir: vi.fn(),
+      readFile: vi.fn(),
+      readFileToBuffer: vi.fn(),
+      runCommand: vi.fn(),
+      writeFiles: vi.fn(),
+    }, { createdAt: "now", runtime: "node24" })
+
+    await expect(adapter.listFiles("/workspace", { recursive: true })).resolves.toEqual([
+      {
+        mtime: "2024-03-09T16:00:00.000Z",
+        name: "docs",
+        path: "/workspace/docs",
+        size: undefined,
+        type: "directory",
+      },
+      {
+        mtime: "2024-03-09T16:00:00.000Z",
+        name: "readme.md",
+        path: "/workspace/docs/readme.md",
+        size: 12,
+        type: "file",
+      },
+      {
+        mtime: "2024-03-09T16:00:00.000Z",
+        name: "link",
+        path: "/workspace/link",
+        size: undefined,
+        type: "symlink",
+      },
+    ])
+    expect(fs.stat).not.toHaveBeenCalled()
+    expect(fs.readdir).not.toHaveBeenCalledWith("/workspace/link")
   })
 })

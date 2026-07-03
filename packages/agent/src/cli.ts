@@ -78,6 +78,17 @@ interface WorkspaceCommandInput {
   command: string
 }
 
+const workspaceCommandFeedbackIntervalMs = 15_000
+const workspaceCommandStartedMessage = "[vitehub] Workspace command started; first run may materialize sources.\n"
+const workspaceCommandWaitingMessage = "[vitehub] Workspace command still running; sources may still be materializing.\n"
+
+function startWorkspaceCommandFeedback(context: AgentCliContext): () => void {
+  context.stderr.write(workspaceCommandStartedMessage)
+  const timer = setInterval(() => context.stderr.write(workspaceCommandWaitingMessage), workspaceCommandFeedbackIntervalMs)
+  timer.unref?.()
+  return () => clearInterval(timer)
+}
+
 interface AgentDevCliOptions {
   fetch?: typeof fetch
 }
@@ -1052,10 +1063,9 @@ async function sendDevWorkspaceCommand(
     context.stderr.write("No private Agent Dev Loop command token found. Start the Compatible Vite Development Server first.\n")
     return 1
   }
-  context.stderr.write("[vitehub] Workspace command started; first run may materialize sources.\n")
-  let response: Response
+  const stopFeedback = startWorkspaceCommandFeedback(context)
   try {
-    response = await fetchImpl(url, {
+    const response = await fetchImpl(url, {
       body: JSON.stringify({
         agent,
         ...(parsed.payload ? { payload: parsed.payload } : {}),
@@ -1074,6 +1084,14 @@ async function sendDevWorkspaceCommand(
       method: "POST",
       signal,
     })
+    if (!response.ok) {
+      context.stderr.write(`${await response.text()}\n`)
+      return 1
+    }
+    const result = await response.json().catch(() => ({})) as { exitCode?: unknown, stderr?: unknown, stdout?: unknown }
+    if (typeof result.stdout === "string") context.stdout.write(result.stdout)
+    if (typeof result.stderr === "string" && result.stderr) context.stderr.write(result.stderr)
+    return typeof result.exitCode === "number" ? result.exitCode : 0
   }
   catch (error) {
     if (signal?.aborted || error instanceof DOMException && error.name === "AbortError") {
@@ -1082,14 +1100,9 @@ async function sendDevWorkspaceCommand(
     }
     throw error
   }
-  if (!response.ok) {
-    context.stderr.write(`${await response.text()}\n`)
-    return 1
+  finally {
+    stopFeedback()
   }
-  const result = await response.json().catch(() => ({})) as { exitCode?: unknown, stderr?: unknown, stdout?: unknown }
-  if (typeof result.stdout === "string") context.stdout.write(result.stdout)
-  if (typeof result.stderr === "string" && result.stderr) context.stderr.write(result.stderr)
-  return typeof result.exitCode === "number" ? result.exitCode : 0
 }
 
 function directWorkspaceCommand(text: string): string | undefined {

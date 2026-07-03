@@ -167,6 +167,57 @@ describe("Cloudflare Artifacts workspace store", () => {
     expect(requests[0]?.headers.get("authorization")).toBe("Bearer github-token")
   })
 
+  it("preserves explicit GitHub tokens in the Cloudflare runtime", async () => {
+    const requests: Array<{ headers: Headers; method: string; path: string }> = []
+    setActiveCloudflareEnv({ GITHUB_TOKEN: "fallback-token" })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init: RequestInit = {}) => {
+        const url = new URL(input instanceof Request ? input.url : String(input))
+        const method = init.method || "GET"
+        requests.push({ headers: new Headers(init.headers), method, path: url.pathname })
+
+        if (url.pathname === "/repos/onmax/repo/git/ref/heads/main") {
+          return new Response(JSON.stringify({ object: { sha: "base-sha" } }), {
+            headers: { "content-type": "application/json" },
+          })
+        }
+        if (url.pathname === "/repos/onmax/repo/git/commits/base-sha") {
+          return new Response(JSON.stringify({ tree: { sha: "tree-sha" } }), {
+            headers: { "content-type": "application/json" },
+          })
+        }
+        if (url.pathname === "/repos/onmax/repo/git/trees/tree-sha") {
+          return new Response(JSON.stringify({
+            tree: [],
+          }), {
+            headers: { "content-type": "application/json" },
+          })
+        }
+        return new Response("not found", { status: 404 })
+      }),
+    )
+
+    const { configureCloudflareWorkspaceRuntime } = await import("../src/cloudflare.ts")
+    const { useWorkspace } = await import("../src/runtime.ts")
+    configureCloudflareWorkspaceRuntime({
+      store: {
+        branch: "main",
+        provider: "github",
+        repository: "onmax/repo",
+        root: "mirror",
+        token: "explicit-token",
+      },
+    })
+    setWorkspaceRegistry({
+      mirror: async () => ({ default: defineWorkspace({}) }),
+    })
+
+    const workspace = useWorkspace("mirror")
+    await expect(workspace.fs.list("", { recursive: true })).resolves.toEqual([])
+    expect(requests[0]?.headers.get("authorization")).toBe("Bearer explicit-token")
+  })
+
   it("rejects traversal and reserved public paths", async () => {
     const repo = {
       createToken: vi.fn(async () => ({ plaintext: "art_v1_secret?expires=999" })),
