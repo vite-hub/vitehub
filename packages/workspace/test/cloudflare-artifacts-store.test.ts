@@ -164,7 +164,7 @@ describe("Cloudflare Artifacts workspace store", () => {
     expect(requests[0]?.headers.get("authorization")).toBe("Bearer github-token")
     expect(
       requests.find(request => request.path === "/repos/onmax/repo/git/blobs/blob-sha")?.headers.get("accept"),
-    ).toBe("application/vnd.github.raw")
+    ).toBe("application/vnd.github.raw+json")
   })
 
   it("preserves explicit GitHub tokens in the Cloudflare runtime", async () => {
