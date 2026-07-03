@@ -52,10 +52,6 @@
       "types": "./dist/cloudflare.d.ts",
       "import": "./dist/cloudflare.js"
     },
-    "./hosted": {
-      "types": "./dist/hosted.d.ts",
-      "import": "./dist/hosted.js"
-    },
     "./loader": {
       "types": "./dist/loader.d.ts",
       "import": "./dist/loader.js"
@@ -96,6 +92,10 @@
     "./internal/runtime/empty-registry": {
       "types": "./dist/runtime/empty-registry.d.ts",
       "import": "./dist/runtime/empty-registry.js"
+    },
+    "./internal/runtime/hosted": {
+      "types": "./dist/hosted.d.ts",
+      "import": "./dist/hosted.js"
     },
     "./internal/runtime/state": {
       "types": "./dist/runtime/state.d.ts",

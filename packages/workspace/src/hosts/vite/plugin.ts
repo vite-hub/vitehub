@@ -253,7 +253,7 @@ function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptio
   const runtimeImports = config
     ? isHostedWorkspaceStore(config.store)
       ? [
-          "import { configureHostedWorkspaceRuntime } from '@vite-hub/workspace/hosted'",
+          "import { configureHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'",
           "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
         ]
       : ["import { setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'"]

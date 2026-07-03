@@ -124,9 +124,12 @@ describe("workspace public API", () => {
     expect(declarations).not.toContain("@vite-hub/sandbox")
   })
 
-  it("keeps provider adapters off the hosted runtime surface", async () => {
+  it("keeps hosted runtime setup off the public Workspace surface", async () => {
+    const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
     const hosted = await import("../src/hosted.ts")
 
+    expect(packageJson.exports).not.toHaveProperty("./hosted")
+    expect(packageJson.exports).toHaveProperty("./internal/runtime/hosted")
     expect(hosted).toHaveProperty("configureHostedWorkspaceRuntime")
     expect(hosted).toHaveProperty("installHostedWorkspaceRuntime")
     expect(hosted).not.toHaveProperty("createCloudflareArtifactsWorkspaceStore")

@@ -38,6 +38,7 @@ export default defineConfig({
     ],
     exports: {
       exclude: [
+        "hosted",
         "runtime/assets",
         "runtime/empty-assets-registry",
         "runtime/empty-registry",
@@ -51,6 +52,7 @@ export default defineConfig({
         exports["./internal/runtime/empty-assets-registry"] =
           "./dist/runtime/empty-assets-registry.js";
         exports["./internal/runtime/empty-registry"] = "./dist/runtime/empty-registry.js";
+        exports["./internal/runtime/hosted"] = "./dist/hosted.js";
         exports["./internal/runtime/state"] = "./dist/runtime/state.js";
         exports["./internal/stores/cloudflare-artifacts"] =
           "./dist/providers/cloudflare/artifacts-store.js";

@@ -70,7 +70,7 @@ export default defineConfig({
       "src/workflow/runtime/state.ts",
       "src/workspace.ts",
       "src/workspace/cloudflare.ts",
-      "src/workspace/hosted.ts",
+      "src/workspace/internal/runtime/hosted.ts",
       "src/workspace/loader.ts",
       "src/workspace/publish.ts",
       "src/workspace/runtime.ts",

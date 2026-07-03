@@ -312,7 +312,7 @@ function generatedHostedWorkspaceRuntimeSetup(definitions: DiscoveredAgentDefini
     .filter((module): module is string => Boolean(module))
   if (!modules.length) return { imports: [], setup: [] }
   return {
-    imports: [`import { installHostedWorkspaceRuntime } from ${JSON.stringify(subpath(workspaceImportBase, "hosted"))}`],
+    imports: [`import { installHostedWorkspaceRuntime } from ${JSON.stringify(subpath(workspaceImportBase, "internal/runtime/hosted"))}`],
     setup: [
       "function hasHostedWorkspaceStore(module) {",
       "  const agent = resolveAgentModule(module)",
