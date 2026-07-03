@@ -21,7 +21,7 @@ catalogs:
   auth:
     better-auth: ^1.6.18
   chat:
-    chat: ^4.29.0
+    chat: ^4.32.0
     chat-state-cloudflare-do: ^0.2.0
   database:
     "@libsql/client": ^0.15.15
