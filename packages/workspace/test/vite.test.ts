@@ -580,6 +580,39 @@ describe("hubWorkspace", () => {
     await expect(readFile(join(root, "server", "plugins", "vitehub-workspace.ts"), "utf8")).rejects.toThrow()
   })
 
+  it("preserves lazy GitHub store callbacks in generated Nitro runtime setup", async () => {
+    const root = await createViteRoot()
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const config = plugin.config as (
+      config: { nitro?: { plugins?: string[] }, root: string, workspace?: { store?: { provider: "github", repository?: () => string | undefined, root?: string, token?: () => string | undefined } } },
+      env: { command: "build", mode: string },
+    ) => Promise<{ nitro?: { plugins?: string[] } }>
+    const userConfig: Parameters<typeof config>[0] = {
+      root,
+      workspace: {
+        store: {
+          provider: "github",
+          repository: () => process.env.WORKSPACE_REPO,
+          root: "app/server/workspaces/mirror",
+          token: () => process.env.WORKSPACE_TOKEN,
+        },
+      },
+    }
+
+    await expect(config(userConfig, { command: "build", mode: "production" })).resolves.toMatchObject({
+      nitro: {
+        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+      },
+    })
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("configureHostedWorkspaceRuntime")
+    expect(pluginSource).toContain('"repository": () => process.env.WORKSPACE_REPO')
+    expect(pluginSource).toContain('"token": () => process.env.WORKSPACE_TOKEN')
+    expect(pluginSource).not.toContain('"token": "********"')
+  })
+
   it("emits Nitro hosted runtime setup for explicit Vercel Blob workspace stores", async () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")

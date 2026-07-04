@@ -250,6 +250,37 @@ function shouldConfigureRuntime(options: false | WorkspaceModuleOptions | undefi
   return isHostedWorkspaceStore(normalized.store) || hasExplicitWorkspaceRuntimeOptions(options)
 }
 
+function renderRuntimeValue(value: unknown, depth = 0): string {
+  if (typeof value === "function") return value.toString()
+  if (Array.isArray(value)) {
+    if (!value.length) return "[]"
+    const indent = "  ".repeat(depth + 1)
+    const closingIndent = "  ".repeat(depth)
+    return `[\n${value.map(item => `${indent}${renderRuntimeValue(item, depth + 1)}`).join(",\n")}\n${closingIndent}]`
+  }
+  if (isRecord(value)) {
+    const entries = Object.entries(value).filter(([, entry]) => entry !== undefined)
+    if (!entries.length) return "{}"
+    const indent = "  ".repeat(depth + 1)
+    const closingIndent = "  ".repeat(depth)
+    return `{\n${entries.map(([key, entry]) => `${indent}${JSON.stringify(key)}: ${renderRuntimeValue(entry, depth + 1)}`).join(",\n")}\n${closingIndent}}`
+  }
+  return JSON.stringify(value)
+}
+
+function runtimeWorkspaceConfig(config: false | ResolvedWorkspaceModuleOptions, options: false | WorkspaceModuleOptions | undefined): false | ResolvedWorkspaceModuleOptions {
+  if (!config || config.store.provider !== "github" || !options) return config
+  const store = options.store
+  if (!store || "readFile" in store || store.provider !== "github") return config
+  const runtimeStore = { ...config.store }
+  for (const key of ["branch", "repo", "repository", "root", "token"] as const) {
+    if (typeof store[key] === "function") {
+      runtimeStore[key] = store[key]
+    }
+  }
+  return { ...config, store: runtimeStore }
+}
+
 function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptions, registryImport: string, installHostedRuntime: boolean): string {
   const runtimeImports = config && isHostedWorkspaceStore(config.store)
     ? [
@@ -261,10 +292,10 @@ function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptio
         `import { ${config ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'`,
       ]
   const runtimeSetup = config && isHostedWorkspaceStore(config.store)
-    ? [`  configureHostedWorkspaceRuntime(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`]
+    ? [`  configureHostedWorkspaceRuntime(${renderRuntimeValue({ root: config.root, store: config.store })})`]
     : [
         ...(installHostedRuntime ? ["  installHostedWorkspaceRuntime()"] : []),
-        ...(config ? [`  setWorkspaceRuntimeConfig(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`] : []),
+        ...(config ? [`  setWorkspaceRuntimeConfig(${renderRuntimeValue({ root: config.root, store: config.store })})`] : []),
       ]
 
   return [
@@ -279,9 +310,10 @@ function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptio
   ].join("\n")
 }
 
-async function writeNitroWorkspacePlugin(root: string, config: false | ResolvedWorkspaceModuleOptions, definitions: DiscoveredWorkspaceDefinition[]): Promise<void> {
+async function writeNitroWorkspacePlugin(root: string, config: false | ResolvedWorkspaceModuleOptions, options: false | WorkspaceModuleOptions | undefined, definitions: DiscoveredWorkspaceDefinition[]): Promise<void> {
   const pluginFile = resolve(root, generatedNitroWorkspacePlugin)
   const registryFile = resolve(root, generatedNitroWorkspaceRegistry)
+  const runtimeConfig = runtimeWorkspaceConfig(config, options)
   await Promise.all([
     mkdir(dirname(pluginFile), { recursive: true }),
     mkdir(dirname(registryFile), { recursive: true }),
@@ -289,7 +321,7 @@ async function writeNitroWorkspacePlugin(root: string, config: false | ResolvedW
   await writeFile(registryFile, createWorkspaceRegistryContents(registryFile, definitions), "utf8")
   await writeFile(
     pluginFile,
-    renderNitroWorkspacePlugin(config, moduleImportSpecifier(pluginFile, registryFile), definitions.length > 0 && !(config && isHostedWorkspaceStore(config.store))),
+    renderNitroWorkspacePlugin(runtimeConfig, moduleImportSpecifier(pluginFile, registryFile), definitions.length > 0 && !(runtimeConfig && isHostedWorkspaceStore(runtimeConfig.store))),
     "utf8",
   )
 }
@@ -309,7 +341,7 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
   if (!isHostedWorkspaceStore(normalized.store) && !hasExplicitWorkspaceRuntimeOptions(workspaceOptions) && definitions.length === 0) return null
 
   const runtimeConfig = shouldConfigureRuntime(workspaceOptions, normalized) ? normalized : false
-  await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, definitions)
+  await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions)
   return mergeNitroWorkspaceConfig(options.nitro)
 }
 
@@ -381,7 +413,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       const definitions = normalized ? discoverDefinitions(roots) : []
       if (normalized && shouldInstallNitroWorkspacePlugin(config, workspaceOptions, normalized, definitions)) {
         const runtimeConfig = shouldConfigureRuntime(workspaceOptions, normalized) ? normalized : false
-        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, definitions)
+        await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions)
         const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
         ;(config as ViteConfigWithWorkspaceNitro).nitro = nitro
         viteConfig.nitro = nitro
