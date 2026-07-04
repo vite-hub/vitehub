@@ -403,7 +403,12 @@ async function copySandboxChangesToWorkspace(
 
   const diff = await session.diff()
   if (diff.entries.length) {
-    const commitOptions = commit?.(diff) || undefined
+    if (!commit) {
+      await session.commit({ message: "harness-workspace-session" })
+      return
+    }
+    const commitOptions = commit(diff)
+    if (!commitOptions) return
     await session.commit({ message: commitOptions?.message || "harness-workspace-session" })
   }
 }

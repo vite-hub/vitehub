@@ -465,6 +465,47 @@ describe("Harness Workspace Session", () => {
     expect(workspaceSession.close).toHaveBeenCalledOnce()
   })
 
+  it.each([[false], [null], [undefined]] as const)("skips harness commits when the commit callback returns %s", async (commitPlan) => {
+    const updated = bytes("new")
+    const diff = {
+      entries: [{ path: "README.md", type: "modified" }],
+      to: "next",
+    }
+    const workspaceSession = {
+      close: vi.fn(async () => {}),
+      commit: vi.fn(async () => {}),
+      diff: vi.fn(async () => diff),
+      mkdir: vi.fn(async () => {}),
+      rm: vi.fn(async () => {}),
+      writeFile: vi.fn(async () => {}),
+    }
+    const commit = vi.fn(() => commitPlan)
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: {
+        list: vi.fn(async () => [{ mediaType: "text/markdown", path: "README.md", type: "file" }]),
+        readFile: vi.fn(async () => bytes("old")),
+      },
+      startSession: vi.fn(async () => workspaceSession),
+      tools: {},
+    } as never, {
+      commit,
+      session: {
+        readBinaryFile: vi.fn(async () => updated),
+        run: sandboxRun(["README.md"]),
+        writeBinaryFile: vi.fn(async () => {}),
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    await session.close()
+
+    expect(workspaceSession.writeFile).toHaveBeenCalledWith("README.md", updated, { mediaType: "text/markdown" })
+    expect(commit).toHaveBeenCalledWith(diff)
+    expect(workspaceSession.commit).not.toHaveBeenCalled()
+    expect(workspaceSession.close).toHaveBeenCalledOnce()
+  })
+
   it("commits harness symlinks as Git symlink blobs", async () => {
     const workspaceSession = {
       close: vi.fn(async () => {}),
