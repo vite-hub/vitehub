@@ -11,10 +11,10 @@ import {
   resolveGitHubRepositoryOption,
   resolveGitHubRootOption,
   resolveGitHubTokenOption,
-  type GitHubWorkspaceOption,
 } from "../providers/github/shared.ts"
 
 import type {
+  GitHubWorkspaceOption,
   PublishContext,
   WorkspaceFile,
   WorkspacePublisher,

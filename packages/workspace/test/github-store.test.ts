@@ -159,6 +159,26 @@ describe("GitHub workspace store", () => {
     },
   );
 
+  it("uses lazy options preserved by runtime GitHub store normalization", async () => {
+    const { normalizeWorkspaceStoreOptions } = await import("../src/config.ts");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const normalized = normalizeWorkspaceStoreOptions(
+      {
+        provider: "github",
+        repository: () => "onmax/repo",
+        root: () => ".vitehub/workspaces/<workspace>",
+        token: () => "callback-token",
+      },
+      { env: {}, runtime: true },
+    );
+    if (!normalized || normalized.provider !== "github") throw new Error("Expected GitHub workspace store options.");
+    const store = createGitHubWorkspaceStore(normalized, "docs");
+
+    await expect(store.list("", { recursive: true })).resolves.toEqual([]);
+
+    expect(requests[0]?.headers.get("authorization")).toBe("Bearer callback-token");
+  });
+
   it("reads, lists, stats, writes, snapshots, and persists metadata through GitHub", async () => {
     seedRemote(".vitehub/workspaces/docs/data/existing.json", '{"ok":true}\n');
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");

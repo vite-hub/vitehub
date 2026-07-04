@@ -3,6 +3,7 @@ import { gzipSync } from "node:zlib"
 import { lookup } from "mrmime"
 
 import { contentToBytes, normalizeSafeWorkspacePath } from "../core/path.ts"
+import { resolveWorkspaceAutoCommit } from "../core/rules.ts"
 import type {
   ReadonlyWorkspaceFacade,
   WritableWorkspaceFacade,
@@ -10,6 +11,7 @@ import type {
 import { isMissingWorkspacePathError } from "./scope.ts"
 import type {
   MkdirOptions,
+  WorkspaceDefinition,
   WorkspaceEntry,
   WorkspaceSession,
   WorkspaceSessionOptions,
@@ -27,6 +29,7 @@ export interface HarnessWorkspaceSession {
 
 export interface PrepareHarnessWorkspaceSessionOptions {
   abortSignal?: AbortSignal
+  definition?: WorkspaceDefinition
   ignoreWriteBackPaths?: readonly string[]
   paths?: readonly string[]
   session: HarnessSandboxSession
@@ -351,6 +354,7 @@ async function copyWorkspaceToSandbox(
 
 async function copySandboxChangesToWorkspace(
   session: WorkspaceSession,
+  definition: WorkspaceDefinition | undefined,
   sandbox: HarnessSandboxSession,
   sessionWorkDir: string,
   initialTree: InitialTree,
@@ -399,7 +403,10 @@ async function copySandboxChangesToWorkspace(
   }
 
   const diff = await session.diff()
-  if (diff.entries.length) await session.commit({ message: "harness-workspace-session" })
+  if (!diff.entries.length) return
+  const commit = definition ? resolveWorkspaceAutoCommit(definition, diff) : undefined
+  if (definition && !commit) return
+  await session.commit({ message: commit?.message || "harness-workspace-session" })
 }
 
 export async function prepareHarnessWorkspaceSession(
@@ -420,6 +427,7 @@ export async function prepareHarnessWorkspaceSession(
         if (!error && workspaceSession) {
           await copySandboxChangesToWorkspace(
             workspaceSession,
+            options.definition,
             options.session,
             options.sessionWorkDir,
             initialTree,

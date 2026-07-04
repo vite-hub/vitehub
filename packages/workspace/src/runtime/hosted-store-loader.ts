@@ -3,12 +3,18 @@ import type { CloudflareArtifactsWorkspaceStoreOptions, GitHubWorkspaceStoreOpti
 export type HostedWorkspaceStoreOptions = CloudflareArtifactsWorkspaceStoreOptions | GitHubWorkspaceStoreOptions | VercelBlobWorkspaceStoreOptions
 export type WorkspaceHostedStoreLoader = (options: HostedWorkspaceStoreOptions, workspaceName: string) => WorkspaceStore
 
-let workspaceHostedStoreLoader: WorkspaceHostedStoreLoader | undefined
+const workspaceHostedStoreLoaderKey = Symbol.for("vitehub.workspace.hostedStoreLoader")
+
+type WorkspaceHostedStoreLoaderGlobal = typeof globalThis & Record<symbol, WorkspaceHostedStoreLoader | undefined>
+
+function workspaceHostedStoreLoaderGlobal(): WorkspaceHostedStoreLoaderGlobal {
+  return globalThis as WorkspaceHostedStoreLoaderGlobal
+}
 
 export function setWorkspaceHostedStoreLoader(loader: WorkspaceHostedStoreLoader | undefined): void {
-  workspaceHostedStoreLoader = loader
+  workspaceHostedStoreLoaderGlobal()[workspaceHostedStoreLoaderKey] = loader
 }
 
 export function getWorkspaceHostedStoreLoader(): WorkspaceHostedStoreLoader | undefined {
-  return workspaceHostedStoreLoader
+  return workspaceHostedStoreLoaderGlobal()[workspaceHostedStoreLoaderKey]
 }

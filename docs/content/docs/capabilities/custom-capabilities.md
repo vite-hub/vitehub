@@ -112,7 +112,7 @@ export function ticketContext() {
 }
 ```
 
-Use `harnessWorkspacePaths` when a harness-backed Agent needs specific contributed paths materialized into the harness Workspace Session.
+For harness-backed Agents, declare files a Capability needs through `requires.workspace.paths` or contribute them through Workspace Sources. The harness Workspace Session materializes the selected Workspace scope; applications should not maintain a separate harness-specific path list.
 
 ## Add a Capability CLI
 

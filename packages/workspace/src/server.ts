@@ -3,6 +3,7 @@ import { lookup } from "mrmime"
 
 import { WorkspaceNotFoundError, WorkspacePathError } from "./core/errors.ts"
 import { matchesAny, normalizeSafeWorkspacePath } from "./core/path.ts"
+import { resolveWorkspaceAutoCommit } from "./core/rules.ts"
 import { useWorkspace } from "./core/use.ts"
 
 import type { H3Event } from "h3"
@@ -24,6 +25,13 @@ type WorkspaceSessionStarter = {
 }
 type ResponseBody = ConstructorParameters<typeof Response>[0]
 type ResponseHeaders = ConstructorParameters<typeof Headers>[0]
+
+function hasWorkspaceCommitRules(definition: WorkspaceDefinition): boolean {
+  return [
+    ...Object.values(definition.rules || {}),
+    ...(definition.plugins || []).flatMap(plugin => Object.values(plugin.rules || {})),
+  ].some(rule => rule.commit !== undefined)
+}
 
 export interface WorkspaceFileResponseOptions<Name extends WorkspaceName = WorkspaceName> {
   allow?: string[]
@@ -53,7 +61,15 @@ export interface WorkspaceDevTokenOptions {
   serverId?: string
 }
 
-const workspaceDevTokens = new Map<string, string>()
+const workspaceDevTokensKey = Symbol.for("vitehub.workspace.devTokens")
+
+type WorkspaceDevTokensGlobal = typeof globalThis & Record<symbol, Map<string, string> | undefined>
+
+function workspaceDevTokens(): Map<string, string> {
+  const scope = globalThis as WorkspaceDevTokensGlobal
+  scope[workspaceDevTokensKey] ??= new Map()
+  return scope[workspaceDevTokensKey]
+}
 
 export function workspaceDevTokenServerId(port?: number | string | null): string {
   return `${process.pid}:${port ?? "unknown"}`
@@ -90,7 +106,7 @@ function randomToken(): string {
 export async function refreshWorkspaceDevToken(rootDir: string, options: WorkspaceDevTokenOptions = {}): Promise<string> {
   const token = randomToken()
   const tokenRoot = await workspaceDevTokenRoot(rootDir, options)
-  workspaceDevTokens.set(tokenRoot.key, token)
+  workspaceDevTokens().set(tokenRoot.key, token)
   const [{ mkdir, rm, writeFile }, { dirname }] = await Promise.all([
     import("node:fs/promises"),
     import("node:path"),
@@ -103,7 +119,7 @@ export async function refreshWorkspaceDevToken(rootDir: string, options: Workspa
 }
 
 export async function ensureWorkspaceDevToken(rootDir: string, options: WorkspaceDevTokenOptions = {}): Promise<string> {
-  const existing = workspaceDevTokens.get((await workspaceDevTokenRoot(rootDir, options)).key)
+  const existing = workspaceDevTokens().get((await workspaceDevTokenRoot(rootDir, options)).key)
   return existing || await refreshWorkspaceDevToken(rootDir, options)
 }
 
@@ -216,8 +232,11 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
 ): Promise<ExecResult> {
   const command = input.command.trim()
   if (!command) throw new Error("Workspace Dev command cannot be empty.")
+  const definition = input.definition && !input.definition.runtime
+    ? { ...input.definition, runtime: "trusted-host" as const }
+    : input.definition
   const workspace = typeof input.workspace === "string"
-    ? await useWorkspace(input.workspace, input.definition ? { definition: input.definition, mode: "write" } as { mode: "write" } : { mode: "write" })
+    ? await useWorkspace(input.workspace, definition ? { definition, mode: "write" } as { mode: "write" } : { mode: "write" })
     : input.workspace
   const starter = workspaceSessionStarter(workspace) ?? workspaceSessionStarter(workspace.fs)
   const startSession = starter?.startSession.bind(starter)
@@ -228,8 +247,10 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
     const result = input.args
       ? await session.exec(command, input.args, execOptions)
       : await session.exec("sh", ["-lc", command], execOptions)
-    if (result.exitCode === 0 && (await session.diff()).entries.length) {
-      await session.commit({ message: "workspace dev command" })
+    const diff = result.exitCode === 0 ? await session.diff() : undefined
+    if (diff?.entries.length) {
+      const commit = definition ? resolveWorkspaceAutoCommit(definition, diff) : undefined
+      if (!definition || !hasWorkspaceCommitRules(definition) || commit) await session.commit({ message: commit?.message || "workspace dev command" })
     }
     return result
   }

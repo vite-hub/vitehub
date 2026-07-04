@@ -50,6 +50,9 @@ type WorkspaceAccessRuntime = Pick<
 
 type WorkspaceSourceRequestExecution = ReturnType<WorkspaceAccessRuntime["getWorkspaceSourceRequestExecution"]>
 type WorkspaceSessionStarter = { startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession> }
+type WorkspaceMaterializationContext = AgentCapabilityRuntimeContext & {
+  workspaceMaterializationPaths?: readonly string[]
+}
 
 export type AccessRoleName = "viewer" | "admin" | (string & {})
 
@@ -316,7 +319,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       }
       const workspaceRuntime = await loadWorkspaceAccessRuntime()
       const scope = await resolveWorkspaceScope(options.workspace, context, workspaceRuntime)
-      const sourceResolutionScope = withHarnessWorkspacePaths(scope, context.harnessWorkspacePaths)
+      const sourceResolutionScope = withHarnessWorkspacePaths(scope, workspaceMaterializationPaths(context))
       const sourceResolutionOptions = {
         invocation: {
           context: context.context,
@@ -330,7 +333,7 @@ export function access(options: AccessCapabilityOptions): AgentCapabilityDefinit
       const hasSourceResolvers = context.workspaceDefinition
         ? workspaceRuntime.hasWorkspaceSourceResolvers(context.workspaceDefinition)
         : false
-      const finalScope = withHarnessWorkspacePaths(finalizeResolvedWorkspaceScope(scope, resolvedDefinition, workspaceRuntime), context.harnessWorkspacePaths)
+      const finalScope = withHarnessWorkspacePaths(finalizeResolvedWorkspaceScope(scope, resolvedDefinition, workspaceRuntime), workspaceMaterializationPaths(context))
       const sourceResolution = resolvedDefinition
         ? await workspaceRuntime.createWorkspaceSourceResolutionFacade(context.workspace as never, resolvedDefinition, {
             ...sourceResolutionOptions,
@@ -472,6 +475,10 @@ function withHarnessWorkspacePaths(scope: ResolvedWorkspaceScope, paths: readonl
     ...scope,
     paths: [...new Set([...scope.paths, ...paths])],
   }
+}
+
+function workspaceMaterializationPaths(context: AgentCapabilityRuntimeContext): readonly string[] {
+  return (context as WorkspaceMaterializationContext).workspaceMaterializationPaths || []
 }
 
 async function resolveSelection<

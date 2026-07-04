@@ -2,7 +2,8 @@ import { existsSync, statSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
+import { createGitHubWorkspaceStore } from "@vite-hub/workspace/internal/stores/github"
+import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
 import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
 
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
@@ -298,6 +299,12 @@ async function installServerAgentWorkspaceRegistry(
       },
     ]))),
   } satisfies WorkspaceRegistry
+  const existingWorkspaceHostedStoreLoader = getWorkspaceHostedStoreLoader()
+  setWorkspaceHostedStoreLoader((storeOptions, workspaceName) => {
+    if (storeOptions.provider === "github") return createGitHubWorkspaceStore(storeOptions, workspaceName)
+    if (existingWorkspaceHostedStoreLoader) return existingWorkspaceHostedStoreLoader(storeOptions, workspaceName)
+    throw new Error(`[vitehub] Hosted workspace store "${storeOptions.provider}" is not available in this runtime.`)
+  })
   setWorkspaceRuntimeRegistry(registry)
   return registry
 }

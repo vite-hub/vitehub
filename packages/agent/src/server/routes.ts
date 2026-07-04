@@ -8,6 +8,7 @@ import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "../chat-trigger.ts"
 import { chatTriggerHistoryLimit, resolveChatTriggerHistory, uiMessagesToAgentMessages } from "../chat-message-input.ts"
+import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { normalizeAgentInvokerProfiles, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
@@ -348,7 +349,7 @@ async function resolveMaybe<T, TContext extends AgentRuntimeContext>(
 function getAgentCapabilities(agent: unknown): AgentCapabilityDefinition[] {
   if (!isRecord(agent)) return []
   const definition = agent as AgentDefinitionWithCapabilities
-  return definition.__vitehubWorkspaceAgentOptions?.capabilities || definition.capabilities || []
+  return normalizeCapabilities(definition.__vitehubWorkspaceAgentOptions?.capabilities || definition.capabilities)
 }
 
 function getAgentChatOptions(agent: unknown): AgentChatOptions | undefined {
@@ -878,14 +879,14 @@ function audioData(value: unknown): AudioData | undefined {
 }
 
 function audioPartFromAttachment(attachment: Attachment, index: number): MessagePart | undefined {
-  if (attachment.type !== "audio") return undefined
   const mediaType = typeof attachment.mimeType === "string" && attachment.mimeType.startsWith("audio/")
     ? attachment.mimeType
-    : "audio/ogg"
+    : undefined
+  if (attachment.type !== "audio" && !mediaType) return undefined
   const base = objectWithoutUndefined({
     fetchMetadata: attachment.fetchMetadata,
     id: `audio-${index + 1}`,
-    mediaType,
+    mediaType: mediaType ?? "audio/ogg",
     name: attachment.name,
     size: attachment.size,
     type: "audio" as const,
@@ -912,11 +913,12 @@ function audioPartFromAttachment(attachment: Attachment, index: number): Message
   return undefined
 }
 
-function chatMessageParts(message: ChatSdkMessage): MessagePart[] {
+function chatMessageParts(message: ChatSdkMessage, options: { includeAudioAttachments?: boolean } = {}): MessagePart[] {
   const parts: MessagePart[] = []
   if (message.text) {
     parts.push({ id: "text-0", text: message.text, type: "text" })
   }
+  if (!options.includeAudioAttachments) return parts
   for (const [index, attachment] of message.attachments.entries()) {
     const part = audioPartFromAttachment(attachment, index)
     if (part) parts.push(part)
@@ -943,12 +945,16 @@ function chatMessageMetadata(thread: Thread, message: ChatSdkMessage, messageCon
   })
 }
 
-function chatSdkMessageToUiMessage(message: ChatSdkMessage, metadata?: Record<string, unknown>): UIMessageLike {
+function chatSdkMessageToUiMessage(
+  message: ChatSdkMessage,
+  metadata?: Record<string, unknown>,
+  options?: { includeAudioAttachments?: boolean },
+): UIMessageLike {
   return {
     createdAt: isoDate(message.metadata.dateSent),
     id: message.id,
     ...(metadata ? { metadata } : {}),
-    parts: chatMessageParts(message),
+    parts: chatMessageParts(message, options),
     role: message.author.isMe ? "assistant" : "user",
   }
 }
@@ -979,22 +985,23 @@ async function chatTriggerMessages(
   message: ChatSdkMessage,
   options: AgentChatOptions | undefined,
   messageContext?: MessageContext,
+  messageOptions?: { includeAudioAttachments?: boolean },
 ): Promise<UIMessageLike[]> {
-  const current = chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext))
+  const current = chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), messageOptions)
   const limit = chatTriggerHistoryLimit(resolveChatTriggerHistory(options))
   if (!limit) return [current]
 
   const fetchedNewestFirst: UIMessageLike[] = []
   try {
     for await (const item of thread.messages) {
-      fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item))
+      fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item, undefined, messageOptions))
       if (fetchedNewestFirst.length >= limit) break
     }
   } catch {}
 
   const durable = await durableChatThreadMessages(thread, limit)
   const messages = [
-    ...durable.map(item => item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item)),
+    ...durable.map(item => item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item, undefined, messageOptions)),
     ...fetchedNewestFirst.slice().reverse(),
   ].reduce<UIMessageLike[]>((deduped, item) => {
     if (!item.id) {
@@ -1252,8 +1259,14 @@ async function handleChatSdkMessage(
   let run: AgentRunMetadata | undefined
   let typing: ChatTypingRefresh | undefined
   try {
-    const messages = await chatTriggerMessages(thread, message, options, messageContext)
-    const currentMessage = chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext))
+    const messageOptions = {
+      includeAudioAttachments: getAgentCapabilities(agent).some((capability) => {
+        const metadata = capability.metadata as { chatAttachments?: { audio?: unknown } } | undefined
+        return capability.chatAttachments?.audio === true || metadata?.chatAttachments?.audio === true
+      }),
+    }
+    const messages = await chatTriggerMessages(thread, message, options, messageContext, messageOptions)
+    const currentMessage = chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), messageOptions)
     if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) return
     input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, messages, messageContext, registration.channelId)
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
