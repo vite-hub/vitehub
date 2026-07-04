@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Readable } from "node:stream"
 
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { Connect } from "vite"
@@ -218,6 +218,10 @@ async function waitFor(assertion: () => void | Promise<void>) {
 }
 
 describe("Agent Invocation Stream write workspace finish lifecycle", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   beforeEach(() => {
     order.length = 0
     diff.mockClear()
@@ -467,6 +471,40 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
         mode: "write",
         store: { provider: "github", repository: "onmax/bitacora-de-vida", root: "/" },
       },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+    const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "support",
+      workspaceCommand: { command: "ls" },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      [workspaceDevTokenHeader]: token,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(installHostedWorkspaceRuntime).toHaveBeenCalledOnce()
+    expect(workspaceStartSession).toHaveBeenCalled()
+  })
+
+  it("installs hosted workspace runtime for Agent Workspace commands with env-default Vercel Blob storage", async () => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "runtime-token")
+
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workspace-command-env-hosted-"))
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+
+    const { readWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } = await import("@vite-hub/workspace/server")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      driver: { run: () => "unused" },
+      workspace: { mode: "write" },
     })
     const { handlers, server } = createFakeServer(root, { default: agent })
     const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })

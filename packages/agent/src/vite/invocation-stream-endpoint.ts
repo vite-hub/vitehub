@@ -273,6 +273,15 @@ function isWorkspaceRegistry(value: unknown): value is WorkspaceRegistry {
   return isRecord(value) && Object.values(value).every(item => typeof item === "function")
 }
 
+function hasHostedWorkspaceStore(agent: AgentInput<ViteAgentDevRuntimeContext>): boolean {
+  const options = isRecord(agent) && isRecord(agent.__vitehubWorkspaceAgentOptions) ? agent.__vitehubWorkspaceAgentOptions : undefined
+  const workspace = isRecord(options?.workspace) ? options.workspace : undefined
+  const store = isRecord(workspace?.store) ? workspace.store : undefined
+  if (!workspace) return false
+  if (!store && typeof process === "object" && process?.env?.BLOB_READ_WRITE_TOKEN) return true
+  return store?.provider === "cloudflare-artifacts" || store?.provider === "github" || store?.provider === "vercel-blob"
+}
+
 async function loadViteWorkspaceRegistry(server: ViteDevServer): Promise<WorkspaceRegistry> {
   if (!server.config.plugins?.some(plugin => plugin.name === "@vite-hub/workspace/vite")) return {}
   const mod = await server.ssrLoadModule(workspaceRegistryId) as { default?: unknown }
@@ -283,12 +292,7 @@ async function installServerAgentWorkspaceRegistry(
   server: ViteDevServer,
   entries: Array<{ agent: AgentInput<ViteAgentDevRuntimeContext>, aliases?: string[], definition: DiscoveredAgentDefinition }>,
 ): Promise<WorkspaceRegistry> {
-  if (entries.some(({ agent }) => {
-    const options = isRecord(agent) && isRecord(agent.__vitehubWorkspaceAgentOptions) ? agent.__vitehubWorkspaceAgentOptions : undefined
-    const workspace = isRecord(options?.workspace) ? options.workspace : undefined
-    const store = isRecord(workspace?.store) ? workspace.store : undefined
-    return store?.provider === "cloudflare-artifacts" || store?.provider === "github" || store?.provider === "vercel-blob"
-  })) installHostedWorkspaceRuntime()
+  if (entries.some(({ agent }) => hasHostedWorkspaceStore(agent))) installHostedWorkspaceRuntime()
 
   const registry = {
     ...await loadViteWorkspaceRegistry(server),

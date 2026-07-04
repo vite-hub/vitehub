@@ -66,7 +66,6 @@ For adapter-backed delivery, inspect the Channel-generated webhook registrations
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `webhooks` | `Record<string, webhook \| webhook[] \| false>` | none | Explicit Chat Webhook registrations for non-Channel trigger consumers. |
 | `hooks` | `AgentChatEventHooks` | none | Chat event hooks such as `onDirectMessage`. |
 | `event` | `"directMessage"` | none | Chat event binding hint. |
 | `history` | `boolean \| "none" \| { source: "thread"; maxMessages?: number }` | inherited | Chat History selection for message input. |
