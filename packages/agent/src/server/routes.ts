@@ -8,6 +8,7 @@ import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "../chat-trigger.ts"
 import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
+import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { normalizeAgentInvokerProfiles, resolveAgentInvoker, withResolvedAgentInvokerInput } from "../invoker.ts"
@@ -348,7 +349,7 @@ async function resolveMaybe<T, TContext extends AgentRuntimeContext>(
 function getAgentCapabilities(agent: unknown): AgentCapabilityDefinition[] {
   if (!isRecord(agent)) return []
   const definition = agent as AgentDefinitionWithCapabilities
-  return definition.__vitehubWorkspaceAgentOptions?.capabilities || definition.capabilities || []
+  return normalizeCapabilities(definition.__vitehubWorkspaceAgentOptions?.capabilities || definition.capabilities)
 }
 
 function getAgentChatOptions(agent: unknown): AgentChatOptions | undefined {

@@ -370,6 +370,34 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
+  it("does not pass non-commit Workspace rules to harness workspace sessions", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {
+        mode: "write",
+        rules: {
+          "uploads/**": { maxBytes: 1024, write: true },
+        },
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    const options = prepareHarnessWorkspaceSession.mock.calls[0]?.[1] as Record<string, unknown>
+    expect(options).not.toHaveProperty("definition")
+    expect(options.paths).toEqual(["uploads", "AGENTS.md", "CLAUDE.md"])
+  })
+
   it("records opt-in skill shell execution mode", async () => {
     const { skills } = await import("../src/capabilities.ts")
 

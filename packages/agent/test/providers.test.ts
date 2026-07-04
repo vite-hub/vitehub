@@ -2044,6 +2044,73 @@ describe("server helpers", () => {
     })])
   })
 
+  it("maps audio mime file attachments for nested custom audio capabilities", async () => {
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let inputMessages: unknown
+    const input = vi.fn((context: { input: { messages: () => unknown } }) => {
+      inputMessages = context.input.messages()
+    })
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          capabilities: [
+            defineCapability({
+              chatAttachments: { audio: true },
+              id: "nested-audio",
+              input,
+            }),
+          ],
+          id: "audio-bundle",
+        }),
+      ],
+      channels: {
+        telegram: telegram({ adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 42,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          document: {
+            file_id: "forwarded-audio-file",
+            file_name: "forwarded.ogg",
+            file_size: 3,
+            mime_type: "audio/ogg",
+          },
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 111,
+          text: "reenviado",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(input).toHaveBeenCalledOnce()
+    expect(inputMessages).toEqual([expect.objectContaining({
+      parts: expect.arrayContaining([
+        expect.objectContaining({ text: "reenviado", type: "text" }),
+        expect.objectContaining({
+          fetchData: expect.any(Function),
+          fetchMetadata: { fileId: "forwarded-audio-file" },
+          mediaType: "audio/ogg",
+          name: "forwarded.ogg",
+          type: "audio",
+        }),
+      ]),
+    })])
+  })
+
   it("maps audio mime file attachments through transcribe()", async () => {
     const { transcribe } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")

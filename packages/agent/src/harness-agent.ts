@@ -149,9 +149,11 @@ function workspaceRuleHarnessPaths(context: AgentAdapterRunContext): string[] {
   return rules.flatMap(([pattern, rule]) => rule.write ? [staticWorkspaceRulePath(pattern)].filter((path): path is string => path !== undefined) : [])
 }
 
-function hasWorkspaceRules(definition: AgentAdapterRunContext["workspaceDefinition"]): boolean {
-  return Boolean(definition?.rules && Object.keys(definition.rules).length)
-    || Boolean(definition?.plugins?.some(plugin => plugin.rules && Object.keys(plugin.rules).length))
+function hasWorkspaceCommitRules(definition: AgentAdapterRunContext["workspaceDefinition"]): boolean {
+  return [
+    ...Object.values(definition?.rules || {}),
+    ...(definition?.plugins || []).flatMap(plugin => Object.values(plugin.rules || {})),
+  ].some(rule => rule.commit !== undefined)
 }
 
 function workspaceSourceHarnessPaths(context: AgentAdapterRunContext): string[] {
@@ -632,7 +634,7 @@ export function createHarnessAgentAdapter<
       const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
       workspaceSession = await prepareHarnessWorkspaceSession(context.workspace, {
         abortSignal,
-        ...(hasWorkspaceRules(context.workspaceDefinition) ? { definition: context.workspaceDefinition } : {}),
+        ...(hasWorkspaceCommitRules(context.workspaceDefinition) ? { definition: context.workspaceDefinition } : {}),
         ignoreWriteBackPaths: harnessInstructions ? harnessInstructionFiles : [],
         paths: selectedWorkspaceScopePaths(context),
         session: session as never,
