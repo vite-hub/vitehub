@@ -650,8 +650,8 @@ describe("agent public types", () => {
   it("accepts message settings and channels from the Agent Definition", () => {
     const messages: AgentMessageChannelSettings = {
       concurrency: "queue",
-      history: { maxMessages: 20, source: "thread" },
       sessions: true,
+      triggerHistory: { maxMessages: 20, source: "thread" },
     }
     const channel: AgentChannelDefinition = teams()
     expectTypeOf(channel.kind).toEqualTypeOf<string>()
@@ -804,7 +804,7 @@ describe("agent public types", () => {
     defineAgent({
       channels: {
         web: webChat({
-          messages: { history: false },
+          messages: { triggerHistory: "none" },
         }),
       },
       driver: { run: () => "ok" },

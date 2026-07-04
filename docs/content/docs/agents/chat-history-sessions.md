@@ -25,13 +25,14 @@ export default defineAgent({
   },
   capabilities: [
     chat({
-      history: { maxMessages: 20, source: 'thread' },
+      triggerHistory: { maxMessages: 20, source: 'thread' },
     }),
   ],
 })
 ```
 
 The Chat History Window limits how many prior messages enter the Agent Invocation. It does not delete the host's preserved history.
+When `threadHistory.maxMessages` is configured and `triggerHistory` is omitted, ViteHub derives a thread-backed Chat History Window from that explicit bound.
 
 ## Use threads as conversation boundaries
 
@@ -41,9 +42,9 @@ Use thread-scoped Chat History when the platform or application already has a vi
 import { chat } from '@vite-hub/agent/capabilities'
 
 export const supportChat = chat({
-  history: { maxMessages: 20, source: 'thread' },
   concurrency: 'queue',
   lockScope: 'thread',
+  threadHistory: { maxMessages: 20 },
 })
 ```
 
@@ -63,12 +64,12 @@ Sessions select which messages belong to the active conversation before the Chat
 import { chat } from '@vite-hub/agent/capabilities'
 
 export const supportChat = chat({
-  history: { maxMessages: 20, source: 'thread' },
   sessions: {
     idleTimeoutMs: 30 * 60 * 1000,
     metadataKey: 'sessionId',
     strategy: 'hybrid',
   },
+  triggerHistory: { maxMessages: 20, source: 'thread' },
 })
 ```
 
