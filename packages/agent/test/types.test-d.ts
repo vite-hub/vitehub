@@ -964,6 +964,10 @@ describe("agent public types", () => {
       platforms: () => ({ teams: teamsAdapter }),
     })
     chat({
+      // @ts-expect-error webhook routes live on adapter-backed defineAgent({ channels })
+      webhooks: { teams: { path: "/api/teams/webhook" } },
+    })
+    chat({
       // @ts-expect-error adapters was removed; use defineAgent({ channels })
       adapters: () => ({ teams: teamsAdapter }),
     })

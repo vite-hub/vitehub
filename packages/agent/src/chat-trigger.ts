@@ -233,5 +233,8 @@ export function chat<
   if (Object.prototype.hasOwnProperty.call(options, "platforms")) {
     throw new TypeError("[vitehub] chat({ platforms }) was removed. Use defineAgent({ channels }) with an adapter-backed Channel instead.")
   }
+  if (Object.prototype.hasOwnProperty.call(options, "webhooks")) {
+    throw new TypeError("[vitehub] chat({ webhooks }) was removed. Use defineAgent({ channels }) with an adapter-backed Channel instead.")
+  }
   return defineChatCapability(options as AgentChatOptions<TRuntimeConfig>) as AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName, ChatCapabilityTypeContract<string>>
 }
