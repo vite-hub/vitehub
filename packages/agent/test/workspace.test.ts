@@ -338,6 +338,38 @@ describe("defineAgent workspace option", () => {
     expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
   })
 
+  it("passes Workspace commit rules and local Vite runtime to harness workspace sessions", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {
+        commit: "chore(bitacora): update from telegram bot",
+        mode: "write",
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      definition: expect.objectContaining({
+        name: "docs",
+        rules: {
+          "**": { commit: "chore(bitacora): update from telegram bot" },
+        },
+        runtime: "trusted-host",
+      }),
+    }))
+  })
+
   it("records opt-in skill shell execution mode", async () => {
     const { skills } = await import("../src/capabilities.ts")
 
@@ -1103,13 +1135,13 @@ describe("defineAgent workspace option", () => {
       text: "ok",
     })
 
-    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: [""],
       session: harnessSandboxSession,
       sessionWorkDir: "/workspace/codex-session",
-    })
+    }))
   })
 
   it("does not widen non-global leading-wildcard rules for harness Workspace Sessions", async () => {
@@ -1149,13 +1181,13 @@ describe("defineAgent workspace option", () => {
       text: "ok",
     })
 
-    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: ["docs", "AGENTS.md", "CLAUDE.md"],
       session: harnessSandboxSession,
       sessionWorkDir: "/workspace/codex-session",
-    })
+    }))
   })
 
   it("scopes workspace instruction files into harness Agent calls without passing them as prompt instructions", async () => {
@@ -1224,13 +1256,13 @@ describe("defineAgent workspace option", () => {
       text: "ok",
     })
 
-    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: ["AGENTS.md", "CLAUDE.md", "summary.md", "artifacts/usage", "artifacts/browser", "pr-diff-summary.md"],
       session: harnessSandboxSession,
       sessionWorkDir: "/workspace/codex-session",
-    })
+    }))
   })
 
   it("passes selected Workspace Scope paths into Harness Workspace Sessions", async () => {
@@ -1316,13 +1348,13 @@ describe("defineAgent workspace option", () => {
       text: "ok",
     })
 
-    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: ["public", "AGENTS.md", "CLAUDE.md"],
       session: harnessSandboxSession,
       sessionWorkDir: "/workspace/codex-session",
-    })
+    }))
   })
 
   it("keeps all-scope Workspace Sessions unrestricted for global write rules", async () => {
@@ -1360,13 +1392,13 @@ describe("defineAgent workspace option", () => {
       text: "ok",
     })
 
-    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: [""],
       session: harnessSandboxSession,
       sessionWorkDir: "/workspace/codex-session",
-    })
+    }))
   })
 
   it("does not pass other scoped file sources into Harness Workspace Sessions", async () => {

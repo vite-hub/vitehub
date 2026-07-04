@@ -622,6 +622,7 @@ export function createHarnessAgentAdapter<
       const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
       workspaceSession = await prepareHarnessWorkspaceSession(context.workspace, {
         abortSignal,
+        ...(context.workspaceDefinition?.rules ? { definition: context.workspaceDefinition } : {}),
         ignoreWriteBackPaths: harnessInstructions ? harnessInstructionFiles : [],
         paths: selectedWorkspaceScopePaths(context),
         session: session as never,

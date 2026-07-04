@@ -443,6 +443,12 @@ describe("Harness Workspace Session", () => {
         run,
         writeBinaryFile: vi.fn(async () => {}),
       },
+      definition: {
+        name: "docs",
+        rules: {
+          "**": { commit: "chore: update docs" },
+        },
+      },
       sessionWorkDir: "/work/agent",
     })
 
@@ -461,7 +467,7 @@ describe("Harness Workspace Session", () => {
     })
     expect(workspaceSession.writeFile).toHaveBeenCalledWith("README.md", updated, { mediaType: "text/markdown" })
     expect(workspaceSession.writeFile).toHaveBeenCalledWith("new.json", added, { mediaType: "application/json" })
-    expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
+    expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "chore: update docs" })
     expect(workspaceSession.close).toHaveBeenCalledOnce()
   })
 

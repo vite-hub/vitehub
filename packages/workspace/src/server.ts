@@ -3,6 +3,7 @@ import { lookup } from "mrmime"
 
 import { WorkspaceNotFoundError, WorkspacePathError } from "./core/errors.ts"
 import { matchesAny, normalizeSafeWorkspacePath } from "./core/path.ts"
+import { resolveWorkspaceAutoCommit } from "./core/rules.ts"
 import { useWorkspace } from "./core/use.ts"
 
 import type { H3Event } from "h3"
@@ -224,8 +225,11 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
 ): Promise<ExecResult> {
   const command = input.command.trim()
   if (!command) throw new Error("Workspace Dev command cannot be empty.")
+  const definition = input.definition && !input.definition.runtime
+    ? { ...input.definition, runtime: "trusted-host" as const }
+    : input.definition
   const workspace = typeof input.workspace === "string"
-    ? await useWorkspace(input.workspace, input.definition ? { definition: input.definition, mode: "write" } as { mode: "write" } : { mode: "write" })
+    ? await useWorkspace(input.workspace, definition ? { definition, mode: "write" } as { mode: "write" } : { mode: "write" })
     : input.workspace
   const starter = workspaceSessionStarter(workspace) ?? workspaceSessionStarter(workspace.fs)
   const startSession = starter?.startSession.bind(starter)
@@ -236,8 +240,10 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
     const result = input.args
       ? await session.exec(command, input.args, execOptions)
       : await session.exec("sh", ["-lc", command], execOptions)
-    if (result.exitCode === 0 && (await session.diff()).entries.length) {
-      await session.commit({ message: "workspace dev command" })
+    const diff = result.exitCode === 0 ? await session.diff() : undefined
+    if (diff?.entries.length) {
+      const commit = definition ? resolveWorkspaceAutoCommit(definition, diff) : undefined
+      if (!definition || commit) await session.commit({ message: commit?.message || "workspace dev command" })
     }
     return result
   }

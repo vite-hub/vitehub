@@ -1291,9 +1291,15 @@ async function createAgentInvocationContext<
     const configuredDefinitionForMerge = ownsWorkspaceDefinition && registeredWorkspaceDefinition
       ? undefined
       : configuredWorkspaceDefinition
-    const resolvedWorkspaceDefinition = workspaceName
+    const baseResolvedWorkspaceDefinition = workspaceName
       ? mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
       : undefined
+    const resolvedWorkspaceDefinition = baseResolvedWorkspaceDefinition
+      && workspaceMode === "write"
+      && runtimeContext.runtime === "vite"
+      && !baseResolvedWorkspaceDefinition.runtime
+      ? { ...baseResolvedWorkspaceDefinition, runtime: "trusted-host" as const }
+      : baseResolvedWorkspaceDefinition
     if (workspaceName && ownsWorkspaceDefinition && configuredWorkspaceDefinition && !registeredWorkspaceDefinition) {
       await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
     }
