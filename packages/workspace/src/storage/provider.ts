@@ -11,6 +11,7 @@ import { createMemoryWorkspaceStore } from "./memory.ts"
 
 import type {
   CloudflareArtifactsWorkspaceStoreOptions,
+  GitHubWorkspaceOption,
   GitHubWorkspaceStoreOptions,
   VercelBlobWorkspaceStoreOptions,
   WorkspaceDefinition,
@@ -31,6 +32,10 @@ export type ResolvedWorkspaceStoreOptions = Exclude<WorkspaceStoreOptions, Works
 
 function workspaceRepoName(name: string | undefined) {
   return name ? name.replace(/[^a-zA-Z0-9_.-]/g, "-") : undefined
+}
+
+function gitHubWorkspaceOption(value: GitHubWorkspaceOption | undefined): GitHubWorkspaceOption | undefined {
+  return typeof value === "function" ? value : trimmed(value)
 }
 
 export function resolveCloudflareArtifactsStore(
@@ -78,13 +83,13 @@ export function resolveGitHubWorkspaceStore(
   input: Pick<WorkspaceResolutionInput, "runtime"> = {},
 ): GitHubWorkspaceStoreOptions {
   return {
-    branch: trimmed(config.branch) ?? readEnv(env, "WORKSPACE_GITHUB_BRANCH", "VITEHUB_WORKSPACE_GITHUB_BRANCH", "GITHUB_BRANCH") ?? "main",
+    branch: gitHubWorkspaceOption(config.branch) ?? readEnv(env, "WORKSPACE_GITHUB_BRANCH", "VITEHUB_WORKSPACE_GITHUB_BRANCH", "GITHUB_BRANCH") ?? "main",
     provider: "github",
-    repository: trimmed(config.repository)
-      ?? trimmed(config.repo)
+    repository: gitHubWorkspaceOption(config.repository)
+      ?? gitHubWorkspaceOption(config.repo)
       ?? readEnv(env, "WORKSPACE_GITHUB_REPOSITORY", "VITEHUB_WORKSPACE_GITHUB_REPOSITORY", "GITHUB_REPOSITORY"),
-    root: trimmed(config.root) ?? readEnv(env, "WORKSPACE_GITHUB_ROOT", "VITEHUB_WORKSPACE_GITHUB_ROOT") ?? ".vitehub/workspaces/<workspace>",
-    token: input.runtime ? trimmed(config.token) ?? MASKED_WORKSPACE_RUNTIME_VALUE : MASKED_WORKSPACE_RUNTIME_VALUE,
+    root: gitHubWorkspaceOption(config.root) ?? readEnv(env, "WORKSPACE_GITHUB_ROOT", "VITEHUB_WORKSPACE_GITHUB_ROOT") ?? ".vitehub/workspaces/<workspace>",
+    token: input.runtime ? gitHubWorkspaceOption(config.token) ?? MASKED_WORKSPACE_RUNTIME_VALUE : MASKED_WORKSPACE_RUNTIME_VALUE,
   }
 }
 

@@ -43,6 +43,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
       }
       const chat = rawMessage.chat as { id?: number | string } | undefined
       const from = rawMessage.from as { email?: string, id?: number | string, mail?: string, userPrincipalName?: string, username?: string } | undefined
+      const document = rawMessage.document as { file_id?: string, file_name?: string, file_size?: number, mime_type?: string } | undefined
       const date = typeof rawMessage.date === "number"
         ? new Date(rawMessage.date * 1000)
         : new Date("2026-06-10T12:00:00.000Z")
@@ -56,6 +57,15 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
               size: 3,
               type: "audio",
             }]
+          : typeof document?.file_id === "string" && typeof document.mime_type === "string" && document.mime_type.startsWith("audio/")
+            ? [{
+                fetchData: async () => Buffer.from([1, 2, 3]),
+                fetchMetadata: { fileId: document.file_id },
+                mimeType: document.mime_type,
+                name: document.file_name,
+                size: document.file_size,
+                type: "file",
+              }]
           : [],
         author: {
           fullName: "Maxi",
@@ -380,6 +390,39 @@ describe("agent Vite plugin", () => {
         }],
       },
     })
+  })
+
+  it("installs hosted workspace runtime for generated Nitro agent routes with GitHub stores", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-github-workspace-route-"))
+    try {
+      await mkdir(join(root, "server", "agents", "support"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support", "config.ts"), [
+        "import { defineAgent } from '@vite-hub/agent'",
+        "export default defineAgent({",
+        "  driver: { async run() { return 'ok' } },",
+        "  workspace: {",
+        "    store: { provider: 'github', repository: 'onmax/bitacora-de-vida', root: '/' },",
+        "  },",
+        "})",
+        "",
+      ].join("\n"), "utf8")
+
+      const plugin = hubAgent({ routes: { chat: true } })
+      if (typeof plugin.configResolved === "function") {
+        await plugin.configResolved.call({} as never, { root } as never)
+      }
+
+      const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+
+      expect(webhookRoute).toContain("import { installHostedWorkspaceRuntime } from \"@vite-hub/workspace/internal/runtime/hosted\"")
+      expect(webhookRoute).toContain("if ([agent0].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()")
+      expect(webhookRoute).not.toContain("@vite-hub/workspace/internal/stores/github")
+      expect(webhookRoute).toContain("workspaceRegistryEntry(\"support\", agent0")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("installs Cloudflare chat state bindings for generated webhook routes", async () => {
@@ -1884,11 +1927,6 @@ describe("server helpers", () => {
         }),
         parts: [
           expect.objectContaining({ text: "hello", type: "text" }),
-          expect.objectContaining({
-            fetchData: expect.any(Function),
-            mediaType: "audio/ogg",
-            type: "audio",
-          }),
         ],
       })],
       run: expect.objectContaining({
@@ -1897,6 +1935,247 @@ describe("server helpers", () => {
         runId: "telegram:7",
       }),
     }))
+  })
+
+  it("does not map audio mime file attachments without transcribe()", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({ adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 42,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          document: {
+            file_id: "forwarded-audio-file",
+            file_name: "forwarded.ogg",
+            file_size: 3,
+            mime_type: "audio/ogg",
+          },
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 108,
+          text: "reenviado",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      messages: [expect.objectContaining({
+        parts: [
+          expect.objectContaining({ text: "reenviado", type: "text" }),
+        ],
+      })],
+    }))
+  })
+
+  it("maps audio mime file attachments for custom audio capabilities", async () => {
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let inputMessages: unknown
+    const input = vi.fn((context: { input: { messages: () => unknown } }) => {
+      inputMessages = context.input.messages()
+    })
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          chatAttachments: { audio: true },
+          id: "custom-audio",
+          input,
+        }),
+      ],
+      channels: {
+        telegram: telegram({ adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 42,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          document: {
+            file_id: "forwarded-audio-file",
+            file_name: "forwarded.ogg",
+            file_size: 3,
+            mime_type: "audio/ogg",
+          },
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 110,
+          text: "reenviado",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(input).toHaveBeenCalledOnce()
+    expect(inputMessages).toEqual([expect.objectContaining({
+      parts: expect.arrayContaining([
+        expect.objectContaining({ text: "reenviado", type: "text" }),
+        expect.objectContaining({
+          fetchData: expect.any(Function),
+          fetchMetadata: { fileId: "forwarded-audio-file" },
+          mediaType: "audio/ogg",
+          name: "forwarded.ogg",
+          type: "audio",
+        }),
+      ]),
+    })])
+  })
+
+  it("maps audio mime file attachments for nested custom audio capabilities", async () => {
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let inputMessages: unknown
+    const input = vi.fn((context: { input: { messages: () => unknown } }) => {
+      inputMessages = context.input.messages()
+    })
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          capabilities: [
+            defineCapability({
+              chatAttachments: { audio: true },
+              id: "nested-audio",
+              input,
+            }),
+          ],
+          id: "audio-bundle",
+        }),
+      ],
+      channels: {
+        telegram: telegram({ adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 42,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          document: {
+            file_id: "forwarded-audio-file",
+            file_name: "forwarded.ogg",
+            file_size: 3,
+            mime_type: "audio/ogg",
+          },
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 111,
+          text: "reenviado",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(input).toHaveBeenCalledOnce()
+    expect(inputMessages).toEqual([expect.objectContaining({
+      parts: expect.arrayContaining([
+        expect.objectContaining({ text: "reenviado", type: "text" }),
+        expect.objectContaining({
+          fetchData: expect.any(Function),
+          fetchMetadata: { fileId: "forwarded-audio-file" },
+          mediaType: "audio/ogg",
+          name: "forwarded.ogg",
+          type: "audio",
+        }),
+      ]),
+    })])
+  })
+
+  it("maps audio mime file attachments through transcribe()", async () => {
+    const { transcribe } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const execute = vi.fn(async () => "audio transcript")
+    const run = vi.fn(({ messages }) => {
+      const text = messages.at(-1)?.parts
+        .filter((part: { type?: string }) => part.type === "text")
+        .map((part: { text?: string }) => part.text)
+        .join("")
+      return `ok: ${text}`
+    })
+    const agent = defineAgent({
+      capabilities: [
+        transcribe({ execute }),
+      ],
+      channels: {
+        telegram: telegram({ adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 42,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          document: {
+            file_id: "forwarded-audio-file",
+            file_name: "forwarded.ogg",
+            file_size: 3,
+            mime_type: "audio/ogg",
+          },
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 109,
+          text: "reenviado",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(execute).toHaveBeenCalledWith({
+      audio: expect.objectContaining({
+        fetchData: expect.any(Function),
+        fetchMetadata: { fileId: "forwarded-audio-file" },
+        mediaType: "audio/ogg",
+        name: "forwarded.ogg",
+        type: "audio",
+      }),
+    })
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      messages: [expect.objectContaining({
+        parts: expect.arrayContaining([
+          expect.objectContaining({ text: "reenviado", type: "text" }),
+          expect.objectContaining({ text: "\naudio transcript", type: "text" }),
+        ]),
+      })],
+    }))
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "ok: reenviado\naudio transcript" })
   })
 
   it("routes channel webhook custom ids through the channel adapter", async () => {
@@ -2896,7 +3175,7 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "generated ok" })
   })
 
-  it("passes configured thread history into chat webhook runs", async () => {
+  it("derives trigger history from thread history in chat webhook runs", async () => {
     const { chat } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
@@ -2906,7 +3185,6 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          history: { maxMessages: 25, source: "thread" },
           platforms: {
             telegram: () => adapter as never,
           },
@@ -2976,11 +3254,11 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          history: { maxMessages: 10, source: "thread" },
           platforms: {
             telegram: () => adapter as never,
           },
           stream: false,
+          triggerHistory: { maxMessages: 10, source: "thread" },
           webhooks: {
             telegram: {},
           },
@@ -3036,11 +3314,11 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          history: { maxMessages: 10, source: "thread" },
           platforms: {
             telegram: () => adapter as never,
           },
           stream: false,
+          triggerHistory: { maxMessages: 10, source: "thread" },
           webhooks: {
             telegram: {},
           },
@@ -3095,7 +3373,6 @@ describe("server helpers", () => {
       const agent = defineAgent({
         capabilities: [
           chat({
-            history: { maxMessages: 25, source: "thread" },
             platforms: {
               telegram: () => adapter as never,
             },

@@ -541,7 +541,6 @@ export interface AgentCapabilityContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
-  harnessWorkspacePaths?: readonly string[]
   mode?: AgentCapabilityMode
   runtimeContext?: ResolvedAgentRuntimeContext
   workspaceDefinition?: WorkspaceDefinition
@@ -662,6 +661,9 @@ export interface AgentCapabilityDefinition<
   readonly __vitehubTypeContract?: TTypeContract
   bind?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   capabilities?: readonly AgentCapabilityDefinition<TRuntimeConfig, Name>[]
+  chatAttachments?: {
+    audio?: boolean
+  }
   cli?: AgentCapabilityCliContribution<TRuntimeConfig, Name>
   close?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
   configure?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
@@ -669,7 +671,6 @@ export interface AgentCapabilityDefinition<
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
   id: string
   input?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<Response | void>
-  harnessWorkspacePaths?: readonly string[]
   metadata?: Record<string, unknown>
   mode?: AgentCapabilityMode
   output?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
@@ -1040,8 +1041,9 @@ export interface AgentToolStep {
 
 export interface AgentChatAgentBindingOptions {
   event?: "directMessage"
-  history?: boolean | "none" | { maxMessages?: number, source: "thread" }
 }
+
+export type AgentChatTriggerHistory = "none" | { maxMessages?: number, source: "thread" }
 
 export interface AgentChatSessionOptions {
   idleTimeoutMs?: number
@@ -1118,7 +1120,6 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   dedupeTtlMs?: number
   errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   fallbackStreamingPlaceholderText?: string | readonly string[] | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
-  history?: AgentChatAgentBindingOptions["history"]
   identity?: IdentityResolver
   lockScope?: AgentMessageLockScope
   messageHistory?: unknown
@@ -1128,6 +1129,7 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   streamingUpdateIntervalMs?: number
   threadHistory?: unknown
   transcripts?: TranscriptsConfig
+  triggerHistory?: AgentChatTriggerHistory
   userName?: string
   [key: string]: unknown
 }
@@ -1355,7 +1357,6 @@ export interface AgentAdapterRunContext<
   driverContributions?: AgentDriverContribution[]
   hasCapabilityCleanup?: boolean
   harnessSandboxProvider?: unknown
-  harnessWorkspacePaths?: readonly string[]
   input: AgentRunInput<TOptions>
   instructions?: string
   invoker: AgentInvoker

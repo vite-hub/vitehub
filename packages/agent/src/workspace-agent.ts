@@ -142,18 +142,7 @@ export function normalizeWorkspaceOptions(workspace: WorkspaceAgentWorkspaceConf
 
 export function workspaceDefinitionWithAutoCommitRules(definition: WorkspaceDefinition, commit: boolean | string | undefined): WorkspaceDefinition {
   if (commit !== true && typeof commit !== "string") return definition
-
-  const defaultedRules = Object.fromEntries(
-    Object.entries(definition.rules || {}).map(([pattern, rule]) => [
-      pattern,
-      rule.commit === undefined ? { ...rule, commit } : rule,
-    ]),
-  )
-  const rules: WorkspaceRules = {
-    "**": { commit, write: true },
-    ...defaultedRules,
-  }
-  return { ...definition, rules }
+  return { ...definition, rules: mergeWorkspaceCommitRules(definition.rules, commit) }
 }
 
 function isWorkspaceReference(workspace: WorkspaceAgentWorkspaceConfig): workspace is { mode?: AgentCapabilityMode, name: string } {
@@ -242,6 +231,15 @@ export function workspaceDefinitionFromOptions<
     workspace,
     options.capabilities as AgentCapabilityDefinition[] | undefined,
   ))
+}
+
+function mergeWorkspaceCommitRules(rules: WorkspaceRules | undefined, commit: boolean | string): WorkspaceRules {
+  const merged: WorkspaceRules = rules ? { ...rules } : {}
+  if (!merged["**"]) merged["**"] = { commit, write: true }
+  for (const [pattern, rule] of Object.entries(merged)) {
+    if (rule.commit === undefined) merged[pattern] = { ...rule, commit }
+  }
+  return merged
 }
 
 function assertWorkspaceDefinition(definition: Record<string, unknown>): void {
