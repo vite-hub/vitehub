@@ -140,12 +140,11 @@ export function normalizeWorkspaceOptions(workspace: WorkspaceAgentWorkspaceConf
   }
 }
 
-function withWorkspaceCommitRule(workspace: NormalizedWorkspaceOptions): NormalizedWorkspaceOptions {
-  const { commit, ...definition } = workspace
+export function workspaceDefinitionWithAutoCommitRules(definition: WorkspaceDefinition, commit: boolean | string | undefined): WorkspaceDefinition {
   if (commit !== true && typeof commit !== "string") return definition
 
   const defaultedRules = Object.fromEntries(
-    Object.entries(definition.rules ?? {}).map(([pattern, rule]) => [
+    Object.entries(definition.rules || {}).map(([pattern, rule]) => [
       pattern,
       rule.commit === undefined ? { ...rule, commit } : rule,
     ]),
@@ -236,7 +235,7 @@ export function workspaceDefinitionFromOptions<
       options.capabilities as AgentCapabilityDefinition[] | undefined,
     )
   }
-  const workspace = withWorkspaceCommitRule(normalizeWorkspaceOptions(options.workspace))
+  const { commit: _commit, ...workspace } = normalizeWorkspaceOptions(options.workspace)
   const { mode: _mode, ...definition } = workspace
   assertWorkspaceDefinition(definition)
   return withColocatedAgentInstructions(withCapabilityWorkspaceSources(

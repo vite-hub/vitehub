@@ -56,6 +56,7 @@ import {
   resolveWorkspaceInstructionBindings,
   workspaceAgentOwnsWorkspaceDefinition,
   workspaceDefinitionFromOptions,
+  workspaceDefinitionWithAutoCommitRules,
   workspaceModeFromOptions,
   workspaceNameFromOptions,
 } from "./workspace-agent.ts"
@@ -1354,6 +1355,10 @@ async function createAgentInvocationContext<
     const activeWorkspace = capabilities.workspace || workspace
     const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
     const activeWorkspaceDefinition = capabilities.workspaceDefinition || sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
+    const configuredWorkspace = workspaceOptions?.workspace
+    const workspaceAutoCommit = configuredWorkspace && typeof configuredWorkspace === "object" && !("name" in configuredWorkspace)
+      ? configuredWorkspace.commit
+      : undefined
     const instructions = workspaceOptions && activeWorkspace
       ? await resolveWorkspaceAgentDefaultInstructions(workspaceOptions, activeWorkspace as ReadonlyWorkspaceFacade)
       : undefined
@@ -1392,6 +1397,7 @@ async function createAgentInvocationContext<
       startedAt,
       tools,
       workspace: activeWorkspace,
+      workspaceAutoCommit,
       workspaceDefinition: activeWorkspaceDefinition,
       workspaceInstructionBindings,
       workspaceMode,
@@ -1433,6 +1439,7 @@ type InvocationRunContext<
   run?: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>["run"]
   startedAt: number
   workspace?: ReadonlyWorkspaceFacade | WritableWorkspaceFacade
+  workspaceAutoCommit?: boolean | string
   workspaceDefinition?: WorkspaceDefinition
   workspaceMode: AgentCapabilityMode
 }
@@ -1653,7 +1660,10 @@ async function commitWorkspaceChanges<
 
   const diff = await context.workspace.diff()
   const { resolveWorkspaceAutoCommit } = await import("@vite-hub/workspace")
-  const commit = resolveWorkspaceAutoCommit(context.workspaceDefinition, diff)
+  const commit = resolveWorkspaceAutoCommit(
+    workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit),
+    diff,
+  )
   if (!commit) return
   await context.workspace.snapshot({ name: commit.message })
 }

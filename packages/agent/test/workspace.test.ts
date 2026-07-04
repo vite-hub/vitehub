@@ -1605,6 +1605,51 @@ describe("defineAgent workspace option", () => {
     expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive notes" })
   })
 
+  it("does not conflict workspace commit fallback with capability workspace rules", async () => {
+    diff.mockResolvedValueOnce({
+      entries: [{ after: { type: "file" }, path: "review/summary.md", type: "added" }],
+      to: "next",
+    })
+    resolveWorkspaceAutoCommit.mockReturnValueOnce({
+      message: "chore: archive review",
+      paths: ["review/summary.md"],
+    })
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { pullRequestContext } = await import("../src/capabilities.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [
+        pullRequestContext({
+          rules: {
+            "review/**": { write: true },
+          },
+        }),
+      ],
+      workspace: {
+        commit: "chore: archive review",
+        mode: "write",
+      },
+      driver: { run: async ({ workspace }) => {
+          await (workspace as WritableWorkspaceFacade).fs.writeFile("review/summary.md", "ready")
+          return "ok"
+        } },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { messages: [] })).resolves.toBe("ok")
+
+    expect(resolveWorkspaceAutoCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "docs",
+        rules: {
+          "**": { commit: "chore: archive review", write: true },
+          "review/**": { commit: "chore: archive review", write: true },
+        },
+      }),
+      expect.objectContaining({ entries: [expect.objectContaining({ path: "review/summary.md" })] }),
+    )
+    expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive review" })
+  })
+
   it("auto-commits write-mode workspace changes after raw stream results are consumed", async () => {
     diff.mockResolvedValueOnce({
       entries: [{ after: { type: "file" }, path: "inbox/stream.md", type: "added" }],
