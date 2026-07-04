@@ -82,6 +82,7 @@
     "./workflow/runtime/state": "./dist/workflow/runtime/state.js",
     "./workspace": "./dist/workspace.js",
     "./workspace/cloudflare": "./dist/workspace/cloudflare.js",
+    "./workspace/internal/runtime/hosted": "./dist/workspace/internal/runtime/hosted.js",
     "./workspace/loader": "./dist/workspace/loader.js",
     "./workspace/publish": "./dist/workspace/publish.js",
     "./workspace/runtime": "./dist/workspace/runtime.js",

@@ -86,7 +86,7 @@ function isWorkspaceRegistry(value: unknown): value is Record<string, () => Prom
 }
 
 function isHostedWorkspaceStore(store: ResolvedWorkspaceModuleOptions["store"]): boolean {
-  return store.provider === "cloudflare-artifacts" || store.provider === "github"
+  return store.provider === "cloudflare-artifacts" || store.provider === "github" || store.provider === "vercel-blob"
 }
 
 function requestOrigin(server: ViteDevServer, req: IncomingMessage): string {
@@ -252,12 +252,15 @@ function shouldConfigureRuntime(options: false | WorkspaceModuleOptions | undefi
 function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptions, registryImport: string): string {
   const runtimeImports = config
     ? isHostedWorkspaceStore(config.store)
-      ? ["import { configureCloudflareWorkspaceRuntime } from '@vite-hub/workspace/cloudflare'"]
+      ? [
+          "import { configureHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'",
+          "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
+        ]
       : ["import { setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'"]
     : ["import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'"]
   const runtimeSetup = config
     ? isHostedWorkspaceStore(config.store)
-      ? [`  configureCloudflareWorkspaceRuntime(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`]
+      ? [`  configureHostedWorkspaceRuntime(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`]
       : [`  setWorkspaceRuntimeConfig(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`]
     : []
 

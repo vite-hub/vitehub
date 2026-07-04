@@ -111,6 +111,7 @@ describe("workspace public API", () => {
       .map(file => readFile(new URL(file, distDir), "utf8")))).join("\n")
 
     expect(packageJson.dependencies?.h3).toBe("catalog:unjs")
+    expect(packageJson.dependencies?.["files-sdk"]).toBe("catalog:storage")
     expect(packageJson.peerDependencies?.h3).toBeUndefined()
     expect(packageJson.peerDependenciesMeta?.h3).toBeUndefined()
     expect(packageJson.peerDependencies?.["@vite-hub/sandbox"]).toBeUndefined()
@@ -121,6 +122,19 @@ describe("workspace public API", () => {
     expect(declarations).not.toContain("files-sdk")
     expect(builtSandboxStore).not.toContain("files-sdk")
     expect(declarations).not.toContain("@vite-hub/sandbox")
+  })
+
+  it("keeps hosted runtime setup off the public Workspace surface", async () => {
+    const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
+    const hosted = await import("../src/hosted.ts")
+
+    expect(packageJson.exports).not.toHaveProperty("./hosted")
+    expect(packageJson.exports).toHaveProperty("./internal/runtime/hosted")
+    expect(hosted).toHaveProperty("configureHostedWorkspaceRuntime")
+    expect(hosted).toHaveProperty("installHostedWorkspaceRuntime")
+    expect(hosted).not.toHaveProperty("createCloudflareArtifactsWorkspaceStore")
+    expect(hosted).not.toHaveProperty("createGitHubWorkspaceStore")
+    expect(hosted).not.toHaveProperty("createVercelBlobWorkspaceStore")
   })
 
   it("uses the writable facade for synced reads and writes", async () => {

@@ -69,6 +69,7 @@ const facadeAliases: Record<string, string> = {
   "@vite-hub/workflow/runtime/state": "@vite-hub/vite/workflow/runtime/state",
   "@vite-hub/workspace": "@vite-hub/vite/workspace",
   "@vite-hub/workspace/cloudflare": "@vite-hub/vite/workspace/cloudflare",
+  "@vite-hub/workspace/internal/runtime/hosted": "@vite-hub/vite/workspace/internal/runtime/hosted",
   "@vite-hub/workspace/loader": "@vite-hub/vite/workspace/loader",
   "@vite-hub/workspace/publish": "@vite-hub/vite/workspace/publish",
   "@vite-hub/workspace/runtime": "@vite-hub/vite/workspace/runtime",

@@ -78,6 +78,8 @@ describe("vitehub", () => {
     await expect(resolveId.call(context, "@vite-hub/database", "/app/src/db.ts")).resolves.toBe("resolved:@vite-hub/vite/database")
     await expect(resolveId.call(context, "@vite-hub/database/drizzle", "/app/src/db.ts")).resolves.toBe("resolved:@vite-hub/vite/database/drizzle")
     await expect(resolveId.call(context, "@vite-hub/queue", "/app/src/welcome.queue.ts")).resolves.toBe("resolved:@vite-hub/vite/queue")
+    await expect(resolveId.call(context, "@vite-hub/workspace/hosted", "/app/.vitehub/agent/chat-webhook-route.ts")).resolves.toBeUndefined()
+    await expect(resolveId.call(context, "@vite-hub/workspace/internal/runtime/hosted", "/app/.vitehub/nitro/workspace/plugin.ts")).resolves.toBe("resolved:@vite-hub/vite/workspace/internal/runtime/hosted")
     await expect(resolveId.call(context, "@vite-hub/workspace/internal/runtime/state", "/app/src/server.ts")).resolves.toBeUndefined()
     await expect(resolveId.call(context, "@vite-hub/agent", "/app/node_modules/@vite-hub/vite/dist/agent.js")).resolves.toBeUndefined()
 
