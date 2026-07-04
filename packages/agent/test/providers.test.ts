@@ -2020,7 +2020,7 @@ describe("server helpers", () => {
             mime_type: "audio/ogg",
           },
           from: { first_name: "Maxi", id: 123, username: "maxi" },
-          message_id: 109,
+          message_id: 110,
           text: "reenviado",
         },
       }),
