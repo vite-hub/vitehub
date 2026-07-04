@@ -1761,6 +1761,42 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
+  it("passes named Workspace top-level commits to harness workspace sessions", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const workspaceName = `docs-${Math.random().toString(36).slice(2)}`
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+    resolveRegisteredWorkspaceDefinition.mockResolvedValueOnce({
+      commit: "chore: update named docs",
+      name: workspaceName,
+      store: { provider: "memory" },
+    })
+
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: { mode: "write", name: workspaceName },
+    })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      definition: expect.objectContaining({
+        commit: "chore: update named docs",
+        name: workspaceName,
+        runtime: "trusted-host",
+      }),
+      paths: [""],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    }))
+  })
+
   it("keeps generated capability source files selected for Harness Workspace Sessions", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { access, pullRequestContext } = await import("../src/capabilities.ts")

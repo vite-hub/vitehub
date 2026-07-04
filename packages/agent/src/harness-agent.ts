@@ -150,10 +150,12 @@ function workspaceRuleHarnessPaths(context: AgentAdapterRunContext): string[] {
 }
 
 function hasWorkspaceCommitRules(definition: AgentAdapterRunContext["workspaceDefinition"]): boolean {
-  return [
-    ...Object.values(definition?.rules || {}),
-    ...(definition?.plugins || []).flatMap(plugin => Object.values(plugin.rules || {})),
-  ].some(rule => rule.commit !== undefined)
+  return definition?.commit === true
+    || typeof definition?.commit === "string"
+    || [
+      ...Object.values(definition?.rules || {}),
+      ...(definition?.plugins || []).flatMap(plugin => Object.values(plugin.rules || {})),
+    ].some(rule => rule.commit !== undefined)
 }
 
 function workspaceSourceHarnessPaths(context: AgentAdapterRunContext): string[] {
