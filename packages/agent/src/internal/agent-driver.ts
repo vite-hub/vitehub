@@ -4,6 +4,7 @@ import type {
   AgentAdapterInstructions,
   AgentHarnessCredentialSource,
   AgentHarnessDriverInput,
+  AgentHarnessSandboxProviderInput,
   AgentHarnessSessionKey,
   AgentInvokerProfile,
   AgentModelExecutionOptions,
@@ -27,6 +28,7 @@ type NormalizedAgentDriver<
     credentials?: AgentHarnessCredentialSource
     harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
     kind: "harness"
+    sandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS>
     sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
   }
   | {
@@ -80,8 +82,15 @@ function normalizeHarnessCredentialSource(value: unknown): AgentHarnessCredentia
 }
 
 const modelDriverKeys = new Set(["execution", "instructions", "model"])
-const harnessDriverKeys = new Set(["credentials", "harness", "sessionKey"])
+const harnessDriverKeys = new Set(["credentials", "harness", "sandbox", "sessionKey"])
 const runDriverKeys = new Set(["run"])
+
+function validateHarnessSandboxProviderInput(value: unknown): void {
+  if (value === undefined) return
+  if (!value || (typeof value !== "object" && typeof value !== "function")) {
+    throw new TypeError("[vitehub] defineAgent({ driver.sandbox }) must be a harness sandbox provider object or resolver function.")
+  }
+}
 
 function normalizeExplicitAgentDriver<
   TRuntimeConfig extends AgentRuntimeConfig,
@@ -113,10 +122,12 @@ function normalizeExplicitAgentDriver<
     if (!driver.harness || (typeof driver.harness !== "object" && typeof driver.harness !== "function")) {
       throw new TypeError("[vitehub] defineAgent({ driver.harness }) must be an AI SDK harness adapter.")
     }
+    validateHarnessSandboxProviderInput(driver.sandbox)
     return {
       credentials: normalizeHarnessCredentialSource(driver.credentials),
       harness: driver.harness as AgentHarnessDriverInput,
       kind: "harness",
+      sandbox: driver.sandbox as AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS> | undefined,
       sessionKey: driver.sessionKey as AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS> | undefined,
     }
   }
@@ -139,6 +150,9 @@ export function normalizeAgentDriver<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
 ): NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS> {
   const record = options as Record<string, unknown>
+  if (hasOwnDefined(record, "harnessSandbox")) {
+    throw new Error("[vitehub] defineAgent({ harnessSandbox }) is no longer supported. Move the provider to defineAgent({ driver: { harness, sandbox } }); sandbox({ commands }) remains the model-facing command execution Capability.")
+  }
   if (hasOwnDefined(record, "driver")) {
     return normalizeExplicitAgentDriver<TRuntimeConfig, CALL_OPTIONS>(record.driver)
   }

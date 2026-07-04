@@ -56,7 +56,7 @@ Use `workspaceShell()` for Workspace inspection and structured Workspace mutatio
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Receives `sandbox_exec`. |
-| Harness-backed | Receives `sandbox_exec` when `commands` are configured. Use `defineAgent({ harnessSandbox })` for harness sandbox provider setup. |
+| Harness-backed | Receives `sandbox_exec` when `commands` are configured. Use `defineAgent({ driver: { harness, sandbox } })` for harness process/session provider setup. |
 | Custom-run-backed | The Sandbox primitive is available through runtime context; `driver.run` decides whether to call it. |
 
 ## Inspect and verify

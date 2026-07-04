@@ -813,11 +813,11 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const driver = normalizeAgentDriver(options)
-  const { capabilities, channels, description, harnessSandbox, hooks, messages, runtime, version, workspace } = options
+  const { capabilities, channels, description, hooks, messages, runtime, version, workspace } = options
   const run = driver.kind === "run" ? driver.run : undefined
   const baseCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
-  const harnessDriver = driver.kind === "harness" ? { ...driver, harnessSandbox } : undefined
+  const harnessDriver = driver.kind === "harness" ? driver : undefined
   const channelChat = resolveAgentChannelChatOptions<TRuntimeConfig>(channels, messages)
   const chatCapability = getChatCapabilityOptions<TRuntimeConfig>(baseCapabilities)
   if (chatCapability && channelChat) {
@@ -855,7 +855,6 @@ function defineBaseAgent<
     chat,
     description,
     hooks,
-    harnessSandbox,
     invoker,
     messages,
     runtime,

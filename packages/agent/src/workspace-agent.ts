@@ -55,6 +55,7 @@ import type {
   WorkspaceDefinition,
   WorkspaceMaterializeSourcesOptions,
   WorkspaceName,
+  WorkspaceRules,
   WorkspaceSourceResolutionContextValueReader,
 } from "@vite-hub/workspace"
 
@@ -139,6 +140,17 @@ export function normalizeWorkspaceOptions(workspace: WorkspaceAgentWorkspaceConf
   }
 }
 
+function withWorkspaceCommitRule(workspace: NormalizedWorkspaceOptions): NormalizedWorkspaceOptions {
+  const { commit, ...definition } = workspace
+  if (commit !== true && typeof commit !== "string") return definition
+
+  const rules: WorkspaceRules = {
+    "**": { commit, write: true },
+    ...definition.rules,
+  }
+  return { ...definition, rules }
+}
+
 function isWorkspaceReference(workspace: WorkspaceAgentWorkspaceConfig): workspace is { mode?: AgentCapabilityMode, name: string } {
   return typeof workspace === "object"
     && workspace !== null
@@ -218,7 +230,7 @@ export function workspaceDefinitionFromOptions<
       options.capabilities as AgentCapabilityDefinition[] | undefined,
     )
   }
-  const workspace = normalizeWorkspaceOptions(options.workspace)
+  const workspace = withWorkspaceCommitRule(normalizeWorkspaceOptions(options.workspace))
   const { mode: _mode, ...definition } = workspace
   assertWorkspaceDefinition(definition)
   return withColocatedAgentInstructions(withCapabilityWorkspaceSources(
@@ -488,10 +500,10 @@ function executionMetadata(value: AgentDevtoolsDriverMetadata["execution"] | und
     : undefined
 }
 
-function harnessMetadata(driver: { credentials?: unknown, harness: unknown, sessionKey?: unknown }, harnessSandbox?: unknown): AgentDevtoolsHarnessMetadata | undefined {
+function harnessMetadata(driver: { credentials?: unknown, harness: unknown, sandbox?: unknown, sessionKey?: unknown }): AgentDevtoolsHarnessMetadata | undefined {
   const harness = isRecord(driver.harness) ? driver.harness : undefined
   const provider = harness ? stringField(harness, ["provider", "name"]) : undefined
-  const sandboxProvider = isRecord(harnessSandbox) ? stringField(harnessSandbox, ["provider", "providerId"]) : undefined
+  const sandboxProvider = isRecord(driver.sandbox) ? stringField(driver.sandbox, ["provider", "providerId"]) : undefined
   const credentials = isRecord(driver.credentials)
     ? {
         ...(typeof driver.credentials.label === "string" && driver.credentials.label ? { label: driver.credentials.label } : {}),
@@ -523,7 +535,7 @@ function staticDriverMetadata<
     }
   }
   if (driver.kind === "harness") {
-    const harness = harnessMetadata(driver, settings.harnessSandbox)
+    const harness = harnessMetadata(driver)
     return {
       ...(harness ? { harness } : {}),
       kind: "harness",
@@ -555,7 +567,7 @@ async function resolvedDriverMetadata<
     }
   }
   if (driver.kind === "harness") {
-    const harness = harnessMetadata(driver, settings.harnessSandbox)
+    const harness = harnessMetadata(driver)
     return {
       ...(harness ? { harness } : {}),
       kind: "harness",

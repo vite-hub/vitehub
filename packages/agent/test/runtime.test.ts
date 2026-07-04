@@ -69,18 +69,13 @@ describe("agent message protocol", () => {
     }))
   })
 
-  it("does not resolve harnessSandbox for custom Agent Drivers", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const harnessSandbox = vi.fn(() => {
-      throw new Error("unused")
-    })
-    const agent = defineAgent({
-      driver: { run: () => "ok" },
-      harnessSandbox,
-    })
+  it("rejects the legacy top-level harnessSandbox option", async () => {
+    const { defineAgent } = await import("../src/index.ts")
 
-    await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toBe("ok")
-    expect(harnessSandbox).not.toHaveBeenCalled()
+    expect(() => defineAgent({
+      driver: { run: () => "ok" },
+      harnessSandbox: {},
+    } as never)).toThrowError("defineAgent({ harnessSandbox }) is no longer supported")
   })
 
   it("runs agent input hooks once before driver execution and can abort", async () => {
@@ -1240,7 +1235,7 @@ describe("agent message protocol", () => {
     }
   })
 
-  it("uses harnessSandbox for harness runtime setup", async () => {
+  it("uses driver.sandbox for harness runtime setup", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }
     const harness = { provider: "codex" }
@@ -1251,8 +1246,8 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       driver: {
         harness,
+        sandbox: provider,
       },
-      harnessSandbox: provider,
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
@@ -1264,23 +1259,23 @@ describe("agent message protocol", () => {
     expect((harnessAgentSettings.at(-1)?.tools as Record<string, unknown> | undefined)?.sandbox_exec).toBeUndefined()
   })
 
-  it("resolves function-valued harnessSandbox for each invocation", async () => {
+  it("resolves function-valued driver.sandbox for each invocation", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const session = { destroy: vi.fn() }
     const provider = { providerId: "local-test", runId: "run-1" }
-    const harnessSandbox = vi.fn(() => provider)
+    const sandbox = vi.fn(() => provider)
     harnessCreateSession.mockResolvedValueOnce(session)
     harnessGenerate.mockResolvedValueOnce({ text: "ok" })
 
     const agent = defineAgent({
       driver: {
         harness: { provider: "codex" },
+        sandbox,
       },
-      harnessSandbox,
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), run: { runId: "run-1" }, runtime: "unknown", waitUntil: vi.fn() }, { prompt: "hello" })).resolves.toMatchObject({ text: "ok" })
-    expect(harnessSandbox).toHaveBeenCalledWith(expect.objectContaining({
+    expect(sandbox).toHaveBeenCalledWith(expect.objectContaining({
       input: expect.objectContaining({ prompt: "hello" }),
       run: { runId: "run-1" },
     }))
@@ -1290,12 +1285,12 @@ describe("agent message protocol", () => {
     })
   })
 
-  it("uses harnessSandbox on resolved harness adapters", async () => {
+  it("uses driver.sandbox on resolved harness adapters", async () => {
     const { defineAgent, resolveAgent } = await import("../src/index.ts")
     const { createAgentInvocationContextStore } = await import("../src/invocation-context.ts")
     const session = { destroy: vi.fn() }
     const provider = { providerId: "local-test", specificationVersion: "harness-sandbox-v1" }
-    const harnessSandbox = vi.fn(() => provider)
+    const sandbox = vi.fn(() => provider)
     const invoker = { id: "anonymous:test", kind: "anonymous", label: "Anonymous" }
     harnessCreateSession.mockResolvedValueOnce(session)
     harnessGenerate.mockResolvedValueOnce({ text: "ok" })
@@ -1303,8 +1298,8 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       driver: {
         harness: { provider: "codex" },
+        sandbox,
       },
-      harnessSandbox,
     })
     const adapter = await resolveAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() })
 
@@ -1317,7 +1312,7 @@ describe("agent message protocol", () => {
       prompt: "hello",
       runtime: { memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
     })).resolves.toMatchObject({ text: "ok" })
-    expect(harnessSandbox).toHaveBeenCalledWith(expect.objectContaining({
+    expect(sandbox).toHaveBeenCalledWith(expect.objectContaining({
       input: expect.objectContaining({ prompt: "hello" }),
     }))
     expect(vercelSandboxSettings).toEqual([])
@@ -1336,8 +1331,8 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       driver: {
         harness: { provider: "codex" },
+        sandbox: provider,
       },
-      harnessSandbox: provider,
     })
 
     await expect(runAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {
@@ -1732,8 +1727,8 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       driver: {
         harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
       },
-      harnessSandbox: { provider: "sandbox" },
     })
 
     const stream = await streamAgent(
@@ -1788,8 +1783,8 @@ describe("agent message protocol", () => {
       capabilities: [usageTelemetry({ onUsage })],
       driver: {
         harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
       },
-      harnessSandbox: { provider: "sandbox" },
     })
 
     const stream = await streamAgent(
@@ -2007,9 +2002,9 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       driver: {
         harness: { provider: "codex" },
+        sandbox: { provider: "sandbox" },
         sessionKey: "thread-1",
       },
-      harnessSandbox: { provider: "sandbox" },
     })
     const input = {
       context: { chat: {} },
@@ -2063,7 +2058,11 @@ describe("agent message protocol", () => {
 
     expect(() => defineAgent({
       driver: { harness: { provider: "codex" }, sandbox: { provider: "sandbox" } },
-    } as never)).toThrow("does not support option: sandbox")
+    } as never)).not.toThrow()
+
+    expect(() => defineAgent({
+      driver: { harness: { provider: "codex" }, sandbox: "sandbox" },
+    } as never)).toThrow("defineAgent({ driver.sandbox })")
 
     expect(() => defineAgent({
       driver: { model: {} as never, sandbox: { provider: "sandbox" } },

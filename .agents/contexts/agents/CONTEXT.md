@@ -417,7 +417,7 @@ _Avoid_: Fake agent, dummy model, test bot
 ## Flagged Ambiguities
 
 - Raw tools were considered as top-level Agent Definition fields - resolved: tools are contributed by Capabilities.
-- Flue-style root `tools`, `skills`, and `sandbox` fields were considered for harness-backed Agents - resolved: keep harness execution under the **Agent Driver**, keep custom harness sandbox providers behind `harnessSandbox`, keep default harness sandbox setup behind the **Agent Harness Driver Contract**, and keep tools or Skills behind Capabilities.
+- Flue-style root `tools`, `skills`, and `sandbox` fields were considered for harness-backed Agents - resolved: keep harness execution under the **Agent Driver**, keep custom harness process or session providers behind `driver.sandbox`, keep default harness sandbox setup behind the **Agent Harness Driver Contract**, and keep tools or Skills behind Capabilities.
 - Multi-adapter support was considered part of Agent Definition shape - resolved: use one **Agent Driver** boundary rather than public adapter selectors.
 - Top-level `model` and `harness` selectors were considered part of Agent Definition shape - resolved: select model-backed or harness-backed execution through **Agent Driver**.
 - Driver factory wrappers such as `modelDriver()` and `harnessDriver()` were considered for explicitness - resolved: configure the **Agent Driver** as a single object variant and distinguish variants by exclusive keys.
