@@ -99,7 +99,7 @@ function resolveSymlinkTarget(path: string, bytes: Uint8Array): string | undefin
 }
 
 function gitSymlinkTargetFromBytes(bytes: Uint8Array): string {
-  return new TextDecoder().decode(bytes).replace(/\0/g, "").trim();
+  return new TextDecoder().decode(bytes).replace(/\0/g, "");
 }
 
 class GitHubWorkspaceStore implements WorkspaceStore {

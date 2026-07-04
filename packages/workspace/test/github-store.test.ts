@@ -552,6 +552,44 @@ describe("GitHub workspace store", () => {
     );
   });
 
+  it("preserves surrounding whitespace in GitHub symlink targets", async () => {
+    const target = " AGENTS.md ";
+    seedRemote(`.vitehub/workspaces/docs/${target}`, "# Agents\n");
+    seedRemote(".vitehub/workspaces/docs/CLAUDE.md", target, "120000");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await expect(store.stat("CLAUDE.md")).resolves.toMatchObject({
+      metadata: { gitMode: "120000", symlinkTarget: target },
+      path: "CLAUDE.md",
+      type: "file",
+    });
+    const file = await store.readFile("CLAUDE.md");
+    expect(file).toMatchObject({
+      content: textBytes("# Agents\n"),
+      metadata: { gitMode: "120000", symlinkTarget: target },
+      path: "CLAUDE.md",
+    });
+    await store.writeFile("CLAUDE.md", file!);
+    await store.snapshot({ name: "round-trip whitespace symlink" });
+
+    expect(remoteTree).toContainEqual(
+      expect.objectContaining({
+        mode: "120000",
+        path: ".vitehub/workspaces/docs/CLAUDE.md",
+        sha: textSha(target),
+      }),
+    );
+  });
+
   it("commits GitHub symlink metadata as tree mode 120000", async () => {
     seedRemote(".vitehub/workspaces/docs/CLAUDE.md", "AGENTS.md", "120000");
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
