@@ -144,9 +144,15 @@ function withWorkspaceCommitRule(workspace: NormalizedWorkspaceOptions): Normali
   const { commit, ...definition } = workspace
   if (commit !== true && typeof commit !== "string") return definition
 
+  const defaultedRules = Object.fromEntries(
+    Object.entries(definition.rules ?? {}).map(([pattern, rule]) => [
+      pattern,
+      rule.commit === undefined ? { ...rule, commit } : rule,
+    ]),
+  )
   const rules: WorkspaceRules = {
     "**": { commit, write: true },
-    ...definition.rules,
+    ...defaultedRules,
   }
   return { ...definition, rules }
 }

@@ -1565,6 +1565,46 @@ describe("defineAgent workspace option", () => {
     expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive notes" })
   })
 
+  it("applies workspace commit to matching rules without their own commit", async () => {
+    diff.mockResolvedValueOnce({
+      entries: [{ after: { type: "file" }, path: "notes/day.md", type: "added" }],
+      to: "next",
+    })
+    resolveWorkspaceAutoCommit.mockReturnValueOnce({
+      message: "chore: archive notes",
+      paths: ["notes/day.md"],
+    })
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {
+        commit: "chore: archive notes",
+        mode: "write",
+        rules: {
+          "notes/**": { write: true },
+        },
+      },
+      driver: { run: async ({ workspace }) => {
+          await (workspace as WritableWorkspaceFacade).fs.writeFile("notes/day.md", "entry")
+          return "ok"
+        } },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { messages: [] })).resolves.toBe("ok")
+
+    expect(resolveWorkspaceAutoCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "docs",
+        rules: {
+          "**": { commit: "chore: archive notes", write: true },
+          "notes/**": { commit: "chore: archive notes", write: true },
+        },
+      }),
+      expect.objectContaining({ entries: [expect.objectContaining({ path: "notes/day.md" })] }),
+    )
+    expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive notes" })
+  })
+
   it("auto-commits write-mode workspace changes after raw stream results are consumed", async () => {
     diff.mockResolvedValueOnce({
       entries: [{ after: { type: "file" }, path: "inbox/stream.md", type: "added" }],
