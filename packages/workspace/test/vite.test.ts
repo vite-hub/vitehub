@@ -471,10 +471,8 @@ describe("hubWorkspace", () => {
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("getWorkspaceHostedStoreLoader")
-    expect(pluginSource).toContain("setWorkspaceHostedStoreLoader")
-    expect(pluginSource).toContain("createGitHubWorkspaceStore")
-    expect(pluginSource).toContain("if (storeOptions.provider === 'github') return createGitHubWorkspaceStore(storeOptions, workspaceName)")
+    expect(pluginSource).toContain("installHostedWorkspaceRuntime")
+    expect(pluginSource).not.toContain("@vite-hub/workspace/internal/stores/github")
     expect(pluginSource).not.toContain("configureCloudflareWorkspaceRuntime")
   })
 

@@ -392,7 +392,7 @@ describe("agent Vite plugin", () => {
     })
   })
 
-  it("installs GitHub workspace stores for generated Nitro agent routes", async () => {
+  it("installs hosted workspace runtime for generated Nitro agent routes with GitHub stores", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-github-workspace-route-"))
     try {
@@ -415,10 +415,9 @@ describe("agent Vite plugin", () => {
 
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
-      expect(webhookRoute).toContain("getWorkspaceHostedStoreLoader")
-      expect(webhookRoute).toContain("setWorkspaceHostedStoreLoader")
-      expect(webhookRoute).toContain("createGitHubWorkspaceStore")
-      expect(webhookRoute).toContain("if (storeOptions.provider === 'github') return createGitHubWorkspaceStore(storeOptions, workspaceName)")
+      expect(webhookRoute).toContain("import { installHostedWorkspaceRuntime } from \"@vite-hub/workspace/internal/runtime/hosted\"")
+      expect(webhookRoute).toContain("if ([agent0].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()")
+      expect(webhookRoute).not.toContain("@vite-hub/workspace/internal/stores/github")
       expect(webhookRoute).toContain("workspaceRegistryEntry(\"support\", agent0")
     }
     finally {

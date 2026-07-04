@@ -410,7 +410,7 @@ describe("defineAgent workspace option", () => {
     })
   })
 
-  it("maps workspace commit shorthand to a catch-all rule", async () => {
+  it("merges workspace commit shorthand into rules that omit commit", async () => {
     const { workspaceDefinitionFromOptions } = await import("../src/workspace-agent.ts")
 
     const definition = workspaceDefinitionFromOptions({
@@ -418,14 +418,19 @@ describe("defineAgent workspace option", () => {
       workspace: {
         commit: "chore: update workspace",
         rules: {
+          "**": { write: true },
+          "archive/**": { commit: false, write: true },
           "notes/**": { commit: "chore: update notes" },
+          "uploads/**": { write: true },
         },
       },
     })
 
     expect(definition.rules).toEqual({
-      "**": { commit: "chore: update workspace" },
+      "**": { commit: "chore: update workspace", write: true },
+      "archive/**": { commit: false, write: true },
       "notes/**": { commit: "chore: update notes" },
+      "uploads/**": { commit: "chore: update workspace", write: true },
     })
   })
 
