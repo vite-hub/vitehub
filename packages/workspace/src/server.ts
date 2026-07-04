@@ -26,6 +26,13 @@ type WorkspaceSessionStarter = {
 type ResponseBody = ConstructorParameters<typeof Response>[0]
 type ResponseHeaders = ConstructorParameters<typeof Headers>[0]
 
+function hasWorkspaceCommitRules(definition: WorkspaceDefinition): boolean {
+  return [
+    ...Object.values(definition.rules || {}),
+    ...(definition.plugins || []).flatMap(plugin => Object.values(plugin.rules || {})),
+  ].some(rule => rule.commit !== undefined)
+}
+
 export interface WorkspaceFileResponseOptions<Name extends WorkspaceName = WorkspaceName> {
   allow?: string[]
   cacheControl?: string
@@ -243,7 +250,7 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
     const diff = result.exitCode === 0 ? await session.diff() : undefined
     if (diff?.entries.length) {
       const commit = definition ? resolveWorkspaceAutoCommit(definition, diff) : undefined
-      if (!definition || commit) await session.commit({ message: commit?.message || "workspace dev command" })
+      if (!definition || !hasWorkspaceCommitRules(definition) || commit) await session.commit({ message: commit?.message || "workspace dev command" })
     }
     return result
   }

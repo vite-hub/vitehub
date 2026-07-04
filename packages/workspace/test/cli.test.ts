@@ -193,6 +193,38 @@ describe("workspace CLI", () => {
     expect(close).toHaveBeenCalledOnce()
   })
 
+  it("commits changed Workspace Dev command sessions for definitions without commit rules", async () => {
+    const exec = vi.fn(async () => ({
+      exitCode: 0,
+      stderr: "",
+      stdout: "ok\n",
+    }))
+    const diff = vi.fn(async () => ({ entries: [{ path: "README.md" }] }))
+    const commit = vi.fn(async () => {})
+    const close = vi.fn(async () => {})
+    const workspace = {
+      startSession: vi.fn(async () => ({ close, commit, diff, exec })),
+    }
+
+    await expect(runWorkspaceDevCommand({
+      command: "echo ok > README.md",
+      definition: {
+        name: "docs",
+        rules: {
+          "**": { write: true },
+        },
+      },
+      workspace: workspace as never,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "ok\n",
+    })
+
+    expect(diff).toHaveBeenCalledOnce()
+    expect(commit).toHaveBeenCalledWith({ message: "workspace dev command" })
+    expect(close).toHaveBeenCalledOnce()
+  })
+
   it("uses Workspace rules for changed Workspace Dev command commits", async () => {
     const exec = vi.fn(async () => ({
       exitCode: 0,

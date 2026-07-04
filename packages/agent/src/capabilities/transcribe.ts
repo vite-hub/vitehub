@@ -443,9 +443,9 @@ export function getTranscriptionResults(context: AgentInvocationContextStore | {
 
 export function transcribe(options: TranscribeOptions): AgentCapabilityDefinition {
   return defineCapability({
+    chatAttachments: { audio: true },
     id: "transcribe",
     metadata: {
-      chatAttachments: { audio: true },
       kind: "transcribe",
     },
     input: async (context) => {

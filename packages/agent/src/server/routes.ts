@@ -1267,7 +1267,7 @@ async function handleChatSdkMessage(
     const messageOptions = {
       includeAudioAttachments: getAgentCapabilities(agent).some((capability) => {
         const metadata = capability.metadata as { chatAttachments?: { audio?: unknown } } | undefined
-        return metadata?.chatAttachments?.audio === true
+        return capability.chatAttachments?.audio === true || metadata?.chatAttachments?.audio === true
       }),
     }
     const messages = await chatTriggerMessages(thread, message, options, messageContext, messageOptions)
