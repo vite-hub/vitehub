@@ -3,9 +3,7 @@ import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflar
 import { WorkspaceError } from "../../core/errors.ts";
 import { contentToBytes, normalizeWorkspacePath } from "../../core/path.ts";
 
-import type { WorkspaceEntry } from "../../core/types.ts";
-
-export type GitHubWorkspaceOption = string | (() => string | undefined);
+import type { GitHubWorkspaceOption, WorkspaceEntry } from "../../core/types.ts";
 
 export interface GitHubWorkspaceOptions {
   branch?: GitHubWorkspaceOption;

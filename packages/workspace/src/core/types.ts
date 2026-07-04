@@ -570,15 +570,15 @@ export interface VercelBlobWorkspaceStoreOptions {
   access?: "private" | "public"
 }
 
-export type GitHubWorkspaceStoreOption = string | (() => string | undefined)
+export type GitHubWorkspaceOption = string | (() => string | undefined)
 
 export interface GitHubWorkspaceStoreOptions {
   provider: "github"
-  branch?: GitHubWorkspaceStoreOption
-  repo?: GitHubWorkspaceStoreOption
-  repository?: GitHubWorkspaceStoreOption
-  root?: GitHubWorkspaceStoreOption
-  token?: GitHubWorkspaceStoreOption
+  branch?: GitHubWorkspaceOption
+  repo?: GitHubWorkspaceOption
+  repository?: GitHubWorkspaceOption
+  root?: GitHubWorkspaceOption
+  token?: GitHubWorkspaceOption
 }
 
 export type WorkspaceStoreOptions =

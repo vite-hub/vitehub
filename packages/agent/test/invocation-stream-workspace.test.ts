@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Readable } from "node:stream"
 
+import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader } from "@vite-hub/workspace/runtime"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
@@ -252,6 +253,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     workspaceSessionClose.mockClear()
     workspaceStartSession.mockClear()
     installHostedWorkspaceRuntime.mockClear()
+    setWorkspaceHostedStoreLoader(undefined)
     useWorkspace.mockClear()
   })
 
@@ -361,6 +363,41 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     expect(response.statusCode).toBe(403)
     expect(response.body).toBe("Forbidden Agent Dev Loop command token.")
     expect(useWorkspace).not.toHaveBeenCalled()
+  })
+
+  it("installs GitHub workspace stores before Agent Workspace commands", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workspace-command-github-store-"))
+    await mkdir(join(root, "server", "agents", "support"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default {}", "utf8")
+
+    const { readWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } = await import("@vite-hub/workspace/server")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      driver: { run: () => "unused" },
+      workspace: {
+        mode: "write",
+        store: { provider: "github", repository: "onmax/bitacora-de-vida", root: "/" },
+      },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+    const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
+    expect(getWorkspaceHostedStoreLoader()).toBeUndefined()
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "support",
+      workspaceCommand: { command: "pnpm", args: ["test"] },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      [workspaceDevTokenHeader]: token,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(getWorkspaceHostedStoreLoader()).toEqual(expect.any(Function))
   })
 
   it("rejects Agent Workspace commands when the Agent Workspace is read-only", async () => {

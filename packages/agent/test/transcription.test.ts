@@ -191,6 +191,34 @@ describe("agent transcription", () => {
     }])
   })
 
+  it("supports AI SDK v6 experimental_transcribe export", async () => {
+    const experimentalTranscribe = vi.fn(async () => ({ text: "voice transcript" }))
+    vi.doMock("ai", () => ({
+      createDownload: vi.fn(() => vi.fn()),
+      experimental_transcribe: experimentalTranscribe,
+    }))
+    try {
+      const capability = transcribe({ model: "mock-transcription-model" })
+      const context = createTranscriptionCapabilityContext([
+        createMessage({
+          parts: [{ data: new Uint8Array([1, 2, 3]), mediaType: "audio/ogg", type: "audio" }],
+          role: "user",
+        }),
+      ])
+
+      await capability.input?.(context.context as never)
+
+      expect(experimentalTranscribe).toHaveBeenCalledWith(expect.objectContaining({
+        audio: new Uint8Array([1, 2, 3]),
+        model: "mock-transcription-model",
+      }))
+      expect(context.messages.at(-1)?.parts.at(-1)).toMatchObject({ text: "voice transcript", type: "text" })
+    }
+    finally {
+      vi.doUnmock("ai")
+    }
+  })
+
   it("resolves transcription options lazily", async () => {
     const execute = vi.fn(async () => "lazy transcript")
     const createOptions = vi.fn(() => ({ execute }))

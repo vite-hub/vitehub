@@ -4,7 +4,6 @@ import { resolve } from "node:path"
 import { readEnv, trimmed } from "@vite-hub/internal/env"
 
 import { WorkspaceError } from "../core/errors.ts"
-import { resolveGitHubOption } from "../providers/github/shared.ts"
 import { getWorkspaceRuntimeConfig } from "../runtime/config.ts"
 import { getWorkspaceHostedStoreLoader } from "../runtime/hosted-store-loader.ts"
 import { createLocalWorkspaceStore } from "./local.ts"
@@ -12,6 +11,7 @@ import { createMemoryWorkspaceStore } from "./memory.ts"
 
 import type {
   CloudflareArtifactsWorkspaceStoreOptions,
+  GitHubWorkspaceOption,
   GitHubWorkspaceStoreOptions,
   VercelBlobWorkspaceStoreOptions,
   WorkspaceDefinition,
@@ -34,8 +34,8 @@ function workspaceRepoName(name: string | undefined) {
   return name ? name.replace(/[^a-zA-Z0-9_.-]/g, "-") : undefined
 }
 
-function trimmedGitHubOption(value: GitHubWorkspaceStoreOptions[keyof GitHubWorkspaceStoreOptions] | undefined): string | undefined {
-  return trimmed(resolveGitHubOption(value))
+function gitHubWorkspaceOption(value: GitHubWorkspaceOption | undefined): GitHubWorkspaceOption | undefined {
+  return typeof value === "function" ? value : trimmed(value)
 }
 
 export function resolveCloudflareArtifactsStore(
@@ -83,13 +83,13 @@ export function resolveGitHubWorkspaceStore(
   input: Pick<WorkspaceResolutionInput, "runtime"> = {},
 ): GitHubWorkspaceStoreOptions {
   return {
-    branch: trimmedGitHubOption(config.branch) ?? readEnv(env, "WORKSPACE_GITHUB_BRANCH", "VITEHUB_WORKSPACE_GITHUB_BRANCH", "GITHUB_BRANCH") ?? "main",
+    branch: gitHubWorkspaceOption(config.branch) ?? readEnv(env, "WORKSPACE_GITHUB_BRANCH", "VITEHUB_WORKSPACE_GITHUB_BRANCH", "GITHUB_BRANCH") ?? "main",
     provider: "github",
-    repository: trimmedGitHubOption(config.repository)
-      ?? trimmedGitHubOption(config.repo)
+    repository: gitHubWorkspaceOption(config.repository)
+      ?? gitHubWorkspaceOption(config.repo)
       ?? readEnv(env, "WORKSPACE_GITHUB_REPOSITORY", "VITEHUB_WORKSPACE_GITHUB_REPOSITORY", "GITHUB_REPOSITORY"),
-    root: trimmedGitHubOption(config.root) ?? readEnv(env, "WORKSPACE_GITHUB_ROOT", "VITEHUB_WORKSPACE_GITHUB_ROOT") ?? ".vitehub/workspaces/<workspace>",
-    token: input.runtime ? trimmedGitHubOption(config.token) ?? MASKED_WORKSPACE_RUNTIME_VALUE : MASKED_WORKSPACE_RUNTIME_VALUE,
+    root: gitHubWorkspaceOption(config.root) ?? readEnv(env, "WORKSPACE_GITHUB_ROOT", "VITEHUB_WORKSPACE_GITHUB_ROOT") ?? ".vitehub/workspaces/<workspace>",
+    token: input.runtime ? gitHubWorkspaceOption(config.token) ?? MASKED_WORKSPACE_RUNTIME_VALUE : MASKED_WORKSPACE_RUNTIME_VALUE,
   }
 }
 

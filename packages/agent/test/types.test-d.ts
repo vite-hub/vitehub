@@ -623,6 +623,12 @@ describe("agent public types", () => {
     })
 
     expectTypeOf(inventoryRuntime.cli?.commands).toMatchTypeOf<Record<string, AgentCapabilityCliCommand> | undefined>()
+    const audioRuntime = defineCapability({
+      chatAttachments: { audio: true },
+      id: "audio-runtime",
+    })
+    expectTypeOf(audioRuntime.chatAttachments).toMatchTypeOf<{ audio?: boolean } | undefined>()
+
     defineCapability({
       id: "legacy-instructions",
       // @ts-expect-error Capability instructions were removed from Capability definitions.

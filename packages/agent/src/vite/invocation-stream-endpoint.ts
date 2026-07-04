@@ -2,8 +2,9 @@ import { existsSync, statSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { createGitHubWorkspaceStore } from "@vite-hub/workspace/internal/stores/github"
 import { installHostedWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted"
-import { setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
+import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
 import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
 
 import { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute, createAgentInvocationStreamResponse } from "../invocation-stream.ts"
@@ -292,8 +293,6 @@ async function installServerAgentWorkspaceRegistry(
   server: ViteDevServer,
   entries: Array<{ agent: AgentInput<ViteAgentDevRuntimeContext>, aliases?: string[], definition: DiscoveredAgentDefinition }>,
 ): Promise<WorkspaceRegistry> {
-  if (entries.some(({ agent }) => hasHostedWorkspaceStore(agent))) installHostedWorkspaceRuntime()
-
   const registry = {
     ...await loadViteWorkspaceRegistry(server),
     ...Object.fromEntries(entries
@@ -310,6 +309,13 @@ async function installServerAgentWorkspaceRegistry(
       },
     ]))),
   } satisfies WorkspaceRegistry
+  if (entries.some(({ agent }) => hasHostedWorkspaceStore(agent))) installHostedWorkspaceRuntime()
+  const existingWorkspaceHostedStoreLoader = getWorkspaceHostedStoreLoader()
+  setWorkspaceHostedStoreLoader((storeOptions, workspaceName) => {
+    if (storeOptions.provider === "github") return createGitHubWorkspaceStore(storeOptions, workspaceName)
+    if (existingWorkspaceHostedStoreLoader) return existingWorkspaceHostedStoreLoader(storeOptions, workspaceName)
+    throw new Error(`[vitehub] Hosted workspace store "${storeOptions.provider}" is not available in this runtime.`)
+  })
   setWorkspaceRuntimeRegistry(registry)
   return registry
 }

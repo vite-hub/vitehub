@@ -172,7 +172,7 @@ export function createWorkspaceWritePolicy(definition: WorkspaceDefinition): Wor
 export function resolveWorkspaceAutoCommit(definition: WorkspaceDefinition, diff: WorkspaceDiff): WorkspaceAutoCommitPlan | undefined {
   if (!diff.entries.length) return
 
-  if (definition.commit) {
+  if (definition.commit === true || typeof definition.commit === "string") {
     const message = typeof definition.commit === "string" ? definition.commit.trim() : ""
     return {
       message: message || `chore: update ${definition.name} workspace`,

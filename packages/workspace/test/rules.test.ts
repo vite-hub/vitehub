@@ -20,6 +20,21 @@ describe("workspace rules", () => {
     })
   })
 
+  it("creates an auto-commit plan from empty workspace commit", () => {
+    expect(resolveWorkspaceAutoCommit({
+      commit: "",
+      name: "docs",
+    }, {
+      entries: [
+        { after: { type: "file" }, path: "notes/today.md", type: "modified" },
+      ],
+      to: "next",
+    })).toEqual({
+      message: "chore: update docs workspace",
+      paths: ["notes/today.md"],
+    })
+  })
+
   it("creates an auto-commit plan when every changed path matches a commit rule", () => {
     expect(resolveWorkspaceAutoCommit({
       name: "docs",

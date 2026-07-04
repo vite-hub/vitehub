@@ -12,7 +12,7 @@ import * as loader from "../src/loader.ts"
 import * as publish from "../src/publish.ts"
 import { fetch, file, github, glob, markdown, mcpResources, source, type FetchSourceOptions, type GitHubSourceOptions, type GlobSourceOptions, type McpResourcesSourceOptions } from "../src/index.ts"
 import { hubWorkspace } from "../src/vite.ts"
-import type { Workspace, WorkspaceModuleOptions, WorkspacePlugin, WorkspaceSourceSyncResult, WorkspaceWriteInput } from "../src/core/types.ts"
+import type { GitHubWorkspaceStoreOptions, Workspace, WorkspaceModuleOptions, WorkspacePlugin, WorkspaceSourceSyncResult, WorkspaceWriteInput } from "../src/core/types.ts"
 
 declare global {
   interface ViteHubWorkspaceAssetMap {
@@ -36,11 +36,13 @@ describe("workspace types", () => {
     const githubOptions = { auth: false, repo: "acme/docs" } satisfies GitHubSourceOptions
     const globOptions = { include: "**/*.md" } satisfies GlobSourceOptions
     const mcpResourcesOptions = { server: { transport: { type: "http", url: "https://example.com/mcp" } } } satisfies McpResourcesSourceOptions
+    const githubStoreOptions = { provider: "github", repository: "acme/app", token: () => "github-token" } satisfies GitHubWorkspaceStoreOptions
 
     expectTypeOf(fetchOptions).toMatchTypeOf<FetchSourceOptions>()
     expectTypeOf(githubOptions).toMatchTypeOf<GitHubSourceOptions>()
     expectTypeOf(globOptions).toMatchTypeOf<GlobSourceOptions>()
     expectTypeOf(mcpResourcesOptions).toMatchTypeOf<McpResourcesSourceOptions>()
+    expectTypeOf(githubStoreOptions).toMatchTypeOf<GitHubWorkspaceStoreOptions>()
     expectTypeOf(source.github(githubOptions)).toMatchTypeOf(github(githubOptions))
   })
 

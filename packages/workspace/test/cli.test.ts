@@ -192,4 +192,88 @@ describe("workspace CLI", () => {
     expect(commit).toHaveBeenCalledWith({ message: "workspace dev command" })
     expect(close).toHaveBeenCalledOnce()
   })
+
+  it("commits changed Workspace Dev command sessions for definitions without commit rules", async () => {
+    const exec = vi.fn(async () => ({
+      exitCode: 0,
+      stderr: "",
+      stdout: "ok\n",
+    }))
+    const diff = vi.fn(async () => ({ entries: [{ path: "README.md" }] }))
+    const commit = vi.fn(async () => {})
+    const close = vi.fn(async () => {})
+    const workspace = {
+      startSession: vi.fn(async () => ({ close, commit, diff, exec })),
+    }
+
+    await expect(runWorkspaceDevCommand({
+      command: "echo ok > README.md",
+      definition: {
+        name: "docs",
+        rules: {
+          "**": { write: true },
+        },
+      },
+      workspace: workspace as never,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "ok\n",
+    })
+
+    expect(diff).toHaveBeenCalledOnce()
+    expect(commit).toHaveBeenCalledWith({ message: "workspace dev command" })
+    expect(close).toHaveBeenCalledOnce()
+  })
+
+  it("uses Workspace rules for changed Workspace Dev command commits", async () => {
+    const exec = vi.fn(async () => ({
+      exitCode: 0,
+      stderr: "",
+      stdout: "ok\n",
+    }))
+    const diff = vi.fn(async () => ({ entries: [{ path: "trazas/note.md" }] }))
+    const commit = vi.fn(async () => {})
+    const close = vi.fn(async () => {})
+    const workspace = {
+      startSession: vi.fn(async () => ({ close, commit, diff, exec })),
+    }
+
+    await expect(runWorkspaceDevCommand({
+      command: "echo ok > trazas/note.md",
+      definition: {
+        name: "bitacora",
+        rules: {
+          "trazas/**": { commit: "chore(bitacora): update traces" },
+        },
+      },
+      workspace: workspace as never,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "ok\n",
+    })
+
+    expect(diff).toHaveBeenCalledOnce()
+    expect(commit).toHaveBeenCalledWith({ message: "chore(bitacora): update traces" })
+    expect(close).toHaveBeenCalledOnce()
+  })
+
+  it("infers trusted-host runtime for Workspace Dev command definitions", async () => {
+    const workspace = `workspace-dev-${Math.random().toString(36).slice(2)}`
+
+    await expect(runWorkspaceDevCommand({
+      command: "printf ok > README.md",
+      definition: {
+        name: workspace,
+        rules: {
+          "**": { commit: "chore: update workspace" },
+        },
+        store: { provider: "memory" },
+      },
+      workspace,
+    })).resolves.toMatchObject({
+      exitCode: 0,
+      stderr: "",
+      stdout: "",
+    })
+  })
 })

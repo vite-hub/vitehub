@@ -55,6 +55,7 @@ import type {
   WorkspaceDefinition,
   WorkspaceMaterializeSourcesOptions,
   WorkspaceName,
+  WorkspaceRules,
   WorkspaceSourceResolutionContextValueReader,
 } from "@vite-hub/workspace"
 
@@ -220,12 +221,28 @@ export function workspaceDefinitionFromOptions<
     )
   }
   const workspace = normalizeWorkspaceOptions(options.workspace)
-  const { mode: _mode, ...definition } = workspace
+  const { commit, mode: _mode, ...definition } = workspace
   assertWorkspaceDefinition(definition)
+  const normalizedWorkspace = {
+    ...definition,
+    mode: workspace.mode,
+    ...(commit === undefined || commit === false ? {} : {
+      rules: mergeWorkspaceCommitRules(definition.rules, commit),
+    }),
+  }
   return withColocatedAgentInstructions(withCapabilityWorkspaceSources(
-    workspace,
+    normalizedWorkspace,
     options.capabilities as AgentCapabilityDefinition[] | undefined,
   ))
+}
+
+function mergeWorkspaceCommitRules(rules: WorkspaceRules | undefined, commit: boolean | string): WorkspaceRules {
+  const merged: WorkspaceRules = rules ? { ...rules } : {}
+  if (!merged["**"]) merged["**"] = { commit }
+  for (const [pattern, rule] of Object.entries(merged)) {
+    if (rule.commit === undefined) merged[pattern] = { ...rule, commit }
+  }
+  return merged
 }
 
 function assertWorkspaceDefinition(definition: Record<string, unknown>): void {

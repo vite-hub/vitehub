@@ -9,7 +9,7 @@ import { defineWorkspace, file, useWorkspace } from "../src/index.ts"
 import { registerWorkspace } from "../src/test.ts"
 import { resetWorkspaceRegistry, setWorkspaceRegistry } from "../src/core/registry.ts"
 import { createWorkspaceAssets } from "../src/runtime/assets.ts"
-import { setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, useWorkspace as useRuntimeWorkspace } from "../src/runtime/state.ts"
+import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeAssetsRegistry, setWorkspaceRuntimeConfig, useWorkspace as useRuntimeWorkspace } from "../src/runtime/state.ts"
 
 const tempDirs: string[] = []
 
@@ -22,6 +22,7 @@ async function createRoot() {
 afterEach(async () => {
   resetWorkspaceAssetsRegistry()
   resetWorkspaceRegistry()
+  setWorkspaceHostedStoreLoader(undefined)
   setWorkspaceRuntimeConfig(false)
   await Promise.all(tempDirs.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
@@ -463,6 +464,10 @@ describe("workspace public API", () => {
     const registryB = await import(`${new URL("../src/core/registry.ts", import.meta.url).href}?copy=registry-b`) as typeof import("../src/core/registry.ts")
     const assetsA = await import(`${new URL("../src/asset-registry.ts", import.meta.url).href}?copy=assets-a`) as typeof import("../src/asset-registry.ts")
     const assetsB = await import(`${new URL("../src/asset-registry.ts", import.meta.url).href}?copy=assets-b`) as typeof import("../src/asset-registry.ts")
+    const hostedStoreA = await import(`${new URL("../src/runtime/hosted-store-loader.ts", import.meta.url).href}?copy=hosted-store-a`) as typeof import("../src/runtime/hosted-store-loader.ts")
+    const hostedStoreB = await import(`${new URL("../src/runtime/hosted-store-loader.ts", import.meta.url).href}?copy=hosted-store-b`) as typeof import("../src/runtime/hosted-store-loader.ts")
+    const serverA = await import(`${new URL("../src/server.ts", import.meta.url).href}?copy=server-a`) as typeof import("../src/server.ts")
+    const serverB = await import(`${new URL("../src/server.ts", import.meta.url).href}?copy=server-b`) as typeof import("../src/server.ts")
 
     configA.setWorkspaceRuntimeConfig({ root: runtimeRoot, store: { provider: "local" } })
     expect(configB.getWorkspaceRuntimeConfig()).toEqual({ root: runtimeRoot, store: { provider: "local" } })
@@ -478,6 +483,18 @@ describe("workspace public API", () => {
       }),
     })
     await expect(assetsB.useWorkspaceAssets("shared").readFile("README.md")).resolves.toBe("# Shared\n")
+
+    const loader = (() => {
+      throw new Error("unused")
+    }) as never
+    hostedStoreA.setWorkspaceHostedStoreLoader(loader)
+    expect(hostedStoreB.getWorkspaceHostedStoreLoader()).toBe(loader)
+
+    const tokenOptions = { serverId: "shared-dev-server" }
+    const token = await serverA.refreshWorkspaceDevToken(runtimeRoot, tokenOptions)
+    await expect(serverB.validateWorkspaceDevToken(runtimeRoot, new Headers({
+      [serverB.workspaceDevTokenHeader]: token,
+    }), tokenOptions)).resolves.toBe(true)
   })
 
   it("uses runtime workspace root for default local stores", async () => {

@@ -233,27 +233,28 @@ describe("workspace config", () => {
     })
   })
 
-  it("resolves lazy GitHub store options before normalizing config", () => {
-    const config = normalizeWorkspaceOptions({
-      store: {
-        branch: () => " workspace-state ",
-        provider: "github",
-        repository: () => " acme/app ",
-        root: () => " state/<workspace> ",
-        token: () => "secret-token",
-      },
+  it("preserves lazy GitHub store options while resolving runtime definitions", () => {
+    const branch = () => "workspace-state"
+    const repository = () => "acme/app"
+    const root = () => ".vitehub/workspaces/<workspace>"
+    const token = () => "secret-token"
+    const store = normalizeWorkspaceStoreOptions({
+      branch,
+      provider: "github",
+      repository,
+      root,
+      token,
     }, {
       env: {},
-      rootDir: "/repo",
+      runtime: true,
     })
 
-    expect(JSON.stringify(config)).not.toContain("secret-token")
-    expect(config && config.store).toEqual({
-      branch: "workspace-state",
+    expect(store).toEqual({
+      branch,
       provider: "github",
-      repository: "acme/app",
-      root: "state/<workspace>",
-      token: "********",
+      repository,
+      root,
+      token,
     })
   })
 

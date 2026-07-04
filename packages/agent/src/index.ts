@@ -1168,7 +1168,6 @@ type AgentInvocationContext<
   finishHook?: AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS> extends infer TEvent ? (event: TEvent) => MaybePromise<void> : never
   hasCapabilityCleanup: boolean
   harnessSandboxProvider?: unknown
-  harnessWorkspacePaths: readonly string[]
   hooks?: AgentHookObserverHooks
   modelExecutionInstrumentation: AgentCapabilityRegistries["modelExecutionInstrumentation"]
   outputExtensionProviders: ResolvedAgentOutputExtensionProvider[]
@@ -1182,6 +1181,7 @@ type AgentInvocationContext<
   workspace?: ReadonlyWorkspaceFacade<WorkspaceName> | WritableWorkspaceFacade<WorkspaceName>
   workspaceDefinition?: WorkspaceDefinition
   workspaceInstructionBindings?: Record<string, unknown>
+  workspaceMaterializationPaths: readonly string[]
   workspaceMode: AgentCapabilityMode
 }
 
@@ -1292,9 +1292,15 @@ async function createAgentInvocationContext<
     const configuredDefinitionForMerge = ownsWorkspaceDefinition && registeredWorkspaceDefinition
       ? undefined
       : configuredWorkspaceDefinition
-    const resolvedWorkspaceDefinition = workspaceName
+    const baseResolvedWorkspaceDefinition = workspaceName
       ? mergeAgentWorkspaceDefinition(workspaceName, registeredWorkspaceDefinition, configuredDefinitionForMerge)
       : undefined
+    const resolvedWorkspaceDefinition = baseResolvedWorkspaceDefinition
+      && workspaceMode === "write"
+      && runtimeContext.runtime === "vite"
+      && !baseResolvedWorkspaceDefinition.runtime
+      ? { ...baseResolvedWorkspaceDefinition, runtime: "trusted-host" as const }
+      : baseResolvedWorkspaceDefinition
     if (workspaceName && ownsWorkspaceDefinition && configuredWorkspaceDefinition && !registeredWorkspaceDefinition) {
       await registerResolvedAgentWorkspaceDefinition(workspaceName, resolvedWorkspaceDefinition)
     }
@@ -1377,7 +1383,6 @@ async function createAgentInvocationContext<
       finishExtensionProviders: capabilities.registries.finishExtensionProviders,
       finishHook: definition?.hooks?.["agent:finish"] as never,
       hasCapabilityCleanup: capabilities.hasCloseCallbacks,
-      harnessWorkspacePaths: capabilities.harnessWorkspacePaths,
       handledResponse: capabilities.response,
       hooks: definition?.hooks as AgentHookObserverHooks | undefined,
       input: capabilities.input as AgentRunInput<CALL_OPTIONS>,
@@ -1396,6 +1401,7 @@ async function createAgentInvocationContext<
       workspace: activeWorkspace,
       workspaceDefinition: activeWorkspaceDefinition,
       workspaceInstructionBindings,
+      workspaceMaterializationPaths: capabilities.workspaceMaterializationPaths,
       workspaceMode,
     }
     await traceAgentInvocationStart(toTraceContext(invocation))

@@ -43,6 +43,10 @@ type HarnessAgentSessionLike = {
   detach?: () => MaybePromise<unknown>
 }
 
+type HarnessWorkspaceMaterializationContext = AgentAdapterRunContext & {
+  workspaceMaterializationPaths?: readonly string[]
+}
+
 type HarnessInstructionSandbox = {
   writeBinaryFile(options: { abortSignal?: AbortSignal, content: Uint8Array, path: string }): MaybePromise<void>
 }
@@ -145,6 +149,13 @@ function workspaceRuleHarnessPaths(context: AgentAdapterRunContext): string[] {
   return rules.flatMap(([pattern, rule]) => rule.write ? [staticWorkspaceRulePath(pattern)].filter((path): path is string => path !== undefined) : [])
 }
 
+function hasWorkspaceCommitRules(definition: AgentAdapterRunContext["workspaceDefinition"]): boolean {
+  return [
+    ...Object.values(definition?.rules || {}),
+    ...(definition?.plugins || []).flatMap(plugin => Object.values(plugin.rules || {})),
+  ].some(rule => rule.commit !== undefined)
+}
+
 function workspaceSourceHarnessPaths(context: AgentAdapterRunContext): string[] {
   const sources = context.workspaceDefinition?.sources
   if (!sources) return []
@@ -171,9 +182,10 @@ function compactWorkspacePaths(paths: readonly string[]): string[] {
 }
 
 function harnessSupportWorkspacePaths(context: AgentAdapterRunContext): string[] {
+  const materializationContext = context as HarnessWorkspaceMaterializationContext
   return compactWorkspacePaths([
-    ...(context.harnessWorkspacePaths || []),
-    ...(context.workspaceDefinition?.commit ? [""] : []),
+    ...(context.workspaceDefinition?.commit === true || typeof context.workspaceDefinition?.commit === "string" ? [""] : []),
+    ...(materializationContext.workspaceMaterializationPaths || []),
     ...workspaceRuleHarnessPaths(context),
   ])
 }
@@ -663,6 +675,7 @@ export function createHarnessAgentAdapter<
       const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
       workspaceSession = await prepareHarnessWorkspaceSession(context.workspace, {
         abortSignal,
+        ...(hasWorkspaceCommitRules(context.workspaceDefinition) ? { definition: context.workspaceDefinition } : {}),
         ignoreWriteBackPaths: harnessInstructions ? harnessInstructionFiles : [],
         paths: selectedWorkspaceScopePaths(context),
         session: session as never,
