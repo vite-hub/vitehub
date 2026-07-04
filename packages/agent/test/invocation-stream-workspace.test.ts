@@ -526,6 +526,40 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     expect(workspaceStartSession).toHaveBeenCalled()
   })
 
+  it("installs hosted workspace runtime for string Agent Workspace shorthand with env-default Vercel Blob storage", async () => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "runtime-token")
+
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workspace-command-env-string-hosted-"))
+    await mkdir(join(root, "server", "agents", "support"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "support", "config.ts"), "export default {}", "utf8")
+
+    const { readWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } = await import("@vite-hub/workspace/server")
+    const { defineAgent } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      driver: { run: () => "unused" },
+      workspace: "docs",
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+    const token = await readWorkspaceDevToken(root, { serverId: workspaceDevTokenServerId(3000) })
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "support",
+      workspaceCommand: { command: "ls" },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      [workspaceDevTokenHeader]: token,
+    })
+
+    expect(response.statusCode).toBe(403)
+    expect(response.body).toBe("Agent Dev Loop command requires workspace.mode: \"write\".")
+    expect(installHostedWorkspaceRuntime).toHaveBeenCalledOnce()
+  })
+
   it("aborts Agent Workspace commands when the request closes", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workspace-command-abort-"))
     await mkdir(join(root, "server", "agents"), { recursive: true })
