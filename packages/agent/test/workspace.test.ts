@@ -828,6 +828,66 @@ describe("defineAgent workspace option", () => {
     expect(harnessSession.destroy).toHaveBeenCalledOnce()
   })
 
+  it("passes workspace commit fallback into Harness Workspace Session commits", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const harnessSession = { destroy: vi.fn() }
+    const sandboxDiff = {
+      entries: [{ after: { type: "file" }, path: "notes/day.md", type: "added" }],
+      to: "next",
+    }
+    const harnessWorkspaceSession = {
+      close: vi.fn(async () => {
+        const options = prepareHarnessWorkspaceSession.mock.calls[0]?.[1] as {
+          commit?: (diff: typeof sandboxDiff) => { message?: string } | false | null | undefined
+        }
+        expect(options.commit?.(sandboxDiff)).toEqual({
+          message: "chore: archive harness notes",
+          paths: ["notes/day.md"],
+        })
+      }),
+    }
+    harnessCreateSession.mockResolvedValueOnce(harnessSession)
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+    resolveWorkspaceAutoCommit.mockImplementationOnce((definition, diff) => {
+      expect(diff).toBe(sandboxDiff)
+      expect(definition).toMatchObject({
+        name: "docs",
+        rules: { "**": { commit: "chore: archive harness notes", write: true } },
+      })
+      return {
+        message: "chore: archive harness notes",
+        paths: ["notes/day.md"],
+      }
+    })
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {
+        commit: "chore: archive harness notes",
+        mode: "write",
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      commit: expect.any(Function),
+    }))
+    expect(resolveWorkspaceAutoCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        rules: { "**": { commit: "chore: archive harness notes", write: true } },
+      }),
+      sandboxDiff,
+    )
+    expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
+    expect(harnessSession.destroy).toHaveBeenCalledOnce()
+  })
+
   it("closes Harness Workspace Sessions when session creation aborts after workspace preparation", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const controller = new AbortController()

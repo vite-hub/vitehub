@@ -5,7 +5,11 @@ import {
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
 import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
-import { colocatedAgentInstructionsSourceKey, resolveColocatedAgentInstructionDocument } from "./workspace-agent.ts"
+import {
+  colocatedAgentInstructionsSourceKey,
+  resolveColocatedAgentInstructionDocument,
+  workspaceDefinitionWithAutoCommitRules,
+} from "./workspace-agent.ts"
 import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
@@ -619,9 +623,16 @@ export function createHarnessAgentAdapter<
     const agent = await createHarnessAgent(options, context, async (session, sessionWorkDir, abortSignal) => {
       if (!context.workspace) return
       const harnessInstructions = await resolveHarnessInstructions(context)
-      const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
+      const { prepareHarnessWorkspaceSession, resolveWorkspaceAutoCommit } = await import("@vite-hub/workspace")
+      const commit = context.workspaceDefinition && context.workspaceAutoCommit !== undefined
+        ? (diff: Parameters<typeof resolveWorkspaceAutoCommit>[1]) => resolveWorkspaceAutoCommit(
+            workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition!, context.workspaceAutoCommit),
+            diff,
+          )
+        : undefined
       workspaceSession = await prepareHarnessWorkspaceSession(context.workspace, {
         abortSignal,
+        ...(commit ? { commit } : {}),
         ignoreWriteBackPaths: harnessInstructions ? harnessInstructionFiles : [],
         paths: selectedWorkspaceScopePaths(context),
         session: session as never,

@@ -1179,6 +1179,7 @@ type AgentInvocationContext<
   invoker: AgentInvoker
   handledResponse?: Response
   workspace?: ReadonlyWorkspaceFacade<WorkspaceName> | WritableWorkspaceFacade<WorkspaceName>
+  workspaceAutoCommit?: boolean | string
   workspaceDefinition?: WorkspaceDefinition
   workspaceInstructionBindings?: Record<string, unknown>
   workspaceMode: AgentCapabilityMode

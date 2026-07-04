@@ -10,6 +10,7 @@ import type {
 import { isMissingWorkspacePathError } from "./scope.ts"
 import type {
   MkdirOptions,
+  WorkspaceDiff,
   WorkspaceEntry,
   WorkspaceSession,
   WorkspaceSessionOptions,
@@ -27,6 +28,7 @@ export interface HarnessWorkspaceSession {
 
 export interface PrepareHarnessWorkspaceSessionOptions {
   abortSignal?: AbortSignal
+  commit?: (diff: WorkspaceDiff) => { message?: string } | false | null | undefined
   ignoreWriteBackPaths?: readonly string[]
   paths?: readonly string[]
   session: HarnessSandboxSession
@@ -356,6 +358,7 @@ async function copySandboxChangesToWorkspace(
   initialTree: InitialTree,
   abortSignal: AbortSignal | undefined,
   ignoreWriteBackPaths: Set<string>,
+  commit: PrepareHarnessWorkspaceSessionOptions["commit"],
 ) {
   if (!sandbox.readBinaryFile) {
     throw new Error("[vitehub] Harness Workspace Session write mode requires sandbox.readBinaryFile.")
@@ -399,7 +402,10 @@ async function copySandboxChangesToWorkspace(
   }
 
   const diff = await session.diff()
-  if (diff.entries.length) await session.commit({ message: "harness-workspace-session" })
+  if (diff.entries.length) {
+    const commitOptions = commit?.(diff) || undefined
+    await session.commit({ message: commitOptions?.message || "harness-workspace-session" })
+  }
 }
 
 export async function prepareHarnessWorkspaceSession(
@@ -425,6 +431,7 @@ export async function prepareHarnessWorkspaceSession(
             initialTree,
             options.abortSignal,
             ignoreWriteBackPaths,
+            options.commit,
           )
         }
       }
