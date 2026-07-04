@@ -58,6 +58,7 @@ import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName, Works
 type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentInvocationExtensions) => MaybePromise<unknown>) & {
   providerCount: number
 }
+export const workspaceMaterializationPathsSymbol: unique symbol = Symbol("vitehub.agent.workspaceMaterializationPaths")
 type InternalAgentCapabilityCliResolver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
@@ -68,6 +69,7 @@ type InternalAgentCapabilityWithGeneratedCli<
   Name extends WorkspaceName = WorkspaceName,
 > = AgentCapabilityDefinition<TRuntimeConfig, Name> & {
   resolveCli?: InternalAgentCapabilityCliResolver<TRuntimeConfig, Name>
+  [workspaceMaterializationPathsSymbol]?: readonly string[]
 }
 type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
 type AgentCapabilityDefinitionInput<
@@ -133,13 +135,13 @@ export interface ResolvedAgentCapabilities {
   close: () => Promise<void>
   driverContributions: AgentDriverContribution[]
   hasCloseCallbacks: boolean
-  harnessWorkspacePaths: readonly string[]
   input: AgentRunInput
   messages: Message[]
   response?: Response
   registries: AgentCapabilityRegistries
   toolTransforms: AgentToolTransform[]
   tools?: AgentToolSet
+  workspaceMaterializationPaths: readonly string[]
   workspace?: ReadonlyWorkspaceFacade
   workspaceDefinition?: WorkspaceDefinition
 }
@@ -648,9 +650,9 @@ async function applyCapabilityWorkspaceContributions<
 >(
   capabilities: AgentCapabilityDefinition<TRuntimeConfig, Name>[],
   context: Omit<AgentCapabilityContext<TRuntimeConfig, Name>, "capability" | "mode"> & {
-    harnessWorkspacePaths?: readonly string[]
     workspace: ReadonlyWorkspaceFacade<Name>
     workspaceDefinition: WorkspaceDefinition
+    workspaceMaterializationPaths?: readonly string[]
   },
   workspaceMode: AgentCapabilityMode,
   baseWorkspace: ReadonlyWorkspaceFacade<Name>,
@@ -686,7 +688,7 @@ async function applyCapabilityWorkspaceContributions<
   }
 
   if (!registries.length) return
-  let selectedWorkspaceScope = mergeSelectedWorkspaceScopePaths(selectedWorkspaceScopeFromContext(context.context), context.harnessWorkspacePaths || [])
+  let selectedWorkspaceScope = mergeSelectedWorkspaceScopePaths(selectedWorkspaceScopeFromContext(context.context), context.workspaceMaterializationPaths || [])
   selectedWorkspaceScope = mergeSelectedWorkspaceSourceScopePaths(selectedWorkspaceScope, definition, workspaceRuntime)
   assertStaticWorkspaceContributionSourcesInScope(registries, definition, selectedWorkspaceScope, workspaceRuntime)
   const resolvedDefinition = await workspaceRuntime.resolveWorkspaceSources(definition, {
@@ -740,11 +742,13 @@ export async function resolveAgentCapabilities<
   const capabilities = normalizeCapabilities(options?.capabilities as AgentCapabilityDefinition[] | undefined) as AgentCapabilityDefinition<TRuntimeConfig, Name>[]
   assertWorkspaceSourceScopesRequireAccess(invocationOptions.workspaceDefinition, capabilities)
   validateAccessCapabilityOrder(capabilities)
-  const harnessWorkspacePaths = driverKind === "harness"
-    ? compactWorkspacePaths(capabilities.flatMap(capability => [
-        ...(capability.harnessWorkspacePaths || []),
-        ...(capability.requires || []).flatMap(requirement => requirement.workspace?.paths || []),
-      ]))
+  const workspaceMaterializationPaths = driverKind === "harness"
+    ? compactWorkspacePaths(capabilities.flatMap(capability =>
+        [
+          ...((capability as InternalAgentCapabilityWithGeneratedCli)[workspaceMaterializationPathsSymbol] || []),
+          ...(capability.requires || []).flatMap(requirement => requirement.workspace?.paths || []),
+        ],
+      ))
     : []
   let currentInput = normalizeRunInput(input)
   let currentWorkspace = workspace as ReadonlyWorkspaceFacade<Name> | undefined
@@ -831,11 +835,11 @@ export async function resolveAgentCapabilities<
       context: invocationContext,
       driver: { kind: driverKind },
       fs: currentWorkspace.fs,
-      harnessWorkspacePaths,
       invoker,
       runtimeContext: runtime,
       workspace: currentWorkspace,
       workspaceDefinition: currentWorkspaceDefinition,
+      workspaceMaterializationPaths,
     }, workspaceMode, workspace || currentWorkspace)
     if (workspaceContribution) {
       currentWorkspace = workspaceContribution.workspace
@@ -856,11 +860,11 @@ export async function resolveAgentCapabilities<
         context: invocationContext,
         driver: { kind: driverKind },
         fs: currentWorkspace?.fs,
-        harnessWorkspacePaths,
         invoker,
         runtimeContext: runtime,
         workspace: currentWorkspace,
         workspaceDefinition: currentWorkspaceDefinition,
+        workspaceMaterializationPaths,
       }
       let capabilityContext: AgentCapabilityRuntimeContext<TRuntimeConfig, Name> & WorkspaceOverrideRuntime<Name>
       capabilityContext = {
@@ -1031,13 +1035,13 @@ export async function resolveAgentCapabilities<
             close: closeRegisteredCallbacks,
             driverContributions,
             hasCloseCallbacks: hasCloseWork,
-            harnessWorkspacePaths,
             input: currentInput,
             messages,
             response: result,
             registries,
             toolTransforms,
             tools,
+            workspaceMaterializationPaths,
             workspace: currentWorkspace,
           }
         }
@@ -1091,12 +1095,12 @@ export async function resolveAgentCapabilities<
     close: closeRegisteredCallbacks,
     driverContributions,
     hasCloseCallbacks: hasCloseWork,
-    harnessWorkspacePaths,
     input: currentInput,
     messages,
     registries,
     toolTransforms,
     tools,
+    workspaceMaterializationPaths,
     workspace: currentWorkspace,
     workspaceDefinition: currentWorkspaceDefinition,
   }

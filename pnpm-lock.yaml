@@ -1156,6 +1156,9 @@ importers:
       exsolve:
         specifier: catalog:unjs
         version: 1.0.8
+      files-sdk:
+        specifier: catalog:storage
+        version: 1.9.0(@aws-sdk/client-s3@3.1045.0)(@aws-sdk/s3-presigned-post@3.1045.0)(@aws-sdk/s3-request-presigner@3.1045.0)(@azure/core-auth@1.10.1)(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@cfworker/json-schema@4.1.1)(@google-cloud/storage@7.19.0)(@microsoft/microsoft-graph-client@3.0.7(@azure/identity@4.13.1))(@netlify/blobs@10.7.5)(@opentelemetry/api@1.9.0)(@supabase/storage-js@2.105.4)(@vercel/blob@2.4.0)(ai@7.0.0(zod@4.4.3))(box-typescript-sdk-gen@1.19.1)(dropbox@10.34.0(@types/node-fetch@2.6.13))(google-auth-library@10.6.2)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15)))(tailwindcss@4.3.0))(zod@4.4.3)
       h3:
         specifier: catalog:unjs
         version: 2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15))
@@ -1193,9 +1196,6 @@ importers:
       ai:
         specifier: catalog:ai
         version: 7.0.0(zod@4.4.3)
-      files-sdk:
-        specifier: catalog:storage
-        version: 1.9.0(@aws-sdk/client-s3@3.1045.0)(@aws-sdk/s3-presigned-post@3.1045.0)(@aws-sdk/s3-request-presigner@3.1045.0)(@azure/core-auth@1.10.1)(@azure/identity@4.13.1)(@azure/storage-blob@12.31.0)(@cfworker/json-schema@4.1.1)(@google-cloud/storage@7.19.0)(@microsoft/microsoft-graph-client@3.0.7(@azure/identity@4.13.1))(@netlify/blobs@10.7.5)(@opentelemetry/api@1.9.0)(@supabase/storage-js@2.105.4)(@vercel/blob@2.4.0)(ai@7.0.0(zod@4.4.3))(box-typescript-sdk-gen@1.19.1)(dropbox@10.34.0(@types/node-fetch@2.6.13))(google-auth-library@10.6.2)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.20(patch_hash=7812192e785dc10115ae824c439aaf9af8f974543b7024005fcdb03470f81600)(crossws@0.4.5(srvx@0.11.15)))(tailwindcss@4.3.0))(zod@4.4.3)
       ocache:
         specifier: catalog:unjs
         version: 0.1.4

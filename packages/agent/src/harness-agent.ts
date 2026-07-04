@@ -43,6 +43,10 @@ type HarnessAgentSessionLike = {
   detach?: () => MaybePromise<unknown>
 }
 
+type HarnessWorkspaceMaterializationContext = AgentAdapterRunContext & {
+  workspaceMaterializationPaths?: readonly string[]
+}
+
 type HarnessInstructionSandbox = {
   writeBinaryFile(options: { abortSignal?: AbortSignal, content: Uint8Array, path: string }): MaybePromise<void>
 }
@@ -171,8 +175,9 @@ function compactWorkspacePaths(paths: readonly string[]): string[] {
 }
 
 function harnessSupportWorkspacePaths(context: AgentAdapterRunContext): string[] {
+  const materializationContext = context as HarnessWorkspaceMaterializationContext
   return compactWorkspacePaths([
-    ...(context.harnessWorkspacePaths || []),
+    ...(materializationContext.workspaceMaterializationPaths || []),
     ...workspaceRuleHarnessPaths(context),
   ])
 }

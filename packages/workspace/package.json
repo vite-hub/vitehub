@@ -97,6 +97,10 @@
       "types": "./dist/runtime/empty-registry.d.ts",
       "import": "./dist/runtime/empty-registry.js"
     },
+    "./internal/runtime/hosted": {
+      "types": "./dist/hosted.d.ts",
+      "import": "./dist/hosted.js"
+    },
     "./internal/runtime/state": {
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js"
@@ -125,6 +129,7 @@
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
     "exsolve": "catalog:unjs",
+    "files-sdk": "catalog:storage",
     "h3": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",
     "jiti": "catalog:unjs",
@@ -138,7 +143,6 @@
     "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "ai": "catalog:ai",
-    "files-sdk": "catalog:storage",
     "ocache": "catalog:unjs",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",

@@ -1,4 +1,4 @@
-import { defineCapability } from "../capability-runtime.ts"
+import { defineCapability, workspaceMaterializationPathsSymbol } from "../capability-runtime.ts"
 
 import type {
   AgentCapabilityDefinition,
@@ -102,8 +102,7 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
       }
     : undefined
 
-  return defineCapability({
-    harnessWorkspacePaths: [harnessWorkspacePath],
+  return Object.assign(defineCapability({
     id: "skills",
     metadata: {
       path: normalizedPath,
@@ -118,5 +117,7 @@ export function skills(options: SkillsCapabilityOptions = {}): AgentCapabilityDe
           tools: context => context.driver?.kind === "harness" ? undefined : workspaceShellTools(shellExecution, context.workspace as never),
         }
       : {}),
+  }), {
+    [workspaceMaterializationPathsSymbol]: [harnessWorkspacePath],
   })
 }

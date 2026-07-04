@@ -306,6 +306,27 @@ function generatedNetlifyRuntimeHelpers(): string[] {
   ]
 }
 
+function generatedHostedWorkspaceRuntimeSetup(definitions: DiscoveredAgentDefinition[], workspaceImportBase: string): { imports: string[], setup: string[] } {
+  const modules = definitions
+    .map((definition, index) => definition.workspace ? `agent${index}` : undefined)
+    .filter((module): module is string => Boolean(module))
+  if (!modules.length) return { imports: [], setup: [] }
+  return {
+    imports: [`import { installHostedWorkspaceRuntime } from ${JSON.stringify(subpath(workspaceImportBase, "internal/runtime/hosted"))}`],
+    setup: [
+      "function hasHostedWorkspaceStore(module) {",
+      "  const agent = resolveAgentModule(module)",
+      "  const store = agent?.__vitehubWorkspaceAgentOptions?.workspace?.store",
+      "  if (!store && typeof process === 'object' && process?.env?.BLOB_READ_WRITE_TOKEN) return true",
+      "  return store && typeof store === 'object' && ['cloudflare-artifacts', 'github', 'vercel-blob'].includes(store.provider)",
+      "}",
+      "",
+      `if ([${modules.join(", ")}].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()`,
+      "",
+    ],
+  }
+}
+
 async function generateAgentWebhookRouteHandler(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
@@ -337,6 +358,7 @@ async function generateAgentWebhookRouteHandler(
   const agentModuleEntries = definitions
     .map((definition, index) => `${JSON.stringify(definition.name)}: agent${index}`)
     .join(",\n  ")
+  const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, workspaceImportBase)
   const webhookRoute = typeof options.webhookRoute === "string" ? options.webhookRoute : ""
   const webhookSelector = webhookRoute.includes("[webhook]") ? "getRouterParam(event, 'webhook')" : "''"
 
@@ -344,8 +366,8 @@ async function generateAgentWebhookRouteHandler(
     `import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
     ...(options.cloudflareState ? [`import { createCloudflareAgentState } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`] : []),
     `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
-    `import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader, setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(workspaceImportBase, "runtime"))}`,
-    `import { createGitHubWorkspaceStore } from ${JSON.stringify(subpath(workspaceImportBase, "internal/stores/github"))}`,
+    `import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(workspaceImportBase, "runtime"))}`,
+    ...hostedWorkspaceRuntime.imports,
     "import { createError, defineEventHandler, getRequestHeaders, getRequestURL, getRouterParam, readRawBody } from 'h3'",
     imports,
     "",
@@ -378,6 +400,7 @@ async function generateAgentWebhookRouteHandler(
     "  return [name, async () => ({ ...module, default: agent })]",
     "}",
     "",
+    ...hostedWorkspaceRuntime.setup,
     "async function toRequest(event) {",
     "  const body = await readRawBody(event)",
     "  return new Request(getRequestURL(event), {",
@@ -389,13 +412,6 @@ async function generateAgentWebhookRouteHandler(
     "",
     ...generatedRuntimeHelpers(),
     ...(options.cloudflareState ? generatedCloudflareChatStateHelper() : []),
-    "",
-    "const existingWorkspaceHostedStoreLoader = getWorkspaceHostedStoreLoader()",
-    "setWorkspaceHostedStoreLoader((storeOptions, workspaceName) => {",
-    "  if (storeOptions.provider === 'github') return createGitHubWorkspaceStore(storeOptions, workspaceName)",
-    "  if (existingWorkspaceHostedStoreLoader) return existingWorkspaceHostedStoreLoader(storeOptions, workspaceName)",
-    "  throw new Error(`[vitehub] Hosted workspace store \"${storeOptions.provider}\" is not available in this runtime.`)",
-    "})",
     "",
     `setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].filter(Boolean)))`,
     "",
@@ -431,6 +447,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
   options: { chatRoute?: false | string, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
   const agentImportBase = options.agentImportBase ?? agentPackageName
+  const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
   const runtimeRouteOption = options.runtime === "vite" ? ", runtime: 'vite'" : ""
   const imports = definitions
     .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
@@ -454,12 +471,14 @@ async function generateAgentNetlifyFunctionRouteHandler(
   const agentModuleEntries = definitions
     .map((definition, index) => `${JSON.stringify(definition.name)}: agent${index}`)
     .join(",\n  ")
+  const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, workspaceImportBase)
   const webhookSelector = routeUsesParam(options.webhookRoute, "webhook") ? "netlifyParam(context, 'webhook')" : "''"
 
   return [
     `import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
     `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     `import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(agentImportBase, "server/workspace"))}`,
+    ...hostedWorkspaceRuntime.imports,
     imports,
     "",
     "function resolveAgentModule(module) {",
@@ -491,6 +510,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
     "  return [name, async () => ({ ...module, default: agent })]",
     "}",
     "",
+    ...hostedWorkspaceRuntime.setup,
     ...generatedNetlifyRuntimeHelpers(),
     "",
     `setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].filter(Boolean)))`,
@@ -562,19 +582,18 @@ async function generateAgentDenoServer(
   const agentModuleEntries = definitions
     .map((definition, index) => `${JSON.stringify(definition.name)}: agent${index}`)
     .join(",\n  ")
-  const workspaceRuntimeLines = workspaceEntries
-    ? [
-        `import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(workspaceImportBase, "runtime"))}`,
-        "",
-        `setWorkspaceRuntimeRegistry(Object.fromEntries([\n  ${workspaceEntries}\n].filter(Boolean)))`,
-        "",
-      ]
+  const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, workspaceImportBase)
+  const workspaceRuntimeImports = workspaceEntries
+    ? [`import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(workspaceImportBase, "runtime"))}`, ...hostedWorkspaceRuntime.imports]
+    : []
+  const workspaceRuntimeSetup = workspaceEntries
+    ? [...hostedWorkspaceRuntime.setup, `setWorkspaceRuntimeRegistry(Object.fromEntries([\n  ${workspaceEntries}\n].filter(Boolean)))`, ""]
     : []
 
   return [
     `import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
     `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
-    ...workspaceRuntimeLines.slice(0, 1),
+    ...workspaceRuntimeImports,
     imports,
     "",
     "await import('../schedule/deno-cron.mjs').catch((error) => {",
@@ -611,6 +630,7 @@ async function generateAgentDenoServer(
     "  return [name, async () => ({ ...module, default: agent })]",
     "}",
     "",
+    ...workspaceRuntimeSetup,
     "function jsonError(status, message) {",
     "  return Response.json({ error: true, status, statusText: message, message }, { status })",
     "}",
@@ -641,7 +661,6 @@ async function generateAgentDenoServer(
     "  return Object.keys(options).length ? options : undefined",
     "}",
     "",
-    ...workspaceRuntimeLines.slice(2),
     `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
     `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
     "const chatHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createChannelChatRouteHandler(agent, resolveChatRouteOptions(agentModules[name]))]))",

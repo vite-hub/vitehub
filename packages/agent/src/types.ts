@@ -541,7 +541,6 @@ export interface AgentCapabilityContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
 > extends AgentAdapterMetadataContext<TRuntimeConfig, Name> {
-  harnessWorkspacePaths?: readonly string[]
   mode?: AgentCapabilityMode
   runtimeContext?: ResolvedAgentRuntimeContext
   workspaceDefinition?: WorkspaceDefinition
@@ -669,7 +668,6 @@ export interface AgentCapabilityDefinition<
   hooks?: AgentCapabilityHooks<TRuntimeConfig, Name>
   id: string
   input?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<Response | void>
-  harnessWorkspacePaths?: readonly string[]
   metadata?: Record<string, unknown>
   mode?: AgentCapabilityMode
   output?: (context: AgentCapabilityRuntimeContext<TRuntimeConfig, Name>) => MaybePromise<void>
@@ -1357,7 +1355,6 @@ export interface AgentAdapterRunContext<
   driverContributions?: AgentDriverContribution[]
   hasCapabilityCleanup?: boolean
   harnessSandboxProvider?: unknown
-  harnessWorkspacePaths?: readonly string[]
   input: AgentRunInput<TOptions>
   instructions?: string
   invoker: AgentInvoker
