@@ -68,7 +68,8 @@ For adapter-backed delivery, inspect the Channel-generated webhook registrations
 | --- | --- | --- | --- |
 | `hooks` | `AgentChatEventHooks` | none | Chat event hooks such as `onDirectMessage`. |
 | `event` | `"directMessage"` | none | Chat event binding hint. |
-| `history` | `boolean \| "none" \| { source: "thread"; maxMessages?: number }` | inherited | Chat History selection for message input. |
+| `triggerHistory` | `"none" \| { source: "thread"; maxMessages?: number }` | last 20 messages, or `threadHistory.maxMessages` when derived | Chat History Window sent into the `chat.message` Agent Trigger. |
+| `threadHistory` | `{ maxMessages?: number; ttlMs?: number }` | inherited | Adapter thread backfill/cache; stores messages but does not by itself define model input. |
 | `sessions` | `boolean \| AgentChatSessionOptions` | inherited | Chat Session behavior, including `strategy`, `idleTimeoutMs`, and `metadataKey`. |
 | `state` | `AgentChatStateResolver` | runtime state | Chat State adapter override. |
 | `stream` | `boolean` | inherited | Whether the chat trigger should stream output. |

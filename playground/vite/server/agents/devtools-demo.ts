@@ -111,7 +111,7 @@ export default defineAgent({
     chat({
       concurrency: "queue",
       fallbackStreamingPlaceholderText: ["Thinking...", "Reading the workspace...", "Checking the run context..."],
-      history: { maxMessages: 8, source: "thread" },
+      triggerHistory: { maxMessages: 8, source: "thread" },
     }),
     transcribe({
       execute: () => "Transcribed playground voice input.",

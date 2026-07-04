@@ -180,6 +180,14 @@ _Avoid_: Agent Memory, Agent Run State
 The bounded number of prior Chat History messages included in an Agent Invocation.
 _Avoid_: memory size, transcript limit, context length
 
+**Chat Trigger History**:
+Message Channel Settings configured through `triggerHistory` that select the Chat History Window for one `chat.message` Agent Trigger input.
+_Avoid_: Thread History Cache, Agent Memory, full transcript
+
+**Chat Thread History Cache**:
+Adapter backfill and cache behavior configured through `threadHistory` for platforms that cannot reliably provide recent thread messages at trigger time.
+_Avoid_: Chat Trigger History, Agent Memory, model context
+
 **Chat Session**:
 A host-visible conversation boundary inside Chat History that determines which messages are eligible for the Chat History Window.
 _Avoid_: Agent Memory, Agent Run State, hidden slice
@@ -361,6 +369,8 @@ _Avoid_: Fake agent, dummy model, test bot
 - A **Chat Session** is part of Chat History behavior and is not **Agent Memory**.
 - Message-shaped **Channels** resolve the active **Chat Session** before applying the **Chat History Window**.
 - A **Chat History Window** is configured by the Agent Definition when the application wants bounded Chat History.
+- **Chat Trigger History** can be derived from an explicit **Chat Thread History Cache** max when the Agent Definition does not configure a trigger override.
+- A **Chat Thread History Cache** stores or backfills recent platform thread messages; it is not by itself the model-facing Chat History Window.
 - Message-shaped **Channels** can require state for **Chat History** through the Agent State Provider.
 - Every **Agent Invocation** has an **Agent Actor**; when no trusted identity is supplied, ViteHub provides an origin-specific anonymous fallback.
 - Message-shaped **Channels** can produce an **Agent Actor** from trusted Chat Platform Adapter identity before later Capabilities resolve.

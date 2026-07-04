@@ -3007,7 +3007,7 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "generated ok" })
   })
 
-  it("passes configured thread history into chat webhook runs", async () => {
+  it("derives trigger history from thread history in chat webhook runs", async () => {
     const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
@@ -3017,7 +3017,6 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         defineChatCapability({
-          history: { maxMessages: 25, source: "thread" },
           platforms: {
             telegram: () => adapter as never,
           },
@@ -3095,8 +3094,8 @@ describe("server helpers", () => {
         },
       },
       messages: {
-        history: { maxMessages: 10, source: "thread" },
         stream: false,
+        triggerHistory: { maxMessages: 10, source: "thread" },
       },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
@@ -3147,8 +3146,8 @@ describe("server helpers", () => {
         run,
       },
       messages: {
-        history: { maxMessages: 10, source: "thread" },
         stream: false,
+        triggerHistory: { maxMessages: 10, source: "thread" },
       },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
@@ -3204,10 +3203,10 @@ describe("server helpers", () => {
           },
         },
         messages: {
-          history: { maxMessages: 25, source: "thread" },
           state: () => state,
           stream: false,
           threadHistory: { maxMessages: 25 },
+          triggerHistory: { maxMessages: 25, source: "thread" },
         },
       })
       return createChannelWebhookRouteHandler(agent as never)
