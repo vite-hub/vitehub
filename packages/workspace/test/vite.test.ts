@@ -476,6 +476,44 @@ describe("hubWorkspace", () => {
     expect(pluginSource).not.toContain("configureCloudflareWorkspaceRuntime")
   })
 
+  it("installs hosted stores for discovered definitions with explicit local Nitro runtime config", async () => {
+    const root = await createViteRoot()
+    await mkdir(join(root, "server", "workspaces", "mirror"), { recursive: true })
+    await writeFile(join(root, "server", "workspaces", "mirror", "config.ts"), [
+      `import { defineWorkspace } from "@vite-hub/workspace"`,
+      `export default defineWorkspace({`,
+      `  store: { provider: "github", repository: "onmax/bitacora-de-vida", root: "/" },`,
+      `})`,
+      ``,
+    ].join("\n"))
+
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const config = plugin.config as (
+      config: { nitro?: { plugins?: string[] }, root: string, workspace?: { root?: string, store?: { provider: "local" } } },
+      env: { command: "serve", mode: string },
+    ) => Promise<{ nitro?: { plugins?: string[] } }>
+
+    await expect(config({
+      root,
+      workspace: {
+        root: "server/workspaces",
+        store: { provider: "local" },
+      },
+    }, { command: "serve", mode: "development" })).resolves.toMatchObject({
+      nitro: {
+        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+      },
+    })
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
+    expect(pluginSource).toContain("import { setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
+    expect(pluginSource).toContain("installHostedWorkspaceRuntime()")
+    expect(pluginSource).toContain("setWorkspaceRuntimeConfig")
+    expect(pluginSource).toContain('"provider": "local"')
+  })
+
   it("keeps Vite workspace names relative to nested Vite roots while writing project state", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-vite-suffix-root-"))
     tempDirs.push(root)

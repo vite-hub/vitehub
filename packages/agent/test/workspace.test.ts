@@ -1149,6 +1149,48 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
+  it("passes plugin Workspace Rules to harness Workspace Sessions", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {
+        mode: "write",
+        plugins: [{
+          id: "archive",
+          rules: {
+            "notes/**": { commit: "chore: archive notes", write: true },
+          },
+        }],
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      definition: expect.objectContaining({
+        name: "docs",
+        plugins: [expect.objectContaining({
+          id: "archive",
+          rules: {
+            "notes/**": { commit: "chore: archive notes", write: true },
+          },
+        })],
+      }),
+      paths: ["notes", "AGENTS.md", "CLAUDE.md"],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    }))
+  })
+
   it("does not widen non-global leading-wildcard rules for harness Workspace Sessions", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const { custom } = await import("@vite-hub/workspace")

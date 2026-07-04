@@ -251,26 +251,21 @@ function shouldConfigureRuntime(options: false | WorkspaceModuleOptions | undefi
 }
 
 function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptions, registryImport: string, installHostedRuntime: boolean): string {
-  const runtimeImports = config
-    ? isHostedWorkspaceStore(config.store)
-      ? [
-          "import { configureHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'",
-          "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
-        ]
-      : ["import { setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'"]
-    : installHostedRuntime
-      ? [
-          "import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'",
-          "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
-        ]
-      : ["import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'"]
-  const runtimeSetup = config
-    ? isHostedWorkspaceStore(config.store)
-      ? [`  configureHostedWorkspaceRuntime(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`]
-      : [`  setWorkspaceRuntimeConfig(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`]
-    : installHostedRuntime
-      ? ["  installHostedWorkspaceRuntime()"]
-      : []
+  const runtimeImports = config && isHostedWorkspaceStore(config.store)
+    ? [
+        "import { configureHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'",
+        "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
+      ]
+    : [
+        ...(installHostedRuntime ? ["import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'"] : []),
+        `import { ${config ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'`,
+      ]
+  const runtimeSetup = config && isHostedWorkspaceStore(config.store)
+    ? [`  configureHostedWorkspaceRuntime(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`]
+    : [
+        ...(installHostedRuntime ? ["  installHostedWorkspaceRuntime()"] : []),
+        ...(config ? [`  setWorkspaceRuntimeConfig(${JSON.stringify({ root: config.root, store: config.store }, null, 2)})`] : []),
+      ]
 
   return [
     ...runtimeImports,
