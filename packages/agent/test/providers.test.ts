@@ -2176,7 +2176,8 @@ describe("server helpers", () => {
         ]),
       })],
     }))
-    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "ok: reenviado\naudio transcript" })
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "...")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "ok: reenviado\naudio transcript" })
   })
 
   it("routes channel webhook custom ids through the channel adapter", async () => {
