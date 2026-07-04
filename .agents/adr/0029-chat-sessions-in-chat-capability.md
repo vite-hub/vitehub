@@ -12,9 +12,9 @@ ViteHub will model Chat Sessions as Chat Capability behavior rather than as a st
 
 ## Consequences
 
-`chat()` may expose a `sessions` option alongside `history`. Manual, idle-timeout, semantic, and hybrid session strategies can be supported without changing the ownership boundary: Chat Sessions remain part of the Chat Capability.
+`chat()` may expose a `sessions` option alongside `triggerHistory`. Manual, idle-timeout, semantic, and hybrid session strategies can be supported without changing the ownership boundary: Chat Sessions remain part of the Chat Capability.
 
-The host persists messages and their Chat Session assignment. The Chat Capability selects messages from the active Chat Session, then applies the configured Chat History Window such as `history.maxMessages`. Session decisions do not erase previous messages.
+The host persists messages and their Chat Session assignment. The Chat Capability selects messages from the active Chat Session, then applies the configured Chat History Window such as `triggerHistory.maxMessages`. Session decisions do not erase previous messages.
 
 Manual session actions such as new, clear, continue, and switch are Host Commands. Hosts may render them with slash-style UI, but they are not Input Commands and do not belong to `inputCommands()`.
 

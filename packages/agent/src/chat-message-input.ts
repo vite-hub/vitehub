@@ -5,6 +5,7 @@ import type {
   AgentChatAgentHookArgs,
   AgentChatOptions,
   AgentChatSessionOptions,
+  AgentChatTriggerHistory,
   AgentInvoker,
   AgentRunInput,
   AgentRunMetadata,
@@ -22,7 +23,6 @@ export type UIMessageLike = {
 
 export interface AgentChatMessageTriggerInput {
   abortSignal?: AbortSignal
-  history?: AgentChatOptions["history"]
   invoker?: AgentInvoker
   invokerProfileId?: string
   meta?: Record<string, unknown>
@@ -33,6 +33,7 @@ export interface AgentChatMessageTriggerInput {
     id?: string
   }
   timeout?: number
+  triggerHistory?: AgentChatTriggerHistory
   user?: Record<string, unknown>
 }
 
@@ -230,12 +231,38 @@ function selectChatSession(messages: UIMessageLike[], sessions: AgentChatOptions
   return selectIdleSession(selectManualSession(messages, options, triggerSession), options)
 }
 
-function selectChatHistory(messages: UIMessageLike[], history: AgentChatOptions["history"], sessions?: AgentChatOptions["sessions"], triggerSession?: AgentChatMessageTriggerInput["session"]): UIMessageLike[] {
+function normalizedMaxMessages(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(1, Math.floor(value))
+    : undefined
+}
+
+function threadHistoryMaxMessages(threadHistory: unknown): number | undefined {
+  if (!threadHistory || typeof threadHistory !== "object" || Array.isArray(threadHistory)) return
+  return normalizedMaxMessages((threadHistory as { maxMessages?: unknown }).maxMessages)
+}
+
+export function resolveChatTriggerHistory(
+  options: Pick<AgentChatOptions, "threadHistory" | "triggerHistory"> | undefined,
+  triggerHistory?: AgentChatTriggerHistory,
+): AgentChatTriggerHistory | undefined {
+  if (triggerHistory !== undefined) return triggerHistory
+  if (options?.triggerHistory !== undefined) return options.triggerHistory
+  const maxMessages = threadHistoryMaxMessages(options?.threadHistory)
+  return maxMessages === undefined ? undefined : { maxMessages, source: "thread" }
+}
+
+export function chatTriggerHistoryLimit(triggerHistory: AgentChatTriggerHistory | undefined): number | undefined {
+  if (triggerHistory === "none") return
+  if (!triggerHistory || triggerHistory.source !== "thread") return
+  return normalizedMaxMessages(triggerHistory.maxMessages) ?? 20
+}
+
+function selectChatHistory(messages: UIMessageLike[], triggerHistory: AgentChatTriggerHistory | undefined, sessions?: AgentChatOptions["sessions"], triggerSession?: AgentChatMessageTriggerInput["session"]): UIMessageLike[] {
   const sessionMessages = selectChatSession(messages, sessions, triggerSession)
-  if (history === false || history === "none") return sessionMessages.slice(-1)
-  if (typeof history === "object" && history.source === "thread" && typeof history.maxMessages === "number") {
-    return sessionMessages.slice(-Math.max(1, history.maxMessages))
-  }
+  if (triggerHistory === "none") return sessionMessages.slice(-1)
+  const limit = chatTriggerHistoryLimit(triggerHistory)
+  if (limit) return sessionMessages.slice(-limit)
   return sessionMessages.slice(-20)
 }
 
@@ -269,7 +296,8 @@ export function createChatMessageTriggerInput<TRuntimeConfig extends AgentRuntim
   if (!messages.length) {
     throw new TypeError("[vitehub] chat.message trigger requires at least one UI message.")
   }
-  const selectedMessages = selectChatHistory(messages, triggerInput?.history ?? options.history, options.sessions, triggerInput?.session)
+  const triggerHistory = resolveChatTriggerHistory(options, triggerInput?.triggerHistory)
+  const selectedMessages = selectChatHistory(messages, triggerHistory, options.sessions, triggerInput?.session)
   const hookArgs = createChatTriggerHookArgs<TRuntimeConfig>(selectedMessages, triggerInput?.run, triggerInput?.session)
   const userMeta: Record<string, unknown> = {}
   for (const key of ["id", "sub", "email", "username", "name", "customer"]) {
