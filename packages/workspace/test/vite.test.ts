@@ -498,7 +498,8 @@ describe("hubWorkspace", () => {
     expect(userConfig.nitro).toMatchObject({ plugins: [".vitehub/nitro/workspace/plugin.ts"] })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("configureHostedWorkspaceRuntime")
+    expect(pluginSource).toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
+    expect(pluginSource).toContain("import { configureHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")
     expect(pluginSource).toContain("import registry from \"./registry.js\"")
     expect(pluginSource).toContain('"provider": "github"')
@@ -506,7 +507,7 @@ describe("hubWorkspace", () => {
     await expect(readFile(join(root, "server", "plugins", "vitehub-workspace.ts"), "utf8")).rejects.toThrow()
   })
 
-  it("emits hosted Nitro runtime setup for explicit Vercel Blob workspace stores", async () => {
+  it("emits Nitro hosted runtime setup for explicit Vercel Blob workspace stores", async () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
     const plugin = hubWorkspace()
@@ -518,7 +519,7 @@ describe("hubWorkspace", () => {
       root,
       workspace: {
         store: {
-          prefix: "workspace/e2e",
+          prefix: "workspaces",
           provider: "vercel-blob",
         },
       },
@@ -531,11 +532,12 @@ describe("hubWorkspace", () => {
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("import { configureHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
+    expect(pluginSource).toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
     expect(pluginSource).toContain("configureHostedWorkspaceRuntime")
-    expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")
-    expect(pluginSource).not.toContain("setWorkspaceRuntimeConfig")
     expect(pluginSource).toContain('"provider": "vercel-blob"')
-    expect(pluginSource).toContain('"prefix": "workspace/e2e"')
+    expect(pluginSource).toContain('"prefix": "workspaces"')
+    expect(pluginSource).not.toContain("setWorkspaceRuntimeConfig")
   })
 
   it("emits hosted Nitro runtime setup for env-default Vercel Blob workspace stores", async () => {
@@ -557,6 +559,8 @@ describe("hubWorkspace", () => {
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("import { configureHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
+    expect(pluginSource).toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
     expect(pluginSource).toContain("configureHostedWorkspaceRuntime")
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")
     expect(pluginSource).not.toContain("setWorkspaceRuntimeConfig")

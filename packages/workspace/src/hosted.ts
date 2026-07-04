@@ -60,9 +60,4 @@ export function configureHostedWorkspaceRuntime(options: HostedWorkspaceRuntimeO
   return config
 }
 
-export {
-  createCloudflareArtifactsWorkspaceStore,
-  createGitHubWorkspaceStore,
-  createVercelBlobWorkspaceStore,
-}
 export type { CloudflareArtifactsWorkspaceStoreOptions, GitHubWorkspaceStoreOptions, VercelBlobWorkspaceStoreOptions }

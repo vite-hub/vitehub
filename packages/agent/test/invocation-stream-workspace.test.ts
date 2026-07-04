@@ -78,8 +78,8 @@ const useWorkspace = vi.hoisted(() => vi.fn(() => ({
   }),
 })))
 
-vi.mock("@vite-hub/workspace/hosted", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@vite-hub/workspace/hosted")>()
+vi.mock("@vite-hub/workspace/internal/runtime/hosted", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@vite-hub/workspace/internal/runtime/hosted")>()
   return {
     ...actual,
     installHostedWorkspaceRuntime,
