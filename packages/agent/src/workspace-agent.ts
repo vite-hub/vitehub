@@ -68,6 +68,7 @@ const sourceRequestCommands = ["curl"]
 const writeCommands = [...readCommands, "mkdir", "touch", "cp", "mv", "rm"]
 const workspaceDefinitionKeys = new Set([
   "bindings",
+  "commit",
   "hooks",
   "loaders",
   "plugins",

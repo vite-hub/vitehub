@@ -137,11 +137,8 @@ describe("Cloudflare Artifacts workspace store", () => {
           })
         }
         if (url.pathname === "/repos/onmax/repo/git/blobs/blob-sha") {
-          return new Response(JSON.stringify({
-            content: Buffer.from("hello\n").toString("base64"),
-            encoding: "base64",
-          }), {
-            headers: { "content-type": "application/json" },
+          return new Response("hello\n", {
+            headers: { "content-type": "application/octet-stream" },
           })
         }
         return new Response("not found", { status: 404 })
@@ -165,6 +162,9 @@ describe("Cloudflare Artifacts workspace store", () => {
     const workspace = useWorkspace("mirror")
     await expect(workspace.fs.readFile("tasks/todo.md")).resolves.toBe("hello\n")
     expect(requests[0]?.headers.get("authorization")).toBe("Bearer github-token")
+    expect(
+      requests.find(request => request.path === "/repos/onmax/repo/git/blobs/blob-sha")?.headers.get("accept"),
+    ).toBe("application/vnd.github.raw+json")
   })
 
   it("preserves explicit GitHub tokens in the Cloudflare runtime", async () => {

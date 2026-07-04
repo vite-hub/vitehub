@@ -1,3 +1,5 @@
+import { posix } from "node:path";
+
 import { WorkspaceError } from "../../core/errors.ts";
 import {
   contentStreamToBytes,
@@ -43,6 +45,7 @@ import type {
 interface GitHubWorkspaceStoreFile {
   bytes?: Uint8Array;
   gitSha: string;
+  mode?: string;
   mediaType?: string;
   metadata?: Record<string, unknown>;
   path: string;
@@ -86,6 +89,19 @@ function parentDirectories(path: string): string[] {
   return directories;
 }
 
+function resolveSymlinkTarget(path: string, bytes: Uint8Array): string | undefined {
+  const target = gitSymlinkTargetFromBytes(bytes);
+  if (!target || target.startsWith("/")) return;
+  const base = path.split("/").slice(0, -1).join("/");
+  const resolved = posix.normalize(base ? `${base}/${target}` : target);
+  if (!resolved || resolved === "." || resolved === ".." || resolved.startsWith("../")) return;
+  return normalizeSafeWorkspacePath(resolved);
+}
+
+function gitSymlinkTargetFromBytes(bytes: Uint8Array): string {
+  return new TextDecoder().decode(bytes).replace(/\0/g, "");
+}
+
 class GitHubWorkspaceStore implements WorkspaceStore {
   #baseline: WorkspaceSnapshot | undefined;
   #baselineRefSha: string | undefined;
@@ -122,16 +138,19 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
     const normalized = normalizeSafeWorkspacePath(path);
     await this.#ensure({ refresh: false });
-    const update = await createGitHubFileUpdate(normalized, this.#root, file.content);
     const current = this.#files.get(normalized);
     const metadata = inheritedGitHubFileMetadata(file, current);
+    const content = gitHubFileMode(metadata) === "120000" && typeof metadata?.symlinkTarget === "string"
+      ? metadata.symlinkTarget
+      : file.content;
+    const update = await createGitHubFileUpdate(normalized, this.#root, content);
     if (current?.gitSha === update.gitSha) {
       if (gitHubFileMode(current.metadata) !== gitHubFileMode(metadata)) this.#dirty = true;
       this.#files.set(normalized, {
         ...current,
         mediaType: file.mediaType,
         metadata,
-        size: contentLength(file.content),
+        size: contentLength(content),
       });
       return;
     }
@@ -146,7 +165,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       mediaType: file.mediaType,
       metadata,
       path: normalized,
-      size: contentLength(file.content),
+      size: contentLength(content),
     });
     this.#dirty = true;
   }
@@ -356,24 +375,53 @@ class GitHubWorkspaceStore implements WorkspaceStore {
 
   async #readWorkspaceFile(
     path: string,
+    seen = new Set<string>(),
   ): Promise<(WorkspaceFile & { bytes: Uint8Array }) | undefined> {
     const current = this.#files.get(path);
     if (!current) return undefined;
-    if (!current.bytes) {
-      current.bytes = await readGitHubBlob({
-        kind: "store",
-        repository: this.#repository,
-        sha: current.gitSha,
-        token: this.#token,
-      });
-      current.size = current.bytes.byteLength;
+    const currentBytes = await this.#readFileBytes(current);
+    if (gitHubFileMode(current.metadata) === "120000" && !seen.has(path)) {
+      const target = resolveSymlinkTarget(path, currentBytes);
+      if (target && this.#files.has(target)) {
+        seen.add(path);
+        const resolved = await this.#readWorkspaceFile(target, seen);
+        if (resolved) {
+          return {
+            ...resolved,
+            mediaType: current.mediaType ?? resolved.mediaType,
+            metadata: await this.#fileMetadata(current) ?? resolved.metadata,
+            path,
+          };
+        }
+      }
     }
     return {
-      content: current.bytes,
-      bytes: current.bytes,
+      content: currentBytes,
+      bytes: currentBytes,
       mediaType: current.mediaType,
-      metadata: current.metadata,
+      metadata: await this.#fileMetadata(current),
       path,
+    };
+  }
+
+  async #readFileBytes(file: GitHubWorkspaceStoreFile): Promise<Uint8Array> {
+    if (!file.bytes) {
+      file.bytes = await readGitHubBlob({
+        kind: "store",
+        repository: this.#repository,
+        sha: file.gitSha,
+        token: this.#token,
+      });
+      file.size = file.bytes.byteLength;
+    }
+    return file.bytes;
+  }
+
+  async #fileMetadata(file: GitHubWorkspaceStoreFile): Promise<Record<string, unknown> | undefined> {
+    if (gitHubFileMode(file.metadata) !== "120000" || typeof file.metadata?.symlinkTarget === "string") return file.metadata;
+    return {
+      ...file.metadata,
+      symlinkTarget: gitSymlinkTargetFromBytes(await this.#readFileBytes(file)),
     };
   }
 
@@ -398,11 +446,11 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     return options.recursive || !path.slice(prefix.length + 1).includes("/");
   }
 
-  #fileEntry(file: GitHubWorkspaceStoreFile): WorkspaceEntry {
+  async #fileEntry(file: GitHubWorkspaceStoreFile): Promise<WorkspaceEntry> {
     return {
       digest: file.gitSha,
       mediaType: file.mediaType,
-      metadata: file.metadata,
+      metadata: await this.#fileMetadata(file),
       path: file.path,
       size: file.size,
       type: "file",

@@ -5,6 +5,7 @@ import type {
   AgentCapabilityDefinition,
   AgentCapabilityTypeContract,
   AgentChatAgentHookArgs,
+  AgentChatCapabilityOptions,
   AgentChatFinishExtension,
   AgentChatOptions,
   AgentChatPlatformResolver,
@@ -205,7 +206,7 @@ export function getChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConf
     ?.metadata?.chat as AgentChatOptions<TRuntimeConfig> | undefined
 }
 
-export function chat<
+export function defineChatCapability<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   const TOptions extends AgentChatOptions<TRuntimeConfig> = AgentChatOptions<TRuntimeConfig>,
 >(
@@ -228,4 +229,19 @@ export function chat<
       message: createChatMessageTrigger(options),
     },
   })
+}
+
+export function chat<
+  TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+  const TOptions extends AgentChatCapabilityOptions<TRuntimeConfig> = AgentChatCapabilityOptions<TRuntimeConfig>,
+>(
+  options: TOptions = {} as TOptions,
+): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName, ChatCapabilityTypeContract<string>> {
+  if (Object.prototype.hasOwnProperty.call(options, "platforms")) {
+    throw new TypeError("[vitehub] chat({ platforms }) was removed. Use defineAgent({ channels }) with an adapter-backed Channel instead.")
+  }
+  if (Object.prototype.hasOwnProperty.call(options, "webhooks")) {
+    throw new TypeError("[vitehub] chat({ webhooks }) was removed. Use defineAgent({ channels }) with an adapter-backed Channel instead.")
+  }
+  return defineChatCapability(options as AgentChatOptions<TRuntimeConfig>) as AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName, ChatCapabilityTypeContract<string>>
 }

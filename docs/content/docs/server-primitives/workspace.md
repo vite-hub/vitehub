@@ -127,6 +127,7 @@ Source keys identify named origins inside the Workspace Source Map. A Source-Bac
 
 | Option | Type | Description |
 | --- | --- | --- |
+| `commit` | `boolean \| string` | Auto-commit all Workspace changes, optionally with a custom message. |
 | `rootDir` | `string` | Source root used by loaders. |
 | `sourceRootDir` | `string` | Source-specific root for Source helpers. |
 | `store` | `WorkspaceStoreOptions` | Store for this Workspace. |

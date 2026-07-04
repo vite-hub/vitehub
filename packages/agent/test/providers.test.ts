@@ -971,7 +971,7 @@ describe("server helpers", () => {
 
   it("serves hosted Chat DevTools state for an explicit agent handler", async () => {
     const { defineAgent, defineAgentInvoker } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelDevtoolsRouteHandler } = await import("../src/server/internal.ts")
     const { custom, defineWorkspace } = await import("@vite-hub/workspace")
     const profiles: Array<{ id: string, kind?: string, meta?: Record<string, unknown> }> = [{
@@ -982,7 +982,7 @@ describe("server helpers", () => {
     const runtimeEvents: string[] = []
     const agent = defineAgent({
       capabilities: [
-        chat(),
+        defineChatCapability(),
       ],
       invoker: defineAgentInvoker({
         profiles,
@@ -1135,7 +1135,7 @@ describe("server helpers", () => {
 
   it("serves AI SDK UI message chat requests through the chat trigger", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const resolveInvoker = vi.fn(({ defaultInvoker, request }) => ({
       id: `customer:${request.headers.get("x-customer")}`,
@@ -1150,7 +1150,7 @@ describe("server helpers", () => {
       return `echo ${text?.text} for ${invoker.id} via ${run.origin} on ${runtime} from ${invoker.meta.user} after ${invoker.meta.fallback}`
     })
     const agent = defineAgent({
-      capabilities: [chat()],
+      capabilities: [defineChatCapability()],
       invoker: { resolve: resolveInvoker },
       driver: {
         run
@@ -1194,10 +1194,10 @@ describe("server helpers", () => {
 
   it("leaves custom text/event-stream chat Response bodies unchanged", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const handler = createChannelChatRouteHandler(defineAgent({
-      capabilities: [chat()],
+      capabilities: [defineChatCapability()],
       driver: {
         run: () => new Response("event: custom\ndata: ok\n\n", {
           headers: { "content-type": "text/event-stream" },
@@ -1223,10 +1223,10 @@ describe("server helpers", () => {
 
   it("appends DONE to UI message chat Response bodies and drops stale body headers", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const handler = createChannelChatRouteHandler(defineAgent({
-      capabilities: [chat()],
+      capabilities: [defineChatCapability()],
       driver: {
         run: () => new Response("data: {\"type\":\"finish\"}\n\n", {
           headers: {
@@ -1258,10 +1258,10 @@ describe("server helpers", () => {
 
   it("appends DONE when UI message content mentions the DONE frame", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const handler = createChannelChatRouteHandler(defineAgent({
-      capabilities: [chat()],
+      capabilities: [defineChatCapability()],
       driver: {
         run: () => new Response("data: {\"type\":\"text-delta\",\"text\":\"data: [DONE]\"}\n\n", {
           headers: {
@@ -1289,13 +1289,13 @@ describe("server helpers", () => {
 
   it("propagates partial UI message chat Response read failures", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const encoder = new TextEncoder()
     const error = new Error("upstream failed")
     let read = false
     const handler = createChannelChatRouteHandler(defineAgent({
-      capabilities: [chat()],
+      capabilities: [defineChatCapability()],
       driver: {
         run: () => new Response(new ReadableStream({
           pull(controller) {
@@ -1520,10 +1520,10 @@ describe("server helpers", () => {
 
   it("returns a validation error for malformed AI SDK chat requests", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const handler = createChannelChatRouteHandler(defineAgent({
-      capabilities: [chat()],
+      capabilities: [defineChatCapability()],
       driver: { run: () => "unused" },
     }) as never)
 
@@ -1540,10 +1540,10 @@ describe("server helpers", () => {
 
   it("rejects client-provided identity on generated AI SDK chat routes", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const handler = createChannelChatRouteHandler(defineAgent({
-      capabilities: [chat()],
+      capabilities: [defineChatCapability()],
       driver: { run: () => "unused" },
     }) as never)
 
@@ -1742,14 +1742,14 @@ describe("server helpers", () => {
 
   it("maps trusted AI SDK chat route input before invoking the chat trigger", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelChatRouteHandler } = await import("../src/server/internal.ts")
     const run = vi.fn(({ context, invoker, run }) => {
       const chatContext = context.get("chat") as { meta?: { audience?: string }, user?: { email?: string } } | undefined
       return `portal ${run.origin} ${invoker.id} ${invoker.meta.scope} ${chatContext?.user?.email} ${chatContext?.meta?.audience}`
     })
     const handler = createChannelChatRouteHandler(defineAgent({
-      capabilities: [chat()],
+      capabilities: [defineChatCapability()],
       invoker: {
         profiles: [{
           id: "customer:acme",
@@ -1800,7 +1800,8 @@ describe("server helpers", () => {
 
   it("handles Chat SDK webhooks through the chat capability", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { access, chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const { access, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const admitChat = vi.fn(({ invoker }) => invoker?.id === "customer:acme")
@@ -1832,7 +1833,7 @@ describe("server helpers", () => {
             resolve: admitChat,
           },
         }),
-        chat({
+        defineChatCapability({
           identity: ({ adapter, author }) => `${adapter}:${author.userId}`,
           platforms: {
             telegram: () => adapter as never,
@@ -1881,9 +1882,9 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", { markdown: "echo: hello" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
     expect(adapter.postMessage).toHaveBeenCalledTimes(1)
-    expect(adapter.editMessage).not.toHaveBeenCalled()
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "echo: hello" })
     expect(invokerResolve).toHaveBeenCalledOnce()
     expect(admitChat).toHaveBeenCalledWith(expect.objectContaining({
       invoker: expect.objectContaining({
@@ -2175,7 +2176,8 @@ describe("server helpers", () => {
         ]),
       })],
     }))
-    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "ok: reenviado\naudio transcript" })
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "...")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "ok: reenviado\naudio transcript" })
   })
 
   it("routes channel webhook custom ids through the channel adapter", async () => {
@@ -2222,7 +2224,8 @@ describe("server helpers", () => {
         runId: "support:7",
       }),
     }))
-    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "echo: hello" })
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "...")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "echo: hello" })
   })
 
   it("rejects unsigned chat channel webhooks before adapter dispatch", async () => {
@@ -2676,13 +2679,13 @@ describe("server helpers", () => {
 
   it("does not block chat webhook handling on typing status", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     adapter.startTyping.mockImplementation(() => new Promise(() => {}))
     const agent = defineAgent({
       capabilities: [
-        chat({
+        defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
           },
@@ -2715,14 +2718,14 @@ describe("server helpers", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
     expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined)
-    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "ok" })
-    expect(adapter.editMessage).not.toHaveBeenCalled()
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "...")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "ok" })
   })
 
   it("continues refreshing typing status after a hung typing request", async () => {
     vi.useFakeTimers()
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     let runStarted!: () => void
@@ -2736,7 +2739,7 @@ describe("server helpers", () => {
     adapter.startTyping.mockImplementation(() => new Promise(() => {}))
     const agent = defineAgent({
       capabilities: [
-        chat({
+        defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
           },
@@ -2791,7 +2794,7 @@ describe("server helpers", () => {
   it("refreshes typing status until the streamed chat response is committed", async () => {
     vi.useFakeTimers()
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     let runStarted!: () => void
@@ -2822,7 +2825,7 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       capabilities: [
-        chat({
+        defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
           },
@@ -2890,9 +2893,9 @@ describe("server helpers", () => {
     }
   })
 
-  it("posts configured chat fallback while streamed webhook work is still running", async () => {
+  it("posts a default chat fallback while streamed webhook work is still running", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     let runStarted!: () => void
@@ -2905,7 +2908,116 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       capabilities: [
-        chat({
+        defineChatCapability({
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      driver: { run: async () => {
+          runStarted()
+          await finishRunPromise
+          return "done"
+        } },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 1044,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1044,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    await runStartedPromise
+    await Promise.resolve()
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "...")
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+
+    finishRun()
+    const response = await responsePromise
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "done" })
+  })
+
+  it("edits Telegram fallback with event stream text when textStream is empty", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability({
+          platforms: {
+            telegram: () => adapter as never,
+          },
+          webhooks: {
+            telegram: {},
+          },
+        }),
+      ],
+      driver: {
+        run: () => ({
+          stream: (async function* () {
+            yield { delta: "ok", type: "text-delta" }
+            yield { finishReason: "stop", type: "finish" }
+          })(),
+          textStream: (async function* () {
+            yield undefined
+          })(),
+        }),
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 1049,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1049,
+          text: "hello",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "...")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "ok" })
+  })
+
+  it("posts configured chat fallback while streamed webhook work is still running", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    let runStarted!: () => void
+    let finishRun!: () => void
+    const runStartedPromise = new Promise<void>(resolve => {
+      runStarted = resolve
+    })
+    const finishRunPromise = new Promise<void>(resolve => {
+      finishRun = resolve
+    })
+    const agent = defineAgent({
+      capabilities: [
+        defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
           },
@@ -2958,7 +3070,7 @@ describe("server helpers", () => {
     const random = vi.spyOn(Math, "random").mockReturnValue(0.75)
     try {
       const { defineAgent } = await import("../src/index.ts")
-      const { chat } = await import("../src/capabilities.ts")
+      const { defineChatCapability } = await import("../src/chat-trigger.ts")
       const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
       const adapter = createTestChatAdapter()
       let runStarted!: () => void
@@ -2971,7 +3083,7 @@ describe("server helpers", () => {
       })
       const agent = defineAgent({
         capabilities: [
-          chat({
+          defineChatCapability({
             platforms: {
               telegram: () => adapter as never,
             },
@@ -3025,12 +3137,12 @@ describe("server helpers", () => {
   it("activates Cloudflare env while webhook work runs", async () => {
     const { getActiveCloudflareEnv } = await import("@vite-hub/internal/runtime/cloudflare-env")
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const agent = defineAgent({
       capabilities: [
-        chat({
+        defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
           },
@@ -3065,20 +3177,20 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "runtime-openai-key" })
-    expect(adapter.editMessage).not.toHaveBeenCalled()
+    expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", "...")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "runtime-openai-key" })
   })
 
   it("posts chat error fallback when deferred webhook work fails", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter({ deferMessageProcessing: true })
     const waitUntilTasks: Promise<unknown>[] = []
     const agent = defineAgent({
       capabilities: [
-        chat({
+        defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
           },
@@ -3127,7 +3239,7 @@ describe("server helpers", () => {
   })
 
   it("lets chat webhooks opt out of streaming model execution", async () => {
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const model = {
@@ -3140,7 +3252,7 @@ describe("server helpers", () => {
     }
     const agent = {
       capabilities: [
-        chat({
+        defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
           },
@@ -3176,7 +3288,7 @@ describe("server helpers", () => {
   })
 
   it("derives trigger history from thread history in chat webhook runs", async () => {
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -3184,7 +3296,7 @@ describe("server helpers", () => {
     const runs: string[][] = []
     const agent = defineAgent({
       capabilities: [
-        chat({
+        defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
           },
@@ -3227,7 +3339,7 @@ describe("server helpers", () => {
   })
 
   it("keeps fetched thread history when the current chat message has no id", async () => {
-    const { chat } = await import("../src/capabilities.ts")
+    const { telegram } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -3252,23 +3364,18 @@ describe("server helpers", () => {
     })
     const runs: string[][] = []
     const agent = defineAgent({
-      capabilities: [
-        chat({
-          platforms: {
-            telegram: () => adapter as never,
-          },
-          stream: false,
-          triggerHistory: { maxMessages: 10, source: "thread" },
-          webhooks: {
-            telegram: {},
-          },
-        }),
-      ],
+      channels: {
+        telegram: telegram({ adapter: () => adapter as never }),
+      },
       driver: {
         run: ({ messages }) => {
           runs.push(messages.map(getMessageText))
           return "ok"
         },
+      },
+      messages: {
+        stream: false,
+        triggerHistory: { maxMessages: 10, source: "thread" },
       },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
@@ -3290,7 +3397,7 @@ describe("server helpers", () => {
   })
 
   it("does not run id-less chat deliveries without current message parts", async () => {
-    const { chat } = await import("../src/capabilities.ts")
+    const { telegram } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter({ missingIncomingMessageId: true })
@@ -3312,20 +3419,15 @@ describe("server helpers", () => {
     })
     const run = vi.fn(() => "ok")
     const agent = defineAgent({
-      capabilities: [
-        chat({
-          platforms: {
-            telegram: () => adapter as never,
-          },
-          stream: false,
-          triggerHistory: { maxMessages: 10, source: "thread" },
-          webhooks: {
-            telegram: {},
-          },
-        }),
-      ],
+      channels: {
+        telegram: telegram({ adapter: () => adapter as never }),
+      },
       driver: {
         run,
+      },
+      messages: {
+        stream: false,
+        triggerHistory: { maxMessages: 10, source: "thread" },
       },
     })
     const handler = createChannelWebhookRouteHandler(agent as never)
@@ -3348,7 +3450,7 @@ describe("server helpers", () => {
   })
 
   it("passes durable thread history into chat webhook runs after adapter cache resets", async () => {
-    const { chat } = await import("../src/capabilities.ts")
+    const { telegram } = await import("../src/channels.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -3371,24 +3473,20 @@ describe("server helpers", () => {
     })
     const handler = (adapter: ReturnType<typeof createTestChatAdapter>) => {
       const agent = defineAgent({
-        capabilities: [
-          chat({
-            platforms: {
-              telegram: () => adapter as never,
-            },
-            state: () => state,
-            stream: false,
-            threadHistory: { maxMessages: 25 },
-            webhooks: {
-              telegram: {},
-            },
-          }),
-        ],
+        channels: {
+          telegram: telegram({ adapter: () => adapter as never }),
+        },
         driver: {
           run: ({ messages }) => {
             runs.push(messages.map(getMessageText))
             return `reply ${runs.length}`
           },
+        },
+        messages: {
+          state: () => state,
+          stream: false,
+          threadHistory: { maxMessages: 25 },
+          triggerHistory: { maxMessages: 25, source: "thread" },
         },
       })
       return createChannelWebhookRouteHandler(agent as never)
@@ -3410,7 +3508,7 @@ describe("server helpers", () => {
 
   it("runs non-streaming chat webhooks inline for workflow-backed agents", async () => {
     const { workflow } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
     const adapter = createTestChatAdapter()
@@ -3422,7 +3520,7 @@ describe("server helpers", () => {
     }
     const agent = {
       capabilities: [
-        chat({
+        defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
           },
@@ -3464,7 +3562,8 @@ describe("server helpers", () => {
   })
 
   it("lets agent finish hooks post usage telemetry for non-streaming model chat webhooks", async () => {
-    const { chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const { staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const finish = vi.fn(async (event) => {
@@ -3497,7 +3596,7 @@ describe("server helpers", () => {
     }
     const agent = {
       capabilities: [
-        chat({
+        defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
           },
@@ -3568,7 +3667,7 @@ describe("server helpers", () => {
 
   it("exposes chat sendMessage to agent finish hooks for chat webhooks", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const finish = vi.fn(async (event) => {
@@ -3577,7 +3676,7 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       capabilities: [
-        chat({
+        defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
           },
@@ -3617,7 +3716,7 @@ describe("server helpers", () => {
 
   it("maps finish hook delivery artifacts to Chat SDK attachments", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const finish = vi.fn(async (event) => {
@@ -3634,7 +3733,7 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       capabilities: [
-        chat({
+        defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
           },
@@ -3717,8 +3816,9 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:988", { markdown: "Preparing assets." })
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:988", { markdown: "agent answer" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:988", "...")
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:988", { markdown: "Preparing assets." })
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:988", "sent-1", { markdown: "agent answer" })
   })
 
   it("posts finish channel delivery replies after input replacement and appends link artifacts", async () => {
@@ -3770,7 +3870,8 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:987", { markdown: "agent answer" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:987", "...")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:987", "sent-1", { markdown: "agent answer" })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:987", {
       markdown: "See the report.\n\n[Result report](<https://assets.example/reports/result.md>)",
     })
@@ -3835,7 +3936,8 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:989", { markdown: "agent answer" })
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:989", "...")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:989", "sent-1", { markdown: "agent answer" })
     const deliveryMessage = adapter.postMessage.mock.calls[1]?.[1] as {
       attachments?: Array<{ mimeType?: string, name?: string, type?: string, url?: string }>
       files?: Array<{ data: ArrayBuffer, filename: string, mimeType?: string }>
@@ -3859,7 +3961,7 @@ describe("server helpers", () => {
 
   it("commits native streamed chat responses before flushing finish hook messages", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const order: string[] = []
@@ -3897,7 +3999,7 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       capabilities: [
-        chat({
+        defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
           },
@@ -3963,7 +4065,7 @@ describe("server helpers", () => {
   it("does not fail native streamed chats when the final message is already committed", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     adapter.stream = vi.fn(async (threadId: string, textStream: AsyncIterable<string | StreamChunk>) => {
@@ -3982,7 +4084,7 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       capabilities: [
-        chat({
+        defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
           },
@@ -4029,7 +4131,8 @@ describe("server helpers", () => {
 
   it("flushes deferred non-streaming chat webhook work before returning", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chat, usageTelemetry } = await import("../src/capabilities.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter({ deferMessageProcessing: true })
     adapter.startTyping.mockImplementation(() => new Promise(() => {}))
@@ -4061,7 +4164,7 @@ describe("server helpers", () => {
     })
     const agent = defineAgent({
       capabilities: [
-        chat({
+        defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
           },
@@ -4115,7 +4218,8 @@ describe("server helpers", () => {
 
   it("lets agent finish hooks compose usage telemetry and chat follow-up messages", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { access, chat, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const { access, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const finish = vi.fn(async (event) => {
@@ -4134,7 +4238,7 @@ describe("server helpers", () => {
             resolve: () => true,
           },
         }),
-        chat({
+        defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
           },
@@ -4183,8 +4287,8 @@ describe("server helpers", () => {
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:789", { markdown: "ok" })
-    expect(adapter.editMessage).not.toHaveBeenCalled()
+    expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:789", "...")
+    expect(adapter.editMessage).toHaveBeenCalledWith("telegram:789", "sent-1", { markdown: "ok" })
     expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:789", { markdown: "Custom usage: `15` tokens via telegram" })
     expect(finish).toHaveBeenCalledOnce()
     expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(expect.objectContaining({
@@ -4202,7 +4306,8 @@ describe("server helpers", () => {
 
   it("lets access() reject app-specific chat invokers", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { access, chat } = await import("../src/capabilities.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter()
     const run = vi.fn(() => "unused")
@@ -4213,7 +4318,7 @@ describe("server helpers", () => {
             resolve: ({ invoker }) => invoker?.id === "123",
           },
         }),
-        chat({
+        defineChatCapability({
           platforms: { telegram: () => adapter as never },
           webhooks: {
             telegram: {},
@@ -4247,13 +4352,13 @@ describe("server helpers", () => {
 
   it("returns Chat SDK adapter webhook responses", async () => {
     const { defineAgent } = await import("../src/index.ts")
-    const { chat } = await import("../src/capabilities.ts")
+    const { defineChatCapability } = await import("../src/chat-trigger.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
     const adapter = createTestChatAdapter({ secret: "secret" })
     const run = vi.fn(() => "unused")
     const agent = defineAgent({
       capabilities: [
-        chat({
+        defineChatCapability({
           platforms: {
             telegram: () => adapter as never,
           },

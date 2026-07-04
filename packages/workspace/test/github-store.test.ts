@@ -9,6 +9,7 @@ let remoteTree: Array<{ mode?: string; path: string; sha: string; size?: number;
 let commitIndex = 0;
 let treeIndex = 0;
 const blobs = new Map<string, Uint8Array>();
+const jsonBlobResponses = new Set<string>();
 
 function gitBlobSha(bytes: Uint8Array): string {
   return createHash("sha1").update(`blob ${bytes.byteLength}\0`).update(bytes).digest("hex");
@@ -44,6 +45,7 @@ beforeEach(() => {
   commitIndex = 0;
   treeIndex = 0;
   blobs.clear();
+  jsonBlobResponses.clear();
   delete process.env.WORKSPACE_GITHUB_TOKEN;
 
   vi.stubGlobal(
@@ -71,8 +73,17 @@ beforeEach(() => {
       if (url.pathname.startsWith("/repos/onmax/repo/git/blobs/") && method === "GET") {
         const sha = url.pathname.split("/").at(-1)!;
         const bytes = blobs.get(sha);
+        if (bytes && jsonBlobResponses.has(sha)) {
+          return jsonResponse({
+            content: Buffer.from(bytes).toString("base64"),
+            encoding: "base64",
+          });
+        }
         return bytes
-          ? jsonResponse({ content: Buffer.from(bytes).toString("base64"), encoding: "base64" })
+          ? new Response(bytes, {
+              headers: { "content-type": "application/octet-stream" },
+              status: 200,
+            })
           : new Response("not found", { status: 404 });
       }
       if (url.pathname === "/repos/onmax/repo/git/blobs" && method === "POST" && body?.content) {
@@ -196,6 +207,10 @@ describe("GitHub workspace store", () => {
       content: textBytes('{"ok":true}\n'),
       path: "data/existing.json",
     });
+    expect(
+      requests.find(request => request.path.includes("/git/blobs/") && request.method === "GET")
+        ?.headers.get("accept"),
+    ).toBe("application/vnd.github.raw+json");
     await expect(store.list("", { recursive: true })).resolves.toEqual([
       expect.objectContaining({ path: "data", type: "directory" }),
       expect.objectContaining({
@@ -269,6 +284,32 @@ describe("GitHub workspace store", () => {
     await expect(freshStore.getMeta!("loader")).resolves.toEqual({ digest: "abc" });
   });
 
+  it("decodes GitHub JSON blob responses when raw bytes are unavailable", async () => {
+    const content = "fallback\n";
+    const sha = textSha(content);
+    seedRemote(".vitehub/workspaces/docs/data/fallback.txt", content);
+    jsonBlobResponses.add(sha);
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await expect(store.readFile("data/fallback.txt")).resolves.toMatchObject({
+      content: textBytes(content),
+      path: "data/fallback.txt",
+    });
+    expect(
+      requests.find(request => request.path.includes("/git/blobs/") && request.method === "GET")
+        ?.headers.get("accept"),
+    ).toBe("application/vnd.github.raw+json");
+  });
+
   it("deletes files and directories through snapshot commits", async () => {
     seedRemote(".vitehub/workspaces/docs/tasks/a.md", "a\n");
     seedRemote(".vitehub/workspaces/docs/tasks/b.md", "b\n");
@@ -315,6 +356,35 @@ describe("GitHub workspace store", () => {
     await store.snapshot({ name: "unchanged" });
 
     expect(requests.filter((request) => request.method !== "GET")).toEqual([]);
+  });
+
+  it("reads GitHub symlink blobs from their in-workspace target", async () => {
+    seedRemote(".vitehub/workspaces/docs/AGENTS.md", "# Instructions\n");
+    const target = textBytes("AGENTS.md");
+    const sha = gitBlobSha(target);
+    blobs.set(sha, target);
+    remoteTree.push({
+      mode: "120000",
+      path: ".vitehub/workspaces/docs/CLAUDE.md",
+      sha,
+      size: target.byteLength,
+      type: "blob",
+    });
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await expect(store.readFile("CLAUDE.md")).resolves.toMatchObject({
+      content: textBytes("# Instructions\n"),
+      path: "CLAUDE.md",
+    });
   });
 
   it("diffs a fresh loaded store from the remote baseline", async () => {
@@ -464,14 +534,80 @@ describe("GitHub workspace store", () => {
     );
 
     await expect(store.stat("CLAUDE.md")).resolves.toMatchObject({
-      metadata: { gitMode: "120000" },
+      metadata: { gitMode: "120000", symlinkTarget: "AGENTS.md" },
       path: "CLAUDE.md",
       type: "file",
     });
     await expect(store.readFile("CLAUDE.md")).resolves.toMatchObject({
-      content: textBytes("AGENTS.md"),
-      metadata: { gitMode: "120000" },
+      content: textBytes("# Agents\n"),
+      metadata: { gitMode: "120000", symlinkTarget: "AGENTS.md" },
     });
+  });
+
+  it("round-trips GitHub symlink metadata without replacing the link target bytes", async () => {
+    seedRemote(".vitehub/workspaces/docs/AGENTS.md", "# Agents\n");
+    seedRemote(".vitehub/workspaces/docs/CLAUDE.md", "AGENTS.md", "120000");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    const file = await store.readFile("CLAUDE.md");
+    expect(file).toBeDefined();
+    await store.writeFile("CLAUDE.md", file!);
+    await store.snapshot({ name: "round-trip symlink" });
+
+    expect(remoteTree).toContainEqual(
+      expect.objectContaining({
+        mode: "120000",
+        path: ".vitehub/workspaces/docs/CLAUDE.md",
+        sha: textSha("AGENTS.md"),
+      }),
+    );
+  });
+
+  it("preserves surrounding whitespace in GitHub symlink targets", async () => {
+    const target = " AGENTS.md ";
+    seedRemote(`.vitehub/workspaces/docs/${target}`, "# Agents\n");
+    seedRemote(".vitehub/workspaces/docs/CLAUDE.md", target, "120000");
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore(
+      {
+        provider: "github",
+        repository: "onmax/repo",
+        root: ".vitehub/workspaces/<workspace>",
+        token: "token",
+      },
+      "docs",
+    );
+
+    await expect(store.stat("CLAUDE.md")).resolves.toMatchObject({
+      metadata: { gitMode: "120000", symlinkTarget: target },
+      path: "CLAUDE.md",
+      type: "file",
+    });
+    const file = await store.readFile("CLAUDE.md");
+    expect(file).toMatchObject({
+      content: textBytes("# Agents\n"),
+      metadata: { gitMode: "120000", symlinkTarget: target },
+      path: "CLAUDE.md",
+    });
+    await store.writeFile("CLAUDE.md", file!);
+    await store.snapshot({ name: "round-trip whitespace symlink" });
+
+    expect(remoteTree).toContainEqual(
+      expect.objectContaining({
+        mode: "120000",
+        path: ".vitehub/workspaces/docs/CLAUDE.md",
+        sha: textSha(target),
+      }),
+    );
   });
 
   it("commits GitHub symlink metadata as tree mode 120000", async () => {

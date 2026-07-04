@@ -272,10 +272,6 @@ function createWorkspaceTarGz(directories: Iterable<string>, files: Map<string, 
   return gzipSync(Buffer.concat(blocks))
 }
 
-function gitSymlinkTarget(entry: WorkspaceEntry, content: Uint8Array): string | undefined {
-  return entry.metadata?.gitMode === "120000" ? new TextDecoder().decode(content) : undefined
-}
-
 async function extractWorkspaceArchive(
   sandbox: HarnessSandboxSession,
   sessionWorkDir: string,
@@ -345,7 +341,13 @@ async function copyWorkspaceToSandbox(
   await forEachConcurrent(files, workspaceReadConcurrency, async (entry) => {
     const content = await workspace.fs.readFile(entry.path, { encoding: "binary" })
     const bytes = contentToBytes(content)
-    initialTree.files.set(entry.path, { content: bytes, mediaType: entry.mediaType, symlinkTarget: gitSymlinkTarget(entry, bytes) })
+    initialTree.files.set(entry.path, {
+      content: bytes,
+      mediaType: entry.mediaType,
+      symlinkTarget: entry.metadata?.gitMode === "120000"
+        ? typeof entry.metadata.symlinkTarget === "string" ? entry.metadata.symlinkTarget : new TextDecoder().decode(bytes)
+        : undefined,
+    })
   })
   await resetSandboxWorkDir(sandbox, sessionWorkDir, abortSignal)
   await extractWorkspaceArchive(sandbox, sessionWorkDir, initialTree, directoriesToCreate, abortSignal)

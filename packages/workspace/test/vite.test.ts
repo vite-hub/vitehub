@@ -646,6 +646,34 @@ describe("hubWorkspace", () => {
     expect(pluginSource).not.toContain("setWorkspaceRuntimeConfig")
   })
 
+  it("emits hosted Nitro runtime setup for env-default Vercel Blob workspace stores", async () => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "runtime-token")
+    vi.stubEnv("VITEHUB_WORKSPACE_BLOB_PREFIX", "workspace/default")
+    const root = await createViteRoot()
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const config = plugin.config as (
+      config: { nitro?: { plugins?: string[] }, root: string },
+      env: { command: "build", mode: string },
+    ) => Promise<{ nitro?: { plugins?: string[] } }>
+    const userConfig: Parameters<typeof config>[0] = { root }
+
+    await expect(config(userConfig, { command: "build", mode: "production" })).resolves.toMatchObject({
+      nitro: {
+        plugins: [".vitehub/nitro/workspace/plugin.ts"],
+      },
+    })
+
+    const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
+    expect(pluginSource).toContain("import { configureHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
+    expect(pluginSource).toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
+    expect(pluginSource).toContain("configureHostedWorkspaceRuntime")
+    expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")
+    expect(pluginSource).not.toContain("setWorkspaceRuntimeConfig")
+    expect(pluginSource).toContain('"provider": "vercel-blob"')
+    expect(pluginSource).toContain('"prefix": "workspace/default"')
+  })
+
   it("emits Nitro runtime setup for explicit local workspace stores", async () => {
     const root = await createViteRoot()
     const { hubWorkspace } = await import("../src/vite.ts")
