@@ -191,6 +191,7 @@ export type {
   AgentChatPlatformsResolver,
   AgentChatSendMessage,
   AgentChatSessionOptions,
+  AgentChatTriggerHistory,
   AgentChannelDefinition,
   AgentChannelTriggerContext,
   AgentChannels,

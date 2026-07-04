@@ -3175,7 +3175,7 @@ describe("server helpers", () => {
     expect(adapter.postMessage).toHaveBeenCalledWith("telegram:456", { markdown: "generated ok" })
   })
 
-  it("passes configured thread history into chat webhook runs", async () => {
+  it("derives trigger history from thread history in chat webhook runs", async () => {
     const { chat } = await import("../src/capabilities.ts")
     const { defineAgent } = await import("../src/index.ts")
     const { getMessageText } = await import("../src/messages.ts")
@@ -3185,7 +3185,6 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          history: { maxMessages: 25, source: "thread" },
           platforms: {
             telegram: () => adapter as never,
           },
@@ -3255,11 +3254,11 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          history: { maxMessages: 10, source: "thread" },
           platforms: {
             telegram: () => adapter as never,
           },
           stream: false,
+          triggerHistory: { maxMessages: 10, source: "thread" },
           webhooks: {
             telegram: {},
           },
@@ -3315,11 +3314,11 @@ describe("server helpers", () => {
     const agent = defineAgent({
       capabilities: [
         chat({
-          history: { maxMessages: 10, source: "thread" },
           platforms: {
             telegram: () => adapter as never,
           },
           stream: false,
+          triggerHistory: { maxMessages: 10, source: "thread" },
           webhooks: {
             telegram: {},
           },
@@ -3374,7 +3373,6 @@ describe("server helpers", () => {
       const agent = defineAgent({
         capabilities: [
           chat({
-            history: { maxMessages: 25, source: "thread" },
             platforms: {
               telegram: () => adapter as never,
             },

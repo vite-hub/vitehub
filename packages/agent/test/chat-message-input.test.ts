@@ -5,8 +5,8 @@ import { createChatMessageTriggerInput } from "../src/chat-message-input.ts"
 describe("chat message trigger input", () => {
   it("selects manual Chat Session history and carries chat context", () => {
     const result = createChatMessageTriggerInput({
-      history: { maxMessages: 10, source: "thread" },
       sessions: true,
+      triggerHistory: { maxMessages: 10, source: "thread" },
     }, {
       messages: [
         { metadata: { sessionId: "a" }, parts: [{ text: "session a", type: "text" }], role: "user" },
@@ -36,6 +36,57 @@ describe("chat message trigger input", () => {
       .map(part => part.text)
       .join(""))).toEqual(["session b"])
     expect(result.hookArgs.message.text).toBe("session b")
+  })
+
+  it("derives trigger history from explicit thread history", () => {
+    const result = createChatMessageTriggerInput({
+      threadHistory: { maxMessages: 2 },
+    }, {
+      messages: [
+        { parts: [{ text: "one", type: "text" }], role: "user" },
+        { parts: [{ text: "two", type: "text" }], role: "assistant" },
+        { parts: [{ text: "three", type: "text" }], role: "user" },
+      ],
+    })
+
+    expect(result.input.messages?.map(message => message.parts
+      .filter((part): part is { text: string, type: "text" } => part.type === "text")
+      .map(part => part.text)
+      .join(""))).toEqual(["two", "three"])
+  })
+
+  it("lets trigger history override derived thread history", () => {
+    const result = createChatMessageTriggerInput({
+      threadHistory: { maxMessages: 10 },
+      triggerHistory: { maxMessages: 1, source: "thread" },
+    }, {
+      messages: [
+        { parts: [{ text: "one", type: "text" }], role: "user" },
+        { parts: [{ text: "two", type: "text" }], role: "assistant" },
+      ],
+    })
+
+    expect(result.input.messages?.map(message => message.parts
+      .filter((part): part is { text: string, type: "text" } => part.type === "text")
+      .map(part => part.text)
+      .join(""))).toEqual(["two"])
+  })
+
+  it("keeps stateless trigger history explicit", () => {
+    const result = createChatMessageTriggerInput({
+      threadHistory: { maxMessages: 10 },
+      triggerHistory: "none",
+    }, {
+      messages: [
+        { parts: [{ text: "one", type: "text" }], role: "user" },
+        { parts: [{ text: "two", type: "text" }], role: "assistant" },
+      ],
+    })
+
+    expect(result.input.messages?.map(message => message.parts
+      .filter((part): part is { text: string, type: "text" } => part.type === "text")
+      .map(part => part.text)
+      .join(""))).toEqual(["two"])
   })
 
   it("uses Chat Trigger metadata to enrich a user-derived invoker", () => {

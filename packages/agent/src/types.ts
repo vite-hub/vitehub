@@ -1043,8 +1043,9 @@ export interface AgentToolStep {
 
 export interface AgentChatAgentBindingOptions {
   event?: "directMessage"
-  history?: boolean | "none" | { maxMessages?: number, source: "thread" }
 }
+
+export type AgentChatTriggerHistory = "none" | { maxMessages?: number, source: "thread" }
 
 export interface AgentChatSessionOptions {
   idleTimeoutMs?: number
@@ -1121,7 +1122,6 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   dedupeTtlMs?: number
   errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
   fallbackStreamingPlaceholderText?: string | readonly string[] | null | ((context: AgentChatAgentHookArgs<TRuntimeConfig>) => MaybePromise<string | null | undefined>)
-  history?: AgentChatAgentBindingOptions["history"]
   identity?: IdentityResolver
   lockScope?: AgentMessageLockScope
   messageHistory?: unknown
@@ -1131,6 +1131,7 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   streamingUpdateIntervalMs?: number
   threadHistory?: unknown
   transcripts?: TranscriptsConfig
+  triggerHistory?: AgentChatTriggerHistory
   userName?: string
   [key: string]: unknown
 }

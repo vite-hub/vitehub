@@ -7,7 +7,7 @@ import { resolveAgentTriggerInvocation, resolveAgentTriggers, runAgentInline, st
 import { streamAgentOutputToEvents } from "../agent-output.ts"
 import { getAccessCapabilityOptions } from "../capabilities/access-metadata.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY, getChatCapabilityOptions } from "../chat-trigger.ts"
-import { uiMessagesToAgentMessages } from "../chat-message-input.ts"
+import { chatTriggerHistoryLimit, resolveChatTriggerHistory, uiMessagesToAgentMessages } from "../chat-message-input.ts"
 import { normalizeCapabilities } from "../capability-runtime.ts"
 import { deliveryArtifactAttachments } from "../delivery-artifacts.ts"
 import { createAgentInvocationContextStore } from "../invocation-context.ts"
@@ -980,12 +980,6 @@ async function durableChatThreadMessages(thread: Thread, limit: number): Promise
   }
 }
 
-function chatHistoryLimit(history: AgentChatOptions["history"]): number | undefined {
-  if (history === false || history === "none") return
-  if (!history || typeof history !== "object" || history.source !== "thread") return
-  return Math.max(1, typeof history.maxMessages === "number" ? history.maxMessages : 20)
-}
-
 async function chatTriggerMessages(
   thread: Thread,
   message: ChatSdkMessage,
@@ -994,7 +988,7 @@ async function chatTriggerMessages(
   messageOptions?: { includeAudioAttachments?: boolean },
 ): Promise<UIMessageLike[]> {
   const current = chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), messageOptions)
-  const limit = chatHistoryLimit(options?.history)
+  const limit = chatTriggerHistoryLimit(resolveChatTriggerHistory(options))
   if (!limit) return [current]
 
   const fetchedNewestFirst: UIMessageLike[] = []
@@ -1358,7 +1352,6 @@ type AgentChatDevtoolsAction = "clear" | "get-state" | "materialize-source" | "s
 type ReadUIMessageStream = typeof import("ai").readUIMessageStream
 
 export type AgentChannelChatRouteBody = {
-  history?: AgentChatMessageTriggerInput["history"]
   id?: string
   invoker?: unknown
   invokerProfileId?: unknown
@@ -1368,6 +1361,7 @@ export type AgentChannelChatRouteBody = {
   run?: unknown
   session?: unknown
   trigger?: string
+  triggerHistory?: AgentChatMessageTriggerInput["triggerHistory"]
   user?: unknown
 }
 
@@ -1757,9 +1751,9 @@ function agentChannelChatRouteInput(
   }
   const messages = body.messages as UIMessage[]
   return {
-    ...(body.history !== undefined ? { history: body.history } : {}),
     messages,
     run: createHttpChatRunMetadata(agentName, body, messages, options),
+    ...(body.triggerHistory !== undefined ? { triggerHistory: body.triggerHistory } : {}),
   }
 }
 

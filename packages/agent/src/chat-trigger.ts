@@ -192,6 +192,12 @@ function createChatMessageTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
   }
 }
 
+function assertNoLegacyChatHistoryOption(options: AgentChatOptions): void {
+  if (Object.prototype.hasOwnProperty.call(options, "history")) {
+    throw new TypeError("[vitehub] messages.history was replaced by messages.triggerHistory. Use triggerHistory to configure the chat.message trigger input window.")
+  }
+}
+
 export function getChatCapabilityOptions<TRuntimeConfig extends AgentRuntimeConfig>(
   capabilities: AgentCapabilityDefinition[],
 ): AgentChatOptions<TRuntimeConfig> | undefined {
@@ -205,6 +211,7 @@ export function chat<
 >(
   options: TOptions = {} as TOptions,
 ): AgentCapabilityDefinition<TRuntimeConfig, WorkspaceName, ChatCapabilityTypeContract<AgentChatOptionsOrigin<TOptions>>> {
+  assertNoLegacyChatHistoryOption(options)
   return defineCapability({
     id: "chat",
     metadata: {

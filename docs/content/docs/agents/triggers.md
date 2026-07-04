@@ -44,8 +44,8 @@ export default defineAgent({
   },
   capabilities: [
     chat({
-      history: { maxMessages: 20, source: 'thread' },
       sessions: true,
+      threadHistory: { maxMessages: 20 },
     }),
   ],
 })

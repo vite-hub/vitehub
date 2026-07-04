@@ -2862,16 +2862,16 @@ describe("agent message protocol", () => {
       },
       messages: {
         concurrency: "queue",
-        history: { maxMessages: 20, source: "thread" },
         sessions: true,
+        triggerHistory: { maxMessages: 20, source: "thread" },
       },
       driver: { run: () => "ok" },
     })
 
     expect(agent.chat).toMatchObject({
       concurrency: "queue",
-      history: { maxMessages: 20, source: "thread" },
       sessions: true,
+      triggerHistory: { maxMessages: 20, source: "thread" },
       webhooks: {
         support: {
           id: "support",
@@ -3477,6 +3477,26 @@ describe("agent message protocol", () => {
     })).toThrow("[vitehub] Channel webhooks require an adapter-backed Channel.")
   })
 
+  it("rejects legacy message history settings", async () => {
+    const { chat } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { webChat } = await import("../src/channels.ts")
+
+    expect(() => chat({
+      history: { maxMessages: 20, source: "thread" },
+    })).toThrow("messages.history was replaced by messages.triggerHistory")
+
+    expect(() => defineAgent({
+      channels: {
+        web: webChat(),
+      },
+      messages: {
+        history: { maxMessages: 20, source: "thread" },
+      },
+      driver: { run: () => "ok" },
+    })).toThrow("messages.history was replaced by messages.triggerHistory")
+  })
+
   it("preserves channel ids for same-kind webhook registrations", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { teams } = await import("../src/channels.ts")
@@ -3507,8 +3527,8 @@ describe("agent message protocol", () => {
       channels: {
         web: webChat({
           messages: {
-            history: false,
             sessions: false,
+            triggerHistory: "none",
           },
         }),
       },
@@ -3516,8 +3536,8 @@ describe("agent message protocol", () => {
     })
 
     expect(agent.chat).toMatchObject({
-      history: false,
       sessions: false,
+      triggerHistory: "none",
     })
   })
 
@@ -3528,7 +3548,7 @@ describe("agent message protocol", () => {
     expect(() => defineAgent({
       channels: {
         teams: teams({ adapter: () => ({}) as never }),
-        web: webChat({ messages: { history: false } }),
+        web: webChat({ messages: { triggerHistory: "none" } }),
       },
       driver: { run: () => "ok" },
     })).toThrow("Channel-local messages options are only supported when an Agent defines one message-shaped Channel")
@@ -5651,8 +5671,8 @@ describe("agent message protocol", () => {
     const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [chat({
-        history: { maxMessages: 10, source: "thread" },
         sessions: { idleTimeoutMs: 30 * 60 * 1000, strategy: "idle-timeout" },
+        triggerHistory: { maxMessages: 10, source: "thread" },
       })],
       driver: { run: () => "ok" },
     })
@@ -5797,8 +5817,8 @@ describe("agent message protocol", () => {
     const { defineAgent, resolveAgentTriggerInvocation } = await import("../src/index.ts")
     const agent = defineAgent({
       capabilities: [chat({
-        history: { maxMessages: 10, source: "thread" },
         sessions: true,
+        triggerHistory: { maxMessages: 10, source: "thread" },
       })],
       driver: { run: () => "ok" },
     })

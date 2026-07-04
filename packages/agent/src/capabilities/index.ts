@@ -140,6 +140,7 @@ export type {
   AgentChatSessionOptions,
   AgentChatStateContext,
   AgentChatStateResolver,
+  AgentChatTriggerHistory,
   AgentChannelWebhookRegistrationDefinition,
 } from "../types.ts"
 export type {
