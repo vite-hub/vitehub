@@ -5,6 +5,26 @@ import type { HarnessV1, HarnessV1PromptTurnOptions, HarnessV1StreamPart } from 
 const createAiSdkClaudeCode = vi.hoisted(() =>
   vi.fn(settings => ({
     settings,
+    async getBootstrap() {
+      return {
+        harnessId: "claude-code",
+        bootstrapDir: "/tmp/claude-code",
+        files: [
+          { path: "/tmp/claude-code/package.json", content: "{}" },
+          {
+            path: "/tmp/claude-code/bridge.mjs",
+            content: `if (type === "auth_status" && typeof msg.error === "string" && msg.error.trim()) {
+        emitTerminalError(msg.error);
+        continue;
+      }
+      if (type === "system" && msg.subtype === "api_retry") {
+        continue;
+      }`,
+          },
+        ],
+        commands: [],
+      }
+    },
     async doStart() {
       return {
         sessionId: "test-session",
@@ -48,6 +68,16 @@ describe("createClaudeCode", () => {
       auth: { gateway: { apiKey: "gateway-key" } },
       maxTurns: 3,
     })
+  })
+
+  it("publishes assistant error handling through the Claude Code bootstrap bridge", async () => {
+    const { createClaudeCode } = await import("../src/harness/claude-code.ts")
+    const harness = createClaudeCode() as HarnessV1 & { getBootstrap: NonNullable<HarnessV1["getBootstrap"]> }
+    const bootstrap = await harness.getBootstrap()
+    const bridge = bootstrap.files.find(file => file.path.endsWith("/bridge.mjs"))?.content
+
+    expect(bridge).toContain(`type === "assistant" && typeof msg.error === "string" && msg.error.trim()`)
+    expect(bridge).toContain(`emitTerminalError(stringifyContent(msg.content) || msg.error)`)
   })
 
   it("surfaces empty zero-token Claude Code turns as harness errors", async () => {

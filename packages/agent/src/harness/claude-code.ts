@@ -1,6 +1,7 @@
 import { createClaudeCode as createAiSdkClaudeCode } from "@ai-sdk/harness-claude-code"
 
 import type {
+  HarnessV1Bootstrap,
   HarnessV1ContinueTurnOptions,
   HarnessV1PromptTurnOptions,
   HarnessV1Session,
@@ -13,13 +14,50 @@ export function createClaudeCode(settings: ClaudeCodeHarnessSettings = {}): Retu
     auth: { anthropic: {} },
     ...settings,
   })
+  const getBootstrap = harness.getBootstrap?.bind(harness)
 
   return {
     ...harness,
+    ...(getBootstrap
+      ? {
+          async getBootstrap(options?: Parameters<NonNullable<typeof harness.getBootstrap>>[0]) {
+            return patchClaudeCodeBootstrap(await getBootstrap(options))
+          },
+        }
+      : {}),
     async doStart(options) {
       return guardEmptyClaudeCodeSession(await harness.doStart(options))
     },
   }
+}
+
+function patchClaudeCodeBootstrap(bootstrap: HarnessV1Bootstrap): HarnessV1Bootstrap {
+  return {
+    ...bootstrap,
+    files: bootstrap.files.map(file =>
+      file.path.endsWith("/bridge.mjs")
+        ? { ...file, content: patchClaudeCodeBridge(file.content) }
+        : file,
+    ),
+  }
+}
+
+function patchClaudeCodeBridge(content: string): string {
+  if (content.includes(`type === "assistant" && typeof msg.error === "string" && msg.error.trim()`)) {
+    return content
+  }
+
+  const authStatusGuard = `if (type === "auth_status" && typeof msg.error === "string" && msg.error.trim()) {
+        emitTerminalError(msg.error);
+        continue;
+      }`
+  const assistantErrorGuard = `${authStatusGuard}
+      if (type === "assistant" && typeof msg.error === "string" && msg.error.trim()) {
+        emitTerminalError(stringifyContent(msg.content) || msg.error);
+        continue;
+      }`
+
+  return content.replace(authStatusGuard, assistantErrorGuard)
 }
 
 function guardEmptyClaudeCodeSession(session: HarnessV1Session): HarnessV1Session {
