@@ -683,6 +683,45 @@ describe("Harness Workspace Session", () => {
     expect(workspaceSession.commit).toHaveBeenCalledWith({ message: "harness-workspace-session" })
   })
 
+  it("leaves harness changes uncommitted when the commit callback skips them", async () => {
+    const diff = {
+      entries: [{ path: "summary.md", type: "added" as const }],
+      to: "next",
+    }
+    const workspaceSession = {
+      close: vi.fn(async () => {}),
+      commit: vi.fn(async () => {}),
+      diff: vi.fn(async () => diff),
+      mkdir: vi.fn(async () => {}),
+      rm: vi.fn(async () => {}),
+      writeFile: vi.fn(async () => {}),
+    }
+    const commit = vi.fn(() => false)
+
+    const session = await prepareHarnessWorkspaceSession({
+      fs: {
+        list: vi.fn(async () => []),
+        readFile: vi.fn(async () => bytes("")),
+      },
+      startSession: vi.fn(async () => workspaceSession),
+      tools: {},
+    } as never, {
+      commit,
+      session: {
+        readBinaryFile: vi.fn(async ({ path }: { path: string }) => bytes(path)),
+        run: sandboxRun(["summary.md"]),
+        writeBinaryFile: vi.fn(async () => {}),
+      },
+      sessionWorkDir: "/work/agent",
+    })
+
+    await session.close()
+
+    expect(commit).toHaveBeenCalledWith(diff)
+    expect(workspaceSession.writeFile).toHaveBeenCalledWith("summary.md", bytes("/work/agent/summary.md"), { mediaType: "text/markdown" })
+    expect(workspaceSession.commit).not.toHaveBeenCalled()
+  })
+
   it("commits generated files selected by missing Workspace Session paths", async () => {
     const workspace = createWorkspace({
       ...defineWorkspace({
