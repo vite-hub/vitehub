@@ -696,7 +696,7 @@ describe("Harness Workspace Session", () => {
       rm: vi.fn(async () => {}),
       writeFile: vi.fn(async () => {}),
     }
-    const commit = vi.fn(() => false)
+    const commit = vi.fn(() => false as const)
 
     const session = await prepareHarnessWorkspaceSession({
       fs: {
