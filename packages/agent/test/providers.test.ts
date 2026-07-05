@@ -44,6 +44,8 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
       const chat = rawMessage.chat as { id?: number | string } | undefined
       const from = rawMessage.from as { email?: string, id?: number | string, mail?: string, userPrincipalName?: string, username?: string } | undefined
       const document = rawMessage.document as { file_id?: string, file_name?: string, file_size?: number, mime_type?: string } | undefined
+      const photos = rawMessage.photo as Array<{ file_id?: string, file_size?: number, height?: number, width?: number }> | undefined
+      const photo = photos?.at(-1)
       const date = typeof rawMessage.date === "number"
         ? new Date(rawMessage.date * 1000)
         : new Date("2026-06-10T12:00:00.000Z")
@@ -65,6 +67,15 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
                 name: document.file_name,
                 size: document.file_size,
                 type: "file",
+              }]
+          : typeof photo?.file_id === "string"
+            ? [{
+                fetchData: async () => Buffer.from([1, 2, 3]),
+                fetchMetadata: { fileId: photo.file_id },
+                height: photo.height,
+                size: photo.file_size,
+                type: "image",
+                width: photo.width,
               }]
           : [],
         author: {
@@ -1978,6 +1989,51 @@ describe("server helpers", () => {
       messages: [expect.objectContaining({
         parts: [
           expect.objectContaining({ text: "reenviado", type: "text" }),
+        ],
+      })],
+    }))
+  })
+
+  it("invokes chat agents for attachment-only image messages", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({ adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 42,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1009,
+          photo: [
+            { file_id: "small-photo", file_size: 1, height: 90, width: 90 },
+            { file_id: "large-photo", file_size: 3, height: 1280, width: 960 },
+          ],
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      messages: [expect.objectContaining({
+        parts: [
+          expect.objectContaining({
+            text: "Sent an image attachment.",
+            type: "text",
+          }),
         ],
       })],
     }))
