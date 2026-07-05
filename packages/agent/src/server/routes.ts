@@ -924,7 +924,7 @@ function attachmentFallbackText(attachments: Attachment[]): string {
   const labels = attachments.map(attachmentFallbackLabel)
   if (labels.length === 1) {
     const article = /^[aeiou]/i.test(labels[0] ?? "") ? "an" : "a"
-    return `User sent ${article} ${labels[0]} attachment.`
+    return `Sent ${article} ${labels[0]} attachment.`
   }
   const counts = new Map<string, number>()
   for (const label of labels) {
@@ -933,7 +933,7 @@ function attachmentFallbackText(attachments: Attachment[]): string {
   const summary = [...counts.entries()]
     .map(([label, count]) => `${count} ${label}${count === 1 ? "" : "s"}`)
     .join(", ")
-  return `User sent attachments: ${summary}.`
+  return `Sent attachments: ${summary}.`
 }
 
 function chatMessageParts(message: ChatSdkMessage, options: { includeAudioAttachments?: boolean } = {}): MessagePart[] {

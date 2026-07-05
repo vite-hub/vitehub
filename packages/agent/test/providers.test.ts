@@ -2031,7 +2031,7 @@ describe("server helpers", () => {
       messages: [expect.objectContaining({
         parts: [
           expect.objectContaining({
-            text: "User sent an image attachment.",
+            text: "Sent an image attachment.",
             type: "text",
           }),
         ],
