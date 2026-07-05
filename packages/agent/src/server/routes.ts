@@ -2413,7 +2413,7 @@ export function createDiscordGatewayRouteHandler(
         return createJsonErrorResponse(500, "Discord Gateway route requires a Discord chat adapter.")
       }
 
-      const responses: Response[] = []
+      const responsePromises: Array<Promise<Response>> = []
       for (const [adapterName, adapter] of entries) {
         const startGatewayListener = (adapter as {
           startGatewayListener?: (
@@ -2441,7 +2441,7 @@ export function createDiscordGatewayRouteHandler(
           ? handlerOptions.webhookUrl(webhookId)
           : handlerOptions.webhookUrl
 
-        responses.push(await startGatewayListener.call(
+        responsePromises.push(startGatewayListener.call(
           adapter,
           { waitUntil: context.waitUntil },
           handlerOptions.durationMs,
@@ -2450,6 +2450,7 @@ export function createDiscordGatewayRouteHandler(
         ))
       }
 
+      const responses = await Promise.all(responsePromises)
       if (responses.length === 1) return responses[0]!
       const failed = responses.find(response => !response.ok)
       if (failed) return failed

@@ -2382,7 +2382,17 @@ describe("server helpers", () => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")
     const { createDiscordGatewayRouteHandler } = await import("../src/server/internal.ts")
-    const supportStartGatewayListener = vi.fn(async () => Response.json({ ok: true }))
+    let resolveSupportGateway!: (response: Response) => void
+    let markSupportGatewayStarted!: () => void
+    const supportGatewayStarted = new Promise<void>(resolve => {
+      markSupportGatewayStarted = resolve
+    })
+    const supportStartGatewayListener = vi.fn(() => {
+      markSupportGatewayStarted()
+      return new Promise<Response>((resolveResponse) => {
+        resolveSupportGateway = resolveResponse
+      })
+    })
     const alertsStartGatewayListener = vi.fn(async () => Response.json({ ok: true }))
     const supportAdapter = {
       ...createTestChatAdapter(),
@@ -2411,9 +2421,14 @@ describe("server helpers", () => {
     })
     const handler = createDiscordGatewayRouteHandler(agent as never)
 
-    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"), {
+    const responsePromise = handler(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"), {
       webhookUrl: webhook => `https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`,
     })
+
+    await supportGatewayStarted
+    expect(alertsStartGatewayListener).toHaveBeenCalledOnce()
+    resolveSupportGateway(Response.json({ ok: true }))
+    const response = await responsePromise
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ gateways: 2, ok: true })
