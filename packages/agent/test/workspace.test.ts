@@ -44,7 +44,7 @@ const agentStream = vi.hoisted(() => vi.fn<(...args: unknown[]) => Promise<{ ful
   })(),
 })))
 const harnessAgentSettings = vi.hoisted(() => [] as Record<string, unknown>[])
-const harnessSandboxSession = vi.hoisted(() => ({
+const harnessFileSession = vi.hoisted(() => ({
   readBinaryFile: vi.fn(),
   run: vi.fn(),
   writeBinaryFile: vi.fn(),
@@ -89,7 +89,7 @@ vi.mock("@ai-sdk/harness/agent", () => ({
       const sandboxConfig = this.settings.sandboxConfig as { onSession?: (input: Record<string, unknown>) => Promise<void> } | undefined
       await sandboxConfig?.onSession?.({
         abortSignal: options?.abortSignal,
-        session: harnessSandboxSession,
+        session: harnessFileSession,
         sessionWorkDir: "/workspace/codex-session",
       })
       return session
@@ -171,9 +171,9 @@ describe("defineAgent workspace option", () => {
         yield { text: "ok", type: "text-delta" }
       })(),
     })
-    harnessSandboxSession.readBinaryFile.mockReset()
-    harnessSandboxSession.run.mockReset()
-    harnessSandboxSession.writeBinaryFile.mockReset()
+    harnessFileSession.readBinaryFile.mockReset()
+    harnessFileSession.run.mockReset()
+    harnessFileSession.writeBinaryFile.mockReset()
     prepareHarnessWorkspaceSession.mockReset()
     agentGenerate.mockReset()
     agentGenerate.mockResolvedValue({ finishReason: "stop", text: "ok" })
@@ -327,7 +327,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: ["AGENTS.md", "CLAUDE.md", "skills/agent-browser"],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })
     expect(harnessAgentSettings.at(-1)).not.toHaveProperty("tools")
@@ -405,7 +405,7 @@ describe("defineAgent workspace option", () => {
       definition: expect.objectContaining({
         name: "docs",
         rules: {
-          "**": { commit: "chore(bitacora): update from telegram bot" },
+          "**": { commit: "chore(bitacora): update from telegram bot", write: true },
         },
         runtime: "trusted-host",
       }),
@@ -481,12 +481,11 @@ describe("defineAgent workspace option", () => {
   })
 
   it("merges workspace commit shorthand into rules that omit commit", async () => {
-    const { workspaceDefinitionFromOptions } = await import("../src/workspace-agent.ts")
+    const { workspaceDefinitionFromOptions, workspaceDefinitionWithAutoCommitRules } = await import("../src/workspace-agent.ts")
 
-    const definition = workspaceDefinitionFromOptions({
+    const definition = workspaceDefinitionWithAutoCommitRules(workspaceDefinitionFromOptions({
       driver: { model: {} as never },
       workspace: {
-        commit: "chore: update workspace",
         rules: {
           "**": { write: true },
           "archive/**": { commit: false, write: true },
@@ -494,7 +493,7 @@ describe("defineAgent workspace option", () => {
           "uploads/**": { write: true },
         },
       },
-    })
+    }) as never, "chore: update workspace")
 
     expect(definition.rules).toEqual({
       "**": { commit: "chore: update workspace", write: true },
@@ -915,8 +914,9 @@ describe("defineAgent workspace option", () => {
       },
     })
 
-    expect(agent.rules).toEqual({
-      "**": { commit: "chore: update workspace" },
+    expect(agent.workspace).toEqual({
+      mode: "read",
+      store: { provider: "memory" },
     })
   })
 
@@ -951,7 +951,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: ["AGENTS.md", "CLAUDE.md"],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })
     expect(harnessAgentSettings.at(-1)).toMatchObject({
@@ -965,6 +965,42 @@ describe("defineAgent workspace option", () => {
     expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
       prompt: "hello",
       session: harnessSession,
+    }))
+    expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
+    expect(harnessSession.destroy).toHaveBeenCalledOnce()
+  })
+
+  it("passes workspace commit fallback into Harness Workspace Session commits", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const harnessSession = { destroy: vi.fn() }
+    const harnessWorkspaceSession = {
+      close: vi.fn(async () => {}),
+    }
+    harnessCreateSession.mockResolvedValueOnce(harnessSession)
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {
+        commit: "chore: archive harness notes",
+        mode: "write",
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      definition: expect.objectContaining({
+        name: "docs",
+        rules: {
+          "**": { commit: "chore: archive harness notes", write: true },
+        },
+      }),
     }))
     expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
     expect(harnessSession.destroy).toHaveBeenCalledOnce()
@@ -1035,10 +1071,10 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: ["AGENTS.md", "CLAUDE.md"],
       paths: ["AGENTS.md", "CLAUDE.md"],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })
-    const writes = harnessSandboxSession.writeBinaryFile.mock.calls.map(([write]) => write)
+    const writes = harnessFileSession.writeBinaryFile.mock.calls.map(([write]) => write)
     expect(writes).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "/workspace/codex-session/AGENTS.md" }),
       expect.objectContaining({ path: "/workspace/codex-session/CLAUDE.md" }),
@@ -1057,7 +1093,7 @@ describe("defineAgent workspace option", () => {
     prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
     exists.mockResolvedValueOnce(true)
     readFile.mockResolvedValueOnce("# Support\n")
-    harnessSandboxSession.writeBinaryFile.mockRejectedValueOnce(error)
+    harnessFileSession.writeBinaryFile.mockRejectedValueOnce(error)
 
     const agent = withAgentDefaults(defineAgent({
       driver: {
@@ -1107,7 +1143,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: ["AGENTS.md", "CLAUDE.md", "skills/SKILL.md", "skills/review-browser-evidence/SKILL.md"],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })
   })
@@ -1158,7 +1194,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: ["docs", "portal", "AGENTS.md", "CLAUDE.md"],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })
   })
@@ -1185,7 +1221,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: undefined,
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })
   })
@@ -1230,7 +1266,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: [""],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     }))
   })
@@ -1272,7 +1308,7 @@ describe("defineAgent workspace option", () => {
         })],
       }),
       paths: ["notes", "AGENTS.md", "CLAUDE.md"],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     }))
   })
@@ -1318,7 +1354,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: ["docs", "AGENTS.md", "CLAUDE.md"],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     }))
   })
@@ -1351,7 +1387,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: ["AGENTS.md", "CLAUDE.md"],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })
     expect(harnessGenerate).toHaveBeenCalledWith(expect.objectContaining({
@@ -1393,7 +1429,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: ["AGENTS.md", "CLAUDE.md", "summary.md", "artifacts/usage", "artifacts/browser", "pr-diff-summary.md"],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     }))
   })
@@ -1438,7 +1474,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: ["public", "AGENTS.md", "CLAUDE.md", ".vitehub/sources/public.json"],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })
     expect(harnessGenerate).toHaveBeenCalledOnce()
@@ -1485,7 +1521,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: ["public", "AGENTS.md", "CLAUDE.md"],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     }))
   })
@@ -1529,7 +1565,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: [""],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     }))
   })
@@ -1575,7 +1611,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
       abortSignal: undefined,
       paths: ["AGENTS.md", "CLAUDE.md", "public.md", ".vitehub/sources/publicDocs.json"],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     }))
   })
@@ -1628,7 +1664,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: ["public", "AGENTS.md", "CLAUDE.md", "skills/agent-browser", ".vitehub/sources/public.json"],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })
   })
@@ -1676,7 +1712,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: [""],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })
   })
@@ -1720,7 +1756,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: ["public", "AGENTS.md", "CLAUDE.md"],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })
   })
@@ -1751,13 +1787,49 @@ describe("defineAgent workspace option", () => {
       definition: expect.objectContaining({
         name: "docs",
         rules: {
-          "**": { commit: "chore: update docs" },
+          "**": { commit: "chore: update docs", write: true },
         },
         runtime: "trusted-host",
       }),
       ignoreWriteBackPaths: [],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
+    }))
+  })
+
+  it("uses Workspace auto-commit rules when selecting Harness Workspace paths", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {
+        commit: "chore: update docs",
+        mode: "write",
+        sources: {
+          guide: {
+            path: "AGENTS.md",
+          },
+        },
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      definition: expect.objectContaining({
+        rules: {
+          "**": { commit: "chore: update docs", write: true },
+        },
+      }),
+      paths: [""],
     }))
   })
 
@@ -1792,7 +1864,7 @@ describe("defineAgent workspace option", () => {
         runtime: "trusted-host",
       }),
       paths: [""],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     }))
   })
@@ -1837,7 +1909,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: ["public", "AGENTS.md", "CLAUDE.md", "pull-request-context/context.md"],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })
   })
@@ -1877,6 +1949,125 @@ describe("defineAgent workspace option", () => {
       expect.objectContaining({ entries: [expect.objectContaining({ path: "inbox/audio.md" })] }),
     )
     expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive audio" })
+  })
+
+  it("turns workspace commit into a default auto-commit rule", async () => {
+    diff.mockResolvedValueOnce({
+      entries: [{ after: { type: "file" }, path: "notes/day.md", type: "added" }],
+      to: "next",
+    })
+    resolveWorkspaceAutoCommit.mockReturnValueOnce({
+      message: "chore: archive notes",
+      paths: ["notes/day.md"],
+    })
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {
+        commit: "chore: archive notes",
+        mode: "write",
+      },
+      driver: { run: async ({ workspace }) => {
+          await (workspace as WritableWorkspaceFacade).fs.writeFile("notes/day.md", "entry")
+          return "ok"
+        } },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { messages: [] })).resolves.toBe("ok")
+
+    expect(resolveWorkspaceAutoCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "docs",
+        rules: { "**": { commit: "chore: archive notes", write: true } },
+      }),
+      expect.objectContaining({ entries: [expect.objectContaining({ path: "notes/day.md" })] }),
+    )
+    expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive notes" })
+  })
+
+  it("applies workspace commit to matching rules without their own commit", async () => {
+    diff.mockResolvedValueOnce({
+      entries: [{ after: { type: "file" }, path: "notes/day.md", type: "added" }],
+      to: "next",
+    })
+    resolveWorkspaceAutoCommit.mockReturnValueOnce({
+      message: "chore: archive notes",
+      paths: ["notes/day.md"],
+    })
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      workspace: {
+        commit: "chore: archive notes",
+        mode: "write",
+        rules: {
+          "notes/**": { write: true },
+        },
+      },
+      driver: { run: async ({ workspace }) => {
+          await (workspace as WritableWorkspaceFacade).fs.writeFile("notes/day.md", "entry")
+          return "ok"
+        } },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { messages: [] })).resolves.toBe("ok")
+
+    expect(resolveWorkspaceAutoCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "docs",
+        rules: {
+          "**": { commit: "chore: archive notes", write: true },
+          "notes/**": { commit: "chore: archive notes", write: true },
+        },
+      }),
+      expect.objectContaining({ entries: [expect.objectContaining({ path: "notes/day.md" })] }),
+    )
+    expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive notes" })
+  })
+
+  it("does not conflict workspace commit fallback with capability workspace rules", async () => {
+    diff.mockResolvedValueOnce({
+      entries: [{ after: { type: "file" }, path: "review/summary.md", type: "added" }],
+      to: "next",
+    })
+    resolveWorkspaceAutoCommit.mockReturnValueOnce({
+      message: "chore: archive review",
+      paths: ["review/summary.md"],
+    })
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { pullRequestContext } = await import("../src/capabilities.ts")
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [
+        pullRequestContext({
+          rules: {
+            "review/**": { write: true },
+          },
+        }),
+      ],
+      workspace: {
+        commit: "chore: archive review",
+        mode: "write",
+      },
+      driver: { run: async ({ workspace }) => {
+          await (workspace as WritableWorkspaceFacade).fs.writeFile("review/summary.md", "ready")
+          return "ok"
+        } },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { messages: [] })).resolves.toBe("ok")
+
+    expect(resolveWorkspaceAutoCommit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "docs",
+        rules: {
+          "**": { commit: "chore: archive review", write: true },
+          "review/**": { commit: "chore: archive review", write: true },
+        },
+      }),
+      expect.objectContaining({ entries: [expect.objectContaining({ path: "review/summary.md" })] }),
+    )
+    expect(snapshot).toHaveBeenCalledWith({ name: "chore: archive review" })
   })
 
   it("auto-commits write-mode workspace changes after raw stream results are consumed", async () => {
@@ -3541,13 +3732,13 @@ describe("defineAgent workspace option", () => {
     expect(readFile).not.toHaveBeenCalledWith("skills/agent-browser/SKILL.md")
   })
 
-  it("includes explicit harnessSandbox in harness DevTools metadata", async () => {
+  it("includes explicit driver.sandbox in harness DevTools metadata", async () => {
     const { defineAgent, resolveAgentDevtoolsMetadata } = await import("../src/index.ts")
     const agent = withAgentDefaults(defineAgent({
       driver: {
         harness: { provider: "codex" },
+        sandbox: { providerId: "local-test", specificationVersion: "harness-sandbox-v1" },
       },
-      harnessSandbox: { providerId: "local-test", specificationVersion: "harness-sandbox-v1" },
       workspace: { mode: "write" },
     }), { workspace: "support" })
 

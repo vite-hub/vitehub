@@ -12,6 +12,7 @@ import { isMissingWorkspacePathError } from "./scope.ts"
 import type {
   MkdirOptions,
   WorkspaceDefinition,
+  WorkspaceDiff,
   WorkspaceEntry,
   WorkspaceSession,
   WorkspaceSessionOptions,
@@ -29,6 +30,7 @@ export interface HarnessWorkspaceSession {
 
 export interface PrepareHarnessWorkspaceSessionOptions {
   abortSignal?: AbortSignal
+  commit?: (diff: WorkspaceDiff) => { message?: string } | false | null | undefined
   definition?: WorkspaceDefinition
   ignoreWriteBackPaths?: readonly string[]
   paths?: readonly string[]
@@ -362,6 +364,7 @@ async function copySandboxChangesToWorkspace(
   initialTree: InitialTree,
   abortSignal: AbortSignal | undefined,
   ignoreWriteBackPaths: Set<string>,
+  commit: PrepareHarnessWorkspaceSessionOptions["commit"],
 ) {
   if (!sandbox.readBinaryFile) {
     throw new Error("[vitehub] Harness Workspace Session write mode requires sandbox.readBinaryFile.")
@@ -406,9 +409,15 @@ async function copySandboxChangesToWorkspace(
 
   const diff = await session.diff()
   if (!diff.entries.length) return
-  const commit = definition ? resolveWorkspaceAutoCommit(definition, diff) : undefined
-  if (definition && !commit) return
-  await session.commit({ message: commit?.message || "harness-workspace-session" })
+  if (commit) {
+    const commitOptions = commit(diff)
+    if (!commitOptions) return
+    await session.commit({ message: commitOptions.message || "harness-workspace-session" })
+    return
+  }
+  const autoCommit = definition ? resolveWorkspaceAutoCommit(definition, diff) : undefined
+  if (definition && !autoCommit) return
+  await session.commit({ message: autoCommit?.message || "harness-workspace-session" })
 }
 
 export async function prepareHarnessWorkspaceSession(
@@ -435,6 +444,7 @@ export async function prepareHarnessWorkspaceSession(
             initialTree,
             options.abortSignal,
             ignoreWriteBackPaths,
+            options.commit,
           )
         }
       }

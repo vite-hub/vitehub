@@ -56,6 +56,7 @@ import {
   resolveWorkspaceInstructionBindings,
   workspaceAgentOwnsWorkspaceDefinition,
   workspaceDefinitionFromOptions,
+  workspaceDefinitionWithAutoCommitRules,
   workspaceModeFromOptions,
   workspaceNameFromOptions,
 } from "./workspace-agent.ts"
@@ -814,11 +815,11 @@ function defineBaseAgent<
   options: AgentSettings<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile>,
 ): AgentDefinition<TRuntimeConfig, CALL_OPTIONS> {
   const driver = normalizeAgentDriver(options)
-  const { capabilities, channels, description, harnessSandbox, hooks, messages, runtime, version, workspace } = options
+  const { capabilities, channels, description, hooks, messages, runtime, version, workspace } = options
   const run = driver.kind === "run" ? driver.run : undefined
   const baseCapabilities = normalizeCapabilities(capabilities as AgentCapabilitiesList | undefined)
   const invoker = normalizeAgentInvokerOptions(options.invoker) as AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS> | undefined
-  const harnessDriver = driver.kind === "harness" ? { ...driver, harnessSandbox } : undefined
+  const harnessDriver = driver.kind === "harness" ? driver : undefined
   const channelChat = resolveAgentChannelChatOptions<TRuntimeConfig>(channels, messages)
   const chatCapability = getChatCapabilityOptions<TRuntimeConfig>(baseCapabilities)
   if (chatCapability && channelChat) {
@@ -856,7 +857,6 @@ function defineBaseAgent<
     chat,
     description,
     hooks,
-    harnessSandbox,
     invoker,
     messages,
     runtime,
@@ -1179,6 +1179,7 @@ type AgentInvocationContext<
   invoker: AgentInvoker
   handledResponse?: Response
   workspace?: ReadonlyWorkspaceFacade<WorkspaceName> | WritableWorkspaceFacade<WorkspaceName>
+  workspaceAutoCommit?: boolean | string
   workspaceDefinition?: WorkspaceDefinition
   workspaceInstructionBindings?: Record<string, unknown>
   workspaceMaterializationPaths: readonly string[]
@@ -1362,6 +1363,10 @@ async function createAgentInvocationContext<
     const activeWorkspace = capabilities.workspace || workspace
     const sourceResolvedWorkspaceDefinition = invocationContext.get<WorkspaceDefinition>("workspace.sourceResolution.definition")
     const activeWorkspaceDefinition = capabilities.workspaceDefinition || sourceResolvedWorkspaceDefinition || resolvedWorkspaceDefinition
+    const configuredWorkspace = workspaceOptions?.workspace
+    const workspaceAutoCommit = configuredWorkspace && typeof configuredWorkspace === "object" && !("name" in configuredWorkspace)
+      ? configuredWorkspace.commit
+      : undefined
     const instructions = workspaceOptions && activeWorkspace
       ? await resolveWorkspaceAgentDefaultInstructions(workspaceOptions, activeWorkspace as ReadonlyWorkspaceFacade)
       : undefined
@@ -1399,6 +1404,7 @@ async function createAgentInvocationContext<
       startedAt,
       tools,
       workspace: activeWorkspace,
+      workspaceAutoCommit,
       workspaceDefinition: activeWorkspaceDefinition,
       workspaceInstructionBindings,
       workspaceMaterializationPaths: capabilities.workspaceMaterializationPaths,
@@ -1441,6 +1447,7 @@ type InvocationRunContext<
   run?: AgentRunContext<TRuntimeConfig, CALL_OPTIONS>["run"]
   startedAt: number
   workspace?: ReadonlyWorkspaceFacade | WritableWorkspaceFacade
+  workspaceAutoCommit?: boolean | string
   workspaceDefinition?: WorkspaceDefinition
   workspaceMode: AgentCapabilityMode
 }
@@ -1661,7 +1668,10 @@ async function commitWorkspaceChanges<
 
   const diff = await context.workspace.diff()
   const { resolveWorkspaceAutoCommit } = await import("@vite-hub/workspace")
-  const commit = resolveWorkspaceAutoCommit(context.workspaceDefinition, diff)
+  const commit = resolveWorkspaceAutoCommit(
+    workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit),
+    diff,
+  )
   if (!commit) return
   await context.workspace.snapshot({ name: commit.message })
 }

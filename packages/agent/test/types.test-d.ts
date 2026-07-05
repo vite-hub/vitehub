@@ -235,10 +235,10 @@ describe("agent public types", () => {
     defineAgent({
       driver: {
         harness: { provider: "codex" },
-      },
-      harnessSandbox: ({ input }) => {
-        expectTypeOf(input.prompt).toEqualTypeOf<AgentRunInput["prompt"]>()
-        return { providerId: "local-test" }
+        sandbox: ({ input }) => {
+          expectTypeOf(input.prompt).toEqualTypeOf<AgentRunInput["prompt"]>()
+          return { providerId: "local-test" }
+        },
       },
     })
 
@@ -444,6 +444,11 @@ describe("agent public types", () => {
       workspace: { name: "review", mode: "write" },
     })
 
+    defineAgent({
+      driver: { model: {} as never },
+      workspace: { commit: "chore: update workspace", mode: "write" },
+    })
+
     // @ts-expect-error workspace reference mode must be read or write
     defineAgent({
       driver: { model: {} as never },
@@ -546,8 +551,13 @@ describe("agent public types", () => {
     // @ts-expect-error harness permission mode is runtime policy, not a public Agent Driver option
     const _permissionModeDriver: AgentDriver = { harness: { provider: "codex" }, permissionMode: "allow-edits" }
 
-    // @ts-expect-error harness sandbox setup is runtime plumbing, not a public Agent Driver option
     const _sandboxDriver: AgentDriver = { harness: { provider: "codex" }, sandbox: { provider: "sandbox" } }
+
+    defineAgent({
+      driver: { harness: { provider: "codex" } },
+      // @ts-expect-error harness sandbox providers belong under driver.sandbox
+      harnessSandbox: { provider: "sandbox" },
+    })
 
     // @ts-expect-error raw harness credential material is not accepted by the generic driver boundary
     const _rawCredentialDriver: AgentDriver = { credentials: { value: "secret" }, harness: { provider: "codex" } }

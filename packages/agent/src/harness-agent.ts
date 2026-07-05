@@ -5,7 +5,11 @@ import {
 import { hasTrustedWorkspaceAccessScope } from "./access-runtime.ts"
 import { streamAgentOutputToEvents } from "./agent-output.ts"
 import { composeInstructionDocument } from "./instruction-composition.ts"
-import { colocatedAgentInstructionsSourceKey, resolveColocatedAgentInstructionDocument } from "./workspace-agent.ts"
+import {
+  colocatedAgentInstructionsSourceKey,
+  resolveColocatedAgentInstructionDocument,
+  workspaceDefinitionWithAutoCommitRules,
+} from "./workspace-agent.ts"
 import { normalizeAgentWorkspaceSources } from "./workspace-source-metadata.ts"
 import { nextWithAbort } from "./internal/abortable-stream.ts"
 import { toAiSdkModelMessages } from "./ai-sdk.ts"
@@ -61,7 +65,7 @@ interface HarnessAgentAdapterOptions<
 > {
   credentials?: AgentHarnessCredentialSource
   harness: AgentHarnessDriverInput<TRuntimeConfig, CALL_OPTIONS>
-  harnessSandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS>
+  sandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS>
   sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS>
 }
 
@@ -139,8 +143,7 @@ function staticWorkspaceRulePath(pattern: string): string | undefined {
   return normalized
 }
 
-function workspaceRuleHarnessPaths(context: AgentAdapterRunContext): string[] {
-  const definition = context.workspaceDefinition
+function workspaceRuleHarnessPaths(definition: AgentAdapterRunContext["workspaceDefinition"]): string[] {
   if (!definition) return []
   const rules = [
     ...Object.entries(definition.rules || {}),
@@ -183,12 +186,12 @@ function compactWorkspacePaths(paths: readonly string[]): string[] {
   return sorted.filter((path, index) => !sorted.some((candidate, candidateIndex) => candidateIndex < index && pathContains(candidate, path)))
 }
 
-function harnessSupportWorkspacePaths(context: AgentAdapterRunContext): string[] {
+function harnessSupportWorkspacePaths(context: AgentAdapterRunContext, definition = context.workspaceDefinition): string[] {
   const materializationContext = context as HarnessWorkspaceMaterializationContext
   return compactWorkspacePaths([
-    ...(context.workspaceDefinition?.commit === true || typeof context.workspaceDefinition?.commit === "string" ? [""] : []),
+    ...(definition?.commit === true || typeof definition?.commit === "string" ? [""] : []),
     ...(materializationContext.workspaceMaterializationPaths || []),
-    ...workspaceRuleHarnessPaths(context),
+    ...workspaceRuleHarnessPaths(definition),
   ])
 }
 
@@ -196,20 +199,20 @@ function withHarnessInstructionPaths(paths: readonly string[]): string[] {
   return paths.length ? compactWorkspacePaths([...harnessInstructionFiles, ...paths]) : []
 }
 
-function explicitHarnessWorkspacePaths(context: AgentAdapterRunContext): string[] {
+function explicitHarnessWorkspacePaths(context: AgentAdapterRunContext, definition = context.workspaceDefinition): string[] {
   return withHarnessInstructionPaths([
-    ...harnessSupportWorkspacePaths(context),
+    ...harnessSupportWorkspacePaths(context, definition),
     ...workspaceSourceHarnessPaths(context),
   ])
 }
 
-function selectedWorkspaceScopePaths(context: AgentAdapterRunContext): string[] | undefined {
-  const harnessPaths = explicitHarnessWorkspacePaths(context)
+function selectedWorkspaceScopePaths(context: AgentAdapterRunContext, definition = context.workspaceDefinition): string[] | undefined {
+  const harnessPaths = explicitHarnessWorkspacePaths(context, definition)
   if (!hasTrustedWorkspaceAccessScope(context.context)) return harnessPaths.length ? harnessPaths : undefined
   const scope = context.context.get("access")?.workspaceScope
   if (!scope) return harnessPaths.length ? harnessPaths : undefined
   if (scope.all) return [""]
-  const paths = [...new Set([...(scope.paths || []), ...harnessSupportWorkspacePaths(context).filter(path => path !== "")])]
+  const paths = [...new Set([...(scope.paths || []), ...harnessSupportWorkspacePaths(context, definition).filter(path => path !== "")])]
   return paths.length ? withHarnessInstructionPaths(paths) : []
 }
 
@@ -390,14 +393,14 @@ async function resolveHarnessSandboxProvider<
   TRuntimeConfig extends AgentRuntimeConfig,
   CALL_OPTIONS,
 >(
-  harnessSandbox: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS> | undefined,
+  sandbox: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS> | undefined,
   context: AgentAdapterRunContext<CALL_OPTIONS, TRuntimeConfig>,
 ): Promise<object | undefined> {
-  const provider = typeof harnessSandbox === "function"
-    ? await harnessSandbox(toRunCallbackContext(context))
-    : harnessSandbox
+  const provider = typeof sandbox === "function"
+    ? await sandbox(toRunCallbackContext(context))
+    : sandbox
   if (provider !== undefined && (!provider || typeof provider !== "object")) {
-    throw new TypeError("[vitehub] defineAgent({ harnessSandbox }) must return a harness sandbox provider object.")
+    throw new TypeError("[vitehub] defineAgent({ driver.sandbox }) must return a harness sandbox provider object.")
   }
   return provider
 }
@@ -412,7 +415,7 @@ async function createHarnessAgent<
 ): Promise<HarnessAgentLike> {
   assertSupportedHarnessDriverContributions(context)
   const { HarnessAgent } = await import("@ai-sdk/harness/agent") as unknown as { HarnessAgent: HarnessAgentConstructor }
-  const sandbox = context.harnessSandboxProvider ?? await resolveHarnessSandboxProvider(options.harnessSandbox, context) ?? await createDefaultHarnessSandbox(context)
+  const sandbox = context.harnessSandboxProvider ?? await resolveHarnessSandboxProvider(options.sandbox, context) ?? await createDefaultHarnessSandbox(context)
   const harness = await resolveHarness(options.harness, context)
   const tools = toHarnessTools(context)
   return new HarnessAgent({
@@ -675,11 +678,14 @@ export function createHarnessAgentAdapter<
       if (!context.workspace) return
       const harnessInstructions = await resolveHarnessInstructions(context)
       const { prepareHarnessWorkspaceSession } = await import("@vite-hub/workspace")
+      const commitDefinition = context.workspaceDefinition && context.workspaceAutoCommit !== undefined
+        ? workspaceDefinitionWithAutoCommitRules(context.workspaceDefinition, context.workspaceAutoCommit)
+        : context.workspaceDefinition
       workspaceSession = await prepareHarnessWorkspaceSession(context.workspace, {
         abortSignal,
-        ...(hasWorkspaceCommitRules(context.workspaceDefinition) ? { definition: context.workspaceDefinition } : {}),
+        ...(hasWorkspaceCommitRules(commitDefinition) ? { definition: commitDefinition } : {}),
         ignoreWriteBackPaths: harnessInstructions ? harnessInstructionFiles : [],
-        paths: selectedWorkspaceScopePaths(context),
+        paths: selectedWorkspaceScopePaths(context, commitDefinition),
         session: session as never,
         sessionWorkDir,
       })

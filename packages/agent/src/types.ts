@@ -828,7 +828,7 @@ export interface AgentHarnessDriver<
   permissionMode?: never
   permissions?: never
   run?: never
-  sandbox?: never
+  sandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   sessionKey?: AgentHarnessSessionKey<TRuntimeConfig, CALL_OPTIONS, TContextValues>
 }
 
@@ -868,7 +868,6 @@ type AgentSharedSettings<
   capabilities?: TCapabilities
   channels?: AgentChannels<TRuntimeConfig>
   description?: string
-  harnessSandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   hooks?: AgentCapabilityHooks<TRuntimeConfig> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
@@ -897,7 +896,6 @@ export interface AgentDefinition<
   channels?: AgentChannels<TRuntimeConfig>
   chat?: AgentChatOptions<TRuntimeConfig>
   description?: string
-  harnessSandbox?: AgentHarnessSandboxProviderInput<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   hooks?: AgentCapabilityHooks<TRuntimeConfig, WorkspaceName> & AgentHookObserverHooks & AgentInvocationHooks<TRuntimeConfig, CALL_OPTIONS, TContextValues>
   invoker?: AgentInvokerOptions<TRuntimeConfig, CALL_OPTIONS, TInvokerProfile, TContextValues>
   messages?: AgentMessageChannelSettings<TRuntimeConfig>
@@ -1380,6 +1378,7 @@ export interface AgentAdapterRunContext<
   runtime: ResolvedAgentRuntimeContext<TRuntimeConfig>
   tools?: AgentToolSet
   workspace?: ReadonlyWorkspaceFacade<Name>
+  workspaceAutoCommit?: boolean | string
   workspaceDefinition?: WorkspaceDefinition
   workspaceInstructionBindings?: Record<string, unknown>
 }

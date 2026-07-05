@@ -141,6 +141,11 @@ export function normalizeWorkspaceOptions(workspace: WorkspaceAgentWorkspaceConf
   }
 }
 
+export function workspaceDefinitionWithAutoCommitRules(definition: WorkspaceDefinition, commit: boolean | string | undefined): WorkspaceDefinition {
+  if (commit !== true && typeof commit !== "string") return definition
+  return { ...definition, rules: mergeWorkspaceCommitRules(definition.rules, commit) }
+}
+
 function isWorkspaceReference(workspace: WorkspaceAgentWorkspaceConfig): workspace is { mode?: AgentCapabilityMode, name: string } {
   return typeof workspace === "object"
     && workspace !== null
@@ -220,25 +225,18 @@ export function workspaceDefinitionFromOptions<
       options.capabilities as AgentCapabilityDefinition[] | undefined,
     )
   }
-  const workspace = normalizeWorkspaceOptions(options.workspace)
-  const { commit, mode: _mode, ...definition } = workspace
+  const { commit: _commit, ...workspace } = normalizeWorkspaceOptions(options.workspace)
+  const { mode: _mode, ...definition } = workspace
   assertWorkspaceDefinition(definition)
-  const normalizedWorkspace = {
-    ...definition,
-    mode: workspace.mode,
-    ...(commit === undefined || commit === false ? {} : {
-      rules: mergeWorkspaceCommitRules(definition.rules, commit),
-    }),
-  }
   return withColocatedAgentInstructions(withCapabilityWorkspaceSources(
-    normalizedWorkspace,
+    workspace,
     options.capabilities as AgentCapabilityDefinition[] | undefined,
   ))
 }
 
 function mergeWorkspaceCommitRules(rules: WorkspaceRules | undefined, commit: boolean | string): WorkspaceRules {
   const merged: WorkspaceRules = rules ? { ...rules } : {}
-  if (!merged["**"]) merged["**"] = { commit }
+  if (!merged["**"]) merged["**"] = { commit, write: true }
   for (const [pattern, rule] of Object.entries(merged)) {
     if (rule.commit === undefined) merged[pattern] = { ...rule, commit }
   }
@@ -506,10 +504,10 @@ function executionMetadata(value: AgentDevtoolsDriverMetadata["execution"] | und
     : undefined
 }
 
-function harnessMetadata(driver: { credentials?: unknown, harness: unknown, sessionKey?: unknown }, harnessSandbox?: unknown): AgentDevtoolsHarnessMetadata | undefined {
+function harnessMetadata(driver: { credentials?: unknown, harness: unknown, sandbox?: unknown, sessionKey?: unknown }): AgentDevtoolsHarnessMetadata | undefined {
   const harness = isRecord(driver.harness) ? driver.harness : undefined
   const provider = harness ? stringField(harness, ["provider", "name"]) : undefined
-  const sandboxProvider = isRecord(harnessSandbox) ? stringField(harnessSandbox, ["provider", "providerId"]) : undefined
+  const sandboxProvider = isRecord(driver.sandbox) ? stringField(driver.sandbox, ["provider", "providerId"]) : undefined
   const credentials = isRecord(driver.credentials)
     ? {
         ...(typeof driver.credentials.label === "string" && driver.credentials.label ? { label: driver.credentials.label } : {}),
@@ -541,7 +539,7 @@ function staticDriverMetadata<
     }
   }
   if (driver.kind === "harness") {
-    const harness = harnessMetadata(driver, settings.harnessSandbox)
+    const harness = harnessMetadata(driver)
     return {
       ...(harness ? { harness } : {}),
       kind: "harness",
@@ -573,7 +571,7 @@ async function resolvedDriverMetadata<
     }
   }
   if (driver.kind === "harness") {
-    const harness = harnessMetadata(driver, settings.harnessSandbox)
+    const harness = harnessMetadata(driver)
     return {
       ...(harness ? { harness } : {}),
       kind: "harness",

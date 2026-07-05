@@ -766,8 +766,8 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
       },
       driver: {
         harness: { provider: "codex" },
+        sandbox: {},
       },
-      harnessSandbox: {},
       workspace: { mode: "write" },
     })
 
