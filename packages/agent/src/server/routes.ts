@@ -503,6 +503,19 @@ function resolveDiscordAdapter(adapters: Record<string, Adapter>): [string, Adap
     (adapter as { name?: unknown }).name === "discord")
 }
 
+async function resolveDiscordWebhookRegistration(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  context: ViteAgentRouteRuntimeContext,
+  adapters: Record<string, Adapter>,
+  adapterName: string,
+): Promise<AgentWebhookRegistrationDefinition | undefined> {
+  const triggers = await resolveAgentTriggers(agent as never, context as never)
+  const matches = Object.values(triggers).flatMap(trigger =>
+    (trigger.webhooks || []).filter(registration =>
+      registration.provider === "discord" && resolveChatAdapterName(adapters, registration) === adapterName))
+  return matches.length === 1 ? matches[0] : undefined
+}
+
 function chatRegistrationOrigin(registration: AgentWebhookRegistrationDefinition): string {
   return registration.channelId || registration.provider
 }
@@ -2422,8 +2435,10 @@ export function createDiscordGatewayRouteHandler(
       }, handlerOptions)
       const chat = new Chat(createChatSdkConfig({ [adapterName]: adapter }, state, chatOptions))
       await (chat as { initialize?: () => Promise<void> }).initialize?.()
+      const registration = await resolveDiscordWebhookRegistration(agent, context, adapters, adapterName)
+      const webhookId = registration?.id || adapterName
       const webhookUrl = typeof handlerOptions.webhookUrl === "function"
-        ? handlerOptions.webhookUrl(adapterName)
+        ? handlerOptions.webhookUrl(webhookId)
         : handlerOptions.webhookUrl
 
       return await startGatewayListener.call(

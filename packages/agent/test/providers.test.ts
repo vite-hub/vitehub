@@ -2337,6 +2337,42 @@ describe("server helpers", () => {
     expect(adapter.editMessage).toHaveBeenCalledWith("telegram:456", "sent-1", { markdown: "echo: hello" })
   })
 
+  it("forwards Discord Gateway events to the registered webhook id", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createDiscordGatewayRouteHandler } = await import("../src/server/internal.ts")
+    const startGatewayListener = vi.fn(async () => Response.json({ ok: true }))
+    const adapter = {
+      ...createTestChatAdapter(),
+      name: "discord",
+      startGatewayListener,
+    }
+    const agent = defineAgent({
+      channels: {
+        discord: discord({
+          adapter: () => adapter as never,
+          webhooks: { id: "discord-events" },
+        }),
+      },
+      driver: {
+        run: vi.fn(),
+      },
+    })
+    const handler = createDiscordGatewayRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"), {
+      webhookUrl: webhook => `https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`,
+    })
+
+    expect(response.status).toBe(200)
+    expect(startGatewayListener).toHaveBeenCalledWith(
+      expect.objectContaining({ waitUntil: expect.any(Function) }),
+      undefined,
+      undefined,
+      "https://example.com/api/_vitehub/agents/support/webhooks/discord-events",
+    )
+  })
+
   it("rejects unsigned chat channel webhooks before adapter dispatch", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { http } = await import("../src/channels.ts")
