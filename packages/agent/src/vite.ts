@@ -34,6 +34,7 @@ export type AgentVitePlugin = Plugin & AgentCliContributingPlugin
 const agentPackageName = "@vite-hub/agent"
 const mergeNoExternal = createNoExternalMerger(agentPackageName)
 const generatedAgentDenoServer = ".vitehub/agent/deno-server.ts"
+const generatedAgentDiscordGatewayRouteHandler = ".vitehub/agent/discord-gateway-route.ts"
 const generatedAgentWebhookRouteHandler = ".vitehub/agent/chat-webhook-route.ts"
 const generatedAgentNetlifyFunction = ".vitehub/agent/netlify-function.mjs"
 const netlifyAgentFunctionName = "vitehub-agent"
@@ -553,6 +554,102 @@ async function writeAgentWebhookRouteHandler(
   await writeFile(handlerPath, await generateAgentWebhookRouteHandler(definitions, handlerPath, options), "utf8")
 }
 
+async function generateAgentDiscordGatewayRouteHandler(
+  definitions: DiscoveredAgentDefinition[],
+  handlerPath: string,
+  options: { discordGatewayRoute?: false | string, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+): Promise<string> {
+  const agentImportBase = options.agentImportBase ?? agentPackageName
+  const runtimeRouteOption = options.runtime === "vite" ? ", runtime: 'vite'" : ""
+  const imports = definitions
+    .map((definition, index) => `import * as agent${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`)
+    .join("\n")
+  const agentEntries = (await Promise.all(definitions
+    .map(async (definition, index) => {
+      const sourceRootDir = resolveWorkspaceSourceRoot(definition.handler)
+      const agentExpression = `withAgentDefaults(withWorkspaceSourceRoot(resolveAgentModule(agent${index}), ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(await readColocatedAgentInstructions(definition.handler))}), ${JSON.stringify({ inferredName: definition.name, workspace: definition.workspace })})`
+      return `${JSON.stringify(definition.name)}: ${agentExpression}`
+    })))
+    .join(",\n  ")
+  const agentNames = definitions.map(definition => definition.name)
+
+  return [
+    `import { withAgentDefaults, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
+    `import { createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    "import { createError, defineEventHandler, getRequestHeader, getRequestHeaders, getRequestURL, getRouterParam } from 'h3'",
+    imports,
+    "",
+    "function resolveAgentModule(module) {",
+    "  return module && typeof module === 'object' && 'default' in module ? module.default : module",
+    "}",
+    "",
+    "function withWorkspaceSourceRoot(agent, sourceRootDir, colocatedInstructions) {",
+    "  const options = agent?.__vitehubWorkspaceAgentOptions",
+    "  const workspace = options?.workspace",
+    "  if (!workspace || typeof workspace !== 'object' || 'name' in workspace) return agent",
+    "  const existingSources = agent.sources && typeof agent.sources === 'object' ? agent.sources : undefined",
+    "  const sources = colocatedInstructions",
+    "    ? { __vitehubAgentInstructions: { content: colocatedInstructions, materialize: 'build', mount: '', workspacePath: 'AGENTS.md' }, ...workspace.sources, ...existingSources }",
+    "    : { ...workspace.sources, ...existingSources }",
+    "  const resolvedSources = Object.keys(sources).length ? sources : undefined",
+    "  const resolvedSourceRootDir = workspace.sourceRootDir ?? agent.sourceRootDir ?? sourceRootDir",
+    "  const workspaceOptions = { ...options, workspace: { ...workspace, ...(resolvedSources ? { sources: resolvedSources } : {}), sourceRootDir: resolvedSourceRootDir } }",
+    "  return { ...agent, ...workspaceDefinitionFromOptions(workspaceOptions), __vitehubWorkspaceAgentOptions: workspaceOptions }",
+    "}",
+    "",
+    ...generatedRuntimeHelpers(),
+    "",
+    "function bearerToken(value) {",
+    "  const match = /^Bearer\\s+(.+)$/i.exec(value || '')",
+    "  return match?.[1]",
+    "}",
+    "",
+    "function routePath(route, values) {",
+    "  return route.replace(/\\[([^\\]]+)\\]/g, (_, key) => encodeURIComponent(values[key] || ''))",
+    "}",
+    "",
+    `const webhookRoute = ${JSON.stringify(options.webhookRoute || "")}`,
+    `const defaultDurationMs = ${JSON.stringify(9 * 60 * 1000)}`,
+    `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
+    `const agentNames = ${JSON.stringify(agentNames)}`,
+    "const handlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createDiscordGatewayRouteHandler(agent)]))",
+    "",
+    "export default defineEventHandler(async (event) => {",
+    "  const secret = typeof process === 'object' ? process.env.VITEHUB_DISCORD_GATEWAY_SECRET : undefined",
+    "  if (secret && bearerToken(getRequestHeader(event, 'authorization')) !== secret) {",
+    "    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })",
+    "  }",
+    "  const agent = getRouterParam(event, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)",
+    "  const handler = agent ? handlers[agent] : undefined",
+    "  if (!handler) {",
+    "    throw createError({ statusCode: 404, statusMessage: 'Unknown ViteHub agent.' })",
+    "  }",
+    "  const requestUrl = getRequestURL(event)",
+    "  const durationMs = Number(process.env.VITEHUB_DISCORD_GATEWAY_DURATION_MS || '') || defaultDurationMs",
+    "  const webhookUrl = process.env.VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL || (webhookRoute ? `${requestUrl.origin}${routePath(webhookRoute, { agent, webhook: 'discord' })}` : undefined)",
+    "  if (!webhookUrl) {",
+    "    throw createError({ statusCode: 500, statusMessage: 'Discord Gateway route requires an Agent webhook route.' })",
+    "  }",
+    "  const cloudflare = cloudflareFromEvent(event)",
+    `  return await handler(new Request(requestUrl, { method: event.method || 'GET', headers: getRequestHeaders(event) }), { agentName: agent, cloudflare, durationMs${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event), webhookUrl })`,
+    "})",
+    "",
+  ].join("\n")
+}
+
+async function writeAgentDiscordGatewayRouteHandler(
+  root: string,
+  options: { discordGatewayRoute?: false | string, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+): Promise<void> {
+  const handlerPath = join(root, generatedAgentDiscordGatewayRouteHandler)
+  const definitions = discoverAgentDefinitions({
+    mode: "server-agents",
+    scanDirs: [join(root, "server")],
+  })
+  await mkdir(dirname(handlerPath), { recursive: true })
+  await writeFile(handlerPath, await generateAgentDiscordGatewayRouteHandler(definitions, handlerPath, options), "utf8")
+}
+
 async function generateAgentDenoServer(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
@@ -819,6 +916,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               route: normalizeNitroRoute(resolved.routes.webhooks),
             }]
           : []),
+        ...(resolved && !denoOutput && resolved.routes.discordGateway
+          ? [{
+              handler: generatedAgentDiscordGatewayRouteHandler,
+              route: normalizeNitroRoute(resolved.routes.discordGateway),
+            }]
+          : []),
       ]
       const nitro = installCloudflareState
         ? mergeCloudflareAgentStateNitroConfig((config as { nitro?: unknown }).nitro)
@@ -842,24 +945,37 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       resolved = config
       agent = config.agent ?? agent
       const normalized = normalizeAgentOptions(agent)
-      if (normalized && (normalized.routes.chat || normalized.routes.webhooks)) {
+      if (normalized && (normalized.routes.chat || normalized.routes.webhooks || normalized.routes.discordGateway)) {
         if (normalized.runtime === "deno") {
-          await writeAgentDenoServer(config.root, {
-            agentImportBase: getAgentImportBase(agent),
-            chatRoute: normalized.routes.chat,
-            workspaceImportBase: getWorkspaceImportBase(agent),
-            webhookRoute: normalized.routes.webhooks,
-          })
+          if (normalized.routes.chat || normalized.routes.webhooks) {
+            await writeAgentDenoServer(config.root, {
+              agentImportBase: getAgentImportBase(agent),
+              chatRoute: normalized.routes.chat,
+              workspaceImportBase: getWorkspaceImportBase(agent),
+              webhookRoute: normalized.routes.webhooks,
+            })
+          }
         }
         else {
-          await writeAgentWebhookRouteHandler(config.root, {
-            agentImportBase: getAgentImportBase(agent),
-            chatRoute: normalized.routes.chat,
-            cloudflareState: shouldInstallCloudflareAgentState(normalized),
-            ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
-            workspaceImportBase: getWorkspaceImportBase(agent),
-            webhookRoute: normalized.routes.webhooks,
-          })
+          if (normalized.routes.chat || normalized.routes.webhooks) {
+            await writeAgentWebhookRouteHandler(config.root, {
+              agentImportBase: getAgentImportBase(agent),
+              chatRoute: normalized.routes.chat,
+              cloudflareState: shouldInstallCloudflareAgentState(normalized),
+              ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
+              workspaceImportBase: getWorkspaceImportBase(agent),
+              webhookRoute: normalized.routes.webhooks,
+            })
+          }
+          if (normalized.routes.discordGateway) {
+            await writeAgentDiscordGatewayRouteHandler(config.root, {
+              agentImportBase: getAgentImportBase(agent),
+              discordGatewayRoute: normalized.routes.discordGateway,
+              ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
+              workspaceImportBase: getWorkspaceImportBase(agent),
+              webhookRoute: normalized.routes.webhooks,
+            })
+          }
           if (config.command === "serve" && isNetlifyHosting(config)) {
             await writeNetlifyAgentProviderOutput(config, normalized, {
               agentImportBase: getAgentImportBase(agent),

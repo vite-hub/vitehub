@@ -386,6 +386,50 @@ describe("agent Vite plugin", () => {
     })
   })
 
+  it("registers configured Discord Gateway routes with Nitro", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent({ routes: { discordGateway: true, webhooks: true } })
+    const result = typeof plugin.config === "function"
+      ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
+      : undefined
+
+    expect(result).toMatchObject({
+      nitro: {
+        handlers: expect.arrayContaining([{
+          handler: ".vitehub/agent/discord-gateway-route.ts",
+          route: "/api/_vitehub/agents/:agent/discord/gateway",
+        }]),
+      },
+    })
+  })
+
+  it("writes generated Discord Gateway route handlers", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-discord-gateway-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const plugin = hubAgent({ routes: { discordGateway: true, webhooks: true } })
+      if (typeof plugin.configResolved === "function") {
+        await plugin.configResolved.call({} as never, { command: "serve", root } as never)
+      }
+
+      const gatewayRoute = await readFile(join(root, ".vitehub/agent/discord-gateway-route.ts"), "utf8")
+
+      expect(gatewayRoute).toContain("createDiscordGatewayRouteHandler")
+      expect(gatewayRoute).toContain("VITEHUB_DISCORD_GATEWAY_SECRET")
+      expect(gatewayRoute).toContain("VITEHUB_DISCORD_GATEWAY_DURATION_MS")
+      expect(gatewayRoute).toContain("VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL")
+      expect(gatewayRoute).toContain("routePath(webhookRoute, { agent, webhook: 'discord' })")
+      expect(gatewayRoute).toContain("runtime: 'vite'")
+      expect(gatewayRoute).toContain("waitUntil: waitUntilFromEvent(event)")
+      expect(gatewayRoute).toContain("webhookUrl")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("registers configured agent chat routes with Nitro", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent({ routes: { chat: true } })

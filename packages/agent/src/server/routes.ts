@@ -84,6 +84,13 @@ export interface AgentChannelWebhookRouteOptions extends AgentRouteRuntimeOption
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
 }
 
+export interface AgentDiscordGatewayRouteOptions extends AgentRouteRuntimeOptions {
+  agentName?: string
+  durationMs?: number
+  state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
+  webhookUrl: string
+}
+
 export interface AgentChannelChatRouteRequestOptions extends AgentRouteRuntimeOptions {
   agentName?: string
 }
@@ -488,6 +495,12 @@ function resolveChatAdapterName(adapters: Record<string, Adapter>, registration:
   if (adapters[registration.provider]) return registration.provider
   if (registration.id && adapters[registration.id]) return registration.id
   return undefined
+}
+
+function resolveDiscordAdapter(adapters: Record<string, Adapter>): [string, Adapter] | undefined {
+  if (adapters.discord) return ["discord", adapters.discord]
+  return Object.entries(adapters).find(([, adapter]) =>
+    (adapter as { name?: unknown }).name === "discord")
 }
 
 function chatRegistrationOrigin(registration: AgentWebhookRegistrationDefinition): string {
@@ -2361,6 +2374,62 @@ export function createChannelWebhookRouteHandler(
         if (response) return response
         throw error
       }
+    })
+  }
+}
+
+export function createDiscordGatewayRouteHandler(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+): (request: Request, options: AgentDiscordGatewayRouteOptions) => Promise<Response> {
+  return async (request, handlerOptions) => {
+    if (request.method !== "GET" && request.method !== "POST") {
+      return createJsonErrorResponse(405, "Discord Gateway route only accepts GET or POST requests.")
+    }
+
+    const context = createRuntimeContext(
+      request,
+      undefined,
+      await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+      handlerOptions.cloudflare,
+      handlerOptions.runtime,
+    )
+    return await runWithRuntimeCloudflareEnv(context, async () => {
+      const chatOptions = getAgentChatOptions(agent)
+      const adapters = await resolveChatAdapters(chatOptions, context)
+      const entry = resolveDiscordAdapter(adapters)
+      if (!entry) {
+        return createJsonErrorResponse(500, "Discord Gateway route requires a Discord chat adapter.")
+      }
+
+      const [adapterName, adapter] = entry
+      const startGatewayListener = (adapter as {
+        startGatewayListener?: (
+          options: { waitUntil?: (promise: Promise<unknown>) => void },
+          durationMs?: number,
+          abortSignal?: AbortSignal,
+          webhookUrl?: string,
+        ) => Promise<Response>
+      }).startGatewayListener
+      if (typeof startGatewayListener !== "function") {
+        return createJsonErrorResponse(500, "Discord chat adapter does not expose startGatewayListener().")
+      }
+
+      const state = await resolveChatState(chatOptions, context, {
+        adapter: adapterName,
+        channelId: adapterName,
+        id: adapterName,
+        provider: "discord",
+      }, handlerOptions)
+      const chat = new Chat(createChatSdkConfig({ [adapterName]: adapter }, state, chatOptions))
+      await (chat as { initialize?: () => Promise<void> }).initialize?.()
+
+      return await startGatewayListener.call(
+        adapter,
+        { waitUntil: context.waitUntil },
+        handlerOptions.durationMs,
+        undefined,
+        handlerOptions.webhookUrl,
+      )
     })
   }
 }

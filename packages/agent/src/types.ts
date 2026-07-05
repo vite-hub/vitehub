@@ -965,11 +965,13 @@ export type AgentRouteOption = boolean | string
 
 export interface AgentRoutesOptions {
   chat?: AgentRouteOption
+  discordGateway?: AgentRouteOption
   webhooks?: AgentRouteOption
 }
 
 export interface ResolvedAgentRoutesOptions {
   chat: false | string
+  discordGateway: false | string
   webhooks: false | string
 }
 
