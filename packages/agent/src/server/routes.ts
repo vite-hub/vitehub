@@ -913,15 +913,43 @@ function audioPartFromAttachment(attachment: Attachment, index: number): Message
   return undefined
 }
 
+function attachmentFallbackLabel(attachment: Attachment): string {
+  if (typeof attachment.type === "string" && attachment.type) return attachment.type
+  if (typeof attachment.mimeType === "string" && attachment.mimeType) return attachment.mimeType
+  return "file"
+}
+
+function attachmentFallbackText(attachments: Attachment[]): string {
+  if (!attachments.length) return ""
+  const labels = attachments.map(attachmentFallbackLabel)
+  if (labels.length === 1) {
+    const article = /^[aeiou]/i.test(labels[0] ?? "") ? "an" : "a"
+    return `User sent ${article} ${labels[0]} attachment.`
+  }
+  const counts = new Map<string, number>()
+  for (const label of labels) {
+    counts.set(label, (counts.get(label) ?? 0) + 1)
+  }
+  const summary = [...counts.entries()]
+    .map(([label, count]) => `${count} ${label}${count === 1 ? "" : "s"}`)
+    .join(", ")
+  return `User sent attachments: ${summary}.`
+}
+
 function chatMessageParts(message: ChatSdkMessage, options: { includeAudioAttachments?: boolean } = {}): MessagePart[] {
   const parts: MessagePart[] = []
   if (message.text) {
     parts.push({ id: "text-0", text: message.text, type: "text" })
   }
-  if (!options.includeAudioAttachments) return parts
-  for (const [index, attachment] of message.attachments.entries()) {
-    const part = audioPartFromAttachment(attachment, index)
-    if (part) parts.push(part)
+  if (options.includeAudioAttachments) {
+    for (const [index, attachment] of message.attachments.entries()) {
+      const part = audioPartFromAttachment(attachment, index)
+      if (part) parts.push(part)
+    }
+  }
+  if (!parts.length) {
+    const text = attachmentFallbackText(message.attachments)
+    if (text) parts.push({ id: "text-0", text, type: "text" })
   }
   return parts
 }
