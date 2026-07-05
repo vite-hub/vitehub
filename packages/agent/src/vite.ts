@@ -205,6 +205,10 @@ function routeUsesParam(route: false | string | undefined, param: string): boole
   return Boolean(route && normalizeNitroRoute(route).split("/").includes(`:${param}`))
 }
 
+function generatedWebhookRoute(route: false | string | undefined): string {
+  return route ? normalizeNitroRoute(route) : ""
+}
+
 function isNetlifyHosting(config: ResolvedConfig): boolean {
   const target = config as ResolvedConfig & { preset?: unknown, vitehub?: { preset?: unknown } }
   const hosting = [
@@ -533,7 +537,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
     "const webhookHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createChannelWebhookRouteHandler(agent)]))",
     "const discordGatewayHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createDiscordGatewayRouteHandler(agent)]))",
     "const agentNames = Object.keys(agents)",
-    `const webhookRoute = ${JSON.stringify(options.webhookRoute || "")}`,
+    `const webhookRoute = ${JSON.stringify(generatedWebhookRoute(options.webhookRoute))}`,
     `const defaultDiscordGatewayDurationMs = ${JSON.stringify(9 * 60 * 1000)}`,
     `const chatRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.chatRoute))})`,
     `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))})`,
@@ -647,7 +651,7 @@ async function generateAgentDiscordGatewayRouteHandler(
     "    .replace(/(^|\\/):([^/]+)/g, (_, prefix, key) => `${prefix}${encodeURIComponent(values[key] || '')}`)",
     "}",
     "",
-    `const webhookRoute = ${JSON.stringify(options.webhookRoute || "")}`,
+    `const webhookRoute = ${JSON.stringify(generatedWebhookRoute(options.webhookRoute))}`,
     `const defaultDurationMs = ${JSON.stringify(9 * 60 * 1000)}`,
     `const agents = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
     `const agentNames = ${JSON.stringify(agentNames)}`,

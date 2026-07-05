@@ -218,7 +218,7 @@ describe("agent Vite plugin", () => {
       delete process.env.NETLIFY
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-      const plugin = hubAgent({ routes: { chat: true, discordGateway: true, webhooks: true } })
+      const plugin = hubAgent({ routes: { chat: true, discordGateway: true, webhooks: "api/hooks/[webhook]" } })
       const configResolved = plugin.configResolved as (config: { build?: { outDir?: string }, command: "build", resolve: { alias: Array<{ find: string, replacement: string }> }, root: string }) => Promise<void>
       const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
@@ -243,6 +243,7 @@ describe("agent Vite plugin", () => {
       expect(wrapper).toContain("VITEHUB_DISCORD_GATEWAY_SECRET")
       expect(wrapper).toContain("VITEHUB_DISCORD_GATEWAY_DURATION_MS")
       expect(wrapper).toContain("VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL")
+      expect(wrapper).toContain("const webhookRoute = \"/api/hooks/:webhook\"")
       expect(wrapper).toContain("routePath(webhookRoute, { agent, webhook })")
       expect(wrapper).not.toContain("runtime: 'vite'")
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith({
@@ -276,7 +277,7 @@ describe("agent Vite plugin", () => {
               nodeBundler: "esbuild",
               path: [
                 "/api/_vitehub/agents/:agent/chat",
-                "/api/_vitehub/agents/:agent/webhooks/:webhook",
+                "/api/hooks/:webhook",
                 "/api/_vitehub/agents/:agent/discord/gateway",
               ],
             },
@@ -424,7 +425,7 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-      const plugin = hubAgent({ routes: { discordGateway: true, webhooks: true } })
+      const plugin = hubAgent({ routes: { discordGateway: true, webhooks: "api/hooks/[webhook]" } })
       if (typeof plugin.configResolved === "function") {
         await plugin.configResolved.call({} as never, { command: "serve", root } as never)
       }
@@ -440,6 +441,7 @@ describe("agent Vite plugin", () => {
       expect(gatewayRoute).toContain("const secret = runtimeEnvValue(cloudflare, 'VITEHUB_DISCORD_GATEWAY_SECRET')")
       expect(gatewayRoute).toContain("runtimeEnvValue(cloudflare, 'VITEHUB_DISCORD_GATEWAY_DURATION_MS')")
       expect(gatewayRoute).toContain("runtimeEnvValue(cloudflare, 'VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL')")
+      expect(gatewayRoute).toContain("const webhookRoute = \"/api/hooks/:webhook\"")
       expect(gatewayRoute).toContain("routePath(webhookRoute, { agent, webhook })")
       expect(gatewayRoute).toContain(".replace(/(^|\\/):([^/]+)/g")
       expect(gatewayRoute).toContain("process.env.NODE_ENV === 'development'")
