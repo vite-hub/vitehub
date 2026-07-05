@@ -1711,7 +1711,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: [""],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })
   })
@@ -1755,7 +1755,7 @@ describe("defineAgent workspace option", () => {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
       paths: ["public", "AGENTS.md", "CLAUDE.md"],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })
   })
@@ -1791,7 +1791,7 @@ describe("defineAgent workspace option", () => {
         runtime: "trusted-host",
       }),
       ignoreWriteBackPaths: [],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     }))
   })
@@ -1827,7 +1827,7 @@ describe("defineAgent workspace option", () => {
         runtime: "trusted-host",
       }),
       paths: [""],
-      session: harnessSandboxSession,
+      session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     }))
   })
