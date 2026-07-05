@@ -3,6 +3,36 @@ import { generateKeyPairSync } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
 describe("agent channels", () => {
+  it("creates Discord adapters from provider defaults", async () => {
+    vi.resetModules()
+    const createDiscordAdapter = vi.fn(() => ({ name: "discord" }))
+    vi.doMock("@chat-adapter/discord", () => ({ createDiscordAdapter }))
+    try {
+      const { discord } = await import("../src/channels.ts")
+      const channel = discord({
+        adapter: {
+          botToken: { unseal: () => "bot-token" },
+          mentionRoleIds: ["role-1"],
+          publicKey: { unseal: () => "public-key" },
+          userName: "support",
+        },
+      })
+
+      if (typeof channel.adapter !== "function") throw new Error("Expected Discord adapter resolver.")
+      await expect(channel.adapter({} as never)).resolves.toEqual({ name: "discord" })
+      expect(createDiscordAdapter).toHaveBeenCalledWith({
+        botToken: "bot-token",
+        mentionRoleIds: ["role-1"],
+        publicKey: "public-key",
+        userName: "support",
+      })
+    }
+    finally {
+      vi.doUnmock("@chat-adapter/discord")
+      vi.resetModules()
+    }
+  })
+
   it("publishes explicit Workspace artifacts", async () => {
     const { publishWorkspaceArtifacts } = await import("../src/channels.ts")
     const content = new Uint8Array([1, 2, 3])

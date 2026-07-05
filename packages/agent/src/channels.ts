@@ -242,6 +242,20 @@ export interface GitHubChannelOptions<TRuntimeConfig extends AgentRuntimeConfig 
   events?: GitHubChannelEventsOptions<TRuntimeConfig>
 }
 
+export interface DiscordAdapterOptions {
+  apiUrl?: string
+  applicationId?: string
+  botToken?: string | { unseal: () => string }
+  mentionRoleIds?: string[]
+  publicKey?: string | { unseal: () => string }
+  userName?: string
+}
+
+export interface DiscordChannelOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>
+  extends Omit<AgentChannelOptions<TRuntimeConfig>, "adapter"> {
+  adapter?: true | DiscordAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"]
+}
+
 interface GitHubPullRequestEffectsOptions<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> {
   apiBaseUrl?: string
   artifacts?: GitHubAppOptions<TRuntimeConfig>["artifacts"]
@@ -1247,6 +1261,38 @@ function telegramWebhookDefaults<TRuntimeConfig extends AgentRuntimeConfig>(
   return Array.isArray(webhooks) ? webhooks.map(apply) : apply(webhooks)
 }
 
+function discordAdapterResolver<TRuntimeConfig extends AgentRuntimeConfig>(
+  input: true | DiscordAdapterOptions | AgentChannelOptions<TRuntimeConfig>["adapter"] | undefined,
+): AgentChannelOptions<TRuntimeConfig>["adapter"] | undefined {
+  if (input === undefined) return undefined
+  if (input !== true && (typeof input === "function" || isAdapter(input) || isResolver(input))) {
+    return input as AgentChannelOptions<TRuntimeConfig>["adapter"]
+  }
+  const options: DiscordAdapterOptions = input === true ? {} : input
+  return async () => {
+    let createDiscordAdapter: (options?: Record<string, unknown>) => Adapter
+    try {
+      ({ createDiscordAdapter } = await import("@chat-adapter/discord"))
+    }
+    catch (error) {
+      throw new Error("[vitehub] discord({ adapter: true }) requires @chat-adapter/discord to be installed.", { cause: error })
+    }
+    return createDiscordAdapter({
+      ...options,
+      ...(options.botToken ? { botToken: cleanSecret(options.botToken) } : {}),
+      ...(options.publicKey ? { publicKey: cleanSecret(options.publicKey) } : {}),
+    })
+  }
+}
+
+function isAdapter(value: unknown): value is Adapter {
+  return isRecord(value) && typeof value.postMessage === "function"
+}
+
+function isResolver(value: unknown): value is { resolve: (context: AgentCallbackContext) => MaybePromise<Adapter> } {
+  return isRecord(value) && typeof value.resolve === "function"
+}
+
 function ignored(reason: string) {
   return Response.json({ accepted: false, ok: true, reason })
 }
@@ -1304,9 +1350,12 @@ export function defineChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentR
 }
 
 export function discord<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(
-  options: AgentChannelOptions<TRuntimeConfig> = {},
+  options: DiscordChannelOptions<TRuntimeConfig> = {},
 ): AgentChannelDefinition<TRuntimeConfig> {
-  return defineChannel("discord", options)
+  return defineChannel("discord", {
+    ...options,
+    adapter: discordAdapterResolver(options.adapter),
+  })
 }
 
 export function github<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig>(

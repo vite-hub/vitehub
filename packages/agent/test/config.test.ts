@@ -18,6 +18,7 @@ describe("agent config", () => {
       },
       routes: {
         chat: false,
+        discordGateway: false,
         webhooks: false,
       },
       runtime: "auto",
@@ -32,8 +33,23 @@ describe("agent config", () => {
     })).toMatchObject({
       integrations: { sandbox: false, workflow: "auto" },
       providers: { state: { provider: "sqlite", tablePrefix: "agent_state_", url: "file:agent-state.sqlite" } },
-      routes: { chat: false, webhooks: false },
+      routes: { chat: false, discordGateway: false, webhooks: false },
       runtime: "cloudflare-agents",
+    })
+  })
+
+  it("normalizes the Discord Gateway route and required webhook route", () => {
+    expect(normalizeAgentOptions({ routes: { discordGateway: true } })).toMatchObject({
+      routes: {
+        discordGateway: "/api/_vitehub/agents/[agent]/discord/gateway",
+        webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
+      },
+    })
+    expect(normalizeAgentOptions({ routes: { discordGateway: "/discord/gateway" } })).toMatchObject({
+      routes: {
+        discordGateway: "/discord/gateway",
+        webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
+      },
     })
   })
 

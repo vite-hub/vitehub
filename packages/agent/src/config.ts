@@ -1,6 +1,7 @@
 import type { AgentModuleOptions, ResolvedAgentModuleOptions } from "./types.ts"
 
 const defaultAgentChatRoute = "/api/_vitehub/agents/[agent]/chat"
+const defaultAgentDiscordGatewayRoute = "/api/_vitehub/agents/[agent]/discord/gateway"
 const defaultAgentWebhookRoute = "/api/_vitehub/agents/[agent]/webhooks/[webhook]"
 
 function normalizeAgentRouteOption(value: boolean | string | undefined, defaultRoute: string): false | string {
@@ -12,6 +13,12 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
   if (options === false) {
     return false
   }
+
+  const discordGatewayRoute = normalizeAgentRouteOption(options?.routes?.discordGateway, defaultAgentDiscordGatewayRoute)
+  const webhookRoute = normalizeAgentRouteOption(
+    options?.routes?.webhooks ?? (discordGatewayRoute ? true : undefined),
+    defaultAgentWebhookRoute,
+  )
 
   return {
     execution: options?.execution || "inline",
@@ -34,7 +41,8 @@ export function normalizeAgentOptions(options: AgentModuleOptions | false | unde
     },
     routes: {
       chat: normalizeAgentRouteOption(options?.routes?.chat, defaultAgentChatRoute),
-      webhooks: normalizeAgentRouteOption(options?.routes?.webhooks, defaultAgentWebhookRoute),
+      discordGateway: discordGatewayRoute,
+      webhooks: webhookRoute,
     },
     runtime: options?.runtime || "auto",
   }

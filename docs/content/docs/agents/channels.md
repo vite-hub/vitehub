@@ -27,6 +27,30 @@ export default defineAgent({
 
 Built-in helpers include `discord()`, `github()`, `http()`, `slack()`, `teams()`, `telegram()`, `stream()`, and `webChat()`. Use `defineChannel(kind, options)` for an app-owned Channel Kind.
 
+## Discord
+
+Use `discord({ adapter })` when a Discord bot should receive message events through Chat SDK's Discord adapter. Install `@chat-adapter/discord` in the app when using the built-in adapter options. ViteHub keeps Discord conversation state thread-scoped by default, so separate Discord threads can run independent Agent conversations.
+
+```ts [server/agents/support.ts]
+import { defineAgent } from '@vite-hub/agent'
+import { discord } from '@vite-hub/agent/channels'
+
+export default defineAgent({
+  channels: {
+    discord: discord({
+      adapter: {
+        botToken: process.env.DISCORD_BOT_TOKEN,
+        publicKey: process.env.DISCORD_PUBLIC_KEY,
+      },
+      messages: { lockScope: 'thread' },
+    }),
+  },
+  run: () => 'ok',
+})
+```
+
+Set `routes.discordGateway: true` on `hubAgent()` when the deployment needs a generated Nitro route that wakes the Discord Gateway listener and forwards events into the Agent webhook route. The default route is `/api/_vitehub/agents/[agent]/discord/gateway`; set the required production `VITEHUB_DISCORD_GATEWAY_SECRET` bearer token, `VITEHUB_DISCORD_GATEWAY_DURATION_MS` to tune listener duration, or `VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL` when the generated webhook URL is not externally reachable.
+
 ## Boundary map
 
 | Boundary | Owns | Does not own |
