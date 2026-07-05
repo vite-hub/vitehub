@@ -914,8 +914,9 @@ describe("defineAgent workspace option", () => {
       },
     })
 
-    expect(agent.rules).toEqual({
-      "**": { commit: "chore: update workspace" },
+    expect(agent.workspace).toEqual({
+      mode: "read",
+      store: { provider: "memory" },
     })
   })
 
@@ -1786,7 +1787,7 @@ describe("defineAgent workspace option", () => {
       definition: expect.objectContaining({
         name: "docs",
         rules: {
-          "**": { commit: "chore: update docs" },
+          "**": { commit: "chore: update docs", write: true },
         },
         runtime: "trusted-host",
       }),
