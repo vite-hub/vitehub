@@ -388,17 +388,23 @@ describe("agent Vite plugin", () => {
 
   it("registers configured Discord Gateway routes with Nitro", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const plugin = hubAgent({ routes: { discordGateway: true, webhooks: true } })
+    const plugin = hubAgent({ routes: { discordGateway: true } })
     const result = typeof plugin.config === "function"
       ? await plugin.config.call({} as never, {}, { command: "build", mode: "production" })
       : undefined
 
     expect(result).toMatchObject({
       nitro: {
-        handlers: expect.arrayContaining([{
-          handler: ".vitehub/agent/discord-gateway-route.ts",
-          route: "/api/_vitehub/agents/:agent/discord/gateway",
-        }]),
+        handlers: expect.arrayContaining([
+          {
+            handler: ".vitehub/agent/chat-webhook-route.ts",
+            route: "/api/_vitehub/agents/:agent/webhooks/:webhook",
+          },
+          {
+            handler: ".vitehub/agent/discord-gateway-route.ts",
+            route: "/api/_vitehub/agents/:agent/discord/gateway",
+          },
+        ]),
       },
     })
   })

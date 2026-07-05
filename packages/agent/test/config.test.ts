@@ -38,15 +38,17 @@ describe("agent config", () => {
     })
   })
 
-  it("normalizes the Discord Gateway route", () => {
+  it("normalizes the Discord Gateway route and required webhook route", () => {
     expect(normalizeAgentOptions({ routes: { discordGateway: true } })).toMatchObject({
       routes: {
         discordGateway: "/api/_vitehub/agents/[agent]/discord/gateway",
+        webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
     })
     expect(normalizeAgentOptions({ routes: { discordGateway: "/discord/gateway" } })).toMatchObject({
       routes: {
         discordGateway: "/discord/gateway",
+        webhooks: "/api/_vitehub/agents/[agent]/webhooks/[webhook]",
       },
     })
   })
