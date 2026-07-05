@@ -1797,6 +1797,42 @@ describe("defineAgent workspace option", () => {
     }))
   })
 
+  it("uses Workspace auto-commit rules when selecting Harness Workspace paths", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {
+        commit: "chore: update docs",
+        mode: "write",
+        sources: {
+          guide: {
+            path: "AGENTS.md",
+          },
+        },
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      definition: expect.objectContaining({
+        rules: {
+          "**": { commit: "chore: update docs", write: true },
+        },
+      }),
+      paths: [""],
+    }))
+  })
+
   it("passes named Workspace top-level commits to harness workspace sessions", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const workspaceName = `docs-${Math.random().toString(36).slice(2)}`

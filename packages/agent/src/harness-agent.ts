@@ -143,8 +143,7 @@ function staticWorkspaceRulePath(pattern: string): string | undefined {
   return normalized
 }
 
-function workspaceRuleHarnessPaths(context: AgentAdapterRunContext): string[] {
-  const definition = context.workspaceDefinition
+function workspaceRuleHarnessPaths(definition: AgentAdapterRunContext["workspaceDefinition"]): string[] {
   if (!definition) return []
   const rules = [
     ...Object.entries(definition.rules || {}),
@@ -187,12 +186,12 @@ function compactWorkspacePaths(paths: readonly string[]): string[] {
   return sorted.filter((path, index) => !sorted.some((candidate, candidateIndex) => candidateIndex < index && pathContains(candidate, path)))
 }
 
-function harnessSupportWorkspacePaths(context: AgentAdapterRunContext): string[] {
+function harnessSupportWorkspacePaths(context: AgentAdapterRunContext, definition = context.workspaceDefinition): string[] {
   const materializationContext = context as HarnessWorkspaceMaterializationContext
   return compactWorkspacePaths([
-    ...(context.workspaceDefinition?.commit === true || typeof context.workspaceDefinition?.commit === "string" ? [""] : []),
+    ...(definition?.commit === true || typeof definition?.commit === "string" ? [""] : []),
     ...(materializationContext.workspaceMaterializationPaths || []),
-    ...workspaceRuleHarnessPaths(context),
+    ...workspaceRuleHarnessPaths(definition),
   ])
 }
 
@@ -200,20 +199,20 @@ function withHarnessInstructionPaths(paths: readonly string[]): string[] {
   return paths.length ? compactWorkspacePaths([...harnessInstructionFiles, ...paths]) : []
 }
 
-function explicitHarnessWorkspacePaths(context: AgentAdapterRunContext): string[] {
+function explicitHarnessWorkspacePaths(context: AgentAdapterRunContext, definition = context.workspaceDefinition): string[] {
   return withHarnessInstructionPaths([
-    ...harnessSupportWorkspacePaths(context),
+    ...harnessSupportWorkspacePaths(context, definition),
     ...workspaceSourceHarnessPaths(context),
   ])
 }
 
-function selectedWorkspaceScopePaths(context: AgentAdapterRunContext): string[] | undefined {
-  const harnessPaths = explicitHarnessWorkspacePaths(context)
+function selectedWorkspaceScopePaths(context: AgentAdapterRunContext, definition = context.workspaceDefinition): string[] | undefined {
+  const harnessPaths = explicitHarnessWorkspacePaths(context, definition)
   if (!hasTrustedWorkspaceAccessScope(context.context)) return harnessPaths.length ? harnessPaths : undefined
   const scope = context.context.get("access")?.workspaceScope
   if (!scope) return harnessPaths.length ? harnessPaths : undefined
   if (scope.all) return [""]
-  const paths = [...new Set([...(scope.paths || []), ...harnessSupportWorkspacePaths(context).filter(path => path !== "")])]
+  const paths = [...new Set([...(scope.paths || []), ...harnessSupportWorkspacePaths(context, definition).filter(path => path !== "")])]
   return paths.length ? withHarnessInstructionPaths(paths) : []
 }
 
@@ -686,7 +685,7 @@ export function createHarnessAgentAdapter<
         abortSignal,
         ...(hasWorkspaceCommitRules(commitDefinition) ? { definition: commitDefinition } : {}),
         ignoreWriteBackPaths: harnessInstructions ? harnessInstructionFiles : [],
-        paths: selectedWorkspaceScopePaths(context),
+        paths: selectedWorkspaceScopePaths(context, commitDefinition),
         session: session as never,
         sessionWorkDir,
       })
