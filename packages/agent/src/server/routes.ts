@@ -840,7 +840,7 @@ function createChatSdkConfig(
 ): ChatConfig {
   const fallbackStreamingPlaceholderText = typeof options?.fallbackStreamingPlaceholderText === "string"
     ? options.fallbackStreamingPlaceholderText
-    : null
+    : options?.fallbackStreamingPlaceholderText === null ? null : undefined
   return objectWithoutUndefined({
     adapters,
     concurrency: chatSdkOption<ChatConfig["concurrency"]>(options, "concurrency"),

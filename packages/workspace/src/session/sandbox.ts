@@ -154,13 +154,18 @@ async function materializeWorkspace(workspace: Workspace, sandbox: SandboxClient
     await sandbox.mkdir(toSandboxPath(entry.path), { recursive: true })
   for (const entry of entries) {
     if (entry.type !== "file") continue
-    const content = await workspace.readFile(entry.path, { encoding: "binary" })
     const target = toSandboxPath(entry.path)
     await ensureSandboxParent(sandbox, target)
-    if (isGitSymlinkEntry(entry))
-      await writeSandboxSymlink(sandbox, target, new TextDecoder().decode(contentToBytes(content)))
-    else
+    if (isGitSymlinkEntry(entry)) {
+      const symlinkTarget = typeof entry.metadata?.symlinkTarget === "string"
+        ? entry.metadata.symlinkTarget
+        : new TextDecoder().decode(contentToBytes(await workspace.readFile(entry.path, { encoding: "binary" })))
+      await writeSandboxSymlink(sandbox, target, symlinkTarget)
+    }
+    else {
+      const content = await workspace.readFile(entry.path, { encoding: "binary" })
       await sandbox.writeFile(target, content)
+    }
   }
   return await snapshotSandbox(sandbox, "sandbox-open")
 }

@@ -338,6 +338,48 @@ describe("defineAgent workspace option", () => {
     expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
   })
 
+  it("keeps harness workspace sessions open through text fallback", async () => {
+    const { defineAgent, streamAgent } = await import("../src/index.ts")
+    const harnessSession = { destroy: vi.fn() }
+    let workspaceClosed = false
+    const harnessWorkspaceSession = {
+      close: vi.fn(async () => {
+        workspaceClosed = true
+      }),
+    }
+    harnessCreateSession.mockResolvedValueOnce(harnessSession)
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+    harnessStream.mockResolvedValueOnce({
+      stream: (async function* () {
+        yield { finishReason: "stop", type: "finish" }
+      })(),
+      textStream: (async function* () {
+        if (workspaceClosed) throw new Error("workspace session closed before text fallback")
+        yield "fallback"
+      })(),
+    } as never)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {},
+    }), { workspace: "docs" })
+
+    const stream = await streamAgent(agent, context(), { prompt: "hello" })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "fallback", type: "text-delta" },
+      { reason: "stop", type: "finish" },
+    ])
+    expect(harnessWorkspaceSession.close).toHaveBeenCalledWith(undefined)
+    expect(harnessSession.destroy).toHaveBeenCalledOnce()
+  })
+
   it("passes Workspace commit rules and local Vite runtime to harness workspace sessions", async () => {
     const { defineAgent, runAgent } = await import("../src/index.ts")
     const harnessWorkspaceSession = { close: vi.fn() }
@@ -859,6 +901,22 @@ describe("defineAgent workspace option", () => {
         stroe: { provider: "memory" },
       } as never,
     })).toThrow("[vitehub] defineWorkspace does not support option: stroe.")
+  })
+
+  it("accepts colocated Workspace auto-commit", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+
+    const agent = defineAgent({
+      driver: { model: {} as never },
+      workspace: {
+        commit: "chore: update workspace",
+        store: { provider: "memory" },
+      },
+    })
+
+    expect(agent.rules).toEqual({
+      "**": { commit: "chore: update workspace" },
+    })
   })
 
   it("prepares Harness Workspace Sessions for workspace-backed harness Agent Drivers", async () => {
@@ -1608,6 +1666,170 @@ describe("defineAgent workspace option", () => {
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })
+  })
+
+  it("keeps all-scope Harness Workspace Sessions unrestricted when support paths exist", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { markTrustedWorkspaceAccessScope } = await import("../src/access-runtime.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+    exists.mockImplementation(async path => path === "README.md")
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [
+        {
+          id: "workspace-scope",
+          prepare(context) {
+            context.context.set("access", {
+              workspaceScope: {
+                all: true,
+                paths: [""],
+                scope: "all",
+              },
+            })
+            markTrustedWorkspaceAccessScope(context.context)
+          },
+        },
+        {
+          id: "support",
+          requires: [{ primitive: "workspace", workspace: { mode: "read", paths: ["README.md"] } }],
+        },
+      ],
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {},
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      ignoreWriteBackPaths: [],
+      paths: [""],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
+  })
+
+  it("keeps root Workspace Rules from widening selected Harness Workspace Scope", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { access } = await import("../src/capabilities.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    useWorkspace.mockReturnValueOnce(readonlyWorkspaceFacade())
+    exists.mockImplementation(async path => path === "public")
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      capabilities: [
+        access({
+          workspace: {
+            defaultScope: "public",
+            scopes: {
+              public: { paths: ["public"] },
+            },
+          },
+        }),
+      ],
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {
+        rules: {
+          "**/*.md": { write: true },
+        },
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
+      abortSignal: undefined,
+      ignoreWriteBackPaths: [],
+      paths: ["public", "AGENTS.md", "CLAUDE.md"],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    })
+  })
+
+  it("mounts the Workspace root for Harness Agents with Workspace auto-commit", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+
+    const agent = withAgentDefaults(defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: {
+        commit: "chore: update docs",
+        mode: "write",
+      },
+    }), { workspace: "docs" })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      abortSignal: undefined,
+      definition: expect.objectContaining({
+        name: "docs",
+        rules: {
+          "**": { commit: "chore: update docs" },
+        },
+        runtime: "trusted-host",
+      }),
+      ignoreWriteBackPaths: [],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    }))
+  })
+
+  it("passes named Workspace top-level commits to harness workspace sessions", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const workspaceName = `docs-${Math.random().toString(36).slice(2)}`
+    const harnessWorkspaceSession = { close: vi.fn() }
+    harnessCreateSession.mockResolvedValueOnce({ destroy: vi.fn() })
+    prepareHarnessWorkspaceSession.mockResolvedValueOnce(harnessWorkspaceSession)
+    resolveRegisteredWorkspaceDefinition.mockResolvedValueOnce({
+      commit: "chore: update named docs",
+      name: workspaceName,
+      store: { provider: "memory" },
+    })
+
+    const agent = defineAgent({
+      driver: {
+        harness: { provider: "codex" },
+      },
+      workspace: { mode: "write", name: workspaceName },
+    })
+
+    await expect(runAgent(agent, context(), { prompt: "hello" })).resolves.toMatchObject({
+      finishReason: "stop",
+      text: "ok",
+    })
+
+    expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
+      definition: expect.objectContaining({
+        commit: "chore: update named docs",
+        name: workspaceName,
+        runtime: "trusted-host",
+      }),
+      paths: [""],
+      session: harnessSandboxSession,
+      sessionWorkDir: "/workspace/codex-session",
+    }))
   })
 
   it("keeps generated capability source files selected for Harness Workspace Sessions", async () => {

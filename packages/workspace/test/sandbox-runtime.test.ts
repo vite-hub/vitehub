@@ -256,6 +256,29 @@ describe("sandbox workspace runtime", () => {
     }))
   })
 
+  it("materializes symlinks from metadata targets", async () => {
+    const fake = createFakeSandbox("cloudflare")
+    const sandboxPackage = await import("@vite-hub/sandbox")
+    vi.mocked(sandboxPackage.createSandboxWithConfig).mockResolvedValue(fake.sandbox as never)
+    setSandboxRuntimeConfig({ provider: "cloudflare", binding: "SANDBOX" })
+
+    const workspace = createWorkspace({
+      ...defineWorkspace({
+        runtime: "sandbox",
+        store: { provider: "memory" },
+      }),
+      name: "docs",
+    })
+    await workspace.writeFile("AGENTS.md", "# Agents\n")
+    await workspace.writeFile("CLAUDE.md", "# Agents\n", { metadata: { gitMode: "120000", symlinkTarget: "AGENTS.md" } })
+
+    const session = await workspace.startSession()
+
+    expect(fake.files.get("/workspace/CLAUDE.md")).toEqual({ target: "AGENTS.md", type: "symlink" })
+    await expect(session.readFile("CLAUDE.md")).resolves.toBe("# Agents\n")
+    await session.close()
+  })
+
   it("rejects changes outside scoped sandbox session paths", async () => {
     const fake = createFakeSandbox("cloudflare")
     const sandboxPackage = await import("@vite-hub/sandbox")

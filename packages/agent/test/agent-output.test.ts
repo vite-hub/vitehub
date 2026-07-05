@@ -163,7 +163,7 @@ describe("agent output helpers", () => {
     }
 
     expect(events).toEqual([
-      { text: "ok", type: "text-delta" },
+      { id: undefined, text: "ok", type: "text-delta" },
       { type: "finish" },
     ])
   })
@@ -291,7 +291,7 @@ describe("agent output helpers", () => {
     }
 
     expect(events).toEqual([
-      { text: "ok", type: "text-delta" },
+      { id: undefined, text: "ok", type: "text-delta" },
       { type: "finish" },
     ])
   })
@@ -335,6 +335,49 @@ describe("agent output helpers", () => {
           },
         },
       },
+      { reason: "stop", type: "finish" },
+    ])
+  })
+
+  it("falls back to textStream when event streams have no visible text", async () => {
+    const output = {
+      stream: (async function* () {
+        yield { finishReason: "stop", type: "finish" }
+      })(),
+      textStream: (async function* () {
+        yield "ok"
+      })(),
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { text: "ok", type: "text-delta" },
+      { reason: "stop", type: "finish" },
+    ])
+  })
+
+  it("keeps visible event stream text before falling back to textStream", async () => {
+    const output = {
+      stream: (async function* () {
+        yield { delta: "ok", type: "text-delta" }
+        yield { finishReason: "stop", type: "finish" }
+      })(),
+      textStream: (async function* () {
+        yield undefined
+      })(),
+    }
+
+    const events: unknown[] = []
+    for await (const event of streamAgentOutputToEvents(output)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { id: undefined, text: "ok", type: "text-delta" },
       { reason: "stop", type: "finish" },
     ])
   })

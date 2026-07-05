@@ -3,6 +3,7 @@ import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { createGitHubWorkspaceStore } from "@vite-hub/workspace/internal/stores/github"
+import { installHostedWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted"
 import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
 import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
 
@@ -273,6 +274,15 @@ function isWorkspaceRegistry(value: unknown): value is WorkspaceRegistry {
   return isRecord(value) && Object.values(value).every(item => typeof item === "function")
 }
 
+function hasHostedWorkspaceStore(agent: AgentInput<ViteAgentDevRuntimeContext>): boolean {
+  const options = isRecord(agent) && isRecord(agent.__vitehubWorkspaceAgentOptions) ? agent.__vitehubWorkspaceAgentOptions : undefined
+  const workspace = typeof options?.workspace === "string" || isRecord(options?.workspace) ? options.workspace : undefined
+  const store = isRecord(workspace) && isRecord(workspace.store) ? workspace.store : undefined
+  if (!workspace) return false
+  if (!store && typeof process === "object" && process?.env?.BLOB_READ_WRITE_TOKEN) return true
+  return store?.provider === "cloudflare-artifacts" || store?.provider === "github" || store?.provider === "vercel-blob"
+}
+
 async function loadViteWorkspaceRegistry(server: ViteDevServer): Promise<WorkspaceRegistry> {
   if (!server.config.plugins?.some(plugin => plugin.name === "@vite-hub/workspace/vite")) return {}
   const mod = await server.ssrLoadModule(workspaceRegistryId) as { default?: unknown }
@@ -299,6 +309,7 @@ async function installServerAgentWorkspaceRegistry(
       },
     ]))),
   } satisfies WorkspaceRegistry
+  if (entries.some(({ agent }) => hasHostedWorkspaceStore(agent))) installHostedWorkspaceRuntime()
   const existingWorkspaceHostedStoreLoader = getWorkspaceHostedStoreLoader()
   setWorkspaceHostedStoreLoader((storeOptions, workspaceName) => {
     if (storeOptions.provider === "github") return createGitHubWorkspaceStore(storeOptions, workspaceName)

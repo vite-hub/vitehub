@@ -353,6 +353,39 @@ describe("agent transcription", () => {
     expect(context.messages.at(-1)?.parts.at(-1)).toMatchObject({ text: "hola mundo", type: "text" })
   })
 
+  it("writes markdown artifacts under a configured directory", async () => {
+    const capability = transcribe({
+      execute: vi.fn(async () => "hola mundo"),
+      artifacts: {
+        directory: "inputs/telegram-audio",
+        transcript: { format: "markdown" },
+      },
+    })
+    const context = createTranscriptionCapabilityContext([
+      createMessage({
+        createdAt: "2026-05-28T10:50:04.000Z",
+        id: "msg_1",
+        parts: [{ data: new Uint8Array([1, 2, 3]), mediaType: "audio/opus", type: "audio" }],
+        role: "user",
+      }),
+    ])
+
+    await capability.input?.(context.context as never)
+
+    expect(context.writeFile).toHaveBeenNthCalledWith(
+      1,
+      "inputs/telegram-audio/2026-05-28T10-50-04Z-telegram-4.ogg",
+      new Uint8Array([1, 2, 3]),
+      { mediaType: "audio/opus" },
+    )
+    expect(context.writeFile).toHaveBeenNthCalledWith(
+      2,
+      "inputs/telegram-audio/2026-05-28T10-50-04Z-telegram-4.md",
+      "---\ncreated_at: 2026-05-28T10:50:04.000Z\naudio: inputs/telegram-audio/2026-05-28T10-50-04Z-telegram-4.ogg\n---\n\nhola mundo\n",
+      { mediaType: "text/markdown" },
+    )
+  })
+
   it("sanitizes default artifact stems from platform message ids", async () => {
     const capability = transcribe({
       execute: vi.fn(async () => "hola mundo"),

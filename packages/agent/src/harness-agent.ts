@@ -154,10 +154,12 @@ function workspaceRuleHarnessPaths(context: AgentAdapterRunContext): string[] {
 }
 
 function hasWorkspaceCommitRules(definition: AgentAdapterRunContext["workspaceDefinition"]): boolean {
-  return [
-    ...Object.values(definition?.rules || {}),
-    ...(definition?.plugins || []).flatMap(plugin => Object.values(plugin.rules || {})),
-  ].some(rule => rule.commit !== undefined)
+  return definition?.commit === true
+    || typeof definition?.commit === "string"
+    || [
+      ...Object.values(definition?.rules || {}),
+      ...(definition?.plugins || []).flatMap(plugin => Object.values(plugin.rules || {})),
+    ].some(rule => rule.commit !== undefined)
 }
 
 function workspaceSourceHarnessPaths(context: AgentAdapterRunContext): string[] {
@@ -188,6 +190,7 @@ function compactWorkspacePaths(paths: readonly string[]): string[] {
 function harnessSupportWorkspacePaths(context: AgentAdapterRunContext): string[] {
   const materializationContext = context as HarnessWorkspaceMaterializationContext
   return compactWorkspacePaths([
+    ...(context.workspaceDefinition?.commit === true || typeof context.workspaceDefinition?.commit === "string" ? [""] : []),
     ...(materializationContext.workspaceMaterializationPaths || []),
     ...workspaceRuleHarnessPaths(context),
   ])
@@ -494,8 +497,47 @@ function withCleanupStream<T>(stream: ReadableStream<T>, cleanup: (error?: unkno
   })
 }
 
-function wrapCleanupIterable<T>(iterable: AsyncIterable<T>, cleanup: (error?: unknown) => Promise<void>, abortSignal?: AbortSignal) {
-  return withCleanup(iterable, cleanup, abortSignal)
+function createSharedCleanupIterableWrapper(cleanup: (error?: unknown) => Promise<void>, abortSignal?: AbortSignal) {
+  let activeIterators = 0
+  return function wrap<T>(iterable: AsyncIterable<T>): AsyncIterable<T> {
+    return {
+      [Symbol.asyncIterator]() {
+        const iterator = iterable[Symbol.asyncIterator]()
+        activeIterators++
+        let done = false
+        const finish = async (error?: unknown) => {
+          if (done) return
+          done = true
+          activeIterators--
+          if (error || activeIterators === 0) {
+            await cleanup(error)
+          }
+        }
+        return {
+          async next() {
+            try {
+              const result = await nextWithAbort(iterator.next(), abortSignal, "[vitehub] Harness Agent Driver stream aborted.")
+              if (result.done) await finish()
+              return result
+            }
+            catch (error) {
+              void iterator.return?.().catch(() => {})
+              await finish(error)
+              throw error
+            }
+          },
+          async return(value?: unknown) {
+            try {
+              return await iterator.return?.(value) ?? { done: true, value }
+            }
+            finally {
+              await finish()
+            }
+          },
+        }
+      },
+    }
+  }
 }
 
 async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) => Promise<void>, abortSignal?: AbortSignal): Promise<unknown> {
@@ -527,10 +569,11 @@ async function withSessionCleanup(result: unknown, cleanup: (error?: unknown) =>
   const clone = Object.create(Object.getPrototypeOf(result)) as Record<string, unknown>
   Object.defineProperties(clone, Object.getOwnPropertyDescriptors(result))
   const wrappedIterables = new Map<AsyncIterable<unknown>, AsyncIterable<unknown>>()
+  const wrapSharedCleanupIterable = createSharedCleanupIterableWrapper(cleanupOnce, abortSignal)
   for (const [key, iterable] of entries) {
     let wrapped = wrappedIterables.get(iterable)
     if (!wrapped) {
-      wrapped = wrapCleanupIterable(iterable, cleanupOnce, abortSignal)
+      wrapped = wrapSharedCleanupIterable(iterable)
       wrappedIterables.set(iterable, wrapped)
     }
     Object.defineProperty(clone, key, {

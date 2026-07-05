@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
-import { chat } from "../src/capabilities.ts"
+import { defineChatCapability as chat } from "../src/chat-trigger.ts"
 import { defineAgent, runAgentTrigger, verifyAgentWebhookRequest } from "../src/index.ts"
 
 function runtime(request?: Request) {

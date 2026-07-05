@@ -5,7 +5,7 @@ import { agentErrorDetails, agentErrorMessage } from "./agent-error.ts"
 import { getMessageText } from "./messages.ts"
 import { resolveRuntimeContext } from "@vite-hub/runtime"
 import { isAsyncIterable, streamAgentOutputToEvents, toAgentRunResult, toAgentStreamEvent } from "./agent-output.ts"
-import { chat as defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
+import { defineChatCapability, getChatCapabilityOptions } from "./chat-trigger.ts"
 import { resolveAgentChannelChatOptions } from "./internal/channels.ts"
 import { createAgentInvocationContextStore } from "./invocation-context.ts"
 import {

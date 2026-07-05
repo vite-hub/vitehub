@@ -183,7 +183,9 @@ async function materializeWorkspace(workspace: Workspace, root: string, options?
     const target = toLocalPath(root, entry.path, { allowGenerated: true })
     await mkdir(dirname(target), { recursive: true })
     if (isGitSymlinkEntry(entry)) {
-      const linkTarget = await workspace.readFile(entry.path)
+      const linkTarget = typeof entry.metadata?.symlinkTarget === "string"
+        ? entry.metadata.symlinkTarget
+        : await workspace.readFile(entry.path)
       if (isLocalSymlinkTargetInside(root, target, linkTarget)) await symlink(linkTarget, target)
       else await writeFile(target, linkTarget)
       continue

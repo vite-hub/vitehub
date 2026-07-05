@@ -232,12 +232,12 @@ describe("trusted host workspace runtime", () => {
       async list() {
         return [
           { path: "AGENTS.md", type: "file" as const },
-          { metadata: { gitMode: "120000" }, path: "CLAUDE.md", type: "file" as const },
+          { metadata: { gitMode: "120000", symlinkTarget: "AGENTS.md" }, path: "CLAUDE.md", type: "file" as const },
         ]
       },
       async readFile(path: string) {
         if (path === "AGENTS.md") return "# Agents\n"
-        if (path === "CLAUDE.md") return "AGENTS.md"
+        if (path === "CLAUDE.md") return "# Agents\n"
         throw new Error(`unexpected read: ${path}`)
       },
     } as unknown as Workspace

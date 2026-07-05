@@ -89,6 +89,17 @@ describe("SQLite Agent State Provider", () => {
     await state.disconnect()
   })
 
+  it("creates parent directories for local libSQL file URLs", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vitehub-agent-state-"))
+    tempDirs.push(dir)
+    const state = createLibsqlAgentState({ url: `file:${join(dir, "nested", "state.db")}` })
+
+    await state.connect()
+    await state.set("seen", "yes")
+    await expect(state.get("seen")).resolves.toBe("yes")
+    await state.disconnect()
+  })
+
   it("clears list expiry when appending without ttlMs", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-06-02T10:00:00.000Z"))
