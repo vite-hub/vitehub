@@ -445,7 +445,7 @@ async function generateAgentWebhookRouteHandler(
 async function generateAgentNetlifyFunctionRouteHandler(
   definitions: DiscoveredAgentDefinition[],
   handlerPath: string,
-  options: { chatRoute?: false | string, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { chatRoute?: false | string, discordGatewayRoute?: false | string, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
   const agentImportBase = options.agentImportBase ?? agentPackageName
   const workspaceImportBase = options.workspaceImportBase ?? workspacePackageName
@@ -477,7 +477,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
 
   return [
     `import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
-    `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     `import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(agentImportBase, "server/workspace"))}`,
     ...hostedWorkspaceRuntime.imports,
     imports,
@@ -489,6 +489,17 @@ async function generateAgentNetlifyFunctionRouteHandler(
     "function resolveChatRouteOptions(module) {",
     "  const chatRoute = module && typeof module === 'object' ? module.chatRoute : undefined",
     "  return chatRoute && typeof chatRoute === 'object' ? chatRoute : undefined",
+    "}",
+    "",
+    "function bearerToken(value) {",
+    "  const match = /^Bearer\\s+(.+)$/i.exec(value || '')",
+    "  return match?.[1]",
+    "}",
+    "",
+    "function routePath(route, values) {",
+    "  return route",
+    "    .replace(/\\[([^\\]]+)\\]/g, (_, key) => encodeURIComponent(values[key] || ''))",
+    "    .replace(/(^|\\/):([^/]+)/g, (_, prefix, key) => `${prefix}${encodeURIComponent(values[key] || '')}`)",
     "}",
     "",
     "function withWorkspaceSourceRoot(agent, sourceRootDir, colocatedInstructions) {",
@@ -520,21 +531,43 @@ async function generateAgentNetlifyFunctionRouteHandler(
     `const agentModules = {${agentModuleEntries ? `\n  ${agentModuleEntries}\n` : ""}}`,
     "const chatHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createChannelChatRouteHandler(agent, resolveChatRouteOptions(agentModules[name]))]))",
     "const webhookHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createChannelWebhookRouteHandler(agent)]))",
+    "const discordGatewayHandlers = Object.fromEntries(Object.entries(agents).map(([name, agent]) => [name, createDiscordGatewayRouteHandler(agent)]))",
     "const agentNames = Object.keys(agents)",
+    `const webhookRoute = ${JSON.stringify(options.webhookRoute || "")}`,
+    `const defaultDiscordGatewayDurationMs = ${JSON.stringify(9 * 60 * 1000)}`,
     `const chatRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.chatRoute))})`,
     `const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))})`,
+    `const discordGatewayRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.discordGatewayRoute))})`,
     "",
     "export default async function viteHubAgentNetlifyFunction(request, context) {",
     "  ensureNetlifyHostingEnv()",
     "  const pathname = new URL(request.url).pathname",
+    "  const isDiscordGatewayRoute = discordGatewayRoutePattern.test(pathname)",
     "  const isWebhookRoute = webhookRoutePattern.test(pathname)",
     "  const agent = netlifyParam(context, 'agent') || (agentNames.length === 1 ? agentNames[0] : undefined)",
     `  const webhook = ${webhookSelector}`,
-    "  const handler = agent ? (isWebhookRoute ? webhookHandlers[agent] : chatHandlers[agent]) : undefined",
+    "  const handler = agent ? (isDiscordGatewayRoute ? discordGatewayHandlers[agent] : isWebhookRoute ? webhookHandlers[agent] : chatHandlers[agent]) : undefined",
     "  if (!handler) {",
     "    return Response.json({ message: 'Unknown ViteHub agent.', status: 404 }, { status: 404 })",
     "  }",
     "  const waitUntil = waitUntilFromContext(context)",
+    "  if (isDiscordGatewayRoute) {",
+    "    const secret = process.env.VITEHUB_DISCORD_GATEWAY_SECRET",
+    "    const localDevelopment = process.env.NODE_ENV === 'development'",
+    "    if (!secret && !localDevelopment) {",
+    "      return Response.json({ message: 'Discord Gateway route requires VITEHUB_DISCORD_GATEWAY_SECRET.', status: 500 }, { status: 500 })",
+    "    }",
+    "    if (secret && bearerToken(request.headers.get('authorization')) !== secret) {",
+    "      return Response.json({ message: 'Unauthorized', status: 401 }, { status: 401 })",
+    "    }",
+    "    const requestUrl = new URL(request.url)",
+    "    const durationMs = Number(process.env.VITEHUB_DISCORD_GATEWAY_DURATION_MS || '') || defaultDiscordGatewayDurationMs",
+    "    const webhookUrl = process.env.VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL || (webhookRoute ? (webhook) => `${requestUrl.origin}${routePath(webhookRoute, { agent, webhook })}` : undefined)",
+    "    if (!webhookUrl) {",
+    "      return Response.json({ message: 'Discord Gateway route requires an Agent webhook route.', status: 500 }, { status: 500 })",
+    "    }",
+    `    return await handler(request, { agentName: agent, durationMs${runtimeRouteOption}, waitUntil, webhookUrl })`,
+    "  }",
     `  return isWebhookRoute ? await handler(request, webhook, { agentName: agent${runtimeRouteOption}, waitUntil }) : await handler(request, { agentName: agent${runtimeRouteOption}, waitUntil })`,
     "}",
     "",
@@ -815,7 +848,7 @@ async function writeAgentDenoServer(
 
 async function writeAgentNetlifyFunctionRouteHandler(
   root: string,
-  options: { chatRoute?: false | string, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { chatRoute?: false | string, discordGatewayRoute?: false | string, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
   const handlerPath = join(root, generatedAgentNetlifyFunction)
   const definitions = discoverAgentDefinitions({
@@ -827,10 +860,11 @@ async function writeAgentNetlifyFunctionRouteHandler(
   return handlerPath
 }
 
-function createNetlifyAgentFunctionConfig(options: { chatRoute?: false | string, webhookRoute?: false | string }): object {
+function createNetlifyAgentFunctionConfig(options: { chatRoute?: false | string, discordGatewayRoute?: false | string, webhookRoute?: false | string }): object {
   const paths = [
     options.chatRoute ? normalizeNitroRoute(options.chatRoute) : undefined,
     options.webhookRoute ? normalizeNitroRoute(options.webhookRoute) : undefined,
+    options.discordGatewayRoute ? normalizeNitroRoute(options.discordGatewayRoute) : undefined,
   ].filter((path): path is string => Boolean(path))
 
   return {
@@ -844,6 +878,7 @@ async function writeNetlifyAgentProviderOutput(config: ResolvedConfig, options: 
   const handlerPath = await writeAgentNetlifyFunctionRouteHandler(config.root, {
     ...generatedOptions,
     chatRoute: options.routes.chat,
+    discordGatewayRoute: options.routes.discordGateway,
     webhookRoute: options.routes.webhooks,
   })
   await writeProviderDeploymentOutputs({
@@ -859,6 +894,7 @@ async function writeNetlifyAgentProviderOutput(config: ResolvedConfig, options: 
         },
         config: createNetlifyAgentFunctionConfig({
           chatRoute: options.routes.chat,
+          discordGatewayRoute: options.routes.discordGateway,
           webhookRoute: options.routes.webhooks,
         }),
         functionName: netlifyAgentFunctionName,
@@ -1024,7 +1060,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         if (!resolved || resolved.command !== "build") return
         const normalized = normalizeAgentOptions(agent)
         if (normalized && normalized.runtime === "deno") return
-        if (normalized && isNetlifyHosting(resolved) && (normalized.routes.chat || normalized.routes.webhooks)) {
+        if (normalized && isNetlifyHosting(resolved) && (normalized.routes.chat || normalized.routes.webhooks || normalized.routes.discordGateway)) {
           await writeNetlifyAgentProviderOutput(resolved, normalized, {
             agentImportBase: getAgentImportBase(agent),
             workspaceImportBase: getWorkspaceImportBase(agent),

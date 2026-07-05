@@ -218,7 +218,7 @@ describe("agent Vite plugin", () => {
       delete process.env.NETLIFY
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-      const plugin = hubAgent({ routes: { chat: true, webhooks: true } })
+      const plugin = hubAgent({ routes: { chat: true, discordGateway: true, webhooks: true } })
       const configResolved = plugin.configResolved as (config: { build?: { outDir?: string }, command: "build", resolve: { alias: Array<{ find: string, replacement: string }> }, root: string }) => Promise<void>
       const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
@@ -233,12 +233,17 @@ describe("agent Vite plugin", () => {
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       expect(wrapper).toContain("export default async function viteHubAgentNetlifyFunction(request, context)")
-      expect(wrapper).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler } from \"@vite-hub/agent/server/internal\"")
+      expect(wrapper).toContain("import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, createDiscordGatewayRouteHandler } from \"@vite-hub/agent/server/internal\"")
       expect(wrapper).toContain("import { setWorkspaceRuntimeRegistry } from \"@vite-hub/agent/server/workspace\"")
       expect(wrapper).not.toContain("@vite-hub/workspace/internal/runtime/state")
       expect(wrapper).toContain("process.env.VITEHUB_HOSTING = 'netlify'")
       expect(wrapper).toContain("const waitUntil = waitUntilFromContext(context)")
       expect(wrapper).toContain("const webhook = netlifyParam(context, 'webhook')")
+      expect(wrapper).toContain("const isDiscordGatewayRoute = discordGatewayRoutePattern.test(pathname)")
+      expect(wrapper).toContain("VITEHUB_DISCORD_GATEWAY_SECRET")
+      expect(wrapper).toContain("VITEHUB_DISCORD_GATEWAY_DURATION_MS")
+      expect(wrapper).toContain("VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL")
+      expect(wrapper).toContain("routePath(webhookRoute, { agent, webhook })")
       expect(wrapper).not.toContain("runtime: 'vite'")
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith({
         clientOutDir: "dist/client",
@@ -269,7 +274,11 @@ describe("agent Vite plugin", () => {
             config: {
               name: "vitehub-agent",
               nodeBundler: "esbuild",
-              path: ["/api/_vitehub/agents/:agent/chat", "/api/_vitehub/agents/:agent/webhooks/:webhook"],
+              path: [
+                "/api/_vitehub/agents/:agent/chat",
+                "/api/_vitehub/agents/:agent/webhooks/:webhook",
+                "/api/_vitehub/agents/:agent/discord/gateway",
+              ],
             },
             functionName: "vitehub-agent",
           }],
