@@ -497,10 +497,9 @@ function resolveChatAdapterName(adapters: Record<string, Adapter>, registration:
   return undefined
 }
 
-function resolveDiscordAdapter(adapters: Record<string, Adapter>): [string, Adapter] | undefined {
-  if (adapters.discord) return ["discord", adapters.discord]
-  return Object.entries(adapters).find(([, adapter]) =>
-    (adapter as { name?: unknown }).name === "discord")
+function resolveDiscordAdapters(adapters: Record<string, Adapter>): [string, Adapter][] {
+  return Object.entries(adapters).filter(([name, adapter]) =>
+    name === "discord" || (adapter as { name?: unknown }).name === "discord")
 }
 
 async function resolveDiscordWebhookRegistration(
@@ -2409,45 +2408,52 @@ export function createDiscordGatewayRouteHandler(
     return await runWithRuntimeCloudflareEnv(context, async () => {
       const chatOptions = getAgentChatOptions(agent)
       const adapters = await resolveChatAdapters(chatOptions, context)
-      const entry = resolveDiscordAdapter(adapters)
-      if (!entry) {
+      const entries = resolveDiscordAdapters(adapters)
+      if (entries.length === 0) {
         return createJsonErrorResponse(500, "Discord Gateway route requires a Discord chat adapter.")
       }
 
-      const [adapterName, adapter] = entry
-      const startGatewayListener = (adapter as {
-        startGatewayListener?: (
-          options: { waitUntil?: (promise: Promise<unknown>) => void },
-          durationMs?: number,
-          abortSignal?: AbortSignal,
-          webhookUrl?: string,
-        ) => Promise<Response>
-      }).startGatewayListener
-      if (typeof startGatewayListener !== "function") {
-        return createJsonErrorResponse(500, "Discord chat adapter does not expose startGatewayListener().")
+      const responses: Response[] = []
+      for (const [adapterName, adapter] of entries) {
+        const startGatewayListener = (adapter as {
+          startGatewayListener?: (
+            options: { waitUntil?: (promise: Promise<unknown>) => void },
+            durationMs?: number,
+            abortSignal?: AbortSignal,
+            webhookUrl?: string,
+          ) => Promise<Response>
+        }).startGatewayListener
+        if (typeof startGatewayListener !== "function") {
+          return createJsonErrorResponse(500, `Discord chat adapter "${adapterName}" does not expose startGatewayListener().`)
+        }
+
+        const state = await resolveChatState(chatOptions, context, {
+          adapter: adapterName,
+          channelId: adapterName,
+          id: adapterName,
+          provider: "discord",
+        }, handlerOptions)
+        const chat = new Chat(createChatSdkConfig({ [adapterName]: adapter }, state, chatOptions))
+        await (chat as { initialize?: () => Promise<void> }).initialize?.()
+        const registration = await resolveDiscordWebhookRegistration(agent, context, adapters, adapterName)
+        const webhookId = registration?.id || adapterName
+        const webhookUrl = typeof handlerOptions.webhookUrl === "function"
+          ? handlerOptions.webhookUrl(webhookId)
+          : handlerOptions.webhookUrl
+
+        responses.push(await startGatewayListener.call(
+          adapter,
+          { waitUntil: context.waitUntil },
+          handlerOptions.durationMs,
+          undefined,
+          webhookUrl,
+        ))
       }
 
-      const state = await resolveChatState(chatOptions, context, {
-        adapter: adapterName,
-        channelId: adapterName,
-        id: adapterName,
-        provider: "discord",
-      }, handlerOptions)
-      const chat = new Chat(createChatSdkConfig({ [adapterName]: adapter }, state, chatOptions))
-      await (chat as { initialize?: () => Promise<void> }).initialize?.()
-      const registration = await resolveDiscordWebhookRegistration(agent, context, adapters, adapterName)
-      const webhookId = registration?.id || adapterName
-      const webhookUrl = typeof handlerOptions.webhookUrl === "function"
-        ? handlerOptions.webhookUrl(webhookId)
-        : handlerOptions.webhookUrl
-
-      return await startGatewayListener.call(
-        adapter,
-        { waitUntil: context.waitUntil },
-        handlerOptions.durationMs,
-        undefined,
-        webhookUrl,
-      )
+      if (responses.length === 1) return responses[0]!
+      const failed = responses.find(response => !response.ok)
+      if (failed) return failed
+      return Response.json({ gateways: responses.length, ok: true })
     })
   }
 }
