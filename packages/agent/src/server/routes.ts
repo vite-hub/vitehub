@@ -88,7 +88,7 @@ export interface AgentDiscordGatewayRouteOptions extends AgentRouteRuntimeOption
   agentName?: string
   durationMs?: number
   state?: AgentChatStateResolver<ViteAgentRouteRuntimeConfig>
-  webhookUrl: string
+  webhookUrl: string | ((adapterName: string) => string)
 }
 
 export interface AgentChannelChatRouteRequestOptions extends AgentRouteRuntimeOptions {
@@ -2422,13 +2422,16 @@ export function createDiscordGatewayRouteHandler(
       }, handlerOptions)
       const chat = new Chat(createChatSdkConfig({ [adapterName]: adapter }, state, chatOptions))
       await (chat as { initialize?: () => Promise<void> }).initialize?.()
+      const webhookUrl = typeof handlerOptions.webhookUrl === "function"
+        ? handlerOptions.webhookUrl(adapterName)
+        : handlerOptions.webhookUrl
 
       return await startGatewayListener.call(
         adapter,
         { waitUntil: context.waitUntil },
         handlerOptions.durationMs,
         undefined,
-        handlerOptions.webhookUrl,
+        webhookUrl,
       )
     })
   }

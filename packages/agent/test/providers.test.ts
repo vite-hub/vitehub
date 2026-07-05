@@ -420,7 +420,7 @@ describe("agent Vite plugin", () => {
       expect(gatewayRoute).toContain("VITEHUB_DISCORD_GATEWAY_SECRET")
       expect(gatewayRoute).toContain("VITEHUB_DISCORD_GATEWAY_DURATION_MS")
       expect(gatewayRoute).toContain("VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL")
-      expect(gatewayRoute).toContain("routePath(webhookRoute, { agent, webhook: 'discord' })")
+      expect(gatewayRoute).toContain("routePath(webhookRoute, { agent, webhook })")
       expect(gatewayRoute).toContain("runtime: 'vite'")
       expect(gatewayRoute).toContain("waitUntil: waitUntilFromEvent(event)")
       expect(gatewayRoute).toContain("webhookUrl")

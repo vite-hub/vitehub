@@ -626,7 +626,7 @@ async function generateAgentDiscordGatewayRouteHandler(
     "  }",
     "  const requestUrl = getRequestURL(event)",
     "  const durationMs = Number(process.env.VITEHUB_DISCORD_GATEWAY_DURATION_MS || '') || defaultDurationMs",
-    "  const webhookUrl = process.env.VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL || (webhookRoute ? `${requestUrl.origin}${routePath(webhookRoute, { agent, webhook: 'discord' })}` : undefined)",
+    "  const webhookUrl = process.env.VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL || (webhookRoute ? (webhook) => `${requestUrl.origin}${routePath(webhookRoute, { agent, webhook })}` : undefined)",
     "  if (!webhookUrl) {",
     "    throw createError({ statusCode: 500, statusMessage: 'Discord Gateway route requires an Agent webhook route.' })",
     "  }",
