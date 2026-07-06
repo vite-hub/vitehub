@@ -354,6 +354,43 @@ describe("agent capability runtime", () => {
     })
   })
 
+  it("passes rest Capability CLI argv as input", async () => {
+    const {
+      defineCapability,
+      resolveAgentCapabilities,
+    } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              run: {
+                rest: true,
+                run: ({ input, json }) => ({ input, json }),
+              },
+            },
+            name: "workspace",
+          },
+          id: "workspace-runtime",
+        }),
+      ],
+    }, runtime(), {})
+
+    const result = await resolved.tools?.workspace?.execute?.({
+      argv: ["run", "pnpm", "test", "--filter", "api"],
+      json: true,
+    })
+
+    expect(result).toMatchObject({
+      exitCode: 0,
+      json: {
+        input: { argv: ["pnpm", "test", "--filter", "api"] },
+        json: true,
+      },
+    })
+  })
+
   it("rejects invalid Capability CLI output formats", async () => {
     const { defineCapability } = await import("../src/capability-runtime.ts")
 

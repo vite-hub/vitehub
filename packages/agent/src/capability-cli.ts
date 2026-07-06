@@ -275,9 +275,19 @@ function resolveCommand<TRuntimeConfig extends AgentRuntimeConfig, Name extends 
   if (argv.slice(index).some(isHelpFlag)) {
     return { help: nodeHelp(cli, path), json: execution.json === true, path }
   }
+  const command = node as LeafCliCommand<TRuntimeConfig, Name>
+  if (command.rest === true) {
+    return {
+      argv,
+      command,
+      input: { argv: argv.slice(index) },
+      json: execution.json === true,
+      path,
+    }
+  }
   return {
     argv,
-    command: node as LeafCliCommand<TRuntimeConfig, Name>,
+    command,
     path,
     ...parseFlags(argv.slice(index), execution.input, execution.json),
   }
