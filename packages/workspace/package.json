@@ -129,7 +129,6 @@
     "@vite-hub/source": "workspace:*",
     "defu": "catalog:unjs",
     "exsolve": "catalog:unjs",
-    "files-sdk": "catalog:storage",
     "h3": "catalog:unjs",
     "isomorphic-git": "catalog:workspace",
     "jiti": "catalog:unjs",
