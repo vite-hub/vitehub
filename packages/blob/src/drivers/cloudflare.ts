@@ -1,4 +1,9 @@
+import { readEnv, trimmed } from "@vite-hub/internal/env"
+
+import { isMaskedBlobRuntimeValue } from "../config.ts"
+import { importOptionalPeer } from "../internal/optional-peer.ts"
 import { getActiveCloudflareBinding } from "../runtime/state.ts"
+import { createFilesSdkDriver } from "./files-sdk.ts"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 
@@ -21,16 +26,42 @@ interface R2BucketLike {
   put(key: string, value: BlobPutBody, options?: { customMetadata?: Record<string, string>, httpMetadata?: { contentType?: string } }): Promise<R2ObjectLike>
 }
 
-function getBucket(options: ResolvedCloudflareR2BlobStoreConfig): R2BucketLike {
-  const binding = getActiveCloudflareBinding<R2BucketLike>(options.binding)
+function getOptionalBucket(options: ResolvedCloudflareR2BlobStoreConfig): R2BucketLike | undefined {
+  return getActiveCloudflareBinding<R2BucketLike>(options.binding)
     || (globalThis as any).__env__?.[options.binding]
     || (globalThis as any)[options.binding]
+}
 
+function getBucket(options: ResolvedCloudflareR2BlobStoreConfig): R2BucketLike {
+  const binding = getOptionalBucket(options)
   if (!binding) {
     throw new Error(`R2 binding "${options.binding}" not found`)
   }
 
   return binding
+}
+
+function runtimeValue(value: string | undefined, ...envNames: string[]): string | undefined {
+  const current = trimmed(value)
+  const env = typeof process === "undefined" ? {} : process.env
+  return isMaskedBlobRuntimeValue(current) ? readEnv(env, ...envNames) : current
+}
+
+function createHttpDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig> {
+  const bucketName = runtimeValue(options.bucketName, "BLOB_BUCKET_NAME", "CLOUDFLARE_R2_BUCKET_NAME", "R2_BUCKET_NAME")
+  if (!bucketName) {
+    throw new Error("Missing runtime environment variable `BLOB_BUCKET_NAME`, `CLOUDFLARE_R2_BUCKET_NAME`, or `R2_BUCKET_NAME` for Cloudflare R2 Blob.")
+  }
+  return createFilesSdkDriver({
+    ...options,
+    accountId: runtimeValue(options.accountId, "R2_ACCOUNT_ID", "CLOUDFLARE_R2_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID"),
+    accessKeyId: runtimeValue(options.accessKeyId, "R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_ACCESS_KEY_ID"),
+    bucketName,
+    secretAccessKey: runtimeValue(options.secretAccessKey, "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY"),
+  }, async resolved => (await importOptionalPeer<typeof import("files-sdk/r2")>("files-sdk/r2", resolved.driver, "files-sdk")).r2({
+    ...resolved,
+    bucket: resolved.bucketName,
+  }))
 }
 
 function mapObject(object: R2ObjectLike): BlobObject {
@@ -56,7 +87,7 @@ async function readArrayBuffer(object: R2ObjectLike): Promise<ArrayBuffer> {
   return new ArrayBuffer(0)
 }
 
-export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig> {
+function createNativeDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig> {
   return {
     name: "cloudflare-r2",
     options,
@@ -101,5 +132,22 @@ export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): Blob
       })
       return mapObject(object)
     },
+  }
+}
+
+export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig> {
+  const nativeDriver = createNativeDriver(options)
+  let httpDriver: BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig> | undefined
+  const activeDriver = () => getOptionalBucket(options) ? nativeDriver : (httpDriver ||= createHttpDriver(options))
+
+  return {
+    name: "cloudflare-r2",
+    options,
+    delete: pathnames => activeDriver().delete(pathnames),
+    get: pathname => activeDriver().get(pathname),
+    getArrayBuffer: pathname => activeDriver().getArrayBuffer(pathname),
+    head: pathname => activeDriver().head(pathname),
+    list: options => activeDriver().list(options),
+    put: (pathname, body, options) => activeDriver().put(pathname, body, options),
   }
 }

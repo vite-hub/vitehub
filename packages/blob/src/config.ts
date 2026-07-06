@@ -45,8 +45,12 @@ function resolveCloudflareStore(
 ): ResolvedCloudflareR2BlobStoreConfig {
   return defu(
     {
+      ...config,
+      accountId: resolveBuildRuntimeValue(config.accountId, env, "R2_ACCOUNT_ID", "CLOUDFLARE_R2_ACCOUNT_ID", "CLOUDFLARE_ACCOUNT_ID"),
+      accessKeyId: resolveBuildRuntimeValue(config.accessKeyId, env, "R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_ACCESS_KEY_ID"),
       binding: trimmed(config.binding),
-      bucketName: trimmed(config.bucketName) ?? readEnv(env, "BLOB_BUCKET_NAME", "CLOUDFLARE_R2_BUCKET_NAME"),
+      bucketName: trimmed(config.bucketName) ?? readEnv(env, "BLOB_BUCKET_NAME", "CLOUDFLARE_R2_BUCKET_NAME", "R2_BUCKET_NAME"),
+      secretAccessKey: resolveBuildRuntimeValue(config.secretAccessKey, env, "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY"),
     },
     { binding: "BLOB", driver: "cloudflare-r2" as const },
   )

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { ensureBlob } from "../src/ensure.ts"
 import { blob } from "../src/runtime/storage.ts"
 import { createBlobCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
+import { createBlobStorage } from "../src/storage.ts"
 import {
   setActiveCloudflareEnv,
   setBlobRuntimeConfig,
@@ -60,6 +61,7 @@ const filesSdkMock = vi.hoisted(() => ({
     ],
   })),
   minio: vi.fn(() => ({ provider: "minio" })),
+  r2: vi.fn((options: unknown) => ({ options, provider: "r2" })),
   s3: vi.fn(() => ({ provider: "s3" })),
   vercelBlob: vi.fn((options: unknown) => ({ options, provider: "vercel-blob" })),
 }))
@@ -147,6 +149,10 @@ vi.mock("files-sdk/minio", () => ({
   minio: filesSdkMock.minio,
 }))
 
+vi.mock("files-sdk/r2", () => ({
+  r2: filesSdkMock.r2,
+}))
+
 vi.mock("files-sdk/vercel-blob", () => ({
   vercelBlob: filesSdkMock.vercelBlob,
 }))
@@ -162,13 +168,22 @@ afterEach(() => {
   vercelBlobMock.put.mockClear()
   filesSdkMock.list.mockClear()
   filesSdkMock.minio.mockClear()
+  filesSdkMock.r2.mockClear()
   filesSdkMock.s3.mockClear()
   filesSdkMock.vercelBlob.mockClear()
   delete process.env.BLOB_READ_WRITE_TOKEN
+  delete process.env.CLOUDFLARE_ACCOUNT_ID
+  delete process.env.CLOUDFLARE_R2_ACCOUNT_ID
+  delete process.env.CLOUDFLARE_R2_ACCESS_KEY_ID
+  delete process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY
   delete process.env.MINIO_ACCESS_KEY_ID
   delete process.env.MINIO_ROOT_PASSWORD
   delete process.env.MINIO_ROOT_USER
   delete process.env.MINIO_SECRET_ACCESS_KEY
+  delete process.env.R2_ACCOUNT_ID
+  delete process.env.R2_ACCESS_KEY_ID
+  delete process.env.R2_BUCKET_NAME
+  delete process.env.R2_SECRET_ACCESS_KEY
   vi.restoreAllMocks()
 })
 
@@ -411,9 +426,55 @@ describe("blob runtime", () => {
     expect(head.customMetadata).toEqual({ test: "true" })
     expect(body?.type).toBe("text/plain")
     expect(await body?.text()).toBe("hello")
+    expect(filesSdkMock.r2).not.toHaveBeenCalled()
 
     await blob.del("notes/hello.txt")
     await expect(blob.head("notes/hello.txt")).rejects.toThrow("Blob not found")
+  })
+
+  it("falls back to Files SDK R2 when no Cloudflare binding exists", async () => {
+    process.env.CLOUDFLARE_R2_ACCOUNT_ID = "account"
+    process.env.CLOUDFLARE_R2_ACCESS_KEY_ID = "access-key"
+    process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY = "secret-key"
+    process.env.R2_BUCKET_NAME = "runtime-assets"
+    setBlobRuntimeConfig({
+      store: {
+        accountId: "********",
+        accessKeyId: "********",
+        binding: "BLOB",
+        bucketName: "********",
+        driver: "cloudflare-r2",
+        secretAccessKey: "********",
+      },
+    })
+
+    const list = await blob.list()
+
+    expect(filesSdkMock.r2).toHaveBeenCalledWith(expect.objectContaining({
+      accountId: "account",
+      accessKeyId: "access-key",
+      bucket: "runtime-assets",
+      bucketName: "runtime-assets",
+      secretAccessKey: "secret-key",
+    }))
+    expect(list.blobs).toEqual([
+      expect.objectContaining({ pathname: "notes/hello.txt" }),
+    ])
+  })
+
+  it("keeps Cloudflare binding mode when the binding appears after driver creation", async () => {
+    const { createDriver } = await import("../src/drivers/cloudflare.ts")
+    const storage = createBlobStorage(createDriver({
+      binding: "BLOB",
+      bucketName: "assets",
+      driver: "cloudflare-r2",
+    }))
+
+    setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
+    await storage.put("notes/late-binding.txt", "hello")
+
+    expect(filesSdkMock.r2).not.toHaveBeenCalled()
+    expect(await (await storage.get("notes/late-binding.txt"))?.text()).toBe("hello")
   })
 
   it("returns folded folders from the active Cloudflare binding", async () => {

@@ -46,6 +46,32 @@ describe("blob config", () => {
     })
   })
 
+  it("preserves Cloudflare R2 HTTP options and masks env credentials", () => {
+    expect(normalizeBlobOptions({
+      defaultUrlExpiresIn: 600,
+      driver: "cloudflare-r2",
+      publicBaseUrl: "https://assets.example",
+    }, {
+      env: {
+        CLOUDFLARE_ACCOUNT_ID: "account",
+        CLOUDFLARE_R2_ACCESS_KEY_ID: "access-key",
+        CLOUDFLARE_R2_SECRET_ACCESS_KEY: "secret-key",
+        R2_BUCKET_NAME: "runtime-assets",
+      },
+    })).toEqual({
+      store: {
+        accountId: "********",
+        accessKeyId: "********",
+        binding: "BLOB",
+        bucketName: "runtime-assets",
+        defaultUrlExpiresIn: 600,
+        driver: "cloudflare-r2",
+        publicBaseUrl: "https://assets.example",
+        secretAccessKey: "********",
+      },
+    })
+  })
+
   it("prefers Cloudflare hosting over Vercel env auto-resolution", () => {
     expect(normalizeBlobOptions({}, {
       env: { BLOB_READ_WRITE_TOKEN: "secret-token" },

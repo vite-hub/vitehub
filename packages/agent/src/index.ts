@@ -724,6 +724,7 @@ async function applyChannelDeliveryEffectIntents<
             effect: intent,
             ...(finish ? { finish: finish as never } : {}),
             input: context.input,
+            request: context.runtimeContext.request,
             run: context.run,
             trigger: {
               channelId: active.channelId,
@@ -1756,6 +1757,7 @@ async function resolveFinishDeliveryEffectIntents<
     ...context.runtimeContext,
     context: context.context,
     input: context.input,
+    request: context.runtimeContext.request,
     run: context.run,
     workspace: context.workspace,
   }
