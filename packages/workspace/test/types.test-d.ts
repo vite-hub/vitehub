@@ -21,6 +21,7 @@ declare global {
 
   interface ViteHubWorkspaceSourceResolutionContextMap {
     "support.customerScope": { customers: Array<"acme" | "globex"> }
+    pullRequest: { pullRequest: { source: { ref: string, repo: string } } }
   }
 
   interface ViteHubWorkspaceScopeNameMap {
@@ -122,6 +123,10 @@ describe("workspace types", () => {
         root: `dbt/${customer}`,
         mount: `ingestion/${customer}`,
       }
+    })
+    github(({ invocation }) => {
+      expectTypeOf(invocation.context.get("pullRequest")?.pullRequest.source.repo).toEqualTypeOf<string | undefined>()
+      return { root: "portal" }
     })
     glob({
       cwd: "docs",

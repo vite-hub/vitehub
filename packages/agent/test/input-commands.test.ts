@@ -46,6 +46,23 @@ describe("inputCommands", () => {
     expect(resolved.input.prompt).toBe("/summary")
   })
 
+  it("uses command args as the default command rewrite", async () => {
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [inputCommands({
+        commands: {
+          review: {
+            description: "Review the request.",
+          },
+        },
+      })],
+    }, runtime(), { prompt: "/review auth changes" })
+
+    expect(resolved.input.prompt).toBe("auth changes")
+  })
+
   it("keeps command-only message text when a string handler returns empty args", async () => {
     const { inputCommands } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
@@ -391,12 +408,6 @@ describe("inputCommands", () => {
         review: { run: () => undefined } as never,
       },
     })).toThrow("requires a description")
-
-    expect(() => inputCommands({
-      commands: {
-        review: { description: "Review." } as never,
-      },
-    })).toThrow("requires a call() handler")
 
     expect(() => inputCommands({
       commands: {

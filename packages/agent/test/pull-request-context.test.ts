@@ -232,6 +232,79 @@ describe("pullRequestContext", () => {
     ].join("\n"))
   })
 
+  it("renders GitHub metadata gaps and bounded untrusted comments", async () => {
+    const { pullRequestContext } = await import("../src/capabilities.ts")
+    const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [pullRequestContext()],
+    }, runtime(), {
+      context: {
+        pullRequest: {
+          pullRequest: {
+            apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
+            body: "PR body\n[truncated 8 characters]",
+            comments: [{
+              body: "Looks risky.\n[truncated 20 characters]",
+              id: 1,
+              user: { login: "mona" },
+            }],
+            files: [{
+              additions: 1,
+              deletions: 0,
+              filename: "src/app.ts",
+              status: "modified",
+            }],
+            metadata: {
+              omittedComments: 2,
+              omittedFiles: 1,
+              unavailable: "[vitehub] GitHub metadata request failed with 403.",
+            },
+            number: 42,
+            source: {
+              mount: "app",
+              ref: "refs/pull/42/head",
+              repo: "acme/app",
+            },
+          },
+          repository: {
+            fullName: "acme/app",
+            name: "app",
+            owner: "acme",
+          },
+          run: {
+            messageId: "100",
+            origin: "github-pull-request-comment",
+            runId: "delivery-1",
+            threadId: "thread",
+          },
+          trigger: {
+            action: "created",
+            actor: { login: "mona" },
+            args: "",
+            command: "/review",
+            comment: { id: 100 },
+            event: "issue_comment",
+          },
+        },
+      },
+    }, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    const markdown = await resolved.workspace?.fs.readFile("pull-request-context/context.md")
+
+    expect(markdown).toContain("PR metadata unavailable: [vitehub] GitHub metadata request failed with 403.")
+    expect(markdown).toContain("## Body\n\nPR body\n[truncated 8 characters]")
+    expect(markdown).toContain("- src/app.ts (modified) (+1/-0)\n\n+1 more files not shown.")
+    expect(markdown).toContain("## Comments (untrusted user content)")
+    expect(markdown).toContain("- mona: Looks risky.\n[truncated 20 characters]")
+    expect(markdown).toContain("- +2 more comments not shown.")
+  })
+
   it("grants the default source to the selected Workspace Scope", async () => {
     const { access, pullRequestContext } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

@@ -736,6 +736,7 @@ describe("agent public types", () => {
               expectTypeOf(input.context?.github).toEqualTypeOf<GitHubPullRequestCommand | undefined>()
               const pullRequest = input.context?.pullRequest
               expectTypeOf(pullRequest).toEqualTypeOf<GitHubPullRequestRunContext | undefined>()
+              expectTypeOf(pullRequest?.pullRequest.metadata?.unavailable).toEqualTypeOf<string | undefined>()
               return { prompt: args }
             },
             hooks: {
@@ -752,11 +753,13 @@ describe("agent public types", () => {
       channels: {
         github: github({
           app: true,
-          events: {
-            pullRequestComments: {
-              origin: "github-review",
-              reply: reviewFinishEffect,
-            },
+          pullRequest: {
+            maxBodyLength: 12_000,
+            maxCommentBodyLength: 2_000,
+            maxComments: 30,
+            maxFiles: 200,
+            origin: "github-review",
+            reply: reviewFinishEffect,
           },
         }),
         portal: http({
@@ -874,9 +877,7 @@ describe("agent public types", () => {
           expectTypeOf(pullRequest).toEqualTypeOf<GitHubPullRequestRunContext | undefined>()
           if (!pullRequest) return false
           return {
-            repo: pullRequest.pullRequest.source.repo,
-            ref: pullRequest.pullRequest.source.ref,
-            mount: pullRequest.pullRequest.source.mount,
+            root: "portal",
           }
         }),
       },
@@ -1304,6 +1305,9 @@ describe("agent public types", () => {
       },
       driver: { model: {} as never },
     })
+
+    // @ts-expect-error GitHub Channel PR comments are configured through pullRequest, not legacy events.
+    github({ events: { pullRequestComments: true } })
 
     // @ts-expect-error non-Access capabilities do not satisfy Workspace Source scopes
     defineAgent({

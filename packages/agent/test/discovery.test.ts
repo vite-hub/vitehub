@@ -1403,7 +1403,7 @@ describe("agent chat capability discovery", () => {
     const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
     const agent = defineAgent({
       channels: {
-        github: github({ events: { pullRequestComments: { reply: false } }, webhooks: { secretToken: "secret-token" } }),
+        github: github({ pullRequest: { reply: false }, webhooks: { secretToken: "secret-token" } }),
       },
       driver: { run: ({ context, input }) => {
           const github = context.get<{ command: string, repository: string }>("github")

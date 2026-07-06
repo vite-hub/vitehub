@@ -2960,7 +2960,7 @@ describe("agent message protocol", () => {
       channels: {
         github: github({
           app: { webhookSecret: "secret-token" },
-          events: { pullRequestComments: true },
+          pullRequest: true,
           webhooks: { path: "/api/github/webhook" },
         }),
       },
@@ -2992,9 +2992,7 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       channels: {
         github: github({
-          events: {
-            pullRequestComments: true,
-          },
+          pullRequest: true,
         }),
       },
       driver: { run: () => "ok" },
@@ -3020,7 +3018,30 @@ describe("agent message protocol", () => {
         return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
       }
       if (href.endsWith("/pulls/42")) {
-        return Response.json({ head: { sha: "abc123" } })
+        return Response.json({
+          base: { ref: "main", repo: { full_name: "vite-hub/vitehub" }, sha: "base123" },
+          body: "PR body",
+          head: { ref: "feature", repo: { full_name: "onmax/vitehub" }, sha: "abc123" },
+        })
+      }
+      if (href.endsWith("/issues/42/comments?per_page=100")) {
+        return Response.json([{
+          author_association: "MEMBER",
+          body: "/review please",
+          html_url: "https://github.test/vite-hub/vitehub/pull/42#issuecomment-99",
+          id: 99,
+          user: { id: 1, login: "onmax", type: "User" },
+        }])
+      }
+      if (href.endsWith("/pulls/42/files?per_page=100")) {
+        return Response.json([{
+          additions: 12,
+          changes: 15,
+          deletions: 3,
+          filename: "packages/agent/src/channels.ts",
+          patch: "not included in context",
+          status: "modified",
+        }])
       }
       if (href.endsWith("/issues/comments/99/reactions") && init?.method === "POST") {
         return Response.json({ id: 777 }, { status: 201 })
@@ -3076,6 +3097,11 @@ describe("agent message protocol", () => {
               expect(command.actor).toMatchObject({ association: "MEMBER" })
               expect(pullRequest).toMatchObject({
                 pullRequest: {
+                  base: { ref: "main", sha: "base123" },
+                  body: "PR body",
+                  comments: [expect.objectContaining({ body: "/review please", user: { id: 1, login: "onmax", type: "User" } })],
+                  files: [expect.objectContaining({ additions: 12, deletions: 3, filename: "packages/agent/src/channels.ts", status: "modified" })],
+                  head: { ref: "feature", sha: "abc123" },
                   htmlUrl: "https://github.test/vite-hub/vitehub/pull/42",
                   labels: ["agent"],
                   number: 42,
@@ -3121,10 +3147,8 @@ describe("agent message protocol", () => {
             privateKey: privateKeyPem,
             statusContext: "ViteHub Review",
           },
-          events: {
-            pullRequestComments: {
-              origin: "github-review",
-            },
+          pullRequest: {
+            origin: "github-review",
           },
         }),
       },
@@ -3191,6 +3215,253 @@ describe("agent message protocol", () => {
     )
   })
 
+  it("bounds GitHub PR metadata before input commands", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    let pullRequestContext: unknown
+    const fetcher = vi.fn(async (url: string | URL) => {
+      const href = String(url)
+      if (href.endsWith("/app/installations/123/access_tokens")) {
+        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
+      if (href.endsWith("/pulls/42")) {
+        return Response.json({
+          body: "0123456789",
+          base: { ref: "main", sha: "base123" },
+          head: { ref: "feature", sha: "head123" },
+        })
+      }
+      if (href.endsWith("/issues/42/comments?per_page=100")) {
+        return Response.json([
+          { body: "abcdefghij", id: 1, user: { login: "mona" } },
+          { body: "second", id: 2, user: { login: "octo" } },
+        ])
+      }
+      if (href.endsWith("/pulls/42/files?per_page=100")) {
+        return Response.json([
+          { filename: "src/one.ts", status: "modified" },
+          { filename: "src/two.ts", status: "added" },
+        ])
+      }
+      throw new Error(`Unexpected GitHub API call: ${href}`)
+    })
+    const agent = defineAgent({
+      capabilities: [inputCommands({
+        commands: {
+          review: {
+            description: "Review a pull request.",
+            call({ input }) {
+              pullRequestContext = input.context?.pullRequest
+            },
+          },
+        },
+      })],
+      channels: {
+        github: github({
+          app: {
+            apiBaseUrl: "https://api.github.test",
+            appId: "metadata-caps",
+            fetch: fetcher as typeof fetch,
+            installationId: 123,
+            privateKey: privateKeyPem,
+          },
+          pullRequest: {
+            maxBodyLength: 4,
+            maxCommentBodyLength: 5,
+            maxComments: 1,
+            maxFiles: 1,
+            reply: false,
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {
+      github: { event: "issue_comment", installationId: 123 },
+      payload: {
+        action: "created",
+        comment: { body: "/review", id: 99, user: { login: "mona" } },
+        issue: {
+          number: 42,
+          pull_request: { url: "https://api.github.test/repos/acme/app/pulls/42" },
+        },
+        repository: { full_name: "acme/app" },
+      },
+    })).resolves.toBe("ok")
+
+    expect(pullRequestContext).toMatchObject({
+      pullRequest: {
+        body: "0123\n[truncated 6 characters]",
+        comments: [{ body: "abcde\n[truncated 5 characters]", id: 1 }],
+        files: [{ filename: "src/one.ts" }],
+        metadata: {
+          omittedComments: 1,
+          omittedFiles: 1,
+        },
+      },
+    })
+  })
+
+  it("pages GitHub PR metadata until it can mark omitted context", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    let pullRequestContext: unknown
+    const commentsPageOne = Array.from({ length: 100 }, (_, index) => ({ body: `comment ${index}`, id: index + 1 }))
+    const filesPageOne = Array.from({ length: 100 }, (_, index) => ({ filename: `src/${index}.ts` }))
+    const fetcher = vi.fn(async (url: string | URL) => {
+      const href = String(url)
+      if (href.endsWith("/app/installations/123/access_tokens")) {
+        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
+      if (href.endsWith("/pulls/42")) return Response.json({})
+      if (href.endsWith("/issues/42/comments?per_page=100")) {
+        return Response.json(commentsPageOne, {
+          headers: { link: `<https://api.github.test/repos/acme/app/issues/42/comments?per_page=100&page=2>; rel="next"` },
+        })
+      }
+      if (href.endsWith("/issues/42/comments?per_page=100&page=2")) {
+        return Response.json([{ body: "extra", id: 101 }])
+      }
+      if (href.endsWith("/pulls/42/files?per_page=100")) {
+        return Response.json(filesPageOne, {
+          headers: { link: `<https://api.github.test/repos/acme/app/pulls/42/files?per_page=100&page=2>; rel="next"` },
+        })
+      }
+      if (href.endsWith("/pulls/42/files?per_page=100&page=2")) {
+        return Response.json([{ filename: "src/extra.ts" }])
+      }
+      throw new Error(`Unexpected GitHub API call: ${href}`)
+    })
+    const agent = defineAgent({
+      capabilities: [inputCommands({
+        commands: {
+          review: {
+            description: "Review a pull request.",
+            call({ input }) {
+              pullRequestContext = input.context?.pullRequest
+            },
+          },
+        },
+      })],
+      channels: {
+        github: github({
+          app: {
+            apiBaseUrl: "https://api.github.test",
+            appId: "metadata-pages",
+            fetch: fetcher as typeof fetch,
+            installationId: 123,
+            privateKey: privateKeyPem,
+          },
+          pullRequest: {
+            maxComments: 100,
+            maxFiles: 100,
+            reply: false,
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {
+      github: { event: "issue_comment", installationId: 123 },
+      payload: {
+        action: "created",
+        comment: { body: "/review", id: 99, user: { login: "mona" } },
+        issue: {
+          number: 42,
+          pull_request: { url: "https://api.github.test/repos/acme/app/pulls/42" },
+        },
+        repository: { full_name: "acme/app" },
+      },
+    })).resolves.toBe("ok")
+
+    expect(pullRequestContext).toMatchObject({
+      pullRequest: {
+        comments: expect.arrayContaining([{ body: "comment 99", id: 100 }]),
+        files: expect.arrayContaining([{ filename: "src/99.ts" }]),
+        metadata: {
+          omittedComments: 1,
+          omittedFiles: 1,
+        },
+      },
+    })
+  })
+
+  it("marks unavailable GitHub PR metadata", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    let pullRequestContext: unknown
+    const fetcher = vi.fn(async (url: string | URL) => {
+      const href = String(url)
+      if (href.endsWith("/app/installations/321/access_tokens")) {
+        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
+      if (href.endsWith("/pulls/42")) return Response.json({ message: "forbidden" }, { status: 403 })
+      if (href.endsWith("/issues/42/comments?per_page=100") || href.endsWith("/pulls/42/files?per_page=100")) {
+        return Response.json([])
+      }
+      throw new Error(`Unexpected GitHub API call: ${href}`)
+    })
+    const agent = defineAgent({
+      capabilities: [inputCommands({
+        commands: {
+          review: {
+            description: "Review a pull request.",
+            call({ input }) {
+              pullRequestContext = input.context?.pullRequest
+            },
+          },
+        },
+      })],
+      channels: {
+        github: github({
+          app: {
+            apiBaseUrl: "https://api.github.test",
+            appId: "metadata-unavailable",
+            fetch: fetcher as typeof fetch,
+            installationId: 321,
+            privateKey: privateKeyPem,
+          },
+          pullRequest: { reply: false },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {
+      github: { event: "issue_comment", installationId: 321 },
+      payload: {
+        action: "created",
+        comment: { body: "/review", id: 99, user: { login: "mona" } },
+        issue: {
+          body: "fallback body",
+          number: 42,
+          pull_request: { url: "https://api.github.test/repos/acme/app/pulls/42" },
+        },
+        repository: { full_name: "acme/app" },
+      },
+    })).resolves.toBe("ok")
+
+    expect(pullRequestContext).toMatchObject({
+      pullRequest: {
+        body: "fallback body",
+        metadata: {
+          unavailable: "[vitehub] GitHub metadata request failed with 403.",
+        },
+      },
+    })
+  })
+
   it("handles unauthorized GitHub PR comment commands without running the agent", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { inputCommands } = await import("../src/capabilities.ts")
@@ -3214,7 +3485,7 @@ describe("agent message protocol", () => {
       channels: {
         github: github({
           app: { webhookSecret: false },
-          events: { pullRequestComments: true },
+          pullRequest: true,
         }),
       },
       driver: {
@@ -3270,7 +3541,7 @@ describe("agent message protocol", () => {
       channels: {
         github: github({
           app: { webhookSecret: false },
-          events: { pullRequestComments: true },
+          pullRequest: true,
         }),
       },
       driver: {
@@ -3333,11 +3604,11 @@ describe("agent message protocol", () => {
       channels: {
         github: github({
           app: { webhookSecret: false },
-          events: { pullRequestComments: true },
+          pullRequest: true,
         }),
         triage: github({
           app: { webhookSecret: false },
-          events: { pullRequestComments: true },
+          pullRequest: true,
         }),
       },
       driver: { run: context => `ran:${context.prompt}` },

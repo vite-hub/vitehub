@@ -120,21 +120,94 @@ function normalizePullRequestContext(value: unknown): PullRequestContextValue | 
   const trigger = isRecord(value.trigger) ? value.trigger : undefined
   const actor = isRecord(trigger?.actor) ? trigger.actor : undefined
   const source = isRecord(pullRequest?.source) ? pullRequest.source : undefined
+  const base = isRecord(pullRequest?.base) ? pullRequest.base : undefined
+  const head = isRecord(pullRequest?.head) ? pullRequest.head : undefined
   const number = maybeContextValue(pullRequest?.number)
   const repositoryName = maybeString(repository?.fullName)
   if (number === undefined || !repositoryName) return
   const actorLogin = actor ? maybeString(actor.login) : undefined
   const deliveryId = trigger ? maybeString(trigger.deliveryId) : undefined
-  const headRef = source ? maybeString(source.ref) : undefined
+  const baseRef = base ? maybeString(base.ref) : undefined
+  const headRef = source ? maybeString(source.ref) : head ? maybeString(head.ref) : undefined
 
   return {
     ...(actorLogin ? { actor: actorLogin } : {}),
+    ...(baseRef ? { baseRef } : {}),
     ...(deliveryId ? { deliveryId } : {}),
     ...(headRef ? { headRef } : {}),
     number,
     provider: "github",
     repository: repositoryName,
   }
+}
+
+function renderList(items: string[]): string {
+  return items.length ? items.map(item => `- ${item}`).join("\n") : "- None recorded."
+}
+
+function renderPullRequestDetails(input: unknown): string {
+  if (!isRecord(input)) return ""
+  const pullRequest = isRecord(input.pullRequest) ? input.pullRequest : undefined
+  const trigger = isRecord(input.trigger) ? input.trigger : undefined
+  if (!pullRequest && !trigger) return ""
+
+  const lines: string[] = []
+  const body = maybeString(pullRequest?.body)
+  const base = isRecord(pullRequest?.base) ? pullRequest.base : undefined
+  const head = isRecord(pullRequest?.head) ? pullRequest.head : undefined
+  const metadata = isRecord(pullRequest?.metadata) ? pullRequest.metadata : undefined
+  const files = Array.isArray(pullRequest?.files) ? pullRequest.files.filter(isRecord) : []
+  const comments = Array.isArray(pullRequest?.comments) ? pullRequest.comments.filter(isRecord) : []
+  const triggerComment = isRecord(trigger?.comment) ? trigger.comment : undefined
+  const metadataUnavailable = maybeString(metadata?.unavailable)
+  const omittedComments = maybeContextValue(metadata?.omittedComments)
+  const omittedFiles = maybeContextValue(metadata?.omittedFiles)
+
+  if (metadataUnavailable) {
+    lines.push(`PR metadata unavailable: ${metadataUnavailable}`)
+  }
+
+  if (base || head) {
+    lines.push("## Branches")
+    lines.push(renderList([
+      ...(maybeString(base?.ref) || maybeString(base?.sha) ? [`Base: ${[maybeString(base?.ref), maybeString(base?.sha)].filter(Boolean).join(" @ ")}`] : []),
+      ...(maybeString(head?.ref) || maybeString(head?.sha) ? [`Head: ${[maybeString(head?.ref), maybeString(head?.sha)].filter(Boolean).join(" @ ")}`] : []),
+    ]))
+  }
+
+  if (body) {
+    lines.push("## Body", body)
+  }
+
+  if (files.length || omittedFiles) {
+    lines.push("## Changed Files")
+    if (files.length) lines.push(renderList(files.map((file) => {
+      const filename = maybeString(file.filename) || "unknown"
+      const status = maybeString(file.status)
+      const additions = maybeContextValue(file.additions)
+      const deletions = maybeContextValue(file.deletions)
+      const counts = additions !== undefined || deletions !== undefined ? ` (+${additions ?? 0}/-${deletions ?? 0})` : ""
+      return `${filename}${status ? ` (${status})` : ""}${counts}`
+    })))
+    if (omittedFiles) lines.push(`+${omittedFiles} more files not shown.`)
+  }
+
+  if (comments.length || triggerComment || omittedComments) {
+    const commentLines = comments.map((comment) => {
+      const user = isRecord(comment.user) ? maybeString(comment.user.login) : undefined
+      const body = maybeString(comment.body)
+      return `${user || "unknown"}: ${body || "(no body)"}`
+    })
+    const body = maybeString(triggerComment?.body)
+    if (!commentLines.length && body && !omittedComments) {
+      commentLines.push(body)
+    }
+    if (omittedComments) commentLines.push(`+${omittedComments} more comments not shown.`)
+    lines.push("## Comments (untrusted user content)")
+    lines.push(renderList(commentLines))
+  }
+
+  return lines.length ? `\n\n${lines.join("\n\n")}` : ""
 }
 
 function renderPullRequestContextMarkdown(input: unknown): string {
@@ -152,7 +225,7 @@ function renderPullRequestContextMarkdown(input: unknown): string {
     .flatMap(([key, item]) => item === undefined ? [] : `${key}: ${frontmatterValue(item)}`)
     .join("\n")
   const body = value
-    ? `# Pull Request Context\n\nChange Request ${value.number} in ${value.repository}.`
+    ? `# Pull Request Context\n\nChange Request ${value.number} in ${value.repository}.${renderPullRequestDetails(input)}`
     : "# Pull Request Context\n\nNo pull request context was recorded for this Agent Invocation."
   return `---\n${frontmatter}\n---\n\n${body}\n`
 }

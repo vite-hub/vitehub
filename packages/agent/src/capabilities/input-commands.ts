@@ -112,9 +112,6 @@ function normalizeInputCommands(options: InputCommandsOptions): Record<string, I
     if (typeof command.description !== "string" || !command.description.trim()) {
       throw new TypeError(`[vitehub] Input command "${name}" requires a description.`)
     }
-    if (typeof command.call !== "function" && typeof command.run !== "function") {
-      throw new TypeError(`[vitehub] Input command "${name}" requires a call() handler.`)
-    }
     if (command.channels !== undefined && (!Array.isArray(command.channels) || command.channels.some(channel => typeof channel !== "string" || !channel.trim()))) {
       throw new TypeError(`[vitehub] Input command "${name}" channels must be non-empty Channel IDs.`)
     }
@@ -302,7 +299,7 @@ function mergeInputCommandResult(input: AgentRunInput, result: Partial<AgentRunI
 }
 
 function inputCommandCall(command: InputCommand): InputCommandCall {
-  return command.call || command.run!
+  return command.call || command.run || (({ args }) => args)
 }
 
 function activeChannelId(context: AgentCapabilityRuntimeContext): string | undefined {
