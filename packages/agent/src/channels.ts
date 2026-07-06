@@ -585,8 +585,8 @@ async function githubPullRequestMetadata<TRuntimeConfig extends AgentRuntimeConf
     const apiBaseUrl = appOptions.apiBaseUrl || "https://api.github.com"
     const [pullRequest, comments, files] = await Promise.all([
       githubApiJson(fetcher, command.pullRequestUrl, headers),
-      githubApiJson(fetcher, `${apiBaseUrl}/repos/${command.owner}/${command.repo}/issues/${command.issueNumber}/comments?per_page=100`, headers),
-      githubApiJson(fetcher, `${apiBaseUrl}/repos/${command.owner}/${command.repo}/pulls/${command.issueNumber}/files?per_page=100`, headers),
+      githubApiJsonPages(fetcher, `${apiBaseUrl}/repos/${command.owner}/${command.repo}/issues/${command.issueNumber}/comments`, headers, maxComments + 1),
+      githubApiJsonPages(fetcher, `${apiBaseUrl}/repos/${command.owner}/${command.repo}/pulls/${command.issueNumber}/files`, headers, maxFiles + 1),
     ])
     const commentMetadata = Array.isArray(comments)
       ? comments.map(githubCommentMetadata).filter((comment): comment is GitHubPullRequestCommentMetadata => Boolean(comment))
@@ -929,6 +929,33 @@ async function githubApiJson(fetcher: typeof fetch, url: string, headers: Record
   const response = await fetcher(url, { headers, method: "GET" })
   if (!response.ok) throw new Error(`[vitehub] GitHub metadata request failed with ${response.status}.`)
   return await response.json().catch(() => undefined)
+}
+
+async function githubApiJsonPages(fetcher: typeof fetch, url: string, headers: Record<string, string>, limit: number): Promise<unknown[]> {
+  const items: unknown[] = []
+  let page = 1
+  let nextUrl: string | undefined = githubApiPageUrl(url, page)
+  while (nextUrl && (limit <= 0 || items.length < limit)) {
+    const response = await fetcher(nextUrl, { headers, method: "GET" })
+    if (!response.ok) throw new Error(`[vitehub] GitHub metadata request failed with ${response.status}.`)
+    const pageItems = await response.json().catch(() => undefined)
+    if (!Array.isArray(pageItems) || !pageItems.length) break
+    items.push(...pageItems)
+    if (limit > 0 && items.length >= limit) break
+    nextUrl = githubApiNextPageUrl(response.headers.get("link")) || githubApiPageUrl(url, ++page)
+  }
+  return limit > 0 ? items.slice(0, limit) : []
+}
+
+function githubApiPageUrl(url: string, page: number): string {
+  const parsed = new URL(url)
+  parsed.searchParams.set("per_page", "100")
+  if (page > 1) parsed.searchParams.set("page", String(page))
+  return parsed.toString()
+}
+
+function githubApiNextPageUrl(link: string | null): string | undefined {
+  return link?.split(",").map(part => part.trim()).find(part => part.endsWith(`rel="next"`))?.match(/^<([^>]+)>/)?.[1]
 }
 
 function reactionContent<TRuntimeConfig extends AgentRuntimeConfig>(

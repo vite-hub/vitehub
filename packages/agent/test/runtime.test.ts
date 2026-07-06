@@ -3318,6 +3318,94 @@ describe("agent message protocol", () => {
     })
   })
 
+  it("pages GitHub PR metadata until it can mark omitted context", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    let pullRequestContext: unknown
+    const commentsPageOne = Array.from({ length: 100 }, (_, index) => ({ body: `comment ${index}`, id: index + 1 }))
+    const filesPageOne = Array.from({ length: 100 }, (_, index) => ({ filename: `src/${index}.ts` }))
+    const fetcher = vi.fn(async (url: string | URL) => {
+      const href = String(url)
+      if (href.endsWith("/app/installations/123/access_tokens")) {
+        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
+      if (href.endsWith("/pulls/42")) return Response.json({})
+      if (href.endsWith("/issues/42/comments?per_page=100")) {
+        return Response.json(commentsPageOne, {
+          headers: { link: `<https://api.github.test/repos/acme/app/issues/42/comments?per_page=100&page=2>; rel="next"` },
+        })
+      }
+      if (href.endsWith("/issues/42/comments?per_page=100&page=2")) {
+        return Response.json([{ body: "extra", id: 101 }])
+      }
+      if (href.endsWith("/pulls/42/files?per_page=100")) {
+        return Response.json(filesPageOne, {
+          headers: { link: `<https://api.github.test/repos/acme/app/pulls/42/files?per_page=100&page=2>; rel="next"` },
+        })
+      }
+      if (href.endsWith("/pulls/42/files?per_page=100&page=2")) {
+        return Response.json([{ filename: "src/extra.ts" }])
+      }
+      throw new Error(`Unexpected GitHub API call: ${href}`)
+    })
+    const agent = defineAgent({
+      capabilities: [inputCommands({
+        commands: {
+          review: {
+            description: "Review a pull request.",
+            call({ input }) {
+              pullRequestContext = input.context?.pullRequest
+            },
+          },
+        },
+      })],
+      channels: {
+        github: github({
+          app: {
+            apiBaseUrl: "https://api.github.test",
+            appId: "metadata-pages",
+            fetch: fetcher as typeof fetch,
+            installationId: 123,
+            privateKey: privateKeyPem,
+          },
+          pullRequest: {
+            maxComments: 100,
+            maxFiles: 100,
+            reply: false,
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {
+      github: { event: "issue_comment", installationId: 123 },
+      payload: {
+        action: "created",
+        comment: { body: "/review", id: 99, user: { login: "mona" } },
+        issue: {
+          number: 42,
+          pull_request: { url: "https://api.github.test/repos/acme/app/pulls/42" },
+        },
+        repository: { full_name: "acme/app" },
+      },
+    })).resolves.toBe("ok")
+
+    expect(pullRequestContext).toMatchObject({
+      pullRequest: {
+        comments: expect.arrayContaining([{ body: "comment 99", id: 100 }]),
+        files: expect.arrayContaining([{ filename: "src/99.ts" }]),
+        metadata: {
+          omittedComments: 1,
+          omittedFiles: 1,
+        },
+      },
+    })
+  })
+
   it("marks unavailable GitHub PR metadata", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { inputCommands } = await import("../src/capabilities.ts")
