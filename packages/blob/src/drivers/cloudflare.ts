@@ -7,6 +7,8 @@ import { createFilesSdkDriver } from "./files-sdk.ts"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 
+const s3PeerInstall = "files-sdk @aws-sdk/client-s3 @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner"
+
 interface R2ObjectLike {
   arrayBuffer?: () => Promise<ArrayBuffer>
   body?: ReadableStream
@@ -58,7 +60,7 @@ function createHttpDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDri
     accessKeyId: runtimeValue(options.accessKeyId, "R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_ACCESS_KEY_ID"),
     bucketName,
     secretAccessKey: runtimeValue(options.secretAccessKey, "R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_SECRET_ACCESS_KEY"),
-  }, async resolved => (await importOptionalPeer<typeof import("files-sdk/r2")>("files-sdk/r2", resolved.driver, "files-sdk")).r2({
+  }, async resolved => (await importOptionalPeer<typeof import("files-sdk/r2")>("files-sdk/r2", resolved.driver, s3PeerInstall)).r2({
     ...resolved,
     bucket: resolved.bucketName,
   }))
