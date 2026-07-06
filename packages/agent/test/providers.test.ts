@@ -684,13 +684,13 @@ describe("agent Vite plugin", () => {
     for (const provider of ["sqlite", "libsql"] as const) {
       const root = await mkdtemp(join(tmpdir(), `vitehub-agent-${provider}-state-routes-`))
       try {
-        vi.stubEnv("TURSO_AUTH_TOKEN", "build-token")
+        vi.stubEnv("TURSO-AUTH-TOKEN", "build-token-with-hyphen-env")
         await mkdir(join(root, "server", "agents"), { recursive: true })
         await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
         const plugin = hubAgent({
           providers: {
             state: {
-              authToken: "build-token",
+              authToken: "build-token-with-hyphen-env",
               provider,
               tablePrefix: "agent_state_",
               url: "file:build-state.sqlite",
@@ -707,9 +707,10 @@ describe("agent Vite plugin", () => {
         expect(webhookRoute).toContain("import { createLibsqlAgentState } from \"@vite-hub/agent/state/sqlite\"")
         expect(webhookRoute).not.toContain("import { createCloudflareAgentState }")
         expect(webhookRoute).toContain("const viteHubChatStateOptions = {\"tablePrefix\":\"agent_state_\",\"url\":\"file:build-state.sqlite\"}")
-        expect(webhookRoute).not.toContain("build-token")
+        expect(webhookRoute).not.toContain("build-token-with-hyphen-env")
         expect(webhookRoute).toContain("const viteHubChatState = createLibsqlAgentState({")
-        expect(webhookRoute).toContain("process.env.TURSO_AUTH_TOKEN")
+        expect(webhookRoute).toContain("process.env[\"TURSO-AUTH-TOKEN\"]")
+        expect(webhookRoute).not.toContain("process.env.TURSO-AUTH-TOKEN")
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN")
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_URL")
         expect(webhookRoute).toContain("function chatStateFromLibsql()")

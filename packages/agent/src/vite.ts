@@ -320,7 +320,7 @@ function generatedCloudflareChatStateHelper(): string[] {
 function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions): string[] {
   const { authTokenEnvName, ...stateOptions } = state
   const configuredAuthTokenOption = authTokenEnvName
-    ? [`  ...(typeof process === 'object' && process?.env?.${authTokenEnvName} ? { authToken: process.env.${authTokenEnvName} } : {}),`]
+    ? [`  ...(typeof process === 'object' && process?.env?.[${JSON.stringify(authTokenEnvName)}] ? { authToken: process.env[${JSON.stringify(authTokenEnvName)}] } : {}),`]
     : []
   return [
     "",
