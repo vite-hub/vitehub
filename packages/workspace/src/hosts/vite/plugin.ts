@@ -282,17 +282,21 @@ function runtimeWorkspaceConfig(config: false | ResolvedWorkspaceModuleOptions, 
 }
 
 function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptions, registryImport: string, installHostedRuntime: boolean): string {
-  const runtimeImports = config && isHostedWorkspaceStore(config.store)
+  const hostedConfig = config && isHostedWorkspaceStore(config.store) ? config : undefined
+  const isVercelBlobStore = hostedConfig?.store.provider === "vercel-blob"
+  const runtimeImports = hostedConfig
     ? [
-        "import { configureHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'",
+        isVercelBlobStore
+          ? "import { configureHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'"
+          : "import { configureHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'",
         "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
       ]
     : [
         ...(installHostedRuntime ? ["import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'"] : []),
         `import { ${config ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'`,
       ]
-  const runtimeSetup = config && isHostedWorkspaceStore(config.store)
-    ? [`  configureHostedWorkspaceRuntime(${renderRuntimeValue({ root: config.root, store: config.store })})`]
+  const runtimeSetup = hostedConfig
+    ? [`  ${isVercelBlobStore ? "configureHostedVercelBlobWorkspaceRuntime" : "configureHostedWorkspaceRuntime"}(${renderRuntimeValue({ root: hostedConfig.root, store: hostedConfig.store })})`]
     : [
         ...(installHostedRuntime ? ["  installHostedWorkspaceRuntime()"] : []),
         ...(config ? [`  setWorkspaceRuntimeConfig(${renderRuntimeValue({ root: config.root, store: config.store })})`] : []),

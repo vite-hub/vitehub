@@ -20,6 +20,7 @@ export default defineConfig({
       "src/cloudflare.ts",
       "src/cli.ts",
       "src/hosted.ts",
+      "src/hosted-vercel-blob.ts",
       "src/index.ts",
       "src/loader.ts",
       "src/nitro.ts",
@@ -40,6 +41,7 @@ export default defineConfig({
     exports: {
       exclude: [
         "hosted",
+        "hosted-vercel-blob",
         "runtime/assets",
         "runtime/empty-assets-registry",
         "runtime/empty-registry",
@@ -54,6 +56,7 @@ export default defineConfig({
           "./dist/runtime/empty-assets-registry.js";
         exports["./internal/runtime/empty-registry"] = "./dist/runtime/empty-registry.js";
         exports["./internal/runtime/hosted"] = "./dist/hosted.js";
+        exports["./internal/runtime/hosted-vercel-blob"] = "./dist/hosted-vercel-blob.js";
         exports["./internal/runtime/state"] = "./dist/runtime/state.js";
         exports["./internal/stores/cloudflare-artifacts"] =
           "./dist/providers/cloudflare/artifacts-store.js";

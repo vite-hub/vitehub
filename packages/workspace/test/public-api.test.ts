@@ -132,6 +132,7 @@ describe("workspace public API", () => {
 
     expect(packageJson.exports).not.toHaveProperty("./hosted")
     expect(packageJson.exports).toHaveProperty("./internal/runtime/hosted")
+    expect(packageJson.exports).toHaveProperty("./internal/runtime/hosted-vercel-blob")
     expect(hosted).toHaveProperty("configureHostedWorkspaceRuntime")
     expect(hosted).toHaveProperty("installHostedWorkspaceRuntime")
     expect(hosted).not.toHaveProperty("createCloudflareArtifactsWorkspaceStore")

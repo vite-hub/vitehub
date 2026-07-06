@@ -101,6 +101,10 @@
       "types": "./dist/hosted.d.ts",
       "import": "./dist/hosted.js"
     },
+    "./internal/runtime/hosted-vercel-blob": {
+      "types": "./dist/hosted-vercel-blob.d.ts",
+      "import": "./dist/hosted-vercel-blob.js"
+    },
     "./internal/runtime/state": {
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js"
