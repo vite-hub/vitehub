@@ -218,12 +218,24 @@ describe("agent Vite plugin", () => {
       delete process.env.NETLIFY
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
-      const plugin = hubAgent({ routes: { chat: true, discordGateway: true, webhooks: "api/hooks/[webhook]" } })
-      const configResolved = plugin.configResolved as (config: { build?: { outDir?: string }, command: "build", resolve: { alias: Array<{ find: string, replacement: string }> }, root: string }) => Promise<void>
+      const agentOptions = {
+        providers: {
+          state: {
+            authToken: "build-token",
+            provider: "libsql",
+            tablePrefix: "agent_state_",
+            url: "file:build-state.sqlite",
+          },
+        },
+        routes: { chat: true, discordGateway: true, webhooks: "api/hooks/[webhook]" },
+      }
+      const plugin = hubAgent(agentOptions)
+      const configResolved = plugin.configResolved as (config: { agent?: unknown, build?: { outDir?: string }, command: "build", resolve: { alias: Array<{ find: string, replacement: string }> }, root: string }) => Promise<void>
       const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
 
       await configResolved({
+        agent: agentOptions,
         build: { outDir: "dist/client" },
         command: "build",
         resolve: { alias: [{ find: "#support", replacement: join(root, "support.ts") }] },
@@ -245,6 +257,11 @@ describe("agent Vite plugin", () => {
       expect(wrapper).toContain("VITEHUB_DISCORD_GATEWAY_WEBHOOK_URL")
       expect(wrapper).toContain("const webhookRoute = \"/api/hooks/:webhook\"")
       expect(wrapper).toContain("routePath(webhookRoute, { agent, webhook })")
+      expect(wrapper).toContain("import { createLibsqlAgentState } from \"@vite-hub/agent/state/sqlite\"")
+      expect(wrapper).toContain("const viteHubChatStateOptions = {\"tablePrefix\":\"agent_state_\",\"url\":\"file:build-state.sqlite\"}")
+      expect(wrapper).not.toContain("build-token")
+      expect(wrapper).toContain("function chatStateFromLibsql()")
+      expect(wrapper).toContain("handler(request, webhook, { agentName: agent, state: chatStateFromLibsql(), waitUntil })")
       expect(wrapper).not.toContain("runtime: 'vite'")
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith({
         clientOutDir: "dist/client",

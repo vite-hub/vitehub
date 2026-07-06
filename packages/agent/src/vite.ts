@@ -97,7 +97,7 @@ function shouldInstallCloudflareAgentState(options: false | ResolvedAgentModuleO
 }
 
 function resolveLibsqlAgentState(options: false | ResolvedAgentModuleOptions): GeneratedLibsqlAgentStateOptions | undefined {
-  if (!options || !options.routes.webhooks) return
+  if (!options) return
   const { provider, tablePrefix, url } = options.providers.state
   if (provider !== "sqlite" && provider !== "libsql") return
   return {
@@ -510,9 +510,11 @@ async function generateAgentNetlifyFunctionRouteHandler(
     .join(",\n  ")
   const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, workspaceImportBase)
   const webhookSelector = routeUsesParam(options.webhookRoute, "webhook") ? "netlifyParam(context, 'webhook')" : "''"
+  const webhookStateOption = options.libsqlState ? "state: chatStateFromLibsql(), " : ""
 
   return [
     `import { withAgentDefaults, workspaceAgentOwnsWorkspaceDefinition, workspaceDefinitionFromOptions } from ${JSON.stringify(agentImportBase)}`,
+    ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
     `import { createChannelChatRouteHandler, createChannelWebhookRouteHandler, createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     `import { setWorkspaceRuntimeRegistry } from ${JSON.stringify(subpath(agentImportBase, "server/workspace"))}`,
     ...hostedWorkspaceRuntime.imports,
@@ -559,6 +561,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
     "}",
     "",
     ...hostedWorkspaceRuntime.setup,
+    ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState) : []),
     ...generatedNetlifyRuntimeHelpers(),
     "",
     `setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].filter(Boolean)))`,
@@ -604,7 +607,7 @@ async function generateAgentNetlifyFunctionRouteHandler(
     "    }",
     `    return await handler(request, { agentName: agent, durationMs${runtimeRouteOption}, waitUntil, webhookUrl })`,
     "  }",
-    `  return isWebhookRoute ? await handler(request, webhook, { agentName: agent${runtimeRouteOption}, waitUntil }) : await handler(request, { agentName: agent${runtimeRouteOption}, waitUntil })`,
+    `  return isWebhookRoute ? await handler(request, webhook, { agentName: agent${runtimeRouteOption}, ${webhookStateOption}waitUntil }) : await handler(request, { agentName: agent${runtimeRouteOption}, waitUntil })`,
     "}",
     "",
   ].join("\n")
@@ -884,7 +887,7 @@ async function writeAgentDenoServer(
 
 async function writeAgentNetlifyFunctionRouteHandler(
   root: string,
-  options: { chatRoute?: false | string, discordGatewayRoute?: false | string, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
+  options: { chatRoute?: false | string, discordGatewayRoute?: false | string, libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite", webhookRoute?: false | string } & AgentGeneratedImportOptions = {},
 ): Promise<string> {
   const handlerPath = join(root, generatedAgentNetlifyFunction)
   const definitions = discoverAgentDefinitions({
@@ -910,11 +913,16 @@ function createNetlifyAgentFunctionConfig(options: { chatRoute?: false | string,
   }
 }
 
-async function writeNetlifyAgentProviderOutput(config: ResolvedConfig, options: ResolvedAgentModuleOptions, generatedOptions: AgentGeneratedImportOptions & { runtime?: "vite" } = {}): Promise<void> {
+async function writeNetlifyAgentProviderOutput(
+  config: ResolvedConfig,
+  options: ResolvedAgentModuleOptions,
+  generatedOptions: AgentGeneratedImportOptions & { libsqlState?: GeneratedLibsqlAgentStateOptions, runtime?: "vite" } = {},
+): Promise<void> {
   const handlerPath = await writeAgentNetlifyFunctionRouteHandler(config.root, {
     ...generatedOptions,
     chatRoute: options.routes.chat,
     discordGatewayRoute: options.routes.discordGateway,
+    libsqlState: generatedOptions.libsqlState ?? resolveLibsqlAgentState(options),
     webhookRoute: options.routes.webhooks,
   })
   await writeProviderDeploymentOutputs({
@@ -1062,6 +1070,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           if (config.command === "serve" && isNetlifyHosting(config)) {
             await writeNetlifyAgentProviderOutput(config, normalized, {
               agentImportBase: getAgentImportBase(agent),
+              libsqlState: resolveLibsqlAgentState(normalized),
               runtime: "vite",
               workspaceImportBase: getWorkspaceImportBase(agent),
             })
@@ -1100,6 +1109,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         if (normalized && isNetlifyHosting(resolved) && (normalized.routes.chat || normalized.routes.webhooks || normalized.routes.discordGateway)) {
           await writeNetlifyAgentProviderOutput(resolved, normalized, {
             agentImportBase: getAgentImportBase(agent),
+            libsqlState: resolveLibsqlAgentState(normalized),
             workspaceImportBase: getWorkspaceImportBase(agent),
           })
         } else if (isNetlifyHosting(resolved)) {
