@@ -919,33 +919,35 @@ function isTextAttachment(attachment: Attachment): boolean {
   return !!extension && textAttachmentExtensions.has(extension)
 }
 
-function checkedTextAttachmentBytes(value: unknown): Uint8Array | undefined {
+function checkedTextAttachmentBytes(value: unknown, options: { rejectOversizedTextAttachments?: boolean } = {}): Uint8Array | undefined {
   const bytes = value instanceof ArrayBuffer
     ? new Uint8Array(value)
     : value instanceof Uint8Array ? value : undefined
   if (!bytes) return
   if (bytes.byteLength > chatTextAttachmentMaxBytes) {
+    if (!options.rejectOversizedTextAttachments) return
     throw new Error(`[vitehub] Chat text attachment exceeds ${chatTextAttachmentMaxBytes} bytes.`)
   }
   return bytes
 }
 
-async function textAttachmentBytes(attachment: Attachment): Promise<Uint8Array | undefined> {
+async function textAttachmentBytes(attachment: Attachment, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<Uint8Array | undefined> {
   if (typeof attachment.size === "number" && attachment.size > chatTextAttachmentMaxBytes) {
+    if (!options.rejectOversizedTextAttachments) return
     throw new Error(`[vitehub] Chat text attachment exceeds ${chatTextAttachmentMaxBytes} bytes.`)
   }
   if (typeof attachment.fetchData === "function") {
-    return checkedTextAttachmentBytes(await attachment.fetchData())
+    return checkedTextAttachmentBytes(await attachment.fetchData(), options)
   }
   if (attachment.data instanceof Blob) {
-    return checkedTextAttachmentBytes(await attachment.data.arrayBuffer())
+    return checkedTextAttachmentBytes(await attachment.data.arrayBuffer(), options)
   }
-  return checkedTextAttachmentBytes(attachment.data)
+  return checkedTextAttachmentBytes(attachment.data, options)
 }
 
-async function textPartFromAttachment(attachment: Attachment, index: number): Promise<MessagePart | undefined> {
+async function textPartFromAttachment(attachment: Attachment, index: number, options: { rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart | undefined> {
   if (!isTextAttachment(attachment)) return undefined
-  const bytes = await textAttachmentBytes(attachment)
+  const bytes = await textAttachmentBytes(attachment, options)
   if (!bytes?.byteLength) return undefined
   const name = attachment.name || `attachment-${index + 1}`
   return {
@@ -1013,13 +1015,13 @@ function attachmentFallbackText(attachments: Attachment[]): string {
   return `Sent attachments: ${summary}.`
 }
 
-async function chatMessageParts(message: ChatSdkMessage, options: { includeAudioAttachments?: boolean } = {}): Promise<MessagePart[]> {
+async function chatMessageParts(message: ChatSdkMessage, options: { includeAudioAttachments?: boolean, rejectOversizedTextAttachments?: boolean } = {}): Promise<MessagePart[]> {
   const parts: MessagePart[] = []
   if (message.text) {
     parts.push({ id: "text-0", text: message.text, type: "text" })
   }
   for (const [index, attachment] of message.attachments.entries()) {
-    const part = await textPartFromAttachment(attachment, index)
+    const part = await textPartFromAttachment(attachment, index, options)
     if (part) parts.push(part)
   }
   if (options.includeAudioAttachments) {
@@ -1057,7 +1059,7 @@ function chatMessageMetadata(thread: Thread, message: ChatSdkMessage, messageCon
 async function chatSdkMessageToUiMessage(
   message: ChatSdkMessage,
   metadata?: Record<string, unknown>,
-  options?: { includeAudioAttachments?: boolean },
+  options?: { includeAudioAttachments?: boolean, rejectOversizedTextAttachments?: boolean },
 ): Promise<UIMessageLike> {
   return {
     createdAt: isoDate(message.metadata.dateSent),
@@ -1096,7 +1098,10 @@ async function chatTriggerMessages(
   messageContext?: MessageContext,
   messageOptions?: { includeAudioAttachments?: boolean },
 ): Promise<UIMessageLike[]> {
-  const current = await chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), messageOptions)
+  const current = await chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), {
+    ...messageOptions,
+    rejectOversizedTextAttachments: true,
+  })
   const limit = chatTriggerHistoryLimit(resolveChatTriggerHistory(options))
   if (!limit) return [current]
 
