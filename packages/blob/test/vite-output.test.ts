@@ -237,6 +237,7 @@ describe("Vite provider outputs", () => {
     })
 
     const cloudflareWorker = await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "index.js"), "utf8")
+    expect(cloudflareWorker).toContain("\"files-sdk\"")
     expect(cloudflareWorker).toContain("files-sdk/r2")
   })
 

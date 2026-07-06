@@ -294,6 +294,7 @@ function createCloudflareOutput(blob: BlobModuleOptions | ResolvedBlobModuleOpti
         "@aws-sdk/client-s3",
         "@aws-sdk/s3-presigned-post",
         "@aws-sdk/s3-request-presigner",
+        "files-sdk",
         "files-sdk/r2",
         "node:async_hooks",
         "#vitehub/blob/config",
