@@ -199,8 +199,9 @@ export default defineAgent({
         reply: defineFinishEffect(async (event, context) => {
           if (event.error) return reply(`Review failed: ${event.errorMessage}`)
           const body = event.text?.trim() || '_No review generated._'
-          return reply({
-            body,
+          return {
+            kind: 'review',
+            payload: { body },
             artifacts: await publishWorkspaceArtifacts(context, [{
               alt: 'Login footer version badge',
               mediaType: 'image/png',
@@ -213,7 +214,7 @@ export default defineAgent({
                 return { url: object.url }
               },
             }),
-          }),
+          }
         }),
       },
     }),
