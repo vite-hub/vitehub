@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { createAgentInvocationStreamResponse, readAgentInvocationStream } from "../src/invocation-stream.ts"
+import { writeResponse } from "../src/vite/invocation-stream-endpoint.ts"
+
+import type { ServerResponse } from "node:http"
 
 describe("Agent Invocation Stream", () => {
   it("closes timed-out streams even when the run does not settle", async () => {
@@ -22,6 +25,58 @@ describe("Agent Invocation Stream", () => {
       { type: "done" },
     ])
     expect(aborted).toBe(true)
+  })
+
+  it("treats AbortError from cancellation aborts as cleanup", async () => {
+    const NativeAbortController = globalThis.AbortController
+
+    class ThrowingAbortController extends NativeAbortController {
+      override abort(reason?: unknown): void {
+        super.abort(reason)
+        throw new DOMException("aborted", "AbortError")
+      }
+    }
+
+    Object.defineProperty(globalThis, "AbortController", {
+      configurable: true,
+      value: ThrowingAbortController,
+      writable: true,
+    })
+    try {
+      const response = createAgentInvocationStreamResponse(async () => {
+        await new Promise(() => {})
+      })
+
+      await expect(response.body!.cancel()).resolves.toBeUndefined()
+    }
+    finally {
+      Object.defineProperty(globalThis, "AbortController", {
+        configurable: true,
+        value: NativeAbortController,
+        writable: true,
+      })
+    }
+  })
+
+  it("does not destroy Vite responses for AbortError body failures", async () => {
+    const destroy = vi.fn()
+    const res = {
+      destroy,
+      end: vi.fn(),
+      off: vi.fn(),
+      once: vi.fn(),
+      setHeader: vi.fn(),
+      statusCode: 200,
+      write: vi.fn(() => true),
+    } as unknown as ServerResponse
+
+    await writeResponse(res, new Response(new ReadableStream<Uint8Array>({
+      pull() {
+        throw new DOMException("aborted", "AbortError")
+      },
+    })))
+
+    expect(destroy).not.toHaveBeenCalled()
   })
 
   it("closes with an error when event serialization fails", async () => {
