@@ -170,12 +170,13 @@ describe("agent channels", () => {
     const channel = github({ pullRequest: { reply: false } })
     const trigger = channel.triggers?.webhook
     if (!trigger) throw new Error("Missing GitHub webhook trigger.")
-
-    const result = await trigger.invoke({
+    const context = {
       capabilities: [],
       channel,
       trigger: { channelId: "github", id: "github.webhook", name: "webhook", source: "channel" },
-    } as never, { payload: githubIssueCommentPayload() })
+    }
+
+    const result = await trigger.invoke(context as never, { payload: githubIssueCommentPayload() })
     if (result instanceof Response) throw new Error("Expected GitHub webhook invocation.")
 
     expect(result.input.context?.github).toMatchObject({
@@ -187,6 +188,15 @@ describe("agent channels", () => {
     expect(result.input.context?.pullRequest).toMatchObject({
       pullRequest: { number: 42 },
       repository: { fullName: "acme/app" },
+    })
+
+    const withEmptyFacts = await trigger.invoke(context as never, { payload: githubIssueCommentPayload("/review generated route"), github: {} })
+    if (withEmptyFacts instanceof Response) throw new Error("Expected GitHub webhook invocation with empty facts.")
+    expect(withEmptyFacts.input.context?.github).toMatchObject({
+      args: "generated route",
+      command: "/review",
+      installationId: 123,
+      repository: "acme/app",
     })
   })
 

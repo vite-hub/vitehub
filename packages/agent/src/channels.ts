@@ -552,7 +552,8 @@ function declaredInputCommand<TRuntimeConfig extends AgentRuntimeConfig>(
 function githubPullRequestCommandFromInput(input: unknown): GitHubPullRequestCommand | undefined {
   const payload = inputPayload(input)
   const facts = inputGithubFacts(input)
-  if (!payload || (facts && facts.event !== "issue_comment") || payload.action !== "created") return
+  const event = maybeString(facts?.event)
+  if (!payload || (event && event !== "issue_comment") || payload.action !== "created") return
   if (!payload.issue?.pull_request) return
   const body = maybeString(payload.comment?.body)
   const parsed = body ? parseSlashCommand(body) : undefined
