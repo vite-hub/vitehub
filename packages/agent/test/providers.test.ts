@@ -2723,6 +2723,51 @@ describe("server helpers", () => {
     expect(run).toHaveBeenCalledOnce()
   })
 
+  it("flushes waitUntil for non-workflow webhook results shaped like queued provider responses", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    let flushed = false
+    const run = vi.fn((context) => {
+      context.waitUntil(Promise.resolve().then(() => {
+        flushed = true
+      }))
+      return { provider: "github", status: "queued" }
+    })
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({ input: { prompt: "github delivery" } }),
+            },
+          },
+          webhooks: { secretToken: "secret-token" },
+        }),
+      },
+      driver: {
+        run
+      },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const body = JSON.stringify({ action: "opened" })
+    const response = await handler(new Request("https://example.com/api/github/webhook", {
+      body,
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-direct",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": githubSignature("secret-token", body),
+      },
+      method: "POST",
+    }), "")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({})
+    expect(flushed).toBe(true)
+    expect(run).toHaveBeenCalledOnce()
+  })
+
   it("runs GitHub channel webhooks through workflow-backed agents", async () => {
     const { defineAgent, workflow } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")

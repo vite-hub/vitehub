@@ -16,7 +16,7 @@ import { createAgentRuntimeContext } from "../runtime/context.ts"
 import { createAgentUIMessageStreamResponse } from "../stream-output.ts"
 import { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "../trigger-runtime.ts"
 import { toHttpErrorResponse } from "../http-error.ts"
-import { toAgentFetchResponse } from "../http-response.ts"
+import { isWorkflowRun, toAgentFetchResponse } from "../http-response.ts"
 import { createChatDevtoolsStreamResponse } from "../chat/devtools-stream.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 
@@ -252,14 +252,6 @@ function createJsonErrorResponse(status: number, message: string): Response {
 
 function createBadRequest(message: string): Response {
   return createJsonErrorResponse(400, message)
-}
-
-function isQueuedWorkflowRun(value: unknown): value is { provider: string, status: "queued" } {
-  return typeof value === "object"
-    && value !== null
-    && "provider" in value
-    && "status" in value
-    && (value as { status?: unknown }).status === "queued"
 }
 
 function serializeErrorForLog(error: unknown, seen = new WeakSet<object>()): unknown {
@@ -2363,7 +2355,7 @@ export function createChannelWebhookRouteHandler(
             ...context,
             ...(invocation.run ? { run: invocation.run } : {}),
           } as never, invocation.input as never)
-          if (!isQueuedWorkflowRun(result)) {
+          if (!isWorkflowRun(result) || result.status !== "queued") {
             await context.flushWaitUntil?.()
           }
           return toAgentFetchResponse(result, false)
