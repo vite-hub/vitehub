@@ -38,7 +38,7 @@ const workspacesDirSegment = /[\\/](?:server[\\/])?workspaces(?:[\\/]|$)/
 function vercelFunctionRuntimePackages(options: false | ResolvedWorkspaceModuleOptions) {
   return [
     { name: WORKSPACE_PACKAGE_NAME, resolveFrom: import.meta.url },
-    ...(options && options.store?.provider === "vercel-blob" ? [{ name: "files-sdk" }] : []),
+    ...(options && options.store?.provider === "vercel-blob" ? [{ name: "files-sdk" }, { name: "@vercel/blob" }] : []),
   ]
 }
 

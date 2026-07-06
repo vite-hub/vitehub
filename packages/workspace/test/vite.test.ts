@@ -909,6 +909,7 @@ describe("hubWorkspace", () => {
       packages: [
         { name: "@vite-hub/workspace", resolveFrom: expect.any(String) },
         { name: "files-sdk" },
+        { name: "@vercel/blob" },
       ],
       rootDir: root,
     })
