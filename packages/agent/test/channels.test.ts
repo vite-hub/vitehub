@@ -199,7 +199,7 @@ describe("agent channels", () => {
       capabilities: [],
       channel,
       trigger: { channelId: "github", id: "github.dev", name: "dev", source: "channel" },
-    } as never
+    }
     const pullRequest = {
       pullRequest: {
         apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
@@ -211,16 +211,16 @@ describe("agent channels", () => {
       trigger: {
         action: "created",
         actor: { login: "mona" },
-        args: "",
+        args: "docs",
         command: "/review",
-        comment: { body: "/review", id: 99, nodeId: "comment-node" },
+        comment: { id: 99, nodeId: "comment-node" },
         event: "issue_comment",
         installationId: 123,
       },
     }
     const devRun = { origin: "dev", runId: "dev:from-loop", threadId: "dev:agent" }
 
-    const fromContext = await trigger.invoke(context, { pullRequest, prompt: "manual prompt", run: devRun })
+    const fromContext = await trigger.invoke(context as never, { pullRequest, run: devRun })
     if (fromContext instanceof Response) throw new Error("Expected GitHub context invocation.")
     expect(fromContext.input).toMatchObject({
       context: {
@@ -233,7 +233,7 @@ describe("agent channels", () => {
         },
         pullRequest,
       },
-      prompt: "manual prompt",
+      prompt: "/review docs",
     })
     expect(fromContext.run).toMatchObject({
       channelId: "github",
@@ -242,7 +242,14 @@ describe("agent channels", () => {
       threadId: "pr-42",
     })
 
-    const fromPayload = await trigger.invoke(context, { ...githubIssueCommentPayload("/review raw payload"), run: devRun })
+    const blocked = await trigger.invoke({
+      ...context,
+      capabilities: [{ metadata: { commands: { review: { channels: ["other"] } }, trigger: "/" } }],
+    } as never, { pullRequest })
+    if (!(blocked instanceof Response)) throw new Error("Expected blocked GitHub context response.")
+    await expect(blocked.json()).resolves.toMatchObject({ reason: "not_command" })
+
+    const fromPayload = await trigger.invoke(context as never, { ...githubIssueCommentPayload("/review raw payload"), run: devRun })
     if (fromPayload instanceof Response) throw new Error("Expected GitHub payload invocation.")
     expect(fromPayload.input.context?.github).toMatchObject({
       args: "raw payload",

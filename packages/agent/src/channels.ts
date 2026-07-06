@@ -1573,7 +1573,9 @@ function githubCommandFromRunContext(value: GitHubPullRequestRunContext): GitHub
 }
 
 function githubPullRequestDevPrompt(input: Record<string, unknown>, pullRequest: GitHubPullRequestRunContext): string {
-  return maybeString(input.prompt) || maybeString(pullRequest.trigger.comment.body) || maybeString(pullRequest.trigger.command) || "/review"
+  const command = maybeString(pullRequest.trigger.command)
+  const args = maybeString(pullRequest.trigger.args)
+  return maybeString(input.prompt) || maybeString(pullRequest.trigger.comment.body) || (command && args ? `${command} ${args}` : command) || "/review"
 }
 
 function githubDevPayload(input: unknown): GitHubIssueCommentPayload | undefined {
@@ -1624,6 +1626,7 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
         }
         if (existingPullRequest) {
           const command = githubCommandFromUnknown(inputRecord.github) || githubCommandFromRunContext(existingPullRequest)
+          if (command && declaredInputCommand(context, command.command) === false) return options.ignored?.("not_command") || ignored("not_command")
           return {
             ...(finishEffects ? { delivery: { finishEffects } } : {}),
             input: {
