@@ -368,9 +368,11 @@ function sourceScopePath(runtime: WorkspaceContributionRuntime, key: string, sou
   return source.requestOnly ? runtime.workspaceSourceRequestDescriptorPath(key) : source.mountPath
 }
 
-function sourcesConflict(left: { mountPath: string, requestOnly: boolean }, right: { mountPath: string, requestOnly: boolean }): boolean {
+function sourcesConflict(left: { mountPath: string, probePaths?: string[], requestOnly: boolean }, right: { mountPath: string, probePaths?: string[], requestOnly: boolean }): boolean {
   if (left.requestOnly || right.requestOnly) return false
-  return pathsConflict(left.mountPath, right.mountPath)
+  const leftPaths = left.probePaths?.length ? left.probePaths : [left.mountPath]
+  const rightPaths = right.probePaths?.length ? right.probePaths : [right.mountPath]
+  return leftPaths.some(leftPath => rightPaths.some(rightPath => pathsConflict(leftPath, rightPath)))
 }
 
 function assertWorkspaceContribution(
@@ -383,7 +385,7 @@ function assertWorkspaceContribution(
   const rules = contribution.rules || {}
   const sourceEntries = Object.entries(sources)
   const rulePatterns = Object.keys(rules)
-  const contributionSources: Array<{ key: string, mountPath: string, requestOnly: boolean }> = []
+  const contributionSources: Array<{ key: string, mountPath: string, probePaths?: string[], requestOnly: boolean }> = []
 
   for (const [key, source] of sourceEntries) {
     if (definition.sources?.[key]) {

@@ -729,6 +729,55 @@ describe("agent capability runtime", () => {
     })).rejects.toThrow('workspace contribution source "review" conflicts with contributed Workspace Source "files"')
   })
 
+  it("allows capability workspace sources with disjoint probe paths at the same mount", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    const resolved = await resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              instructions: "AGENTS.md",
+              docs: "docs/README.md",
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })
+
+    expect(resolved.workspaceDefinition?.sources).toHaveProperty("instructions")
+    expect(resolved.workspaceDefinition?.sources).toHaveProperty("docs")
+  })
+
+  it("rejects capability workspace sources with overlapping probe paths at the same mount", async () => {
+    const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+
+    await expect(resolveAgentCapabilities({
+      capabilities: [
+        defineCapability({
+          id: "review",
+          workspace: {
+            sources: {
+              instructions: "AGENTS.md",
+              docs: "AGENTS.md",
+            },
+          },
+        }),
+      ],
+    }, runtime(), {}, emptyWorkspace() as never, "read", {
+      workspaceDefinition: {
+        name: "review",
+        sources: {},
+      },
+    })).rejects.toThrow('workspace contribution source "docs" conflicts with contributed Workspace Source "instructions"')
+  })
+
   it("rejects overlapping capability workspace rules", async () => {
     const { defineCapability, resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
 
