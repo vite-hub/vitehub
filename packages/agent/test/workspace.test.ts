@@ -1908,7 +1908,7 @@ describe("defineAgent workspace option", () => {
     expect(prepareHarnessWorkspaceSession).toHaveBeenCalledWith(expect.any(Object), {
       abortSignal: undefined,
       ignoreWriteBackPaths: [],
-      paths: ["public", "AGENTS.md", "CLAUDE.md", "pull-request-context/context.md"],
+      paths: ["public", "AGENTS.md", "CLAUDE.md", "pull-request-context"],
       session: harnessFileSession,
       sessionWorkDir: "/workspace/codex-session",
     })

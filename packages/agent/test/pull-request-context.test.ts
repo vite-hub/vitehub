@@ -79,7 +79,7 @@ describe("pullRequestContext", () => {
       capabilities: [
         pullRequestContext({
           context: {
-            headRef: "feature",
+            head: { ref: "feature" },
             number: 42,
             repository: "acme/app",
           },
@@ -116,7 +116,7 @@ describe("pullRequestContext", () => {
     })
 
     expect(context.get("pullRequest")).toEqual({
-      headRef: "feature",
+      head: { ref: "feature" },
       number: 42,
       repository: "acme/app",
     })
@@ -138,12 +138,15 @@ describe("pullRequestContext", () => {
       capabilities: [
         pullRequestContext({
           context: {
-            actor: "mona",
-            baseRef: "main",
-            headRef: "feature",
+            base: { ref: "main" },
+            head: { ref: "feature" },
             number: 42,
             provider: "github",
             repository: "acme/app",
+            trigger: {
+              actor: { login: "mona" },
+              deliveryId: "delivery-1",
+            },
           },
         }),
       ],
@@ -159,55 +162,59 @@ describe("pullRequestContext", () => {
       'repository: "acme/app"',
       "number: 42",
       'provider: "github"',
-      'baseRef: "main"',
-      'headRef: "feature"',
-      'actor: "mona"',
+      'base: {"ref":"main"}',
+      'head: {"ref":"feature"}',
+      'deliveryId: "delivery-1"',
       "---",
       "",
       "# Pull Request Context",
     ].join("\n"))
+    await expect(resolved.workspace?.fs.readFile("pull-request-context/context.json")).resolves.toContain('"deliveryId": "delivery-1"')
     await expect(resolved.workspace?.fs.readFile("pull-request-context/diff.md")).rejects.toThrow("Workspace file does not exist")
   })
 
   it("renders built-in GitHub pull request context values", async () => {
     const { pullRequestContext } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
+    const rawPullRequestContext = {
+      pullRequest: {
+        apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
+        base: { ref: "main" },
+        number: 42,
+        source: {
+          mount: "vitehub",
+          ref: "refs/pull/42/head",
+          repo: "acme/app",
+        },
+        title: "Review me",
+      },
+      repository: {
+        fullName: "acme/app",
+        name: "app",
+        owner: "acme",
+      },
+      run: {
+        messageId: "100",
+        origin: "github-pull-request-comment",
+        runId: "delivery-1",
+        threadId: "thread",
+      },
+      trigger: {
+        action: "created",
+        actor: { login: "mona" },
+        args: "",
+        command: "/review",
+        comment: { id: 100 },
+        deliveryId: "delivery-1",
+        event: "issue_comment",
+      },
+    } as const
 
     const resolved = await resolveAgentCapabilities({
       capabilities: [pullRequestContext()],
     }, runtime(), {
       context: {
-        pullRequest: {
-          pullRequest: {
-            apiUrl: "https://api.github.test/repos/acme/app/pulls/42",
-            number: 42,
-            source: {
-              mount: "vitehub",
-              ref: "refs/pull/42/head",
-              repo: "acme/app",
-            },
-          },
-          repository: {
-            fullName: "acme/app",
-            name: "app",
-            owner: "acme",
-          },
-          run: {
-            messageId: "100",
-            origin: "github-pull-request-comment",
-            runId: "delivery-1",
-            threadId: "thread",
-          },
-          trigger: {
-            action: "created",
-            actor: { login: "mona" },
-            args: "",
-            command: "/review",
-            comment: { id: 100 },
-            deliveryId: "delivery-1",
-            event: "issue_comment",
-          },
-        },
+        pullRequest: rawPullRequestContext,
       },
     }, emptyWorkspace() as never, "read", {
       workspaceDefinition: {
@@ -221,8 +228,8 @@ describe("pullRequestContext", () => {
       'repository: "acme/app"',
       "number: 42",
       'provider: "github"',
-      'headRef: "refs/pull/42/head"',
-      'actor: "mona"',
+      'source: {"mount":"vitehub","ref":"refs/pull/42/head","repo":"acme/app"}',
+      'base: {"ref":"main"}',
       'deliveryId: "delivery-1"',
       "---",
       "",
@@ -230,6 +237,32 @@ describe("pullRequestContext", () => {
       "",
       "Change Request 42 in acme/app.",
     ].join("\n"))
+
+    const json = JSON.parse(await resolved.workspace!.fs.readFile("pull-request-context/context.json"))
+    expect(json).toMatchObject({
+      base: { ref: "main" },
+      number: 42,
+      provider: "github",
+      repository: "acme/app",
+      run: { runId: "delivery-1" },
+      source: {
+        mount: "vitehub",
+        ref: "refs/pull/42/head",
+        repo: "acme/app",
+      },
+      title: "Review me",
+      trigger: {
+        actor: { login: "mona" },
+        deliveryId: "delivery-1",
+      },
+    })
+    expect(pullRequestContext.read({
+      context: { get: (key: string) => key === "pullRequest" ? rawPullRequestContext : undefined },
+    })).toMatchObject({
+      number: 42,
+      repository: "acme/app",
+      source: { mount: "vitehub" },
+    })
   })
 
   it("renders GitHub metadata gaps and bounded untrusted comments", async () => {

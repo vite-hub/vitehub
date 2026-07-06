@@ -18,15 +18,79 @@ import type {
   WorkspaceSourceInput,
 } from "@vite-hub/workspace"
 
-export interface PullRequestContextValue {
-  actor?: string
-  baseRef?: string
-  deliveryId?: string
-  headRef?: string
+export interface PullRequestContextUser {
   id?: number | string
+  login?: string
+  type?: string
+}
+
+export interface PullRequestContextComment {
+  authorAssociation?: string
+  body?: string
+  createdAt?: string
+  htmlUrl?: string
+  id?: number | string
+  nodeId?: string
+  updatedAt?: string
+  user?: PullRequestContextUser
+}
+
+export interface PullRequestContextFile {
+  additions?: number | string
+  deletions?: number | string
+  filename?: string
+  status?: string
+}
+
+export interface PullRequestContextRef {
+  ref?: string
+  repo?: string
+  sha?: string
+}
+
+export interface PullRequestContextMetadata {
+  omittedComments?: number | string
+  omittedFiles?: number | string
+  unavailable?: string
+}
+
+export interface PullRequestContextValue {
+  apiUrl?: string
+  base?: PullRequestContextRef
+  body?: string
+  comments?: PullRequestContextComment[]
+  files?: PullRequestContextFile[]
+  head?: PullRequestContextRef
+  htmlUrl?: string
+  id?: number | string
+  labels?: string[]
+  metadata?: PullRequestContextMetadata
   number: number | string
   provider?: string
   repository: string
+  run?: {
+    messageId?: string
+    origin?: string
+    runId?: string
+    threadId?: string
+  }
+  source?: {
+    mount?: string
+    ref?: string
+    repo?: string
+  }
+  title?: string
+  trigger?: {
+    action?: string
+    actor?: PullRequestContextUser
+    args?: string
+    command?: string
+    comment?: PullRequestContextComment
+    deliveryId?: string
+    event?: string
+    installationId?: number | string
+    sender?: PullRequestContextUser
+  }
 }
 
 export type PullRequestContextResolver<
@@ -68,7 +132,8 @@ type PullRequestContextCapabilityTypeContract<
 
 const defaultSourceKey = "pullRequestContext"
 const defaultSourceMount = "pull-request-context"
-const defaultSourcePath = "context.md"
+const defaultMarkdownSourcePath = "context.md"
+const defaultJsonSourcePath = "context.json"
 const defaultCapabilityId = "pull-request-context"
 
 async function resolveMaybeFunction<TValue, TRuntimeConfig extends AgentRuntimeConfig, Name extends WorkspaceName>(
@@ -81,7 +146,7 @@ async function resolveMaybeFunction<TValue, TRuntimeConfig extends AgentRuntimeC
   return resolved || undefined
 }
 
-function frontmatterValue(value: number | string): string {
+function frontmatterValue(value: unknown): string {
   return typeof value === "number" ? String(value) : JSON.stringify(value)
 }
 
@@ -97,112 +162,276 @@ function maybeContextValue(value: unknown): number | string | undefined {
   return typeof value === "number" || typeof value === "string" ? value : undefined
 }
 
+function maybeStrings(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return
+  const items = value.filter((item): item is string => typeof item === "string" && !!item)
+  return items.length ? items : undefined
+}
+
+function isPresent<T>(value: T | undefined): value is T {
+  return value !== undefined
+}
+
+function normalizedRef(value: unknown): PullRequestContextRef | undefined {
+  if (!isRecord(value)) return
+  const ref = maybeString(value.ref)
+  const repo = maybeString(value.repo)
+  const sha = maybeString(value.sha)
+  if (!ref && !repo && !sha) return
+  return {
+    ...(ref ? { ref } : {}),
+    ...(repo ? { repo } : {}),
+    ...(sha ? { sha } : {}),
+  }
+}
+
+function normalizedFlatRef(value: unknown, fallbackRef: string | undefined): PullRequestContextRef | undefined {
+  return normalizedRef(value) || (fallbackRef ? { ref: fallbackRef } : undefined)
+}
+
+function normalizedUser(value: unknown): PullRequestContextUser | undefined {
+  if (!isRecord(value)) return
+  const id = maybeContextValue(value.id)
+  const login = maybeString(value.login)
+  const type = maybeString(value.type)
+  if (id === undefined && !login && !type) return
+  return {
+    ...(id !== undefined ? { id } : {}),
+    ...(login ? { login } : {}),
+    ...(type ? { type } : {}),
+  }
+}
+
+function normalizedComment(value: unknown): PullRequestContextComment | undefined {
+  if (!isRecord(value)) return
+  const id = maybeContextValue(value.id)
+  const body = maybeString(value.body)
+  const user = normalizedUser(value.user)
+  if (id === undefined && !body && !user) return
+  return {
+    ...(maybeString(value.authorAssociation) ? { authorAssociation: maybeString(value.authorAssociation) } : {}),
+    ...(body ? { body } : {}),
+    ...(maybeString(value.createdAt) ? { createdAt: maybeString(value.createdAt) } : {}),
+    ...(maybeString(value.htmlUrl) ? { htmlUrl: maybeString(value.htmlUrl) } : {}),
+    ...(id !== undefined ? { id } : {}),
+    ...(maybeString(value.nodeId) ? { nodeId: maybeString(value.nodeId) } : {}),
+    ...(maybeString(value.updatedAt) ? { updatedAt: maybeString(value.updatedAt) } : {}),
+    ...(user ? { user } : {}),
+  }
+}
+
+function normalizedFile(value: unknown): PullRequestContextFile | undefined {
+  if (!isRecord(value)) return
+  const filename = maybeString(value.filename)
+  if (!filename) return
+  return {
+    ...(maybeContextValue(value.additions) !== undefined ? { additions: maybeContextValue(value.additions) } : {}),
+    ...(maybeContextValue(value.deletions) !== undefined ? { deletions: maybeContextValue(value.deletions) } : {}),
+    filename,
+    ...(maybeString(value.status) ? { status: maybeString(value.status) } : {}),
+  }
+}
+
+function normalizedMetadata(value: unknown): PullRequestContextMetadata | undefined {
+  if (!isRecord(value)) return
+  const omittedComments = maybeContextValue(value.omittedComments)
+  const omittedFiles = maybeContextValue(value.omittedFiles)
+  const unavailable = maybeString(value.unavailable)
+  if (omittedComments === undefined && omittedFiles === undefined && !unavailable) return
+  return {
+    ...(omittedComments !== undefined ? { omittedComments } : {}),
+    ...(omittedFiles !== undefined ? { omittedFiles } : {}),
+    ...(unavailable ? { unavailable } : {}),
+  }
+}
+
+function normalizedRun(value: unknown): PullRequestContextValue["run"] | undefined {
+  if (!isRecord(value)) return
+  const messageId = maybeString(value.messageId)
+  const origin = maybeString(value.origin)
+  const runId = maybeString(value.runId)
+  const threadId = maybeString(value.threadId)
+  if (!messageId && !origin && !runId && !threadId) return
+  return {
+    ...(messageId ? { messageId } : {}),
+    ...(origin ? { origin } : {}),
+    ...(runId ? { runId } : {}),
+    ...(threadId ? { threadId } : {}),
+  }
+}
+
+function normalizedSource(value: unknown): PullRequestContextValue["source"] | undefined {
+  if (!isRecord(value)) return
+  const mount = maybeString(value.mount)
+  const ref = maybeString(value.ref)
+  const repo = maybeString(value.repo)
+  if (!mount && !ref && !repo) return
+  return {
+    ...(mount ? { mount } : {}),
+    ...(ref ? { ref } : {}),
+    ...(repo ? { repo } : {}),
+  }
+}
+
+function normalizedTrigger(value: unknown): PullRequestContextValue["trigger"] | undefined {
+  if (!isRecord(value)) return
+  const action = maybeString(value.action)
+  const actor = normalizedUser(value.actor)
+  const args = maybeString(value.args)
+  const command = maybeString(value.command)
+  const comment = normalizedComment(value.comment)
+  const deliveryId = maybeString(value.deliveryId)
+  const event = maybeString(value.event)
+  const installationId = maybeContextValue(value.installationId)
+  const sender = normalizedUser(value.sender)
+  if (!action && !actor && !args && !command && !comment && !deliveryId && !event && installationId === undefined && !sender) return
+  return {
+    ...(action ? { action } : {}),
+    ...(actor ? { actor } : {}),
+    ...(args ? { args } : {}),
+    ...(command ? { command } : {}),
+    ...(comment ? { comment } : {}),
+    ...(deliveryId ? { deliveryId } : {}),
+    ...(event ? { event } : {}),
+    ...(installationId !== undefined ? { installationId } : {}),
+    ...(sender ? { sender } : {}),
+  }
+}
+
+function normalizedRepositoryFullName(value: unknown): string | undefined {
+  if (typeof value === "string" && value) return value
+  return isRecord(value) ? maybeString(value.fullName) : undefined
+}
+
 function normalizePullRequestContext(value: unknown): PullRequestContextValue | undefined {
   if (!isRecord(value)) return
 
   const flatNumber = maybeContextValue(value.number)
-  const flatRepository = maybeString(value.repository)
+  const flatRepository = normalizedRepositoryFullName(value.repository)
   if (flatNumber !== undefined && flatRepository) {
-    return {
-      ...(maybeString(value.actor) ? { actor: maybeString(value.actor) } : {}),
-      ...(maybeString(value.baseRef) ? { baseRef: maybeString(value.baseRef) } : {}),
+    const base = normalizedFlatRef(value.base, maybeString(value.baseRef))
+    const comments = Array.isArray(value.comments) ? value.comments.map(normalizedComment).filter(isPresent) : undefined
+    const files = Array.isArray(value.files) ? value.files.map(normalizedFile).filter(isPresent) : undefined
+    const head = normalizedFlatRef(value.head, maybeString(value.headRef))
+    const labels = maybeStrings(value.labels)
+    const metadata = normalizedMetadata(value.metadata)
+    const run = normalizedRun(value.run)
+    const source = normalizedSource(value.source)
+    const trigger = {
+      ...(normalizedTrigger(value.trigger) || {}),
+      ...(maybeString(value.actor) ? { actor: { login: maybeString(value.actor) } } : {}),
       ...(maybeString(value.deliveryId) ? { deliveryId: maybeString(value.deliveryId) } : {}),
-      ...(maybeString(value.headRef) ? { headRef: maybeString(value.headRef) } : {}),
+    }
+    return {
+      ...(maybeString(value.apiUrl) ? { apiUrl: maybeString(value.apiUrl) } : {}),
+      ...(base ? { base } : {}),
+      ...(maybeString(value.body) ? { body: maybeString(value.body) } : {}),
+      ...(comments?.length ? { comments } : {}),
+      ...(files?.length ? { files } : {}),
+      ...(head ? { head } : {}),
+      ...(maybeString(value.htmlUrl) ? { htmlUrl: maybeString(value.htmlUrl) } : {}),
       ...(maybeContextValue(value.id) !== undefined ? { id: maybeContextValue(value.id) } : {}),
+      ...(labels ? { labels } : {}),
+      ...(metadata ? { metadata } : {}),
       number: flatNumber,
       ...(maybeString(value.provider) ? { provider: maybeString(value.provider) } : {}),
       repository: flatRepository,
+      ...(run ? { run } : {}),
+      ...(source ? { source } : {}),
+      ...(maybeString(value.title) ? { title: maybeString(value.title) } : {}),
+      ...(Object.keys(trigger).length ? { trigger } : {}),
     }
   }
 
   const pullRequest = isRecord(value.pullRequest) ? value.pullRequest : undefined
   const repository = isRecord(value.repository) ? value.repository : undefined
-  const trigger = isRecord(value.trigger) ? value.trigger : undefined
-  const actor = isRecord(trigger?.actor) ? trigger.actor : undefined
-  const source = isRecord(pullRequest?.source) ? pullRequest.source : undefined
-  const base = isRecord(pullRequest?.base) ? pullRequest.base : undefined
-  const head = isRecord(pullRequest?.head) ? pullRequest.head : undefined
   const number = maybeContextValue(pullRequest?.number)
   const repositoryName = maybeString(repository?.fullName)
-  if (number === undefined || !repositoryName) return
-  const actorLogin = actor ? maybeString(actor.login) : undefined
-  const deliveryId = trigger ? maybeString(trigger.deliveryId) : undefined
-  const baseRef = base ? maybeString(base.ref) : undefined
-  const headRef = source ? maybeString(source.ref) : head ? maybeString(head.ref) : undefined
+  if (!pullRequest || number === undefined || !repositoryName) return
+  const comments = Array.isArray(pullRequest.comments) ? pullRequest.comments.map(normalizedComment).filter(isPresent) : undefined
+  const files = Array.isArray(pullRequest.files) ? pullRequest.files.map(normalizedFile).filter(isPresent) : undefined
+  const labels = maybeStrings(pullRequest.labels)
+  const metadata = normalizedMetadata(pullRequest.metadata)
+  const source = normalizedSource(pullRequest.source)
 
   return {
-    ...(actorLogin ? { actor: actorLogin } : {}),
-    ...(baseRef ? { baseRef } : {}),
-    ...(deliveryId ? { deliveryId } : {}),
-    ...(headRef ? { headRef } : {}),
+    ...(maybeString(pullRequest.apiUrl) ? { apiUrl: maybeString(pullRequest.apiUrl) } : {}),
+    ...(normalizedRef(pullRequest.base) ? { base: normalizedRef(pullRequest.base) } : {}),
+    ...(maybeString(pullRequest.body) ? { body: maybeString(pullRequest.body) } : {}),
+    ...(comments?.length ? { comments } : {}),
+    ...(files?.length ? { files } : {}),
+    ...(normalizedRef(pullRequest.head) ? { head: normalizedRef(pullRequest.head) } : {}),
+    ...(maybeString(pullRequest.htmlUrl) ? { htmlUrl: maybeString(pullRequest.htmlUrl) } : {}),
+    ...(maybeContextValue(pullRequest.id) !== undefined ? { id: maybeContextValue(pullRequest.id) } : {}),
+    ...(labels ? { labels } : {}),
+    ...(metadata ? { metadata } : {}),
     number,
-    provider: "github",
+    provider: maybeString(value.provider) || "github",
     repository: repositoryName,
+    ...(normalizedRun(value.run) ? { run: normalizedRun(value.run) } : {}),
+    ...(source ? { source } : {}),
+    ...(maybeString(pullRequest.title) ? { title: maybeString(pullRequest.title) } : {}),
+    ...(normalizedTrigger(value.trigger) ? { trigger: normalizedTrigger(value.trigger) } : {}),
   }
+}
+
+function readPullRequestContext(context: unknown, contextKey = "pullRequest"): PullRequestContextValue | undefined {
+  if (isRecord(context) && isRecord(context.context) && typeof context.context.get === "function") {
+    return normalizePullRequestContext(context.context.get(contextKey))
+  }
+  if (isRecord(context) && typeof context.get === "function") return normalizePullRequestContext(context.get(contextKey))
+  return normalizePullRequestContext(context)
 }
 
 function renderList(items: string[]): string {
   return items.length ? items.map(item => `- ${item}`).join("\n") : "- None recorded."
 }
 
-function renderPullRequestDetails(input: unknown): string {
-  if (!isRecord(input)) return ""
-  const pullRequest = isRecord(input.pullRequest) ? input.pullRequest : undefined
-  const trigger = isRecord(input.trigger) ? input.trigger : undefined
-  if (!pullRequest && !trigger) return ""
-
+function renderPullRequestDetails(value: PullRequestContextValue | undefined): string {
+  if (!value) return ""
   const lines: string[] = []
-  const body = maybeString(pullRequest?.body)
-  const base = isRecord(pullRequest?.base) ? pullRequest.base : undefined
-  const head = isRecord(pullRequest?.head) ? pullRequest.head : undefined
-  const metadata = isRecord(pullRequest?.metadata) ? pullRequest.metadata : undefined
-  const files = Array.isArray(pullRequest?.files) ? pullRequest.files.filter(isRecord) : []
-  const comments = Array.isArray(pullRequest?.comments) ? pullRequest.comments.filter(isRecord) : []
-  const triggerComment = isRecord(trigger?.comment) ? trigger.comment : undefined
-  const metadataUnavailable = maybeString(metadata?.unavailable)
-  const omittedComments = maybeContextValue(metadata?.omittedComments)
-  const omittedFiles = maybeContextValue(metadata?.omittedFiles)
 
-  if (metadataUnavailable) {
-    lines.push(`PR metadata unavailable: ${metadataUnavailable}`)
+  if (value.metadata?.unavailable) {
+    lines.push(`PR metadata unavailable: ${value.metadata.unavailable}`)
   }
 
-  if (base || head) {
+  const branchLines = [
+    ...(value.base?.ref || value.base?.sha ? [`Base: ${[value.base.ref, value.base.sha].filter(Boolean).join(" @ ")}`] : []),
+    ...(value.head?.ref || value.head?.sha || value.source?.ref ? [`Head: ${[value.source?.ref || value.head?.ref, value.head?.sha].filter(Boolean).join(" @ ")}`] : []),
+  ]
+  if (branchLines.length) {
     lines.push("## Branches")
-    lines.push(renderList([
-      ...(maybeString(base?.ref) || maybeString(base?.sha) ? [`Base: ${[maybeString(base?.ref), maybeString(base?.sha)].filter(Boolean).join(" @ ")}`] : []),
-      ...(maybeString(head?.ref) || maybeString(head?.sha) ? [`Head: ${[maybeString(head?.ref), maybeString(head?.sha)].filter(Boolean).join(" @ ")}`] : []),
-    ]))
+    lines.push(renderList(branchLines))
   }
 
-  if (body) {
-    lines.push("## Body", body)
+  if (value.title) {
+    lines.push("## Title", value.title)
   }
 
-  if (files.length || omittedFiles) {
+  if (value.body) {
+    lines.push("## Body", value.body)
+  }
+
+  if (value.files?.length || value.metadata?.omittedFiles) {
     lines.push("## Changed Files")
-    if (files.length) lines.push(renderList(files.map((file) => {
-      const filename = maybeString(file.filename) || "unknown"
-      const status = maybeString(file.status)
-      const additions = maybeContextValue(file.additions)
-      const deletions = maybeContextValue(file.deletions)
+    if (value.files?.length) lines.push(renderList(value.files.map((file) => {
+      const filename = file.filename || "unknown"
+      const status = file.status
+      const additions = file.additions
+      const deletions = file.deletions
       const counts = additions !== undefined || deletions !== undefined ? ` (+${additions ?? 0}/-${deletions ?? 0})` : ""
       return `${filename}${status ? ` (${status})` : ""}${counts}`
     })))
-    if (omittedFiles) lines.push(`+${omittedFiles} more files not shown.`)
+    if (value.metadata?.omittedFiles) lines.push(`+${value.metadata.omittedFiles} more files not shown.`)
   }
 
-  if (comments.length || triggerComment || omittedComments) {
-    const commentLines = comments.map((comment) => {
-      const user = isRecord(comment.user) ? maybeString(comment.user.login) : undefined
-      const body = maybeString(comment.body)
-      return `${user || "unknown"}: ${body || "(no body)"}`
-    })
-    const body = maybeString(triggerComment?.body)
-    if (!commentLines.length && body && !omittedComments) {
-      commentLines.push(body)
-    }
-    if (omittedComments) commentLines.push(`+${omittedComments} more comments not shown.`)
+  const comments = [
+    ...(value.comments || []),
+    ...(value.trigger?.comment ? [value.trigger.comment] : []),
+  ]
+  if (comments.length || value.metadata?.omittedComments) {
+    const commentLines = comments.map(comment => `${comment.user?.login || "unknown"}: ${comment.body || "(no body)"}`)
+    if (value.metadata?.omittedComments) commentLines.push(`+${value.metadata.omittedComments} more comments not shown.`)
     lines.push("## Comments (untrusted user content)")
     lines.push(renderList(commentLines))
   }
@@ -217,15 +446,15 @@ function renderPullRequestContextMarkdown(input: unknown): string {
     ["number", value?.number],
     ["id", value?.id],
     ["provider", value?.provider],
-    ["baseRef", value?.baseRef],
-    ["headRef", value?.headRef],
-    ["actor", value?.actor],
-    ["deliveryId", value?.deliveryId],
+    ["source", value?.source],
+    ["base", value?.base],
+    ["head", value?.head],
+    ["deliveryId", value?.trigger?.deliveryId],
   ] as const)
     .flatMap(([key, item]) => item === undefined ? [] : `${key}: ${frontmatterValue(item)}`)
     .join("\n")
   const body = value
-    ? `# Pull Request Context\n\nChange Request ${value.number} in ${value.repository}.${renderPullRequestDetails(input)}`
+    ? `# Pull Request Context\n\nChange Request ${value.number} in ${value.repository}.${renderPullRequestDetails(value)}`
     : "# Pull Request Context\n\nNo pull request context was recorded for this Agent Invocation."
   return `---\n${frontmatter}\n---\n\n${body}\n`
 }
@@ -238,16 +467,24 @@ function pullRequestContextSource(
   return {
     materialize: "lazy",
     mount,
-    probeKeys: [defaultSourcePath],
+    probeKeys: [defaultMarkdownSourcePath, defaultJsonSourcePath],
     async getKeys() {
-      return [defaultSourcePath]
+      return [defaultMarkdownSourcePath, defaultJsonSourcePath]
     },
     async getItem(key) {
-      if (key !== defaultSourcePath) {
+      if (key !== defaultMarkdownSourcePath && key !== defaultJsonSourcePath) {
         throw new Error(`[vitehub] Workspace file does not exist: ${mount}/${key}.`)
       }
+      const value = readPullRequestContext(context, contextKey)
+      if (key === defaultJsonSourcePath) {
+        return {
+          content: `${JSON.stringify(value || null, null, 2)}\n`,
+          key,
+          mediaType: "application/json",
+        }
+      }
       return {
-        content: renderPullRequestContextMarkdown(context.get(contextKey)),
+        content: renderPullRequestContextMarkdown(value),
         key,
         mediaType: "text/markdown",
       }
@@ -277,7 +514,19 @@ function defaultSourceIdentity(capabilityId: string) {
     : { key: `${capabilityId}-context`, mount: capabilityId }
 }
 
-export function pullRequestContext<
+export interface PullRequestContextCapabilityFactory {
+  <
+    TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
+    Name extends WorkspaceName = WorkspaceName,
+    const TSourceMap extends Record<string, WorkspaceSourceInput> | undefined = undefined,
+    const TContextKey extends string = "pullRequest",
+  >(
+    options?: PullRequestContextOptions<TRuntimeConfig, Name> & { contextKey?: TContextKey, sources?: TSourceMap | PullRequestContextSources<TRuntimeConfig, Name> },
+  ): AgentCapabilityDefinition<TRuntimeConfig, Name, PullRequestContextCapabilityTypeContract<TContextKey>>
+  read(input: unknown, contextKey?: string): PullRequestContextValue | undefined
+}
+
+function createPullRequestContext<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   Name extends WorkspaceName = WorkspaceName,
   const TSourceMap extends Record<string, WorkspaceSourceInput> | undefined = undefined,
@@ -316,7 +565,7 @@ export function pullRequestContext<
       if (sources && Object.hasOwn(sources, source.key)) {
         throw new Error(`[vitehub] ${capabilityId}() sources cannot use reserved Workspace Source key "${source.key}".`)
       }
-      grantSelectedWorkspaceScopePath(context.context, [source.mount, defaultSourcePath].join("/"))
+      grantSelectedWorkspaceScopePath(context.context, source.mount)
       return {
         ...(rules ? { rules } : {}),
         sources: {
@@ -327,3 +576,7 @@ export function pullRequestContext<
     },
   })
 }
+
+export const pullRequestContext = Object.assign(createPullRequestContext, {
+  read: readPullRequestContext,
+}) as PullRequestContextCapabilityFactory

@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process"
+
 import {
   defineCapability,
   normalizeMode,
@@ -23,7 +25,8 @@ export interface GitCapabilityOptions {
 }
 
 interface GitCommandInput {
-  command: string
+  args?: string[]
+  command?: string
   cwd?: string
 }
 
@@ -38,7 +41,7 @@ interface GitCommandResult {
 }
 
 interface GitSessionState {
-  sessionPromise?: Promise<WorkspaceSession>
+  sessionPromises?: Map<string, Promise<WorkspaceSession>>
 }
 
 const readSubcommands = new Set([
@@ -71,9 +74,11 @@ const gitEnv = {
   GIT_TERMINAL_PROMPT: "0",
   PAGER: "cat",
 }
+const githubRepositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
+const gitRefPattern = /^[A-Za-z0-9._/-]+$/
 
 type GitSessionWorkspace = {
-  startSession: () => Promise<WorkspaceSession>
+  startSession: (options?: { paths?: readonly string[] }) => Promise<WorkspaceSession>
 }
 
 function isGitSessionWorkspace(workspace: unknown): workspace is GitSessionWorkspace {
@@ -234,6 +239,17 @@ function gitExecOptions(cwd: string, timeout: number | undefined) {
   return { cwd, env: gitEnv, timeout }
 }
 
+function gitShellExecOptions(cwd: string, timeout: number | undefined, env: Record<string, string | undefined>) {
+  return {
+    cwd,
+    env: {
+      ...gitEnv,
+      ...Object.fromEntries(Object.entries(env).filter(([, value]) => value !== undefined)),
+    },
+    timeout,
+  }
+}
+
 async function assertConfiguredFetchRemote(session: WorkspaceSession, cwd: string, timeout: number | undefined, args: string[]): Promise<void> {
   const remote = fetchRemote(args)
   if (!remote) return
@@ -253,6 +269,170 @@ function normalizeCwd(cwd: string | undefined): string {
   return parts.length ? `/workspace/${parts.join("/")}` : "/workspace"
 }
 
+function workspacePathFromGitCwd(cwd: string): string {
+  return cwd.replace(/^\/workspace(?:\/|$)/, "")
+}
+
+function pathContains(container: string, path: string): boolean {
+  return !container || path === container || path.startsWith(`${container}/`)
+}
+
+function isGitRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function safeGitHubRepository(repo: unknown): string | undefined {
+  return typeof repo === "string" && githubRepositoryPattern.test(repo) ? repo : undefined
+}
+
+function safeGitRef(ref: unknown): string | undefined {
+  if (typeof ref !== "string" || !ref || ref.length > 250) return
+  if (!gitRefPattern.test(ref) || ref.includes("..") || ref.includes("//") || ref.includes("@{") || ref.endsWith(".lock") || ref.endsWith("/") || ref.startsWith("/")) return
+  return ref
+}
+
+function safeWorkspacePath(path: unknown): string | undefined {
+  if (typeof path !== "string" || !path) return
+  try {
+    return workspacePathFromGitCwd(normalizeCwd(path)) || undefined
+  }
+  catch {
+    return
+  }
+}
+
+function gitRemoteRef(ref: string): string {
+  return ref.startsWith("refs/") ? ref : `refs/heads/${ref}`
+}
+
+function gitRemoteBranchRef(ref: string): string {
+  return ref.replace(/^refs\/heads\//, "")
+}
+
+function gitRemoteBranchTrackingRef(ref: string): string {
+  return `refs/remotes/origin/${gitRemoteBranchRef(ref)}`
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
+
+function gitCommandFromArgs(args: unknown): string | undefined {
+  if (!Array.isArray(args) || !args.length || !args.every(arg => typeof arg === "string" && arg.length > 0)) return
+  const words = args[0] === "git" ? args : ["git", ...args]
+  return words.map(word => /^[A-Za-z0-9_./:@%+=,-]+$/.test(word) ? word : shellQuote(word)).join(" ")
+}
+
+function gitHubCliToken(): string | undefined {
+  try {
+    return execFileSync("gh", ["auth", "token", "--hostname", "github.com"], {
+      encoding: "utf8",
+      env: Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "GITHUB_TOKEN" && key !== "GH_TOKEN" && key !== "VITEHUB_GITHUB_TOKEN")),
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 2_000,
+    }).trim() || undefined
+  }
+  catch {
+    return
+  }
+}
+
+function gitHubAuthHeader(): string | undefined {
+  const token = process.env.VITEHUB_GITHUB_TOKEN || process.env.GH_TOKEN || gitHubCliToken() || process.env.GITHUB_TOKEN
+  return token ? `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}` : undefined
+}
+
+function pullRequestGitSetup(context: { context?: { get(key: string): unknown } }) {
+  const raw = context.context?.get("pullRequest")
+  const pullRequest = isGitRecord(raw) && isGitRecord(raw.pullRequest) ? raw.pullRequest : isGitRecord(raw) ? raw : undefined
+  if (!pullRequest) return
+
+  const source = isGitRecord(pullRequest.source) ? pullRequest.source : undefined
+  const base = isGitRecord(pullRequest.base) ? pullRequest.base : undefined
+  const head = isGitRecord(pullRequest.head) ? pullRequest.head : undefined
+  const repository = isGitRecord(raw) && isGitRecord(raw.repository) ? raw.repository : undefined
+  const repo = safeGitHubRepository(source?.repo)
+    || safeGitHubRepository(isGitRecord(raw) ? raw.repository : undefined)
+    || safeGitHubRepository(repository?.fullName)
+  const mount = safeWorkspacePath(source?.mount) || safeWorkspacePath(repository?.name)
+  const headRef = safeGitRef(source?.ref) || safeGitRef(head?.ref)
+  const baseRef = safeGitRef(base?.ref) || "main"
+  if (!repo || !mount || !headRef || !baseRef) return
+
+  return {
+    baseRef: gitRemoteRef(baseRef),
+    headRef: gitRemoteRef(headRef),
+    mount,
+    remoteUrl: `https://github.com/${repo}.git`,
+  }
+}
+
+function gitSessionWorkspacePath(cwd: string, context: { context?: { get(key: string): unknown } }): string {
+  const workspacePath = workspacePathFromGitCwd(cwd)
+  const setup = pullRequestGitSetup(context)
+  if (setup && pathContains(setup.mount, workspacePath)) return setup.mount
+  return workspacePath
+}
+
+async function preparePullRequestGitSession(
+  session: WorkspaceSession,
+  workspacePath: string,
+  context: { context?: { get(key: string): unknown } },
+  timeout: number | undefined,
+): Promise<void> {
+  const setup = pullRequestGitSetup(context)
+  if (!setup || workspacePath !== setup.mount) return
+
+  const cwd = `/workspace/${setup.mount}`
+  const existing = await session.exec("git", ["rev-parse", "--is-inside-work-tree"], gitExecOptions(cwd, timeout))
+  if (existing.exitCode === 0) return
+
+  const baseTrackingRef = gitRemoteBranchTrackingRef(setup.baseRef)
+  const authHeader = gitHubAuthHeader()
+  const script = [
+    "set -eu",
+    `rm -rf -- ${shellQuote(setup.mount)}`,
+    `mkdir -p -- ${shellQuote(setup.mount)}`,
+    `cd -- ${shellQuote(setup.mount)}`,
+    "git init -q",
+    `git remote add origin ${shellQuote(setup.remoteUrl)}`,
+    'if [ -n "${VITEHUB_GIT_AUTH_HEADER:-}" ]; then git config --local http.https://github.com/.extraheader "$VITEHUB_GIT_AUTH_HEADER"; fi',
+    `git fetch --depth=100 origin ${shellQuote(`${setup.headRef}:refs/vitehub/head`)} ${shellQuote(`${setup.baseRef}:${baseTrackingRef}`)}`,
+    "git checkout -q --detach refs/vitehub/head",
+    `git branch -f vitehub-base ${shellQuote(baseTrackingRef)} >/dev/null`,
+    "git branch -f vitehub-head HEAD >/dev/null",
+  ].join("\n")
+  const result = await session.exec("sh", ["-lc", script], gitShellExecOptions("/workspace", timeout, {
+    VITEHUB_GIT_AUTH_HEADER: authHeader,
+  }))
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr || result.stdout || "[vitehub] git could not prepare pull request checkout.")
+  }
+}
+
+function defaultGitCwd(context: { context?: { get(key: string): unknown } }): string | undefined {
+  const raw = context.context?.get("pullRequest")
+  const pullRequest = isGitRecord(raw) && isGitRecord(raw.pullRequest) ? raw.pullRequest : isGitRecord(raw) ? raw : undefined
+  const source = isGitRecord(pullRequest?.source) ? pullRequest.source : undefined
+  return safeWorkspacePath(source?.mount)
+}
+
+function normalizeGitToolInput(input: unknown, defaultCwd: string | undefined): GitCommandInput {
+  if (typeof input === "string") {
+    return {
+      command: input,
+      ...(defaultCwd ? { cwd: defaultCwd } : {}),
+    }
+  }
+  if (!isGitRecord(input)) return {}
+  const command = typeof input.command === "string" ? input.command : gitCommandFromArgs(input.args)
+  return {
+    ...input,
+    ...(command ? { command } : {}),
+    ...(input.cwd === undefined && defaultCwd ? { cwd: defaultCwd } : {}),
+  }
+}
+
 function limitOutput(output: string, maxOutputLength: number): { output: string, truncated?: boolean } {
   if (output.length <= maxOutputLength) return { output }
   return {
@@ -270,16 +450,18 @@ async function cleanWorkingTree(session: WorkspaceSession, cwd: string, timeout:
 function gitTools(
   mode: AgentCapabilityMode,
   options: Required<Pick<GitCapabilityOptions, "maxOutputLength">> & Pick<GitCapabilityOptions, "policy" | "timeout">,
-  getSession: () => Promise<WorkspaceSession>,
+  getSession: (cwd: string) => Promise<WorkspaceSession>,
+  defaultCwd: string | undefined,
 ): AgentToolSet {
-  async function run(input: GitCommandInput, write: boolean): Promise<GitCommandResult> {
+  async function run(rawInput: unknown, write: boolean): Promise<GitCommandResult> {
+    const input = normalizeGitToolInput(rawInput, defaultCwd)
     if (typeof input?.command !== "string" || !input.command.trim()) {
       throw new Error("[vitehub] git command must be a non-empty string.")
     }
     const args = parseGitCommand(input.command)
     write ? assertGitWrite(args) : assertGitRead(args)
     const cwd = normalizeCwd(input.cwd)
-    const session = await getSession()
+    const session = await getSession(cwd)
     if (write && args[0] === "fetch") await assertConfiguredFetchRemote(session, cwd, options.timeout, args)
     if (write && writeSubcommands.has(args[0]!)) await cleanWorkingTree(session, cwd, options.timeout)
     const result = await session.exec("git", args, gitExecOptions(cwd, options.timeout))
@@ -347,27 +529,39 @@ export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefiniti
     return state
   }
 
-  function getSessionResolver(context: { workspace?: unknown }): () => Promise<WorkspaceSession> {
-    return async () => {
+  function getSessionResolver(context: { context?: { get(key: string): unknown }, workspace?: unknown }): (cwd: string) => Promise<WorkspaceSession> {
+    return async (cwd) => {
       const workspace = context.workspace
       if (!isGitSessionWorkspace(workspace)) {
         throw new Error("[vitehub] git() requires a git-capable workspace session.")
       }
       const state = sessionState(context)
-      state.sessionPromise ??= workspace.startSession().catch((error) => {
-        state.sessionPromise = undefined
-        throw error
-      })
-      return await state.sessionPromise
+      const workspacePath = gitSessionWorkspacePath(cwd, context)
+      const key = workspacePath || ""
+      state.sessionPromises ??= new Map()
+      if (!state.sessionPromises.has(key)) {
+        state.sessionPromises.set(key, workspace.startSession(workspacePath ? { paths: [workspacePath] } : undefined).then(async (session) => {
+          await preparePullRequestGitSession(session, workspacePath, context, options.timeout)
+          return session
+        }).catch((error) => {
+          state.sessionPromises?.delete(key)
+          throw error
+        }))
+      }
+      const session = await state.sessionPromises.get(key)
+      if (!session) {
+        throw new Error("[vitehub] git() requires a git-capable workspace session.")
+      }
+      return session
     }
   }
 
   async function closeSession(context: object): Promise<void> {
     const state = sessionStates.get(context)
     sessionStates.delete(context)
-    const session = await state?.sessionPromise
-    if (state) state.sessionPromise = undefined
-    await session?.close()
+    const sessions = await Promise.all([...state?.sessionPromises?.values() || []])
+    if (state) state.sessionPromises = undefined
+    await Promise.all(sessions.map(session => session.close()))
   }
 
   return defineCapability({
@@ -379,7 +573,7 @@ export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefiniti
       maxOutputLength,
       policy: options.policy,
       timeout: options.timeout,
-    }, getSessionResolver(context)),
+    }, getSessionResolver(context), defaultGitCwd(context)),
     close: closeSession,
   })
 }

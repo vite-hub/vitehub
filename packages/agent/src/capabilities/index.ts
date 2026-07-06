@@ -246,10 +246,16 @@ export type {
   RepositoryHostWriteRequest,
 } from "./repository-host.ts"
 export type {
+  PullRequestContextCapabilityFactory,
+  PullRequestContextComment,
+  PullRequestContextFile,
+  PullRequestContextMetadata,
   PullRequestContextOptions,
+  PullRequestContextRef,
   PullRequestContextResolver,
   PullRequestContextRules,
   PullRequestContextSources,
+  PullRequestContextUser,
   PullRequestContextValue,
 } from "./pull-request-context.ts"
 export type {

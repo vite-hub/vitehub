@@ -28,14 +28,22 @@ function gitSession(options: { remotes?: string, status?: string } = {}) {
   return session
 }
 
-async function capabilityTools(capability = git(), session = gitSession()): Promise<{ session: ReturnType<typeof gitSession>, tools: AgentToolSet }> {
+async function capabilityTools(
+  capability = git(),
+  session = gitSession(),
+  contextValues: Record<string, unknown> = {},
+): Promise<{ session: ReturnType<typeof gitSession>, startSession: ReturnType<typeof vi.fn>, tools: AgentToolSet }> {
   if (typeof capability.tools !== "function") throw new Error("git capability must expose tool resolver")
+  const startSession = vi.fn(async () => session)
   const tools = await capability.tools({
+    context: {
+      get: vi.fn((key: string) => contextValues[key]),
+    },
     workspace: {
-      startSession: vi.fn(async () => session),
+      startSession,
     },
   } as never) as AgentToolSet
-  return { session, tools }
+  return { session, startSession, tools }
 }
 
 describe("git capability", () => {
@@ -158,5 +166,73 @@ describe("git capability", () => {
     await expect(tools.git_write!.execute?.({ command: "git push origin main" })).rejects.toThrow("git push is not available")
     await expect(tools.git_write!.execute?.({ command: "git fetch https://example.com/repo.git main" })).rejects.toThrow("configured remotes")
     expect(dirty.commit).not.toHaveBeenCalled()
+  })
+
+  it("prepares pull request checkout and defaults cwd to the source mount", async () => {
+    const session = gitSession()
+    session.exec.mockImplementation(async (command: string, args: string[] = []) => ({
+      args,
+      command,
+      exitCode: command === "git" && args.join(" ") === "rev-parse --is-inside-work-tree" ? 1 : 0,
+      stderr: "",
+      stdout: command === "git" && args.join(" ") === "status --short" ? "ok\n" : "",
+    }))
+    const { startSession, tools } = await capabilityTools(git(), session, {
+      pullRequest: {
+        pullRequest: {
+          base: { ref: "main" },
+          head: { ref: "feature" },
+          number: 42,
+          source: {
+            mount: "vitehub",
+            ref: "refs/pull/42/head",
+            repo: "vite-hub/vitehub",
+          },
+        },
+        repository: {
+          fullName: "vite-hub/vitehub",
+          name: "vitehub",
+        },
+      },
+    })
+
+    await expect(tools.git_read!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
+      cwd: "/workspace/vitehub",
+      stdout: "ok\n",
+    })
+
+    expect(startSession).toHaveBeenCalledWith({ paths: ["vitehub"] })
+    expect(session.exec).toHaveBeenNthCalledWith(1, "git", ["rev-parse", "--is-inside-work-tree"], expect.objectContaining({ cwd: "/workspace/vitehub" }))
+    expect(session.exec).toHaveBeenNthCalledWith(2, "sh", ["-lc", expect.stringContaining("git fetch --depth=100 origin 'refs/pull/42/head:refs/vitehub/head' 'refs/heads/main:refs/remotes/origin/main'")], expect.objectContaining({ cwd: "/workspace" }))
+    expect(session.exec).toHaveBeenNthCalledWith(3, "git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace/vitehub" }))
+  })
+
+  it("ignores unsafe pull request checkout values", async () => {
+    const session = gitSession()
+    const { startSession, tools } = await capabilityTools(git(), session, {
+      pullRequest: {
+        pullRequest: {
+          number: 42,
+          source: {
+            mount: "../vitehub",
+            ref: "main..evil",
+            repo: "vite hub/vitehub",
+          },
+        },
+        repository: {
+          fullName: "vite hub/vitehub",
+          name: "vitehub",
+        },
+      },
+    })
+
+    await expect(tools.git_read!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
+      cwd: "/workspace",
+      stdout: "ok\n",
+    })
+
+    expect(startSession).toHaveBeenCalledWith(undefined)
+    expect(session.exec).toHaveBeenCalledOnce()
+    expect(session.exec).toHaveBeenCalledWith("git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace" }))
   })
 })
