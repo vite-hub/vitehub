@@ -241,4 +241,27 @@ describe("@vite-hub/source GitHub source", () => {
     const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
     expect(archiveCalls).toHaveLength(1)
   })
+
+  it("dedupes concurrent GitHub archive reads without provider cache", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+
+    registerSources({
+      docs: github({
+        repo: "acme/app",
+        root: "docs",
+      }),
+    })
+
+    const docs = useSource("docs")
+
+    await expect(Promise.all([
+      docs.read("README.md"),
+      docs.read("README.md"),
+    ])).resolves.toEqual(["# Docs\n", "# Docs\n"])
+
+    const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
+    expect(archiveCalls).toHaveLength(1)
+  })
 })
