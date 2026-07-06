@@ -889,6 +889,31 @@ describe("hubWorkspace", () => {
     })
   })
 
+  it("materializes files-sdk for Vercel Blob workspace build output", async () => {
+    const root = await createViteRoot()
+    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({
+      store: {
+        provider: "vercel-blob",
+      },
+    })
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+    vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
+
+    await configResolved({ command: "build", root })
+    await closeBundle.handler()
+
+    expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
+      packages: [
+        { name: "@vite-hub/workspace", resolveFrom: expect.any(String) },
+        { name: "files-sdk" },
+      ],
+      rootDir: root,
+    })
+  })
+
   it("leaves e2e hosted output to the e2e composer", async () => {
     const root = await createViteRoot()
     const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")

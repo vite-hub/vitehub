@@ -35,6 +35,13 @@ const generatedNitroWorkspaceRegistry = ".vitehub/nitro/workspace/registry.js"
 const mergeNoExternal = createNoExternalMerger(WORKSPACE_PACKAGE_NAME)
 const workspacesDirSegment = /[\\/](?:server[\\/])?workspaces(?:[\\/]|$)/
 
+function vercelFunctionRuntimePackages(options: false | ResolvedWorkspaceModuleOptions) {
+  return [
+    { name: WORKSPACE_PACKAGE_NAME, resolveFrom: import.meta.url },
+    ...(options && options.store?.provider === "vercel-blob" ? [{ name: "files-sdk" }] : []),
+  ]
+}
+
 export interface WorkspaceNitroConfigOptions {
   command?: "build" | "serve"
   env?: Record<string, string | undefined>
@@ -470,7 +477,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       async handler() {
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
         await copyVercelFunctionRuntimePackages({
-          packages: [{ name: WORKSPACE_PACKAGE_NAME, resolveFrom: import.meta.url }],
+          packages: vercelFunctionRuntimePackages(resolvedOptions),
           rootDir: projectRoot || resolveViteHubProjectRoot(resolved.root),
         })
       },
