@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { createClient } from "@libsql/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createLibsqlAgentState, createSqliteAgentState, ViteHubSqliteAgentStateAdapter } from "../src/state/sqlite.ts"
+import { createLibsqlAgentState, createSqliteAgentState, type SqliteAgentStateDriver, ViteHubSqliteAgentStateAdapter } from "../src/state/sqlite.ts"
 
 import type { QueueEntry, StateAdapter } from "chat"
 
@@ -87,6 +87,70 @@ describe("SQLite Agent State Provider", () => {
     await state.connect()
     await expect(state.get("seen")).resolves.toBe("yes")
     await state.disconnect()
+  })
+
+  it("shares concurrent connect attempts", async () => {
+    let inTransaction = false
+    let migrations = 0
+    const driver: SqliteAgentStateDriver = {
+      async execute(statement: string) {
+        if (statement.includes("COALESCE(MAX(version)")) return { rows: [{ version: 2 }] }
+        return { rows: [] }
+      },
+      async transaction(run) {
+        if (inTransaction) throw new Error("concurrent migration")
+        inTransaction = true
+        try {
+          migrations += 1
+          await new Promise(resolve => setTimeout(resolve, 10))
+          return await run(driver)
+        }
+        finally {
+          inTransaction = false
+        }
+      },
+    }
+    const adapter = new ViteHubSqliteAgentStateAdapter({ driver })
+
+    await expect(Promise.all([adapter.connect(), adapter.connect()])).resolves.toEqual([undefined, undefined])
+    expect(migrations).toBe(1)
+    await adapter.disconnect()
+  })
+
+  it("awaits in-flight setup after the driver connects", async () => {
+    let finishMigration: (() => void) | undefined
+    let startMigration!: () => void
+    const migrationStarted = new Promise<void>((resolve) => {
+      startMigration = resolve
+    })
+    const driver: SqliteAgentStateDriver = {
+      async execute(statement: string) {
+        if (statement.includes("COALESCE(MAX(version)")) return { rows: [{ version: 2 }] }
+        return { rows: [] }
+      },
+      async transaction(run) {
+        startMigration()
+        await new Promise<void>((finish) => {
+          finishMigration = finish
+        })
+        return await run(driver)
+      },
+    }
+    const adapter = new ViteHubSqliteAgentStateAdapter({ driver })
+    const firstConnect = adapter.connect()
+
+    await migrationStarted
+    const secondConnect = adapter.connect()
+    let secondResolved = false
+    void secondConnect.then(() => {
+      secondResolved = true
+    })
+    await Promise.resolve()
+    expect(secondResolved).toBe(false)
+
+    finishMigration?.()
+    await expect(Promise.all([firstConnect, secondConnect])).resolves.toEqual([undefined, undefined])
+    await adapter.disconnect()
   })
 
   it("creates parent directories for local libSQL file URLs", async () => {

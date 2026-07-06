@@ -94,6 +94,7 @@ async function execute(executor: SqliteAgentStateExecutor, statement: string, ar
 
 export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
   private connected = false
+  private connectPromise?: Promise<void>
   private readonly driver: SqliteAgentStateDriver
   private nextCleanupAt = 0
   private readonly tables: StateTables
@@ -149,6 +150,18 @@ export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
   }
 
   async connect(): Promise<void> {
+    if (this.connectPromise) {
+      await this.connectPromise
+      return
+    }
+    if (this.connected) return
+    this.connectPromise ??= this.doConnect().finally(() => {
+      this.connectPromise = undefined
+    })
+    await this.connectPromise
+  }
+
+  private async doConnect(): Promise<void> {
     await this.driver.connect?.()
     this.connected = true
     try {
