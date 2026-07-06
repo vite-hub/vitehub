@@ -24,6 +24,23 @@ describe("agent HTTP response helpers", () => {
     })
   })
 
+  it("keeps JSON-safe Workflow Run fields", () => {
+    expect(toJsonSafeAgentResult({
+      id: "github:delivery",
+      metadata: { workflow: "support-agent" },
+      payload: { prompt: "private input" },
+      provider: "vercel",
+      result: "accepted",
+      status: "queued",
+    })).toEqual({
+      id: "github:delivery",
+      metadata: { workflow: "support-agent" },
+      provider: "vercel",
+      result: "accepted",
+      status: "queued",
+    })
+  })
+
   it("returns host-native Response objects unchanged", () => {
     const response = Response.json({ ok: true })
 

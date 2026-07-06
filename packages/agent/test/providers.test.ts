@@ -2723,6 +2723,67 @@ describe("server helpers", () => {
     expect(run).toHaveBeenCalledOnce()
   })
 
+  it("runs GitHub channel webhooks through workflow-backed agents", async () => {
+    const { defineAgent, workflow } = await import("../src/index.ts")
+    const { github } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const { getWorkflowRun } = await import("@vite-hub/workflow")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const run = vi.fn(context => `accepted ${context.prompt}`)
+    const agent = defineAgent({
+      channels: {
+        github: github({
+          triggers: {
+            webhook: {
+              invoke: () => ({
+                input: { prompt: "github delivery" },
+                run: { channelId: "github", origin: "github", runId: "github:delivery-workflow" },
+              }),
+            },
+          },
+          webhooks: { secretToken: "secret-token" },
+        }),
+      },
+      driver: {
+        run
+      },
+      runtime: workflow("support-agent"),
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const body = JSON.stringify({ action: "opened" })
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+
+    try {
+      const response = await handler(new Request("https://example.com/api/github/webhook", {
+        body,
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": "delivery-workflow",
+          "x-github-event": "pull_request",
+          "x-hub-signature-256": githubSignature("secret-token", body),
+        },
+        method: "POST",
+      }), "")
+      const json = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(json).toMatchObject({
+        id: "github:delivery-workflow",
+        provider: "vercel",
+        status: "queued",
+      })
+      expect(json).not.toHaveProperty("payload")
+      expect(run).toHaveBeenCalledOnce()
+      await expect(getWorkflowRun("support-agent", "github:delivery-workflow")).resolves.toMatchObject({
+        result: "accepted github delivery",
+        status: "completed",
+      })
+    }
+    finally {
+      resetWorkflowRuntime()
+    }
+  })
+
   it("lets signed GitHub channel webhooks return a handled response without running the agent", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
