@@ -14,6 +14,21 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
   return !!value && typeof value === "object" && Symbol.asyncIterator in value
 }
 
+const workflowProviders = new Set(["cloudflare", "openworkflow", "vercel"])
+const workflowRunStatuses = new Set(["completed", "failed", "queued", "running", "unknown"])
+
+export function isWorkflowRun(value: unknown): value is { id: string, metadata?: unknown, provider: string, result?: unknown, status: string } {
+  if (typeof value !== "object" || value === null) return false
+  const run = value as { id?: unknown, provider?: unknown, status?: unknown }
+  const provider = run.provider
+  const status = run.status
+  return typeof run.id === "string"
+    && typeof provider === "string"
+    && workflowProviders.has(provider)
+    && typeof status === "string"
+    && workflowRunStatuses.has(status)
+}
+
 export function toAgentEventStreamResponse(stream: AsyncIterable<unknown>): Response {
   const encoder = new TextEncoder()
   return new Response(new ReadableStream({
@@ -38,6 +53,16 @@ export function toAgentEventStreamResponse(stream: AsyncIterable<unknown>): Resp
 export function toJsonSafeAgentResult(value: unknown) {
   if (typeof value !== "object" || value === null) {
     return value
+  }
+
+  if (isWorkflowRun(value)) {
+    return {
+      id: value.id,
+      ...(value.metadata !== undefined ? { metadata: value.metadata } : {}),
+      provider: value.provider,
+      ...(value.result !== undefined ? { result: value.result } : {}),
+      status: value.status,
+    }
   }
 
   const result = value as Record<string, unknown>
