@@ -20,6 +20,7 @@ function githubIssueCommentPayload(body = "/review please") {
       },
       title: "Improve app",
     },
+    installation: { id: 123 },
     repository: {
       full_name: "acme/app",
     },
@@ -180,6 +181,7 @@ describe("agent channels", () => {
     expect(result.input.context?.github).toMatchObject({
       args: "please",
       command: "/review",
+      installationId: 123,
       repository: "acme/app",
     })
     expect(result.input.context?.pullRequest).toMatchObject({
@@ -190,7 +192,7 @@ describe("agent channels", () => {
 
   it("invokes GitHub PR dev trigger from context and raw payload", async () => {
     const { github } = await import("../src/channels.ts")
-    const channel = github({ pullRequest: { reply: false } })
+    const channel = github({ pullRequest: true })
     const trigger = channel.triggers?.dev
     if (!trigger) throw new Error("Missing GitHub dev trigger.")
     const context = {
@@ -211,27 +213,41 @@ describe("agent channels", () => {
         actor: { login: "mona" },
         args: "",
         command: "/review",
-        comment: { body: "/review", id: 99 },
+        comment: { body: "/review", id: 99, nodeId: "comment-node" },
         event: "issue_comment",
+        installationId: 123,
       },
     }
+    const devRun = { origin: "dev", runId: "dev:from-loop", threadId: "dev:agent" }
 
-    const fromContext = await trigger.invoke(context, { pullRequest, prompt: "manual prompt" })
+    const fromContext = await trigger.invoke(context, { pullRequest, prompt: "manual prompt", run: devRun })
     if (fromContext instanceof Response) throw new Error("Expected GitHub context invocation.")
     expect(fromContext.input).toMatchObject({
-      context: { pullRequest },
+      context: {
+        github: {
+          commentId: 99,
+          commentNodeId: "comment-node",
+          command: "/review",
+          installationId: 123,
+          repository: "acme/app",
+        },
+        pullRequest,
+      },
       prompt: "manual prompt",
     })
     expect(fromContext.run).toMatchObject({
       channelId: "github",
+      origin: "github-pull-request-comment",
       runId: "github:acme/app#42:comment:99",
+      threadId: "pr-42",
     })
 
-    const fromPayload = await trigger.invoke(context, githubIssueCommentPayload("/review raw payload"))
+    const fromPayload = await trigger.invoke(context, { ...githubIssueCommentPayload("/review raw payload"), run: devRun })
     if (fromPayload instanceof Response) throw new Error("Expected GitHub payload invocation.")
     expect(fromPayload.input.context?.github).toMatchObject({
       args: "raw payload",
       command: "/review",
+      installationId: 123,
       repository: "acme/app",
     })
     expect(fromPayload.input.context?.pullRequest).toMatchObject({
@@ -240,7 +256,9 @@ describe("agent channels", () => {
     })
     expect(fromPayload.run).toMatchObject({
       channelId: "github",
+      origin: "github-pull-request-comment",
       runId: "github:acme/app#42:comment:99",
+      threadId: "https://github.test/acme/app/pull/42",
     })
   })
 

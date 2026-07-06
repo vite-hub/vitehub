@@ -565,6 +565,7 @@ function githubPullRequestCommandFromInput(input: unknown): GitHubPullRequestCom
   const pullRequestUrl = maybeString(payload.issue.pull_request.url)
   if (!repository || !owner || !repo || !login || !issueNumber || !commentId || !pullRequestUrl) return
   const association = maybeString(payload.comment?.author_association) || maybeString(payload.issue.author_association)
+  const installationId = maybeNumber(facts?.installationId) ?? maybeNumber(payload.installation?.id)
   return {
     action: "created",
     actor: {
@@ -579,7 +580,7 @@ function githubPullRequestCommandFromInput(input: unknown): GitHubPullRequestCom
     commentId,
     ...(maybeString(payload.comment?.node_id) ? { commentNodeId: maybeString(payload.comment?.node_id) } : {}),
     ...(maybeString(facts?.deliveryId) ? { deliveryId: maybeString(facts?.deliveryId) } : {}),
-    ...(maybeNumber(facts?.installationId) ? { installationId: maybeNumber(facts?.installationId) } : {}),
+    ...(installationId ? { installationId } : {}),
     issueNumber,
     owner,
     pullRequestUrl,
@@ -1543,6 +1544,34 @@ function githubPullRequestRunContextFromInput(input: unknown): GitHubPullRequest
   return value as unknown as GitHubPullRequestRunContext
 }
 
+function githubCommandFromRunContext(value: GitHubPullRequestRunContext): GitHubPullRequestCommand | undefined {
+  const repository = maybeString(value.repository.fullName)
+  const [fallbackOwner, fallbackRepo] = repository?.split("/") || []
+  const owner = maybeString(value.repository.owner) || fallbackOwner
+  const repo = maybeString(value.repository.name) || fallbackRepo
+  const issueNumber = maybeNumber(value.pullRequest.number)
+  const commentId = maybeNumber(value.trigger.comment.id)
+  const pullRequestUrl = maybeString(value.pullRequest.apiUrl)
+  const login = maybeString(value.trigger.actor.login)
+  if (!repository || !owner || !repo || !issueNumber || !commentId || !pullRequestUrl || !login) return
+  return {
+    action: value.trigger.action,
+    actor: value.trigger.actor,
+    args: value.trigger.args,
+    body: maybeString(value.trigger.comment.body) || value.trigger.command,
+    command: value.trigger.command,
+    commentId,
+    ...(maybeString(value.trigger.comment.nodeId) ? { commentNodeId: maybeString(value.trigger.comment.nodeId) } : {}),
+    ...(maybeString(value.trigger.deliveryId) ? { deliveryId: maybeString(value.trigger.deliveryId) } : {}),
+    ...(maybeNumber(value.trigger.installationId) ? { installationId: maybeNumber(value.trigger.installationId) } : {}),
+    issueNumber,
+    owner,
+    pullRequestUrl,
+    repo,
+    repository,
+  }
+}
+
 function githubPullRequestDevPrompt(input: Record<string, unknown>, pullRequest: GitHubPullRequestRunContext): string {
   return maybeString(input.prompt) || maybeString(pullRequest.trigger.comment.body) || maybeString(pullRequest.trigger.command) || "/review"
 }
@@ -1594,16 +1623,19 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           ...(typeof inputRecord.timeout === "number" ? { timeout: inputRecord.timeout } : {}),
         }
         if (existingPullRequest) {
+          const command = githubCommandFromUnknown(inputRecord.github) || githubCommandFromRunContext(existingPullRequest)
           return {
             ...(finishEffects ? { delivery: { finishEffects } } : {}),
             input: {
               ...controls,
-              context: { pullRequest: existingPullRequest },
+              context: {
+                ...(command ? { github: command } : {}),
+                pullRequest: existingPullRequest,
+              },
               prompt: githubPullRequestDevPrompt(inputRecord, existingPullRequest),
             },
             run: {
               ...existingPullRequest.run,
-              ...(isRecord(inputRecord.run) ? inputRecord.run : {}),
               channelId: context.trigger.channelId,
             },
           }
@@ -1631,7 +1663,6 @@ function githubEventTriggers<TRuntimeConfig extends AgentRuntimeConfig>(
           },
           run: {
             ...pullRequest.run,
-            ...(isRecord(inputRecord.run) ? inputRecord.run : {}),
             channelId: context.trigger.channelId,
           },
         }
