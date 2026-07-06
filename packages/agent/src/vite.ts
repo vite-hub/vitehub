@@ -363,16 +363,27 @@ function generatedHostedWorkspaceRuntimeSetup(definitions: DiscoveredAgentDefini
     .filter((module): module is string => Boolean(module))
   if (!modules.length) return { imports: [], setup: [] }
   return {
-    imports: [`import { installHostedWorkspaceRuntime } from ${JSON.stringify(subpath(workspaceImportBase, "internal/runtime/hosted"))}`],
+    imports: [
+      `import { installHostedWorkspaceRuntime } from ${JSON.stringify(subpath(workspaceImportBase, "internal/runtime/hosted"))}`,
+      `import { installHostedVercelBlobWorkspaceRuntime } from ${JSON.stringify(subpath(workspaceImportBase, "internal/runtime/hosted-vercel-blob"))}`,
+    ],
     setup: [
       "function hasHostedWorkspaceStore(module) {",
       "  const agent = resolveAgentModule(module)",
       "  const store = agent?.__vitehubWorkspaceAgentOptions?.workspace?.store",
-      "  if (!store && typeof process === 'object' && process?.env?.BLOB_READ_WRITE_TOKEN) return true",
-      "  return store && typeof store === 'object' && ['cloudflare-artifacts', 'github', 'vercel-blob'].includes(store.provider)",
+      "  return store && typeof store === 'object' && ['cloudflare-artifacts', 'github'].includes(store.provider)",
+      "}",
+      "",
+      "function hasHostedVercelBlobWorkspaceStore(module) {",
+      "  const agent = resolveAgentModule(module)",
+      "  const workspace = agent?.__vitehubWorkspaceAgentOptions?.workspace",
+      "  const store = workspace?.store",
+      "  if (workspace && !store && typeof process === 'object' && process?.env?.BLOB_READ_WRITE_TOKEN) return true",
+      "  return store && typeof store === 'object' && store.provider === 'vercel-blob'",
       "}",
       "",
       `if ([${modules.join(", ")}].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()`,
+      `if ([${modules.join(", ")}].some(hasHostedVercelBlobWorkspaceStore)) installHostedVercelBlobWorkspaceRuntime()`,
       "",
     ],
   }

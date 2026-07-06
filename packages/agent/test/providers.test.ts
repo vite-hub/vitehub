@@ -513,7 +513,9 @@ describe("agent Vite plugin", () => {
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
       expect(webhookRoute).toContain("import { installHostedWorkspaceRuntime } from \"@vite-hub/workspace/internal/runtime/hosted\"")
+      expect(webhookRoute).toContain("import { installHostedVercelBlobWorkspaceRuntime } from \"@vite-hub/workspace/internal/runtime/hosted-vercel-blob\"")
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()")
+      expect(webhookRoute).toContain("if ([agent0].some(hasHostedVercelBlobWorkspaceStore)) installHostedVercelBlobWorkspaceRuntime()")
       expect(webhookRoute).not.toContain("@vite-hub/workspace/internal/stores/github")
       expect(webhookRoute).toContain("workspaceRegistryEntry(\"support\", agent0")
     }
@@ -802,8 +804,10 @@ describe("agent Vite plugin", () => {
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
       expect(webhookRoute).toContain("import { installHostedWorkspaceRuntime } from \"@vite-hub/workspace/internal/runtime/hosted\"")
+      expect(webhookRoute).toContain("import { installHostedVercelBlobWorkspaceRuntime } from \"@vite-hub/workspace/internal/runtime/hosted-vercel-blob\"")
       expect(webhookRoute).toContain("function hasHostedWorkspaceStore(module)")
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()")
+      expect(webhookRoute).toContain("if ([agent0].some(hasHostedVercelBlobWorkspaceStore)) installHostedVercelBlobWorkspaceRuntime()")
       expect(webhookRoute).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
       expect(webhookRoute).toContain("workspaceRegistryEntry(\"audio-bitacora\", agent0")
       expect(webhookRoute).not.toContain("@vite-hub/workspace/internal/stores/github")
@@ -837,8 +841,9 @@ describe("agent Vite plugin", () => {
       const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
 
       expect(webhookRoute).toContain("import { installHostedWorkspaceRuntime } from \"@vite-hub/workspace/internal/runtime/hosted\"")
+      expect(webhookRoute).toContain("import { installHostedVercelBlobWorkspaceRuntime } from \"@vite-hub/workspace/internal/runtime/hosted-vercel-blob\"")
       expect(webhookRoute).toContain("process?.env?.BLOB_READ_WRITE_TOKEN")
-      expect(webhookRoute).toContain("if ([agent0].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()")
+      expect(webhookRoute).toContain("if ([agent0].some(hasHostedVercelBlobWorkspaceStore)) installHostedVercelBlobWorkspaceRuntime()")
       expect(webhookRoute).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
       expect(webhookRoute).toContain("workspaceRegistryEntry(\"audio-bitacora\", agent0")
     }

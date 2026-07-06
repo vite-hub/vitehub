@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+declare global {
+  var __vitehubWorkspaceImportFilesSdkPeer: ((specifier: string) => Promise<unknown>) | undefined
+}
+
 const blobMock = vi.hoisted(() => {
   const store = new Map<string, { body: Uint8Array, uploadedAt: Date }>()
   const pathnameFromUrl = (input: string) => input.startsWith("https://blob.example/")
@@ -48,61 +52,91 @@ const blobMock = vi.hoisted(() => {
   }
 })
 
-vi.mock("files-sdk/vercel-blob", () => ({
-  vercelBlob: () => ({
-    name: "vercel-blob",
-    raw: {},
-    async upload(pathname: string, body: Blob | Uint8Array | string) {
-      const result = await blobMock.put(pathname, body)
-      return {
-        contentType: "application/octet-stream",
-        key: result.pathname,
-        lastModified: Date.now(),
-        size: result.size,
+const filesSdkModules = {
+  "files-sdk": {
+    Files: class {
+      constructor(private options: { adapter: ReturnType<typeof filesSdkModules["files-sdk/vercel-blob"]["vercelBlob"]> }) {}
+
+      delete(key: string) {
+        return this.options.adapter.delete(key)
+      }
+
+      download(key: string) {
+        return this.options.adapter.download(key)
+      }
+
+      head(key: string) {
+        return this.options.adapter.head(key)
+      }
+
+      list(options: { cursor?: string, limit?: number, prefix: string }) {
+        return this.options.adapter.list(options)
+      }
+
+      upload(key: string, body: Blob | Uint8Array | string, options?: { contentType?: string }) {
+        void options
+        return this.options.adapter.upload(key, body)
       }
     },
-    async download(pathname: string) {
-      const result = await blobMock.get(pathname)
-      if (result.statusCode !== 200 || !result.stream) throw Object.assign(new Error("not found"), { code: "NotFound" })
-      const bytes = await new Response(result.stream).arrayBuffer()
-      return {
-        arrayBuffer: async () => bytes,
-        key: pathname,
-        lastModified: Date.now(),
-        metadata: {},
-        size: bytes.byteLength,
-        text: async () => new TextDecoder().decode(bytes),
-        type: "application/octet-stream",
-      }
-    },
-    async head(pathname: string) {
-      const result = await blobMock.head(pathname)
-      if (!result) throw Object.assign(new Error("not found"), { code: "NotFound" })
-      return {
-        key: pathname,
-        lastModified: result.uploadedAt.getTime(),
-        metadata: {},
-        size: result.size,
-        type: "application/octet-stream",
-      }
-    },
-    async list(options: { prefix?: string } = {}) {
-      const result = await blobMock.list(options)
-      return {
-        items: result.blobs.map(blob => ({
-          key: blob.pathname,
-          lastModified: blob.uploadedAt.getTime(),
+  },
+  "files-sdk/vercel-blob": {
+    vercelBlob: () => ({
+      name: "vercel-blob",
+      raw: {},
+      async upload(pathname: string, body: Blob | Uint8Array | string) {
+        const result = await blobMock.put(pathname, body)
+        return {
+          contentType: "application/octet-stream",
+          key: result.pathname,
+          lastModified: Date.now(),
+          size: result.size,
+        }
+      },
+      async download(pathname: string) {
+        const result = await blobMock.get(pathname)
+        if (result.statusCode !== 200 || !result.stream) throw Object.assign(new Error("not found"), { code: "NotFound" })
+        const bytes = await new Response(result.stream).arrayBuffer()
+        return {
+          arrayBuffer: async () => bytes,
+          key: pathname,
+          lastModified: Date.now(),
           metadata: {},
-          size: blob.size,
+          size: bytes.byteLength,
+          text: async () => new TextDecoder().decode(bytes),
           type: "application/octet-stream",
-        })),
-      }
-    },
-    async delete(pathname: string) {
-      await blobMock.del(pathname)
-    },
-  }),
-}))
+        }
+      },
+      async head(pathname: string) {
+        const result = await blobMock.head(pathname)
+        if (!result) throw Object.assign(new Error("not found"), { code: "NotFound" })
+        return {
+          key: pathname,
+          lastModified: result.uploadedAt.getTime(),
+          metadata: {},
+          size: result.size,
+          type: "application/octet-stream",
+        }
+      },
+      async list(options: { prefix?: string } = {}) {
+        const result = await blobMock.list(options)
+        return {
+          items: result.blobs.map(blob => ({
+            key: blob.pathname,
+            lastModified: blob.uploadedAt.getTime(),
+            metadata: {},
+            size: blob.size,
+            type: "application/octet-stream",
+          })),
+        }
+      },
+      async delete(pathname: string) {
+        await blobMock.del(pathname)
+      },
+    }),
+  },
+}
+
+globalThis.__vitehubWorkspaceImportFilesSdkPeer = async (specifier: string) => filesSdkModules[specifier as keyof typeof filesSdkModules]
 
 afterEach(() => {
   blobMock.clear()

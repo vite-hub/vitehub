@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url"
 
 import { createGitHubWorkspaceStore } from "@vite-hub/workspace/internal/stores/github"
 import { installHostedWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted"
+import { installHostedVercelBlobWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted-vercel-blob"
 import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
 import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
 
@@ -279,8 +280,16 @@ function hasHostedWorkspaceStore(agent: AgentInput<ViteAgentDevRuntimeContext>):
   const workspace = typeof options?.workspace === "string" || isRecord(options?.workspace) ? options.workspace : undefined
   const store = isRecord(workspace) && isRecord(workspace.store) ? workspace.store : undefined
   if (!workspace) return false
+  return store?.provider === "cloudflare-artifacts" || store?.provider === "github"
+}
+
+function hasHostedVercelBlobWorkspaceStore(agent: AgentInput<ViteAgentDevRuntimeContext>): boolean {
+  const options = isRecord(agent) && isRecord(agent.__vitehubWorkspaceAgentOptions) ? agent.__vitehubWorkspaceAgentOptions : undefined
+  const workspace = typeof options?.workspace === "string" || isRecord(options?.workspace) ? options.workspace : undefined
+  const store = isRecord(workspace) && isRecord(workspace.store) ? workspace.store : undefined
+  if (!workspace) return false
   if (!store && typeof process === "object" && process?.env?.BLOB_READ_WRITE_TOKEN) return true
-  return store?.provider === "cloudflare-artifacts" || store?.provider === "github" || store?.provider === "vercel-blob"
+  return store?.provider === "vercel-blob"
 }
 
 async function loadViteWorkspaceRegistry(server: ViteDevServer): Promise<WorkspaceRegistry> {
@@ -310,6 +319,7 @@ async function installServerAgentWorkspaceRegistry(
     ]))),
   } satisfies WorkspaceRegistry
   if (entries.some(({ agent }) => hasHostedWorkspaceStore(agent))) installHostedWorkspaceRuntime()
+  if (entries.some(({ agent }) => hasHostedVercelBlobWorkspaceStore(agent))) installHostedVercelBlobWorkspaceRuntime()
   const existingWorkspaceHostedStoreLoader = getWorkspaceHostedStoreLoader()
   setWorkspaceHostedStoreLoader((storeOptions, workspaceName) => {
     if (storeOptions.provider === "github") return createGitHubWorkspaceStore(storeOptions, workspaceName)

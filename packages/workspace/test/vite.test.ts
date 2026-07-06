@@ -472,6 +472,7 @@ describe("hubWorkspace", () => {
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(pluginSource).toContain("installHostedWorkspaceRuntime")
+    expect(pluginSource).toContain("installHostedVercelBlobWorkspaceRuntime")
     expect(pluginSource).not.toContain("@vite-hub/workspace/internal/stores/github")
     expect(pluginSource).not.toContain("configureCloudflareWorkspaceRuntime")
   })
@@ -508,8 +509,10 @@ describe("hubWorkspace", () => {
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(pluginSource).toContain("import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
+    expect(pluginSource).toContain("import { installHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'")
     expect(pluginSource).toContain("import { setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
     expect(pluginSource).toContain("installHostedWorkspaceRuntime()")
+    expect(pluginSource).toContain("installHostedVercelBlobWorkspaceRuntime()")
     expect(pluginSource).toContain("setWorkspaceRuntimeConfig")
     expect(pluginSource).toContain('"provider": "local"')
   })
@@ -572,8 +575,10 @@ describe("hubWorkspace", () => {
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(pluginSource).toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
-    expect(pluginSource).toContain("import { configureHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
+    expect(pluginSource).toContain("import { configureHostedWorkspaceRuntime, installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
+    expect(pluginSource).toContain("import { installHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'")
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")
+    expect(pluginSource).toContain("installHostedVercelBlobWorkspaceRuntime()")
     expect(pluginSource).toContain("import registry from \"./registry.js\"")
     expect(pluginSource).toContain('"provider": "github"')
     expect(pluginSource).toContain('"repository": "onmax/quiver-airtable"')
@@ -638,9 +643,11 @@ describe("hubWorkspace", () => {
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("import { configureHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
+    expect(pluginSource).toContain("import { configureHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'")
+    expect(pluginSource).toContain("import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
     expect(pluginSource).toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
-    expect(pluginSource).toContain("configureHostedWorkspaceRuntime")
+    expect(pluginSource).toContain("configureHostedVercelBlobWorkspaceRuntime")
+    expect(pluginSource).toContain("installHostedWorkspaceRuntime()")
     expect(pluginSource).toContain('"provider": "vercel-blob"')
     expect(pluginSource).toContain('"prefix": "workspaces"')
     expect(pluginSource).not.toContain("setWorkspaceRuntimeConfig")
@@ -665,9 +672,11 @@ describe("hubWorkspace", () => {
     })
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
-    expect(pluginSource).toContain("import { configureHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
+    expect(pluginSource).toContain("import { configureHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'")
+    expect(pluginSource).toContain("import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
     expect(pluginSource).toContain("import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
-    expect(pluginSource).toContain("configureHostedWorkspaceRuntime")
+    expect(pluginSource).toContain("configureHostedVercelBlobWorkspaceRuntime")
+    expect(pluginSource).toContain("installHostedWorkspaceRuntime()")
     expect(pluginSource).toContain("setWorkspaceRuntimeRegistry")
     expect(pluginSource).not.toContain("setWorkspaceRuntimeConfig")
     expect(pluginSource).toContain('"provider": "vercel-blob"')
@@ -883,6 +892,60 @@ describe("hubWorkspace", () => {
 
     expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
       packages: [{ name: "@vite-hub/workspace", resolveFrom: expect.any(String) }],
+      rootDir: root,
+    })
+  })
+
+  it("materializes files-sdk for Vercel Blob workspace build output", async () => {
+    const root = await createViteRoot()
+    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace({
+      store: {
+        provider: "vercel-blob",
+      },
+    })
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+    vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
+
+    await configResolved({ command: "build", root })
+    await closeBundle.handler()
+
+    expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
+      packages: [
+        { name: "@vite-hub/workspace", resolveFrom: expect.any(String) },
+        { name: "files-sdk" },
+        { name: "@vercel/blob" },
+      ],
+      rootDir: root,
+    })
+  })
+
+  it("materializes files-sdk for definition-level Vercel Blob workspace build output", async () => {
+    const root = await createViteRoot()
+    await writeFile(join(root, "src/docs.workspace.ts"), [
+      `import { defineWorkspace } from "@vite-hub/workspace"`,
+      `export default defineWorkspace({`,
+      `  store: { provider: "vercel-blob" },`,
+      `})`,
+    ].join("\n"))
+    const { copyVercelFunctionRuntimePackages } = await import("@vite-hub/internal/build/vercel-runtime-packages")
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const plugin = hubWorkspace()
+    const configResolved = plugin.configResolved as (config: { command: "build", root: string }) => Promise<void>
+    const closeBundle = plugin.closeBundle as { handler: () => Promise<void> }
+    vi.mocked(copyVercelFunctionRuntimePackages).mockClear()
+
+    await configResolved({ command: "build", root })
+    await closeBundle.handler()
+
+    expect(copyVercelFunctionRuntimePackages).toHaveBeenCalledWith({
+      packages: [
+        { name: "@vite-hub/workspace", resolveFrom: expect.any(String) },
+        { name: "files-sdk" },
+        { name: "@vercel/blob" },
+      ],
       rootDir: root,
     })
   })

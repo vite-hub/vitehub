@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { shouldSkipViteProviderBuild } from "@vite-hub/internal/build/deployment-output"
@@ -13,6 +13,7 @@ import { createWorkspaceCliContributor } from "../../cli.ts"
 import { normalizeWorkspaceOptions } from "../../config.ts"
 import { normalizeWorkspaceDefinition } from "../../core/registry.ts"
 import { installHostedWorkspaceRuntime } from "../../hosted.ts"
+import { installHostedVercelBlobWorkspaceRuntime } from "../../hosted-vercel-blob.ts"
 import { ensureWorkspaceDevToken, refreshWorkspaceDevToken, runWorkspaceDevCommand, validateWorkspaceDevToken, workspaceDevHeader, workspaceDevHeaderValue, workspaceDevRoute, workspaceDevTokenServerId } from "../../server.ts"
 
 import type { HmrContext, Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
@@ -34,6 +35,21 @@ const generatedNitroWorkspacePlugin = ".vitehub/nitro/workspace/plugin.ts"
 const generatedNitroWorkspaceRegistry = ".vitehub/nitro/workspace/registry.js"
 const mergeNoExternal = createNoExternalMerger(WORKSPACE_PACKAGE_NAME)
 const workspacesDirSegment = /[\\/](?:server[\\/])?workspaces(?:[\\/]|$)/
+
+function hasVercelBlobWorkspaceDefinition(definitions: DiscoveredWorkspaceDefinition[]): boolean {
+  return definitions.some((definition) => {
+    if (!definition.source) return false
+    return /\bprovider\s*:\s*["']vercel-blob["']/.test(definition.source)
+  })
+}
+
+function vercelFunctionRuntimePackages(options: false | ResolvedWorkspaceModuleOptions, definitions: DiscoveredWorkspaceDefinition[] = []) {
+  const hasVercelBlobStore = (options && options.store?.provider === "vercel-blob") || hasVercelBlobWorkspaceDefinition(definitions)
+  return [
+    { name: WORKSPACE_PACKAGE_NAME, resolveFrom: import.meta.url },
+    ...(hasVercelBlobStore ? [{ name: "files-sdk" }, { name: "@vercel/blob" }] : []),
+  ]
+}
 
 export interface WorkspaceNitroConfigOptions {
   command?: "build" | "serve"
@@ -282,19 +298,31 @@ function runtimeWorkspaceConfig(config: false | ResolvedWorkspaceModuleOptions, 
 }
 
 function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptions, registryImport: string, installHostedRuntime: boolean): string {
-  const runtimeImports = config && isHostedWorkspaceStore(config.store)
+  const hostedConfig = config && isHostedWorkspaceStore(config.store) ? config : undefined
+  const isVercelBlobStore = hostedConfig?.store.provider === "vercel-blob"
+  const runtimeImports = hostedConfig
     ? [
-        "import { configureHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'",
+        isVercelBlobStore
+          ? "import { configureHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'"
+          : "import { configureHostedWorkspaceRuntime, installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'",
+        isVercelBlobStore
+          ? "import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'"
+          : "import { installHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'",
         "import { setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'",
       ]
     : [
         ...(installHostedRuntime ? ["import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'"] : []),
+        ...(installHostedRuntime ? ["import { installHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'"] : []),
         `import { ${config ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'`,
       ]
-  const runtimeSetup = config && isHostedWorkspaceStore(config.store)
-    ? [`  configureHostedWorkspaceRuntime(${renderRuntimeValue({ root: config.root, store: config.store })})`]
+  const runtimeSetup = hostedConfig
+    ? [
+        `  ${isVercelBlobStore ? "configureHostedVercelBlobWorkspaceRuntime" : "configureHostedWorkspaceRuntime"}(${renderRuntimeValue({ root: hostedConfig.root, store: hostedConfig.store })})`,
+        `  ${isVercelBlobStore ? "installHostedWorkspaceRuntime" : "installHostedVercelBlobWorkspaceRuntime"}()`,
+      ]
     : [
         ...(installHostedRuntime ? ["  installHostedWorkspaceRuntime()"] : []),
+        ...(installHostedRuntime ? ["  installHostedVercelBlobWorkspaceRuntime()"] : []),
         ...(config ? [`  setWorkspaceRuntimeConfig(${renderRuntimeValue({ root: config.root, store: config.store })})`] : []),
       ]
 
@@ -465,15 +493,24 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       order: "post",
       async handler() {
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
+        const roots = {
+          projectRoot: projectRoot || resolveViteHubProjectRoot(resolved.root),
+          viteRoot: viteRoot || resolve(resolved.root),
+        }
+        const definitions = discoverDefinitions(roots)
+        await Promise.all(definitions.map(async (definition) => {
+          definition.source = await readFile(definition.path, "utf8")
+        }))
         await copyVercelFunctionRuntimePackages({
-          packages: [{ name: WORKSPACE_PACKAGE_NAME, resolveFrom: import.meta.url }],
-          rootDir: projectRoot || resolveViteHubProjectRoot(resolved.root),
+          packages: vercelFunctionRuntimePackages(resolvedOptions, definitions),
+          rootDir: roots.projectRoot,
         })
       },
     },
     async configureServer(devServer) {
       server = devServer
       installHostedWorkspaceRuntime()
+      installHostedVercelBlobWorkspaceRuntime()
       const tokenOptions = { serverId: workspaceDevTokenServerId(devServer.config.server.port) }
       await refreshWorkspaceDevToken(devServer.config.root, tokenOptions)
       const roots = {

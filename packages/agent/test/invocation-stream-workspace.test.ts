@@ -61,6 +61,7 @@ const workspaceStartSession = vi.hoisted(() => vi.fn(async () => ({
   exec: workspaceSessionExec,
 })))
 const installHostedWorkspaceRuntime = vi.hoisted(() => vi.fn())
+const installHostedVercelBlobWorkspaceRuntime = vi.hoisted(() => vi.fn())
 const useWorkspace = vi.hoisted(() => vi.fn(() => ({
   diff,
   fs: {
@@ -84,6 +85,14 @@ vi.mock("@vite-hub/workspace/internal/runtime/hosted", async (importOriginal) =>
   return {
     ...actual,
     installHostedWorkspaceRuntime,
+  }
+})
+
+vi.mock("@vite-hub/workspace/internal/runtime/hosted-vercel-blob", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@vite-hub/workspace/internal/runtime/hosted-vercel-blob")>()
+  return {
+    ...actual,
+    installHostedVercelBlobWorkspaceRuntime,
   }
 })
 
@@ -253,6 +262,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     workspaceSessionClose.mockClear()
     workspaceStartSession.mockClear()
     installHostedWorkspaceRuntime.mockClear()
+    installHostedVercelBlobWorkspaceRuntime.mockClear()
     setWorkspaceHostedStoreLoader(undefined)
     useWorkspace.mockClear()
   })
@@ -526,6 +536,7 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
 
     expect(response.statusCode).toBe(200)
     expect(installHostedWorkspaceRuntime).toHaveBeenCalledOnce()
+    expect(installHostedVercelBlobWorkspaceRuntime).not.toHaveBeenCalled()
     expect(workspaceStartSession).toHaveBeenCalled()
   })
 
@@ -559,7 +570,8 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     })
 
     expect(response.statusCode).toBe(200)
-    expect(installHostedWorkspaceRuntime).toHaveBeenCalledOnce()
+    expect(installHostedWorkspaceRuntime).not.toHaveBeenCalled()
+    expect(installHostedVercelBlobWorkspaceRuntime).toHaveBeenCalledOnce()
     expect(workspaceStartSession).toHaveBeenCalled()
   })
 
@@ -594,7 +606,8 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
 
     expect(response.statusCode).toBe(403)
     expect(response.body).toBe("Agent Dev Loop command requires workspace.mode: \"write\".")
-    expect(installHostedWorkspaceRuntime).toHaveBeenCalledOnce()
+    expect(installHostedWorkspaceRuntime).not.toHaveBeenCalled()
+    expect(installHostedVercelBlobWorkspaceRuntime).toHaveBeenCalledOnce()
   })
 
   it("aborts Agent Workspace commands when the request closes", async () => {

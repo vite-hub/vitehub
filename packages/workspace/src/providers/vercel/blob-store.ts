@@ -31,6 +31,25 @@ type BlobListResult = {
   cursor?: string
 }
 
+type FilesSdkModule = {
+  Files: new (options: { adapter: unknown }) => {
+    delete(key: string): Promise<void>
+    download(key: string): Promise<Blob>
+    head(key: string): Promise<BlobListItem>
+    list(options: { cursor?: string, limit?: number, prefix: string }): Promise<BlobListResult>
+    upload(key: string, body: Blob | Uint8Array | string, options?: { contentType?: string }): Promise<void>
+  }
+}
+
+type VercelBlobModule = {
+  vercelBlob(options: {
+    access: "private" | "public"
+    addRandomSuffix: boolean
+    allowOverwrite: boolean
+    token?: string
+  }): unknown
+}
+
 function joinBlobPath(...parts: string[]) {
   return parts.map(part => normalizeWorkspacePath(part)).filter(Boolean).join("/")
 }
@@ -43,8 +62,8 @@ function contentType(path: string, fallback?: string) {
 
 async function createVercelFiles(options: VercelBlobWorkspaceStoreOptions) {
   const [{ Files }, { vercelBlob }] = await Promise.all([
-    import("files-sdk").catch(error => handleFilesSdkImportError(error)),
-    import("files-sdk/vercel-blob").catch(error => handleFilesSdkImportError(error)),
+    importFilesSdkPeer<FilesSdkModule>("files-sdk"),
+    importFilesSdkPeer<VercelBlobModule>("files-sdk/vercel-blob"),
   ])
   return new Files({
     adapter: vercelBlob({
@@ -54,6 +73,17 @@ async function createVercelFiles(options: VercelBlobWorkspaceStoreOptions) {
       token: options.token,
     }),
   })
+}
+
+async function importFilesSdkPeer<T>(specifier: string): Promise<T> {
+  try {
+    const testImport = (globalThis as { __vitehubWorkspaceImportFilesSdkPeer?: (specifier: string) => Promise<unknown> }).__vitehubWorkspaceImportFilesSdkPeer
+    if (testImport) return await testImport(specifier) as T
+    return await import(specifier) as T
+  }
+  catch (error) {
+    handleFilesSdkImportError(error)
+  }
 }
 
 function handleFilesSdkImportError(error: unknown): never {
