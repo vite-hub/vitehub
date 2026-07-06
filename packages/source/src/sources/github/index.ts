@@ -20,9 +20,8 @@ function dedupeProviderPromise<TResult>(
 ) {
   const promise = promises.get(key)
   if (promise) return promise
-  const nextPromise = load().catch((error: unknown) => {
+  const nextPromise = load().finally(() => {
     promises.delete(key)
-    throw error
   })
   promises.set(key, nextPromise)
   return nextPromise
