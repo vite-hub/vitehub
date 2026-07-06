@@ -69,6 +69,33 @@ describe("pullRequestContext", () => {
     })
   })
 
+  it("preserves flat source refs as compatible head refs", async () => {
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const { pullRequestContext } = await import("../src/capabilities.ts")
+
+    const agent = defineAgent({
+      capabilities: [
+        pullRequestContext({
+          context: {
+            number: 42,
+            repository: "acme/app",
+            source: {
+              mount: "app",
+              ref: "refs/pull/42/head",
+              repo: "acme/app",
+            },
+          },
+        }),
+      ],
+      driver: { run: ({ context }) => context.get("pullRequest"), },
+    })
+
+    await expect(runAgent(agent, runtime(), {})).resolves.toMatchObject({
+      headRef: "refs/pull/42/head",
+      source: { ref: "refs/pull/42/head" },
+    })
+  })
+
   it("records pull request metadata and contributes workspace inputs", async () => {
     const { pullRequestContext } = await import("../src/capabilities.ts")
     const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")

@@ -1,5 +1,3 @@
-import { execFileSync } from "node:child_process"
-
 import {
   defineCapability,
   normalizeMode,
@@ -328,8 +326,9 @@ function gitCommandFromArgs(args: unknown): string | undefined {
   return words.map(word => /^[A-Za-z0-9_./:@%+=,-]+$/.test(word) ? word : shellQuote(word)).join(" ")
 }
 
-function gitHubCliToken(): string | undefined {
+async function gitHubCliToken(): Promise<string | undefined> {
   try {
+    const { execFileSync } = await import("node:child_process")
     return execFileSync("gh", ["auth", "token", "--hostname", "github.com"], {
       encoding: "utf8",
       env: Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== "GITHUB_TOKEN" && key !== "GH_TOKEN" && key !== "VITEHUB_GITHUB_TOKEN")),
@@ -342,8 +341,8 @@ function gitHubCliToken(): string | undefined {
   }
 }
 
-function gitHubAuthHeader(): string | undefined {
-  const token = process.env.VITEHUB_GITHUB_TOKEN || process.env.GH_TOKEN || gitHubCliToken() || process.env.GITHUB_TOKEN
+async function gitHubAuthHeader(): Promise<string | undefined> {
+  const token = process.env.VITEHUB_GITHUB_TOKEN || process.env.GH_TOKEN || await gitHubCliToken() || process.env.GITHUB_TOKEN
   return token ? `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}` : undefined
 }
 
@@ -396,7 +395,7 @@ async function preparePullRequestGitSession(
   if (existing.exitCode === 0) return false
 
   const baseTrackingRef = setup.baseRef ? gitRemoteBranchTrackingRef(setup.baseRef) : undefined
-  const authHeader = gitHubAuthHeader()
+  const authHeader = await gitHubAuthHeader()
   const fetchRefspecs = [
     `${setup.headRef}:refs/vitehub/head`,
     ...(setup.baseRef && baseTrackingRef ? [`${setup.baseRef}:${baseTrackingRef}`] : []),
@@ -552,8 +551,17 @@ export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefiniti
       state.sessionPromises ??= new Map()
       if (!state.sessionPromises.has(key)) {
         state.sessionPromises.set(key, workspace.startSession(workspacePath ? { paths: [workspacePath] } : undefined).then(async (session) => {
-          const prepared = await preparePullRequestGitSession(session, workspacePath, context, options.timeout)
-          return { commitWrites: !prepared, session }
+          try {
+            const prepared = await preparePullRequestGitSession(session, workspacePath, context, options.timeout)
+            return { commitWrites: !prepared, session }
+          }
+          catch (error) {
+            try {
+              await session.close()
+            }
+            catch {}
+            throw error
+          }
         }).catch((error) => {
           state.sessionPromises?.delete(key)
           throw error

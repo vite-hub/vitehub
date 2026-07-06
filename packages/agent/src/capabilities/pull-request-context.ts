@@ -338,7 +338,7 @@ function normalizePullRequestContext(value: unknown): PullRequestContextValue | 
       ...(deliveryId ? { deliveryId } : {}),
       ...(files?.length ? { files } : {}),
       ...(head ? { head } : {}),
-      ...(head?.ref ? { headRef: head.ref } : {}),
+      ...(source?.ref || head?.ref ? { headRef: source?.ref || head?.ref } : {}),
       ...(maybeString(value.htmlUrl) ? { htmlUrl: maybeString(value.htmlUrl) } : {}),
       ...(maybeContextValue(value.id) !== undefined ? { id: maybeContextValue(value.id) } : {}),
       ...(labels ? { labels } : {}),

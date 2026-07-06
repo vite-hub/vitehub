@@ -221,6 +221,36 @@ describe("git capability", () => {
     expect(session.exec).toHaveBeenNthCalledWith(3, "git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace/vitehub" }))
   })
 
+  it("closes pull request sessions when checkout preparation fails", async () => {
+    const session = gitSession()
+    session.exec.mockImplementation(async (command: string, args: string[] = []) => ({
+      args,
+      command,
+      exitCode: command === "sh" || args.join(" ") === "rev-parse --is-inside-work-tree" ? 1 : 0,
+      stderr: command === "sh" ? "fetch failed" : "",
+      stdout: "",
+    }))
+    const { tools } = await capabilityTools(git(), session, {
+      pullRequest: {
+        pullRequest: {
+          number: 42,
+          source: {
+            mount: "vitehub",
+            ref: "refs/pull/42/head",
+            repo: "vite-hub/vitehub",
+          },
+        },
+        repository: {
+          fullName: "vite-hub/vitehub",
+          name: "vitehub",
+        },
+      },
+    })
+
+    await expect(tools.git_read!.execute?.({ command: "git status --short" })).rejects.toThrow("fetch failed")
+    expect(session.close).toHaveBeenCalledOnce()
+  })
+
   it("does not guess a base branch when preparing pull request checkout", async () => {
     const session = gitSession()
     session.exec.mockImplementation(async (command: string, args: string[] = []) => ({
