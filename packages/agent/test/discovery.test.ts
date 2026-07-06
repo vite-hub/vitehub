@@ -797,6 +797,51 @@ describe("agent chat capability discovery", () => {
     })
   })
 
+  it("respects Capability CLI opt-out through the Vite endpoint", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-cli-opt-out-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              list: {
+                output: { format: "json" },
+                run: () => [{ id: "item_1" }],
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+        }),
+      ],
+      cli: { capabilities: false },
+      driver: { harness: {} as never },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent({ devtools: false })
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers[0]!, {
+      agent: "chat",
+      cli: {
+        argv: ["list", "--json"],
+        name: "inventory",
+      },
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+    })
+
+    expect(response.statusCode).toBe(500)
+    expect(response.body).toContain("Agent Capability CLI \"inventory\" is not defined by this agent")
+  })
+
   it("preserves model driver context for Capability CLI dev runs", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-model-cli-")
     await mkdir(join(root, "server", "agents"), { recursive: true })

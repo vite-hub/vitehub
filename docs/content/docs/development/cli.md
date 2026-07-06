@@ -97,6 +97,7 @@ pnpm vitehub agent dev --agent support --timeout 180000 -p "/summary"
 
 Use `--cli` when a Capability attached to the Agent declares a Capability CLI.
 Everything after `--` is parsed as the nested Capability CLI command.
+Attached Capability CLI Contributions are available to the Agent Dev Loop by default, including for harness-backed Agents; set `defineAgent({ cli: { capabilities: false } })` to hide them from this surface.
 During Agent runs, ViteHub renders operation tool calls as command lines, such as `api listCustomers --query '{"status":"active"}'`, instead of dumping the raw input object.
 
 ```bash [Terminal]

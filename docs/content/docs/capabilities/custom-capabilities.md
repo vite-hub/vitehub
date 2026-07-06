@@ -164,6 +164,7 @@ First-party adapters can generate the same CLI shape from their own metadata. Fo
 Custom Capability authors still pass a flat `cli` object; dynamic command generation belongs behind adapter-owned options such as `openapi({ cli })`.
 
 During development, run the Capability CLI through the Agent Dev Loop.
+Agents expose attached Capability CLI Contributions to compatible Agent Driver and Agent Dev Loop surfaces by default; use `defineAgent({ cli: { capabilities: false } })` when an Agent should attach the Capability but keep its CLI hidden.
 
 ```bash [Terminal]
 pnpm vitehub agent dev --url http://localhost:3000 --agent support --cli inventory -- items list --json
