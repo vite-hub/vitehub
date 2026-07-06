@@ -641,6 +641,37 @@ describe("blob runtime", () => {
     })
   })
 
+  it("rehydrates R2 HTTP fallback secrets from the Cloudflare worker env", async () => {
+    const worker = createBlobCloudflareWorker({
+      app: async () => Response.json(await blob.list()),
+      blob: {
+        store: {
+          accountId: "********",
+          accessKeyId: "********",
+          binding: "BLOB",
+          bucketName: "********",
+          driver: "cloudflare-r2",
+          secretAccessKey: "********",
+        },
+      },
+    })
+
+    await worker.fetch(new Request("https://example.com/list"), {
+      CLOUDFLARE_R2_ACCESS_KEY_ID: "worker-access-key",
+      CLOUDFLARE_R2_SECRET_ACCESS_KEY: "worker-secret-key",
+      R2_ACCOUNT_ID: "worker-account",
+      R2_BUCKET_NAME: "worker-assets",
+    }, {})
+
+    expect(filesSdkMock.r2).toHaveBeenCalledWith(expect.objectContaining({
+      accountId: "worker-account",
+      accessKeyId: "worker-access-key",
+      bucket: "worker-assets",
+      bucketName: "worker-assets",
+      secretAccessKey: "worker-secret-key",
+    }))
+  })
+
   it("keeps the Cloudflare binding available for waitUntil Blob tasks", async () => {
     const waitUntilPromises: Promise<unknown>[] = []
     const worker = createBlobCloudflareWorker({

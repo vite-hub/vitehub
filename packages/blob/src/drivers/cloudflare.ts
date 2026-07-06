@@ -2,7 +2,7 @@ import { readEnv, trimmed } from "@vite-hub/internal/env"
 
 import { isMaskedBlobRuntimeValue } from "../config.ts"
 import { importOptionalPeer } from "../internal/optional-peer.ts"
-import { getActiveCloudflareBinding } from "../runtime/state.ts"
+import { getActiveCloudflareBinding, getActiveCloudflareEnv } from "../runtime/state.ts"
 import { createFilesSdkDriver } from "./files-sdk.ts"
 
 import type { BlobDriverAdapter, BlobListOptions, BlobListResult, BlobObject, BlobPutBody, BlobPutOptions, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
@@ -45,7 +45,8 @@ function getBucket(options: ResolvedCloudflareR2BlobStoreConfig): R2BucketLike {
 
 function runtimeValue(value: string | undefined, ...envNames: string[]): string | undefined {
   const current = trimmed(value)
-  const env = typeof process === "undefined" ? {} : process.env
+  const env = getActiveCloudflareEnv() as Record<string, string | undefined> | undefined
+    || (typeof process === "undefined" ? {} : process.env)
   return isMaskedBlobRuntimeValue(current) ? readEnv(env, ...envNames) : current
 }
 
