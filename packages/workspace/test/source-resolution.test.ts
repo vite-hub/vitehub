@@ -304,6 +304,52 @@ describe("Workspace Source Resolution", () => {
     })
   })
 
+  it("defaults resolved GitHub sources from pull request context", async () => {
+    const definition: WorkspaceDefinition = {
+      name: "review",
+      sources: {
+        portal: github(() => ({
+          root: "portal",
+        })),
+      },
+    }
+    const resolved = await resolveWorkspaceSources(definition, {
+      invocation: {
+        context: {
+          entries: () => new Map<string, unknown>().entries(),
+          get: (id: string) => id === "pullRequest"
+            ? {
+                pullRequest: {
+                  source: {
+                    ref: "refs/pull/42/head",
+                    repo: "quiver/portal",
+                  },
+                },
+              }
+            : undefined,
+          has: (id: string) => id === "pullRequest",
+          toJSON: () => ({}),
+        },
+      },
+    })
+    const [portal] = normalizeWorkspaceSources(resolved.sources)
+
+    expect(portal).toMatchObject({
+      key: "portal",
+      materialize: "lazy",
+      mountPath: "portal",
+      source: {
+        fingerprint: {
+          source: {
+            ref: "refs/pull/42/head",
+            repo: "quiver/portal",
+            root: "portal",
+          },
+        },
+      },
+    })
+  })
+
   it("resolves fetch sources from fetch resolvers", async () => {
     const resolveFetch = vi.fn(({ selectedWorkspaceScope }) => ({
       body: { customer: selectedWorkspaceScope?.name },

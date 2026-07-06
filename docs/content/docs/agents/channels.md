@@ -17,7 +17,7 @@ import { github, stream, webChat } from '@vite-hub/agent/channels'
 
 export default defineAgent({
   channels: {
-    github: github({ events: { pullRequestComments: true } }),
+    github: github({ pullRequest: true }),
     portal: stream({ route: true }),
     web: webChat(),
   },
@@ -172,25 +172,23 @@ export default defineAgent({
   channels: {
     github: github({
       app: true,
-      events: {
-        pullRequestComments: {
-          reply: async (event, context) => ({
-            artifacts: await publishWorkspaceArtifacts(context, [{
-              alt: 'Login footer version badge',
-              mediaType: 'image/png',
-              path: 'screenshots/login-version-badge-desktop.png',
-              placement: 'inline',
-            }], {
-              prefix: `reviews/${context.run?.runId || crypto.randomUUID()}`,
-              publish: async ({ content, mediaType, pathname }) => {
-                const object = await blob.put(pathname, content, { access: 'public', contentType: mediaType })
-                return { url: object.url }
-              },
-            }),
-            kind: 'review',
-            payload: { body: String(event.result || '').trim() || '_No review generated._' },
+      pullRequest: {
+        reply: async (event, context) => ({
+          artifacts: await publishWorkspaceArtifacts(context, [{
+            alt: 'Login footer version badge',
+            mediaType: 'image/png',
+            path: 'screenshots/login-version-badge-desktop.png',
+            placement: 'inline',
+          }], {
+            prefix: `reviews/${context.run?.runId || crypto.randomUUID()}`,
+            publish: async ({ content, mediaType, pathname }) => {
+              const object = await blob.put(pathname, content, { access: 'public', contentType: mediaType })
+              return { url: object.url }
+            },
           }),
-        },
+          kind: 'review',
+          payload: { body: String(event.result || '').trim() || '_No review generated._' },
+        }),
       },
     }),
   },

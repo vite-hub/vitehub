@@ -738,11 +738,9 @@ describe("agent public types", () => {
       channels: {
         github: github({
           app: true,
-          events: {
-            pullRequestComments: {
-              origin: "github-review",
-              reply: reviewFinishEffect,
-            },
+          pullRequest: {
+            origin: "github-review",
+            reply: reviewFinishEffect,
           },
         }),
         portal: http({
@@ -860,9 +858,7 @@ describe("agent public types", () => {
           expectTypeOf(pullRequest).toEqualTypeOf<GitHubPullRequestRunContext | undefined>()
           if (!pullRequest) return false
           return {
-            repo: pullRequest.pullRequest.source.repo,
-            ref: pullRequest.pullRequest.source.ref,
-            mount: pullRequest.pullRequest.source.mount,
+            root: "portal",
           }
         }),
       },

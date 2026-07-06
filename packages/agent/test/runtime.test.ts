@@ -2972,7 +2972,7 @@ describe("agent message protocol", () => {
       channels: {
         github: github({
           app: { webhookSecret: "secret-token" },
-          events: { pullRequestComments: true },
+          pullRequest: true,
           webhooks: { path: "/api/github/webhook" },
         }),
       },
@@ -3004,9 +3004,7 @@ describe("agent message protocol", () => {
     const agent = defineAgent({
       channels: {
         github: github({
-          events: {
-            pullRequestComments: true,
-          },
+          pullRequest: true,
         }),
       },
       driver: { run: () => "ok" },
@@ -3032,7 +3030,30 @@ describe("agent message protocol", () => {
         return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
       }
       if (href.endsWith("/pulls/42")) {
-        return Response.json({ head: { sha: "abc123" } })
+        return Response.json({
+          base: { ref: "main", repo: { full_name: "vite-hub/vitehub" }, sha: "base123" },
+          body: "PR body",
+          head: { ref: "feature", repo: { full_name: "onmax/vitehub" }, sha: "abc123" },
+        })
+      }
+      if (href.endsWith("/issues/42/comments?per_page=100")) {
+        return Response.json([{
+          author_association: "MEMBER",
+          body: "/review please",
+          html_url: "https://github.test/vite-hub/vitehub/pull/42#issuecomment-99",
+          id: 99,
+          user: { id: 1, login: "onmax", type: "User" },
+        }])
+      }
+      if (href.endsWith("/pulls/42/files?per_page=100")) {
+        return Response.json([{
+          additions: 12,
+          changes: 15,
+          deletions: 3,
+          filename: "packages/agent/src/channels.ts",
+          patch: "not included in context",
+          status: "modified",
+        }])
       }
       if (href.endsWith("/issues/comments/99/reactions") && init?.method === "POST") {
         return Response.json({ id: 777 }, { status: 201 })
@@ -3088,6 +3109,11 @@ describe("agent message protocol", () => {
               expect(command.actor).toMatchObject({ association: "MEMBER" })
               expect(pullRequest).toMatchObject({
                 pullRequest: {
+                  base: { ref: "main", sha: "base123" },
+                  body: "PR body",
+                  comments: [expect.objectContaining({ body: "/review please", user: { id: 1, login: "onmax", type: "User" } })],
+                  files: [expect.objectContaining({ additions: 12, deletions: 3, filename: "packages/agent/src/channels.ts", status: "modified" })],
+                  head: { ref: "feature", sha: "abc123" },
                   htmlUrl: "https://github.test/vite-hub/vitehub/pull/42",
                   labels: ["agent"],
                   number: 42,
@@ -3133,10 +3159,8 @@ describe("agent message protocol", () => {
             privateKey: privateKeyPem,
             statusContext: "ViteHub Review",
           },
-          events: {
-            pullRequestComments: {
-              origin: "github-review",
-            },
+          pullRequest: {
+            origin: "github-review",
           },
         }),
       },
@@ -3226,7 +3250,7 @@ describe("agent message protocol", () => {
       channels: {
         github: github({
           app: { webhookSecret: false },
-          events: { pullRequestComments: true },
+          pullRequest: true,
         }),
       },
       driver: {
@@ -3282,7 +3306,7 @@ describe("agent message protocol", () => {
       channels: {
         github: github({
           app: { webhookSecret: false },
-          events: { pullRequestComments: true },
+          pullRequest: true,
         }),
       },
       driver: {
@@ -3345,11 +3369,11 @@ describe("agent message protocol", () => {
       channels: {
         github: github({
           app: { webhookSecret: false },
-          events: { pullRequestComments: true },
+          pullRequest: true,
         }),
         triage: github({
           app: { webhookSecret: false },
-          events: { pullRequestComments: true },
+          pullRequest: true,
         }),
       },
       driver: { run: context => `ran:${context.prompt}` },

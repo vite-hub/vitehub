@@ -9,6 +9,7 @@ type SourceScopes<T> = T extends { scopes?: infer TScopes } ? { scopes?: TScopes
 type TypedWorkspaceSource<T> = WorkspaceSource & SourceScopes<T>
 type ExactOptions<TInput, TShape> = TInput & Record<Exclude<keyof TInput, keyof TShape>, never>
 type GitHubAuth = NonNullable<SourcePackageGitHubSourceOptions["auth"]>
+type GitHubResolvedSourceOptions = Omit<GitHubSourceOptions, "repo"> & Partial<Pick<GitHubSourceOptions, "repo">>
 
 export interface GitHubSourceOptions extends Omit<SourcePackageGitHubSourceOptions, "auth">, SourceRuntimeOptions {
   auth?: GitHubAuth
@@ -16,7 +17,7 @@ export interface GitHubSourceOptions extends Omit<SourcePackageGitHubSourceOptio
 
 export type GitHubSourceResolver = (
   context: WorkspaceSourceResolutionContext,
-) => MaybePromise<GitHubSourceOptions | false | null | undefined>
+) => MaybePromise<GitHubResolvedSourceOptions | false | null | undefined>
 
 export type GitHubSourceInput = GitHubSourceOptions | GitHubSourceResolver
 
@@ -112,8 +113,34 @@ function resolvableGitHubSource(resolve: GitHubSourceResolver): WorkspaceSource 
     },
     async resolve(ctx) {
       const options = await resolve(ctx)
-      return options ? github(options) : false
+      return options ? github(githubResolutionDefaults(options, ctx)) : false
     },
+  }
+}
+
+function githubResolutionDefaults(options: GitHubResolvedSourceOptions, ctx: WorkspaceSourceResolutionContext): GitHubSourceOptions {
+  const source = pullRequestSource(ctx.invocation.context.get("pullRequest"))
+  const repo = options.repo || source?.repo
+  if (!repo) throw new Error("[vitehub] github() resolver requires repo or typed pullRequest source context.")
+  return {
+    ...options,
+    mount: options.mount ?? ctx.source.mountPath,
+    ref: options.ref ?? source?.ref,
+    repo,
+  }
+}
+
+function pullRequestSource(value: unknown): { ref?: string, repo?: string } | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return
+  const pullRequest = (value as { pullRequest?: unknown }).pullRequest
+  if (!pullRequest || typeof pullRequest !== "object" || Array.isArray(pullRequest)) return
+  const source = (pullRequest as { source?: unknown }).source
+  if (!source || typeof source !== "object" || Array.isArray(source)) return
+  const ref = (source as { ref?: unknown }).ref
+  const repo = (source as { repo?: unknown }).repo
+  return {
+    ...(typeof ref === "string" && ref ? { ref } : {}),
+    ...(typeof repo === "string" && repo ? { repo } : {}),
   }
 }
 
