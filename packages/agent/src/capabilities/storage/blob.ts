@@ -10,6 +10,7 @@ import {
 
 import type {
   AgentCapabilityDefinition,
+  AgentCapabilityContext,
   AgentCapabilityMode,
   AgentToolSet,
   MaybePromise,
@@ -37,10 +38,12 @@ interface BlobEditInput {
   operation: "delete" | "put"
   options?: Record<string, unknown>
   pathname: string
+  workspacePath?: string
 }
 
 const defaultListLimit = 25
 const maxListLimit = 100
+const blobPackageName: string = "@vite-hub/blob"
 
 const blobReadInputSchema = jsonObjectSchema({
   cursor: { type: "string" },
@@ -56,6 +59,10 @@ const blobEditInputSchema = jsonObjectSchema({
   operation: { enum: ["delete", "put"], type: "string" },
   options: { additionalProperties: true, type: "object" },
   pathname: { type: "string" },
+  workspacePath: {
+    description: "Upload this Workspace file instead of inline body.",
+    type: "string",
+  },
 }, ["operation", "pathname"])
 
 function normalizeListLimit(limit: unknown): number {
@@ -66,13 +73,27 @@ function normalizeListLimit(limit: unknown): number {
   return Math.min(Math.floor(limit), maxListLimit)
 }
 
+async function resolveBlobPrimitive(context: AgentCapabilityContext) {
+  if (context.capabilities?.blob !== undefined) return requirePrimitive(context as never, "blob")
+  try {
+    return ((await import(blobPackageName)) as { blob: unknown }).blob
+  }
+  catch (error) {
+    throw new Error(`[vitehub] Capability "blob" requires the blob primitive to be configured or @vite-hub/blob to be installed. ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+async function resolveBlobStore(context: AgentCapabilityContext, options: BlobCapabilityOptions) {
+  return selectStore(await resolveBlobPrimitive(context), "Blob", options.store)
+}
+
 function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): AgentCapabilityDefinition["tools"] {
   return (context) => {
-    const store = selectStore(requirePrimitive(context as never, "blob"), "Blob", options.store)
     const tools: AgentToolSet = {
       blob_read: createTool<BlobReadInput>({
         description: "Read one Blob object, read object metadata, or list objects under a developer-provided prefix.",
-        execute: ({ cursor, folded, limit, operation, pathname, prefix }: BlobReadInput) => {
+        execute: async ({ cursor, folded, limit, operation, pathname, prefix }: BlobReadInput) => {
+          const store = await resolveBlobStore(context, options)
           if (operation === "get") return method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "get")(assertString(pathname, "blob_read pathname"))
           if (operation === "head") return method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "head")(assertString(pathname, "blob_read pathname"))
           if (operation === "list") {
@@ -87,9 +108,20 @@ function blobTools(mode: AgentCapabilityMode, options: BlobCapabilityOptions): A
     }
     if (mode === "write") {
       tools.blob_edit = createTool<BlobEditInput>({
-        description: "Put or delete Blob objects.",
-        execute: ({ body, operation, options: putOptions, pathname }) => {
-          if (operation === "put") return method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(assertString(pathname, "blob_edit pathname"), body, putOptions)
+        description: "Put or delete Blob objects. Use workspacePath to upload a Workspace file.",
+        execute: async ({ body, operation, options: putOptions, pathname, workspacePath }) => {
+          const store = await resolveBlobStore(context, options)
+          if (operation === "put") {
+            const path = assertString(pathname, "blob_edit pathname")
+            const sourcePath = typeof workspacePath === "string" && workspacePath.trim() ? workspacePath : undefined
+            if (sourcePath && body !== undefined) throw new Error("[vitehub] blob_edit put accepts body or workspacePath, not both.")
+            if (sourcePath) {
+              if (!context.fs?.readFile) throw new Error("[vitehub] blob_edit workspacePath requires a Workspace file system.")
+              return method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(path, await context.fs.readFile(sourcePath as never, { encoding: "binary" }), putOptions)
+            }
+            if (body === undefined) throw new Error("[vitehub] blob_edit put requires body or workspacePath.")
+            return method<(pathname: string, body: unknown, options?: unknown) => MaybePromise<unknown>>(store, "blob", "put")(path, body, putOptions)
+          }
           if (operation === "delete") {
             return method<(pathname: string) => MaybePromise<unknown>>(store, "blob", "del")(assertString(pathname, "blob_edit pathname"))
           }

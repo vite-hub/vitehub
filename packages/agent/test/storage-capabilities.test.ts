@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
+import type { ReadonlyWorkspaceFacade } from "@vite-hub/workspace"
+
 const runtime = (capabilities: Record<string, unknown>) => ({
   capabilities,
   memo: vi.fn(),
@@ -8,9 +10,9 @@ const runtime = (capabilities: Record<string, unknown>) => ({
   waitUntil: vi.fn(),
 })
 
-async function resolveTools(capabilities: unknown[], handles: Record<string, unknown>) {
+async function resolveTools(capabilities: unknown[], handles: Record<string, unknown>, workspace?: ReadonlyWorkspaceFacade) {
   const { resolveAgentCapabilities } = await import("../src/capability-runtime.ts")
-  const resolved = await resolveAgentCapabilities({ capabilities: capabilities as never }, runtime(handles), {})
+  const resolved = await resolveAgentCapabilities({ capabilities: capabilities as never }, runtime(handles), {}, workspace as never)
   return resolved.tools!
 }
 
@@ -196,6 +198,12 @@ describe("storage capabilities", () => {
 
   it("exposes curated Blob read and edit tools", async () => {
     const { blob } = await import("../src/capabilities.ts")
+    const workspaceBytes = new Uint8Array([1, 2, 3])
+    const workspace = {
+      fs: {
+        readFile: vi.fn(async () => workspaceBytes),
+      },
+    } as unknown as ReadonlyWorkspaceFacade
     const store = {
       del: vi.fn(async () => undefined),
       get: vi.fn(async () => new Blob(["body"])),
@@ -206,7 +214,7 @@ describe("storage capabilities", () => {
 
     await expect(resolveTools([blob()], { blob: store }).then(tools => Object.keys(tools).sort())).resolves.toEqual(["blob_read"])
 
-    const tools = await resolveTools([blob({ mode: "write" })], { blob: store })
+    const tools = await resolveTools([blob({ mode: "write" })], { blob: store }, workspace)
     expect(Object.keys(tools).sort()).toEqual(["blob_edit", "blob_read"])
     expect(tools.blob_edit?.policy).toBe("require-approval")
 
@@ -218,9 +226,31 @@ describe("storage capabilities", () => {
 
     const body = new Blob(["data"], { type: "image/png" })
     await tools.blob_edit!.execute?.({ body, operation: "put", options: { contentType: "image/png" }, pathname: "images/a.png" })
+    await tools.blob_edit!.execute?.({ operation: "put", pathname: "images/from-workspace.png", workspacePath: "screenshots/result.png" })
+    await expect(Promise.resolve().then(() => tools.blob_edit!.execute?.({ body: "inline", operation: "put", pathname: "images/a.png", workspacePath: "screenshots/result.png" }))).rejects.toThrow("body or workspacePath")
+    await expect(Promise.resolve().then(() => tools.blob_edit!.execute?.({ operation: "put", pathname: "images/a.png" }))).rejects.toThrow("body or workspacePath")
     await tools.blob_edit!.execute?.({ operation: "delete", pathname: "images/a.png" })
     expect(store.put).toHaveBeenCalledWith("images/a.png", body, { contentType: "image/png" })
+    expect(workspace.fs.readFile).toHaveBeenCalledWith("screenshots/result.png", { encoding: "binary" })
+    expect(store.put).toHaveBeenCalledWith("images/from-workspace.png", workspaceBytes, undefined)
     expect(store.del).toHaveBeenCalledWith("images/a.png")
+  })
+
+  it("falls back to the installed Blob primitive at tool execution time", async () => {
+    const store = {
+      list: vi.fn(async () => ({ blobs: [], hasMore: false })),
+    }
+    vi.doMock("@vite-hub/blob", () => ({ blob: store }))
+    try {
+      const { blob } = await import("../src/capabilities.ts")
+      const tools = await resolveTools([blob()], {})
+
+      await tools.blob_read!.execute?.({ operation: "list", prefix: "images/" })
+      expect(store.list).toHaveBeenCalledWith({ cursor: undefined, folded: undefined, limit: 25, prefix: "images/" })
+    }
+    finally {
+      vi.doUnmock("@vite-hub/blob")
+    }
   })
 
   it("defaults DB to schema and query tools and selects named databases", async () => {
