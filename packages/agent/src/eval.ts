@@ -6,8 +6,8 @@ import { evalite } from "evalite"
 
 import {
   defineAgent,
+  type AgentFinishExtensions,
   type AgentInput,
-  type AgentInvocationExtensions,
   type AgentModelInput,
   type AgentRunInput,
   type AgentRuntimeContext,
@@ -36,7 +36,7 @@ export interface AgentScore {
 }
 
 export interface AgentObservation {
-  extensions?: AgentInvocationExtensions
+  extensions?: AgentFinishExtensions
   finishReason?: unknown
   metadata?: unknown
   raw: unknown

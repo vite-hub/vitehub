@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineAgent, defineAgentInvoker, defineCapability, type AgentActor, type AgentCapabilityCliCommand, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentDeliveryArtifact, type AgentDriver, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentRunInput, type AgentRunInputContextValues, type AgentRuntimeConfig, type AgentRuntimeContext, type PublishedAgentDeliveryArtifact } from "../src/index.ts"
-import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, git, inputCommands, kv, mcp, observability, openapi, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
+import { access, blob, chat, chatTitle, db, fetch, getTranscriptionResults, getUsageTelemetry, git, inputCommands, kv, mcp, observability, openapi, pullRequestContext, repositoryHost, sandbox, schedule, skills, subagents, transcribe, usageTelemetry, webSearch, workspaceShell, type SubagentToolInput } from "../src/capabilities.ts"
 import { defineChannel, github, http, stream, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
@@ -373,7 +373,10 @@ describe("agent public types", () => {
         "agent:finish"(event) {
           expectTypeOf(event.extensions.get<AgentChatFinishExtension>("chat")).toEqualTypeOf<AgentChatFinishExtension | undefined>()
           expectTypeOf(event.extensions.get<TranscriptionResult[]>("transcribe")).toEqualTypeOf<TranscriptionResult[] | undefined>()
-          expectTypeOf(event.extensions.get<AgentUsageRecord>("usage-telemetry")).toEqualTypeOf<AgentUsageRecord | undefined>()
+          expectTypeOf(event.extensions.get("usage-telemetry")).toEqualTypeOf<AgentUsageRecord | undefined>()
+          expectTypeOf(event.extensions.get("usage-telemetry", "usage")).toEqualTypeOf<AgentUsageRecord["usage"] | undefined>()
+          expectTypeOf(getUsageTelemetry(event)).toEqualTypeOf<AgentUsageRecord | undefined>()
+          expectTypeOf(usageTelemetry.from(event)).toEqualTypeOf<AgentUsageRecord | undefined>()
           expectTypeOf(event.errorMessage).toEqualTypeOf<string | undefined>()
         },
       },
@@ -409,7 +412,8 @@ describe("agent public types", () => {
           context.output.render((result, renderContext) => {
             expectTypeOf(renderContext.output.extensions.get<{ summary: string }>("output-extension")).toEqualTypeOf<{ summary: string } | undefined>()
             expectTypeOf(renderContext.output.extensions.get<string>("output-extension", "summary")).toEqualTypeOf<string | undefined>()
-            expectTypeOf(renderContext.output.extensions.get<UsageTelemetryOutputExtension>("usage-telemetry")).toEqualTypeOf<UsageTelemetryOutputExtension | undefined>()
+            expectTypeOf(renderContext.output.extensions.get("usage-telemetry")).toEqualTypeOf<UsageTelemetryOutputExtension | undefined>()
+            expectTypeOf(renderContext.output.extensions.get("usage-telemetry", "summary")).toEqualTypeOf<string | undefined>()
             return result
           })
           context.output.final((result, renderContext) => {

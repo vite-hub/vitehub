@@ -83,6 +83,8 @@ export interface AgentAccessInvocationContextValue<TScopeName extends string = s
 
 declare global {
   interface ViteHubAgentInvocationContextValues {}
+  interface ViteHubAgentFinishExtensions {}
+  interface ViteHubAgentOutputExtensions {}
 }
 
 export interface AgentInvocationContextValues extends ViteHubAgentInvocationContextValues {
@@ -338,15 +340,26 @@ export interface AgentRunResult {
   warnings?: unknown
 }
 
-export interface AgentInvocationExtensions {
+export interface AgentFinishExtensionValues extends ViteHubAgentFinishExtensions {}
+export interface AgentOutputExtensionValues extends ViteHubAgentOutputExtensions {}
+
+export interface AgentInvocationExtensions<TValues extends object = Record<string, unknown>> {
   entries: () => Array<[string, unknown]>
+  get<TKey extends keyof TValues & string>(capabilityId: TKey): TValues[TKey] | undefined
+  get<TKey extends keyof TValues & string, TField extends keyof NonNullable<TValues[TKey]> & string>(
+    capabilityId: TKey,
+    key: TField
+  ): NonNullable<TValues[TKey]>[TField] | undefined
   get<T = unknown>(capabilityId: string): T | undefined
   get<T = unknown>(capabilityId: string, key: string): T | undefined
   toJSON: () => Record<string, unknown>
 }
 
+export type AgentFinishExtensions = AgentInvocationExtensions<AgentFinishExtensionValues>
+export type AgentOutputExtensions = AgentInvocationExtensions<AgentOutputExtensionValues>
+
 export interface AgentOutputExtensionEvent {
-  extensions: AgentInvocationExtensions
+  extensions: AgentOutputExtensions
   result: unknown
 }
 
@@ -357,7 +370,7 @@ export interface AgentFinishEvent<
   actor: AgentActor
   error?: unknown
   errorMessage?: string
-  extensions: AgentInvocationExtensions
+  extensions: AgentFinishExtensions
   input: AgentRunInput<CALL_OPTIONS>
   invoker: AgentInvoker
   invocation: {
@@ -626,7 +639,7 @@ export interface AgentCapabilityRuntimeContext<
     instrument: (instrumentation: AgentModelExecutionInstrumentation<TRuntimeConfig>) => void
   }
   output: {
-    extensions: AgentInvocationExtensions
+    extensions: AgentOutputExtensions
     final: (renderer: AgentOutputRenderer) => void
     provide: (value: unknown | AgentOutputExtensionProvider) => void
     render: (renderer: AgentOutputRenderer) => void

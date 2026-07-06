@@ -20,6 +20,7 @@ Use the configuration example below as the starting point, then tighten modes, p
 The Capability wraps compatible streams and output results.
 It emits `usage` stream events when a finish chunk contains usage, attaches `usage` and `usageRecord` to final results, and calls an optional `onUsage` callback.
 Later output renderers can read `context.output.extensions.get('usage-telemetry')` for `{ usageRecord, summary }`.
+Finish hooks and Channel Delivery Effects can read the normalized record with `usageTelemetry.from(event)` or `getUsageTelemetry(event)`.
 Use `context.output.final()` when a renderer needs the completed final text from either a model result or a stream before finish hooks and delivery effects run.
 
 ## Configuration
@@ -53,6 +54,7 @@ Pricing errors do not fail the Agent Invocation.
 
 When `observability()` is also enabled, the `observability` finish extension references the same Agent Usage Record.
 Do not treat it as a second usage record to persist.
+When the Agent Driver or custom result reports no usage, the accessor returns `undefined`.
 
 Final output shaping can stay Capability-owned:
 
@@ -67,7 +69,7 @@ export default defineAgent({
       id: 'review-output',
       output(context) {
         context.output.final((result, renderContext) => {
-          const usage = renderContext.output.extensions.get<{ summary?: string }>('usage-telemetry')
+          const usage = renderContext.output.extensions.get('usage-telemetry')
           const text = typeof result === 'object' && result && 'text' in result
             ? String(result.text || '')
             : String(result || '')

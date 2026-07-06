@@ -33,9 +33,12 @@ import type {
   AgentDriverContributionKind,
   AgentDriverKind,
   AgentFinishEvent,
+  AgentFinishExtensionValues,
   AgentFinishExtensionProvider,
   AgentHookObserverHooks,
   AgentInvocationExtensions,
+  AgentOutputExtensionValues,
+  AgentOutputExtensions,
   AgentOutputExtensionProvider,
   AgentInvocationContextStore,
   AgentInvoker,
@@ -55,7 +58,7 @@ import type { WorkspaceOverrideRuntime } from "./access-runtime.ts"
 import type { Message } from "./messages.ts"
 import type { ReadonlyWorkspaceFacade, WorkspaceDefinition, WorkspaceName, WorkspaceSelectedScope, WorkspaceSource, WorkspaceSourceInput } from "@vite-hub/workspace"
 
-type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentInvocationExtensions) => MaybePromise<unknown>) & {
+type ResolvedAgentOutputRenderer = ((result: unknown, extensions?: AgentOutputExtensions) => MaybePromise<unknown>) & {
   providerCount: number
 }
 export const workspaceMaterializationPathsSymbol: unique symbol = Symbol("vitehub.agent.workspaceMaterializationPaths")
@@ -1187,7 +1190,7 @@ export async function applyOutputRenderers(
 ): Promise<unknown> {
   let current = result
   let providerIndex = 0
-  const extensions = createAgentExtensionReader(values)
+  const extensions = createAgentExtensionReader<AgentOutputExtensionValues>(values)
   for (const renderer of renderers) {
     while (providerIndex < renderer.providerCount) {
       const provider = providers[providerIndex++]
@@ -1200,7 +1203,7 @@ export async function applyOutputRenderers(
   return withOutputExtensionProperties(current, values)
 }
 
-function createAgentExtensionReader(values: Map<string, unknown>): AgentInvocationExtensions {
+function createAgentExtensionReader<TValues extends object = Record<string, unknown>>(values: Map<string, unknown>): AgentInvocationExtensions<TValues> {
   return {
     entries() {
       return Array.from(values.entries())
@@ -1240,7 +1243,7 @@ export async function createAgentInvocationExtensions(
   providers: ResolvedAgentFinishExtensionProvider[] = [],
 ): Promise<AgentFinishEvent["extensions"]> {
   const values = new Map<string, unknown>()
-  const extensions = createAgentExtensionReader(values)
+  const extensions = createAgentExtensionReader<AgentFinishExtensionValues>(values)
   const finishEvent = { ...event, extensions } as AgentFinishEvent
   for (const provider of providers) {
     const value = await provider.resolve(finishEvent)

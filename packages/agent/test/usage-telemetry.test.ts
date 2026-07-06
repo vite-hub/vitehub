@@ -14,8 +14,9 @@ const runtime = () => ({
 
 describe("usage telemetry", () => {
   it("normalizes usage and attaches a priced usage record", async () => {
-    const { defineAgent, runAgent } = await import("../src/index.ts")
-    const { staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const { defineAgent, defineCapability, runAgent } = await import("../src/index.ts")
+    const { getUsageTelemetry, staticModelPricing, usageTelemetry } = await import("../src/capabilities.ts")
+    const deliveryUsage = vi.fn()
     const finish = vi.fn()
 
     const agent = defineAgent({
@@ -27,6 +28,15 @@ describe("usage telemetry", () => {
               output: "0.00000020",
             },
           }),
+        }),
+        defineCapability({
+          id: "delivery-usage",
+          output(context) {
+            context.delivery.finishEffect((event) => {
+              deliveryUsage(usageTelemetry.from(event))
+              return false
+            })
+          },
         }),
       ],
       hooks: {
@@ -86,7 +96,11 @@ describe("usage telemetry", () => {
     })
     expect(finish).toHaveBeenCalledTimes(1)
     const usageRecord = (result as { usageRecord?: unknown }).usageRecord
-    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toEqual(usageRecord)
+    const finishEvent = finish.mock.calls[0]![0]
+    expect(finishEvent.extensions.get("usage-telemetry")).toEqual(usageRecord)
+    expect(getUsageTelemetry(finishEvent)).toEqual(usageRecord)
+    expect(usageTelemetry.from(finishEvent)).toEqual(usageRecord)
+    expect(deliveryUsage).toHaveBeenCalledWith(usageRecord)
   })
 
   it("uses run result model metadata when response only has an id", async () => {
@@ -1347,7 +1361,68 @@ describe("usage telemetry", () => {
       text: "ok",
     })
     expect(finish).toHaveBeenCalledTimes(1)
-    expect(finish.mock.calls[0]![0].extensions.get("usage-telemetry")).toBeUndefined()
+    const finishEvent = finish.mock.calls[0]![0]
+    expect(finishEvent.extensions.get("usage-telemetry")).toBeUndefined()
+    expect(usageTelemetry.from(finishEvent)).toBeUndefined()
+  })
+
+  it("exposes usage telemetry from workflow-backed finish events", async () => {
+    const { defineAgent, runAgent, workflow } = await import("../src/index.ts")
+    const { usageTelemetry } = await import("../src/capabilities.ts")
+    const { getWorkflowRun } = await import("@vite-hub/workflow")
+    const { resetWorkflowRuntime, setWorkflowRuntimeConfig } = await import("@vite-hub/workflow/runtime/state")
+    const waitUntilTasks: Array<Promise<unknown>> = []
+    const finish = vi.fn()
+
+    resetWorkflowRuntime()
+    try {
+      setWorkflowRuntimeConfig({ provider: "vercel" })
+      const agent = defineAgent({
+        capabilities: [usageTelemetry()],
+        hooks: {
+          "agent:finish": finish,
+        },
+        runtime: workflow("usage-agent"),
+        driver: { run: () => ({
+          text: "ok",
+          usage: {
+            inputTokens: 2,
+            outputTokens: 3,
+          },
+        }), },
+      })
+
+      const run = await runAgent(agent, {
+        memo: vi.fn(),
+        runtime: "vercel",
+        runtimeConfig: {},
+        waitUntil: promise => waitUntilTasks.push(promise),
+      }, {}) as { id: string }
+      await Promise.all(waitUntilTasks)
+
+      await expect(getWorkflowRun("usage-agent", run.id)).resolves.toMatchObject({
+        result: {
+          usageRecord: {
+            usage: {
+              inputTokens: 2,
+              outputTokens: 3,
+              totalTokens: 5,
+            },
+          },
+        },
+        status: "completed",
+      })
+      expect(usageTelemetry.from(finish.mock.calls[0]![0])).toMatchObject({
+        usage: {
+          inputTokens: 2,
+          outputTokens: 3,
+          totalTokens: 5,
+        },
+      })
+    }
+    finally {
+      resetWorkflowRuntime()
+    }
   })
 
   it("preserves non-token usage details without inventing token cost", async () => {
@@ -1414,7 +1489,7 @@ describe("usage telemetry", () => {
           id: "usage-note",
           output(context) {
             context.output.render((result, renderContext) => {
-              const usage = renderContext.output.extensions.get<{ summary?: string }>("usage-telemetry")
+              const usage = renderContext.output.extensions.get("usage-telemetry")
               return {
                 ...result as Record<string, unknown>,
                 text: `${(result as { text?: string }).text}\n${usage?.summary}`,
