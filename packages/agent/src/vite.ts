@@ -84,7 +84,7 @@ function subpath(base: string, path: string): string {
 
 type NitroConfig = Record<string, unknown> & CloudflareAgentStateRollupTarget & CloudflareAgentStateTarget
 type RollupExternalFunction = (source: string, importer?: string, isResolved?: boolean) => boolean | null | undefined | void
-type GeneratedLibsqlAgentStateOptions = Pick<ResolvedAgentModuleOptions["providers"]["state"], "authToken" | "tablePrefix" | "url">
+type GeneratedLibsqlAgentStateOptions = Pick<ResolvedAgentModuleOptions["providers"]["state"], "tablePrefix" | "url">
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -98,10 +98,9 @@ function shouldInstallCloudflareAgentState(options: false | ResolvedAgentModuleO
 
 function resolveLibsqlAgentState(options: false | ResolvedAgentModuleOptions): GeneratedLibsqlAgentStateOptions | undefined {
   if (!options || !options.routes.webhooks) return
-  const { authToken, provider, tablePrefix, url } = options.providers.state
+  const { provider, tablePrefix, url } = options.providers.state
   if (provider !== "sqlite" && provider !== "libsql") return
   return {
-    ...(authToken ? { authToken } : {}),
     ...(tablePrefix ? { tablePrefix } : {}),
     ...(url ? { url } : {}),
   }
@@ -310,6 +309,7 @@ function generatedLibsqlChatStateHelper(state: GeneratedLibsqlAgentStateOptions)
     `const viteHubChatStateOptions = ${JSON.stringify(state)}`,
     "const viteHubChatState = createLibsqlAgentState({",
     "  ...viteHubChatStateOptions,",
+    "  ...(typeof process === 'object' && process?.env?.VITEHUB_AGENT_STATE_AUTH_TOKEN ? { authToken: process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN } : {}),",
     "  ...(typeof process === 'object' && process?.env?.VITEHUB_AGENT_STATE_URL ? { url: process.env.VITEHUB_AGENT_STATE_URL } : {}),",
     "})",
     "",

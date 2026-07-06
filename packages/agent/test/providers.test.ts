@@ -672,6 +672,7 @@ describe("agent Vite plugin", () => {
         const plugin = hubAgent({
           providers: {
             state: {
+              authToken: "build-token",
               provider,
               tablePrefix: "agent_state_",
               url: "file:build-state.sqlite",
@@ -688,7 +689,9 @@ describe("agent Vite plugin", () => {
         expect(webhookRoute).toContain("import { createLibsqlAgentState } from \"@vite-hub/agent/state/sqlite\"")
         expect(webhookRoute).not.toContain("import { createCloudflareAgentState }")
         expect(webhookRoute).toContain("const viteHubChatStateOptions = {\"tablePrefix\":\"agent_state_\",\"url\":\"file:build-state.sqlite\"}")
+        expect(webhookRoute).not.toContain("build-token")
         expect(webhookRoute).toContain("const viteHubChatState = createLibsqlAgentState({")
+        expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_AUTH_TOKEN")
         expect(webhookRoute).toContain("process.env.VITEHUB_AGENT_STATE_URL")
         expect(webhookRoute).toContain("function chatStateFromLibsql()")
         expect(webhookRoute).toContain("return isWebhookRoute ? await handler(await toRequest(event), webhook, { agentName: agent, cloudflare, state: chatStateFromLibsql(), waitUntil: waitUntilFromEvent(event) }) : await handler(await toRequest(event), { agentName: agent, cloudflare, waitUntil: waitUntilFromEvent(event) })")
