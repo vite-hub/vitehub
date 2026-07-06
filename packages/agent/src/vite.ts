@@ -106,6 +106,10 @@ function resolveLibsqlAgentState(options: false | ResolvedAgentModuleOptions): G
   }
 }
 
+function resolveWebhookLibsqlAgentState(options: ResolvedAgentModuleOptions): GeneratedLibsqlAgentStateOptions | undefined {
+  return options.routes.webhooks ? resolveLibsqlAgentState(options) : undefined
+}
+
 function cloneStringArray(value: unknown): string[] | undefined {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : undefined
 }
@@ -922,7 +926,7 @@ async function writeNetlifyAgentProviderOutput(
     ...generatedOptions,
     chatRoute: options.routes.chat,
     discordGatewayRoute: options.routes.discordGateway,
-    libsqlState: generatedOptions.libsqlState ?? resolveLibsqlAgentState(options),
+    libsqlState: generatedOptions.libsqlState ?? resolveWebhookLibsqlAgentState(options),
     webhookRoute: options.routes.webhooks,
   })
   await writeProviderDeploymentOutputs({
@@ -1052,7 +1056,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
               agentImportBase: getAgentImportBase(agent),
               chatRoute: normalized.routes.chat,
               cloudflareState: shouldInstallCloudflareAgentState(normalized),
-              libsqlState: resolveLibsqlAgentState(normalized),
+              libsqlState: resolveWebhookLibsqlAgentState(normalized),
               ...(config.command === "serve" ? { runtime: "vite" as const } : {}),
               workspaceImportBase: getWorkspaceImportBase(agent),
               webhookRoute: normalized.routes.webhooks,
@@ -1070,7 +1074,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           if (config.command === "serve" && isNetlifyHosting(config)) {
             await writeNetlifyAgentProviderOutput(config, normalized, {
               agentImportBase: getAgentImportBase(agent),
-              libsqlState: resolveLibsqlAgentState(normalized),
+              libsqlState: resolveWebhookLibsqlAgentState(normalized),
               runtime: "vite",
               workspaceImportBase: getWorkspaceImportBase(agent),
             })
@@ -1109,7 +1113,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         if (normalized && isNetlifyHosting(resolved) && (normalized.routes.chat || normalized.routes.webhooks || normalized.routes.discordGateway)) {
           await writeNetlifyAgentProviderOutput(resolved, normalized, {
             agentImportBase: getAgentImportBase(agent),
-            libsqlState: resolveLibsqlAgentState(normalized),
+            libsqlState: resolveWebhookLibsqlAgentState(normalized),
             workspaceImportBase: getWorkspaceImportBase(agent),
           })
         } else if (isNetlifyHosting(resolved)) {

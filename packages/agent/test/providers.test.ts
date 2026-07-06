@@ -719,6 +719,36 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("does not emit sqlite state helpers for chat-only generated routes", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-chat-only-state-routes-"))
+    try {
+      await mkdir(join(root, "server", "agents"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      const plugin = hubAgent({
+        providers: {
+          state: {
+            provider: "libsql",
+            url: "file:build-state.sqlite",
+          },
+        },
+        routes: { chat: true, webhooks: false },
+      })
+      if (typeof plugin.configResolved === "function") {
+        await plugin.configResolved.call({} as never, { command: "build", root } as never)
+      }
+
+      const webhookRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+
+      expect(webhookRoute).not.toContain("import { createLibsqlAgentState }")
+      expect(webhookRoute).not.toContain("const viteHubChatStateOptions")
+      expect(webhookRoute).not.toContain("function chatStateFromLibsql()")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("lets built generated Nitro handlers detect the host runtime", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-routes-build-runtime-"))
