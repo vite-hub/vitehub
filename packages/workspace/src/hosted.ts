@@ -8,7 +8,7 @@ import { WorkspaceError } from "./core/errors.ts"
 import { createCloudflareArtifactsWorkspaceStore } from "./providers/cloudflare/artifacts-store.ts"
 import { createGitHubWorkspaceStore } from "./providers/github/store.ts"
 import { setWorkspaceRuntimeConfig } from "./runtime/config.ts"
-import { setWorkspaceHostedStoreLoader } from "./runtime/hosted-store-loader.ts"
+import { getWorkspaceHostedStoreLoader, setWorkspaceHostedStoreLoader } from "./runtime/hosted-store-loader.ts"
 
 import type {
   CloudflareArtifactsWorkspaceStoreOptions,
@@ -30,11 +30,13 @@ export interface HostedWorkspaceRuntimeOptions {
 }
 
 export function installHostedWorkspaceRuntime(): void {
+  const existingWorkspaceHostedStoreLoader = getWorkspaceHostedStoreLoader()
   setWorkspaceHostedStoreLoader((storeOptions, workspaceName) => {
     if (storeOptions.provider === "cloudflare-artifacts") {
       return createCloudflareArtifactsWorkspaceStore(storeOptions, workspaceName)
     }
     if (storeOptions.provider === "github") return createGitHubWorkspaceStore(storeOptions, workspaceName)
+    if (existingWorkspaceHostedStoreLoader) return existingWorkspaceHostedStoreLoader(storeOptions, workspaceName)
     throw new WorkspaceError("[vitehub] Hosted workspace runtime cannot load unsupported hosted store.")
   })
 }
