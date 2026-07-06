@@ -43,7 +43,7 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
       }
       const chat = rawMessage.chat as { id?: number | string } | undefined
       const from = rawMessage.from as { email?: string, id?: number | string, mail?: string, userPrincipalName?: string, username?: string } | undefined
-      const document = rawMessage.document as { file_id?: string, file_name?: string, file_size?: number, mime_type?: string } | undefined
+      const document = rawMessage.document as { content?: string, file_id?: string, file_name?: string, file_size?: number, mime_type?: string } | undefined
       const photos = rawMessage.photo as Array<{ file_id?: string, file_size?: number, height?: number, width?: number }> | undefined
       const photo = photos?.at(-1)
       const date = typeof rawMessage.date === "number"
@@ -64,6 +64,15 @@ function createTestChatAdapter(options: { deferMessageProcessing?: boolean, miss
                 fetchData: async () => Buffer.from([1, 2, 3]),
                 fetchMetadata: { fileId: document.file_id },
                 mimeType: document.mime_type,
+                name: document.file_name,
+                size: document.file_size,
+                type: "file",
+              }]
+          : typeof document?.file_id === "string"
+            ? [{
+                fetchData: async () => Buffer.from(document.content ?? ""),
+                fetchMetadata: { fileId: document.file_id },
+                ...(document.mime_type ? { mimeType: document.mime_type } : {}),
                 name: document.file_name,
                 size: document.file_size,
                 type: "file",
@@ -2202,6 +2211,105 @@ describe("server helpers", () => {
         ],
       })],
     }))
+  })
+
+  it("maps text-like file attachments to text parts", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const run = vi.fn(({ messages }) => messages.at(-1)?.parts
+      .filter((part: { type?: string }) => part.type === "text")
+      .map((part: { text?: string }) => part.text)
+      .join(""))
+    const agent = defineAgent({
+      channels: {
+        telegram: telegram({ adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+      body: JSON.stringify({
+        update_id: 42,
+        message: {
+          chat: { id: 456, type: "private" },
+          date: 1781092800,
+          document: {
+            content: "# Notes\n- first\n",
+            file_id: "notes-file",
+            file_name: "notes.md",
+            file_size: 16,
+            mime_type: "text/markdown; charset=utf-8",
+          },
+          from: { first_name: "Maxi", id: 123, username: "maxi" },
+          message_id: 1010,
+          text: "see attached",
+        },
+      }),
+      method: "POST",
+    }), "telegram")
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      messages: [expect.objectContaining({
+        parts: [
+          expect.objectContaining({ text: "see attached", type: "text" }),
+          expect.objectContaining({
+            text: "\n\nText attachment (notes.md):\n\n# Notes\n- first",
+            type: "text",
+          }),
+        ],
+      })],
+    }))
+  })
+
+  it("rejects oversized text-like file attachments before chat access", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { access } = await import("../src/capabilities.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { telegram } = await import("../src/channels.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = createTestChatAdapter()
+    const admitChat = vi.fn(() => true)
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      capabilities: [access({ chat: { resolve: admitChat } })],
+      channels: {
+        telegram: telegram({ adapter: () => adapter as never }),
+      },
+      driver: { run },
+    })
+    const handler = createChannelWebhookRouteHandler(agent as never)
+
+    try {
+      await expect(handler(new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: 42,
+          message: {
+            chat: { id: 456, type: "private" },
+            date: 1781092800,
+            document: {
+              content: "small",
+              file_id: "large-log",
+              file_name: "large.log",
+              file_size: 1024 * 1024 + 1,
+              mime_type: "text/plain",
+            },
+            from: { first_name: "Maxi", id: 123, username: "maxi" },
+            message_id: 1011,
+          },
+        }),
+        method: "POST",
+      }), "telegram")).rejects.toThrow("[vitehub] Chat text attachment exceeds 1048576 bytes.")
+    }
+    finally {
+      consoleError.mockRestore()
+    }
+    expect(admitChat).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
   })
 
   it("maps audio mime file attachments for custom audio capabilities", async () => {

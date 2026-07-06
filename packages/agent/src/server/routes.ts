@@ -903,6 +903,58 @@ function audioData(value: unknown): AudioData | undefined {
   return undefined
 }
 
+const chatTextAttachmentMaxBytes = 1024 * 1024
+const textAttachmentExtensions = new Set(["csv", "json", "log", "md", "txt", "yaml", "yml"])
+const textAttachmentMimeTypes = new Set(["application/json", "application/x-yaml", "application/yaml", "text/csv"])
+
+function isTextAttachment(attachment: Attachment): boolean {
+  if (attachment.type !== "file") return false
+  const mimeType = typeof attachment.mimeType === "string"
+    ? attachment.mimeType.split(";")[0]?.trim().toLowerCase()
+    : undefined
+  if (mimeType?.startsWith("text/") || (mimeType && textAttachmentMimeTypes.has(mimeType)) || mimeType?.endsWith("+json") || mimeType?.endsWith("+yaml")) {
+    return true
+  }
+  const extension = attachment.name?.split(".").pop()?.toLowerCase()
+  return !!extension && textAttachmentExtensions.has(extension)
+}
+
+function checkedTextAttachmentBytes(value: unknown): Uint8Array | undefined {
+  const bytes = value instanceof ArrayBuffer
+    ? new Uint8Array(value)
+    : value instanceof Uint8Array ? value : undefined
+  if (!bytes) return
+  if (bytes.byteLength > chatTextAttachmentMaxBytes) {
+    throw new Error(`[vitehub] Chat text attachment exceeds ${chatTextAttachmentMaxBytes} bytes.`)
+  }
+  return bytes
+}
+
+async function textAttachmentBytes(attachment: Attachment): Promise<Uint8Array | undefined> {
+  if (typeof attachment.size === "number" && attachment.size > chatTextAttachmentMaxBytes) {
+    throw new Error(`[vitehub] Chat text attachment exceeds ${chatTextAttachmentMaxBytes} bytes.`)
+  }
+  if (typeof attachment.fetchData === "function") {
+    return checkedTextAttachmentBytes(await attachment.fetchData())
+  }
+  if (attachment.data instanceof Blob) {
+    return checkedTextAttachmentBytes(await attachment.data.arrayBuffer())
+  }
+  return checkedTextAttachmentBytes(attachment.data)
+}
+
+async function textPartFromAttachment(attachment: Attachment, index: number): Promise<MessagePart | undefined> {
+  if (!isTextAttachment(attachment)) return undefined
+  const bytes = await textAttachmentBytes(attachment)
+  if (!bytes?.byteLength) return undefined
+  const name = attachment.name || `attachment-${index + 1}`
+  return {
+    id: `attachment-${index + 1}`,
+    text: `\n\nText attachment (${name}):\n\n${new TextDecoder().decode(bytes).trimEnd()}`,
+    type: "text",
+  }
+}
+
 function audioPartFromAttachment(attachment: Attachment, index: number): MessagePart | undefined {
   const mediaType = typeof attachment.mimeType === "string" && attachment.mimeType.startsWith("audio/")
     ? attachment.mimeType
@@ -961,10 +1013,14 @@ function attachmentFallbackText(attachments: Attachment[]): string {
   return `Sent attachments: ${summary}.`
 }
 
-function chatMessageParts(message: ChatSdkMessage, options: { includeAudioAttachments?: boolean } = {}): MessagePart[] {
+async function chatMessageParts(message: ChatSdkMessage, options: { includeAudioAttachments?: boolean } = {}): Promise<MessagePart[]> {
   const parts: MessagePart[] = []
   if (message.text) {
     parts.push({ id: "text-0", text: message.text, type: "text" })
+  }
+  for (const [index, attachment] of message.attachments.entries()) {
+    const part = await textPartFromAttachment(attachment, index)
+    if (part) parts.push(part)
   }
   if (options.includeAudioAttachments) {
     for (const [index, attachment] of message.attachments.entries()) {
@@ -998,16 +1054,16 @@ function chatMessageMetadata(thread: Thread, message: ChatSdkMessage, messageCon
   })
 }
 
-function chatSdkMessageToUiMessage(
+async function chatSdkMessageToUiMessage(
   message: ChatSdkMessage,
   metadata?: Record<string, unknown>,
   options?: { includeAudioAttachments?: boolean },
-): UIMessageLike {
+): Promise<UIMessageLike> {
   return {
     createdAt: isoDate(message.metadata.dateSent),
     id: message.id,
     ...(metadata ? { metadata } : {}),
-    parts: chatMessageParts(message, options),
+    parts: await chatMessageParts(message, options),
     role: message.author.isMe ? "assistant" : "user",
   }
 }
@@ -1040,21 +1096,21 @@ async function chatTriggerMessages(
   messageContext?: MessageContext,
   messageOptions?: { includeAudioAttachments?: boolean },
 ): Promise<UIMessageLike[]> {
-  const current = chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), messageOptions)
+  const current = await chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), messageOptions)
   const limit = chatTriggerHistoryLimit(resolveChatTriggerHistory(options))
   if (!limit) return [current]
 
   const fetchedNewestFirst: UIMessageLike[] = []
   try {
     for await (const item of thread.messages) {
-      fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item, undefined, messageOptions))
+      fetchedNewestFirst.push(item.id && message.id && item.id === message.id ? current : await chatSdkMessageToUiMessage(item, undefined, messageOptions))
       if (fetchedNewestFirst.length >= limit) break
     }
   } catch {}
 
   const durable = await durableChatThreadMessages(thread, limit)
   const messages = [
-    ...durable.map(item => item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item, undefined, messageOptions)),
+    ...(await Promise.all(durable.map(item => item.id && message.id && item.id === message.id ? current : chatSdkMessageToUiMessage(item, undefined, messageOptions)))),
     ...fetchedNewestFirst.slice().reverse(),
   ].reduce<UIMessageLike[]>((deduped, item) => {
     if (!item.id) {
@@ -1319,7 +1375,9 @@ async function handleChatSdkMessage(
       }),
     }
     const messages = await chatTriggerMessages(thread, message, options, messageContext, messageOptions)
-    const currentMessage = chatSdkMessageToUiMessage(message, chatMessageMetadata(thread, message, messageContext), messageOptions)
+    const currentMessage = message.id
+      ? messages.find(item => item.id === message.id)
+      : messages.at(-1)
     if (!currentMessage || !Array.isArray(currentMessage.parts) || currentMessage.parts.length === 0) return
     input = createChatTriggerInput(chatRegistrationOrigin(registration), thread, message, messages, messageContext, registration.channelId)
     const invocation = await resolveAgentTriggerInvocation(agent as never, context as never, "chat.message", input)
