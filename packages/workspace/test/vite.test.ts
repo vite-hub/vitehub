@@ -472,6 +472,7 @@ describe("hubWorkspace", () => {
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(pluginSource).toContain("installHostedWorkspaceRuntime")
+    expect(pluginSource).toContain("installHostedVercelBlobWorkspaceRuntime")
     expect(pluginSource).not.toContain("@vite-hub/workspace/internal/stores/github")
     expect(pluginSource).not.toContain("configureCloudflareWorkspaceRuntime")
   })
@@ -508,8 +509,10 @@ describe("hubWorkspace", () => {
 
     const pluginSource = await readFile(join(root, ".vitehub", "nitro", "workspace", "plugin.ts"), "utf8")
     expect(pluginSource).toContain("import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'")
+    expect(pluginSource).toContain("import { installHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'")
     expect(pluginSource).toContain("import { setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'")
     expect(pluginSource).toContain("installHostedWorkspaceRuntime()")
+    expect(pluginSource).toContain("installHostedVercelBlobWorkspaceRuntime()")
     expect(pluginSource).toContain("setWorkspaceRuntimeConfig")
     expect(pluginSource).toContain('"provider": "local"')
   })

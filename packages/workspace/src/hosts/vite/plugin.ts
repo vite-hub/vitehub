@@ -300,12 +300,14 @@ function renderNitroWorkspacePlugin(config: false | ResolvedWorkspaceModuleOptio
       ]
     : [
         ...(installHostedRuntime ? ["import { installHostedWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted'"] : []),
+        ...(installHostedRuntime ? ["import { installHostedVercelBlobWorkspaceRuntime } from '@vite-hub/workspace/internal/runtime/hosted-vercel-blob'"] : []),
         `import { ${config ? "setWorkspaceRuntimeConfig, " : ""}setWorkspaceRuntimeRegistry } from '@vite-hub/workspace/runtime'`,
       ]
   const runtimeSetup = hostedConfig
     ? [`  ${isVercelBlobStore ? "configureHostedVercelBlobWorkspaceRuntime" : "configureHostedWorkspaceRuntime"}(${renderRuntimeValue({ root: hostedConfig.root, store: hostedConfig.store })})`]
     : [
         ...(installHostedRuntime ? ["  installHostedWorkspaceRuntime()"] : []),
+        ...(installHostedRuntime ? ["  installHostedVercelBlobWorkspaceRuntime()"] : []),
         ...(config ? [`  setWorkspaceRuntimeConfig(${renderRuntimeValue({ root: config.root, store: config.store })})`] : []),
       ]
 
