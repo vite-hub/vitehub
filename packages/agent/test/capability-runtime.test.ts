@@ -378,14 +378,14 @@ describe("agent capability runtime", () => {
     }, runtime(), {})
 
     const result = await resolved.tools?.workspace?.execute?.({
-      argv: ["run", "pnpm", "test", "--filter", "api"],
+      argv: ["run", "pnpm", "test", "--help", "--filter", "api"],
       json: true,
     })
 
     expect(result).toMatchObject({
       exitCode: 0,
       json: {
-        input: { argv: ["pnpm", "test", "--filter", "api"] },
+        input: { argv: ["pnpm", "test", "--help", "--filter", "api"] },
         json: true,
       },
     })

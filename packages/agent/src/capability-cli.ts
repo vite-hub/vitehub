@@ -272,9 +272,6 @@ function resolveCommand<TRuntimeConfig extends AgentRuntimeConfig, Name extends 
   if (!isLeaf(node as AgentCapabilityCliCommand<TRuntimeConfig, Name>)) {
     throw new Error(`Missing ${cli.name} subcommand. Run \`${cli.name}${path.length ? ` ${path.join(" ")}` : ""} --help\`.`)
   }
-  if (argv.slice(index).some(isHelpFlag)) {
-    return { help: nodeHelp(cli, path), json: execution.json === true, path }
-  }
   const command = node as LeafCliCommand<TRuntimeConfig, Name>
   if (command.rest === true) {
     return {
@@ -284,6 +281,9 @@ function resolveCommand<TRuntimeConfig extends AgentRuntimeConfig, Name extends 
       json: execution.json === true,
       path,
     }
+  }
+  if (argv.slice(index).some(isHelpFlag)) {
+    return { help: nodeHelp(cli, path), json: execution.json === true, path }
   }
   return {
     argv,
