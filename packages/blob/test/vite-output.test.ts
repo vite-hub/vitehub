@@ -224,23 +224,20 @@ describe("Vite provider outputs", () => {
     ])
   })
 
-  it("externalizes optional R2 HTTP peers from Cloudflare provider output", async () => {
+  it("bundles Cloudflare provider output without resolving optional R2 HTTP peers", async () => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-vite-cloudflare-r2-externals-")
     await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "dist", "client"), { recursive: true })
     await writeFile(join(rootDir, "src", "server.ts"), "export default async () => new Response('ok')\n", "utf8")
 
-    const { providerOutput } = await prepareProviderOutputs({
+    await generateProviderOutputs({
       blob: { driver: "cloudflare-r2", bucketName: "assets" },
-      provider: "cloudflare",
+      clientOutDir: "dist/client",
       rootDir,
     })
 
-    expect(providerOutput.cloudflare?.bundleOptions.external).toEqual(expect.arrayContaining([
-      "@aws-sdk/client-s3",
-      "@aws-sdk/s3-presigned-post",
-      "@aws-sdk/s3-request-presigner",
-      "files-sdk/r2",
-    ]))
+    const cloudflareWorker = await readFile(join(rootDir, "dist", toSafeAppName(rootDir), "index.js"), "utf8")
+    expect(cloudflareWorker).toContain("files-sdk/r2")
   })
 
   it("skips provider output for local fs stores", async () => {
