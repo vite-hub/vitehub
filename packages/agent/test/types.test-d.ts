@@ -684,11 +684,12 @@ describe("agent public types", () => {
       payload: event.result,
     })
     const renderBody = async (text: string, workspace?: ReadonlyWorkspaceFacade) => `${text}:${Boolean(workspace)}`
-    const typedFinishEffect = defineFinishEffect(async (event, { context, workspace }) => {
+    const typedFinishEffect = defineFinishEffect(async (event, { context, request, workspace }) => {
       expectTypeOf(event.text).toEqualTypeOf<string | undefined>()
       expectTypeOf(getAgentFinishText(event)).toEqualTypeOf<string | undefined>()
       expectTypeOf(context).toEqualTypeOf<AgentChannelDeliveryFinishEffectContext["context"]>()
       expectTypeOf(context.get<{ repository: string }>("review.context")).toEqualTypeOf<{ repository: string } | undefined>()
+      expectTypeOf(request).toEqualTypeOf<Request | undefined>()
       expectTypeOf(workspace).toEqualTypeOf<ReadonlyWorkspaceFacade | undefined>()
       if (event.error) return reply(`failed: ${event.errorMessage}`)
       const text = event.text
@@ -711,6 +712,7 @@ describe("agent public types", () => {
           expectTypeOf(context.effect).toEqualTypeOf<AgentChannelDeliveryEffectIntent>()
           expectTypeOf(context.effect.artifacts?.[0]).toEqualTypeOf<PublishedAgentDeliveryArtifact | undefined>()
           expectTypeOf(context.context).toEqualTypeOf<AgentChannelDeliveryEffectContext["context"]>()
+          expectTypeOf(context.request).toEqualTypeOf<Request | undefined>()
           expectTypeOf(context.workspace).toEqualTypeOf<AgentChannelDeliveryEffectContext["workspace"]>()
         },
       },
@@ -725,6 +727,7 @@ describe("agent public types", () => {
               delivery: {
                 finishEffects: (event, context) => {
                   expectTypeOf(context.context).toEqualTypeOf<AgentChannelDeliveryFinishEffectContext["context"]>()
+                  expectTypeOf(context.request).toEqualTypeOf<Request | undefined>()
                   expectTypeOf(context.workspace).toEqualTypeOf<AgentChannelDeliveryFinishEffectContext["workspace"]>()
                   return {
                     artifacts: [{ path: "screenshots/result.png", url: "https://assets.example/result.png" }],

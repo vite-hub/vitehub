@@ -234,6 +234,7 @@ export interface AgentChannelDeliveryEffectContext<
   effect: AgentChannelDeliveryEffectIntent
   finish?: AgentFinishEvent<TRuntimeConfig>
   input: AgentRunInput
+  request?: Request
   run?: AgentRunMetadata
   trigger?: {
     channelId: string
@@ -249,6 +250,7 @@ export interface AgentChannelDeliveryFinishEffectContext<
 > extends AgentCallbackContext<TRuntimeConfig> {
   context: AgentInvocationContextStore
   input: AgentRunInput<CALL_OPTIONS>
+  request?: Request
   run?: AgentRunMetadata
   workspace?: ReadonlyWorkspaceFacade
 }
