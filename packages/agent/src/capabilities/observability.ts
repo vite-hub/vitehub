@@ -1,5 +1,5 @@
 import { defineCapability } from "../capability-runtime.ts"
-import { usageTelemetry } from "./usage-telemetry.ts"
+import { getUsageTelemetry, usageTelemetry } from "./usage-telemetry.ts"
 
 import type {
   AgentActor,
@@ -88,13 +88,8 @@ function resultKind(result: unknown): string {
   return typeof result
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null
-}
-
 function usageRecordFromFinishEvent(event: AgentFinishEvent): AgentUsageRecord | undefined {
-  const usageExtension = event.extensions.get<AgentUsageRecord>("usage-telemetry")
-  return isRecord(usageExtension?.usage) ? usageExtension : undefined
+  return getUsageTelemetry(event)
 }
 
 function capabilityEventBase<TRuntimeConfig extends AgentRuntimeConfig>(

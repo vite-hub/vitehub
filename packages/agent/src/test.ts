@@ -9,7 +9,7 @@ import { registerWorkspace } from "@vite-hub/workspace/test"
 import type {
   AgentInput,
   AgentFinishEvent,
-  AgentInvocationExtensions,
+  AgentFinishExtensions,
   AgentModelExecutionOptions,
   AgentModelInstrumentation,
   AgentRunInput,
@@ -39,7 +39,7 @@ export interface AgentTestRunnerOptions<TRuntimeConfig extends AgentRuntimeConfi
 }
 
 export interface AgentTestRunResult {
-  extensions?: AgentInvocationExtensions
+  extensions?: AgentFinishExtensions
   finishReason?: unknown
   raw: unknown
   text: string
@@ -122,7 +122,7 @@ function createDefaultRun(name: string | undefined): AgentRunMetadata {
 
 function withTestFinishCapture<TRuntimeConfig extends AgentRuntimeConfig>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-  capture: (extensions: AgentInvocationExtensions) => void,
+  capture: (extensions: AgentFinishExtensions) => void,
 ): AgentInput<AgentRuntimeContext<TRuntimeConfig>> {
   if (!isAgentDefinition(agent)) return agent
 
@@ -300,7 +300,7 @@ function textFromRaw(value: unknown): string {
 async function normalizeAgentTestResult(
   value: unknown,
   toolSteps: AgentToolStep[],
-  getExtensions: () => AgentInvocationExtensions | undefined,
+  getExtensions: () => AgentFinishExtensions | undefined,
 ): Promise<AgentTestRunResult> {
   if (value instanceof Response) {
     const text = await value.clone().text()
@@ -352,7 +352,7 @@ export function createAgentTestRunner<
     async run(input) {
       const toolSteps: AgentToolStep[] = []
       let workspaceInspectionGuardrails = 0
-      let extensions: AgentInvocationExtensions | undefined
+      let extensions: AgentFinishExtensions | undefined
       const context = createAgentRuntimeContext({
         devtools: {
           reportToolStep(step) {

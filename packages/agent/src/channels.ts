@@ -1070,7 +1070,7 @@ function finishResultText(result: unknown): string | undefined {
 
 function finishUsageSummary(event: AgentFinishEvent): string | undefined {
   const usage = event.extensions.get("usage-telemetry")
-  return isRecord(usage) ? maybeString(usage.summary) : undefined
+  return maybeString(usage?.summary)
 }
 
 function githubNote(body: string): string {

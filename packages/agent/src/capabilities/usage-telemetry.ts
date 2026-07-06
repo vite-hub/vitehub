@@ -53,6 +53,16 @@ export interface UsageTelemetryOutputExtension {
   usageRecord: AgentUsageRecord
 }
 
+declare global {
+  interface ViteHubAgentFinishExtensions {
+    "usage-telemetry": AgentUsageRecord
+  }
+
+  interface ViteHubAgentOutputExtensions {
+    "usage-telemetry": UsageTelemetryOutputExtension
+  }
+}
+
 export interface UsageTelemetrySummaryFormatContext {
   subject: string
 }
@@ -533,7 +543,18 @@ function cloneWithUsageTelemetryStream<T extends UnknownRecord>(
   return clone
 }
 
-export function usageTelemetry(options: UsageTelemetryOptions = {}): AgentCapabilityDefinition {
+export type UsageTelemetryFinishEvent = Pick<AgentFinishEvent, "extensions">
+
+export function getUsageTelemetry(event: UsageTelemetryFinishEvent | undefined): AgentUsageRecord | undefined {
+  return event?.extensions.get("usage-telemetry")
+}
+
+export interface UsageTelemetryCapabilityFactory {
+  (options?: UsageTelemetryOptions): AgentCapabilityDefinition
+  from: typeof getUsageTelemetry
+}
+
+export const usageTelemetry: UsageTelemetryCapabilityFactory = Object.assign((options: UsageTelemetryOptions = {}): AgentCapabilityDefinition => {
   return defineCapability({
     id: "usage-telemetry",
     metadata: {
@@ -556,7 +577,7 @@ export function usageTelemetry(options: UsageTelemetryOptions = {}): AgentCapabi
         if (isRecord(result) && hasUsageTelemetryStream(result)) return cloneWithUsageTelemetryStream(result, options, context.run)
         if (isAsyncIterable(result)) return withUsageTelemetryStream(result, options, context.run)
         if (!isRecord(result)) return result
-        const usageRecord = renderContext.output.extensions.get<UsageTelemetryOutputExtension>("usage-telemetry")?.usageRecord
+        const usageRecord = renderContext.output.extensions.get("usage-telemetry")?.usageRecord
         if (!usageRecord) return result
         return {
           ...result,
@@ -566,7 +587,7 @@ export function usageTelemetry(options: UsageTelemetryOptions = {}): AgentCapabi
       })
     },
   })
-}
+}, { from: getUsageTelemetry })
 
 function decimalToParts(value: string): { scale: bigint, units: bigint } {
   const trimmed = value.trim()

@@ -89,6 +89,7 @@ export {
   mcp,
 } from "./mcp.ts"
 export {
+  getUsageTelemetry,
   normalizeAgentUsage,
   staticModelPricing,
   usageTelemetry,
@@ -318,7 +319,9 @@ export type {
   AgentUsagePricingContext,
   StaticModelPrice,
   UsageTelemetryCallback,
+  UsageTelemetryCapabilityFactory,
   UsageTelemetryContext,
+  UsageTelemetryFinishEvent,
   UsageTelemetryOptions,
   UsageTelemetryOutputExtension,
   UsageTelemetrySummaryFormatContext,
