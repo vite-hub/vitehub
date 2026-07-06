@@ -155,20 +155,19 @@ Adapter-backed message channels, such as Slack, Telegram, Teams, Discord, and cu
 
 ```ts [server/agents/support.ts]
 import { defineAgent, defineCapability } from '@vite-hub/agent'
-import { telegram } from '@vite-hub/agent/channels'
+import { defineFinishEffect, reply, telegram } from '@vite-hub/agent/channels'
 
 const screenshotDelivery = defineCapability({
   id: 'screenshot-delivery',
   prepare(context) {
-    context.delivery.finishEffect(() => ({
+    context.delivery.finishEffect(defineFinishEffect(() => reply({
+      body: 'See attached screenshot.',
       artifacts: [{
         mediaType: 'image/png',
         path: 'screenshots/login.png',
         placement: 'attachment',
       }],
-      kind: 'reply',
-      payload: { body: 'See attached screenshot.' },
-    }))
+    })))
   },
 })
 
@@ -187,9 +186,11 @@ export default defineAgent({
 
 GitHub comments and reviews need hosted markdown URLs instead of channel-native file uploads. The GitHub channel publishes workspace image paths that appear in reply or review bodies, then rewrites those paths to hosted raw URLs. Use `publishWorkspaceArtifacts()` from `@vite-hub/agent/channels` inside a finish effect when explicit GitHub artifacts need public URLs before delivery.
 
+Finish effects receive the final output event plus `context.workspace`, `context.run`, and `context.context` so app-side delivery code can read Workspace files and typed Agent Invocation Context values without re-parsing the stream.
+
 ```ts [server/agents/review.ts]
 import { defineAgent } from '@vite-hub/agent'
-import { github, publishWorkspaceArtifacts } from '@vite-hub/agent/channels'
+import { defineFinishEffect, github, publishWorkspaceArtifacts, reply } from '@vite-hub/agent/channels'
 import { blob } from '@vite-hub/blob'
 
 export default defineAgent({
@@ -197,21 +198,25 @@ export default defineAgent({
     github: github({
       app: true,
       pullRequest: {
-        reply: async (event, context) => ({
-          artifacts: await publishWorkspaceArtifacts(context, [{
-            alt: 'Login footer version badge',
-            mediaType: 'image/png',
-            path: 'screenshots/login-version-badge-desktop.png',
-            placement: 'inline',
-          }], {
-            prefix: `reviews/${context.run?.runId || crypto.randomUUID()}`,
-            publish: async ({ content, mediaType, pathname }) => {
-              const object = await blob.put(pathname, content, { access: 'public', contentType: mediaType })
-              return { url: object.url }
-            },
-          }),
-          kind: 'review',
-          payload: { body: String(event.result || '').trim() || '_No review generated._' },
+        reply: defineFinishEffect(async (event, context) => {
+          if (event.error) return reply(`Review failed: ${event.errorMessage}`)
+          const body = event.text?.trim() || '_No review generated._'
+          return {
+            kind: 'review',
+            payload: { body },
+            artifacts: await publishWorkspaceArtifacts(context, [{
+              alt: 'Login footer version badge',
+              mediaType: 'image/png',
+              path: 'screenshots/login-version-badge-desktop.png',
+              placement: 'inline',
+            }], {
+              prefix: `reviews/${context.run?.runId || crypto.randomUUID()}`,
+              publish: async ({ content, mediaType, pathname }) => {
+                const object = await blob.put(pathname, content, { access: 'public', contentType: mediaType })
+                return { url: object.url }
+              },
+            }),
+          }
         }),
       },
     }),

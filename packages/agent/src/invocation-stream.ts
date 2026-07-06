@@ -1,3 +1,4 @@
+import { formatAgentError } from "./agent-error.ts"
 import type { StreamEvent } from "./messages.ts"
 import type { AgentChannelDeliveryEffectIntent, AgentRunMetadata } from "./types.ts"
 
@@ -115,7 +116,7 @@ export function createAgentInvocationStreamResponse(
           if (closed || abortController.signal.aborted) return
           clearTimeoutSignal()
           emit(controller, {
-            error: cause instanceof Error ? cause.message : "Agent Invocation Stream failed.",
+            error: cause instanceof Error ? cause.message : formatAgentError(cause, "Agent Invocation Stream failed."),
             type: "error",
           })
           if (emit(controller, { type: "done" })) close(controller)

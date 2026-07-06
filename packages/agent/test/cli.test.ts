@@ -821,6 +821,50 @@ describe("agent CLI", () => {
     expect(stderr.output()).not.toContain("verbose review prose")
   })
 
+  it("formats structured Agent Dev Loop stream errors", async () => {
+    async function runWithPost(response: Response) {
+      const stderr = stream()
+      const fetchAgentStream = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "POST") return response
+        return Response.json({
+          agents: [{ name: "review", triggers: ["github.webhook"] }],
+          root: "/repo",
+        })
+      })
+
+      const exitCode = await runAgentDevCli(["--agent", "review", "--trigger", "github.webhook", "-p", "/review"], {
+        cwd: "/repo",
+        env: {},
+        rootDir: "/repo",
+        spawn: vi.fn(),
+        stderr,
+        stdout: stream(),
+      }, { fetch: fetchAgentStream as never })
+
+      return { exitCode, stderr: stderr.output() }
+    }
+
+    const emitted = await runWithPost(ndjson([
+      { agent: "review", trigger: "github.webhook", type: "start" },
+      { error: { code: "reaction_preview_failed", message: "GitHub reaction preview failed", status: 422 }, type: "error" },
+      { type: "done" },
+    ]))
+    expect(emitted.exitCode).toBe(1)
+    expect(emitted.stderr).toContain(`{"code":"reaction_preview_failed","message":"GitHub reaction preview failed","status":422}`)
+    expect(emitted.stderr).not.toContain("[object Object]")
+
+    const thrown = await runWithPost(new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error({ code: "stream_read_failed", message: "reader failed" })
+      },
+    }), {
+      headers: { "content-type": "application/x-ndjson" },
+    }))
+    expect(thrown.exitCode).toBe(1)
+    expect(thrown.stderr).toContain(`{"code":"stream_read_failed","message":"reader failed"}`)
+    expect(thrown.stderr).not.toContain("[object Object]")
+  })
+
   it("runs Evalite through the Node runner with ViteHub defaults", async () => {
     const runner = vi.fn(async () => ({ exitCode: undefined }))
     const exitCode = await runAgentEvalCli(["server/agents/support.eval.ts"], {

@@ -39,4 +39,20 @@ describe("Agent Invocation Stream", () => {
       { type: "done" },
     ])
   })
+
+  it("formats non-Error thrown values as stream errors", async () => {
+    const response = createAgentInvocationStreamResponse(async () => {
+      throw { code: "delivery_preview_failed", status: 422 }
+    })
+
+    const events = []
+    for await (const event of readAgentInvocationStream(response.body!)) {
+      events.push(event)
+    }
+
+    expect(events).toEqual([
+      { error: `{"code":"delivery_preview_failed","status":422}`, type: "error" },
+      { type: "done" },
+    ])
+  })
 })
