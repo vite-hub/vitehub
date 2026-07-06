@@ -117,6 +117,42 @@ describe("SQLite Agent State Provider", () => {
     await adapter.disconnect()
   })
 
+  it("awaits in-flight setup after the driver connects", async () => {
+    let finishMigration: (() => void) | undefined
+    let startMigration!: () => void
+    const migrationStarted = new Promise<void>((resolve) => {
+      startMigration = resolve
+    })
+    const driver: SqliteAgentStateDriver = {
+      async execute(statement: string) {
+        if (statement.includes("COALESCE(MAX(version)")) return { rows: [{ version: 2 }] }
+        return { rows: [] }
+      },
+      async transaction(run) {
+        startMigration()
+        await new Promise<void>((finish) => {
+          finishMigration = finish
+        })
+        return await run(driver)
+      },
+    }
+    const adapter = new ViteHubSqliteAgentStateAdapter({ driver })
+    const firstConnect = adapter.connect()
+
+    await migrationStarted
+    const secondConnect = adapter.connect()
+    let secondResolved = false
+    void secondConnect.then(() => {
+      secondResolved = true
+    })
+    await Promise.resolve()
+    expect(secondResolved).toBe(false)
+
+    finishMigration?.()
+    await expect(Promise.all([firstConnect, secondConnect])).resolves.toEqual([undefined, undefined])
+    await adapter.disconnect()
+  })
+
   it("creates parent directories for local libSQL file URLs", async () => {
     const dir = await mkdtemp(join(tmpdir(), "vitehub-agent-state-"))
     tempDirs.push(dir)

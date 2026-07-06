@@ -150,6 +150,10 @@ export class ViteHubSqliteAgentStateAdapter implements StateAdapter {
   }
 
   async connect(): Promise<void> {
+    if (this.connectPromise) {
+      await this.connectPromise
+      return
+    }
     if (this.connected) return
     this.connectPromise ??= this.doConnect().finally(() => {
       this.connectPromise = undefined
