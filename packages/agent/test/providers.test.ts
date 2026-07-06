@@ -458,6 +458,7 @@ describe("agent Vite plugin", () => {
 
       const gatewayRoute = await readFile(join(root, ".vitehub/agent/discord-gateway-route.ts"), "utf8")
 
+      expect(gatewayRoute).toContain("import { createDiscordGatewayRouteHandler } from \"@vite-hub/agent/server\"")
       expect(gatewayRoute).toContain("createDiscordGatewayRouteHandler")
       expect(gatewayRoute).toContain("VITEHUB_DISCORD_GATEWAY_SECRET")
       expect(gatewayRoute).toContain("VITEHUB_DISCORD_GATEWAY_DURATION_MS")
@@ -2560,7 +2561,7 @@ describe("server helpers", () => {
   it("forwards Discord Gateway events to the registered webhook id", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")
-    const { createDiscordGatewayRouteHandler } = await import("../src/server/internal.ts")
+    const { createDiscordGatewayRouteHandler } = await import("../src/server.ts")
     const startGatewayListener = vi.fn(async () => Response.json({ ok: true }))
     const adapter = {
       ...createTestChatAdapter(),
@@ -2593,10 +2594,103 @@ describe("server helpers", () => {
     )
   })
 
+  it("rejects non-GET Discord Gateway requests", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createDiscordGatewayRouteHandler } = await import("../src/server.ts")
+    const adapter = {
+      ...createTestChatAdapter(),
+      name: "discord",
+      startGatewayListener: vi.fn(async () => Response.json({ ok: true })),
+    }
+    const agent = defineAgent({
+      channels: {
+        discord: discord({ adapter: () => adapter as never }),
+      },
+      driver: {
+        run: vi.fn(),
+      },
+    })
+    const handler = createDiscordGatewayRouteHandler(agent as never)
+
+    const response = await handler(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway", {
+      method: "POST",
+    }), { webhookUrl: "https://example.com/api/_vitehub/agents/support/webhooks/discord" })
+
+    expect(response.status).toBe(405)
+    await expect(response.json()).resolves.toMatchObject({
+      message: "Discord Gateway route only accepts GET requests.",
+    })
+    expect(adapter.startGatewayListener).not.toHaveBeenCalled()
+  })
+
+  it("maps Discord Gateway text file attachments through the registered webhook", async () => {
+    const { defineAgent } = await import("../src/index.ts")
+    const { discord } = await import("../src/channels.ts")
+    const { createDiscordGatewayRouteHandler } = await import("../src/server.ts")
+    const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
+    const adapter = {
+      ...createTestChatAdapter(),
+      name: "discord",
+      startGatewayListener: vi.fn(async (_options, _durationMs, _abortSignal, webhookUrl) => {
+        if (!webhookUrl) return Response.json({ ok: false }, { status: 500 })
+        return await webhookHandler(new Request(webhookUrl, {
+          body: JSON.stringify({
+            message: {
+              chat: { id: "support" },
+              document: {
+                content: "expanded Discord prompt\n",
+                file_id: "prompt-file",
+                file_name: "message.txt",
+                file_size: 24,
+                mime_type: "text/plain",
+              },
+              from: { id: "42", username: "maxi" },
+              message_id: "msg-1",
+            },
+          }),
+          method: "POST",
+        }), "discord-events")
+      }),
+    }
+    const run = vi.fn(() => "ok")
+    const agent = defineAgent({
+      channels: {
+        discord: discord({
+          adapter: () => adapter as never,
+          webhooks: { id: "discord-events" },
+        }),
+      },
+      driver: {
+        run,
+      },
+    })
+    const webhookHandler = createChannelWebhookRouteHandler(agent as never)
+    const gatewayHandler = createDiscordGatewayRouteHandler(agent as never)
+
+    const response = await gatewayHandler(new Request("https://example.com/api/_vitehub/agents/support/discord/gateway"), {
+      webhookUrl: webhook => `https://example.com/api/_vitehub/agents/support/webhooks/${webhook}`,
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
+    expect(adapter.startGatewayListener).toHaveBeenCalledOnce()
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      messages: [expect.objectContaining({
+        parts: [
+          expect.objectContaining({
+            text: "\n\nText attachment (message.txt):\n\nexpanded Discord prompt",
+            type: "text",
+          }),
+        ],
+      })],
+    }))
+  })
+
   it("starts Discord Gateway listeners for every Discord channel", async () => {
     const { defineAgent } = await import("../src/index.ts")
     const { discord } = await import("../src/channels.ts")
-    const { createDiscordGatewayRouteHandler } = await import("../src/server/internal.ts")
+    const { createDiscordGatewayRouteHandler } = await import("../src/server.ts")
     let resolveSupportGateway!: (response: Response) => void
     let markSupportGatewayStarted!: () => void
     const supportGatewayStarted = new Promise<void>(resolve => {

@@ -2454,8 +2454,8 @@ export function createDiscordGatewayRouteHandler(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
 ): (request: Request, options: AgentDiscordGatewayRouteOptions) => Promise<Response> {
   return async (request, handlerOptions) => {
-    if (request.method !== "GET" && request.method !== "POST") {
-      return createJsonErrorResponse(405, "Discord Gateway route only accepts GET or POST requests.")
+    if (request.method !== "GET") {
+      return createJsonErrorResponse(405, "Discord Gateway route only accepts GET requests.")
     }
 
     const context = createRuntimeContext(
