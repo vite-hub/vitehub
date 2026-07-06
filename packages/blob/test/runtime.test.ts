@@ -672,6 +672,50 @@ describe("blob runtime", () => {
     }))
   })
 
+  it("keeps R2 HTTP fallback credentials isolated across worker envs", async () => {
+    const worker = createBlobCloudflareWorker({
+      app: async () => Response.json(await blob.list()),
+      blob: {
+        store: {
+          accountId: "********",
+          accessKeyId: "********",
+          binding: "BLOB",
+          bucketName: "********",
+          driver: "cloudflare-r2",
+          secretAccessKey: "********",
+        },
+      },
+    })
+
+    await worker.fetch(new Request("https://example.com/list"), {
+      CLOUDFLARE_R2_ACCESS_KEY_ID: "first-access-key",
+      CLOUDFLARE_R2_SECRET_ACCESS_KEY: "first-secret-key",
+      R2_ACCOUNT_ID: "first-account",
+      R2_BUCKET_NAME: "first-assets",
+    }, {})
+    await worker.fetch(new Request("https://example.com/list"), {
+      CLOUDFLARE_R2_ACCESS_KEY_ID: "second-access-key",
+      CLOUDFLARE_R2_SECRET_ACCESS_KEY: "second-secret-key",
+      R2_ACCOUNT_ID: "second-account",
+      R2_BUCKET_NAME: "second-assets",
+    }, {})
+
+    expect(filesSdkMock.r2).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      accountId: "first-account",
+      accessKeyId: "first-access-key",
+      bucket: "first-assets",
+      bucketName: "first-assets",
+      secretAccessKey: "first-secret-key",
+    }))
+    expect(filesSdkMock.r2).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      accountId: "second-account",
+      accessKeyId: "second-access-key",
+      bucket: "second-assets",
+      bucketName: "second-assets",
+      secretAccessKey: "second-secret-key",
+    }))
+  })
+
   it("keeps the Cloudflare binding available for waitUntil Blob tasks", async () => {
     const waitUntilPromises: Promise<unknown>[] = []
     const worker = createBlobCloudflareWorker({

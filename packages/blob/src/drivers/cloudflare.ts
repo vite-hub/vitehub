@@ -140,8 +140,7 @@ function createNativeDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobD
 
 export function createDriver(options: ResolvedCloudflareR2BlobStoreConfig): BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig> {
   const nativeDriver = createNativeDriver(options)
-  let httpDriver: BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig> | undefined
-  const activeDriver = () => getOptionalBucket(options) ? nativeDriver : (httpDriver ||= createHttpDriver(options))
+  const activeDriver = () => getOptionalBucket(options) ? nativeDriver : createHttpDriver(options)
 
   return {
     name: "cloudflare-r2",
