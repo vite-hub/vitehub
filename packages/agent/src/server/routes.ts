@@ -254,6 +254,14 @@ function createBadRequest(message: string): Response {
   return createJsonErrorResponse(400, message)
 }
 
+function isQueuedWorkflowRun(value: unknown): value is { provider: string, status: "queued" } {
+  return typeof value === "object"
+    && value !== null
+    && "provider" in value
+    && "status" in value
+    && (value as { status?: unknown }).status === "queued"
+}
+
 function serializeErrorForLog(error: unknown, seen = new WeakSet<object>()): unknown {
   if (!(error instanceof Error)) {
     return error
@@ -2355,7 +2363,9 @@ export function createChannelWebhookRouteHandler(
             ...context,
             ...(invocation.run ? { run: invocation.run } : {}),
           } as never, invocation.input as never)
-          await context.flushWaitUntil?.()
+          if (!isQueuedWorkflowRun(result)) {
+            await context.flushWaitUntil?.()
+          }
           return toAgentFetchResponse(result, false)
         }
         catch (error) {
