@@ -55,12 +55,16 @@ export interface PullRequestContextMetadata {
 }
 
 export interface PullRequestContextValue {
+  actor?: string
   apiUrl?: string
   base?: PullRequestContextRef
+  baseRef?: string
   body?: string
   comments?: PullRequestContextComment[]
+  deliveryId?: string
   files?: PullRequestContextFile[]
   head?: PullRequestContextRef
+  headRef?: string
   htmlUrl?: string
   id?: number | string
   labels?: string[]
@@ -322,13 +326,19 @@ function normalizePullRequestContext(value: unknown): PullRequestContextValue | 
       ...(maybeString(value.actor) ? { actor: { login: maybeString(value.actor) } } : {}),
       ...(maybeString(value.deliveryId) ? { deliveryId: maybeString(value.deliveryId) } : {}),
     }
+    const actor = trigger.actor?.login
+    const deliveryId = trigger.deliveryId
     return {
+      ...(actor ? { actor } : {}),
       ...(maybeString(value.apiUrl) ? { apiUrl: maybeString(value.apiUrl) } : {}),
       ...(base ? { base } : {}),
+      ...(base?.ref ? { baseRef: base.ref } : {}),
       ...(maybeString(value.body) ? { body: maybeString(value.body) } : {}),
       ...(comments?.length ? { comments } : {}),
+      ...(deliveryId ? { deliveryId } : {}),
       ...(files?.length ? { files } : {}),
       ...(head ? { head } : {}),
+      ...(head?.ref ? { headRef: head.ref } : {}),
       ...(maybeString(value.htmlUrl) ? { htmlUrl: maybeString(value.htmlUrl) } : {}),
       ...(maybeContextValue(value.id) !== undefined ? { id: maybeContextValue(value.id) } : {}),
       ...(labels ? { labels } : {}),
@@ -352,15 +362,24 @@ function normalizePullRequestContext(value: unknown): PullRequestContextValue | 
   const files = Array.isArray(pullRequest.files) ? pullRequest.files.map(normalizedFile).filter(isPresent) : undefined
   const labels = maybeStrings(pullRequest.labels)
   const metadata = normalizedMetadata(pullRequest.metadata)
+  const base = normalizedRef(pullRequest.base)
+  const head = normalizedRef(pullRequest.head)
   const source = normalizedSource(pullRequest.source)
+  const trigger = normalizedTrigger(value.trigger)
+  const actor = trigger?.actor?.login
+  const deliveryId = trigger?.deliveryId
 
   return {
+    ...(actor ? { actor } : {}),
     ...(maybeString(pullRequest.apiUrl) ? { apiUrl: maybeString(pullRequest.apiUrl) } : {}),
-    ...(normalizedRef(pullRequest.base) ? { base: normalizedRef(pullRequest.base) } : {}),
+    ...(base ? { base } : {}),
+    ...(base?.ref ? { baseRef: base.ref } : {}),
     ...(maybeString(pullRequest.body) ? { body: maybeString(pullRequest.body) } : {}),
     ...(comments?.length ? { comments } : {}),
+    ...(deliveryId ? { deliveryId } : {}),
     ...(files?.length ? { files } : {}),
-    ...(normalizedRef(pullRequest.head) ? { head: normalizedRef(pullRequest.head) } : {}),
+    ...(head ? { head } : {}),
+    ...(source?.ref || head?.ref ? { headRef: source?.ref || head?.ref } : {}),
     ...(maybeString(pullRequest.htmlUrl) ? { htmlUrl: maybeString(pullRequest.htmlUrl) } : {}),
     ...(maybeContextValue(pullRequest.id) !== undefined ? { id: maybeContextValue(pullRequest.id) } : {}),
     ...(labels ? { labels } : {}),
@@ -371,7 +390,7 @@ function normalizePullRequestContext(value: unknown): PullRequestContextValue | 
     ...(normalizedRun(value.run) ? { run: normalizedRun(value.run) } : {}),
     ...(source ? { source } : {}),
     ...(maybeString(pullRequest.title) ? { title: maybeString(pullRequest.title) } : {}),
-    ...(normalizedTrigger(value.trigger) ? { trigger: normalizedTrigger(value.trigger) } : {}),
+    ...(trigger ? { trigger } : {}),
   }
 }
 
@@ -544,7 +563,7 @@ function createPullRequestContext<
     if (recordedContexts.has(context.context)) return
     const value = await resolveMaybeFunction(options.context, context)
     if (value !== undefined) {
-      context.context.set(contextKey, value)
+      context.context.set(contextKey, normalizePullRequestContext(value) || value)
       recordedContexts.add(context.context)
     }
   }

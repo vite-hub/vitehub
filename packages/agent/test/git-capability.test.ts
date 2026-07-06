@@ -119,7 +119,7 @@ describe("git capability", () => {
 
   it("runs local write commands only on a clean tree", async () => {
     const session = gitSession()
-    const { tools } = await capabilityTools(git({ mode: "write", policy: "allow" }), session)
+    const { startSession, tools } = await capabilityTools(git({ mode: "write", policy: "allow" }), session)
 
     expect(Object.keys(tools)).toEqual(["git_read", "git_write"])
     expect(tools.git_write!.policy).toBe("allow")
@@ -127,6 +127,7 @@ describe("git capability", () => {
       args: ["switch", "feature/pr-1"],
       cwd: "/workspace/portal",
     })
+    expect(startSession).toHaveBeenCalledWith(undefined)
     expect(session.exec).toHaveBeenNthCalledWith(1, "git", ["status", "--porcelain"], expect.objectContaining({ cwd: "/workspace/portal", timeout: undefined }))
     expect(session.exec).toHaveBeenNthCalledWith(2, "git", ["switch", "feature/pr-1"], expect.objectContaining({ cwd: "/workspace/portal", timeout: undefined }))
     expect(session.commit).toHaveBeenCalledWith({ message: "git switch" })
@@ -168,6 +169,19 @@ describe("git capability", () => {
     expect(dirty.commit).not.toHaveBeenCalled()
   })
 
+  it("keeps non-PR cwd commands in a full workspace session", async () => {
+    const session = gitSession()
+    const { startSession, tools } = await capabilityTools(git(), session)
+
+    await expect(tools.git_read!.execute?.({ command: "git status --short", cwd: "packages/agent" })).resolves.toMatchObject({
+      cwd: "/workspace/packages/agent",
+      stdout: "ok\n",
+    })
+
+    expect(startSession).toHaveBeenCalledWith(undefined)
+    expect(session.exec).toHaveBeenCalledWith("git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace/packages/agent" }))
+  })
+
   it("prepares pull request checkout and defaults cwd to the source mount", async () => {
     const session = gitSession()
     session.exec.mockImplementation(async (command: string, args: string[] = []) => ({
@@ -205,6 +219,101 @@ describe("git capability", () => {
     expect(session.exec).toHaveBeenNthCalledWith(1, "git", ["rev-parse", "--is-inside-work-tree"], expect.objectContaining({ cwd: "/workspace/vitehub" }))
     expect(session.exec).toHaveBeenNthCalledWith(2, "sh", ["-lc", expect.stringContaining("git fetch --depth=100 origin 'refs/pull/42/head:refs/vitehub/head' 'refs/heads/main:refs/remotes/origin/main'")], expect.objectContaining({ cwd: "/workspace" }))
     expect(session.exec).toHaveBeenNthCalledWith(3, "git", ["status", "--short"], expect.objectContaining({ cwd: "/workspace/vitehub" }))
+  })
+
+  it("does not guess a base branch when preparing pull request checkout", async () => {
+    const session = gitSession()
+    session.exec.mockImplementation(async (command: string, args: string[] = []) => ({
+      args,
+      command,
+      exitCode: command === "git" && args.join(" ") === "rev-parse --is-inside-work-tree" ? 1 : 0,
+      stderr: "",
+      stdout: "",
+    }))
+    const { tools } = await capabilityTools(git(), session, {
+      pullRequest: {
+        pullRequest: {
+          number: 42,
+          source: {
+            mount: "vitehub",
+            ref: "refs/pull/42/head",
+            repo: "vite-hub/vitehub",
+          },
+        },
+        repository: {
+          fullName: "vite-hub/vitehub",
+          name: "vitehub",
+        },
+      },
+    })
+
+    await expect(tools.git_read!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
+      cwd: "/workspace/vitehub",
+    })
+
+    const setupScript = session.exec.mock.calls.find(([command]) => command === "sh")?.[1]?.[1]
+    expect(setupScript).toContain("git fetch --depth=100 origin 'refs/pull/42/head:refs/vitehub/head'")
+    expect(setupScript).not.toContain("refs/heads/main")
+    expect(setupScript).not.toContain("vitehub-base")
+  })
+
+  it("keeps internally prepared pull request checkouts out of write commits", async () => {
+    const session = gitSession()
+    session.exec.mockImplementation(async (command: string, args: string[] = []) => ({
+      args,
+      command,
+      exitCode: command === "git" && args.join(" ") === "rev-parse --is-inside-work-tree" ? 1 : 0,
+      stderr: "",
+      stdout: "",
+    }))
+    const { tools } = await capabilityTools(git({ mode: "write", policy: "allow" }), session, {
+      pullRequest: {
+        pullRequest: {
+          base: { ref: "main" },
+          number: 42,
+          source: {
+            mount: "vitehub",
+            ref: "refs/pull/42/head",
+            repo: "vite-hub/vitehub",
+          },
+        },
+        repository: {
+          fullName: "vite-hub/vitehub",
+          name: "vitehub",
+        },
+      },
+    })
+
+    await expect(tools.git_write!.execute?.({ command: "git switch vitehub-base" })).resolves.toMatchObject({
+      args: ["switch", "vitehub-base"],
+      cwd: "/workspace/vitehub",
+    })
+
+    expect(session.commit).not.toHaveBeenCalled()
+  })
+
+  it("skips pull request checkout for non-GitHub providers", async () => {
+    const session = gitSession()
+    const { startSession, tools } = await capabilityTools(git(), session, {
+      pullRequest: {
+        number: 42,
+        provider: "gitlab",
+        repository: "vite-hub/vitehub",
+        source: {
+          mount: "vitehub",
+          ref: "refs/merge-requests/42/head",
+          repo: "vite-hub/vitehub",
+        },
+      },
+    })
+
+    await expect(tools.git_read!.execute?.({ command: "git status --short" })).resolves.toMatchObject({
+      cwd: "/workspace",
+      stdout: "ok\n",
+    })
+
+    expect(startSession).toHaveBeenCalledWith(undefined)
+    expect(session.exec).toHaveBeenCalledOnce()
   })
 
   it("ignores unsafe pull request checkout values", async () => {

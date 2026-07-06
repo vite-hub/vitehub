@@ -117,6 +117,7 @@ describe("pullRequestContext", () => {
 
     expect(context.get("pullRequest")).toEqual({
       head: { ref: "feature" },
+      headRef: "feature",
       number: 42,
       repository: "acme/app",
     })
@@ -230,6 +231,7 @@ describe("pullRequestContext", () => {
       'provider: "github"',
       'source: {"mount":"vitehub","ref":"refs/pull/42/head","repo":"acme/app"}',
       'base: {"ref":"main"}',
+      'head: {"ref":"refs/pull/42/head"}',
       'deliveryId: "delivery-1"',
       "---",
       "",

@@ -41,7 +41,12 @@ interface GitCommandResult {
 }
 
 interface GitSessionState {
-  sessionPromises?: Map<string, Promise<WorkspaceSession>>
+  sessionPromises?: Map<string, Promise<GitSessionHandle>>
+}
+
+interface GitSessionHandle {
+  commitWrites: boolean
+  session: WorkspaceSession
 }
 
 const readSubcommands = new Set([
@@ -347,6 +352,9 @@ function pullRequestGitSetup(context: { context?: { get(key: string): unknown } 
   const pullRequest = isGitRecord(raw) && isGitRecord(raw.pullRequest) ? raw.pullRequest : isGitRecord(raw) ? raw : undefined
   if (!pullRequest) return
 
+  const provider = isGitRecord(raw) ? raw.provider : undefined
+  if (typeof provider === "string" && provider !== "github") return
+
   const source = isGitRecord(pullRequest.source) ? pullRequest.source : undefined
   const base = isGitRecord(pullRequest.base) ? pullRequest.base : undefined
   const head = isGitRecord(pullRequest.head) ? pullRequest.head : undefined
@@ -355,12 +363,12 @@ function pullRequestGitSetup(context: { context?: { get(key: string): unknown } 
     || safeGitHubRepository(isGitRecord(raw) ? raw.repository : undefined)
     || safeGitHubRepository(repository?.fullName)
   const mount = safeWorkspacePath(source?.mount) || safeWorkspacePath(repository?.name)
-  const headRef = safeGitRef(source?.ref) || safeGitRef(head?.ref)
-  const baseRef = safeGitRef(base?.ref) || "main"
-  if (!repo || !mount || !headRef || !baseRef) return
+  const headRef = safeGitRef(source?.ref) || safeGitRef(head?.ref) || safeGitRef(pullRequest.headRef)
+  const baseRef = safeGitRef(base?.ref) || safeGitRef(pullRequest.baseRef)
+  if (!repo || !mount || !headRef) return
 
   return {
-    baseRef: gitRemoteRef(baseRef),
+    ...(baseRef ? { baseRef: gitRemoteRef(baseRef) } : {}),
     headRef: gitRemoteRef(headRef),
     mount,
     remoteUrl: `https://github.com/${repo}.git`,
@@ -371,7 +379,7 @@ function gitSessionWorkspacePath(cwd: string, context: { context?: { get(key: st
   const workspacePath = workspacePathFromGitCwd(cwd)
   const setup = pullRequestGitSetup(context)
   if (setup && pathContains(setup.mount, workspacePath)) return setup.mount
-  return workspacePath
+  return ""
 }
 
 async function preparePullRequestGitSession(
@@ -379,16 +387,20 @@ async function preparePullRequestGitSession(
   workspacePath: string,
   context: { context?: { get(key: string): unknown } },
   timeout: number | undefined,
-): Promise<void> {
+): Promise<boolean> {
   const setup = pullRequestGitSetup(context)
-  if (!setup || workspacePath !== setup.mount) return
+  if (!setup || workspacePath !== setup.mount) return false
 
   const cwd = `/workspace/${setup.mount}`
   const existing = await session.exec("git", ["rev-parse", "--is-inside-work-tree"], gitExecOptions(cwd, timeout))
-  if (existing.exitCode === 0) return
+  if (existing.exitCode === 0) return false
 
-  const baseTrackingRef = gitRemoteBranchTrackingRef(setup.baseRef)
+  const baseTrackingRef = setup.baseRef ? gitRemoteBranchTrackingRef(setup.baseRef) : undefined
   const authHeader = gitHubAuthHeader()
+  const fetchRefspecs = [
+    `${setup.headRef}:refs/vitehub/head`,
+    ...(setup.baseRef && baseTrackingRef ? [`${setup.baseRef}:${baseTrackingRef}`] : []),
+  ].map(shellQuote).join(" ")
   const script = [
     "set -eu",
     `rm -rf -- ${shellQuote(setup.mount)}`,
@@ -397,9 +409,9 @@ async function preparePullRequestGitSession(
     "git init -q",
     `git remote add origin ${shellQuote(setup.remoteUrl)}`,
     'if [ -n "${VITEHUB_GIT_AUTH_HEADER:-}" ]; then git config --local http.https://github.com/.extraheader "$VITEHUB_GIT_AUTH_HEADER"; fi',
-    `git fetch --depth=100 origin ${shellQuote(`${setup.headRef}:refs/vitehub/head`)} ${shellQuote(`${setup.baseRef}:${baseTrackingRef}`)}`,
+    `git fetch --depth=100 origin ${fetchRefspecs}`,
     "git checkout -q --detach refs/vitehub/head",
-    `git branch -f vitehub-base ${shellQuote(baseTrackingRef)} >/dev/null`,
+    ...(baseTrackingRef ? [`git branch -f vitehub-base ${shellQuote(baseTrackingRef)} >/dev/null`] : []),
     "git branch -f vitehub-head HEAD >/dev/null",
   ].join("\n")
   const result = await session.exec("sh", ["-lc", script], gitShellExecOptions("/workspace", timeout, {
@@ -408,13 +420,11 @@ async function preparePullRequestGitSession(
   if (result.exitCode !== 0) {
     throw new Error(result.stderr || result.stdout || "[vitehub] git could not prepare pull request checkout.")
   }
+  return true
 }
 
 function defaultGitCwd(context: { context?: { get(key: string): unknown } }): string | undefined {
-  const raw = context.context?.get("pullRequest")
-  const pullRequest = isGitRecord(raw) && isGitRecord(raw.pullRequest) ? raw.pullRequest : isGitRecord(raw) ? raw : undefined
-  const source = isGitRecord(pullRequest?.source) ? pullRequest.source : undefined
-  return safeWorkspacePath(source?.mount)
+  return pullRequestGitSetup(context)?.mount
 }
 
 function normalizeGitToolInput(input: unknown, defaultCwd: string | undefined): GitCommandInput {
@@ -450,7 +460,7 @@ async function cleanWorkingTree(session: WorkspaceSession, cwd: string, timeout:
 function gitTools(
   mode: AgentCapabilityMode,
   options: Required<Pick<GitCapabilityOptions, "maxOutputLength">> & Pick<GitCapabilityOptions, "policy" | "timeout">,
-  getSession: (cwd: string) => Promise<WorkspaceSession>,
+  getSession: (cwd: string) => Promise<GitSessionHandle>,
   defaultCwd: string | undefined,
 ): AgentToolSet {
   async function run(rawInput: unknown, write: boolean): Promise<GitCommandResult> {
@@ -461,11 +471,12 @@ function gitTools(
     const args = parseGitCommand(input.command)
     write ? assertGitWrite(args) : assertGitRead(args)
     const cwd = normalizeCwd(input.cwd)
-    const session = await getSession(cwd)
+    const handle = await getSession(cwd)
+    const { session } = handle
     if (write && args[0] === "fetch") await assertConfiguredFetchRemote(session, cwd, options.timeout, args)
     if (write && writeSubcommands.has(args[0]!)) await cleanWorkingTree(session, cwd, options.timeout)
     const result = await session.exec("git", args, gitExecOptions(cwd, options.timeout))
-    if (write && writeSubcommands.has(args[0]!) && result.exitCode === 0) {
+    if (handle.commitWrites && write && writeSubcommands.has(args[0]!) && result.exitCode === 0) {
       await session.commit({ message: `git ${args[0]}` })
     }
     const stdout = limitOutput(result.stdout, options.maxOutputLength)
@@ -529,7 +540,7 @@ export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefiniti
     return state
   }
 
-  function getSessionResolver(context: { context?: { get(key: string): unknown }, workspace?: unknown }): (cwd: string) => Promise<WorkspaceSession> {
+  function getSessionResolver(context: { context?: { get(key: string): unknown }, workspace?: unknown }): (cwd: string) => Promise<GitSessionHandle> {
     return async (cwd) => {
       const workspace = context.workspace
       if (!isGitSessionWorkspace(workspace)) {
@@ -541,18 +552,18 @@ export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefiniti
       state.sessionPromises ??= new Map()
       if (!state.sessionPromises.has(key)) {
         state.sessionPromises.set(key, workspace.startSession(workspacePath ? { paths: [workspacePath] } : undefined).then(async (session) => {
-          await preparePullRequestGitSession(session, workspacePath, context, options.timeout)
-          return session
+          const prepared = await preparePullRequestGitSession(session, workspacePath, context, options.timeout)
+          return { commitWrites: !prepared, session }
         }).catch((error) => {
           state.sessionPromises?.delete(key)
           throw error
         }))
       }
-      const session = await state.sessionPromises.get(key)
-      if (!session) {
+      const handle = await state.sessionPromises.get(key)
+      if (!handle) {
         throw new Error("[vitehub] git() requires a git-capable workspace session.")
       }
-      return session
+      return handle
     }
   }
 
@@ -561,7 +572,7 @@ export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefiniti
     sessionStates.delete(context)
     const sessions = await Promise.all([...state?.sessionPromises?.values() || []])
     if (state) state.sessionPromises = undefined
-    await Promise.all(sessions.map(session => session.close()))
+    await Promise.all(sessions.map(({ session }) => session.close()))
   }
 
   return defineCapability({
