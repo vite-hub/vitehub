@@ -241,4 +241,60 @@ describe("@vite-hub/source GitHub source", () => {
     const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
     expect(archiveCalls).toHaveLength(1)
   })
+
+  it("dedupes concurrent GitHub archive reads without provider cache", async () => {
+    stubGitHubSource({
+      "docs/README.md": "# Docs\n",
+    })
+
+    registerSources({
+      docs: github({
+        repo: "acme/app",
+        root: "docs",
+      }),
+    })
+
+    const docs = useSource("docs")
+
+    await expect(Promise.all([
+      docs.read("README.md"),
+      docs.read("README.md"),
+    ])).resolves.toEqual(["# Docs\n", "# Docs\n"])
+
+    const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
+    expect(archiveCalls).toHaveLength(1)
+  })
+
+  it("does not cache completed GitHub archive reads without provider cache", async () => {
+    const archives = [
+      createTarGz({ "docs/README.md": "first\n" }),
+      createTarGz({ "docs/README.md": "second\n" }),
+    ]
+
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      const requestUrl = String(url)
+      if (requestUrl.startsWith("https://codeload.github.com/")) {
+        const archive = archives.shift()
+        if (!archive) throw new Error("Unexpected extra GitHub archive request")
+        return new Response(archive)
+      }
+      throw new Error(`Unexpected GitHub request: ${requestUrl}`)
+    }))
+
+    registerSources({
+      docs: github({
+        ref: "main",
+        repo: "acme/app",
+        root: "docs",
+      }),
+    })
+
+    const docs = useSource("docs")
+
+    await expect(docs.read("README.md")).resolves.toBe("first\n")
+    await expect(docs.read("README.md")).resolves.toBe("second\n")
+
+    const archiveCalls = vi.mocked(fetch).mock.calls.filter(([url]) => String(url).startsWith("https://codeload.github.com/"))
+    expect(archiveCalls).toHaveLength(2)
+  })
 })

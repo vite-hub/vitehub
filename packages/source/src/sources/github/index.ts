@@ -13,6 +13,20 @@ function normalizeGitHubRoot(path = "") {
   return normalizeSourcePath(path).split("/").filter(part => part && part !== ".").join("/")
 }
 
+function dedupeProviderPromise<TResult>(
+  promises: Map<string, Promise<TResult>>,
+  key: string,
+  load: () => Promise<TResult>,
+) {
+  const promise = promises.get(key)
+  if (promise) return promise
+  const nextPromise = load().finally(() => {
+    promises.delete(key)
+  })
+  promises.set(key, nextPromise)
+  return nextPromise
+}
+
 export function github<const TKey extends string = string>(options: GitHubSourceOptions): Source<TKey> {
   const configuredRef = options.ref
   const root = normalizeGitHubRoot(options.root || "")
@@ -74,6 +88,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
     return error instanceof SourceError && error.message.includes(" request failed with 403 ")
   }
 
+  const resolvedRefs = new Map<string, Promise<string>>()
   const cachedResolveRef = providerCache
     ? defineCachedFunction(
         async (token: string | undefined) => await resolveRef(token),
@@ -83,7 +98,11 @@ export function github<const TKey extends string = string>(options: GitHubSource
           name: "github-source-ref",
         },
       )
-    : async (token: string | undefined) => await resolveRef(token)
+    : (token: string | undefined) => dedupeProviderPromise(
+        resolvedRefs,
+        cacheKey("ref", token || ""),
+        () => resolveRef(token),
+      )
 
   async function getRef(token = refreshAuth()) {
     return await cachedResolveRef(token)
@@ -110,6 +129,7 @@ export function github<const TKey extends string = string>(options: GitHubSource
     return await loadArchiveFiles(token)
   }
 
+  const loadedFiles = new Map<string, Promise<GitHubFile<TKey>[]>>()
   const cachedLoadFiles = providerCache
     ? defineCachedFunction(
         async (token: string | undefined) => await loadFiles(token),
@@ -119,7 +139,11 @@ export function github<const TKey extends string = string>(options: GitHubSource
           name: "github-source-archive",
         },
       )
-    : async (token: string | undefined) => await loadFiles(token)
+    : (token: string | undefined) => dedupeProviderPromise(
+        loadedFiles,
+        cacheKey("archive", token || ""),
+        () => loadFiles(token),
+      )
 
   function getFiles(token = refreshAuth()) {
     return cachedLoadFiles(token)
