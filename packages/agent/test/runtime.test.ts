@@ -3227,6 +3227,165 @@ describe("agent message protocol", () => {
     )
   })
 
+  it("bounds GitHub PR metadata before input commands", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    let pullRequestContext: unknown
+    const fetcher = vi.fn(async (url: string | URL) => {
+      const href = String(url)
+      if (href.endsWith("/app/installations/123/access_tokens")) {
+        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
+      if (href.endsWith("/pulls/42")) {
+        return Response.json({
+          body: "0123456789",
+          base: { ref: "main", sha: "base123" },
+          head: { ref: "feature", sha: "head123" },
+        })
+      }
+      if (href.endsWith("/issues/42/comments?per_page=100")) {
+        return Response.json([
+          { body: "abcdefghij", id: 1, user: { login: "mona" } },
+          { body: "second", id: 2, user: { login: "octo" } },
+        ])
+      }
+      if (href.endsWith("/pulls/42/files?per_page=100")) {
+        return Response.json([
+          { filename: "src/one.ts", status: "modified" },
+          { filename: "src/two.ts", status: "added" },
+        ])
+      }
+      throw new Error(`Unexpected GitHub API call: ${href}`)
+    })
+    const agent = defineAgent({
+      capabilities: [inputCommands({
+        commands: {
+          review: {
+            description: "Review a pull request.",
+            call({ input }) {
+              pullRequestContext = input.context?.pullRequest
+            },
+          },
+        },
+      })],
+      channels: {
+        github: github({
+          app: {
+            apiBaseUrl: "https://api.github.test",
+            appId: "metadata-caps",
+            fetch: fetcher as typeof fetch,
+            installationId: 123,
+            privateKey: privateKeyPem,
+          },
+          pullRequest: {
+            maxBodyLength: 4,
+            maxCommentBodyLength: 5,
+            maxComments: 1,
+            maxFiles: 1,
+            reply: false,
+          },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {
+      github: { event: "issue_comment", installationId: 123 },
+      payload: {
+        action: "created",
+        comment: { body: "/review", id: 99, user: { login: "mona" } },
+        issue: {
+          number: 42,
+          pull_request: { url: "https://api.github.test/repos/acme/app/pulls/42" },
+        },
+        repository: { full_name: "acme/app" },
+      },
+    })).resolves.toBe("ok")
+
+    expect(pullRequestContext).toMatchObject({
+      pullRequest: {
+        body: "0123\n[truncated 6 characters]",
+        comments: [{ body: "abcde\n[truncated 5 characters]", id: 1 }],
+        files: [{ filename: "src/one.ts" }],
+        metadata: {
+          omittedComments: 1,
+          omittedFiles: 1,
+        },
+      },
+    })
+  })
+
+  it("marks unavailable GitHub PR metadata", async () => {
+    const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
+    const { inputCommands } = await import("../src/capabilities.ts")
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    let pullRequestContext: unknown
+    const fetcher = vi.fn(async (url: string | URL) => {
+      const href = String(url)
+      if (href.endsWith("/app/installations/321/access_tokens")) {
+        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
+      if (href.endsWith("/pulls/42")) return Response.json({ message: "forbidden" }, { status: 403 })
+      if (href.endsWith("/issues/42/comments?per_page=100") || href.endsWith("/pulls/42/files?per_page=100")) {
+        return Response.json([])
+      }
+      throw new Error(`Unexpected GitHub API call: ${href}`)
+    })
+    const agent = defineAgent({
+      capabilities: [inputCommands({
+        commands: {
+          review: {
+            description: "Review a pull request.",
+            call({ input }) {
+              pullRequestContext = input.context?.pullRequest
+            },
+          },
+        },
+      })],
+      channels: {
+        github: github({
+          app: {
+            apiBaseUrl: "https://api.github.test",
+            appId: "metadata-unavailable",
+            fetch: fetcher as typeof fetch,
+            installationId: 321,
+            privateKey: privateKeyPem,
+          },
+          pullRequest: { reply: false },
+        }),
+      },
+      driver: { run: () => "ok" },
+    })
+
+    await expect(runAgentTrigger(agent, { memo: vi.fn(), runtime: "unknown" as const, waitUntil: vi.fn() }, "github.webhook", {
+      github: { event: "issue_comment", installationId: 321 },
+      payload: {
+        action: "created",
+        comment: { body: "/review", id: 99, user: { login: "mona" } },
+        issue: {
+          body: "fallback body",
+          number: 42,
+          pull_request: { url: "https://api.github.test/repos/acme/app/pulls/42" },
+        },
+        repository: { full_name: "acme/app" },
+      },
+    })).resolves.toBe("ok")
+
+    expect(pullRequestContext).toMatchObject({
+      pullRequest: {
+        body: "fallback body",
+        metadata: {
+          unavailable: "[vitehub] GitHub metadata request failed with 403.",
+        },
+      },
+    })
+  })
+
   it("handles unauthorized GitHub PR comment commands without running the agent", async () => {
     const { defineAgent, runAgentTrigger } = await import("../src/index.ts")
     const { inputCommands } = await import("../src/capabilities.ts")

@@ -155,9 +155,17 @@ function renderPullRequestDetails(input: unknown): string {
   const body = maybeString(pullRequest?.body)
   const base = isRecord(pullRequest?.base) ? pullRequest.base : undefined
   const head = isRecord(pullRequest?.head) ? pullRequest.head : undefined
+  const metadata = isRecord(pullRequest?.metadata) ? pullRequest.metadata : undefined
   const files = Array.isArray(pullRequest?.files) ? pullRequest.files.filter(isRecord) : []
   const comments = Array.isArray(pullRequest?.comments) ? pullRequest.comments.filter(isRecord) : []
   const triggerComment = isRecord(trigger?.comment) ? trigger.comment : undefined
+  const metadataUnavailable = maybeString(metadata?.unavailable)
+  const omittedComments = maybeContextValue(metadata?.omittedComments)
+  const omittedFiles = maybeContextValue(metadata?.omittedFiles)
+
+  if (metadataUnavailable) {
+    lines.push(`PR metadata unavailable: ${metadataUnavailable}`)
+  }
 
   if (base || head) {
     lines.push("## Branches")
@@ -171,9 +179,9 @@ function renderPullRequestDetails(input: unknown): string {
     lines.push("## Body", body)
   }
 
-  if (files.length) {
+  if (files.length || omittedFiles) {
     lines.push("## Changed Files")
-    lines.push(renderList(files.map((file) => {
+    if (files.length) lines.push(renderList(files.map((file) => {
       const filename = maybeString(file.filename) || "unknown"
       const status = maybeString(file.status)
       const additions = maybeContextValue(file.additions)
@@ -181,19 +189,21 @@ function renderPullRequestDetails(input: unknown): string {
       const counts = additions !== undefined || deletions !== undefined ? ` (+${additions ?? 0}/-${deletions ?? 0})` : ""
       return `${filename}${status ? ` (${status})` : ""}${counts}`
     })))
+    if (omittedFiles) lines.push(`+${omittedFiles} more files not shown.`)
   }
 
-  if (comments.length || triggerComment) {
+  if (comments.length || triggerComment || omittedComments) {
     const commentLines = comments.map((comment) => {
       const user = isRecord(comment.user) ? maybeString(comment.user.login) : undefined
       const body = maybeString(comment.body)
       return `${user || "unknown"}: ${body || "(no body)"}`
     })
     const body = maybeString(triggerComment?.body)
-    if (!commentLines.length && body) {
+    if (!commentLines.length && body && !omittedComments) {
       commentLines.push(body)
     }
-    lines.push("## Comments")
+    if (omittedComments) commentLines.push(`+${omittedComments} more comments not shown.`)
+    lines.push("## Comments (untrusted user content)")
     lines.push(renderList(commentLines))
   }
 
