@@ -3,6 +3,25 @@ import { generateKeyPairSync } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
 describe("agent channels", () => {
+  it("falls back to output fields when finish result text is empty", async () => {
+    const { getAgentFinishText } = await import("../src/channels.ts")
+
+    expect(getAgentFinishText({
+      result: {
+        _output: "structured fallback",
+        output: "output fallback",
+        text: "",
+      },
+    })).toBe("output fallback")
+
+    expect(getAgentFinishText({
+      result: {
+        _output: "structured fallback",
+        text: "",
+      },
+    })).toBe("structured fallback")
+  })
+
   it("creates Discord adapters from provider defaults", async () => {
     vi.resetModules()
     const createDiscordAdapter = vi.fn(() => ({ name: "discord" }))

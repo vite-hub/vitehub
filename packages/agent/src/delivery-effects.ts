@@ -39,8 +39,8 @@ export function defineFinishEffect<
 }
 
 export function getAgentFinishText(event: Pick<AgentFinishEvent, "result" | "text">): string | undefined {
-  if (typeof event.text === "string") return event.text
-  if (typeof event.result === "string") return event.result
+  if (typeof event.text === "string" && event.text) return event.text
+  if (typeof event.result === "string" && event.result) return event.result
   if (!event.result || typeof event.result !== "object" || event.result instanceof Response) return
   return textFromResult(event.result as Record<string, unknown>)
 }
@@ -69,8 +69,15 @@ function stringValue(record: Record<string, unknown>, key: string): string | und
   return typeof value === "string" ? value : undefined
 }
 
+function nonEmptyStringValue(record: Record<string, unknown>, key: string): string | undefined {
+  const value = stringValue(record, key)
+  return value || undefined
+}
+
 function textFromResult(result: Record<string, unknown>): string | undefined {
-  const text = stringValue(result, "text") ?? stringValue(result, "output") ?? stringValue(result, "_output")
+  const text = nonEmptyStringValue(result, "text")
+    ?? nonEmptyStringValue(result, "output")
+    ?? nonEmptyStringValue(result, "_output")
   if (text) return text
   const contentText = textFromContent(ownValue(result, "content"))
   if (contentText) return contentText
@@ -79,7 +86,7 @@ function textFromResult(result: Record<string, unknown>): string | undefined {
   for (const step of steps.slice().reverse()) {
     if (!step || typeof step !== "object") continue
     const record = step as Record<string, unknown>
-    const stepText = stringValue(record, "text") ?? textFromContent(ownValue(record, "content"))
+    const stepText = nonEmptyStringValue(record, "text") ?? textFromContent(ownValue(record, "content"))
     if (stepText) return stepText
   }
 }
