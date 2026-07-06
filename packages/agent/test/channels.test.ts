@@ -302,6 +302,72 @@ describe("agent channels", () => {
     expect(postedBodies[0]).not.toContain("[result](![")
   })
 
+  it("normalizes hand-written GitHub PR status string payloads", async () => {
+    const { github } = await import("../src/channels.ts")
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs1" }).toString()
+    const statusBodies: Array<Record<string, unknown>> = []
+    const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const href = String(url)
+      if (href.endsWith("/app/installations/789/access_tokens")) {
+        return Response.json({ expires_at: new Date(Date.now() + 600_000).toISOString(), token: "installation-token" })
+      }
+      if (href.endsWith("/pulls/42")) return Response.json({ base: { sha: "base-sha" }, head: { sha: "head-sha" } })
+      if (href.endsWith("/statuses/head-sha")) {
+        statusBodies.push(JSON.parse(String(init?.body)))
+        return Response.json({ ok: true }, { status: 201 })
+      }
+      throw new Error(`Unexpected GitHub API call: ${href}`)
+    })
+    const channel = github({
+      app: {
+        apiBaseUrl: "https://api.github.test",
+        appId: "4",
+        fetch: fetcher as typeof fetch,
+        installationId: 789,
+        privateKey: privateKeyPem,
+        statusContext: "ViteHub Test",
+      },
+    })
+    const statusEffect = channel.effects?.status
+    if (typeof statusEffect !== "function") throw new Error("Missing GitHub status effect.")
+
+    await statusEffect({
+      channel,
+      effect: {
+        kind: "status",
+        payload: "success",
+      },
+      input: {
+        context: {
+          github: {
+            action: "created",
+            actor: { login: "onmax" },
+            args: "",
+            body: "/review",
+            command: "/review",
+            commentId: 99,
+            installationId: 789,
+            issueNumber: 42,
+            owner: "vite-hub",
+            pullRequestUrl: "https://api.github.test/repos/vite-hub/vitehub/pulls/42",
+            repo: "vitehub",
+            repository: "vite-hub/vitehub",
+          },
+        },
+        prompt: "/review",
+      },
+      memo: vi.fn(),
+      runtime: "unknown",
+      waitUntil: vi.fn(),
+    } as never)
+
+    expect(statusBodies).toEqual([{
+      context: "ViteHub Test",
+      state: "success",
+    }])
+  })
+
   it("ignores GitHub PR delivery effects without pull request context", async () => {
     const { github } = await import("../src/channels.ts")
     const channel = github({

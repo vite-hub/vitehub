@@ -1336,7 +1336,11 @@ function statusPayload<TRuntimeConfig extends AgentRuntimeConfig>(
   context: AgentChannelDeliveryEffectContext<TRuntimeConfig>,
   defaultContext: string,
 ): GitHubPullRequestStatusPayload {
-  const payload = isRecord(context.effect.payload) ? context.effect.payload : {}
+  const payload = isRecord(context.effect.payload)
+    ? context.effect.payload
+    : typeof context.effect.payload === "string"
+      ? { state: context.effect.payload }
+      : {}
   return {
     context: payload.context || context.effect.metadata?.context || defaultContext,
     description: payload.description || context.effect.metadata?.description,
